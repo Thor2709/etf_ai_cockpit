@@ -23,7 +23,11 @@ Every factory accepts a stable `key`; the returned control has a tooltip that na
 
 ## App shell
 
-The shell uses a left dock with nine workspaces, a page title and subtitle, the command palette, active-workspace route segments, and a compact global as-of bar. The footer safety rail stays visible on every route and displays data quality, available as-of time and forecast source, the adjusted price basis, and the locked execution state. Missing values display `Unavailable` with a tooltip explaining which state value is absent. The as-of date is read from the snapshot's data-quality report.
+The shell uses an 84 px left dock in this order: Home, Research, Compare, Map, Universe, Portfolio, Lab, Changes, and Help. Help is pinned at the bottom after a spacer. Each dock item has a stable `nav.workspace.<name>` key and the accessible label `Workspace: <name>`; only the active item shows its text label. Its selected icon pad uses the quail-green treatment and the 50 px icon sits inside a 54 px pad.
+
+The top bar has a one-line page subtitle, the command palette, route segments for the active workspace, a What changed button, and compact global as-of pills for date, price basis, horizon, currency, risk profile, and analysis depth. The date is read from the snapshot's data-quality report and the price basis is `adjusted`. Any value absent from app state displays `Unavailable` with a tooltip explaining the missing state value. The segmented navigation continues to call the existing navigation function.
+
+The 48 px footer safety rail stays visible on every route and displays data quality, as-of time, price basis, forecast source, and the locked execution state, including `execution_allowed=false`. Missing state values display `Unavailable` with a reason. At widths below 1100 px, dock labels are hidden and the top bar rows wrap. Page bodies keep their existing controls inside the glass content area until their page update work is scheduled.
 
 The nine procedural dock icons are package assets under `etf_cockpit.app/assets/icons`; the shell loads them through `importlib.resources` and renders embedded base64 data so the same controls work in web and desktop views. The backdrop uses the kit's optional local `<DATA_DIR>/ui/backdrop.jpg`; without that user-provided image it falls back to the existing deterministic navy-to-teal gradient. No reference photo or font asset is bundled.
 

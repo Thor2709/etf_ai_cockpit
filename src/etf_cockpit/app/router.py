@@ -439,7 +439,13 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
     title_column = ft.Column(
         [
             ft.Text(title, color=theme.TEXT, size=theme.FONT_LG if narrow else theme.FONT_XL, weight=ft.FontWeight.BOLD),
-            ft.Text(theme.APP_TAGLINE, color=theme.MUTED, size=theme.FONT_XS),
+            ft.Text(
+                theme.APP_TAGLINE,
+                color=theme.MUTED,
+                size=theme.FONT_XS,
+                max_lines=1,
+                overflow=ft.TextOverflow.ELLIPSIS,
+            ),
         ],
         spacing=theme.SPACE_1,
     )
@@ -571,21 +577,14 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
             src=f"data:image/png;base64,{icon_data}",
             width=50,
             height=50,
+            scale=1.06 if selected else 1.0,
             fit=ft.BoxFit.CONTAIN,
             semantics_label=f"{workspace} workspace icon",
         )
-        return ft.Container(
-            key=f"nav.workspace.{workspace}",
-            data="active" if selected else "inactive",
-            tooltip=f"Workspace: {workspace}",
-            content=ft.Column(
-                [icon, label],
-                spacing=0,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                tight=True,
-            ),
-            width=68,
-            height=72 if selected and not narrow else 60,
+        icon_pad = ft.Container(
+            content=icon,
+            width=54,
+            height=54,
             alignment=ft.Alignment(0, 0),
             gradient=(
                 ft.LinearGradient(
@@ -598,14 +597,28 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
             ),
             border=ft.Border(
                 left=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-                top=ft.BorderSide(width=1, color=theme.QUAIL_SELECTED_HIGHLIGHT if selected else theme.HAIRLINE_BORDER),
-                right=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-                bottom=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
+                top=ft.BorderSide(width=1, color=theme.QUAIL_SELECTED_HIGHLIGHT if selected else "transparent"),
+                right=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER if selected else "transparent"),
+                bottom=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER if selected else "transparent"),
             ),
             border_radius=theme.RADIUS_MD,
             shadow=[ft.BoxShadow(color=theme.QUAIL_SELECTED_SHADOW, blur_radius=0, offset=ft.Offset(0, 3))]
             if selected
             else None,
+        )
+        return ft.Container(
+            key=f"nav.workspace.{workspace}",
+            data="active" if selected else "inactive",
+            tooltip=f"Workspace: {workspace}",
+            content=ft.Column(
+                [icon_pad, label],
+                spacing=0,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                tight=True,
+            ),
+            width=68,
+            height=72 if selected and not narrow else 60,
+            alignment=ft.Alignment(0, 0),
             on_click=lambda _event, name=workspace: navigate_to(page, state, dict(WORKSPACE_GROUPS)[name][0]),
         )
 
