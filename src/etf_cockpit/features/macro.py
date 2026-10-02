@@ -82,17 +82,15 @@ def build_macro_context(
             if not pd.isna(parsed_decision_time):
                 decision_time = parsed_decision_time
     freshness_as_of = as_of_date or (decision_time.date() if decision_time is not None else None)
-    price_cutoffs = []
+    evaluation_cutoff = None
     if as_of_date is not None:
-        price_cutoffs.append(pd.Timestamp(as_of_date, tz="UTC") + pd.Timedelta(days=1))
+        evaluation_cutoff = pd.Timestamp(as_of_date, tz="UTC") + pd.Timedelta(days=1)
+        frame = frame[frame["date"] < evaluation_cutoff]
     if decision_time is not None:
-        price_cutoffs.append(decision_time)
-    price_cutoff = min(price_cutoffs) if price_cutoffs else None
+        frame = frame[frame["date"] < decision_time]
     observation_cutoff = decision_time
-    if observation_cutoff is None and as_of_date is not None:
-        observation_cutoff = pd.Timestamp(as_of_date, tz="UTC") + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
-    if price_cutoff is not None:
-        frame = frame[frame["date"] < price_cutoff]
+    if evaluation_cutoff is not None:
+        observation_cutoff = evaluation_cutoff if observation_cutoff is None else min(observation_cutoff, evaluation_cutoff)
     frame = frame[(frame["etf_id"] != "") & (frame["adjusted_close"] > 0)]
     if frame.empty:
         return _unavailable("The local price snapshot has no usable adjusted-close rows.")
@@ -348,7 +346,7 @@ def _macro_observation_summary(observations: Iterable[object], *, decision_time:
         else:
             raw = {name: getattr(observation, name, None) for name in ("series_id", "value", "unit", "source_id", "available_at", "observed_at")}
         available_at = pd.to_datetime(raw.get("available_at"), errors="coerce", utc=True)
-        if pd.isna(available_at) or available_at > decision_time:
+        if pd.isna(available_at) or available_at >= decision_time:
             continue
         if str(raw.get("timezone_confidence") or "unknown").lower() not in {"exact", "assumed"}:
             continue

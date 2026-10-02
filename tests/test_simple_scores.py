@@ -771,7 +771,8 @@ def test_scoreboard_binds_classification_token_and_reader_invalidates_stale_scor
 
     projected = load_simple_scoreboard(path, root=tmp_path)
     raw_after = pd.read_parquet(path)
-    assert pd.isna(raw_after.iloc[0]["canonical_attractiveness_10"])
+    assert pd.notna(raw_after.iloc[0]["canonical_attractiveness_10"])
+    assert raw_after.iloc[0]["canonical_attractiveness_10"] == raw_before.iloc[0]["canonical_attractiveness_10"]
     assert pd.isna(projected.iloc[0]["canonical_attractiveness_10"])
     assert projected.iloc[0]["classification_dependency_status"] == "classification_override_invalidated"
     assert projected.iloc[0]["analysis_status"] == "unavailable"

@@ -426,7 +426,7 @@ def _candidate_pct_above_sma200(
             or provenance is None
         ):
             continue
-        if observation > decision or (known_at is not None and known_at > decision):
+        if observation >= decision or (known_at is not None and known_at >= decision):
             continue
         values.append(signal)
     if not values:

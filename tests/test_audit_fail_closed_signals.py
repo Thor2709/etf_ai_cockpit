@@ -329,6 +329,7 @@ def test_macro_decision_time_excludes_same_day_prices_after_explicit_as_of_date(
         [
             {"date": "2024-01-09T18:00:00Z", "etf_id": "EQUITY", "adjusted_close": 100.0},
             {"date": "2024-01-10T10:00:00Z", "etf_id": "EQUITY", "adjusted_close": 110.0},
+            {"date": "2024-01-10T12:00:00Z", "etf_id": "EQUITY", "adjusted_close": 999.0},
             {"date": "2024-01-10T18:00:00Z", "etf_id": "EQUITY", "adjusted_close": 500.0},
         ]
     )
@@ -344,6 +345,55 @@ def test_macro_decision_time_excludes_same_day_prices_after_explicit_as_of_date(
     equity = next(row for row in result["proxy_rows"] if row["proxy"] == "equity")
     assert result["as_of"] == "2024-01-10"
     assert equity["period_return_20d"] == pytest.approx(0.1)
+
+
+def test_macro_observations_available_at_decision_time_are_excluded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(macro, "validate_benchmark_reference", lambda *_args, **_kwargs: "BENCH")
+    decision_time = "2024-01-10T12:00:00Z"
+    reference = {"status": "unavailable", "analysis": {"decision_time": decision_time}}
+    observations = [
+        {
+            "series_id": "cpi_inflation",
+            "value": 3.0,
+            "unit": "%",
+            "source_id": "local",
+            "observed_at": "2024-01-09T00:00:00Z",
+            "available_at": "2024-01-09T23:59:00Z",
+            "timezone_confidence": "exact",
+            "availability_confidence": "exact",
+        },
+        {
+            "series_id": "cpi_inflation",
+            "value": 3.5,
+            "unit": "%",
+            "source_id": "local",
+            "observed_at": "2024-01-09T00:00:00Z",
+            "available_at": "2024-01-10T11:00:00Z",
+            "timezone_confidence": "exact",
+            "availability_confidence": "exact",
+        },
+        {
+            "series_id": "cpi_inflation",
+            "value": 4.0,
+            "unit": "%",
+            "source_id": "local",
+            "observed_at": "2024-01-09T00:00:00Z",
+            "available_at": decision_time,
+            "timezone_confidence": "exact",
+            "availability_confidence": "exact",
+        },
+    ]
+
+    result = macro.build_macro_context(
+        _macro_prices(),
+        observations=observations,
+        benchmark_data_id="BENCH",
+        benchmark_reference=reference,
+        as_of_date=date(2024, 1, 9),
+    )
+
+    assert result["inflation_rates"]["status"] == "available"
+    assert [row["available_at"] for row in result["inflation_rates"]["rows"]] == ["2024-01-09T23:59:00Z"]
 
 
 def test_macro_missing_evaluation_date_reports_freshness_unavailable() -> None:
@@ -382,6 +432,43 @@ def test_regime_is_unavailable_when_benchmark_return_horizons_are_missing(monkey
 
     assert result["regime_score_10"] is None
     assert "Benchmark return evidence is unavailable" in result["summary"]
+
+
+@pytest.mark.parametrize("cutoff_field", ["effective_at", "known_at"])
+def test_regime_excludes_candidate_evidence_at_decision_time(
+    monkeypatch: pytest.MonkeyPatch,
+    cutoff_field: str,
+) -> None:
+    monkeypatch.setattr(regime, "validate_benchmark_reference", lambda *_args, **_kwargs: "BENCH")
+    monkeypatch.setattr(regime, "_clip_to_reference_window", lambda frame, _reference: frame)
+    decision_time = "2024-01-10T12:00:00Z"
+    reference = {
+        "status": "unavailable",
+        "execution_allowed": False,
+        "analysis": {"decision_time": decision_time},
+    }
+    dates = pd.bdate_range(end="2024-01-09", periods=220)
+    prices = pd.DataFrame(
+        [
+            {"date": current, "etf_id": "BENCH", "adjusted_close": 100.0 + index}
+            for index, current in enumerate(dates)
+        ]
+    )
+    candidate = {"sma200_signal": True, "provenance": "local candidate evidence"}
+    if cutoff_field == "effective_at":
+        candidate[cutoff_field] = decision_time
+    else:
+        candidate.update({"effective_at": "2024-01-09T00:00:00Z", cutoff_field: decision_time})
+
+    result = regime.build_market_regime(
+        prices,
+        pd.DataFrame([candidate]),
+        benchmark_id="BENCH",
+        benchmark_reference=reference,
+    )
+
+    assert result["regime_score_10"] is not None
+    assert result["candidate_pct_above_sma200"] is None
 
 
 def test_total_return_chart_seeds_only_the_first_undefined_fx_return(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
