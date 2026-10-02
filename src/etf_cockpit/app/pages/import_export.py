@@ -522,7 +522,11 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         if category == "watchlist":
             scoreboard_path = DERIVED_DIR / "scoreboard.parquet"
             if scoreboard_path.exists():
-                frame = load_simple_scoreboard(scoreboard_path)
+                try:
+                    frame = load_simple_scoreboard(scoreboard_path)
+                except (OSError, ValueError):
+                    # Corrupt scoreboard: the export reports the table unavailable instead of an empty file.
+                    return None
                 if "final_label" in frame.columns:
                     return frame.loc[frame["final_label"].astype(str).isin({"watchlist", "mixed_evidence_review", "hold_context"})].copy()
                 return frame.iloc[0:0].copy()

@@ -722,3 +722,47 @@ def test_total_return_chart_rejects_a_later_fx_return_gap(monkeypatch: pytest.Mo
 
     assert result["status"] == "unavailable"
     assert result["reason_code"] == "required_total_return_input_missing"
+
+
+def test_dependent_callers_report_corrupt_scoreboard_as_unavailable(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import etf_cockpit.app.selectors.instrument_detail as selector
+
+    corrupt = tmp_path / "scoreboard.parquet"
+    corrupt.write_bytes(b"not parquet")
+    monkeypatch.setattr(selector, "SCOREBOARD_PATH", corrupt)
+
+    friction = selector._friction_panel("VWCE", candidate_score=None)
+    assert friction["status"] == "unavailable"
+    assert friction["reason_code"] == "scoreboard_store_unreadable"
+    assert "unavailable" in friction["friction_reason"]
+    assert friction["execution_allowed"] is False
+    assert selector._scoreboard_row("VWCE") == {}
+    # The loader itself must keep raising: no empty-frame conversion.
+    with pytest.raises(ValueError):
+        simple_scores.load_simple_scoreboard(corrupt)
+
+
+def test_market_series_excludes_bar_dated_at_decision_cutoff_and_keeps_earlier_bar(tmp_path) -> None:
+    prices = pd.DataFrame(
+        {
+            "etf_id": ["ETF-1", "ETF-1"],
+            "date": ["2024-01-10", "2024-01-11"],
+            "close": [100.0, 101.0],
+            "adjusted_close": [100.0, 101.0],
+        }
+    )
+    at_cutoff = ui_facade.load_market_series_projection(
+        prices, "ETF-1", basis="raw", local_currency="EUR", storage_root=tmp_path, decision_time="2024-01-11T00:00:00Z"
+    )
+    after = ui_facade.load_market_series_projection(
+        prices, "ETF-1", basis="raw", local_currency="EUR", storage_root=tmp_path, decision_time="2024-01-12T00:00:00Z"
+    )
+    assert at_cutoff["frame"]["series_value"].tolist() == [100.0]
+    assert after["frame"]["series_value"].tolist() == [100.0, 101.0]
+
+
+def test_cash_comparison_requires_matching_instrument_currency() -> None:
+    injected = {"status": "available", "instrument_id": "X", "currency": "EUR", "execution_allowed": False}
+    info = simple_scores._cash_comparison_info({"X": injected}, "X", expected_currency="NOK")
+    assert info["cash_comparison_status"] == "unavailable"
+    assert info["cash_return"] is None

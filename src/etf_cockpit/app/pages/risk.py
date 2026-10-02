@@ -717,7 +717,13 @@ def _crowding_attribution_panel() -> ft.Control:
 def _friction_edge_panel() -> ft.Control:
     """Show persisted gross/net edge and cost scenarios as risk evidence."""
 
-    scoreboard = load_simple_scoreboard(SCOREBOARD_PATH)
+    scoreboard_error: str | None = None
+    try:
+        scoreboard = load_simple_scoreboard(SCOREBOARD_PATH)
+    except (OSError, ValueError) as exc:
+        # Corrupt optional store: render the explicit unavailable panel with the reason.
+        scoreboard = pd.DataFrame()
+        scoreboard_error = type(exc).__name__
     required = {"gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio", "cost_stress_scenario"}
     id_column = next((column for column in ("display_id", "instrument_id", "etf_id") if column in scoreboard.columns), None)
     if scoreboard.empty or id_column is None or not required.issubset(scoreboard.columns):
@@ -725,7 +731,13 @@ def _friction_edge_panel() -> ft.Control:
             ft.Column(
                 [
                     section_header("Expected edge and trading costs", "Gross/net edge, estimated cost, ratio and stress scenario are descriptive evidence only."),
-                    ft.Text("Expected edge and cost evidence unavailable; no scenario conclusion is inferred.", color=theme.MUTED, selectable=True),
+                    ft.Text(
+                        "Expected edge and cost evidence unavailable; no scenario conclusion is inferred."
+                        if scoreboard_error is None
+                        else f"Expected edge and cost evidence unavailable: scoreboard store unreadable ({scoreboard_error}); no scenario conclusion is inferred.",
+                        color=theme.MUTED,
+                        selectable=True,
+                    ),
                 ]
             )
         )
