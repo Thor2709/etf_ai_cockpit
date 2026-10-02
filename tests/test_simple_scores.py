@@ -16,6 +16,7 @@ from etf_cockpit.core.config import load_config
 from etf_cockpit.core.paths import RAW_DIR
 from etf_cockpit.features.cash_comparison import build_cash_comparison
 from etf_cockpit.data.classification import ClassificationOverride, ClassificationStore
+from etf_cockpit.data.macro_warehouse import RiskFreeProxyMapping
 from etf_cockpit.services import DataService, build_snapshot
 from etf_cockpit.signals import simple_scores as simple_scores_module
 from etf_cockpit.signals.friction_edge import estimate_friction_edge
@@ -693,20 +694,26 @@ def test_direct_score_clears_contradictory_cash_identity_before_scoreboard(tmp_p
 def test_local_cash_path_fails_closed_on_malformed_adjusted_prices(
     monkeypatch, bad_row: dict[str, object]
 ) -> None:
-    snapshot = build_snapshot()
-    instrument_id = snapshot.config.universe.enabled_ids[0]
+    config = load_config()
+    instrument_id = config.universe.enabled_ids[0]
     rows = [
         {"etf_id": instrument_id, "date": "2026-01-01", "adjusted_close": 100.0},
         {"etf_id": instrument_id, "date": "2026-01-02", "adjusted_close": 101.0},
     ]
     rows[1].update(bad_row)
-    monkeypatch.setattr(
-        simple_scores_module,
-        "load_risk_free_proxy_mappings",
-        lambda: (object(),),
+    risk_free_mappings = (
+        RiskFreeProxyMapping(
+            currency="AUD",
+            minimum_horizon_years=1.0,
+            maximum_horizon_years=1.0,
+            curve_id="primary-curve",
+            fallback_curve_ids=("fallback-curve",),
+            methodology="official mapping",
+        ),
     )
+    monkeypatch.setattr(simple_scores_module, "load_risk_free_proxy_mappings", lambda: risk_free_mappings)
     lookup = simple_scores_module._build_local_cash_comparison_lookup(
-        snapshot.config, pd.DataFrame(rows), as_of="2026-01-04T00:00:00+00:00"
+        config, pd.DataFrame(rows), as_of="2026-01-04T00:00:00+00:00"
     )
     assert lookup[instrument_id]["status"] == "unavailable"
     assert lookup[instrument_id]["execution_allowed"] is False

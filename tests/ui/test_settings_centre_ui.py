@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import importlib
 import json
+from datetime import date
 
 import flet as ft
+import pandas as pd
 
 from etf_cockpit.app.pages.onboarding import onboarding_page
 from etf_cockpit.app.pages.settings import settings_page
 from etf_cockpit.app.state import AppState
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.core.types import DataQualityReport
+from etf_cockpit.services import CockpitSnapshot, _empty_backtest_report, build_snapshot, load_config
 
 
 def _walk(control):
@@ -21,6 +24,24 @@ def _walk(control):
     content = getattr(control, "content", None)
     if content is not None:
         yield from _walk(content)
+
+
+def _metadata_snapshot() -> CockpitSnapshot:
+    config = load_config()
+    empty = pd.DataFrame()
+    return CockpitSnapshot(
+        config=config,
+        prices=empty,
+        holdings=empty,
+        features=empty,
+        latest_features=empty,
+        data_report=DataQualityReport(as_of_date=date.today(), issues=[]),
+        signals=[],
+        forecasts=empty,
+        backtest=_empty_backtest_report("Settings release metadata does not use backtest results."),
+        model_status={},
+        model_inventory=[],
+    )
 
 
 def test_settings_centre_exposes_staged_controls_without_plaintext_credentials() -> None:
@@ -106,7 +127,7 @@ def test_settings_centre_surfaces_unsupported_legacy_migration(tmp_path, monkeyp
 
 
 def test_settings_release_metadata_shows_changelog_excerpt_and_unavailable_rebuild() -> None:
-    snapshot = build_snapshot(force_sample=True)
+    snapshot = _metadata_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     controls = list(_walk(settings_page(None, state)))
     text = "\n".join(str(getattr(control, "value", "") or getattr(control, "text", "")) for control in controls)

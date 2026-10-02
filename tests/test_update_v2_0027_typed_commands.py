@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
+import threading
 import time
 from types import SimpleNamespace
 
 import flet as ft
+import pandas as pd
 import pytest
 
 from etf_cockpit.app import state as state_module
@@ -18,7 +21,8 @@ from etf_cockpit.application.contracts import (
     DashboardActionCommand,
     SubmitWorkflowCommand,
 )
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.core.types import DataQualityReport
+from etf_cockpit.services import CockpitSnapshot, _empty_backtest_report, build_snapshot, load_config
 
 
 @lru_cache(maxsize=1)
@@ -60,19 +64,41 @@ def _controls_by_key(view: ft.Control) -> dict[str, list[ft.Control]]:
     return controls
 
 
-def _new_state(monkeypatch, tmp_path: Path) -> AppState:
+def _new_state(monkeypatch, tmp_path: Path, snapshot=None) -> AppState:
     monkeypatch.setattr(state_module, "ROOT", tmp_path)
     monkeypatch.setattr(state_module, "ACTIVITY_LOG_PATH", tmp_path / "activity.jsonl")
-    snapshot = _snapshot()
+    snapshot = snapshot or _snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     state.error_store.path = tmp_path / "errors.jsonl"
     return state
 
 
-def _wait_for_activity(state: AppState) -> None:
-    deadline = time.monotonic() + 10
-    while state.current_activity is not None and time.monotonic() < deadline:
-        time.sleep(0.01)
+@pytest.fixture(scope="module")
+def _action_snapshot() -> CockpitSnapshot:
+    config = load_config()
+    empty = pd.DataFrame()
+    return CockpitSnapshot(
+        config=config,
+        prices=empty,
+        holdings=empty,
+        features=empty,
+        latest_features=empty,
+        data_report=DataQualityReport(as_of_date=date.today(), issues=[]),
+        signals=[],
+        forecasts=empty,
+        backtest=_empty_backtest_report("Dashboard action tests do not run a backtest."),
+        model_status={},
+        model_inventory=[],
+    )
+
+
+def _wait_for_activity(state: AppState, completed: threading.Event | None = None) -> None:
+    if completed is None:
+        deadline = time.monotonic() + 10
+        while state.current_activity is not None and time.monotonic() < deadline:
+            time.sleep(0.01)
+    else:
+        assert completed.wait(timeout=10)
     assert state.current_activity is None
 
 
@@ -130,8 +156,9 @@ def test_dashboard_actions_execute_typed_commands_and_finish_with_handler_messag
     location,
     dataset_type,
     file_mode,
+    _action_snapshot,
 ) -> None:
-    state = _new_state(monkeypatch, tmp_path)
+    state = _new_state(monkeypatch, tmp_path, _action_snapshot)
     page = _Page()
     method_calls: list[tuple[object, ...]] = []
     commands: list[DashboardActionCommand] = []
@@ -145,17 +172,27 @@ def test_dashboard_actions_execute_typed_commands_and_finish_with_handler_messag
 
     monkeypatch.setattr(state, action, method)
     execute = state.application_api.execute
+    completed = threading.Event()
+    started = threading.Event()
+    update = page.update
 
     def capture(command):
         assert isinstance(command, DashboardActionCommand)
         commands.append(command)
+        started.set()
         result = execute(command)
         results.append(result)
         return result
 
+    def signal_final_render() -> None:
+        update()
+        if started.is_set() and state.current_activity is None:
+            completed.set()
+
     monkeypatch.setattr(state.application_api, "execute", capture)
+    page.update = signal_final_render
     _click_action(page, state, control_key, location, monkeypatch, tmp_path, file_mode)
-    _wait_for_activity(state)
+    _wait_for_activity(state, completed)
 
     assert len(commands) == 1
     assert commands[0].action == action
