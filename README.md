@@ -7,6 +7,8 @@ programme also covers stocks, ordinary funds, supported fixed income,
 selected-currency bulk analysis and separate portfolio capabilities. Programme
 scope is not a claim that every capability is certified today.
 
+See the [contribution guide](CONTRIBUTING.md) and [reference documentation](docs/reference/README.md).
+
 The app is a decision-support cockpit, not a financial adviser and not an execution bot. Models forecast, deterministic rules decide, risk gates block, backtests validate, and external audit imports are commentary only.
 
 Open `ETF_AI_Cockpit.bat` from the project root. It starts the Python launcher in the local `.venv` first, so the installed TimesFM/Toto runtime packages and external model folders are available. If that path fails and a packaged executable exists, it falls back to `build\flet_dist\ETF_AI_Cockpit\ETF_AI_Cockpit.exe`. The app runs locally at `http://127.0.0.1:8550` and opens in your browser because the Flet desktop renderer can show a blank shell on some Windows systems.
