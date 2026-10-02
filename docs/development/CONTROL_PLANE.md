@@ -178,6 +178,12 @@ separate. Linux/Windows serial packaged gates, report-only pilot rules, prefligh
 supply-chain and terminal-summary requirements are unchanged. Do not accept an
 old run after a source, test, dependency, policy, environment or artifact change.
 
+The two-phase release-gate pytest run uses four-worker `worksteal` scheduling for
+the `not serial` phase and keeps the serial-marked phase sequential. The same-commit
+WSL Linux shard 2/3 measurement (`-m "not serial" -n 4`) took 270 seconds with
+`worksteal` versus 410 seconds with `loadfile`; the same 2,487 tests ran with
+identical results.
+
 Product integration and lifecycle completion are distinct. When the ancestry
 guard requires the product on main, complete product gates first, merge that
 exact head, then prepare the single legal existing lifecycle transaction. Never
