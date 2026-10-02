@@ -158,6 +158,63 @@ def test_shards_partition_every_scope_exactly_once_and_balance_recorded_time() -
         assert max(loads) - min(loads) <= max(weights.values())  # LPT bound: within one file of balance
 
 
+def _use_durations(monkeypatch, tmp_path: Path, payload: dict, workers: str | None) -> None:
+    path = tmp_path / "file_durations.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(conftest, "_DURATIONS_PATH", path)
+    if workers is None:
+        monkeypatch.delenv(conftest._XDIST_MAX_ENV, raising=False)
+    else:
+        monkeypatch.setenv(conftest._XDIST_MAX_ENV, workers)
+
+
+_SERIAL_HEAVY = {
+    "unit": "seconds",
+    "files": {
+        "tests/test_serial_heavy.py": 60.0,
+        "tests/test_p1.py": 40.0,
+        "tests/test_p2.py": 40.0,
+        "tests/test_p3.py": 40.0,
+        "tests/test_p4.py": 40.0,
+    },
+    "serial_files": {"tests/test_serial_heavy.py": 60.0},
+}
+
+
+def test_serial_aware_shards_still_partition_every_scope_for_every_shard_count(monkeypatch, tmp_path) -> None:
+    _use_durations(monkeypatch, tmp_path, _SERIAL_HEAVY, "4")
+    scopes = set(_SERIAL_HEAVY["files"]) | {"tests/test_brand_new_file.py"}
+    for total in (1, 2, 3, 4):
+        assignment = conftest._shard_assignment(total)
+        assert assignment == conftest._shard_assignment(total)  # deterministic
+        owners = {scope: conftest._shard_of(scope, total, assignment) for scope in scopes}
+        assert all(1 <= shard <= total for shard in owners.values())
+        assert set(assignment) == set(_SERIAL_HEAVY["files"])  # unknown files fall to the stable hash
+
+
+def test_serial_seconds_weigh_as_many_times_heavier_as_there_are_workers(monkeypatch, tmp_path) -> None:
+    _use_durations(monkeypatch, tmp_path, _SERIAL_HEAVY, "4")
+    aware = conftest._shard_assignment(2)
+    # Weights 60 (serial) vs 4 x 10 (parallel / 4): the serial file fills a shard on its own.
+    assert aware["tests/test_serial_heavy.py"] == 1
+    assert {aware[f"tests/test_p{index}.py"] for index in (1, 2, 3, 4)} == {2}
+    _use_durations(monkeypatch, tmp_path, _SERIAL_HEAVY, "8")  # more workers: parallel files get lighter still
+    assert conftest._shard_assignment(2) == aware
+
+
+def test_missing_serial_key_or_worker_count_keeps_the_plain_duration_balancing(monkeypatch, tmp_path) -> None:
+    plain = {"unit": "seconds", "files": _SERIAL_HEAVY["files"]}
+    _use_durations(monkeypatch, tmp_path, plain, "4")
+    without_key = conftest._shard_assignment(2)
+    assert without_key != {"tests/test_serial_heavy.py": 1, **{f"tests/test_p{i}.py": 2 for i in (1, 2, 3, 4)}}
+    _use_durations(monkeypatch, tmp_path, _SERIAL_HEAVY, None)  # no worker source: 1 worker, equal weights
+    assert conftest._shard_assignment(2) == without_key
+    _use_durations(monkeypatch, tmp_path, _SERIAL_HEAVY, "not-a-number")
+    assert conftest._shard_assignment(2) == without_key
+    _use_durations(monkeypatch, tmp_path, {"unit": "seconds"}, "4")  # no durations at all
+    assert conftest._shard_assignment(3) == {}
+
+
 @pytest.mark.parametrize("value", ["0/3", "4/3", "x/3", "1"])
 def test_invalid_shard_values_are_rejected(value: str) -> None:
     with pytest.raises(pytest.UsageError):

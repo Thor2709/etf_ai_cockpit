@@ -403,6 +403,30 @@ def _file_weights() -> dict[str, float]:
         return {}
 
 
+def _serial_weights() -> dict[str, float]:
+    """Seconds per file spent in the serial phase (``serial_files``); absent or malformed means none."""
+
+    try:
+        payload = json.loads(_DURATIONS_PATH.read_text(encoding="utf-8"))
+        return {str(key): float(value) for key, value in payload.get("serial_files", {}).items()}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {}
+
+
+# CI runs the "not serial" phase under xdist with scripts/release_gate.py --xdist-workers auto, i.e.
+# min(usable CPUs, ETF_COCKPIT_XDIST_MAX); the workflow sets ETF_COCKPIT_XDIST_MAX=4 for every shard.
+# Shard balancing reads the same variable (not the CPU count, so the assignment stays machine
+# independent) and falls back to 1 worker, which weighs serial and parallel seconds equally.
+_XDIST_MAX_ENV = "ETF_COCKPIT_XDIST_MAX"
+
+
+def _parallel_workers() -> int:
+    try:
+        return max(1, int(os.environ.get(_XDIST_MAX_ENV, "1")))
+    except ValueError:
+        return 1
+
+
 # --- CI sharding ------------------------------------------------------------------------------
 # ETF_COCKPIT_TEST_SHARD="k/N" keeps only the scheduling scopes (files, or shared-resource groups) of
 # shard k.  The assignment is a pure function of the scope and N, independent of which tests a run
@@ -427,12 +451,19 @@ def _parse_shard(value: str) -> tuple[int, int] | None:
 
 
 def _shard_assignment(total: int) -> dict[str, int]:
-    """LPT over the recorded file durations: balanced, deterministic, 1-based shard per scope."""
+    """LPT over the recorded file durations: balanced, deterministic, 1-based shard per scope.
 
+    A shard's wall time is parallel seconds / W (xdist workers) plus serial seconds, because the
+    serial phase runs one test at a time.  Durations without ``serial_files`` weigh as before.
+    """
+
+    workers = _parallel_workers()
+    serial = _serial_weights()
     weights: dict[str, float] = {}
     for path, seconds in _file_weights().items():
+        serial_seconds = min(max(serial.get(path, 0.0), 0.0), seconds)
         scope = _scheduling_scope(f"{path}::x")
-        weights[scope] = weights.get(scope, 0.0) + seconds
+        weights[scope] = weights.get(scope, 0.0) + (seconds - serial_seconds) / workers + serial_seconds
     loads = [0.0] * total
     assignment: dict[str, int] = {}
     for scope, seconds in sorted(weights.items(), key=lambda item: (-item[1], item[0])):
