@@ -27,7 +27,7 @@ from test_fund_peer_cohorts import DECISION, EFFECTIVE, _fund
 def test_share_classes_use_one_slot_and_the_earliest_inception_by_default() -> None:
     classes = tuple(
         _make_fund(
-            f"FUND-{name}",
+            "MANDATE-1",
             f"CLASS-{name}",
             strategy_id="MANDATE-1",
             launch_date=launch,
@@ -99,6 +99,27 @@ def test_total_sector_country_and_intersection_views_have_deterministic_orders()
     assert countryless.status == "ranked"
     assert "country_view_classification_missing" in countryless.reason_codes
     assert "FUND-E" not in _strategy_order(snapshot, "country", "US")
+
+
+def test_rejects_share_class_owned_by_a_different_fund_record() -> None:
+    fund_a = _make_fund("FUND-A", "CLASS-SHARED")
+    fund_b = _make_fund("FUND-B", "CLASS-SHARED")
+    fund_b_input = _screen_inputs((fund_b,))[0]
+    contradictory_fund = replace(fund_a, analysis_record=fund_b.analysis_record)
+    distribution = replace(fund_b_input.distribution, economic_strategy_id="FUND-A")
+    contradictory_input = replace(
+        fund_b_input,
+        peer_fund=contradictory_fund,
+        distribution=distribution,
+        recommendation_projection=_projection(fund_b.analysis_record, distribution),
+    )
+
+    with pytest.raises(FundScreenerError, match="share class does not belong"):
+        build_fund_screener(
+            (contradictory_input,),
+            decision_time=_decision(),
+            config=load_fund_analysis_config().screener,
+        )
 
 
 def test_blocked_and_unavailable_funds_are_excluded_and_research_only_is_a_later_tier() -> None:
@@ -285,7 +306,7 @@ def _make_fund(
     fund = _fund(
         fund_id,
         class_id,
-        sub_fund_id=strategy_id,
+        sub_fund_id=strategy_id if strategy_id is not None else fund_id,
         return_value=return_value,
     )
     record = replace(fund.analysis_record, total_fee_bps=total_fee_bps)

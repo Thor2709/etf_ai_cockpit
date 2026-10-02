@@ -423,6 +423,8 @@ def _validate_input(item: FundScreenerInput, decision: datetime) -> None:
     record = fund.analysis_record
     if not isinstance(record, FundAnalysisRecord):
         raise FundScreenerError("fund screener analysis record has the wrong contract")
+    if fund.share_class.sub_fund_id != record.fund_id:
+        raise FundScreenerError("share class does not belong to the selected fund")
     if record.share_class_id != fund.share_class.share_class_id:
         raise FundScreenerError("fund record and share-class identity do not match")
     if _timestamp(record.decision_time, "analysis decision_time") != decision:
