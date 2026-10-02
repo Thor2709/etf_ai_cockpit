@@ -523,6 +523,30 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         wrap=True,
     )
 
+    other_workspace_rows = [
+        ft.Column(
+            [
+                ft.Text(workspace, size=theme.FONT_XS, weight=ft.FontWeight.W_600, color=theme.MUTED),
+                ft.Row(
+                    [nav_button(path, PAGES[path][0]) for path in routes],
+                    spacing=5,
+                    run_spacing=5,
+                    wrap=True,
+                ),
+            ],
+            spacing=3,
+        )
+        for workspace, routes in WORKSPACE_GROUPS
+        if workspace != active_workspace
+    ]
+    all_pages_navigation = ft.ExpansionTile(
+        title=ft.Text("All pages", size=theme.FONT_SM, color=theme.TEXT),
+        key="shell.all-pages-navigation",
+        tooltip="Show every page in the other workspaces",
+        controls=other_workspace_rows,
+        dense=True,
+    )
+
     def _go_to(_event: ft.ControlEvent) -> None:
         navigate_to(page, state, "/what-changed")
 
@@ -544,6 +568,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
             ),
             global_values,
             sub_navigation,
+            all_pages_navigation,
             message_text,
         ],
         spacing=theme.SPACE_2,
