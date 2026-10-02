@@ -10,7 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
-from typing import Mapping
+from typing import TYPE_CHECKING, Mapping
 
 import pandas as pd
 import yaml
@@ -25,6 +25,9 @@ from etf_cockpit.data.fund_identity import (
     FundTerm,
 )
 from etf_cockpit.data.fx_data import build_fx_rate_snapshot, fx_cross_rate
+
+if TYPE_CHECKING:
+    from etf_cockpit.analysis.fund_screener import FundScreenerConfig
 
 
 FUND_ANALYSIS_CONTRACT = "fund-analysis.v1"

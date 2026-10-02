@@ -16,6 +16,7 @@ from etf_cockpit.analysis.fund_forecasts import (
 from etf_cockpit.analysis.fund_peers import build_fund_peer_cohort
 from etf_cockpit.analysis.fund_screener import (
     FundScreenerInput,
+    FundScreenerError,
     build_fund_screener,
 )
 from etf_cockpit.data.contracts import SourceAuthority
@@ -186,6 +187,55 @@ def test_row_values_match_sealed_sources_and_snapshot_hash_is_stable_and_config_
     assert row.record_id == source.peer_fund.analysis_record.record_id
     assert snapshot.analysis_snapshot_id == repeated.analysis_snapshot_id
     assert snapshot.analysis_snapshot_id != changed.analysis_snapshot_id
+
+
+@pytest.mark.parametrize(
+    ("field_name", "incompatible_value"),
+    (("horizon", "3M"), ("selected_currency", "USD")),
+)
+def test_distribution_context_must_match_analysis_decomposition(
+    field_name: str, incompatible_value: str
+) -> None:
+    fund = _make_fund("FUND-CONTEXT", "CLASS-CONTEXT")
+    item = _screen_inputs((fund,))[0]
+    distribution = replace(item.distribution, **{field_name: incompatible_value})
+    incompatible = replace(
+        item,
+        distribution=distribution,
+        recommendation_projection=_projection(fund.analysis_record, distribution),
+    )
+
+    with pytest.raises(FundScreenerError, match="context does not match"):
+        build_fund_screener(
+            (incompatible,),
+            decision_time=_decision(),
+            config=load_fund_analysis_config().screener,
+        )
+
+
+def test_ranked_inputs_must_share_horizon_and_currency_context() -> None:
+    base = _make_fund("FUND-BASE", "CLASS-BASE")
+    mixed = _make_fund("FUND-MIXED", "CLASS-MIXED")
+    mixed_decomposition = replace(
+        mixed.analysis_record.return_decomposition,
+        requested_horizon="3M",
+        selected_currency="EUR",
+    )
+    mixed = replace(
+        mixed,
+        analysis_record=replace(
+            mixed.analysis_record,
+            return_decomposition=mixed_decomposition,
+        ),
+    )
+    inputs = _screen_inputs((base, mixed))
+
+    with pytest.raises(FundScreenerError, match="share one horizon and currency context"):
+        build_fund_screener(
+            inputs,
+            decision_time=_decision(),
+            config=load_fund_analysis_config().screener,
+        )
 
 
 def test_ties_bootstrap_missing_config_and_output_metric_boundaries(tmp_path) -> None:

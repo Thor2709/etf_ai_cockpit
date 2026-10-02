@@ -205,6 +205,7 @@ def build_fund_screener(
     for item in inputs:
         _validate_input(item, decision)
     _validate_unique_inputs(inputs)
+    _validate_ranking_context(inputs)
 
     grouped: dict[str, list[FundScreenerInput]] = defaultdict(list)
     for item in inputs:
@@ -443,6 +444,11 @@ def _validate_input(item: FundScreenerInput, decision: datetime) -> None:
         or _timestamp(distribution.decision_time, "distribution decision_time") != decision
     ):
         raise FundScreenerError("fund return distribution identity does not match the analysis")
+    if (
+        distribution.horizon != decomposition.requested_horizon
+        or distribution.selected_currency != decomposition.selected_currency
+    ):
+        raise FundScreenerError("fund return distribution context does not match the analysis")
     projection = item.recommendation_projection
     if not isinstance(projection, FundRecommendationProjection):
         raise FundScreenerError("fund recommendation projection has the wrong contract")
@@ -465,6 +471,18 @@ def _validate_unique_inputs(inputs: Sequence[FundScreenerInput]) -> None:
     class_ids = [item.peer_fund.share_class.share_class_id for item in inputs]
     if len(identities) != len(set(identities)) or len(class_ids) != len(set(class_ids)):
         raise FundScreenerError("fund screener share-class inputs must be unique")
+
+
+def _validate_ranking_context(inputs: Sequence[FundScreenerInput]) -> None:
+    contexts = {
+        (
+            item.peer_fund.analysis_record.return_decomposition.requested_horizon,
+            item.peer_fund.analysis_record.return_decomposition.selected_currency,
+        )
+        for item in inputs
+    }
+    if len(contexts) > 1:
+        raise FundScreenerError("fund screener inputs must share one horizon and currency context")
 
 
 def _has_distribution_score(distribution: FundReturnDistribution) -> bool:
