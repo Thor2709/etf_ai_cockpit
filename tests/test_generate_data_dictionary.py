@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from scripts.generate_data_dictionary import _parse_tables
+
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATOR = ROOT / "scripts" / "generate_data_dictionary.py"
@@ -134,3 +136,26 @@ def test_unparseable_create_table_fails_loudly(fixture_tree: Path) -> None:
 
     assert result.returncode != 0
     assert "unparseable CREATE TABLE" in result.stderr
+
+
+def test_quoted_table_and_column_identifiers_are_preserved() -> None:
+    tables = _parse_tables(
+        '''SCHEMA = """
+CREATE TABLE "audit.events" (id INTEGER);
+CREATE TABLE main.t ("id" PRIMARY KEY);
+CREATE TABLE `audit.events` (`id` INTEGER);
+CREATE TABLE [audit.events] ([id] INTEGER);
+"""
+''',
+        "etf_cockpit/data/sample.py",
+    )
+
+    assert tables[0].name == "audit.events"
+    assert tables[0].columns[0].name == "id"
+    assert tables[1].name == "t"
+    assert tables[1].columns[0].name == "id"
+    assert tables[1].columns[0].constraints == "PRIMARY KEY"
+    assert tables[2].name == "audit.events"
+    assert tables[2].columns[0].name == "id"
+    assert tables[3].name == "audit.events"
+    assert tables[3].columns[0].name == "id"

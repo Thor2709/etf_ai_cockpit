@@ -244,6 +244,35 @@ def _column(definition: str) -> Column:
     )
 
 
+def _last_identifier_component(name: str) -> str:
+    """Return the final schema-qualified name without splitting quoted dots."""
+    quote: str | None = None
+    start = 0
+    index = 0
+    while index < len(name):
+        character = name[index]
+        if quote is not None:
+            if character == quote:
+                if quote == '"' and index + 1 < len(name) and name[index + 1] == quote:
+                    index += 2
+                    continue
+                quote = None
+        elif character in '"`':
+            quote = character
+        elif character == "[":
+            quote = "]"
+        elif character == ".":
+            start = index + 1
+        index += 1
+    return name[start:].strip()
+
+
+def _is_table_constraint(definition: str) -> bool:
+    """Classify constraints from the first unquoted SQL token."""
+    match = re.match(r"^\s*([A-Za-z_][A-Za-z0-9_$]*)\b", definition)
+    return match is not None and match.group(1).upper() in TABLE_CONSTRAINT_WORDS
+
+
 def _parse_tables(source: str, module: str) -> list[Table]:
     try:
         tree = ast.parse(source, filename=module)
@@ -274,7 +303,7 @@ def _parse_tables(source: str, module: str) -> list[Table]:
                     raise ValueError("invalid CREATE TABLE header")
                 opening = header.end() - 1
                 closing = _matching_close(masked, opening)
-                raw_name = header.group("name").split(".")[-1].strip()
+                raw_name = _last_identifier_component(header.group("name"))
                 name = raw_name
                 if name.startswith('"') and name.endswith('"'):
                     name = name[1:-1].replace('""', '"')
@@ -285,8 +314,7 @@ def _parse_tables(source: str, module: str) -> list[Table]:
                 definitions = _split_definitions(masked[opening + 1 : closing])
                 columns: list[Column] = []
                 for definition in definitions:
-                    first_word = _top_level_words(definition)
-                    if first_word and first_word[0][0] in TABLE_CONSTRAINT_WORDS:
+                    if _is_table_constraint(definition):
                         columns.append(
                             Column("<table constraint>", "", " ".join(definition.split()))
                         )

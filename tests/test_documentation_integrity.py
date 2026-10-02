@@ -9,10 +9,17 @@ import sys
 import tomllib
 from urllib.parse import unquote, urlsplit
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
 MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+REFERENCE_DEFINITION = re.compile(
+    r"(?m)^[ \t]{0,3}\[([^\]]+)\]:[ \t]*(?:<([^>\n]+)>|(\S+))"
+)
+REFERENCE_LINK = re.compile(r"\[([^\]]+)\](?:\[([^\]]*)\])?(?!\()")
+DRIVE_LETTER_PATH = re.compile(r"^[A-Za-z]:")
 SCRIPT_COMMAND = re.compile(r"\bpython\s+scripts/([A-Za-z0-9_./-]+\.py)\b")
 MODULE_COMMAND = re.compile(r"\bpython\s+-m\s+(etf_cockpit(?:\.[A-Za-z_][A-Za-z0-9_]*)+)")
 
@@ -29,22 +36,76 @@ def _link_destination(raw: str) -> str:
     return raw.split()[0]
 
 
+def _reference_label(label: str) -> str:
+    return " ".join(label.split()).casefold()
+
+
+def _markdown_link_destinations(content: str) -> list[str]:
+    definitions: dict[str, str] = {}
+    for match in REFERENCE_DEFINITION.finditer(content):
+        definitions.setdefault(
+            _reference_label(match.group(1)), match.group(2) or match.group(3)
+        )
+
+    destinations = MARKDOWN_LINK.findall(content)
+    destinations.extend(
+        match.group(2) or match.group(3)
+        for match in REFERENCE_DEFINITION.finditer(content)
+    )
+    for match in REFERENCE_LINK.finditer(content):
+        label, reference = match.groups()
+        if reference is None:
+            key = _reference_label(label)
+            if key not in definitions:
+                continue
+        else:
+            key = _reference_label(reference or label)
+            if key not in definitions:
+                continue
+        destinations.append(definitions[key])
+    return destinations
+
+
+def _assert_markdown_links_resolve(document: Path, content: str) -> None:
+    for raw in _markdown_link_destinations(content):
+        target = _link_destination(raw)
+        assert DRIVE_LETTER_PATH.match(target) is None, (document, target)
+        parsed = urlsplit(target)
+        if parsed.scheme or parsed.netloc or target.startswith("#"):
+            continue
+        path_part = unquote(parsed.path)
+        windows_path = PureWindowsPath(path_part)
+        assert not Path(path_part).is_absolute(), (document, target)
+        assert not windows_path.is_absolute() and not windows_path.drive, (document, target)
+        assert not path_part.startswith(("/", "\\")), (document, target)
+        if not path_part:
+            continue
+        assert (document.parent / path_part).resolve().exists(), (document, target)
+
+
 def test_relative_markdown_links_resolve_and_are_portable() -> None:
     for document in _documentation_files():
-        content = document.read_text(encoding="utf-8")
-        for raw in MARKDOWN_LINK.findall(content):
-            target = _link_destination(raw)
-            parsed = urlsplit(target)
-            if parsed.scheme or parsed.netloc or target.startswith("#"):
-                continue
-            path_part = unquote(parsed.path)
-            windows_path = PureWindowsPath(path_part)
-            assert not Path(path_part).is_absolute(), (document, target)
-            assert not windows_path.is_absolute() and not windows_path.drive, (document, target)
-            assert not path_part.startswith(("/", "\\")), (document, target)
-            if not path_part:
-                continue
-            assert (document.parent / path_part).resolve().exists(), (document, target)
+        _assert_markdown_links_resolve(document, document.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("destination", ["C:/missing.md", r"C:\missing.md"])
+def test_drive_letter_links_are_rejected_before_scheme_filtering(
+    tmp_path: Path, destination: str
+) -> None:
+    document = tmp_path / "guide.md"
+
+    with pytest.raises(AssertionError, match="C:"):
+        _assert_markdown_links_resolve(document, f"[file]({destination})")
+
+
+def test_reference_style_link_destinations_are_checked(tmp_path: Path) -> None:
+    document = tmp_path / "guide.md"
+    content = "[file][missing]\n\n[missing]: absent.md\n"
+    with pytest.raises(AssertionError, match="absent.md"):
+        _assert_markdown_links_resolve(document, content)
+
+    (tmp_path / "absent.md").write_text("target\n", encoding="utf-8")
+    _assert_markdown_links_resolve(document, content)
 
 
 def _command_documents() -> tuple[Path, ...]:
