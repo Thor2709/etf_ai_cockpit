@@ -117,14 +117,64 @@ def build_factor_risk_report(
     selected, excluded = _select_factors(matrix, returns)
     if not selected:
         return _unavailable_report(exposures, coverage, empty_factor_returns, empty_contributions, empty_specific, "No factor has enough cross-sectional coverage for estimation.") | {"excluded_factors": excluded}
+    selected_exposures = matrix[selected]
+    if selected_exposures.isna().to_numpy().any() or not np.isfinite(selected_exposures.to_numpy(float)).all():
+        report = _unavailable_report(
+            exposures,
+            coverage,
+            empty_factor_returns,
+            empty_contributions,
+            empty_specific,
+            "factor_exposures_unavailable: selected factors have incomplete instrument exposures.",
+            reason_code="factor_exposures_unavailable",
+        )
+        report["diagnostics"].update({"excluded_factors": excluded})
+        return report
     factor_returns, residuals, fit_diagnostics = _fit_cross_sectional(returns, matrix[selected])
     if factor_returns.empty:
         report = _unavailable_report(exposures, coverage, factor_returns, empty_contributions, empty_specific, "Cross-sectional factor returns are unavailable for the selected sample.")
         report["diagnostics"].update({"excluded_factors": excluded, "fit": fit_diagnostics})
         return report
-    factor_covariance, covariance_diagnostics = _factor_covariance(factor_returns, selected)
     specific = _specific_risk(residuals, returns)
+    specific_volatility = pd.to_numeric(specific["specific_vol_ann"], errors="coerce")
+    if specific_volatility.isna().any() or not np.isfinite(specific_volatility.to_numpy(float)).all():
+        report = _unavailable_report(
+            exposures,
+            coverage,
+            factor_returns,
+            empty_contributions,
+            specific,
+            "specific_risk_unavailable: at least two residual observations are required for every instrument.",
+            reason_code="specific_risk_unavailable",
+        )
+        report["diagnostics"].update({"excluded_factors": excluded, "fit": fit_diagnostics})
+        return report
+    factor_covariance, covariance_diagnostics = _factor_covariance(factor_returns, selected)
+    if factor_covariance.empty or covariance_diagnostics.get("status") == "unavailable":
+        report = _unavailable_report(
+            exposures,
+            coverage,
+            factor_returns,
+            empty_contributions,
+            empty_specific,
+            "factor_covariance_unavailable: selected factors lack sufficient shared return history.",
+            reason_code="factor_covariance_unavailable",
+        )
+        report["diagnostics"].update({"excluded_factors": excluded, "fit": fit_diagnostics, "covariance": covariance_diagnostics})
+        return report
     portfolio_contributions, instrument_contributions, portfolio = _portfolio_decomposition(allocation, matrix[selected], factor_covariance, specific)
+    if portfolio.get("status") == "unavailable":
+        report = _unavailable_report(
+            exposures,
+            coverage,
+            factor_returns,
+            empty_contributions,
+            specific,
+            "factor_risk_decomposition_unavailable: a selected exposure or specific-risk input is missing.",
+            reason_code=str(portfolio.get("reason_code", "factor_risk_decomposition_unavailable")),
+        )
+        report["diagnostics"].update({"excluded_factors": excluded, "fit": fit_diagnostics, "covariance": covariance_diagnostics})
+        return report
     baseline_beta = _simple_beta_baseline(returns)
     stability = _stability_report(factor_returns)
     public_validation = validate_public_factor_series(factor_returns, public_factors)
@@ -387,15 +437,36 @@ def _robust_fit(x_values: np.ndarray, y_values: np.ndarray) -> tuple[np.ndarray,
 
 def _factor_covariance(factor_returns: pd.DataFrame, selected: list[str]) -> tuple[pd.DataFrame, dict[str, object]]:
     wide = _factor_return_wide(factor_returns).reindex(columns=selected)
-    covariance = wide.cov(min_periods=2).reindex(index=selected, columns=selected).fillna(0.0).to_numpy(float)
+    complete = wide.dropna(how="any")
+    if len(complete) < 2:
+        return pd.DataFrame(), {
+            "status": "unavailable",
+            "reason_code": "factor_covariance_shared_history_unavailable",
+            "observations": int(len(complete)),
+        }
+    covariance_frame = complete.cov(min_periods=2).reindex(index=selected, columns=selected)
+    if covariance_frame.isna().to_numpy().any() or not np.isfinite(covariance_frame.to_numpy(float)).all():
+        return pd.DataFrame(), {
+            "status": "unavailable",
+            "reason_code": "factor_covariance_inputs_incomplete",
+            "observations": int(len(complete)),
+        }
+    covariance = covariance_frame.to_numpy(float)
     covariance = (covariance + covariance.T) / 2.0
+    if not np.isfinite(covariance).all():
+        return pd.DataFrame(), {
+            "status": "unavailable",
+            "reason_code": "factor_covariance_inputs_incomplete",
+            "observations": int(len(complete)),
+        }
     eigenvalues, eigenvectors = np.linalg.eigh(covariance)
     floor = max(float(np.nanmax(np.diag(covariance))) * 1e-8 if covariance.size else 0.0, 1e-12)
     regularised = bool(np.any(eigenvalues < floor))
     eigenvalues = np.maximum(eigenvalues, floor)
     covariance = eigenvectors @ np.diag(eigenvalues) @ eigenvectors.T
     diagnostics = {
-        "observations": int(len(wide)),
+        "status": "available",
+        "observations": int(len(complete)),
         "condition_number": _condition_number(covariance),
         "minimum_eigenvalue": float(np.min(eigenvalues)) if len(eigenvalues) else None,
         "regularised": regularised,
@@ -423,13 +494,29 @@ def _portfolio_decomposition(
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, object]]:
     factor_names = list(covariance.columns)
     instruments = list(exposures.index)
+    exposure_matrix = exposures.reindex(index=instruments, columns=factor_names)
+    specific_lookup = specific.set_index("instrument_id")["specific_vol_ann"] if not specific.empty else pd.Series(dtype=float)
+    specific_values = pd.to_numeric(specific_lookup.reindex(instruments), errors="coerce")
+    if (
+        covariance.empty
+        or exposure_matrix.isna().to_numpy().any()
+        or specific_values.isna().any()
+        or not np.isfinite(covariance.to_numpy(float)).all()
+        or not np.isfinite(exposure_matrix.to_numpy(float)).all()
+        or not np.isfinite(specific_values.to_numpy(float)).all()
+    ):
+        return pd.DataFrame(), pd.DataFrame(), {
+            "status": "unavailable",
+            "reason_code": "factor_risk_decomposition_inputs_incomplete",
+            "annualised_volatility": None,
+            "component_share_sum": None,
+        }
     weights = _weights(allocation).reindex(instruments).fillna(0.0).to_numpy(float)
-    matrix = exposures.reindex(index=instruments, columns=factor_names).fillna(0.0).to_numpy(float)
+    matrix = exposure_matrix.to_numpy(float)
     portfolio_exposure = weights @ matrix
     annual_covariance = covariance.to_numpy(float) * ANNUALISATION_FACTOR
     factor_variance_contributions = portfolio_exposure * (annual_covariance @ portfolio_exposure)
-    specific_lookup = specific.set_index("instrument_id")["specific_vol_ann"] if not specific.empty else pd.Series(dtype=float)
-    specific_vol = specific_lookup.reindex(instruments).fillna(0.0).to_numpy(float)
+    specific_vol = specific_values.to_numpy(float)
     specific_instrument_contribution = weights**2 * specific_vol**2
     factor_variance = float(np.sum(factor_variance_contributions))
     specific_variance = float(np.sum(specific_instrument_contribution))
@@ -447,6 +534,7 @@ def _portfolio_decomposition(
         for index, instrument_id in enumerate(instruments)
     ]
     return pd.DataFrame(factor_rows), pd.DataFrame(instrument_rows).sort_values("variance_share", ascending=False).reset_index(drop=True), {
+        "status": "available",
         "annualised_volatility": float(np.sqrt(total_variance)),
         "factor_variance": factor_variance,
         "specific_variance": specific_variance,
@@ -542,10 +630,11 @@ def _warnings(coverage: dict[str, object], excluded: dict[str, str], specific: p
     return warnings
 
 
-def _unavailable_report(exposures: pd.DataFrame, coverage: dict[str, object], factor_returns: pd.DataFrame, contributions: pd.DataFrame, specific: pd.DataFrame, message: str) -> dict[str, object]:
+def _unavailable_report(exposures: pd.DataFrame, coverage: dict[str, object], factor_returns: pd.DataFrame, contributions: pd.DataFrame, specific: pd.DataFrame, message: str, *, reason_code: str = "factor_risk_inputs_unavailable") -> dict[str, object]:
     return {
         "status": "unavailable",
         "message": message,
+        "reason_code": reason_code,
         "model_version": FACTOR_MODEL_VERSION,
         "execution_allowed": False,
         "factor_exposures": exposures,
@@ -557,7 +646,7 @@ def _unavailable_report(exposures: pd.DataFrame, coverage: dict[str, object], fa
         "instrument_contributions": pd.DataFrame(),
         "portfolio": {"annualised_volatility": None, "component_share_sum": None},
         "coverage": coverage,
-        "diagnostics": {"model_version": FACTOR_MODEL_VERSION, "warnings": [message]},
+        "diagnostics": {"model_version": FACTOR_MODEL_VERSION, "reason_code": reason_code, "warnings": [message]},
         "warnings": [message],
     }
 

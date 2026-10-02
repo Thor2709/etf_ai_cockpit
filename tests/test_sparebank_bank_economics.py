@@ -39,7 +39,7 @@ def test_stage_denominator_and_writeoff_are_separate() -> None:
     assert result.ratio_numerator_effect == pytest.approx(0)
     assert result.ratio_denominator_effect == pytest.approx(-1 / 60)
     assert result.writeoff_net_exposure == pytest.approx(75)
-    assert result.new_expense_from_writeoff == pytest.approx(0)
+    assert result.new_expense_from_writeoff is None  # Missing allowance expense remains unavailable.
 
 
 def test_capital_golden_and_rwa_attribution() -> None:

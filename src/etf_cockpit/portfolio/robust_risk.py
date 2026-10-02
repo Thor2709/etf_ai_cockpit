@@ -38,6 +38,15 @@ def build_robust_risk_report(
         report = _unavailable_report("At least two instruments with adjusted-price returns are required.", returns, weights)
         report["fixed_income_risk"] = fixed_income
         return report
+    if len(returns.dropna(how="any")) < 2:
+        report = _unavailable_report(
+            "shared_return_history_unavailable: at least two complete return observations are required.",
+            returns,
+            weights,
+        )
+        report["fixed_income_risk"] = fixed_income
+        report["reason_code"] = "shared_return_history_unavailable"
+        return report
     covariances, estimator_meta = _covariance_estimators(returns, factor_report, ewma_lambda=ewma_lambda, shrinkage_alpha=shrinkage_alpha)
     comparison, selected, validation_warnings = _out_of_sample_selection(returns, factor_report, ewma_lambda=ewma_lambda, shrinkage_alpha=shrinkage_alpha)
     selected_covariance = covariances.get(selected, pd.DataFrame()).reindex(index=ids, columns=ids)
@@ -226,15 +235,19 @@ def _covariance_estimators(
 ) -> tuple[dict[str, pd.DataFrame], dict[str, dict[str, object]]]:
     ids = list(returns.columns)
     complete = returns.dropna(how="any")
-    if complete.empty:
-        complete = returns.fillna(0.0)
-    sample_daily = complete.cov().reindex(index=ids, columns=ids).fillna(0.0)
+    if len(complete) < 2:
+        unavailable = {name: pd.DataFrame() for name in ESTIMATOR_NAMES}
+        unavailable["factor_model"] = pd.DataFrame()
+        return unavailable, {
+            "sample": {"status": "unavailable", "reason_code": "shared_return_history_unavailable"}
+        }
+    sample_daily = complete.cov().reindex(index=ids, columns=ids)
     ewma_daily = _ewma_covariance(complete, ewma_lambda)
     diagonal_daily = pd.DataFrame(np.diag(np.diag(sample_daily.to_numpy(float))), index=ids, columns=ids)
     target_daily = diagonal_daily
     shrinkage_daily = (1.0 - float(shrinkage_alpha)) * sample_daily + float(shrinkage_alpha) * target_daily
     clipped = _winsorise(complete)
-    robust_daily = clipped.cov().reindex(index=ids, columns=ids).fillna(0.0)
+    robust_daily = clipped.cov().reindex(index=ids, columns=ids)
     raw_matrices = {
         "sample": sample_daily * ANNUALISATION_FACTOR,
         "ewma": ewma_daily * ANNUALISATION_FACTOR,
@@ -251,7 +264,13 @@ def _covariance_estimators(
         matrices["factor_model"], repair_metadata["factor_model"] = _psd_repair(factor_matrix, ids)
     else:
         matrices["factor_model"] = pd.DataFrame()
+        repair_metadata["factor_model"] = {
+            "status": "unavailable",
+            "reason_code": "factor_model_inputs_incomplete",
+        }
     meta = {name: _covariance_diagnostics(matrix, len(complete), name) for name, matrix in matrices.items() if not matrix.empty}
+    if matrices["factor_model"].empty:
+        meta["factor_model"] = dict(repair_metadata["factor_model"])
     for name, details in repair_metadata.items():
         if name in meta:
             meta[name].update(details)
@@ -291,20 +310,31 @@ def _factor_covariance(factor_report: dict[str, object] | None, ids: list[str]) 
     specific = factor_report.get("specific_risk")
     if not isinstance(covariance, pd.DataFrame) or covariance.empty or not isinstance(exposures, pd.DataFrame) or exposures.empty:
         return None
-    factors = [factor for factor in covariance.columns if factor in exposures.columns]
-    if not factors:
+    factors = list(covariance.columns)
+    if not factors or any(factor not in exposures.columns for factor in factors):
         return None
-    matrix = exposures.reindex(index=ids, columns=factors).fillna(0.0).to_numpy(float)
-    factor_covariance = covariance.reindex(index=factors, columns=factors).fillna(0.0).to_numpy(float) * ANNUALISATION_FACTOR
+    exposure_matrix = exposures.reindex(index=ids, columns=factors)
+    factor_matrix = covariance.reindex(index=factors, columns=factors)
+    if exposure_matrix.isna().to_numpy().any() or factor_matrix.isna().to_numpy().any():
+        return None
+    matrix = exposure_matrix.to_numpy(float)
+    factor_covariance = factor_matrix.to_numpy(float) * ANNUALISATION_FACTOR
+    if not np.isfinite(matrix).all() or not np.isfinite(factor_covariance).all():
+        return None
     result = matrix @ factor_covariance @ matrix.T
-    if isinstance(specific, pd.DataFrame) and {"instrument_id", "specific_vol_ann"}.issubset(specific.columns):
-        specific_vol = pd.to_numeric(specific.set_index("instrument_id")["specific_vol_ann"], errors="coerce").reindex(ids).fillna(0.0).to_numpy(float)
-        result = result + np.diag(specific_vol**2)
+    if not isinstance(specific, pd.DataFrame) or not {"instrument_id", "specific_vol_ann"}.issubset(specific.columns):
+        return None
+    specific_vol = pd.to_numeric(specific.set_index("instrument_id")["specific_vol_ann"], errors="coerce").reindex(ids)
+    if specific_vol.isna().any() or not np.isfinite(specific_vol.to_numpy(float)).all():
+        return None
+    result = result + np.diag(specific_vol.to_numpy(float) ** 2)
     return pd.DataFrame(result, index=ids, columns=ids)
 
 
 def _psd_repair(matrix: pd.DataFrame, ids: list[str]) -> tuple[pd.DataFrame, dict[str, object]]:
-    numeric = matrix.reindex(index=ids, columns=ids).fillna(0.0).to_numpy(float)
+    numeric = matrix.reindex(index=ids, columns=ids).to_numpy(float)
+    if not np.isfinite(numeric).all():
+        return pd.DataFrame(), {"regularised": False, "status": "unavailable", "reason_code": "non_finite_covariance"}
     numeric = (numeric + numeric.T) / 2.0
     if not numeric.size:
         return pd.DataFrame(index=ids, columns=ids, dtype=float), {"regularised": False}
