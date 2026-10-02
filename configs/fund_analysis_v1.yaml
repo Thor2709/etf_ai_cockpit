@@ -30,3 +30,13 @@ forecast:
     q05: "0.05"
     q50: "0.50"
     q95: "0.95"
+screener:
+  top_n: 10
+  allow_multiple_classes: false
+  bootstrap_samples: 500
+  ranking_seed: 157
+  score_weights:
+    total_return: "1"
+    distribution: "1"
+    total_fee_bps: "1"
+    peer_percentile: "1"
