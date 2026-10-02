@@ -45,9 +45,25 @@ def return_correlation_matrix(prices: pd.DataFrame, etf_ids: list[str] | None = 
     frame = prices.copy()
     frame["date"] = pd.to_datetime(frame["date"])
     pivot = frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index().dropna(how="all")
-    columns = [column for column in (etf_ids or list(pivot.columns)) if column in pivot.columns]
+    columns = list(etf_ids or list(pivot.columns))
     if not columns:
         return pd.DataFrame()
+    missing_assets = [
+        column
+        for column in columns
+        if column not in pivot.columns or int(pivot[column].notna().sum()) < 2
+    ]
+    if missing_assets:
+        unavailable = pd.DataFrame(index=columns, columns=columns, dtype=float)
+        unavailable.attrs.update(
+            status="unavailable",
+            reason_code="requested_asset_prices_unavailable",
+            excluded_assets={
+                str(asset_id): "requested_asset_price_history_unavailable"
+                for asset_id in missing_assets
+            },
+        )
+        return unavailable
     pivot = pivot[columns].dropna()
     if len(pivot) < 3:
         result = pd.DataFrame(index=columns, columns=columns, dtype=float)

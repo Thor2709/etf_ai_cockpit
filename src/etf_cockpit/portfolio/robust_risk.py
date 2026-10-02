@@ -310,8 +310,8 @@ def _factor_covariance(factor_report: dict[str, object] | None, ids: list[str]) 
     specific = factor_report.get("specific_risk")
     if not isinstance(covariance, pd.DataFrame) or covariance.empty or not isinstance(exposures, pd.DataFrame) or exposures.empty:
         return None
-    factors = [factor for factor in covariance.columns if factor in exposures.columns]
-    if not factors:
+    factors = list(covariance.columns)
+    if not factors or any(factor not in exposures.columns for factor in factors):
         return None
     exposure_matrix = exposures.reindex(index=ids, columns=factors)
     factor_matrix = covariance.reindex(index=factors, columns=factors)

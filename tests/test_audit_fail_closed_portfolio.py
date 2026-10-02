@@ -57,7 +57,10 @@ def test_robust_risk_rejects_non_overlapping_return_histories() -> None:
     assert all(matrix.empty for matrix in report["covariances"].values())
 
 
-@pytest.mark.parametrize("missing_input", ["exposure", "factor_covariance", "specific_volatility"])
+@pytest.mark.parametrize(
+    "missing_input",
+    ["exposure", "factor_covariance", "specific_volatility", "factor_exposure_column"],
+)
 def test_robust_factor_estimator_rejects_incomplete_inputs(missing_input: str) -> None:
     ids = ["A", "B", "C"]
     factor_report = {
@@ -71,6 +74,12 @@ def test_robust_factor_estimator_rejects_incomplete_inputs(missing_input: str) -
         factor_report["exposure_matrix"].loc["B", "market"] = np.nan
     elif missing_input == "factor_covariance":
         factor_report["factor_covariance"].loc["market", "market"] = np.nan
+    elif missing_input == "factor_exposure_column":
+        factor_report["factor_covariance"] = pd.DataFrame(
+            [[0.01, 0.002], [0.002, 0.02]],
+            index=["market", "sector"],
+            columns=["market", "sector"],
+        )
     else:
         factor_report["specific_risk"].loc[1, "specific_vol_ann"] = np.nan
 
@@ -89,6 +98,20 @@ def test_correlation_matrix_rejects_non_overlapping_histories() -> None:
     assert correlation.isna().to_numpy().all()
     assert correlation.attrs["status"] == "unavailable"
     assert correlation.attrs["reason_code"] == "shared_return_history_unavailable"
+
+
+def test_correlation_matrix_rejects_and_identifies_requested_asset_without_prices() -> None:
+    prices = _common_prices(("A",))
+
+    correlation = return_correlation_matrix(prices, ["A", "B"])
+
+    assert correlation.isna().to_numpy().all()
+    assert list(correlation.index) == ["A", "B"]
+    assert correlation.attrs["status"] == "unavailable"
+    assert correlation.attrs["reason_code"] == "requested_asset_prices_unavailable"
+    assert correlation.attrs["excluded_assets"] == {
+        "B": "requested_asset_price_history_unavailable"
+    }
 
 
 def test_drawdown_contribution_keeps_missing_risk_unavailable() -> None:
@@ -221,6 +244,26 @@ def test_backtest_excludes_prelisting_prices_instead_of_recording_zero_returns()
     assert report.metadata["forward_fill_used"] is False
 
 
+def test_backtest_first_complete_price_row_is_warmup_only() -> None:
+    config = load_config()
+    prices = generate_sample_prices(config, periods=360, end_date=pd.Timestamp("2026-06-26").date())
+    raw = prices.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
+    columns = [column for column in config.universe.enabled_ids if column in raw.columns]
+    first_complete_date = pd.Timestamp(raw.reindex(columns=columns).dropna().index[0])
+
+    report = run_backtest(
+        config,
+        prices,
+        initial_value_eur=10_000.0,
+        rebalance_frequency_days=42,
+    )
+
+    assert first_complete_date not in report.equity_curves.index
+    assert not pd.to_datetime(report.trade_log["signal_date"]).eq(first_complete_date).any()
+    assert not pd.to_datetime(report.trade_log["execution_date"]).eq(first_complete_date).any()
+    assert (report.equity_curves.iloc[0] == 10_000.0).all()
+
+
 def test_credit_reconciliation_does_not_assume_missing_stage3_flows_are_zero() -> None:
     result = credit_reconciliation(
         opening_stage3=100.0,
@@ -277,6 +320,55 @@ def test_rebalancing_defers_sale_when_tax_lot_gains_are_unparseable() -> None:
 
     vwce = next(item for item in report.trades if item.instrument_id == "VWCE")
     assert vwce.status == "deferred_tax_lot_gains_unavailable"
+    assert vwce.trade_value_eur == 0.0
+    assert vwce.estimated_tax_eur == 0.0
+    assert report.tax_status == "unavailable"
+    assert "tax_lot_gains_unavailable" in report.warnings
+
+
+@pytest.mark.parametrize(
+    "tax_lot,expected_reason",
+    [
+        (
+            {"instrument_id": "VWCE", "market_value_eur": 40_000.0, "unrealised_gain_eur": -np.inf},
+            "non_finite_gain",
+        ),
+        (
+            {"instrument_id": "VWCE", "unrealised_gain_eur": 10_000.0},
+            "missing_market_value",
+        ),
+        (
+            {"instrument_id": "VWCE", "market_value_eur": 0.0, "unrealised_gain_eur": 10_000.0},
+            "zero_market_value",
+        ),
+        (
+            {"instrument_id": "VWCE", "market_value_eur": np.inf, "unrealised_gain_eur": 10_000.0},
+            "non_finite_market_value",
+        ),
+    ],
+)
+def test_rebalancing_defers_sale_for_invalid_tax_coverage_inputs(
+    tax_lot: dict[str, object], expected_reason: str
+) -> None:
+    config = load_config()
+    holdings = pd.DataFrame(
+        [
+            {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "quantity": 40.0, "price_eur": 1_000.0},
+            {"etf_id": "LYP6", "current_weight": 0.2, "market_value_eur": 20_000.0, "quantity": 20.0, "price_eur": 1_000.0},
+        ]
+    )
+
+    report = build_rebalance_report(
+        config,
+        holdings,
+        {"VWCE": 0.2, "LYP6": 0.7},
+        target_cash_weight=0.1,
+        constraints=RebalanceConstraints(tax_rate=0.25, tax_jurisdiction="AU"),
+        tax_lots=pd.DataFrame([tax_lot]),
+    )
+
+    vwce = next(item for item in report.trades if item.instrument_id == "VWCE")
+    assert vwce.status == "deferred_tax_lot_gains_unavailable", expected_reason
     assert vwce.trade_value_eur == 0.0
     assert vwce.estimated_tax_eur == 0.0
     assert report.tax_status == "unavailable"

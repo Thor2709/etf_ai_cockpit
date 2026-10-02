@@ -600,7 +600,11 @@ def _requires_bond_face_terms(state: Mapping[str, object]) -> bool:
 
 
 def _tax_estimate(tax_lots: pd.DataFrame | None, instrument_id: str, trade_value: float, constraints: RebalanceConstraints) -> float | None:
-    if constraints.tax_rate is None or trade_value >= 0:
+    if constraints.tax_rate is None:
+        return 0.0
+    if not math.isfinite(float(trade_value)):
+        return None
+    if trade_value >= 0:
         return 0.0
     if tax_lots is None or tax_lots.empty:
         return None
@@ -611,11 +615,25 @@ def _tax_estimate(tax_lots: pd.DataFrame | None, instrument_id: str, trade_value
     if matches.empty or "unrealised_gain_eur" not in matches.columns:
         return None
     gains = pd.to_numeric(matches["unrealised_gain_eur"], errors="coerce")
-    if gains.isna().any():
+    if gains.isna().any() or not all(math.isfinite(float(value)) for value in gains):
         return None
-    lot_value = pd.to_numeric(matches.get("market_value_eur", pd.Series(0.0, index=matches.index)), errors="coerce").fillna(0.0)
-    covered_fraction = min(1.0, abs(trade_value) / float(lot_value.sum())) if float(lot_value.sum()) > 0 else 1.0
-    return max(0.0, float(gains.sum())) * covered_fraction * float(constraints.tax_rate)
+    total_gains = float(gains.sum())
+    if not math.isfinite(total_gains):
+        return None
+    if "market_value_eur" not in matches.columns:
+        return None
+    lot_value = pd.to_numeric(matches["market_value_eur"], errors="coerce")
+    if (
+        lot_value.isna().any()
+        or not all(math.isfinite(float(value)) for value in lot_value)
+        or (lot_value < 0).any()
+    ):
+        return None
+    total_lot_value = float(lot_value.sum())
+    if not math.isfinite(total_lot_value) or total_lot_value <= 0:
+        return None
+    covered_fraction = min(1.0, abs(trade_value) / total_lot_value)
+    return max(0.0, total_gains) * covered_fraction * float(constraints.tax_rate)
 
 
 def _finite_non_negative(value: object, label: str) -> float:
