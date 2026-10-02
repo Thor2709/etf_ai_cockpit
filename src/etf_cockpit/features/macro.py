@@ -74,15 +74,23 @@ def build_macro_context(
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
     frame["etf_id"] = frame["etf_id"].astype(str).str.strip()
     frame = frame.dropna(subset=["date", "adjusted_close"])
-    freshness_as_of = as_of_date
-    price_cutoff = None if as_of_date is None else pd.Timestamp(as_of_date, tz="UTC") + pd.Timedelta(days=1)
-    if freshness_as_of is None and isinstance(benchmark_reference, Mapping):
+    decision_time = None
+    if isinstance(benchmark_reference, Mapping):
         analysis = benchmark_reference.get("analysis")
         if isinstance(analysis, Mapping):
-            decision_time = pd.to_datetime(analysis.get("decision_time"), errors="coerce", utc=True)
-            if not pd.isna(decision_time):
-                freshness_as_of = decision_time.date()
-                price_cutoff = decision_time
+            parsed_decision_time = pd.to_datetime(analysis.get("decision_time"), errors="coerce", utc=True)
+            if not pd.isna(parsed_decision_time):
+                decision_time = parsed_decision_time
+    freshness_as_of = as_of_date or (decision_time.date() if decision_time is not None else None)
+    price_cutoffs = []
+    if as_of_date is not None:
+        price_cutoffs.append(pd.Timestamp(as_of_date, tz="UTC") + pd.Timedelta(days=1))
+    if decision_time is not None:
+        price_cutoffs.append(decision_time)
+    price_cutoff = min(price_cutoffs) if price_cutoffs else None
+    observation_cutoff = decision_time
+    if observation_cutoff is None and as_of_date is not None:
+        observation_cutoff = pd.Timestamp(as_of_date, tz="UTC") + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
     if price_cutoff is not None:
         frame = frame[frame["date"] < price_cutoff]
     frame = frame[(frame["etf_id"] != "") & (frame["adjusted_close"] > 0)]
@@ -98,7 +106,6 @@ def build_macro_context(
     pivot = frame.pivot_table(index="date", columns="etf_id", values="adjusted_close", aggfunc="last").sort_index()
     pivot = pivot.reindex(sorted(pivot.columns), axis=1)
     latest_date = pivot.index.max()
-    freshness_as_of = freshness_as_of or latest_date.date()
     filled = pivot.ffill(limit=5)
     latest_day = filled.iloc[-1]
     returns = filled.pct_change(fill_method=None)
@@ -116,17 +123,17 @@ def build_macro_context(
         benchmark_reference=benchmark_reference,
         benchmark_registry=benchmark_registry,
     )
-    freshness_days = (freshness_as_of - latest_date.date()).days
+    freshness_days = None if freshness_as_of is None else (freshness_as_of - latest_date.date()).days
     dashboard_label = _dashboard_label(regime.get("regime_score_10"))
 
     return {
         "status": "available_with_gaps" if any(row["status"] != "available" for row in proxy_rows) else "available",
         "as_of": latest_date.date().isoformat(),
         "freshness_days": freshness_days,
-        "freshness_status": "fresh" if freshness_days <= 7 else "stale",
+        "freshness_status": "unavailable" if freshness_days is None else "fresh" if freshness_days <= 7 else "stale",
         "provenance": "local adjusted_close price snapshot",
         "proxy_rows": proxy_rows,
-        "inflation_rates": _macro_observation_summary(observations, decision_time=latest_date),
+        "inflation_rates": _macro_observation_summary(observations, decision_time=observation_cutoff),
         "breadth": breadth,
         "volatility": volatility,
         "regime": {
@@ -178,7 +185,7 @@ def _proxy_summary(
     pivot: pd.DataFrame,
     returns: pd.DataFrame,
     metadata: dict[str, dict[str, str]],
-    freshness_as_of: date,
+    freshness_as_of: date | None,
 ) -> dict[str, object]:
     candidates: list[str] = []
     for identifier in pivot.columns:
@@ -216,11 +223,11 @@ def _proxy_summary(
         "source": "local adjusted_close price snapshot",
         "provider_symbol": None,
         "provenance": "local adjusted_close price snapshot",
-        "freshness_status": "fresh" if (freshness_as_of - sample.index.max().date()).days <= 7 else "stale",
+        "freshness_status": "unavailable" if freshness_as_of is None else "fresh" if (freshness_as_of - sample.index.max().date()).days <= 7 else "stale",
     }
 
 
-def _breadth_summary(pivot: pd.DataFrame, freshness_as_of: date) -> dict[str, object]:
+def _breadth_summary(pivot: pd.DataFrame, freshness_as_of: date | None) -> dict[str, object]:
     if len(pivot) < 200:
         return {"status": "unavailable", "reason": "At least 200 local trading days are required.", "pct_above_sma200": None, "source": "local adjusted_close price snapshot", "freshness_status": "unavailable"}
     filled = pivot.ffill(limit=5)
@@ -236,11 +243,11 @@ def _breadth_summary(pivot: pd.DataFrame, freshness_as_of: date) -> dict[str, ob
         "as_of": as_of.isoformat(),
         "source": "local adjusted_close price snapshot",
         "provenance": "local adjusted_close price snapshot",
-        "freshness_status": "fresh" if (freshness_as_of - as_of).days <= 7 else "stale",
+        "freshness_status": "unavailable" if freshness_as_of is None else "fresh" if (freshness_as_of - as_of).days <= 7 else "stale",
     }
 
 
-def _volatility_summary(returns: pd.DataFrame, freshness_as_of: date) -> dict[str, object]:
+def _volatility_summary(returns: pd.DataFrame, freshness_as_of: date | None) -> dict[str, object]:
     sample = returns.tail(20)
     values = sample.std(skipna=True).dropna() * (252**0.5)
     return {
@@ -251,7 +258,7 @@ def _volatility_summary(returns: pd.DataFrame, freshness_as_of: date) -> dict[st
         "as_of": returns.index.max().date().isoformat() if not returns.empty else None,
         "source": "local adjusted_close price snapshot",
         "provenance": "local adjusted_close price snapshot",
-        "freshness_status": "fresh" if not returns.empty and (freshness_as_of - returns.index.max().date()).days <= 7 else "stale" if not returns.empty else "unavailable",
+        "freshness_status": "unavailable" if freshness_as_of is None or returns.empty else "fresh" if (freshness_as_of - returns.index.max().date()).days <= 7 else "stale",
     }
 
 
@@ -329,7 +336,9 @@ def _dashboard_label(score: object) -> str:
     return "stressed"
 
 
-def _macro_observation_summary(observations: Iterable[object], *, decision_time: pd.Timestamp) -> dict[str, object]:
+def _macro_observation_summary(observations: Iterable[object], *, decision_time: pd.Timestamp | None) -> dict[str, object]:
+    if decision_time is None:
+        return {"status": "unavailable", "rows": [], "reason": "Evaluation decision time is unavailable."}
     rows: list[dict[str, object]] = []
     for observation in observations:
         if hasattr(observation, "model_dump"):

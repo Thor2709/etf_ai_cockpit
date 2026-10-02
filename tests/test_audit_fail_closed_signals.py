@@ -13,7 +13,7 @@ from etf_cockpit.features import macro, regime, volatility
 from etf_cockpit.services import BacktestService, _load_structure_caps, _postprocess_forecast_benchmark_fields
 from etf_cockpit.signals import simple_scores
 from etf_cockpit.signals.gates import evaluate_risk_gates
-from etf_cockpit.signals.scoring import component_scores, row_components
+from etf_cockpit.signals.scoring import component_scores
 from etf_cockpit.signals.signal_pipeline import _technical_expected_edge
 
 
@@ -61,7 +61,8 @@ def test_trade_gate_blocks_when_edge_to_cost_evidence_is_missing(missing_field: 
     assert "edge_inputs_unavailable" in blocked
 
 
-def test_scoring_preserves_unavailable_components_and_reasons() -> None:
+@pytest.mark.parametrize("missing_field", ["trend_slope", "trend_100", "trend_200"])
+def test_each_missing_trend_input_makes_trend_score_unavailable(missing_field: str) -> None:
     features = pd.DataFrame(
         [
             {
@@ -70,12 +71,73 @@ def test_scoring_preserves_unavailable_components_and_reasons() -> None:
                 "momentum_60d": 0.02,
                 "momentum_120d": 0.03,
                 "momentum_180d": 0.04,
-                "trend_slope": None,
-                "trend_100": None,
+                "trend_slope": 0.01,
+                "trend_100": 1.0,
                 "trend_200": 1.0,
-                "vol_60d_ann": None,
-                "ewma_vol_ann": None,
+                "vol_60d_ann": 0.2,
+                "ewma_vol_ann": 0.2,
+                "drawdown_60d_max": -0.05,
+                "relative_strength_60d": 0.02,
+            }
+        ]
+    )
+    features.loc[0, missing_field] = None
+    allocation = pd.DataFrame(
+        [{"etf_id": "AAA", "current_weight": 0.0, "target_weight": 0.0, "hard_band": 0.05, "soft_band": 0.03, "max_weight": 0.25}]
+    )
+
+    scored = component_scores(features, allocation, load_config(), toto_available=True, timesfm_available=True)
+    row = scored.iloc[0]
+
+    assert pd.isna(row["score_trend"])
+    assert "trend_inputs_unavailable" in row["score_unavailable_reason_codes"]
+
+
+def test_missing_drawdown_alone_makes_risk_score_unavailable() -> None:
+    features = pd.DataFrame(
+        [
+            {
+                "etf_id": "AAA",
+                "momentum_20d": 0.01,
+                "momentum_60d": 0.02,
+                "momentum_120d": 0.03,
+                "momentum_180d": 0.04,
+                "trend_slope": 0.01,
+                "trend_100": 1.0,
+                "trend_200": 1.0,
+                "vol_60d_ann": 0.2,
+                "ewma_vol_ann": 0.2,
                 "drawdown_60d_max": None,
+                "relative_strength_60d": 0.02,
+            }
+        ]
+    )
+    allocation = pd.DataFrame(
+        [{"etf_id": "AAA", "current_weight": 0.0, "target_weight": 0.0, "hard_band": 0.05, "soft_band": 0.03, "max_weight": 0.25}]
+    )
+
+    row = component_scores(features, allocation, load_config(), toto_available=True, timesfm_available=True).iloc[0]
+
+    assert pd.notna(row["score_trend"])
+    assert pd.isna(row["score_risk"])
+    assert "risk_inputs_unavailable" in row["score_unavailable_reason_codes"]
+
+
+def test_missing_relative_strength_alone_makes_relative_score_unavailable() -> None:
+    features = pd.DataFrame(
+        [
+            {
+                "etf_id": "AAA",
+                "momentum_20d": 0.01,
+                "momentum_60d": 0.02,
+                "momentum_120d": 0.03,
+                "momentum_180d": 0.04,
+                "trend_slope": 0.01,
+                "trend_100": 1.0,
+                "trend_200": 1.0,
+                "vol_60d_ann": 0.2,
+                "ewma_vol_ann": 0.2,
+                "drawdown_60d_max": -0.05,
                 "relative_strength_60d": None,
             }
         ]
@@ -84,22 +146,12 @@ def test_scoring_preserves_unavailable_components_and_reasons() -> None:
         [{"etf_id": "AAA", "current_weight": 0.0, "target_weight": 0.0, "hard_band": 0.05, "soft_band": 0.03, "max_weight": 0.25}]
     )
 
-    scored = component_scores(features, allocation, load_config(), toto_available=True, timesfm_available=True)
-    row = scored.iloc[0]
-    components = row_components(row)
+    row = component_scores(features, allocation, load_config(), toto_available=True, timesfm_available=True).iloc[0]
 
-    assert pd.isna(row["score_trend"])
-    assert pd.isna(row["score_risk"])
+    assert pd.notna(row["score_trend"])
+    assert pd.notna(row["score_risk"])
     assert pd.isna(row["score_relative_strength"])
-    assert pd.isna(row["score_toto"])
-    assert components.trend is None
-    assert components.risk is None
-    assert components.relative_strength is None
-    assert components.toto is None
-    assert "trend_inputs_unavailable" in row["score_unavailable_reason_codes"]
-    assert "risk_inputs_unavailable" in row["score_unavailable_reason_codes"]
     assert "relative_strength_unavailable" in row["score_unavailable_reason_codes"]
-    assert "toto_forecast_unavailable" in row["score_unavailable_reason_codes"]
 
 
 def test_unavailable_toto_is_not_weighted_as_a_neutral_score() -> None:
@@ -271,6 +323,37 @@ def test_macro_freshness_uses_passed_as_of_date_and_excludes_future_prices() -> 
     assert first["freshness_days"] == 0
 
 
+def test_macro_decision_time_excludes_same_day_prices_after_explicit_as_of_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(macro, "validate_benchmark_reference", lambda *_args, **_kwargs: "BENCH")
+    prices = pd.DataFrame(
+        [
+            {"date": "2024-01-09T18:00:00Z", "etf_id": "EQUITY", "adjusted_close": 100.0},
+            {"date": "2024-01-10T10:00:00Z", "etf_id": "EQUITY", "adjusted_close": 110.0},
+            {"date": "2024-01-10T18:00:00Z", "etf_id": "EQUITY", "adjusted_close": 500.0},
+        ]
+    )
+    reference = {"status": "unavailable", "analysis": {"decision_time": "2024-01-10T12:00:00Z"}}
+
+    result = macro.build_macro_context(
+        prices,
+        benchmark_data_id="BENCH",
+        benchmark_reference=reference,
+        as_of_date=date(2024, 1, 10),
+    )
+
+    equity = next(row for row in result["proxy_rows"] if row["proxy"] == "equity")
+    assert result["as_of"] == "2024-01-10"
+    assert equity["period_return_20d"] == pytest.approx(0.1)
+
+
+def test_macro_missing_evaluation_date_reports_freshness_unavailable() -> None:
+    result = macro.build_macro_context(_macro_prices())
+
+    assert result["freshness_days"] is None
+    assert result["freshness_status"] == "unavailable"
+    assert all(row["freshness_status"] == "unavailable" for row in result["proxy_rows"])
+
+
 def test_scoreboard_parquet_read_failure_is_not_converted_to_an_empty_frame(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "scoreboard.parquet"
     path.write_bytes(b"broken")
@@ -334,3 +417,33 @@ def test_total_return_chart_seeds_only_the_first_undefined_fx_return(monkeypatch
     assert 999.0 not in frame["raw_close"].tolist()
     assert frame["output_total_return"].iloc[0] == 0.0
     assert frame["output_total_return"].iloc[1:].notna().all()
+
+
+def test_total_return_chart_rejects_a_later_fx_return_gap(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    from etf_cockpit.data import market_adjustments
+
+    def derive_fx(_observations: object, _local: str, _output: str, value: object, **_kwargs: object) -> SimpleNamespace:
+        rate = float("nan") if pd.Timestamp(value) == pd.Timestamp("2024-01-03T00:00:00Z") else 1.0
+        return SimpleNamespace(available=True, rate=rate)
+
+    monkeypatch.setattr(market_adjustments, "derive_fx_cross", derive_fx)
+    prices = pd.DataFrame(
+        [
+            {"date": pd.Timestamp("2024-01-01"), "etf_id": "AAA", "close": 100.0, "known_at": "2024-01-01T18:00:00Z"},
+            {"date": pd.Timestamp("2024-01-02"), "etf_id": "AAA", "close": 110.0, "known_at": "2024-01-02T18:00:00Z"},
+            {"date": pd.Timestamp("2024-01-03"), "etf_id": "AAA", "close": 120.0, "known_at": "2024-01-03T18:00:00Z"},
+        ]
+    )
+
+    result = ui_facade._load_market_series_projection(
+        prices,
+        "AAA",
+        basis="raw",
+        local_currency="EUR",
+        output_currency="USD",
+        storage_root=tmp_path,
+        decision_time="2024-01-04T00:00:00Z",
+    )
+
+    assert result["status"] == "unavailable"
+    assert result["reason_code"] == "required_total_return_input_missing"
