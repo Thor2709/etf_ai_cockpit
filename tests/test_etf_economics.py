@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date
 import hashlib
 import json
 from pathlib import Path
-import shutil
-import tempfile
-from uuid import uuid4
+from tempfile import TemporaryDirectory
 
 import pandas as pd
 import pytest
@@ -16,7 +13,6 @@ from etf_cockpit.app.pages.instrument_detail import _render_evidence_section, in
 from etf_cockpit.app.selectors.instrument_detail import build_etf_economics_panel, build_instrument_detail
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.config import load_config
-from etf_cockpit.core.types import DataQualityReport
 from etf_cockpit.data.etf_economics import (
     ClosureProxyPolicy,
     EtfEconomicsError,
@@ -37,7 +33,7 @@ from etf_cockpit.data.market_adjustments import (
 )
 from etf_cockpit.features.etf_economics import calculate_etf_liquidity
 import etf_cockpit.services as services
-from etf_cockpit.services import CockpitSnapshot, _empty_backtest_report
+from etf_cockpit.services import build_snapshot
 
 
 def _trusted_artifact_digest(path: Path) -> str:
@@ -144,21 +140,7 @@ def test_missing_quote_and_primary_market_evidence_remain_explicit() -> None:
 
 
 def test_instrument_detail_exposes_etf_liquidity_and_order_preview() -> None:
-    config = load_config()
-    empty = pd.DataFrame()
-    snapshot = CockpitSnapshot(
-        config=config,
-        prices=empty,
-        holdings=empty,
-        features=empty,
-        latest_features=empty,
-        data_report=DataQualityReport(as_of_date=date.today(), issues=[]),
-        signals=[],
-        forecasts=empty,
-        backtest=_empty_backtest_report("Instrument detail release checks do not require backtest data."),
-        model_status={},
-        model_inventory=[],
-    )
+    snapshot = build_snapshot()
     snapshot = replace(
         snapshot,
         etf_economics_records=(),
@@ -310,15 +292,8 @@ def _corporate_action_coverage(
         source_checksum="c" * 64,
         status=status,
     )
-    temporary_parent = Path(tempfile.gettempdir()) / "cases"
-    temporary_parent.mkdir(parents=True, exist_ok=True)
-    temporary_root = temporary_parent / f"etf-economics-{uuid4().hex}"
-    temporary_root.mkdir()
-    try:
-        with CorporateActionCoverageStore(temporary_root) as store:
-            return store.append(coverage)
-    finally:
-        shutil.rmtree(temporary_root)
+    with TemporaryDirectory() as directory, CorporateActionCoverageStore(Path(directory)) as store:
+        return store.append(coverage)
 
 
 def _replace_evidence(evidence: TotalReturnEvidence, frame: pd.DataFrame, **changes: object) -> TotalReturnEvidence:

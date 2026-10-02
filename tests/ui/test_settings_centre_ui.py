@@ -11,7 +11,7 @@ from etf_cockpit.app.pages.onboarding import onboarding_page
 from etf_cockpit.app.pages.settings import settings_page
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.types import DataQualityReport
-from etf_cockpit.services import CockpitSnapshot, _empty_backtest_report, load_config
+from etf_cockpit.services import CockpitSnapshot, _empty_backtest_report, build_snapshot, load_config
 
 
 def _walk(control):
@@ -45,7 +45,7 @@ def _metadata_snapshot() -> CockpitSnapshot:
 
 
 def test_settings_centre_exposes_staged_controls_without_plaintext_credentials() -> None:
-    snapshot = _metadata_snapshot()
+    snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     controls = list(_walk(settings_page(None, state)))
     by_key = {getattr(control, "key", None): control for control in controls if getattr(control, "key", None)}
@@ -116,7 +116,7 @@ def test_settings_centre_surfaces_unsupported_legacy_migration(tmp_path, monkeyp
             "third_party_notices": "unavailable",
         },
     )
-    snapshot = _metadata_snapshot()
+    snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
 
     controls = list(_walk(page_module.settings_page(None, state)))

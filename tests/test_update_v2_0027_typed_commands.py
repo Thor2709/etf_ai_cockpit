@@ -172,27 +172,25 @@ def test_dashboard_actions_execute_typed_commands_and_finish_with_handler_messag
 
     monkeypatch.setattr(state, action, method)
     execute = state.application_api.execute
+    completed = threading.Event()
+    started = threading.Event()
+    update = page.update
 
     def capture(command):
         assert isinstance(command, DashboardActionCommand)
         commands.append(command)
+        started.set()
         result = execute(command)
         results.append(result)
         return result
 
+    def signal_final_render() -> None:
+        update()
+        if started.is_set() and state.current_activity is None:
+            completed.set()
+
     monkeypatch.setattr(state.application_api, "execute", capture)
-    from etf_cockpit.app.pages import dashboard as dashboard_module
-
-    monkeypatch.setattr(dashboard_module, "_rebuild", lambda *_args: None)
-    completed = threading.Event()
-    release_activity = state.release_activity
-
-    def signal_activity_release(*args, **kwargs):
-        result = release_activity(*args, **kwargs)
-        completed.set()
-        return result
-
-    monkeypatch.setattr(state, "release_activity", signal_activity_release)
+    page.update = signal_final_render
     _click_action(page, state, control_key, location, monkeypatch, tmp_path, file_mode)
     _wait_for_activity(state, completed)
 
@@ -224,9 +222,8 @@ def test_dashboard_action_failures_return_command_errors_and_visible_failed_acti
     location,
     dataset_type,
     file_mode,
-    _action_snapshot,
 ) -> None:
-    state = _new_state(monkeypatch, tmp_path, _action_snapshot)
+    state = _new_state(monkeypatch, tmp_path)
     page = _Page()
     commands: list[DashboardActionCommand] = []
     results = []
@@ -246,20 +243,8 @@ def test_dashboard_action_failures_return_command_errors_and_visible_failed_acti
         return result
 
     monkeypatch.setattr(state.application_api, "execute", capture)
-    from etf_cockpit.app.pages import dashboard as dashboard_module
-
-    monkeypatch.setattr(dashboard_module, "_rebuild", lambda *_args: None)
-    completed = threading.Event()
-    release_activity = state.release_activity
-
-    def signal_activity_release(*args, **kwargs):
-        result = release_activity(*args, **kwargs)
-        completed.set()
-        return result
-
-    monkeypatch.setattr(state, "release_activity", signal_activity_release)
     _click_action(page, state, control_key, location, monkeypatch, tmp_path, file_mode)
-    _wait_for_activity(state, completed)
+    _wait_for_activity(state)
 
     assert len(commands) == 1
     assert commands[0].action == action
@@ -270,9 +255,9 @@ def test_dashboard_action_failures_return_command_errors_and_visible_failed_acti
 
 
 def test_replayed_dashboard_action_returns_stored_result_without_running_handler_twice(
-    monkeypatch, tmp_path, _action_snapshot
+    monkeypatch, tmp_path
 ) -> None:
-    state = _new_state(monkeypatch, tmp_path, _action_snapshot)
+    state = _new_state(monkeypatch, tmp_path)
     calls: list[str] = []
     monkeypatch.setattr(state, "run_algorithm_scores", lambda: calls.append("called") or "Scores complete.")
     command = DashboardActionCommand(
@@ -291,8 +276,8 @@ def test_replayed_dashboard_action_returns_stored_result_without_running_handler
     assert calls == ["called"]
 
 
-def test_retry_click_uses_a_fresh_dashboard_idempotency_key(monkeypatch, tmp_path, _action_snapshot) -> None:
-    state = _new_state(monkeypatch, tmp_path, _action_snapshot)
+def test_retry_click_uses_a_fresh_dashboard_idempotency_key(monkeypatch, tmp_path) -> None:
+    state = _new_state(monkeypatch, tmp_path)
     page = _Page()
     dashboard = build_shell(page, state, "/")
     controls = _controls_by_key(dashboard)
@@ -314,28 +299,15 @@ def test_retry_click_uses_a_fresh_dashboard_idempotency_key(monkeypatch, tmp_pat
 
     monkeypatch.setattr(state, "run_algorithm_scores", run_algorithms)
     monkeypatch.setattr(state.application_api, "execute", capture)
-    from etf_cockpit.app.pages import dashboard as dashboard_module
-
-    monkeypatch.setattr(dashboard_module, "_rebuild", lambda *_args: None)
-    completed = threading.Event()
-    release_activity = state.release_activity
-
-    def signal_activity_release(*args, **kwargs):
-        result = release_activity(*args, **kwargs)
-        completed.set()
-        return result
-
-    monkeypatch.setattr(state, "release_activity", signal_activity_release)
     controls["dashboard.run-algorithms"][0].on_click(SimpleNamespace(page=page))
-    _wait_for_activity(state, completed)
+    _wait_for_activity(state)
     first_activity = state.recent_activity[-1]
     assert first_activity.status == "failed"
 
     errors = state.error_store.recent(100)
     assert errors
-    completed.clear()
     assert state.error_store.retry_request(errors[0].error_id) == "Retry started."
-    _wait_for_activity(state, completed)
+    _wait_for_activity(state)
 
     assert attempts == 2
     assert len(commands) == 2

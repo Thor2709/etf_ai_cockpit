@@ -835,7 +835,7 @@ def test_audit_export_orders_unordered_canonical_news_and_fundamentals_before_ta
     monkeypatch.setattr(export_module, "CHATGPT_EXPORTS_DIR", tmp_path / "exports")
     monkeypatch.setattr(export_module, "NEWS_CONTEXT_PATH", news_path)
     monkeypatch.setattr(export_module, "FUNDAMENTAL_CLEAN_PATH", fundamentals_path)
-    state = _audit_test_state()
+    state = AppState.load()
 
     zip_path = export_module.export_review_pack(
         state.snapshot.config,
