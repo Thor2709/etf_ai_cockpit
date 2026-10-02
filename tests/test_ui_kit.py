@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import subprocess
 from pathlib import Path
 
 import flet as ft
@@ -81,15 +80,51 @@ def _assigned_names(source: str) -> set[str]:
     return names
 
 
+# Frozen from the UI-foundation base commit f4f44668; do not derive this from HEAD.
+_BASE_THEME_PUBLIC_NAMES = frozenset(
+    {
+        "ACTION_COLOURS",
+        "AMBER",
+        "APP_NAME",
+        "APP_TAGLINE",
+        "BG",
+        "BLUE_GREY",
+        "BORDER",
+        "CYAN",
+        "EVIDENCE_MODES",
+        "EVIDENCE_MODE_LABELS",
+        "FONT_LG",
+        "FONT_MD",
+        "FONT_SM",
+        "FONT_XL",
+        "FONT_XS",
+        "GREEN",
+        "LIGHT_GREEN",
+        "MUTED",
+        "PURPLE",
+        "RADIUS_LG",
+        "RADIUS_MD",
+        "RADIUS_SM",
+        "RED",
+        "SEVERITY_COLOURS",
+        "SPACE_1",
+        "SPACE_2",
+        "SPACE_3",
+        "SPACE_4",
+        "SPACE_5",
+        "SPACE_6",
+        "STATE_COLOURS",
+        "SURFACE",
+        "SURFACE_2",
+        "TEXT",
+    }
+)
+
+
 def test_theme_keeps_base_exports_and_adds_named_ui_tokens() -> None:
-    base_source = subprocess.check_output(
-        ["git", "show", "HEAD:src/etf_cockpit/app/theme.py"],
-        cwd=Path(__file__).resolve().parents[1],
-        text=True,
-    )
     current_source = Path(theme.__file__).read_text(encoding="utf-8")
 
-    assert _assigned_names(base_source) <= _assigned_names(current_source)
+    assert _BASE_THEME_PUBLIC_NAMES <= _assigned_names(current_source)
     assert {
         "GLASS_PANEL_GRADIENT",
         "RECESSED_WELL_GRADIENT",

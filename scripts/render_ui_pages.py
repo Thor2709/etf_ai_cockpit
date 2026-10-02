@@ -138,14 +138,22 @@ async def render_routes(
         png_name = f"{route_to_slug(route)}.png"
         png_path = out_dir / png_name
         try:
-            errors = await driver.capture(
-                f"{base_url.rstrip('/')}{route}",
-                png_path,
-                width=width,
-                height=height,
-                timeout_s=timeout_s,
-                settle_ms=settle_ms,
-            )
+            try:
+                errors = await asyncio.wait_for(
+                    driver.capture(
+                        f"{base_url.rstrip('/')}{route}",
+                        png_path,
+                        width=width,
+                        height=height,
+                        timeout_s=timeout_s,
+                        settle_ms=settle_ms,
+                    ),
+                    timeout=timeout_s,
+                )
+            except TimeoutError as exc:
+                if str(exc):
+                    raise
+                raise TimeoutError(f"Route capture exceeded {timeout_s:g} seconds.") from exc
             rows.append(_index_row(route, png_name, ok=True, error=None, console_errors=list(errors)))
         except Exception as exc:  # Each requested route must have an explicit result.
             rows.append(
@@ -162,8 +170,9 @@ async def render_routes(
 
 
 class DevToolsDriver:
-    def __init__(self, websocket: Any) -> None:
+    def __init__(self, websocket: Any, *, command_timeout_s: float = 60.0) -> None:
         self.websocket = websocket
+        self.command_timeout_s = command_timeout_s
         self._command_id = 0
         self.console_errors: list[str] = []
 
@@ -205,13 +214,16 @@ class DevToolsDriver:
 
         import websockets
 
-        websocket = await websockets.connect(
-            target["webSocketDebuggerUrl"],
-            origin=f"http://127.0.0.1:{debug_port}",
-            open_timeout=timeout_s,
-            max_size=None,
+        websocket = await asyncio.wait_for(
+            websockets.connect(
+                target["webSocketDebuggerUrl"],
+                origin=f"http://127.0.0.1:{debug_port}",
+                open_timeout=timeout_s,
+                max_size=None,
+            ),
+            timeout=timeout_s,
         )
-        driver = cls(websocket)
+        driver = cls(websocket, command_timeout_s=timeout_s)
         await driver.command("Page.enable")
         await driver.command("Runtime.enable")
         await driver.command("Log.enable")
@@ -244,11 +256,19 @@ class DevToolsDriver:
     async def command(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         self._command_id += 1
         command_id = self._command_id
-        await self.websocket.send(
-            json.dumps({"id": command_id, "method": method, "params": params or {}})
+        deadline = time.monotonic() + self.command_timeout_s
+        await asyncio.wait_for(
+            self.websocket.send(
+                json.dumps({"id": command_id, "method": method, "params": params or {}})
+            ),
+            timeout=self.command_timeout_s,
         )
         while True:
-            message = json.loads(await self.websocket.recv())
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"DevTools {method} did not respond within {self.command_timeout_s:g} seconds.")
+            raw = await asyncio.wait_for(self.websocket.recv(), timeout=remaining)
+            message = json.loads(raw)
             if message.get("id") == command_id:
                 if "error" in message:
                     raise RuntimeError(f"DevTools {method} failed: {message['error']}")

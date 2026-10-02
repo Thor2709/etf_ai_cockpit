@@ -113,3 +113,69 @@ def test_fake_render_writes_index_schema_for_success_and_failure(tmp_path: Path)
         "console_errors": ["console failure"],
     }
     assert (output / "home.png").read_bytes() == b"fake png"
+
+
+def test_devtools_command_times_out_when_socket_stays_open() -> None:
+    class UnresponsiveWebSocket:
+        async def send(self, _message: str) -> None:
+            return None
+
+        async def recv(self) -> str:
+            await asyncio.Event().wait()
+            raise AssertionError("unreachable")
+
+    driver = renderer.DevToolsDriver(UnresponsiveWebSocket(), command_timeout_s=0.01)
+
+    with pytest.raises(TimeoutError):
+        asyncio.run(driver.command("Page.navigate"))
+
+
+def test_route_timeout_writes_failure_and_harness_cleans_up_processes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class FakeProcess:
+        returncode = None
+        pid = 123
+
+    class UnresponsiveDriver:
+        console_errors: list[str] = ["before timeout"]
+        closed = False
+
+        async def capture(self, *_args: object, **_kwargs: object) -> list[str]:
+            await asyncio.Event().wait()
+            raise AssertionError("unreachable")
+
+        async def close(self) -> None:
+            self.closed = True
+
+    driver = UnresponsiveDriver()
+    stopped: list[FakeProcess] = []
+    ports = iter((8550, 8551))
+    monkeypatch.setattr(renderer, "free_local_port", lambda: next(ports))
+    monkeypatch.setattr(renderer.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(renderer.subprocess, "Popen", lambda *_args, **_kwargs: FakeProcess())
+    monkeypatch.setattr(renderer, "_wait_for_app", lambda *_args, **_kwargs: _ready())
+    monkeypatch.setattr(renderer, "_stop_process", stopped.append)
+
+    async def fake_connect(_cls: object, *_args: object, **_kwargs: object) -> UnresponsiveDriver:
+        return driver
+
+    monkeypatch.setattr(renderer.DevToolsDriver, "connect", classmethod(fake_connect))
+    args = renderer.build_parser().parse_args(
+        ["--routes", "/", "--out", str(tmp_path / "rendered"), "--settle-ms", "0", "--timeout-s", "0.01"]
+    )
+
+    result = asyncio.run(renderer.run_harness(args, tmp_path / "chromium"))
+
+    index = json.loads((tmp_path / "rendered" / "index.json").read_text(encoding="utf-8"))
+    assert result == 1
+    assert index[0]["ok"] is False
+    assert index[0]["error"] == "TimeoutError: Route capture exceeded 0.01 seconds."
+    assert index[0]["console_errors"] == ["before timeout"]
+    assert driver.closed is True
+    assert len(stopped) == 2
+
+
+async def _ready() -> None:
+    return None
