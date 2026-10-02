@@ -42,6 +42,7 @@ def build_macro_context(
     benchmark_data_id: str | None = None,
     benchmark_reference: Mapping[str, object] | None = None,
     benchmark_registry: CanonicalBenchmarkRegistry | None = None,
+    as_of_date: date | None = None,
 ) -> dict[str, object]:
     """Build a local macro context snapshot without network access.
 
@@ -68,11 +69,37 @@ def build_macro_context(
     if "is_adjusted" in prices.columns and not prices["is_adjusted"].fillna(False).astype(bool).all():
         return _unavailable("The local price snapshot contains a non-adjusted price series.")
 
-    frame = prices.loc[:, ["date", "etf_id", "adjusted_close"]].copy()
+    price_columns = ["date", "etf_id", "adjusted_close"]
+    if "known_at" in prices.columns:
+        price_columns.append("known_at")
+    frame = prices.loc[:, price_columns].copy()
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce", utc=True)
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
+    if "known_at" in frame.columns:
+        frame["known_at"] = pd.to_datetime(frame["known_at"], errors="coerce", utc=True)
     frame["etf_id"] = frame["etf_id"].astype(str).str.strip()
-    frame = frame.dropna(subset=["date", "adjusted_close"])
+    required_timestamps = ["date", "adjusted_close"]
+    if "known_at" in frame.columns:
+        required_timestamps.append("known_at")
+    frame = frame.dropna(subset=required_timestamps)
+    decision_time = None
+    if isinstance(benchmark_reference, Mapping):
+        analysis = benchmark_reference.get("analysis")
+        if isinstance(analysis, Mapping):
+            parsed_decision_time = pd.to_datetime(analysis.get("decision_time"), errors="coerce", utc=True)
+            if not pd.isna(parsed_decision_time):
+                decision_time = parsed_decision_time
+    freshness_as_of = as_of_date or (decision_time.date() if decision_time is not None else None)
+    evaluation_cutoff = None
+    if as_of_date is not None:
+        evaluation_cutoff = pd.Timestamp(as_of_date, tz="UTC") + pd.Timedelta(days=1)
+    observation_cutoff = decision_time
+    if evaluation_cutoff is not None:
+        observation_cutoff = evaluation_cutoff if observation_cutoff is None else min(observation_cutoff, evaluation_cutoff)
+    if observation_cutoff is not None:
+        frame = frame[frame["date"] < observation_cutoff]
+        if "known_at" in frame.columns:
+            frame = frame[frame["known_at"] < observation_cutoff]
     frame = frame[(frame["etf_id"] != "") & (frame["adjusted_close"] > 0)]
     if frame.empty:
         return _unavailable("The local price snapshot has no usable adjusted-close rows.")
@@ -90,9 +117,9 @@ def build_macro_context(
     latest_day = filled.iloc[-1]
     returns = filled.pct_change(fill_method=None)
     metadata = _metadata_by_id(instruments)
-    proxy_rows = [_proxy_summary(name, pivot, returns, metadata) for name in _PROXY_KEYWORDS]
-    breadth = _breadth_summary(pivot)
-    volatility = _volatility_summary(returns)
+    proxy_rows = [_proxy_summary(name, pivot, returns, metadata, freshness_as_of) for name in _PROXY_KEYWORDS]
+    breadth = _breadth_summary(pivot, freshness_as_of)
+    volatility = _volatility_summary(returns, freshness_as_of)
     regime_frame = filled.rename_axis("date").stack(future_stack=True).rename("adjusted_close").reset_index()
     regime_frame.columns = ["date", "etf_id", "adjusted_close"]
     regime = build_market_regime(
@@ -103,17 +130,17 @@ def build_macro_context(
         benchmark_reference=benchmark_reference,
         benchmark_registry=benchmark_registry,
     )
-    freshness_days = max(0, (date.today() - latest_date.date()).days)
+    freshness_days = None if freshness_as_of is None else (freshness_as_of - latest_date.date()).days
     dashboard_label = _dashboard_label(regime.get("regime_score_10"))
 
     return {
         "status": "available_with_gaps" if any(row["status"] != "available" for row in proxy_rows) else "available",
         "as_of": latest_date.date().isoformat(),
         "freshness_days": freshness_days,
-        "freshness_status": "fresh" if freshness_days <= 7 else "stale",
+        "freshness_status": "unavailable" if freshness_days is None else "fresh" if freshness_days <= 7 else "stale",
         "provenance": "local adjusted_close price snapshot",
         "proxy_rows": proxy_rows,
-        "inflation_rates": _macro_observation_summary(observations, decision_time=latest_date),
+        "inflation_rates": _macro_observation_summary(observations, decision_time=observation_cutoff),
         "breadth": breadth,
         "volatility": volatility,
         "regime": {
@@ -160,7 +187,13 @@ def _metadata_by_id(instruments: Iterable[object]) -> dict[str, dict[str, str]]:
     return result
 
 
-def _proxy_summary(name: str, pivot: pd.DataFrame, returns: pd.DataFrame, metadata: dict[str, dict[str, str]]) -> dict[str, object]:
+def _proxy_summary(
+    name: str,
+    pivot: pd.DataFrame,
+    returns: pd.DataFrame,
+    metadata: dict[str, dict[str, str]],
+    freshness_as_of: date | None,
+) -> dict[str, object]:
     candidates: list[str] = []
     for identifier in pivot.columns:
         if metadata and str(identifier) not in metadata:
@@ -197,11 +230,11 @@ def _proxy_summary(name: str, pivot: pd.DataFrame, returns: pd.DataFrame, metada
         "source": "local adjusted_close price snapshot",
         "provider_symbol": None,
         "provenance": "local adjusted_close price snapshot",
-        "freshness_status": "fresh" if (date.today() - sample.index.max().date()).days <= 7 else "stale",
+        "freshness_status": "unavailable" if freshness_as_of is None else "fresh" if (freshness_as_of - sample.index.max().date()).days <= 7 else "stale",
     }
 
 
-def _breadth_summary(pivot: pd.DataFrame) -> dict[str, object]:
+def _breadth_summary(pivot: pd.DataFrame, freshness_as_of: date | None) -> dict[str, object]:
     if len(pivot) < 200:
         return {"status": "unavailable", "reason": "At least 200 local trading days are required.", "pct_above_sma200": None, "source": "local adjusted_close price snapshot", "freshness_status": "unavailable"}
     filled = pivot.ffill(limit=5)
@@ -217,11 +250,11 @@ def _breadth_summary(pivot: pd.DataFrame) -> dict[str, object]:
         "as_of": as_of.isoformat(),
         "source": "local adjusted_close price snapshot",
         "provenance": "local adjusted_close price snapshot",
-        "freshness_status": "fresh" if (date.today() - as_of).days <= 7 else "stale",
+        "freshness_status": "unavailable" if freshness_as_of is None else "fresh" if (freshness_as_of - as_of).days <= 7 else "stale",
     }
 
 
-def _volatility_summary(returns: pd.DataFrame) -> dict[str, object]:
+def _volatility_summary(returns: pd.DataFrame, freshness_as_of: date | None) -> dict[str, object]:
     sample = returns.tail(20)
     values = sample.std(skipna=True).dropna() * (252**0.5)
     return {
@@ -232,7 +265,7 @@ def _volatility_summary(returns: pd.DataFrame) -> dict[str, object]:
         "as_of": returns.index.max().date().isoformat() if not returns.empty else None,
         "source": "local adjusted_close price snapshot",
         "provenance": "local adjusted_close price snapshot",
-        "freshness_status": "fresh" if not returns.empty and (date.today() - returns.index.max().date()).days <= 7 else "stale" if not returns.empty else "unavailable",
+        "freshness_status": "unavailable" if freshness_as_of is None or returns.empty else "fresh" if (freshness_as_of - returns.index.max().date()).days <= 7 else "stale",
     }
 
 
@@ -310,7 +343,9 @@ def _dashboard_label(score: object) -> str:
     return "stressed"
 
 
-def _macro_observation_summary(observations: Iterable[object], *, decision_time: pd.Timestamp) -> dict[str, object]:
+def _macro_observation_summary(observations: Iterable[object], *, decision_time: pd.Timestamp | None) -> dict[str, object]:
+    if decision_time is None:
+        return {"status": "unavailable", "rows": [], "reason": "Evaluation decision time is unavailable."}
     rows: list[dict[str, object]] = []
     for observation in observations:
         if hasattr(observation, "model_dump"):
@@ -320,7 +355,13 @@ def _macro_observation_summary(observations: Iterable[object], *, decision_time:
         else:
             raw = {name: getattr(observation, name, None) for name in ("series_id", "value", "unit", "source_id", "available_at", "observed_at")}
         available_at = pd.to_datetime(raw.get("available_at"), errors="coerce", utc=True)
-        if pd.isna(available_at) or available_at > decision_time:
+        observed_at = pd.to_datetime(raw.get("observed_at"), errors="coerce", utc=True)
+        if (
+            pd.isna(available_at)
+            or pd.isna(observed_at)
+            or available_at >= decision_time
+            or observed_at >= decision_time
+        ):
             continue
         if str(raw.get("timezone_confidence") or "unknown").lower() not in {"exact", "assumed"}:
             continue

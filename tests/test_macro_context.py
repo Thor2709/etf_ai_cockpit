@@ -80,7 +80,7 @@ def test_macro_context_excludes_a_proxy_after_the_fill_bound() -> None:
     prices = _prices()
     prices = prices[~((prices["etf_id"] == "GOLD") & (prices["date"] > pd.Timestamp("2024-11-01")))]
 
-    report = build_macro_context(prices, _instruments())
+    report = build_macro_context(prices, _instruments(), as_of_date=prices["date"].max().date())
 
     gold = next(row for row in report["proxy_rows"] if row["proxy"] == "gold_defensive")
     assert gold["freshness_status"] == "stale"
