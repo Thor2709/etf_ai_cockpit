@@ -28,3 +28,5 @@ tests/fixtures/euronext_oslo_sample.csv -text
 # keep blob bytes on every platform and allow the CR in whitespace checks.
 docs/architecture/application-api-schema.json -text whitespace=cr-at-eol
 docs/architecture/application-api.md -text whitespace=cr-at-eol
+# Generated with LF by scripts/generate_data_dictionary.py and byte-compared by its --check.
+docs/reference/data-dictionary.md text eol=lf
