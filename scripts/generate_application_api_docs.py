@@ -11,9 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from etf_cockpit.application import contracts
 
 
-def generate(root: Path) -> tuple[Path, Path]:
+def _render(root: Path) -> tuple[tuple[Path, bytes], tuple[Path, bytes]]:
     destination = root / "docs" / "architecture"
-    destination.mkdir(parents=True, exist_ok=True)
     names = [
         "ApiStatus",
         "CancelWorkflowCommand",
@@ -60,8 +59,9 @@ def generate(root: Path) -> tuple[Path, Path]:
     schema_path = destination / "application-api-schema.json"
     # Keep generated artefacts byte-stable with the repository's Windows checkout
     # convention, independent of the platform running the generator.
-    with schema_path.open("w", encoding="utf-8", newline="\r\n") as handle:
-        handle.write(json.dumps(schema, indent=2, sort_keys=True) + "\n")
+    schema_bytes = (json.dumps(schema, indent=2, sort_keys=True) + "\n").replace(
+        "\n", "\r\n"
+    ).encode("utf-8")
     lines = [
         "# Local application API",
         "",
@@ -85,18 +85,66 @@ def generate(root: Path) -> tuple[Path, Path]:
         "",
     ]
     guide_path = destination / "application-api.md"
-    with guide_path.open("w", encoding="utf-8", newline="\r\n") as handle:
-        handle.write("\n".join(lines))
-    return schema_path, guide_path
+    guide_bytes = "\n".join(lines).replace("\n", "\r\n").encode("utf-8")
+    return (schema_path, schema_bytes), (guide_path, guide_bytes)
+
+
+def generate(root: Path) -> tuple[Path, Path]:
+    rendered = _render(root)
+    for path, content in rendered:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        print(f"WROTE: {path}")
+    return rendered[0][0], rendered[1][0]
+
+
+def check(root: Path) -> bool:
+    clean = True
+    for path, expected in _render(root):
+        try:
+            actual = path.read_bytes()
+        except FileNotFoundError:
+            actual = b""
+        if actual != expected:
+            clean = False
+            expected_lines = expected.splitlines()
+            actual_lines = actual.splitlines()
+            first_difference = next(
+                (
+                    index
+                    for index, (expected_line, actual_line) in enumerate(
+                        zip(expected_lines, actual_lines), start=1
+                    )
+                    if expected_line != actual_line
+                ),
+                min(len(expected_lines), len(actual_lines)) + 1,
+            )
+            expected_line = (
+                expected_lines[first_difference - 1].decode("utf-8", errors="replace")
+                if first_difference <= len(expected_lines)
+                else "<end of generated file>"
+            )
+            actual_line = (
+                actual_lines[first_difference - 1].decode("utf-8", errors="replace")
+                if first_difference <= len(actual_lines)
+                else "<end of file>"
+            )
+            print(f"STALE: {path}")
+            print(f"first differing line {first_difference}: expected: {expected_line}")
+            print(f"actual: {actual_line}")
+    if clean:
+        print("OK: application API documentation is up to date")
+    return clean
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=Path("."))
+    parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    schema_path, guide_path = generate(args.root.resolve())
-    print(f"WROTE: {schema_path}")
-    print(f"WROTE: {guide_path}")
+    if args.check:
+        return 0 if check(args.root.resolve()) else 1
+    generate(args.root.resolve())
     return 0
 
 
