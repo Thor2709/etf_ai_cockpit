@@ -1150,6 +1150,8 @@ def _service_evidence(
         if len(correlation_ids) < 2:
             raise ValueError("at least two invested target instruments with usable adjusted returns are required")
         matrix = return_correlation_matrix(prices, correlation_ids, window=CORRELATION_WINDOW)
+        if matrix.attrs.get("status") != "available":
+            raise ValueError("canonical correlation service evidence is unavailable")
         if matrix.empty or matrix.isna().to_numpy().any():
             raise ValueError("canonical correlation service reported insufficient joint adjusted returns")
         evidence["correlation"] = _add_missing_price_evidence(
@@ -1158,7 +1160,7 @@ def _service_evidence(
                 "model_id": "risk_analytics.return_correlation_matrix",
                 "window": CORRELATION_WINDOW,
                 "matrix": _projection_value(matrix),
-                "limitations": ["Log-return correlation over the latest joint observations; zero-variance instruments are reported as 0 by the canonical service."],
+                "limitations": ["Log-return correlation over the latest joint observations; non-finite or excluded correlations make this evidence unavailable."],
                 "execution_allowed": False,
             },
             missing_target_ids,

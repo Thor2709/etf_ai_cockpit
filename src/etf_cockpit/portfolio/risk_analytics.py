@@ -41,11 +41,15 @@ def exposure_limit_report(config: AppConfig, allocation: pd.DataFrame) -> pd.Dat
 
 def return_correlation_matrix(prices: pd.DataFrame, etf_ids: list[str] | None = None, *, window: int = 120) -> pd.DataFrame:
     if prices.empty:
-        return pd.DataFrame()
-    frame = prices.copy()
-    frame["date"] = pd.to_datetime(frame["date"])
-    pivot = frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index().dropna(how="all")
-    columns = list(etf_ids or list(pivot.columns))
+        columns = list(etf_ids or [])
+        if not columns:
+            return pd.DataFrame()
+        pivot = pd.DataFrame(columns=columns, dtype=float)
+    else:
+        frame = prices.copy()
+        frame["date"] = pd.to_datetime(frame["date"])
+        pivot = frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index().dropna(how="all")
+        columns = list(etf_ids or list(pivot.columns))
     if not columns:
         return pd.DataFrame()
     missing_assets = [
@@ -53,41 +57,58 @@ def return_correlation_matrix(prices: pd.DataFrame, etf_ids: list[str] | None = 
         for column in columns
         if column not in pivot.columns or int(pivot[column].notna().sum()) < 2
     ]
-    if missing_assets:
+    excluded_assets = {
+        str(asset_id): "requested_asset_price_history_unavailable"
+        for asset_id in missing_assets
+    }
+    usable_columns = [column for column in columns if column not in missing_assets]
+    if len(usable_columns) < 2:
         unavailable = pd.DataFrame(index=columns, columns=columns, dtype=float)
         unavailable.attrs.update(
             status="unavailable",
             reason_code="requested_asset_prices_unavailable",
-            excluded_assets={
-                str(asset_id): "requested_asset_price_history_unavailable"
-                for asset_id in missing_assets
-            },
+            excluded_assets=excluded_assets,
         )
         return unavailable
-    pivot = pivot[columns].dropna()
+    pivot = pivot[usable_columns].dropna()
     if len(pivot) < 3:
-        result = pd.DataFrame(index=columns, columns=columns, dtype=float)
+        result = pd.DataFrame(index=usable_columns, columns=usable_columns, dtype=float)
         result.attrs.update(status="unavailable", reason_code="shared_return_history_unavailable")
+        if excluded_assets:
+            result.attrs["excluded_assets"] = excluded_assets
         return result
     returns = np.log(pivot / pivot.shift(1)).dropna()
     if window > 0:
         returns = returns.tail(window)
     if returns.empty:
-        result = pd.DataFrame(index=columns, columns=columns, dtype=float)
+        result = pd.DataFrame(index=usable_columns, columns=usable_columns, dtype=float)
         result.attrs.update(status="unavailable", reason_code="shared_return_history_unavailable")
+        if excluded_assets:
+            result.attrs["excluded_assets"] = excluded_assets
         return result
-    correlation = returns.corr().reindex(index=columns, columns=columns)
+    correlation = returns.corr().reindex(index=usable_columns, columns=usable_columns)
     values = correlation.to_numpy(float)
     if not np.isfinite(values).all():
-        unavailable = pd.DataFrame(index=columns, columns=columns, dtype=float)
+        unavailable = pd.DataFrame(index=usable_columns, columns=usable_columns, dtype=float)
         unavailable.attrs.update(status="unavailable", reason_code="correlation_inputs_incomplete")
+        if excluded_assets:
+            unavailable.attrs["excluded_assets"] = excluded_assets
         return unavailable
     eigenvalues = np.linalg.eigvalsh((values + values.T) / 2.0)
     if float(eigenvalues.min()) < -1e-10:
-        unavailable = pd.DataFrame(index=columns, columns=columns, dtype=float)
+        unavailable = pd.DataFrame(index=usable_columns, columns=usable_columns, dtype=float)
         unavailable.attrs.update(status="unavailable", reason_code="correlation_matrix_not_psd")
+        if excluded_assets:
+            unavailable.attrs["excluded_assets"] = excluded_assets
         return unavailable
-    correlation.attrs.update(status="available")
+    if excluded_assets:
+        correlation.attrs.update(
+            status="partial",
+            reason_code="requested_asset_prices_unavailable",
+            excluded_assets=excluded_assets,
+        )
+    else:
+        correlation.attrs.update(status="available")
     return correlation
 
 

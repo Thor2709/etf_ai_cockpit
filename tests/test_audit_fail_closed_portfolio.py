@@ -5,6 +5,8 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.analysis.sparebank.bank_economics import credit_reconciliation
+from etf_cockpit.application import portfolio_sandbox as sandbox_store
+from etf_cockpit.application.portfolio_sandbox import analyse_portfolio_candidate
 from etf_cockpit.backtest.engine import run_backtest
 from etf_cockpit.core.config import load_config
 from etf_cockpit.data.capital_efficiency import capital_efficiency_analysis
@@ -23,6 +25,8 @@ from etf_cockpit.portfolio.risk_analytics import (
     return_correlation_matrix,
 )
 from test_factor_risk import _fixture as factor_fixture
+from test_portfolio_sandbox import _candidate as _sandbox_candidate
+from test_portfolio_sandbox import _snapshot as _sandbox_snapshot
 from test_stock_research import _statements
 
 
@@ -100,7 +104,24 @@ def test_correlation_matrix_rejects_non_overlapping_histories() -> None:
     assert correlation.attrs["reason_code"] == "shared_return_history_unavailable"
 
 
-def test_correlation_matrix_rejects_and_identifies_requested_asset_without_prices() -> None:
+def test_correlation_matrix_excludes_requested_asset_without_prices() -> None:
+    prices = _common_prices(("A", "B"))
+
+    correlation = return_correlation_matrix(prices, ["A", "B", "C"])
+    expected = return_correlation_matrix(prices, ["A", "B"])
+
+    assert list(correlation.index) == ["A", "B"]
+    assert list(correlation.columns) == ["A", "B"]
+    assert not correlation.isna().to_numpy().any()
+    assert np.allclose(correlation.to_numpy(), expected.to_numpy())
+    assert correlation.attrs["status"] == "partial"
+    assert correlation.attrs["reason_code"] == "requested_asset_prices_unavailable"
+    assert correlation.attrs["excluded_assets"] == {
+        "C": "requested_asset_price_history_unavailable"
+    }
+
+
+def test_correlation_matrix_is_unavailable_with_fewer_than_two_priced_requested_assets() -> None:
     prices = _common_prices(("A",))
 
     correlation = return_correlation_matrix(prices, ["A", "B"])
@@ -112,6 +133,24 @@ def test_correlation_matrix_rejects_and_identifies_requested_asset_without_price
     assert correlation.attrs["excluded_assets"] == {
         "B": "requested_asset_price_history_unavailable"
     }
+
+
+def test_sandbox_correlation_rejects_non_available_canonical_status(monkeypatch) -> None:
+    snapshot = _sandbox_snapshot()
+    snapshot.prices = _common_prices(("VWCE", "LYP6"))
+    partial_matrix = pd.DataFrame(
+        [[1.0, 0.25], [0.25, 1.0]],
+        index=["LYP6", "VWCE"],
+        columns=["LYP6", "VWCE"],
+    )
+    partial_matrix.attrs.update(status="partial", reason_code="requested_asset_prices_unavailable")
+    monkeypatch.setattr(sandbox_store, "return_correlation_matrix", lambda *_args, **_kwargs: partial_matrix)
+
+    analysis = analyse_portfolio_candidate(snapshot, _sandbox_candidate(snapshot))
+    correlation = analysis.service_evidence["correlation"]
+
+    assert correlation["status"] == "unavailable"
+    assert "matrix" not in correlation
 
 
 def test_drawdown_contribution_keeps_missing_risk_unavailable() -> None:
