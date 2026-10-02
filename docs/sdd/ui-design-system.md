@@ -1,6 +1,6 @@
 # Flet UI design system
 
-This foundation implements the shared visual language from reference theme 25, “Aurelian Clear 3.” Existing pages continue to use their current controls until the shell and page update work is scheduled.
+This foundation implements the shared visual language from reference theme 25, “Aurelian Clear 3.” Existing pages continue to use their current controls inside the new glass content area until their page update work is scheduled.
 
 ## Tokens
 
@@ -21,11 +21,17 @@ Import from `etf_cockpit.app.components.kit` or `etf_cockpit.app.components`:
 
 Every factory accepts a stable `key`; the returned control has a tooltip that names its content or action. Status tags always display their text in addition to colour. Interactive factories accept callbacks so a page can own state and action behavior.
 
+## App shell
+
+The shell uses a left dock with nine workspaces, a page title and subtitle, the command palette, active-workspace route segments, and a compact global as-of bar. The footer safety rail stays visible on every route and displays data quality, available as-of time and forecast source, the adjusted price basis, and the locked execution state. Missing values display `Unavailable` with a tooltip explaining which state value is absent. The as-of date is read from the snapshot's data-quality report.
+
+The nine procedural dock icons are package assets under `etf_cockpit.app/assets/icons`; the shell loads them through `importlib.resources` and renders embedded base64 data so the same controls work in web and desktop views. The backdrop uses the kit's optional local `<DATA_DIR>/ui/backdrop.jpg`; without that user-provided image it falls back to the existing deterministic navy-to-teal gradient. No reference photo or font asset is bundled.
+
 ## Flet rendering notes
 
 Flet 0.85.3 `Container.blur` blurs content behind the container. The local backdrop image is softened by a transparent blur layer above the image, while the gradient fallback needs no blur. Glass and selected controls use Flet linear gradients and rounded borders.
 
-Flet `BoxShadow` has no inset mode. Recessed wells therefore use a darker gradient, an inner hairline border, and a restrained outer shadow. Raised/selected controls use a top border highlight and an offset outer shadow to approximate the CSS inset highlight and hard lower edge. No dependency, image, or font asset is added.
+Flet `BoxShadow` has no inset mode. Recessed wells therefore use a darker gradient, an inner hairline border, and a restrained outer shadow. Raised/selected controls use a top border highlight and an offset outer shadow to approximate the CSS inset highlight and hard lower edge. No dependency or font asset is added; the nine reference dock icons are bundled as package data.
 
 ## Headless route renderer
 
