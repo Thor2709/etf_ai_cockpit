@@ -219,11 +219,18 @@ def build_rebalance_report(
         warnings.append("bond_position_quantity_unavailable")
     if tax_lots is None or tax_lots.empty:
         warnings.append("tax_lots_unavailable")
+    tax_lot_gains_unavailable = any(
+        item.status == "deferred_tax_lot_gains_unavailable"
+        for alternative in (full, partial, deferred, no_trade)
+        for item in alternative.trades
+    )
+    if tax_lot_gains_unavailable:
+        warnings.append("tax_lot_gains_unavailable")
     if limits.restricted_positions:
         warnings.append("restricted_positions_are_not_traded")
     if not full.feasible:
         warnings.append("full_alternative_exceeds_cash_or_settlement_buffer")
-    tax_status = "informational_only" if limits.tax_jurisdiction else "unavailable"
+    tax_status = "unavailable" if tax_lot_gains_unavailable or not limits.tax_jurisdiction else "informational_only"
     jurisdiction = str(limits.tax_jurisdiction or "not_provided")
     assumptions: dict[str, object] = {
         "cash_buffer_weight": round(float(limits.cash_buffer_weight), 8),
@@ -314,8 +321,16 @@ def _alternative(
         if price is not None and abs(requested_value) > REBALANCE_TOLERANCE and quantity == 0:
             status = "deferred_below_lot"
             desired_value = 0.0
-        cost = estimate_execution_cost(config, instrument_id, abs(desired_value))
         tax = _tax_estimate(tax_lots, instrument_id, desired_value, constraints)
+        if tax is None:
+            # The sale is deferred, so zero tax here is the cost of no trade, not an estimate of unknown gains.
+            desired_value = 0.0
+            quantity = 0.0 if quantity is not None else None
+            action = "hold"
+            status = "deferred_tax_lot_gains_unavailable"
+            assumptions.append("tax_lot_gains_unavailable")
+            tax = 0.0
+        cost = estimate_execution_cost(config, instrument_id, abs(desired_value))
         rows.append(
             RebalanceTrade(
                 instrument_id=instrument_id,
@@ -584,16 +599,20 @@ def _requires_bond_face_terms(state: Mapping[str, object]) -> bool:
     )
 
 
-def _tax_estimate(tax_lots: pd.DataFrame | None, instrument_id: str, trade_value: float, constraints: RebalanceConstraints) -> float:
-    if tax_lots is None or tax_lots.empty or constraints.tax_rate is None or trade_value >= 0:
+def _tax_estimate(tax_lots: pd.DataFrame | None, instrument_id: str, trade_value: float, constraints: RebalanceConstraints) -> float | None:
+    if constraints.tax_rate is None or trade_value >= 0:
         return 0.0
+    if tax_lots is None or tax_lots.empty:
+        return None
     identifier_column = "instrument_id" if "instrument_id" in tax_lots.columns else "etf_id" if "etf_id" in tax_lots.columns else None
     if identifier_column is None:
-        return 0.0
+        return None
     matches = tax_lots.loc[tax_lots[identifier_column].astype(str) == instrument_id]
     if matches.empty or "unrealised_gain_eur" not in matches.columns:
-        return 0.0
-    gains = pd.to_numeric(matches["unrealised_gain_eur"], errors="coerce").fillna(0.0)
+        return None
+    gains = pd.to_numeric(matches["unrealised_gain_eur"], errors="coerce")
+    if gains.isna().any():
+        return None
     lot_value = pd.to_numeric(matches.get("market_value_eur", pd.Series(0.0, index=matches.index)), errors="coerce").fillna(0.0)
     covered_fraction = min(1.0, abs(trade_value) / float(lot_value.sum())) if float(lot_value.sum()) > 0 else 1.0
     return max(0.0, float(gains.sum())) * covered_fraction * float(constraints.tax_rate)

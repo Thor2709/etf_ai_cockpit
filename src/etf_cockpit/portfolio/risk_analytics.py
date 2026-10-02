@@ -50,17 +50,29 @@ def return_correlation_matrix(prices: pd.DataFrame, etf_ids: list[str] | None = 
         return pd.DataFrame()
     pivot = pivot[columns].dropna()
     if len(pivot) < 3:
-        return pd.DataFrame(index=columns, columns=columns, dtype=float)
+        result = pd.DataFrame(index=columns, columns=columns, dtype=float)
+        result.attrs.update(status="unavailable", reason_code="shared_return_history_unavailable")
+        return result
     returns = np.log(pivot / pivot.shift(1)).dropna()
     if window > 0:
         returns = returns.tail(window)
     if returns.empty:
-        return pd.DataFrame(index=columns, columns=columns, dtype=float)
+        result = pd.DataFrame(index=columns, columns=columns, dtype=float)
+        result.attrs.update(status="unavailable", reason_code="shared_return_history_unavailable")
+        return result
     correlation = returns.corr().reindex(index=columns, columns=columns)
-    for etf_id in columns:
-        if etf_id in correlation.index and etf_id in correlation.columns:
-            correlation.loc[etf_id, etf_id] = 1.0
-    return correlation.fillna(0.0)
+    values = correlation.to_numpy(float)
+    if not np.isfinite(values).all():
+        unavailable = pd.DataFrame(index=columns, columns=columns, dtype=float)
+        unavailable.attrs.update(status="unavailable", reason_code="correlation_inputs_incomplete")
+        return unavailable
+    eigenvalues = np.linalg.eigvalsh((values + values.T) / 2.0)
+    if float(eigenvalues.min()) < -1e-10:
+        unavailable = pd.DataFrame(index=columns, columns=columns, dtype=float)
+        unavailable.attrs.update(status="unavailable", reason_code="correlation_matrix_not_psd")
+        return unavailable
+    correlation.attrs.update(status="available")
+    return correlation
 
 
 def drawdown_contribution(allocation: pd.DataFrame, latest_features: pd.DataFrame) -> pd.DataFrame:
@@ -68,13 +80,19 @@ def drawdown_contribution(allocation: pd.DataFrame, latest_features: pd.DataFram
         return pd.DataFrame(columns=["etf_id", "current_weight", "drawdown_current", "drawdown_contribution", "risk_share"])
     metrics = latest_features[["etf_id", "drawdown_current", "drawdown_60d_max", "vol_60d_ann"]].copy()
     merged = allocation.merge(metrics, on="etf_id", how="left")
-    merged["drawdown_current"] = pd.to_numeric(merged["drawdown_current"], errors="coerce").fillna(0.0)
-    merged["drawdown_60d_max"] = pd.to_numeric(merged["drawdown_60d_max"], errors="coerce").fillna(0.0)
-    merged["vol_60d_ann"] = pd.to_numeric(merged["vol_60d_ann"], errors="coerce").fillna(0.0)
+    metric_columns = ["drawdown_current", "drawdown_60d_max", "vol_60d_ann"]
+    for column in metric_columns:
+        merged[column] = pd.to_numeric(merged[column], errors="coerce")
+    if merged[metric_columns].isna().to_numpy().any() or not np.isfinite(merged[metric_columns].to_numpy(float)).all():
+        merged["drawdown_contribution"] = np.nan
+        merged["risk_share"] = np.nan
+        result = merged[["etf_id", "name", "current_weight", *metric_columns, "drawdown_contribution", "risk_share"]].sort_values("risk_share", ascending=False).reset_index(drop=True)
+        result.attrs.update(status="unavailable", reason_code="drawdown_or_volatility_unavailable")
+        return result
     merged["drawdown_contribution"] = merged["current_weight"].astype(float) * merged["drawdown_current"].astype(float)
     absolute = merged["drawdown_contribution"].abs()
     denominator = float(absolute.sum())
-    merged["risk_share"] = absolute / denominator if denominator > 0 else 0.0
+    merged["risk_share"] = absolute / denominator if denominator > 0 else np.nan
     columns = [
         "etf_id",
         "name",
@@ -85,7 +103,9 @@ def drawdown_contribution(allocation: pd.DataFrame, latest_features: pd.DataFram
         "drawdown_contribution",
         "risk_share",
     ]
-    return merged[columns].sort_values("risk_share", ascending=False).reset_index(drop=True)
+    result = merged[columns].sort_values("risk_share", ascending=False).reset_index(drop=True)
+    result.attrs.update(status="available" if denominator > 0 else "unavailable", reason_code=None if denominator > 0 else "zero_drawdown_contribution")
+    return result
 
 
 def underlying_holdings_exposure(allocation: pd.DataFrame, etf_holdings: pd.DataFrame, dimension: str) -> pd.DataFrame:
