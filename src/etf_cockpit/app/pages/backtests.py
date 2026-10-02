@@ -7,7 +7,7 @@ import flet as ft
 import pandas as pd
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import metric_card, panel, section_header
+from etf_cockpit.app.pages._lab_style import metric_card, panel, section_header
 from etf_cockpit.app.components.charts import equity_drawdown_chart, history_chart
 from etf_cockpit.app.components.tables import accessible_table
 from etf_cockpit.app.selectors.instrument_detail import (

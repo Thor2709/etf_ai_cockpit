@@ -4,7 +4,7 @@ import flet as ft
 import pandas as pd
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import metric_card, panel, section_header
+from etf_cockpit.app.pages._lab_style import metric_card, model_status_row, panel, section_header
 from etf_cockpit.app.pages.dashboard import _run_action
 from etf_cockpit.app.state import AppState
 from etf_cockpit.features.forecast_lab import build_forecast_lab_workspace
@@ -94,6 +94,7 @@ def forecast_lab_page(page: ft.Page, state: AppState) -> ft.Control:
                                     selectable=True,
                                 ),
                                 ft.Text(f"Cached model status: {available_models}", color=theme.MUTED, selectable=True),
+                                model_status_row(state.snapshot.model_status, key_prefix="forecast-lab.model-status"),
                                 ft.Text("Promotion: shadow_only; execution_allowed=false", color=theme.MUTED, selectable=True),
                                 ft.Text("Conformal intervals are diagnostic until minimum prior matured samples exist.", color=theme.MUTED, selectable=True),
                                 ft.Text(
