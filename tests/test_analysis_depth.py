@@ -24,6 +24,8 @@ from etf_cockpit.application.analysis_depth import (
     create_resource_plan,
     execute_profiled_stages,
     load_analysis_depth_profiles,
+    stage_cache_key,
+    stage_output_hash,
     timing_percentiles,
 )
 from etf_cockpit.application.bulk_run import BulkAnalysisService
@@ -205,6 +207,80 @@ def test_optional_runner_exception_keeps_its_existing_type():
         )
 
     assert caught.value is failure
+
+
+def test_optional_none_result_is_cached_and_reused_on_sequential_rerun():
+    profile = load_analysis_depth_profiles()["full"]
+    optional_stage = next(stage for stage in profile.stages if not stage.mandatory)
+    one_stage_profile = replace(profile, stages=(optional_stage,))
+    cache = {}
+    calls = 0
+
+    def runner(_instrument_id, _analysis_input, _stage, _resource_plan):
+        nonlocal calls
+        calls += 1
+        return None
+
+    first_output, first_timings = execute_profiled_stages(
+        one_stage_profile,
+        "ETF.TEST",
+        {"value": 1},
+        "tests.depth.optional-omission-cache.v1",
+        runner,
+        cache,
+        run_id="optional-omission-cold",
+        resource_plan=create_resource_plan(one_stage_profile),
+    )
+    second_output, second_timings = execute_profiled_stages(
+        one_stage_profile,
+        "ETF.TEST",
+        {"value": 1},
+        "tests.depth.optional-omission-cache.v1",
+        runner,
+        cache,
+        run_id="optional-omission-warm",
+        resource_plan=create_resource_plan(one_stage_profile),
+    )
+
+    cache_key = stage_cache_key(
+        "ETF.TEST", {"value": 1}, "tests.depth.optional-omission-cache.v1", optional_stage
+    )
+    assert calls == 1
+    assert cache[cache_key] == {"content_hash": stage_output_hash(None), "result": None}
+    assert first_output["stages"][optional_stage.stage_id] is None
+    assert second_output["stages"][optional_stage.stage_id] is None
+    assert first_output["omitted_optional_stages"] == [optional_stage.stage_id]
+    assert second_output["omitted_optional_stages"] == [optional_stage.stage_id]
+    assert first_timings[0].cache_state == "cold"
+    assert second_timings[0].cache_state == "warm"
+
+
+def test_analysis_depth_error_keeps_prior_and_failing_stage_timings():
+    profile = load_analysis_depth_profiles()["quick"]
+    failing_stage = profile.stages[1]
+    profile = replace(profile, stages=profile.stages[:2])
+
+    def runner(instrument_id, analysis_input, stage, resource_plan):
+        result = _runner(instrument_id, analysis_input, stage, resource_plan)
+        if stage.stage_id == failing_stage.stage_id:
+            return {**result, "model_omissions": ["undeclared-family"]}
+        return result
+
+    with pytest.raises(AnalysisDepthError, match="outside the frozen profile") as caught:
+        execute_profiled_stages(
+            profile,
+            "ETF.TEST",
+            {"value": 1},
+            "tests.depth.v1",
+            runner,
+            {},
+            run_id="analysis-depth-error-test",
+            resource_plan=create_resource_plan(profile),
+        )
+
+    records = caught.value.timing_records
+    assert [record.stage_id for record in records] == [profile.stages[0].stage_id, failing_stage.stage_id]
+    assert [record.outcome for record in records] == ["succeeded", "failed"]
 
 
 def test_stage_timing_excludes_acquisition_and_training_with_fake_clock(monkeypatch):
@@ -405,6 +481,42 @@ def test_synthetic_reference_label_is_not_certified_and_cache_misses_stay_cold()
     assert cold_output["deterministic_fields"] == warm_output["deterministic_fields"]
     assert all(record.cache_state == "cold" for record in cold_records)
     assert all(record.cache_state == "warm" for record in warm_records)
+
+
+def test_corrupt_publication_entry_is_replaced_with_recomputed_result():
+    profile = load_analysis_depth_profiles()["quick"]
+    stage = profile.stages[0]
+    profile = replace(profile, stages=(stage,))
+    instrument_id = "ETF.CACHE"
+    analysis_input = {"value": 3}
+    analyzer_id = "tests.depth.corrupt-cache.v1"
+    resource_plan = create_resource_plan(profile)
+    recomputed_result = _runner(instrument_id, analysis_input, stage, resource_plan)
+    corrupted_result = {**recomputed_result, "value": recomputed_result["value"] + 1}
+    content_hash = stage_output_hash(recomputed_result)
+    cache_key = stage_cache_key(instrument_id, analysis_input, analyzer_id, stage)
+    cache = {cache_key: {"content_hash": content_hash, "result": corrupted_result}}
+    runner_calls = []
+
+    def runner(*args):
+        runner_calls.append(args[2].stage_id)
+        return _runner(*args)
+
+    output, _records = execute_profiled_stages(
+        profile,
+        instrument_id,
+        analysis_input,
+        analyzer_id,
+        runner,
+        cache,
+        run_id="corrupt-cache-publication",
+        resource_plan=resource_plan,
+    )
+
+    assert runner_calls == [stage.stage_id]
+    assert output["stages"][stage.stage_id] == recomputed_result
+    assert output["stage_hashes"][stage.stage_id]["content_hash"] == content_hash
+    assert cache[cache_key] == {"content_hash": content_hash, "result": recomputed_result}
 
 
 def test_low_resource_mode_changes_sharding_not_mandatory_results_or_hashes(tmp_path):
