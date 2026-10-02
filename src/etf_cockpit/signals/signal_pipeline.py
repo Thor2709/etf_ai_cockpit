@@ -390,7 +390,18 @@ def _attach_authority(signal: SignalResult, data_report: DataQualityReport) -> S
         "cash_minimum_breached",
         "model_disagreement",
         "edge_below_cost_threshold",
+        "edge_inputs_unavailable",
     }
+    cost_failure_codes = blocked_codes & {"edge_below_cost_threshold", "edge_inputs_unavailable"}
+    cost_messages = {
+        "edge_below_cost_threshold": "Edge is below configured cost threshold",
+        "edge_inputs_unavailable": "Edge/cost inputs are unavailable",
+    }
+    cost_message = (
+        "Edge clears configured cost threshold"
+        if not cost_failure_codes
+        else "; ".join(f"{cost_messages[code]} ({code})" for code in sorted(cost_failure_codes))
+    )
     gates = [
         GateResult(
             gate_id="identity",
@@ -434,8 +445,8 @@ def _attach_authority(signal: SignalResult, data_report: DataQualityReport) -> S
         ),
         GateResult(
             gate_id="cost",
-            passed="edge_below_cost_threshold" not in blocked_codes,
-            message="Edge clears configured cost threshold" if "edge_below_cost_threshold" not in blocked_codes else "Edge is below configured cost threshold",
+            passed=not cost_failure_codes,
+            message=cost_message,
         ),
     ]
     decision = resolve_authority(research_state_for_legacy_action(signal.action), gates, None)

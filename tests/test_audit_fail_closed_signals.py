@@ -8,14 +8,14 @@ import pytest
 
 from etf_cockpit.application import ui_facade
 from etf_cockpit.core.config import load_config
-from etf_cockpit.core.types import DataQualityReport, ForecastResult
+from etf_cockpit.core.types import ComponentScores, DataQualityReport, ForecastResult, SignalResult
 from etf_cockpit.features import macro, regime, volatility
 from etf_cockpit.parsers.priips_kid import PriipsKidRecord
 from etf_cockpit.services import BacktestService, _load_structure_caps, _postprocess_forecast_benchmark_fields
 from etf_cockpit.signals import simple_scores
 from etf_cockpit.signals.gates import evaluate_risk_gates
 from etf_cockpit.signals.scoring import component_scores
-from etf_cockpit.signals.signal_pipeline import _technical_expected_edge
+from etf_cockpit.signals.signal_pipeline import _attach_authority, _technical_expected_edge
 
 
 def _gate_row(**overrides: object) -> pd.Series:
@@ -60,6 +60,44 @@ def test_trade_gate_blocks_when_edge_to_cost_evidence_is_missing(missing_field: 
     )
 
     assert "edge_inputs_unavailable" in blocked
+
+
+def test_authority_publication_keeps_missing_edge_cost_evidence_blocked() -> None:
+    signal = SignalResult(
+        run_id="run-cost-missing",
+        signal_date=date(2025, 1, 2),
+        etf_id="AAA",
+        action="buy",
+        confidence=0.7,
+        total_score=0.4,
+        components=ComponentScores(
+            momentum=0.4,
+            trend=0.3,
+            risk=0.2,
+            rebalance=0.1,
+            relative_strength=0.2,
+            toto=0.0,
+            timesfm=0.0,
+            baseline_ml=0.4,
+            chatgpt_thesis=0.0,
+            cost_penalty=0.0,
+            turnover_penalty=0.0,
+            concentration_penalty=0.0,
+        ),
+        blocked_by=["edge_inputs_unavailable"],
+        warnings=[],
+        reason_short="missing edge inputs",
+        reason_long="Expected edge or transaction cost evidence is unavailable.",
+        horizon_primary="1-3 months",
+        model_versions_used={"baseline": "momentum_shrunk_v1"},
+    )
+
+    resolved = _attach_authority(signal, _risk_report())
+    cost_gate = next(gate for gate in resolved.authority_decision.gates if gate.gate_id == "cost")
+
+    assert cost_gate.passed is False
+    assert "edge_inputs_unavailable" in cost_gate.message
+    assert "unavailable" in cost_gate.message
 
 
 @pytest.mark.parametrize("missing_field", ["trend_slope", "trend_100", "trend_200"])
@@ -413,6 +451,16 @@ def test_macro_observations_exclude_effective_times_after_decision(monkeypatch: 
             "value": 4.0,
             "unit": "%",
             "source_id": "local",
+            "observed_at": "2024-01-10T12:00:00Z",
+            "available_at": "2024-01-10T11:00:00Z",
+            "timezone_confidence": "exact",
+            "availability_confidence": "exact",
+        },
+        {
+            "series_id": "cpi_inflation",
+            "value": 5.0,
+            "unit": "%",
+            "source_id": "local",
             "observed_at": "2024-01-10T13:00:00Z",
             "available_at": "2024-01-10T11:00:00Z",
             "timezone_confidence": "exact",
@@ -425,7 +473,7 @@ def test_macro_observations_exclude_effective_times_after_decision(monkeypatch: 
         observations=observations,
         benchmark_data_id="BENCH",
         benchmark_reference=reference,
-        as_of_date=date(2024, 1, 9),
+        as_of_date=date(2024, 1, 10),
     )
 
     assert [row["value"] for row in result["inflation_rates"]["rows"]] == [3.0]

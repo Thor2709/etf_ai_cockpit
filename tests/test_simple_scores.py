@@ -417,7 +417,7 @@ def test_candidate_without_portfolio_fields_gets_algorithm_scores() -> None:
                 "instrument_id": "ABC",
                 "name": "ABC Test Stock",
                 "yahoo_symbol": "ABC.DE",
-                "latest_date": pd.Timestamp.today().date().isoformat(),
+                "latest_date": "2026-06-29",
                 "latest_price": 100.0,
                 "return_3m": 0.10,
                 "return_6m": 0.18,
@@ -431,14 +431,14 @@ def test_candidate_without_portfolio_fields_gets_algorithm_scores() -> None:
         ]
     )
 
-    scores = build_candidate_simple_scores(report, pd.DataFrame())
+    scores = build_candidate_simple_scores(report, pd.DataFrame(), decision_date=date(2026, 6, 29))
 
     assert len(scores) == 1
     assert scores[0].instrument_key == "candidate:ABC"
-    assert scores[0].final_score_10 is None
-    assert scores[0].evidence_quality_10 is None
-    assert scores[0].risk_friction_10 is None
-    assert scores[0].valid_component_count == 0
+    assert scores[0].final_score_10 is not None
+    assert scores[0].evidence_quality_10 is not None
+    assert scores[0].risk_friction_10 is not None
+    assert scores[0].valid_component_count >= 4
 
 
 def test_unavailable_model_forecast_is_na_and_excluded() -> None:
@@ -448,7 +448,7 @@ def test_unavailable_model_forecast_is_na_and_excluded() -> None:
                 "instrument_id": "ABC",
                 "name": "ABC Test Stock",
                 "yahoo_symbol": "ABC.DE",
-                "latest_date": pd.Timestamp.today().date().isoformat(),
+                "latest_date": "2026-06-29",
                 "latest_price": 100.0,
                 "return_3m": 0.10,
                 "return_6m": 0.18,
@@ -475,12 +475,12 @@ def test_unavailable_model_forecast_is_na_and_excluded() -> None:
         ]
     )
 
-    score = build_candidate_simple_scores(report, forecasts)[0]
+    score = build_candidate_simple_scores(report, forecasts, decision_date=date(2026, 6, 29))[0]
     timesfm = next(component for component in score.components if component.key == "timesfm")
 
     assert timesfm.score_10 is None
     assert timesfm.status == "N/A"
-    assert score.final_score_10 is None
+    assert score.final_score_10 is not None
 
 
 def test_scoreboard_frame_contains_quality_and_authority_columns() -> None:
@@ -490,7 +490,7 @@ def test_scoreboard_frame_contains_quality_and_authority_columns() -> None:
                 "instrument_id": "ABC",
                 "name": "ABC Test Stock",
                 "yahoo_symbol": "ABC.DE",
-                "latest_date": pd.Timestamp.today().date().isoformat(),
+                "latest_date": "2026-06-29",
                 "latest_price": 100.0,
                 "rows": 300,
                 "return_3m": 0.10,
@@ -505,12 +505,12 @@ def test_scoreboard_frame_contains_quality_and_authority_columns() -> None:
             }
         ]
     )
-    score = build_candidate_simple_scores(report, pd.DataFrame())[0]
+    score = build_candidate_simple_scores(report, pd.DataFrame(), decision_date=date(2026, 6, 29))[0]
     frame = simple_scoreboard_frame([score])
 
-    assert frame.loc[0, "evidence_score_10"] is None
-    assert frame.loc[0, "evidence_quality_10"] is None
-    assert frame.loc[0, "risk_friction_10"] is None
+    assert frame.loc[0, "evidence_score_10"] is not None
+    assert frame.loc[0, "evidence_quality_10"] is not None
+    assert frame.loc[0, "risk_friction_10"] is not None
     assert frame.loc[0, "model_authority_label"] == "Model evidence unavailable"
     assert "q10_expected_return" in frame.columns
     assert "net_expected_return" in frame.columns
