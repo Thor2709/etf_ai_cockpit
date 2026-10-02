@@ -1149,6 +1149,7 @@ def run_backtest(
     }
     if missing_observation_rows:
         metadata["data_warning"] = "Incomplete adjusted-price rows were excluded; no forward-fill was applied."
+    # The first complete price row is a zero-return warm-up placeholder; it is never traded, and pre-listing rows were excluded above.
     log_returns = np.log(pivot / pivot.shift(1)).fillna(0.0)
     start_index = 220
     rebalance_indexes = set(range(start_index, len(pivot), rebalance_frequency_days))

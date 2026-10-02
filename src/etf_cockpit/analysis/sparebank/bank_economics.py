@@ -221,19 +221,28 @@ def credit_reconciliation(
 ) -> CreditReconciliation:
     values = {name: _number(value) for name, value in locals().items() if name not in {"loans_open", "loans_close", "stage2_open", "stage2_close"}}
     opening = values["opening_stage3"]
+    stage3_flow_fields = ("new_stage3", "cured_stage3", "repaid_stage3", "written_off_stage3")
+    allowance_flow_fields = ("allowance_expense", "allowance_releases", "allowance_used_writeoffs")
+    warnings: list[str] = []
+    stage3_flows_complete = all(values[key] is not None for key in stage3_flow_fields)
     inferred_close = (
-        opening + (values["new_stage3"] or 0.0) - (values["cured_stage3"] or 0.0)
-        - (values["repaid_stage3"] or 0.0) - (values["written_off_stage3"] or 0.0)
-        if opening is not None and any(values[key] is not None for key in ("new_stage3", "cured_stage3", "repaid_stage3", "written_off_stage3"))
+        opening + values["new_stage3"] - values["cured_stage3"]
+        - values["repaid_stage3"] - values["written_off_stage3"]
+        if opening is not None and stage3_flows_complete
         else None
     )
+    if opening is not None and values["closing_stage3"] is None and not stage3_flows_complete:
+        warnings.append("stage3_flow_inputs_incomplete")
     close = values["closing_stage3"] if values["closing_stage3"] is not None else inferred_close
     allowance_close = values["closing_allowance"]
+    allowance_flows_complete = all(values[key] is not None for key in allowance_flow_fields)
     inferred_allowance = (
-        values["opening_allowance"] + (values["allowance_expense"] or 0.0) - (values["allowance_releases"] or 0.0) - (values["allowance_used_writeoffs"] or 0.0)
-        if values["opening_allowance"] is not None and any(values[key] is not None for key in ("allowance_expense", "allowance_releases", "allowance_used_writeoffs"))
+        values["opening_allowance"] + values["allowance_expense"] - values["allowance_releases"] - values["allowance_used_writeoffs"]
+        if values["opening_allowance"] is not None and allowance_flows_complete
         else None
     )
+    if values["opening_allowance"] is not None and values["closing_allowance"] is None and not allowance_flows_complete:
+        warnings.append("allowance_flow_inputs_incomplete")
     if allowance_close is None:
         allowance_close = inferred_allowance
     gross_open, gross_close = _number(stage2_open), _number(stage2_close)
@@ -248,8 +257,9 @@ def credit_reconciliation(
         opening_stage3=opening, new_stage3=values["new_stage3"], cured_stage3=values["cured_stage3"], repaid_stage3=values["repaid_stage3"],
         written_off_stage3=values["written_off_stage3"], closing_stage3=close,
         opening_allowance=values["opening_allowance"], allowance_expense=values["allowance_expense"], allowance_releases=values["allowance_releases"], allowance_used_writeoffs=used, closing_allowance=allowance_close,
-        writeoff_net_exposure=net_writeoff, new_expense_from_writeoff=0.0 if used is not None and values["allowance_expense"] in (None, 0.0) else values["allowance_expense"],
+        writeoff_net_exposure=net_writeoff, new_expense_from_writeoff=values["allowance_expense"],
         ratio_open=ratio_open, ratio_close=ratio_close, ratio_numerator_effect=numerator_effect, ratio_denominator_effect=denominator_effect,
+        warning=";".join(warnings) or None,
     )
 
 

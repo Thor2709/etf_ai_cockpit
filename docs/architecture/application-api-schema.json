@@ -456,8 +456,9 @@
       "additionalProperties": false,
       "properties": {
         "account_id": {
-          "const": "local-paper",
           "default": "local-paper",
+          "maxLength": 128,
+          "minLength": 1,
           "title": "Account Id",
           "type": "string"
         },
@@ -483,6 +484,13 @@
     "PaperCorporateActionRequest": {
       "additionalProperties": false,
       "properties": {
+        "account_id": {
+          "default": "local-paper",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Account Id",
+          "type": "string"
+        },
         "action_id": {
           "anyOf": [
             {
@@ -551,6 +559,13 @@
     "PaperFillRequest": {
       "additionalProperties": false,
       "properties": {
+        "account_id": {
+          "default": "local-paper",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Account Id",
+          "type": "string"
+        },
         "fee": {
           "anyOf": [
             {
@@ -612,6 +627,13 @@
     "PaperOrderCancelRequest": {
       "additionalProperties": false,
       "properties": {
+        "account_id": {
+          "default": "local-paper",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Account Id",
+          "type": "string"
+        },
         "order_id": {
           "maxLength": 128,
           "minLength": 1,
@@ -635,6 +657,11 @@
     "PaperOrderViewModel": {
       "additionalProperties": false,
       "properties": {
+        "account_id": {
+          "default": "local-paper",
+          "title": "Account Id",
+          "type": "string"
+        },
         "currency": {
           "title": "Currency",
           "type": "string"
@@ -704,6 +731,13 @@
     "PaperPositionMarkRequest": {
       "additionalProperties": false,
       "properties": {
+        "account_id": {
+          "default": "local-paper",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Account Id",
+          "type": "string"
+        },
         "adjusted_close": {
           "exclusiveMinimum": 0,
           "title": "Adjusted Close",
@@ -817,6 +851,13 @@
     "PaperProposalAcceptRequest": {
       "additionalProperties": false,
       "properties": {
+        "account_id": {
+          "default": "local-paper",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Account Id",
+          "type": "string"
+        },
         "execution_price": {
           "exclusiveMinimum": 0,
           "title": "Execution Price",
@@ -833,6 +874,15 @@
           "exclusiveMinimum": 0,
           "title": "Fx Rate",
           "type": "number"
+        },
+        "mode": {
+          "default": "manual_accept",
+          "enum": [
+            "manual_accept",
+            "auto_paper"
+          ],
+          "title": "Mode",
+          "type": "string"
         },
         "proposal_id": {
           "maxLength": 128,
@@ -851,6 +901,11 @@
     "PaperProposalDecisionViewModel": {
       "additionalProperties": false,
       "properties": {
+        "account_id": {
+          "default": "local-paper",
+          "title": "Account Id",
+          "type": "string"
+        },
         "execution_allowed": {
           "const": false,
           "default": false,
@@ -870,7 +925,10 @@
           "type": "string"
         },
         "status": {
-          "const": "rejected",
+          "enum": [
+            "rejected",
+            "deferred"
+          ],
           "title": "Status",
           "type": "string"
         }
@@ -887,6 +945,13 @@
     "PaperProposalRejectRequest": {
       "additionalProperties": false,
       "properties": {
+        "account_id": {
+          "default": "local-paper",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Account Id",
+          "type": "string"
+        },
         "proposal_id": {
           "maxLength": 128,
           "minLength": 1,
@@ -1046,6 +1111,12 @@
           "title": "Execution Allowed",
           "type": "boolean"
         },
+        "matured_outcomes": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Matured Outcomes",
+          "type": "integer"
+        },
         "message": {
           "default": "",
           "title": "Message",
@@ -1055,6 +1126,12 @@
           "default": 0,
           "minimum": 0,
           "title": "Open Positions",
+          "type": "integer"
+        },
+        "operational_incidents": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Operational Incidents",
           "type": "integer"
         },
         "payoff_ratio": {
@@ -1246,6 +1323,105 @@
     },
     "ProposalReviewRequest": {
       "$defs": {
+        "EventBlockPolicy": {
+          "additionalProperties": false,
+          "description": "Transport-safe explicit preview restriction, never execution authority.",
+          "properties": {
+            "event_types": {
+              "default": [
+                "earnings",
+                "high_risk"
+              ],
+              "items": {
+                "enum": [
+                  "earnings",
+                  "dividend",
+                  "ex_dividend",
+                  "split",
+                  "corporate_action",
+                  "high_risk",
+                  "filing",
+                  "guidance",
+                  "fund_rebalance",
+                  "index_change",
+                  "review_date"
+                ],
+                "type": "string"
+              },
+              "title": "Event Types",
+              "type": "array"
+            },
+            "execution_allowed": {
+              "const": false,
+              "default": false,
+              "title": "Execution Allowed",
+              "type": "boolean"
+            },
+            "policy_id": {
+              "minLength": 1,
+              "title": "Policy Id",
+              "type": "string"
+            },
+            "post_minutes": {
+              "default": 0,
+              "maximum": 525600,
+              "minimum": 0,
+              "title": "Post Minutes",
+              "type": "integer"
+            },
+            "pre_minutes": {
+              "default": 0,
+              "maximum": 525600,
+              "minimum": 0,
+              "title": "Pre Minutes",
+              "type": "integer"
+            },
+            "risk_levels": {
+              "default": [
+                "high",
+                "critical"
+              ],
+              "items": {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "critical",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              "title": "Risk Levels",
+              "type": "array"
+            },
+            "targets": {
+              "default": [
+                "proposal_preview",
+                "order_preview"
+              ],
+              "items": {
+                "enum": [
+                  "proposal_preview",
+                  "order_preview"
+                ],
+                "type": "string"
+              },
+              "title": "Targets",
+              "type": "array"
+            },
+            "version": {
+              "minLength": 1,
+              "title": "Version",
+              "type": "string"
+            }
+          },
+          "required": [
+            "policy_id",
+            "version"
+          ],
+          "title": "EventBlockPolicy",
+          "type": "object"
+        },
         "ProposalGateEvidence": {
           "additionalProperties": false,
           "properties": {
@@ -1297,6 +1473,14 @@
           "title": "Account Stage",
           "type": "string"
         },
+        "approvals": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Approvals",
+          "type": "array"
+        },
         "as_of": {
           "format": "date-time",
           "title": "As Of",
@@ -1324,6 +1508,17 @@
           ],
           "default": null,
           "title": "Data Revision"
+        },
+        "event_policy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventBlockPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "expires_at": {
           "format": "date-time",
@@ -1485,6 +1680,11 @@
         "authority_stage": {
           "title": "Authority Stage",
           "type": "string"
+        },
+        "event_control": {
+          "additionalProperties": true,
+          "title": "Event Control",
+          "type": "object"
         },
         "execution_allowed": {
           "const": false,

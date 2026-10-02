@@ -646,6 +646,8 @@ def _robust_regime_panel(report: dict[str, object]) -> ft.Control:
 
 def _correlation_table(correlation: pd.DataFrame) -> ft.Control:
     columns = list(correlation.columns)
+    excluded_assets = correlation.attrs.get("excluded_assets", {})
+    excluded_ids = list(excluded_assets) if isinstance(excluded_assets, dict) else []
     rows = []
     for etf_id, row in correlation.iterrows():
         rows.append(
@@ -660,6 +662,17 @@ def _correlation_table(correlation: pd.DataFrame) -> ft.Control:
         ft.Column(
             [
                 section_header("Correlation matrix", "120 trading-day log-return correlation from adjusted prices; no forward-fill."),
+                *(
+                    [
+                        ft.Text(
+                            f"Excluded (no price history): {', '.join(map(str, excluded_ids))}",
+                            color=theme.AMBER,
+                            selectable=True,
+                        )
+                    ]
+                    if excluded_ids
+                    else []
+                ),
                 ft.DataTable(
                     columns=[ft.DataColumn(ft.Text("Instrument"))] + [ft.DataColumn(ft.Text(str(column))) for column in columns],
                     rows=rows,

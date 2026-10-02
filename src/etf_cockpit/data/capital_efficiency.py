@@ -765,6 +765,24 @@ def _adjusted_evidence(
             "status": "not_applicable",
             "reason": "Special-sector adapter required.",
         }, []
+    active_intangible_metrics = [
+        metric
+        for metric, rate_key in (
+            ("research_and_development", "research_capitalisation_rate"),
+            ("advertising_expense", "advertising_capitalisation_rate"),
+        )
+        if float(normalised[rate_key]) > 0.0
+    ]
+    missing_metrics = [
+        metric
+        for metric in active_intangible_metrics
+        if any(_float(period.get(metric)) is None for period in reported_history)
+    ]
+    if missing_metrics:
+        return base | {
+            "status": "unavailable",
+            "reason": "intangible_input_unavailable: missing disclosed " + ", ".join(missing_metrics) + ".",
+        }, []
     adjusted_history = _adjusted_history(reported_history, tax_rate, normalised)
     if not adjusted_history or all(
         item["intangible_asset"] == 0 for item in adjusted_history
@@ -892,10 +910,17 @@ def _adjusted_history(
             ),
         ):
             life, rate = int(assumptions[years_key]), float(assumptions[rate_key])
-            current = _float(period.get(metric)) or 0.0
+            if rate == 0.0:
+                continue
+            current = _float(period.get(metric))
+            if current is None:
+                raise ValueError(f"intangible_input_unavailable: missing disclosed {metric}")
             capitalised_expense += current * rate
             for cohort_index in range(max(0, index - life + 1), index + 1):
-                cohort = (_float(reported[cohort_index].get(metric)) or 0.0) * rate
+                cohort_value = _float(reported[cohort_index].get(metric))
+                if cohort_value is None:
+                    raise ValueError(f"intangible_input_unavailable: missing disclosed {metric}")
+                cohort = cohort_value * rate
                 age = index - cohort_index
                 if age:
                     amortisation += cohort / life
