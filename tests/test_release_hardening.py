@@ -11,6 +11,7 @@ from etf_cockpit.app.state import AppState
 from etf_cockpit.chatgpt_bridge import export_pack as export_module
 from etf_cockpit.chatgpt_bridge import import_audit as import_module
 from etf_cockpit.core.config import ModelRuntimeConfig, ProviderSection, load_config, save_provider_settings
+from etf_cockpit.core.types import DataQualityReport
 from etf_cockpit.data.fx_data import commit_fx_import
 from etf_cockpit.data.import_pipeline import commit_price_import, rollback_latest_price_import
 from etf_cockpit.data.manual_notes import commit_manual_news_import
@@ -21,7 +22,34 @@ from etf_cockpit.data.validation import validate_holdings, validate_prices
 from etf_cockpit.models.timesfm_adapter import TimesFMAdapter
 from etf_cockpit.models.toto_adapter import TotoAdapter
 from etf_cockpit.models.forecast_scores import forecast_component_maps
-from etf_cockpit.services import DataService, ForecastService
+from etf_cockpit.services import CockpitSnapshot, DataService, ForecastService, _empty_backtest_report
+
+
+def _audit_test_state() -> AppState:
+    config = load_config()
+    empty = pd.DataFrame()
+    features = pd.DataFrame(columns=["date", "etf_id"])
+    holdings = pd.DataFrame(columns=["etf_id", "current_weight", "market_value_eur"])
+    snapshot = CockpitSnapshot(
+        config=config,
+        prices=empty,
+        holdings=holdings,
+        features=features,
+        latest_features=features,
+        data_report=DataQualityReport(as_of_date=date.today(), issues=[]),
+        signals=[],
+        forecasts=empty,
+        backtest=_empty_backtest_report("Audit export content tests do not require backtest data."),
+        model_status={},
+        model_inventory=[],
+    )
+    state = AppState(snapshot=snapshot, selected_etf=config.ui.default_etf)
+
+    def skip_unrelated_scoreboard_write() -> None:
+        pass
+
+    state._write_current_scoreboard = skip_unrelated_scoreboard_write
+    return state
 
 
 def test_provider_config_loads_and_redacts_secrets() -> None:
@@ -686,7 +714,7 @@ def test_valid_forecast_rows_become_model_score_inputs() -> None:
 
 
 def test_audit_export_contains_validation_and_risk_gate_reports(tmp_path, monkeypatch) -> None:
-    state = AppState.load()
+    state = _audit_test_state()
     canonical_path = export_module.AUDIT_PACKETS_DIR / (
         f"audit_packet_{state.snapshot.data_report.as_of_date:%Y-%m-%d}.zip"
     )
@@ -743,7 +771,7 @@ def test_audit_export_includes_imported_manual_news_notes(tmp_path, monkeypatch)
     ).to_parquet(manual_news_path, index=False)
     monkeypatch.setattr(export_module, "CHATGPT_EXPORTS_DIR", tmp_path / "exports")
     monkeypatch.setattr(export_module, "MANUAL_NEWS_CLEAN_PATH", manual_news_path)
-    state = AppState.load()
+    state = _audit_test_state()
 
     zip_path = state.export_audit_packet()
 

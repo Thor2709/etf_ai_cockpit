@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+import threading
+import time
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -73,8 +76,11 @@ def test_windows_replace_retries_candidate_error_then_succeeds(tmp_path, monkeyp
 
     monkeypatch.setattr(atomic_io, "_IS_WINDOWS", True)
     monkeypatch.setattr(Path, "replace", replace)
-    monkeypatch.setattr(atomic_io.time, "monotonic", lambda: 10.0)
-    monkeypatch.setattr(atomic_io.time, "sleep", sleeps.append)
+    monkeypatch.setattr(
+        atomic_io,
+        "time",
+        SimpleNamespace(monotonic=lambda: 10.0, sleep=sleeps.append),
+    )
 
     atomic_write_bytes(destination, b"new", validator=lambda _: None)
 
@@ -82,6 +88,60 @@ def test_windows_replace_retries_candidate_error_then_succeeds(tmp_path, monkeyp
     assert sleeps == [0.010]
     assert destination.read_bytes() == b"new"
     assert list(tmp_path.glob(f".{destination.name}.*.tmp")) == []
+
+
+def test_atomic_io_clock_patch_is_isolated_across_threads(tmp_path, monkeypatch):
+    destination = tmp_path / "store.json"
+    destination.write_bytes(b"old")
+    candidate = _windows_permission_error(32, "sharing violation")
+    attempts = 0
+    clock = iter((10.0, 10.0, 10.0))
+    clock_reads: list[float] = []
+    sleeps: list[float] = []
+    real_clock_reads: list[float] = []
+    barrier = threading.Barrier(2)
+
+    def fake_clock() -> float:
+        value = next(clock)
+        clock_reads.append(value)
+        return value
+
+    def observe_real_clock() -> None:
+        barrier.wait(timeout=5)
+        real_clock_reads.append(time.monotonic())
+
+    def fake_sleep(seconds: float) -> None:
+        worker = threading.Thread(target=observe_real_clock)
+        worker.start()
+        barrier.wait(timeout=5)
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+        sleeps.append(seconds)
+
+    def replace(self: Path, target: Path):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise candidate
+        return real_replace(self, target)
+
+    real_replace = Path.replace
+    monkeypatch.setattr(atomic_io, "_IS_WINDOWS", True)
+    monkeypatch.setattr(Path, "replace", replace)
+    monkeypatch.setattr(
+        atomic_io,
+        "time",
+        SimpleNamespace(monotonic=fake_clock, sleep=fake_sleep),
+    )
+
+    atomic_write_bytes(destination, b"new", validator=lambda _: None)
+
+    assert attempts == 2
+    assert sleeps == [0.010]
+    assert clock_reads == [10.0, 10.0, 10.0]
+    assert len(real_clock_reads) == 1
+    assert isinstance(real_clock_reads[0], float)
+    assert destination.read_bytes() == b"new"
 
 
 def test_windows_replace_propagates_first_persistent_candidate_error(
@@ -100,8 +160,11 @@ def test_windows_replace_propagates_first_persistent_candidate_error(
 
     monkeypatch.setattr(atomic_io, "_IS_WINDOWS", True)
     monkeypatch.setattr(Path, "replace", replace)
-    monkeypatch.setattr(atomic_io.time, "monotonic", lambda: next(clock))
-    monkeypatch.setattr(atomic_io.time, "sleep", sleeps.append)
+    monkeypatch.setattr(
+        atomic_io,
+        "time",
+        SimpleNamespace(monotonic=lambda: next(clock), sleep=sleeps.append),
+    )
 
     with pytest.raises(PermissionError) as raised:
         atomic_write_bytes(destination, b"new", validator=lambda _: None)
@@ -129,8 +192,11 @@ def test_windows_replace_does_not_attempt_again_after_sleep_overshoots_deadline(
 
     monkeypatch.setattr(atomic_io, "_IS_WINDOWS", True)
     monkeypatch.setattr(Path, "replace", replace)
-    monkeypatch.setattr(atomic_io.time, "monotonic", lambda: next(clock))
-    monkeypatch.setattr(atomic_io.time, "sleep", sleeps.append)
+    monkeypatch.setattr(
+        atomic_io,
+        "time",
+        SimpleNamespace(monotonic=lambda: next(clock), sleep=sleeps.append),
+    )
 
     with pytest.raises(PermissionError) as raised:
         atomic_write_bytes(destination, b"new", validator=lambda _: None)
@@ -158,7 +224,11 @@ def test_windows_replace_propagates_noncandidate_error_without_retry(
 
     monkeypatch.setattr(atomic_io, "_IS_WINDOWS", True)
     monkeypatch.setattr(Path, "replace", replace)
-    monkeypatch.setattr(atomic_io.time, "sleep", sleeps.append)
+    monkeypatch.setattr(
+        atomic_io,
+        "time",
+        SimpleNamespace(monotonic=time.monotonic, sleep=sleeps.append),
+    )
 
     with pytest.raises(PermissionError) as raised:
         atomic_write_bytes(destination, b"new", validator=lambda _: None)
