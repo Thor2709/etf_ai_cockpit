@@ -54,12 +54,14 @@ def test_full_tests_xdist_commands_use_disjoint_phases_and_canonical_junit_names
     marker_index = phase_a.index("-m", phase_a.index("-m") + 1)
     assert phase_a[marker_index + 1] == "not serial"
     assert phase_a[phase_a.index("-n") + 1] == "4"
-    assert phase_a[phase_a.index("--dist") + 1] == "loadfile"
+    assert phase_a[phase_a.index("--dist") + 1] == "worksteal"
     assert f"--junitxml={tmp_path / 'evidence' / 'junit-parallel.xml'}" in phase_a
     assert "--durations=100" in phase_a
     assert "--durations-min=0.25" in phase_a
     marker_index = phase_b.index("-m", phase_b.index("-m") + 1)
     assert phase_b[marker_index + 1] == "serial"
+    assert "-n" not in phase_b
+    assert "--dist" not in phase_b
     assert f"--junitxml={tmp_path / 'evidence' / 'junit-serial.xml'}" in phase_b
     assert "--durations=100" in phase_b
     assert "--durations-min=0.25" in phase_b
