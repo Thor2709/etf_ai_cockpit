@@ -172,6 +172,7 @@ class FundAnalysisConfig:
     forecast_minimum_matured_calibration_samples: int
     forecast_target_coverage: Decimal
     forecast_quantile_levels: tuple[tuple[str, Decimal], ...]
+    screener: FundScreenerConfig
 
 
 @dataclass(frozen=True)
@@ -262,6 +263,7 @@ def load_fund_analysis_config(path: Path = FUND_ANALYSIS_CONFIG) -> FundAnalysis
         "frequency_minimum_horizon_days",
         "peers",
         "forecast",
+        "screener",
     }
     if not isinstance(raw, dict) or set(raw) != expected or raw.get("schema_version") != 1:
         raise FundAnalysisError("fund analysis configuration keys or schema are invalid")
@@ -337,6 +339,12 @@ def load_fund_analysis_config(path: Path = FUND_ANALYSIS_CONFIG) -> FundAnalysis
         Decimal("0.05"), Decimal("0.50"), Decimal("0.95")
     ):
         raise FundAnalysisError("fund forecast quantile levels must be 0.05, 0.50, and 0.95")
+    try:
+        from etf_cockpit.analysis.fund_screener import parse_fund_screener_config
+
+        screener = parse_fund_screener_config(raw["screener"])
+    except (TypeError, ValueError, InvalidOperation) as exc:
+        raise FundAnalysisError("fund screener configuration is invalid") from exc
     return FundAnalysisConfig(
         1,
         tolerance,
@@ -354,6 +362,7 @@ def load_fund_analysis_config(path: Path = FUND_ANALYSIS_CONFIG) -> FundAnalysis
         forecast_minimum_matured_calibration_samples,
         forecast_target_coverage,
         forecast_quantile_levels,
+        screener,
     )
 
 
