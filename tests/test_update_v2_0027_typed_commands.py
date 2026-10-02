@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
+import threading
 import time
 from types import SimpleNamespace
 
 import flet as ft
+import pandas as pd
 import pytest
 
 from etf_cockpit.app import state as state_module
@@ -18,7 +21,8 @@ from etf_cockpit.application.contracts import (
     DashboardActionCommand,
     SubmitWorkflowCommand,
 )
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.core.types import DataQualityReport
+from etf_cockpit.services import CockpitSnapshot, _empty_backtest_report, build_snapshot, load_config
 
 
 @lru_cache(maxsize=1)
@@ -60,19 +64,41 @@ def _controls_by_key(view: ft.Control) -> dict[str, list[ft.Control]]:
     return controls
 
 
-def _new_state(monkeypatch, tmp_path: Path) -> AppState:
+def _new_state(monkeypatch, tmp_path: Path, snapshot=None) -> AppState:
     monkeypatch.setattr(state_module, "ROOT", tmp_path)
     monkeypatch.setattr(state_module, "ACTIVITY_LOG_PATH", tmp_path / "activity.jsonl")
-    snapshot = _snapshot()
+    snapshot = snapshot or _snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     state.error_store.path = tmp_path / "errors.jsonl"
     return state
 
 
-def _wait_for_activity(state: AppState) -> None:
-    deadline = time.monotonic() + 10
-    while state.current_activity is not None and time.monotonic() < deadline:
-        time.sleep(0.01)
+@pytest.fixture(scope="module")
+def _action_snapshot() -> CockpitSnapshot:
+    config = load_config()
+    empty = pd.DataFrame()
+    return CockpitSnapshot(
+        config=config,
+        prices=empty,
+        holdings=empty,
+        features=empty,
+        latest_features=empty,
+        data_report=DataQualityReport(as_of_date=date.today(), issues=[]),
+        signals=[],
+        forecasts=empty,
+        backtest=_empty_backtest_report("Dashboard action tests do not run a backtest."),
+        model_status={},
+        model_inventory=[],
+    )
+
+
+def _wait_for_activity(state: AppState, completed: threading.Event | None = None) -> None:
+    if completed is None:
+        deadline = time.monotonic() + 10
+        while state.current_activity is not None and time.monotonic() < deadline:
+            time.sleep(0.01)
+    else:
+        assert completed.wait(timeout=10)
     assert state.current_activity is None
 
 
@@ -130,8 +156,9 @@ def test_dashboard_actions_execute_typed_commands_and_finish_with_handler_messag
     location,
     dataset_type,
     file_mode,
+    _action_snapshot,
 ) -> None:
-    state = _new_state(monkeypatch, tmp_path)
+    state = _new_state(monkeypatch, tmp_path, _action_snapshot)
     page = _Page()
     method_calls: list[tuple[object, ...]] = []
     commands: list[DashboardActionCommand] = []
@@ -154,8 +181,20 @@ def test_dashboard_actions_execute_typed_commands_and_finish_with_handler_messag
         return result
 
     monkeypatch.setattr(state.application_api, "execute", capture)
+    from etf_cockpit.app.pages import dashboard as dashboard_module
+
+    monkeypatch.setattr(dashboard_module, "_rebuild", lambda *_args: None)
+    completed = threading.Event()
+    release_activity = state.release_activity
+
+    def signal_activity_release(*args, **kwargs):
+        result = release_activity(*args, **kwargs)
+        completed.set()
+        return result
+
+    monkeypatch.setattr(state, "release_activity", signal_activity_release)
     _click_action(page, state, control_key, location, monkeypatch, tmp_path, file_mode)
-    _wait_for_activity(state)
+    _wait_for_activity(state, completed)
 
     assert len(commands) == 1
     assert commands[0].action == action
@@ -185,8 +224,9 @@ def test_dashboard_action_failures_return_command_errors_and_visible_failed_acti
     location,
     dataset_type,
     file_mode,
+    _action_snapshot,
 ) -> None:
-    state = _new_state(monkeypatch, tmp_path)
+    state = _new_state(monkeypatch, tmp_path, _action_snapshot)
     page = _Page()
     commands: list[DashboardActionCommand] = []
     results = []
@@ -206,8 +246,20 @@ def test_dashboard_action_failures_return_command_errors_and_visible_failed_acti
         return result
 
     monkeypatch.setattr(state.application_api, "execute", capture)
+    from etf_cockpit.app.pages import dashboard as dashboard_module
+
+    monkeypatch.setattr(dashboard_module, "_rebuild", lambda *_args: None)
+    completed = threading.Event()
+    release_activity = state.release_activity
+
+    def signal_activity_release(*args, **kwargs):
+        result = release_activity(*args, **kwargs)
+        completed.set()
+        return result
+
+    monkeypatch.setattr(state, "release_activity", signal_activity_release)
     _click_action(page, state, control_key, location, monkeypatch, tmp_path, file_mode)
-    _wait_for_activity(state)
+    _wait_for_activity(state, completed)
 
     assert len(commands) == 1
     assert commands[0].action == action
@@ -218,9 +270,9 @@ def test_dashboard_action_failures_return_command_errors_and_visible_failed_acti
 
 
 def test_replayed_dashboard_action_returns_stored_result_without_running_handler_twice(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, _action_snapshot
 ) -> None:
-    state = _new_state(monkeypatch, tmp_path)
+    state = _new_state(monkeypatch, tmp_path, _action_snapshot)
     calls: list[str] = []
     monkeypatch.setattr(state, "run_algorithm_scores", lambda: calls.append("called") or "Scores complete.")
     command = DashboardActionCommand(
@@ -239,8 +291,8 @@ def test_replayed_dashboard_action_returns_stored_result_without_running_handler
     assert calls == ["called"]
 
 
-def test_retry_click_uses_a_fresh_dashboard_idempotency_key(monkeypatch, tmp_path) -> None:
-    state = _new_state(monkeypatch, tmp_path)
+def test_retry_click_uses_a_fresh_dashboard_idempotency_key(monkeypatch, tmp_path, _action_snapshot) -> None:
+    state = _new_state(monkeypatch, tmp_path, _action_snapshot)
     page = _Page()
     dashboard = build_shell(page, state, "/")
     controls = _controls_by_key(dashboard)
@@ -262,15 +314,28 @@ def test_retry_click_uses_a_fresh_dashboard_idempotency_key(monkeypatch, tmp_pat
 
     monkeypatch.setattr(state, "run_algorithm_scores", run_algorithms)
     monkeypatch.setattr(state.application_api, "execute", capture)
+    from etf_cockpit.app.pages import dashboard as dashboard_module
+
+    monkeypatch.setattr(dashboard_module, "_rebuild", lambda *_args: None)
+    completed = threading.Event()
+    release_activity = state.release_activity
+
+    def signal_activity_release(*args, **kwargs):
+        result = release_activity(*args, **kwargs)
+        completed.set()
+        return result
+
+    monkeypatch.setattr(state, "release_activity", signal_activity_release)
     controls["dashboard.run-algorithms"][0].on_click(SimpleNamespace(page=page))
-    _wait_for_activity(state)
+    _wait_for_activity(state, completed)
     first_activity = state.recent_activity[-1]
     assert first_activity.status == "failed"
 
     errors = state.error_store.recent(100)
     assert errors
+    completed.clear()
     assert state.error_store.retry_request(errors[0].error_id) == "Retry started."
-    _wait_for_activity(state)
+    _wait_for_activity(state, completed)
 
     assert attempts == 2
     assert len(commands) == 2
