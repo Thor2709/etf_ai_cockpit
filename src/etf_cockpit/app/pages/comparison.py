@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import flet as ft
+import pandas as pd
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
+from etf_cockpit.app.components.cards import evidence_chip, section_header
+from etf_cockpit.app.components.kit import glass_panel, table_style
 from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.formatting import format_currency, format_date, format_number, format_percent
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.ui_facade import export_table
+from etf_cockpit.core.paths import EXPORTS_DIR
 from etf_cockpit.app.workspaces import save_workspace
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.application.ui_facade import build_simple_instrument_scores
@@ -47,6 +51,7 @@ def comparison_page(page: ft.Page, state: AppState) -> ft.Control:
     left = ft.Dropdown(key="comparison.left", label="Instrument A", value=left_id, options=options, width=300, dense=True)
     right = ft.Dropdown(key="comparison.right", label="Instrument B", value=right_id, options=options, width=300, dense=True)
     result = ft.Column(spacing=8)
+    export_status = ft.Text("CSV export writes a local file only; nothing is uploaded.", color=theme.MUTED, selectable=True)
     status = ft.Text("Comparison is local evidence only; no action or order authority is created.", color=theme.MUTED, selectable=True)
 
     def update_page() -> None:
@@ -62,6 +67,22 @@ def comparison_page(page: ft.Page, state: AppState) -> ft.Control:
             update_page()
             return
         result.controls = [_comparison_table(first, second)]
+        update_page()
+
+    def export_csv(_event: ft.ControlEvent) -> None:
+        first = by_id.get(left.value or "")
+        second = by_id.get(right.value or "")
+        if first is None or second is None:
+            export_status.value = "CSV export unavailable: select two instruments from the canonical score set."
+            export_status.color = theme.AMBER
+        else:
+            result_ = export_table("comparison_aligned_evidence", comparison_frame(first, second), EXPORTS_DIR / "comparison_aligned_evidence.csv")
+            if result_.ok:
+                export_status.value = f"Exported {result_.rows} rows locally to {result_.destination}; nothing was uploaded."
+                export_status.color = theme.GREEN
+            else:
+                export_status.value = f"CSV export failed: {result_.error or result_.status}. No file was uploaded."
+                export_status.color = theme.AMBER
         update_page()
 
     def save(_event: ft.ControlEvent) -> None:
@@ -83,7 +104,7 @@ def comparison_page(page: ft.Page, state: AppState) -> ft.Control:
     render()
     return ft.Column(
         [
-            panel(
+            glass_panel(
                 ft.Column(
                     [
                         section_header("Comparison workspace", "Compare aligned canonical score, price, return and evidence metadata for two local instruments."),
@@ -95,11 +116,15 @@ def comparison_page(page: ft.Page, state: AppState) -> ft.Control:
                             ],
                             wrap=True,
                         ),
-                        ft.Row([left, right, ft.OutlinedButton("Save workspace", key="comparison.save-workspace", on_click=save)], wrap=True),
+                        ft.Row([left, right, ft.OutlinedButton("Save workspace", key="comparison.save-workspace", on_click=save), ft.OutlinedButton("Export CSV", key="comparison.export-csv", icon=ft.Icons.DOWNLOAD, on_click=export_csv)], wrap=True),
                         status,
+                        export_status,
                     ],
                     spacing=8,
-                )
+                ),
+                key="comparison.header",
+                label="Comparison workspace",
+                padding=18,
             ),
             result,
         ],
@@ -109,9 +134,8 @@ def comparison_page(page: ft.Page, state: AppState) -> ft.Control:
     )
 
 
-def _comparison_table(first: object, second: object) -> ft.Container:
-    rows = []
-    fields = (
+def _comparison_fields() -> tuple[tuple[str, object], ...]:
+    return (
         ("Instrument", lambda score: score.display_id),
         ("Name", lambda score: score.name),
         ("Latest price", lambda score: format_currency(score.latest_price)),
@@ -126,21 +150,38 @@ def _comparison_table(first: object, second: object) -> ft.Container:
         ("Coverage", lambda score: "available" if score.latest_price is not None else "partial/unavailable"),
         ("Execution authority", lambda _score: "disabled"),
     )
-    for label, value in fields:
+
+
+def comparison_frame(first: object, second: object) -> pd.DataFrame:
+    """Return the displayed comparison rows as strings; missing values stay explicit."""
+    records = [
+        {"Measure": label, f"A: {first.display_id}": str(value(first)), f"B: {second.display_id}": str(value(second))}
+        for label, value in _comparison_fields()
+    ]
+    return pd.DataFrame(records)
+
+
+def _comparison_table(first: object, second: object) -> ft.Container:
+    rows = []
+    for label, value in _comparison_fields():
         rows.append(ft.DataRow(cells=[ft.DataCell(ft.Text(label, color=theme.MUTED, selectable=True)), ft.DataCell(ft.Text(str(value(first)), color=theme.TEXT, selectable=True)), ft.DataCell(ft.Text(str(value(second)), color=theme.TEXT, selectable=True))]))
-    return panel(
+    table = ft.DataTable(
+        columns=[ft.DataColumn(ft.Text(column, color=theme.TEXT)) for column in ("Measure", first.display_id, second.display_id)],
+        rows=rows,
+        data_row_min_height=34,
+        data_row_max_height=58,
+    )
+    return glass_panel(
         ft.Column(
             [
                 section_header("Aligned evidence", "Displayed values come from the canonical score objects. Missing values remain explicit and are never filled by UI logic."),
-                ft.DataTable(
-                    columns=[ft.DataColumn(ft.Text(column, color=theme.TEXT)) for column in ("Measure", first.display_id, second.display_id)],
-                    rows=rows,
-                    data_row_min_height=34,
-                    data_row_max_height=58,
-                ),
+                table_style(table, key="comparison.table", label="Aligned evidence table"),
             ],
             scroll=ft.ScrollMode.AUTO,
-        )
+        ),
+        key="comparison.evidence",
+        label="Aligned evidence",
+        padding=18,
     )
 
 

@@ -6,7 +6,8 @@ import flet as ft
 import pandas as pd
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import metric_card, panel, section_header
+from etf_cockpit.app.components.cards import metric_card, section_header
+from etf_cockpit.app.components.kit import glass_panel
 from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections, simple_score_legend
 from etf_cockpit.app.components.governance_badges import build_gate_summary
 from etf_cockpit.app.state import AppState
@@ -16,6 +17,10 @@ from etf_cockpit.app.selectors.instrument_detail import (
     _latest_operational_row,
     _operational_evidence_panel,
 )
+
+
+def _glass(key: str, label: str, content: ft.Control) -> ft.Container:
+    return glass_panel(content, key=f"signals.{key}", label=label, padding=18)
 
 
 def _signals_operational_evidence(scores: list[object], report: object) -> ft.Control:
@@ -55,7 +60,7 @@ def _signals_operational_evidence(scores: list[object], report: object) -> ft.Co
             )
     if not lines:
         lines = ["Instrument-scoped operational evidence unavailable; execution_allowed=false"]
-    return panel(
+    return _glass("operational-evidence", "Operational evidence",
         ft.Column(
             [
                 section_header(
@@ -127,7 +132,7 @@ def signals_page(_page: ft.Page, state: AppState) -> ft.Control:
         controls.append(gate_summary)
     controls.append(_signals_operational_evidence(scores, getattr(state.snapshot, "backtest", None)))
     controls.append(
-        panel(
+        _glass("scores", "All stock and ETF scores",
             ft.Column(
                 [
                     section_header(
