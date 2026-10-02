@@ -574,11 +574,14 @@ def test_macro_observations_available_at_decision_time_are_excluded(monkeypatch:
         observations=observations,
         benchmark_data_id="BENCH",
         benchmark_reference=reference,
-        as_of_date=date(2024, 1, 9),
+        as_of_date=date(2024, 1, 10),
     )
 
     assert result["inflation_rates"]["status"] == "available"
-    assert [row["available_at"] for row in result["inflation_rates"]["rows"]] == ["2024-01-09T23:59:00Z"]
+    assert [(row["value"], row["available_at"]) for row in result["inflation_rates"]["rows"]] == [
+        (3.0, "2024-01-09T23:59:00Z"),
+        (3.5, "2024-01-10T11:00:00Z"),
+    ]
 
 
 def test_macro_missing_evaluation_date_reports_freshness_unavailable() -> None:
