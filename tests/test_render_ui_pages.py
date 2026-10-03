@@ -157,6 +157,7 @@ def test_route_timeout_writes_failure_and_harness_cleans_up_processes(
     monkeypatch.setattr(renderer.subprocess, "Popen", lambda *_args, **_kwargs: FakeProcess())
     monkeypatch.setattr(renderer, "_wait_for_app", lambda *_args, **_kwargs: _ready())
     monkeypatch.setattr(renderer, "_stop_process", stopped.append)
+    monkeypatch.setattr(renderer, "SCREENSHOT_TIMEOUT_S", 0.01)
 
     async def fake_connect(_cls: object, *_args: object, **_kwargs: object) -> UnresponsiveDriver:
         return driver
@@ -171,10 +172,44 @@ def test_route_timeout_writes_failure_and_harness_cleans_up_processes(
     index = json.loads((tmp_path / "rendered" / "index.json").read_text(encoding="utf-8"))
     assert result == 1
     assert index[0]["ok"] is False
-    assert index[0]["error"] == "TimeoutError: Route capture exceeded 0.01 seconds."
+    assert index[0]["error"] == "TimeoutError: Route capture exceeded 0.02 seconds."
     assert index[0]["console_errors"] == ["before timeout"]
     assert driver.closed is True
     assert len(stopped) == 2
+
+
+def test_timeout_bounds_only_the_title_wait_settle_and_screenshot_are_extra(tmp_path: Path) -> None:
+    class SlowDriver:
+        console_errors: list[str] = []
+
+        def __init__(self, seconds: float) -> None:
+            self.seconds = seconds
+
+        async def capture(self, *_args: object, **_kwargs: object) -> list[str]:
+            await asyncio.sleep(self.seconds)  # settle + screenshot time, beyond --timeout-s
+            return []
+
+    def render(seconds: float, *, settle_ms: int, allowance_s: float) -> list[dict[str, object]]:
+        return asyncio.run(
+            renderer.render_routes(
+                ["/"],
+                tmp_path / f"out-{seconds}-{settle_ms}-{allowance_s}",
+                SlowDriver(seconds),
+                base_url="http://127.0.0.1:8550",
+                width=800,
+                height=600,
+                timeout_s=0.05,
+                settle_ms=settle_ms,
+                capture_allowance_s=allowance_s,
+            )
+        )
+
+    # 0.2 s of capture work succeeds although it is 4x --timeout-s, because settle (0.1 s) + screenshot allowance (0.3 s) are extra.
+    assert render(0.2, settle_ms=100, allowance_s=0.3)[0]["ok"] is True
+    # Work beyond title wait + settle + allowance still fails closed, naming the full limit.
+    failed = render(1.0, settle_ms=100, allowance_s=0.1)[0]
+    assert failed["ok"] is False
+    assert failed["error"] == "TimeoutError: Route capture exceeded 0.25 seconds."
 
 
 async def _ready() -> None:
