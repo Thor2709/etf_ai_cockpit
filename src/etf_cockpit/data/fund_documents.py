@@ -78,6 +78,12 @@ def canonical_document_type(document_type: str) -> str:
         raise ValueError(f"Unsupported document_type: {document_type}") from exc
 
 
+def _ingested_at_now() -> str:
+    """System record time (known_at) of a registered document; the single wall-clock read for ingestion."""
+
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
 def _normalise_date(document_date: str | date | datetime | None) -> str | None:
     if document_date is None or (isinstance(document_date, str) and not document_date.strip()):
         return None
@@ -177,7 +183,7 @@ def register_document(
         (),
         source_id,
         1,
-        datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        _ingested_at_now(),
     )
 
 
@@ -197,7 +203,7 @@ def unavailable_document(instrument_id: str, document_type: str, reason: str) ->
         (str(reason),),
         source_id,
         1,
-        datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        _ingested_at_now(),
     )
 
 
@@ -461,7 +467,7 @@ def _register_report_document(
         () if status == "complete" else (status,),
         identity,
         2,
-        datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        _ingested_at_now(),
         kind,
         status,
     )

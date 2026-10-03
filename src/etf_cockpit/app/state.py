@@ -647,9 +647,9 @@ class AppState:
             entry.message = result.message
             entry.output_path = resolved_output_path
             entry.error = None
-            self.current_activity = None
             self.last_message = message
             self.recent_activity = (self.recent_activity + [entry])[-8:]
+            self.current_activity = None
         log_event(
             event_type="activity_complete",
             severity="info",
@@ -697,9 +697,9 @@ class AppState:
             entry.step = "Failed"
             entry.finished_at = _utc_now()
             entry.error = result.message
-            self.current_activity = None
             self.last_message = entry.message
             self.recent_activity = (self.recent_activity + [entry])[-8:]
+            self.current_activity = None
         log_event(
             event_type="activity_failed",
             severity="error",

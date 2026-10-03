@@ -16,6 +16,10 @@ from tests.issue0014._support import (
 )
 
 
+# Timeout bounds isolated build-environment creation on CI runners, not product behaviour.
+_PACKAGING_SUBPROCESS_TIMEOUT_SECONDS = 300
+
+
 def test_real_sdist_runs_packaged_offline_smoke_from_artifact_root(tmp_path: Path) -> None:
     if importlib.util.find_spec("setuptools") is None:
         pytest.skip(
@@ -37,7 +41,7 @@ def test_real_sdist_runs_packaged_offline_smoke_from_artifact_root(tmp_path: Pat
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=120,
+        timeout=_PACKAGING_SUBPROCESS_TIMEOUT_SECONDS,
         check=False,
     )
     assert built.returncode == 0, built.stdout + built.stderr
@@ -75,7 +79,7 @@ def test_installed_wheel_loads_packaged_canonical_benchmark_registry(tmp_path: P
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=120,
+        timeout=_PACKAGING_SUBPROCESS_TIMEOUT_SECONDS,
         check=False,
     )
     assert build.returncode == 0, build.stdout + build.stderr
@@ -88,7 +92,7 @@ def test_installed_wheel_loads_packaged_canonical_benchmark_registry(tmp_path: P
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=120,
+        timeout=_PACKAGING_SUBPROCESS_TIMEOUT_SECONDS,
         check=False,
     )
     assert install.returncode == 0, install.stdout + install.stderr

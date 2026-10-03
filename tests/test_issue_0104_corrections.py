@@ -338,7 +338,19 @@ def test_empty_existing_holdings_without_schema_fail_closed_at_structural_root(t
         )
 
 
-def test_real_canonical_writers_preserve_bindings_through_shared_projection_and_backtest(tmp_path) -> None:
+def test_real_canonical_writers_preserve_bindings_through_shared_projection_and_backtest(tmp_path, monkeypatch) -> None:
+    from datetime import datetime as _real_datetime, timezone as _tz
+
+    from etf_cockpit.data import fund_documents as _fund_documents_module
+
+    class _PinnedDatetime(_real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = _real_datetime(2026, 7, 10, 12, 0, 0, tzinfo=_tz.utc)
+            return instant.astimezone(tz) if tz is not None else instant.replace(tzinfo=None)
+
+    # The document registry stamps ingested_at from its own ``datetime`` name; pin it to the scenario date.
+    monkeypatch.setattr(_fund_documents_module, "datetime", _PinnedDatetime)
     from etf_cockpit.backtest.engine import backtest_input_checksum, run_backtest
     from etf_cockpit.data.etf_structure import load_local_structural_evidence, project_etf_structure, structure_confidence_caps
     from etf_cockpit.data.fund_documents import import_etf_document
@@ -406,12 +418,13 @@ def test_real_canonical_writers_preserve_bindings_through_shared_projection_and_
         report_records=evidence.report_records,
         supplemental_rows=evidence.supplemental_rows,
         holdings=evidence.holdings,
+        decision_time="2026-07-11",
     )
     assert projection["fields"]["domicile"]["document_id"] == registered_factsheet.source_id
     assert projection["fields"]["legal_form"]["document_id"] == stored_holdings["document_source_id"].iloc[0]
     assert projection["execution_allowed"] is False
 
-    caps = structure_confidence_caps(["ETF-1"], document_registry=registry, supplemental_rows=evidence.supplemental_rows, holdings=evidence.holdings)
+    caps = structure_confidence_caps(["ETF-1"], document_registry=registry, supplemental_rows=evidence.supplemental_rows, holdings=evidence.holdings, decision_time="2026-07-11")
     assert caps["ETF-1"] > 0.0
     assert caps.provenance["ETF-1"]["structure_provenance_hash"] != "unavailable"
     config = services.load_config()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,6 +17,7 @@ from etf_cockpit.core.config import load_config
 from etf_cockpit.core.paths import RAW_DIR
 from etf_cockpit.features.cash_comparison import build_cash_comparison
 from etf_cockpit.data.classification import ClassificationOverride, ClassificationStore
+from etf_cockpit.data.macro_warehouse import RiskFreeProxyMapping
 from etf_cockpit.services import DataService, build_snapshot
 from etf_cockpit.signals import simple_scores as simple_scores_module
 from etf_cockpit.signals.friction_edge import estimate_friction_edge
@@ -255,9 +257,9 @@ def _kid_for_score(**changes: object) -> PriipsKidRecord:
 
 
 def test_complete_fresh_kid_is_observable_as_issuer_cost_evidence() -> None:
-    record = _kid_for_score()
+    record = _kid_for_score(document_date="2025-01-06")
     assert hasattr(simple_scores_module, "build_priips_kid_cost_evidence")
-    component = simple_scores_module.build_priips_kid_cost_evidence(record)
+    component = simple_scores_module.build_priips_kid_cost_evidence(record, as_of_date=date(2025, 1, 10))
 
     assert component is not None
     assert component.key == "liquidity_cost"
@@ -266,17 +268,19 @@ def test_complete_fresh_kid_is_observable_as_issuer_cost_evidence() -> None:
     assert component.as_of_date == record.document_date
     assert component.freshness_status == "ok"
     assert component.score_eligible is True
-    assert component.score_10 is not None
+    assert component.score_10 == pytest.approx(4.6)
+    assert component.raw_score == pytest.approx(-0.07)
 
 
 def test_higher_disclosed_ongoing_cost_never_improves_liquidity_cost_score() -> None:
-    lower_cost = _kid_for_score(cost_fields={"ongoing_costs": "0.05% of the value of your investment"})
-    higher_cost = _kid_for_score(cost_fields={"ongoing_costs": "0.50% of the value of your investment"})
+    lower_cost = _kid_for_score(document_date="2025-01-01", cost_fields={"ongoing_costs": "0.05% of the value of your investment"})
+    higher_cost = _kid_for_score(document_date="2025-01-01", cost_fields={"ongoing_costs": "0.50% of the value of your investment"})
 
-    lower_component = simple_scores_module.build_priips_kid_cost_evidence(lower_cost)
-    higher_component = simple_scores_module.build_priips_kid_cost_evidence(higher_cost)
+    lower_component = simple_scores_module.build_priips_kid_cost_evidence(lower_cost, as_of_date=date(2025, 1, 10))
+    higher_component = simple_scores_module.build_priips_kid_cost_evidence(higher_cost, as_of_date=date(2025, 1, 10))
 
     assert lower_component.key == higher_component.key == "liquidity_cost"
+    assert lower_component.freshness_status == higher_component.freshness_status == "ok"
     assert lower_component.score_10 is not None
     assert higher_component.score_10 is not None
     assert higher_component.score_10 < lower_component.score_10
@@ -290,15 +294,14 @@ def test_complete_kid_cost_fields_score_the_ongoing_cost_row() -> None:
         "transaction_costs": "0.10% of the value of your investment per year",
         "performance_fees": "3.00% of profits",
     }
-    lower_cost = _kid_for_score(cost_fields={**base_costs, "ongoing_costs": "0.05% of the value of your investment"})
-    higher_cost = _kid_for_score(cost_fields={**base_costs, "ongoing_costs": "0.50% of the value of your investment"})
+    lower_cost = _kid_for_score(document_date="2025-01-01", cost_fields={**base_costs, "ongoing_costs": "0.05% of the value of your investment"})
+    higher_cost = _kid_for_score(document_date="2025-01-01", cost_fields={**base_costs, "ongoing_costs": "0.50% of the value of your investment"})
 
-    lower_component = simple_scores_module.build_priips_kid_cost_evidence(lower_cost)
-    higher_component = simple_scores_module.build_priips_kid_cost_evidence(higher_cost)
+    lower_component = simple_scores_module.build_priips_kid_cost_evidence(lower_cost, as_of_date=date(2025, 1, 10))
+    higher_component = simple_scores_module.build_priips_kid_cost_evidence(higher_cost, as_of_date=date(2025, 1, 10))
 
     assert lower_component.key == higher_component.key == "liquidity_cost"
-    assert lower_component.score_10 is not None
-    assert higher_component.score_10 is not None
+    assert lower_component.freshness_status == higher_component.freshness_status == "ok"
     assert higher_component.score_10 < lower_component.score_10
     assert higher_component.raw_score < lower_component.raw_score
 
@@ -325,15 +328,14 @@ def test_kid_cost_evidence_without_numeric_ongoing_cost_is_unavailable() -> None
 
 
 def test_higher_sri_never_improves_risk_score() -> None:
-    lower_sri = _kid_for_score(cost_fields={}, sri=2)
-    higher_sri = _kid_for_score(cost_fields={}, sri=6)
+    lower_sri = _kid_for_score(document_date="2025-01-01", cost_fields={}, sri=2)
+    higher_sri = _kid_for_score(document_date="2025-01-01", cost_fields={}, sri=6)
 
-    lower_component = simple_scores_module.build_priips_kid_cost_evidence(lower_sri)
-    higher_component = simple_scores_module.build_priips_kid_cost_evidence(higher_sri)
+    lower_component = simple_scores_module.build_priips_kid_cost_evidence(lower_sri, as_of_date=date(2025, 1, 10))
+    higher_component = simple_scores_module.build_priips_kid_cost_evidence(higher_sri, as_of_date=date(2025, 1, 10))
 
     assert lower_component.key == higher_component.key == "risk"
-    assert lower_component.score_10 is not None
-    assert higher_component.score_10 is not None
+    assert lower_component.freshness_status == higher_component.freshness_status == "ok"
     assert higher_component.score_10 < lower_component.score_10
     assert higher_component.raw_score < lower_component.raw_score
 
@@ -416,7 +418,7 @@ def test_candidate_without_portfolio_fields_gets_algorithm_scores() -> None:
                 "instrument_id": "ABC",
                 "name": "ABC Test Stock",
                 "yahoo_symbol": "ABC.DE",
-                "latest_date": pd.Timestamp.today().date().isoformat(),
+                "latest_date": "2026-06-29",
                 "latest_price": 100.0,
                 "return_3m": 0.10,
                 "return_6m": 0.18,
@@ -430,7 +432,7 @@ def test_candidate_without_portfolio_fields_gets_algorithm_scores() -> None:
         ]
     )
 
-    scores = build_candidate_simple_scores(report, pd.DataFrame())
+    scores = build_candidate_simple_scores(report, pd.DataFrame(), decision_date=date(2026, 6, 29))
 
     assert len(scores) == 1
     assert scores[0].instrument_key == "candidate:ABC"
@@ -447,7 +449,7 @@ def test_unavailable_model_forecast_is_na_and_excluded() -> None:
                 "instrument_id": "ABC",
                 "name": "ABC Test Stock",
                 "yahoo_symbol": "ABC.DE",
-                "latest_date": pd.Timestamp.today().date().isoformat(),
+                "latest_date": "2026-06-29",
                 "latest_price": 100.0,
                 "return_3m": 0.10,
                 "return_6m": 0.18,
@@ -474,7 +476,7 @@ def test_unavailable_model_forecast_is_na_and_excluded() -> None:
         ]
     )
 
-    score = build_candidate_simple_scores(report, forecasts)[0]
+    score = build_candidate_simple_scores(report, forecasts, decision_date=date(2026, 6, 29))[0]
     timesfm = next(component for component in score.components if component.key == "timesfm")
 
     assert timesfm.score_10 is None
@@ -489,7 +491,7 @@ def test_scoreboard_frame_contains_quality_and_authority_columns() -> None:
                 "instrument_id": "ABC",
                 "name": "ABC Test Stock",
                 "yahoo_symbol": "ABC.DE",
-                "latest_date": pd.Timestamp.today().date().isoformat(),
+                "latest_date": "2026-06-29",
                 "latest_price": 100.0,
                 "rows": 300,
                 "return_3m": 0.10,
@@ -504,7 +506,7 @@ def test_scoreboard_frame_contains_quality_and_authority_columns() -> None:
             }
         ]
     )
-    score = build_candidate_simple_scores(report, pd.DataFrame())[0]
+    score = build_candidate_simple_scores(report, pd.DataFrame(), decision_date=date(2026, 6, 29))[0]
     frame = simple_scoreboard_frame([score])
 
     assert frame.loc[0, "evidence_score_10"] is not None
@@ -693,20 +695,26 @@ def test_direct_score_clears_contradictory_cash_identity_before_scoreboard(tmp_p
 def test_local_cash_path_fails_closed_on_malformed_adjusted_prices(
     monkeypatch, bad_row: dict[str, object]
 ) -> None:
-    snapshot = build_snapshot()
-    instrument_id = snapshot.config.universe.enabled_ids[0]
+    config = load_config()
+    instrument_id = config.universe.enabled_ids[0]
     rows = [
         {"etf_id": instrument_id, "date": "2026-01-01", "adjusted_close": 100.0},
         {"etf_id": instrument_id, "date": "2026-01-02", "adjusted_close": 101.0},
     ]
     rows[1].update(bad_row)
-    monkeypatch.setattr(
-        simple_scores_module,
-        "load_risk_free_proxy_mappings",
-        lambda: (object(),),
+    risk_free_mappings = (
+        RiskFreeProxyMapping(
+            currency="AUD",
+            minimum_horizon_years=1.0,
+            maximum_horizon_years=1.0,
+            curve_id="primary-curve",
+            fallback_curve_ids=("fallback-curve",),
+            methodology="official mapping",
+        ),
     )
+    monkeypatch.setattr(simple_scores_module, "load_risk_free_proxy_mappings", lambda: risk_free_mappings)
     lookup = simple_scores_module._build_local_cash_comparison_lookup(
-        snapshot.config, pd.DataFrame(rows), as_of="2026-01-04T00:00:00+00:00"
+        config, pd.DataFrame(rows), as_of="2026-01-04T00:00:00+00:00"
     )
     assert lookup[instrument_id]["status"] == "unavailable"
     assert lookup[instrument_id]["execution_allowed"] is False
@@ -722,7 +730,7 @@ def test_scoreboard_binds_classification_token_and_reader_invalidates_stale_scor
                 "instrument_id": "ABC",
                 "name": "ABC Test Stock",
                 "yahoo_symbol": "ABC.DE",
-                "latest_date": pd.Timestamp.today().date().isoformat(),
+                "latest_date": "2026-07-10",
                 "latest_price": 100.0,
                 "rows": 300,
                 "return_3m": 0.10,
@@ -738,7 +746,7 @@ def test_scoreboard_binds_classification_token_and_reader_invalidates_stale_scor
         ]
     )
     monkeypatch.setattr(simple_scores_module, "ROOT", tmp_path)
-    candidate = build_candidate_simple_scores(report, pd.DataFrame())[0]
+    candidate = build_candidate_simple_scores(report, pd.DataFrame(), decision_date=date(2026, 7, 10))[0]
     bound = simple_scores_module._with_canonical_score(
         simple_scores_module._with_classification_dependency(candidate)
     )
@@ -749,6 +757,7 @@ def test_scoreboard_binds_classification_token_and_reader_invalidates_stale_scor
     assert bound.classification_dependency_status == "current"
     assert bound.classification_invalidation_hash != "unavailable"
     assert bound.canonical_score is not None
+    assert pd.notna(raw_before.iloc[0]["canonical_attractiveness_10"])
     assert raw_before.iloc[0]["classification_invalidation_hash"] == bound.classification_invalidation_hash
 
     with ClassificationStore(tmp_path) as store:
@@ -771,6 +780,7 @@ def test_scoreboard_binds_classification_token_and_reader_invalidates_stale_scor
     projected = load_simple_scoreboard(path, root=tmp_path)
     raw_after = pd.read_parquet(path)
     assert pd.notna(raw_after.iloc[0]["canonical_attractiveness_10"])
+    assert raw_after.iloc[0]["canonical_attractiveness_10"] == raw_before.iloc[0]["canonical_attractiveness_10"]
     assert pd.isna(projected.iloc[0]["canonical_attractiveness_10"])
     assert projected.iloc[0]["classification_dependency_status"] == "classification_override_invalidated"
     assert projected.iloc[0]["analysis_status"] == "unavailable"

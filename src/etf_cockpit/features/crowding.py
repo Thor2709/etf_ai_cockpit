@@ -101,6 +101,7 @@ def build_correlation_clusters(
         )
     top_ranked_theme_concentration, top_ranked_theme_warning = _ranked_theme_concentration(labels, normalised_weights)
     risk_by_cluster = _cluster_risk_contributions(returns, groups, normalised_weights, min_pair_samples)
+    risk_covariance_unavailable = bool(normalised_weights) and risk_by_cluster is None
     rows: list[ClusterRow] = []
     for members in sorted(groups.values(), key=lambda values: values[0]):
         members = tuple(sorted(members))
@@ -118,7 +119,7 @@ def build_correlation_clusters(
         if normalised_weights:
             if selected_members:
                 cluster_weight = round(sum(normalised_weights.get(member, 0.0) for member in selected_members), 6)
-                cluster_risk_contribution = risk_by_cluster.get(cluster_id)
+                cluster_risk_contribution = None if risk_by_cluster is None else risk_by_cluster.get(cluster_id)
         cluster_label = "High correlation cluster" if len(members) > 1 else "Singleton / no correlated peer"
         if dominant_theme:
             cluster_label += f" ({dominant_theme})"
@@ -136,6 +137,8 @@ def build_correlation_clusters(
             row_warning = cluster_warning
             if average_peer is None and (clean_sample_size < min_pair_samples or not valid_peer_values):
                 row_warning = "correlation_coverage_unavailable"
+            if risk_covariance_unavailable and selected_members:
+                row_warning = "risk_covariance_unavailable"
             pair_sample_size = min(pair_sample_counts, default=0)
             row_coverage = None if clean_sample_size == 0 else round(pair_sample_size / clean_sample_size, 6)
             item = labels.get(instrument_id, {})
@@ -166,9 +169,13 @@ def build_correlation_clusters(
         rows=tuple(rows),
         as_of=_as_of(frame.index),
         window=window,
-        status="available",
+        status="partial" if risk_covariance_unavailable else "available",
         sample_size=int(len(returns)),
-        reason="Correlation clusters computed from clean adjusted-price returns.",
+        reason=(
+            "Correlation clusters computed; shared return covariance is unavailable for ranked instruments."
+            if risk_covariance_unavailable
+            else "Correlation clusters computed from clean adjusted-price returns."
+        ),
         ranked_instrument_count=len(ranked_set),
         ranking_coverage=ranking_coverage,
         top_ranked_concentration=top_ranked_concentration,
@@ -253,7 +260,7 @@ def _cluster_risk_contributions(
     groups: Mapping[str, list[str]],
     weights: Mapping[str, float],
     min_pair_samples: int,
-) -> dict[str, float]:
+) -> dict[str, float] | None:
     """Estimate covariance-adjusted cluster risk while retaining singleton weight.
 
     The multiplier compares each cluster's covariance variance with the variance
@@ -266,14 +273,19 @@ def _cluster_risk_contributions(
         return {}
     selected = [instrument_id for instrument_id in weights if instrument_id in returns.columns]
     if not selected:
-        return {}
-    covariance = returns[selected].cov(min_periods=min_pair_samples).reindex(index=selected, columns=selected)
-    variances = pd.to_numeric(pd.Series({instrument_id: covariance.loc[instrument_id, instrument_id] for instrument_id in selected}), errors="coerce")
-    fallback_variances = returns[selected].var(skipna=True).reindex(selected)
-    variances = variances.fillna(fallback_variances).fillna(0.0).clip(lower=0.0)
-    covariance = covariance.fillna(0.0)
-    for instrument_id in selected:
-        covariance.loc[instrument_id, instrument_id] = float(variances.loc[instrument_id])
+        return None
+    complete = returns[selected].dropna(how="any")
+    if len(complete) < min_pair_samples:
+        return None
+    covariance = complete.cov(min_periods=min_pair_samples).reindex(index=selected, columns=selected)
+    if covariance.isna().to_numpy().any() or not pd.notna(covariance.to_numpy()).all():
+        return None
+    variances = pd.Series(
+        {instrument_id: covariance.loc[instrument_id, instrument_id] for instrument_id in selected},
+        dtype=float,
+    )
+    if not pd.notna(variances.to_numpy()).all() or (variances < 0.0).any():
+        return None
 
     raw_contributions: dict[str, float] = {}
     for members in groups.values():

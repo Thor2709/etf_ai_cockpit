@@ -114,20 +114,28 @@ def test_writer_rejects_invalid_batch_without_mutation(mutation, deferred_semant
     before = deepcopy(control)
     batch = _batch(control)
     event = batch[0]["event"]
-    if mutation == "pair": event["dependency_edge"]["dependency"] = "ISSUE-0085"
-    if mutation == "addition": event["dependency_edge"]["operation"] = "add"
-    if mutation == "evidence": event["dependency_edge"]["prior_evidence"]["contract_reference"] = "changed"
-    if mutation == "source": event["source_sha256"] = "b" * 64
-    if mutation == "status": event["to"] = "integrated"
-    if mutation == "review": event["reviewer"] = ""
-    if mutation == "partial": batch.pop()
+    if mutation == "pair":
+        event["dependency_edge"]["dependency"] = "ISSUE-0085"
+    if mutation == "addition":
+        event["dependency_edge"]["operation"] = "add"
+    if mutation == "evidence":
+        event["dependency_edge"]["prior_evidence"]["contract_reference"] = "changed"
+    if mutation == "source":
+        event["source_sha256"] = "b" * 64
+    if mutation == "status":
+        event["to"] = "integrated"
+    if mutation == "review":
+        event["reviewer"] = ""
+    if mutation == "partial":
+        batch.pop()
     with pytest.raises(ValueError):
         apply_dependency_declaration_corrections(control, root=ROOT, corrections=batch)
     assert control == before
 
 
 def _guard(control, base, proposed_control, proposed, mutate_manifest=None):
-    digest = lambda value: hashlib.sha256(core.deterministic_json(value)).hexdigest()
+    def digest(value):
+        return hashlib.sha256(core.deterministic_json(value)).hexdigest()
     source_digest = base["source_of_truth"]["source_manifest_sha256"]
     manifest = {
         "schema_version": "1.3", "base_commit": "a" * 40, "branch": "fixture",
@@ -140,7 +148,8 @@ def _guard(control, base, proposed_control, proposed, mutate_manifest=None):
             "proposed_registry_sha256": digest(proposed), "source_manifest_sha256": source_digest,
             "added_issue_ids": [], "removed_issue_ids": []},
     }
-    if mutate_manifest: mutate_manifest(manifest)
+    if mutate_manifest:
+        mutate_manifest(manifest)
     status = status_payload(proposed)
     return guard_proposal(base_registry=base, latest_registry=base, proposed_registry=proposed,
         manifest=manifest, current_status=status, current_progress=deterministic_text(progress_markdown(status, proposed)),
@@ -198,9 +207,16 @@ def test_guard_rejects_reconciliation_corruption(migration, mutation):
 def test_guard_rejects_unrelated_or_stale_changes(migration, mutation):
     control, base, proposed_control, proposed = deepcopy(migration)
     change_manifest = None
-    if mutation == "status": proposed_control["records"]["ISSUE-0167"]["programme_status"] = "integrated"
-    if mutation == "genuine_edge": proposed["records"][0]["title"] = "unrelated"
-    if mutation == "history": proposed_control["records"]["ISSUE-0167"]["transition_history"][0]["dependency_edge"]["prior_evidence"]["contract_reference"] = "changed"
-    if mutation == "stale_hash": change_manifest = lambda manifest: manifest["registry_migration"].update(proposed_registry_sha256="b" * 64)
-    if mutation == "pair": change_manifest = lambda manifest: manifest["allowed_dependency_edge_updates"].pop()
+    if mutation == "status":
+        proposed_control["records"]["ISSUE-0167"]["programme_status"] = "integrated"
+    if mutation == "genuine_edge":
+        proposed["records"][0]["title"] = "unrelated"
+    if mutation == "history":
+        proposed_control["records"]["ISSUE-0167"]["transition_history"][0]["dependency_edge"]["prior_evidence"]["contract_reference"] = "changed"
+    if mutation == "stale_hash":
+        def change_manifest(manifest):
+            return manifest["registry_migration"].update(proposed_registry_sha256="b" * 64)
+    if mutation == "pair":
+        def change_manifest(manifest):
+            return manifest["allowed_dependency_edge_updates"].pop()
     assert _guard(control, base, proposed_control, proposed, change_manifest)

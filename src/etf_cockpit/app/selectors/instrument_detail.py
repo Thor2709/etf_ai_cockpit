@@ -1200,7 +1200,13 @@ def _friction_panel(instrument_id: str, *, candidate_score: SimpleInstrumentScor
     else:
         if not SCOREBOARD_PATH.exists():
             return empty
-        frame = load_simple_scoreboard(SCOREBOARD_PATH)
+        try:
+            frame = load_simple_scoreboard(SCOREBOARD_PATH)
+        except (OSError, ValueError) as exc:
+            # Corrupt optional store: explicit unavailable state with a reason, never a zero-filled row.
+            empty["friction_reason"] = f"Scoreboard store unavailable ({type(exc).__name__}); friction evidence is not inferred."
+            empty["reason_code"] = "scoreboard_store_unreadable"
+            return empty
         if frame.empty:
             return empty
         rows = _instrument_rows(frame, instrument_id, columns=("display_id", "instrument_id", "etf_id"))
@@ -1589,7 +1595,11 @@ def build_etf_economics_panel(
 def _scoreboard_row(instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:
     if _candidate_score_matches(candidate_score, instrument_id):
         return _candidate_scoreboard(candidate_score)  # type: ignore[arg-type]
-    frame = load_simple_scoreboard(SCOREBOARD_PATH)
+    try:
+        frame = load_simple_scoreboard(SCOREBOARD_PATH)
+    except (OSError, ValueError):
+        # Corrupt optional store: the score panel reports score evidence unavailable.
+        return {}
     rows = _instrument_rows(frame, instrument_id, columns=("instrument_id", "display_id", "etf_id"))
     return rows.iloc[-1].to_dict() if not rows.empty else {}
 

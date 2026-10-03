@@ -4,6 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 import threading
+import time
+from types import SimpleNamespace
 from typing import get_args, get_origin
 
 import pytest
@@ -296,7 +298,11 @@ def test_group_lock_persistent_open_sharing_violation_times_out(tmp_path: Path, 
     (parent / ".atomic-write-group.lock").write_text("{}", encoding="utf-8")
     guards = atomic_io._acquire_group_guards((parent,), timeout_seconds=1)
     ticks = iter((10.0, 16.0))
-    monkeypatch.setattr(atomic_io.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(
+        atomic_io,
+        "time",
+        SimpleNamespace(monotonic=lambda: next(ticks), sleep=time.sleep),
+    )
     guards.deadline = 15.0
     monkeypatch.setattr(
         atomic_io.os,
