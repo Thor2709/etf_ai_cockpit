@@ -171,7 +171,7 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
     )
     analysis_depth = ft.Dropdown(
         label="Analysis depth",
-        value=settings_bundle.controls.analysis_depth,
+        value=state.analysis_depth if state.analysis_depth in ANALYSIS_DEPTHS else settings_bundle.controls.analysis_depth,
         options=[ft.dropdown.Option(item) for item in ANALYSIS_DEPTHS],
         key="settings.analysis-depth",
         width=190,
@@ -229,6 +229,7 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
             result = save_settings(candidate, expected_revision=settings_bundle.revision, root=ROOT)
             state.snapshot.config = load_config()
             settings_bundle = load_settings_bundle(ROOT)
+            state.analysis_depth = settings_bundle.controls.analysis_depth
             settings_status.value = (
                 f"Settings v{result.settings_version} saved atomically; revision {result.revision[:16]}. "
                 "No analysis, provider, model or execution workflow was started."

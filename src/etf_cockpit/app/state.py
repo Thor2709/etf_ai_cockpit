@@ -361,6 +361,7 @@ class AppState:
     innovation_source_digest: str | None = None
     evidence_mode: str = "default"
     analysis_depth: str | None = None
+    settings_root: Path | None = None
     score_history_warning: str | None = None
     application_api: LocalApplicationApi = field(init=False, repr=False)
 
@@ -407,6 +408,34 @@ class AppState:
         self.last_message = f"Analysis depth: {value.capitalize()}"
         return value
 
+    def persist_analysis_depth(self, depth: str) -> str:
+        """Write the depth into the settings bundle (single source of truth shared with Settings).
+
+        Returns a short status line. Without a settings root (tests, detached state) nothing is
+        written and the status says so; a rejected save never changes the in-memory choice.
+        """
+
+        value = str(depth or "").strip().lower()
+        if self.settings_root is None:
+            return "Analysis depth kept for this session only (no settings location bound)."
+        from etf_cockpit.application.settings import (
+            SettingsError,
+            load_settings_bundle,
+            preview_settings,
+            save_settings,
+        )
+
+        try:
+            bundle = load_settings_bundle(self.settings_root)
+            if bundle.controls.analysis_depth == value:
+                return f"Analysis depth {value.capitalize()} already saved in Settings."
+            candidate = bundle.model_copy(update={"controls": bundle.controls.model_copy(update={"analysis_depth": value})})
+            preview_settings(candidate, expected_revision=bundle.revision, root=self.settings_root)
+            result = save_settings(candidate, expected_revision=bundle.revision, root=self.settings_root)
+            return f"Analysis depth {value.capitalize()} saved to Settings v{result.settings_version}."
+        except (SettingsError, OSError, ValueError) as exc:
+            return f"Analysis depth {value.capitalize()} not saved to Settings: {exc}"
+
     @classmethod
     def load(cls) -> "AppState":
         with timed_step("startup", "migrations"):
@@ -417,7 +446,18 @@ class AppState:
             refresh_static_trust_artifacts(snapshot.config)
         except Exception:
             pass
-        state = cls(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf, recent_activity=_read_recent_activity())
+        state = cls(
+            snapshot=snapshot,
+            selected_etf=snapshot.config.ui.default_etf,
+            recent_activity=_read_recent_activity(),
+            settings_root=ROOT,
+        )
+        try:
+            from etf_cockpit.application.settings import load_settings_bundle
+
+            state.analysis_depth = load_settings_bundle(ROOT).controls.analysis_depth
+        except Exception:  # the chip stays Unavailable rather than guessing a depth
+            state.analysis_depth = None
         state.snapshot.signals = [
             signal for signal in state.snapshot.signals
             if _signal_classification_is_current(signal, root=ROOT)
