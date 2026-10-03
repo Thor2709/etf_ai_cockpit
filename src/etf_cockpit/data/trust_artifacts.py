@@ -852,7 +852,7 @@ def write_evidence_ledger(scores: Iterable[Any], *, run_id: str, created_at: str
         for component in getattr(score, "components", []) or []:
             source_id = _component_source_id(component)
             source_authority = str(getattr(component, "source_authority", "") or "") or _source_authority(source_id, str(getattr(component, "authority", "medium") or "medium"))
-            source_freshness = str(getattr(component, "freshness_status", "") or "").strip().lower() or _freshness_from_date(str(getattr(component, "as_of_date", "") or latest_date))
+            source_freshness = str(getattr(component, "freshness_status", "") or "").strip().lower() or _freshness_from_date(str(getattr(component, "as_of_date", "") or latest_date), created_at)
             source_obj = EvidenceSource(
                 dataset=_source_dataset(source_id),
                 source_id=redact_text(source_id),
@@ -914,7 +914,7 @@ def write_score_components(scores: Iterable[Any], *, run_id: str, created_at: st
             score_value = getattr(component, "score_10", None)
             source_id = _component_source_id(component)
             source_authority = str(getattr(component, "source_authority", "") or "") or _source_authority(source_id, str(getattr(component, "authority", "medium") or "medium"))
-            source_freshness = str(getattr(component, "freshness_status", "") or "").strip().lower() or _freshness_from_date(str(getattr(score, "latest_date", "")))
+            source_freshness = str(getattr(component, "freshness_status", "") or "").strip().lower() or _freshness_from_date(str(getattr(score, "latest_date", "")), created_at)
             rows.append(
                 {
                     "run_id": run_id,
@@ -1000,7 +1000,7 @@ def append_score_history(
                 "rank": rank,
                 "score_rank": score_rank,
                 "warnings": warnings,
-                "freshness_status": _score_freshness(score),
+                "freshness_status": _score_freshness(score, created_at),
                 "model_available": _model_available(score),
                 "model_availability": _model_availability(score),
                 "forecast_status": _forecast_status(score),
@@ -1092,7 +1092,7 @@ def append_score_metric_history(scores: Iterable[Any], *, run_id: str, created_a
                     "na_reason": "" if score_value is not None else getattr(component, "why", "score unavailable"),
                     "source_dataset": _source_dataset(source_id),
                     "as_of_date": getattr(score, "latest_date", ""),
-                    "freshness_status": _freshness_from_date(str(getattr(score, "latest_date", ""))),
+                    "freshness_status": _freshness_from_date(str(getattr(score, "latest_date", "")), created_at),
                     "authority_label": getattr(component, "authority", ""),
                     "formula_version": getattr(getattr(score, "canonical_score", None), "formula_version", "unavailable"),
                     "formula_checksum": getattr(getattr(score, "canonical_score", None), "formula_checksum", "unavailable"),
@@ -1905,7 +1905,7 @@ def _score_snapshot_hash(score: Any) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def _score_freshness(score: Any) -> str:
+def _score_freshness(score: Any, as_of: object | None = None) -> str:
     statuses = [
         str(getattr(component, "freshness_status", "") or "")
         for component in getattr(score, "components", []) or []
@@ -1915,7 +1915,7 @@ def _score_freshness(score: Any) -> str:
         return "stale"
     if any(status in {"partial", "warning", "unknown", "missing_or_pending"} for status in statuses):
         return "partial"
-    return statuses[0] if statuses else _freshness_from_date(str(getattr(score, "latest_date", "")))
+    return statuses[0] if statuses else _freshness_from_date(str(getattr(score, "latest_date", "")), as_of)
 
 
 def _model_available(score: Any) -> bool | None:
@@ -1984,14 +1984,25 @@ def _forecast_status(score: Any) -> str:
     return "unavailable"
 
 
-def _freshness_from_date(value: str) -> str:
+def _freshness_reference_day(as_of: object | None) -> pd.Timestamp:
+    """UTC calendar day (naive) that source dates age against; wall clock only when no as-of is supplied."""
+
+    if as_of is None:
+        return pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
+    reference = pd.Timestamp(as_of)
+    if reference.tzinfo is not None:
+        reference = reference.tz_convert("UTC").tz_localize(None)
+    return reference.normalize()
+
+
+def _freshness_from_date(value: str, as_of: object | None = None) -> str:
     if not value or value == "pending refresh":
         return "missing_or_pending"
     try:
         parsed = pd.to_datetime(value, errors="coerce")
         if pd.isna(parsed):
             return "unknown"
-        now = pd.Timestamp.utcnow().tz_localize(None).normalize()
+        now = _freshness_reference_day(as_of)
         age_days = (now - parsed.tz_localize(None).normalize()).days
         if age_days <= 3:
             return "ok"

@@ -367,7 +367,9 @@ def test_v7_migrates_v6_ledger_facts_without_rewriting_them(tmp_path):
         assert entry.postings[0] == LedgerPosting("cash", "EUR", debit=Decimal("25.50"))
 
 
-def test_replay_positions_settlement_trial_balance_and_fx_are_point_in_time(tmp_path):
+def test_replay_positions_settlement_trial_balance_and_fx_are_point_in_time(tmp_path, monkeypatch):
+    # recorded_at is the system write time; pin it to the scenario day so known_at replays do not depend on the wall clock.
+    monkeypatch.setattr("etf_cockpit.portfolio.ledger._utc_now", lambda: "2026-09-28T12:00:00.000000Z")
     with TransactionalStore(tmp_path / "ledger") as store:
         ledger = Ledger(store.connection)
         ledger.create_account(

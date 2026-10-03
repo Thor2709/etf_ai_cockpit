@@ -120,7 +120,11 @@ def test_partial_fill_keeps_exact_decimal_residual_reservation(tmp_path: Path) -
 
     assert reservation.remaining_quantity == Decimal("6")
     assert reservation.reserved_amount == Decimal("60.25")
-    assert lifecycle.available_buying_power(account_id="account-1", currency="EUR") == Decimal("899.85")
+    # Pinned to the fill day: the T+2 settlement of the fill releases its reservation once the wall clock passes
+    # 2026-10-02, so an unpinned (now) read is a date bomb.
+    assert lifecycle.available_buying_power(
+        account_id="account-1", currency="EUR", as_of=datetime(2026, 9, 30, 11, tzinfo=timezone.utc)
+    ) == Decimal("899.85")
 
 
 def test_fill_cannot_consume_cash_reserved_for_another_order(tmp_path: Path) -> None:

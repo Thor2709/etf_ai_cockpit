@@ -40,7 +40,7 @@ def test_missing_and_weak_fundamentals_are_not_confused() -> None:
 def test_complete_five_section_negative_evidence_remains_score_eligible() -> None:
     claims = _complete_claims()
     claims["valuation"] = -1.0
-    evidence = build_fundamental_evidence(claims, "MSFT", "2026-07-10")
+    evidence = build_fundamental_evidence(claims, "MSFT", "2026-07-10", today=date(2026, 7, 18))
     assert evidence.eligibility == "eligible_negative_evidence"
     assert evidence.score_eligible is True
 
@@ -433,6 +433,7 @@ def test_fundamental_persistence_preserves_section_provenance(tmp_path) -> None:
         "MSFT",
         "2026-07-10",
         source_authority="sec_edgar",
+        today=date(2026, 7, 18),
     )
     clean_path = tmp_path / "clean.parquet"
 

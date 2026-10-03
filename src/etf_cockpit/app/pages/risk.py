@@ -164,7 +164,19 @@ def _holdings_quality_panel(holdings: pd.DataFrame) -> ft.Control:
     )
 
 
-def _refresh_holdings_freshness(holdings: pd.DataFrame, *, stale_after_days: int = 90) -> pd.DataFrame:
+def _holdings_reference_day(reference_date: object | None) -> pd.Timestamp:
+    """Return the UTC day holdings age is measured against (wall clock only when no reference date is given)."""
+
+    if reference_date is None:
+        return pd.Timestamp.now(tz="UTC").normalize()
+    reference = pd.Timestamp(reference_date)
+    reference = reference.tz_localize("UTC") if reference.tzinfo is None else reference.tz_convert("UTC")
+    return reference.normalize()
+
+
+def _refresh_holdings_freshness(
+    holdings: pd.DataFrame, *, stale_after_days: int = 90, reference_date: object | None = None
+) -> pd.DataFrame:
     """Recompute persisted holding freshness before rendering or scoring."""
 
     if holdings.empty:
@@ -182,7 +194,7 @@ def _refresh_holdings_freshness(holdings: pd.DataFrame, *, stale_after_days: int
         return refreshed
     parsed_dates = [pd.to_datetime(refreshed[column], errors="coerce", utc=True) for column in date_columns]
     as_of = parsed_dates[0]
-    today = pd.Timestamp.now(tz="UTC").normalize()
+    today = _holdings_reference_day(reference_date)
     age_days = (today - as_of.dt.normalize()).dt.days
     invalid = as_of.isna()
     for candidate in parsed_dates[1:]:
@@ -287,11 +299,11 @@ def _load_holdings_evidence() -> pd.DataFrame:
     return _refresh_holdings_freshness(pd.concat([canonical, legacy_only], ignore_index=True, sort=False))
 
 
-def _exposure_eligible_holdings(holdings: pd.DataFrame) -> pd.DataFrame:
+def _exposure_eligible_holdings(holdings: pd.DataFrame, *, reference_date: object | None = None) -> pd.DataFrame:
     required = {"score_eligible", "authority", "freshness", "completeness", "source_id", "weight"}
     if holdings.empty or not required.issubset(holdings.columns):
         return pd.DataFrame(columns=holdings.columns)
-    eligible = _refresh_holdings_freshness(holdings)
+    eligible = _refresh_holdings_freshness(holdings, reference_date=reference_date)
     valid_weight = eligible["weight"].map(_valid_holding_weight)
     eligible = eligible[
         eligible["score_eligible"].map(_as_bool)
@@ -303,7 +315,7 @@ def _exposure_eligible_holdings(holdings: pd.DataFrame) -> pd.DataFrame:
     ]
     if "as_of_date" in eligible.columns:
         as_of = pd.to_datetime(eligible["as_of_date"], errors="coerce", utc=True)
-        today = pd.Timestamp.now(tz="UTC").normalize()
+        today = _holdings_reference_day(reference_date)
         valid_as_of = as_of.notna() & as_of.le(today)
         eligible = eligible[valid_as_of]
     return eligible
