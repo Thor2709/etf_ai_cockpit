@@ -21884,7 +21884,18 @@
         "Visual hierarchy separates decision, uncertainty, evidence and diagnostics.",
         "Frontend technology decision is documented with measured costs."
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product: merged PRs #361/#362 (2026-07-18) plus final UI trains U0 #881 (61f92975), U1-U4/U6-U8 #882 (51e51628), U5 #883 (61859532).",
+            "Full release gate run 37122709187 on head a05b0918bc27d3ba7d837c68b5e2c4b9ec38adc4 (contains the product merges above) passed validation-summary."
+          ],
+          "review_reference": "Exact head e28ea076a6adcad7f6058a81baab57ab53a1ab68: Claude Code (claude-opus-5-5) root review with independent Opus Agent review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-03",
+          "reviewer": "Claude Code root orchestrator with independent Opus Agent one-shot review (owner-authorised substitute)",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [
         "ISSUE-0136"
@@ -21946,7 +21957,7 @@
       "package_status": "",
       "phase": "phase-08-frontend-api",
       "priority": "P0/P1",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0136-issue-0137-and-issue-0140-typed-api-task-oriented-design-accessibility-and-localisation",
@@ -21977,7 +21988,7 @@
       ],
       "title": "Deliver frontend v2 design system and task-oriented information architecture",
       "ui_requirement": "Application-wide redesign.",
-      "verified_commit": "61859532b0c48059fa3f0d08fb774449ba173c0b",
+      "verified_commit": "e28ea076a6adcad7f6058a81baab57ab53a1ab68",
       "verified_date": "2026-10-03",
       "why": "Professional research requires clear hierarchy, consistent interaction and separation of research, portfolio and operations tasks.",
       "write_conflict_group": "frontend-and-api"
@@ -30319,7 +30330,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "89e8808ff1ca7585be122f6c1686d421a5ff2e43542723161ce3e56cd3eae2c8",
+    "programme_control_state_sha256": "192701015f3f7263dac050ebe27fcd53964064b62f01ea0006962fb581f97380",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
