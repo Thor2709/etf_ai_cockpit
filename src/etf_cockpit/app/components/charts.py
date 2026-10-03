@@ -96,9 +96,11 @@ def portfolio_performance_chart(
         table = ft.Text(reason or "Selected performance values are unavailable.", color=MUTED, selectable=True)
     controls: list[ft.Control] = [ft.Text(detail, color=TEXT if available else MUTED, selectable=True)]
     if available:
+        legend = partial_marker_legend(frame)
         controls.extend(
             [
                 _performance_canvas(frame, chart_type),
+                *([ft.Text(legend, size=10, color=AMBER, selectable=True)] if legend else []),
                 ft.Row(
                     [
                         ft.Text(str(frame.iloc[0].get("period_start", "")), size=10, color=MUTED),
@@ -180,7 +182,47 @@ def _performance_canvas(frame: pd.DataFrame, chart_type: Literal["line", "bar"])
                     paint=ft.Paint(color=GREEN if value >= 0 else RED),
                 )
             )
+    partial_flags = _partial_flags(frame)
+    for index, (value, partial) in enumerate(zip(values, partial_flags)):
+        if not partial or value is None:
+            continue
+        if chart_type == "line":
+            marker_x = padding + index * plot_width / max(len(values) - 1, 1)
+        else:
+            marker_x = padding + index * (plot_width / len(values)) + plot_width / len(values) / 2
+        shapes.append(
+            cv.Circle(
+                x=marker_x,
+                y=y_coordinate(value),
+                radius=4,
+                paint=ft.Paint(color=AMBER, stroke_width=2, style=ft.PaintingStyle.STROKE),
+            )
+        )
     return cv.Canvas(width=width, height=height, shapes=shapes)
+
+
+def _partial_flags(frame: pd.DataFrame) -> list[bool]:
+    if "partial" not in frame.columns:
+        return [False] * len(frame)
+    return [_truthy(value) for value in frame["partial"].tolist()]
+
+
+def _truthy(value: object) -> bool:
+    if isinstance(value, str):
+        return value.strip().casefold() in {"1", "true", "yes", "partial"}
+    try:
+        return bool(value) and not pd.isna(value)
+    except (TypeError, ValueError):
+        return False
+
+
+def partial_marker_legend(frame: pd.DataFrame | None) -> str | None:
+    """Text legend for partial-period markers; None when no period is partial."""
+
+    if not isinstance(frame, pd.DataFrame) or not any(_partial_flags(frame)):
+        return None
+    count = sum(_partial_flags(frame))
+    return f"Amber ring = partial period ({count} marked); values cover an incomplete period."
 
 
 def _format_performance_value(value: object, unit: str, currency: str) -> str:
@@ -218,6 +260,93 @@ def _series_table(frame: pd.DataFrame, columns: tuple[str, ...]) -> ft.DataTable
         data_row_max_height=40,
         column_spacing=12,
     )
+
+
+DONUT_PALETTE = (CYAN, GREEN, "#a99bf0", "#8e9ab4", "#7fb3e6", "#6fcfa6")
+UNKNOWN_COLOUR = AMBER
+UNMAPPED_COLOUR = RED
+
+
+def _weight_or_none(value: object) -> float | None:
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) and number >= 0 else None
+
+
+def allocation_donut(
+    slices: list[tuple[str, object]],
+    *,
+    key: str,
+    title: str = "Allocation",
+    unknown_weight: object = None,
+    unmapped_weight: object = None,
+    unavailable_reason: str = "weight evidence is not available for this view",
+) -> ft.Control:
+    """Donut of weight shares with explicit Unknown and Unmapped slices (5.2 chart contract).
+
+    Weights are drawn as given (fractions of 1.0); nothing is renormalised and a missing
+    Unknown/Unmapped weight is labelled Unavailable, never drawn as zero.
+    """
+
+    known = [(label, _weight_or_none(value)) for label, value in slices]
+    unknown = _weight_or_none(unknown_weight)
+    unmapped = _weight_or_none(unmapped_weight)
+    drawn: list[tuple[str, float, str]] = [
+        (label, weight, DONUT_PALETTE[index % len(DONUT_PALETTE)])
+        for index, (label, weight) in enumerate(known)
+        if weight is not None and weight > 0
+    ]
+    if unknown is not None and unknown > 0:
+        drawn.append(("Unknown", unknown, UNKNOWN_COLOUR))
+    if unmapped is not None and unmapped > 0:
+        drawn.append(("Unmapped", unmapped, UNMAPPED_COLOUR))
+    size, stroke = 180.0, 26.0
+    inset = stroke / 2
+    shapes: list[cv.Shape] = [
+        cv.Arc(
+            x=inset, y=inset, width=size - stroke, height=size - stroke,
+            start_angle=0, sweep_angle=2 * math.pi,
+            paint=ft.Paint(color=BORDER, stroke_width=stroke, style=ft.PaintingStyle.STROKE),
+        )
+    ]
+    angle = -math.pi / 2
+    total = 0.0
+    for _label, weight, colour in drawn:
+        sweep = min(weight, max(1.0 - total, 0.0)) * 2 * math.pi
+        if sweep <= 0:
+            break
+        shapes.append(
+            cv.Arc(
+                x=inset, y=inset, width=size - stroke, height=size - stroke,
+                start_angle=angle, sweep_angle=sweep,
+                paint=ft.Paint(color=colour, stroke_width=stroke, style=ft.PaintingStyle.STROKE),
+            )
+        )
+        angle += sweep
+        total += weight
+    legend = [
+        ft.Text(f"{label}: {weight:.1%}", size=11, color=TEXT, selectable=True)
+        for label, weight, _colour in drawn
+        if label not in {"Unknown", "Unmapped"}
+    ]
+    for label, value in (("Unknown", unknown), ("Unmapped", unmapped)):
+        legend.append(
+            ft.Text(
+                f"{label}: {value:.1%}" if value is not None else f"{label}: Unavailable ({unavailable_reason})",
+                size=11,
+                color=TEXT if value is not None else MUTED,
+                selectable=True,
+            )
+        )
+    if not drawn:
+        legend.insert(0, ft.Text(f"{title}: Unavailable ({unavailable_reason})", size=11, color=MUTED, selectable=True))
+    body: list[ft.Control] = [ft.Text(title, color=TEXT, weight=ft.FontWeight.BOLD)]
+    if drawn:
+        body.append(cv.Canvas(width=size, height=size, shapes=shapes))
+    body.extend(legend)
+    return ft.Container(content=ft.Column(body, spacing=4), key=key, padding=10, border=border_all(1, BORDER))
 
 
 def drift_bar(current: float, target: float, soft_band: float, hard_band: float, width: int = 180) -> ft.Column:
