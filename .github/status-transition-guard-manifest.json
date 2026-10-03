@@ -1,37 +1,27 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_dependency_edge_updates": [
+  "allowed_status_transitions": [
     {
-      "dependency_id": "ISSUE-0137",
-      "issue_id": "ISSUE-0138"
-    },
-    {
-      "dependency_id": "ISSUE-0137",
-      "issue_id": "ISSUE-0139"
-    },
-    {
-      "dependency_id": "ISSUE-0137",
-      "issue_id": "ISSUE-0140"
-    },
-    {
-      "dependency_id": "ISSUE-0175",
-      "issue_id": "ISSUE-0172"
+      "from": "in_progress",
+      "issue_id": "ISSUE-0172",
+      "to": "integrated"
     }
   ],
-  "allowed_status_transitions": [],
-  "base_commit": "96d2ab148b5654556ac5070d8beb201106a871ef",
-  "branch": "claude/E2-lifecycle-edges",
-  "issue_ids": [],
+  "base_commit": "29b8a83041d11516a914121908fba38e271409f3",
+  "branch": "claude/issue-0172-lifecyclec-20261003",
+  "issue_ids": [
+    "ISSUE-0172"
+  ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "8a0170e0a920f631e7880cdec05fc2623d0cc098d84169ed7df9c15df4f153c5",
+    "base_registry_sha256": "904c501d0402fa8c93bb6fd0eb2fead3f43b3470e2216b4948e522c063aa0b24",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "904c501d0402fa8c93bb6fd0eb2fead3f43b3470e2216b4948e522c063aa0b24",
-    "reason": "Record only reviewed dependency edges to merged dependencies; preserve lifecycle states, product code, external authority and execution_allowed=false.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "90d12125a3753990d3b97434b4ab8d920bff049d96a51e85b0ef969aa7074494",
+    "reason": "Transition only ISSUE-0172 from in_progress to integrated; preserve dependencies, GitHub issue open state, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.3"
+  "schema_version": "1.2"
 }
