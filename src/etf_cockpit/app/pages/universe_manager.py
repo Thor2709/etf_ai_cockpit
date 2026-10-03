@@ -7,7 +7,8 @@ from typing import Iterable
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.pages._glass import glass
 from etf_cockpit.app.pages.onboarding import overlay_universe_config
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.config import load_config
@@ -767,8 +768,8 @@ def universe_manager_page(page: ft.Page, state: AppState) -> ft.Control:
 
     return ft.Column(
         [
-            panel(ft.Column([section_header("Universe and watchlists", "Manage validated local candidates across the Primary, Secondary and Sparebanken tiers."), ft.Row([query, add_button, import_button, ft.Button("Save validated changes", key="universe.save", icon=ft.Icons.SAVE, on_click=save_changes)], wrap=True), allow_duplicates, status, ft.Text("Imports are local dry-runs; saving never starts providers, analysis, scoring, forecasts or broker execution.", color=theme.MUTED)], spacing=8)),
-            panel(ft.Column([tier_filter, table_host], spacing=12)),
+            glass("universe.manage", "Universe and watchlists", ft.Column([section_header("Universe and watchlists", "Manage validated local candidates across the Primary, Secondary and Sparebanken tiers."), ft.Row([query, add_button, import_button, ft.Button("Save validated changes", key="universe.save", icon=ft.Icons.SAVE, on_click=save_changes)], wrap=True), allow_duplicates, status, ft.Text("Imports are local dry-runs; saving never starts providers, analysis, scoring, forecasts or broker execution.", color=theme.MUTED)], spacing=8)),
+            glass("universe.table", "Universe table", ft.Column([tier_filter, table_host], spacing=12)),
         ],
         expand=True,
         scroll=ft.ScrollMode.AUTO,
