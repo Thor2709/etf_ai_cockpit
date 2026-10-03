@@ -239,8 +239,12 @@ def test_resize_preserves_mounted_route_and_session_without_builder(monkeypatch)
         assert built == [field] and field.value == "private session"
         assert any(node is field for node in walk(view))
         assert page.update_count == updates + expected_updates
-        sidebar = next(node for node in walk(view) if getattr(node, "key", None) == "shell.sidebar")
-        assert sidebar.visible is (width >= 1100)
+        dock = next(node for node in walk(view) if getattr(node, "key", None) == "shell.dock")
+        assert dock.width == 84
+        active_label = next(
+            node for node in walk(view) if getattr(node, "key", None) == "shell.dock.label.Lab"
+        )
+        assert active_label.visible is (width >= 1100)
     page.route = "/signals"
     page.on_route_change(None)
     assert len(built) == 2 and built[-1] is not field

@@ -26,7 +26,7 @@ def test_forward_evidence_route_and_controls_are_visible_and_non_executable() ->
     keys = {getattr(item, "key", "") for item in controls}
 
     assert PAGES["/forward-evidence"][0] == "Forward Evidence Diary"
-    assert workspace_for_route("/forward-evidence") == "Backtest/Paper"
+    assert workspace_for_route("/forward-evidence") == "Portfolio"
     assert {"forward-evidence.record", "forward-evidence.update"} <= keys
     assert "execution_allowed=false" in text
     assert "Paper proposals are evidence only" in text

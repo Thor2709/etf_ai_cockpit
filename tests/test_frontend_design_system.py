@@ -105,18 +105,18 @@ def test_workspace_groups_cover_each_registered_route_once() -> None:
     grouped_routes = [route for _workspace, routes in WORKSPACE_GROUPS for route in routes]
     assert set(grouped_routes) == set(PAGES)
     assert len(grouped_routes) == len(set(grouped_routes))
-    assert {workspace for workspace, _routes in WORKSPACE_GROUPS} == {
+    assert tuple(workspace for workspace, _routes in WORKSPACE_GROUPS) == (
         "Home",
-        "Discover",
-        "Instrument",
+        "Research",
+        "Compare",
+        "Map",
+        "Universe",
         "Portfolio",
-        "Models",
-        "Backtest/Paper",
-        "Data Health",
-        "Audit",
-        "Settings",
-    }
-    assert workspace_for_route("/instrument/VWCE") == "Instrument"
+        "Lab",
+        "Changes",
+        "Help",
+    )
+    assert workspace_for_route("/instrument/VWCE") == "Research"
 
 
 def test_evidence_mode_is_presentation_only_and_validated() -> None:
@@ -140,13 +140,15 @@ def test_shell_has_grouped_navigation_and_evidence_mode_at_responsive_widths(wid
     view = build_shell(page, state, "/")
     controls = list(_walk(view))
     keys = {str(control.key) for control in controls if getattr(control, "key", None)}
-    labels = {str(control.value) for control in controls if isinstance(control, ft.Text)}
+    dock_items = [control for control in controls if str(getattr(control, "key", "")).startswith("nav.workspace.")]
 
     assert "shell.evidence-mode" in keys
     assert "shell.command-palette" in keys
-    assert "Workspace: Home" in labels
-    assert theme.APP_NAME in labels
-    assert all(workspace in labels for workspace, _routes in WORKSPACE_GROUPS)
+    assert len(dock_items) == 9
+    assert all(item.tooltip == f"Workspace: {workspace}" for item, (workspace, _routes) in zip(dock_items, WORKSPACE_GROUPS))
+    assert sum(item.data == "active" for item in dock_items) == 1
+    dock_label = next(control for control in controls if getattr(control, "key", None) == "shell.dock.label.Home")
+    assert dock_label.visible is (width >= 1100)
     assert uses_narrow_layout(page, state) is (width < 1100)
 
 
@@ -163,7 +165,8 @@ def test_shell_command_palette_exposes_search_and_enter_instructions() -> None:
     palette = next(field for field in fields if field.key == "shell.command-palette")
     assert palette.on_change.__name__ == "render_palette_results"
     assert palette.on_submit.__name__ == "submit_palette"
-    assert "Workspace: Home" in text
+    assert "Home" in text
+    assert "Search or jump to…" in text
 
 
 def test_shell_command_palette_filters_and_navigates(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -188,7 +191,7 @@ def test_shell_command_palette_filters_and_navigates(monkeypatch: pytest.MonkeyP
     later_result.on_click(SimpleNamespace(control=later_result))
     assert selected == ["/comparison", "/data-health"]
 
-    palette.value = "Backtest/Paper"
+    palette.value = "backtests"
     palette.on_submit(SimpleNamespace(control=palette))
     assert selected == ["/comparison", "/data-health", "/backtests"]
 
@@ -307,13 +310,16 @@ def test_dashboard_summary_cards_are_inherently_responsive():
     assert all(card.col == {"xs": 12, "sm": 6, "md": 4, "xl": 2} for card in cards.controls)
 
 
-def test_mobile_navigation_is_collapsed_and_bounded(monkeypatch):
+def test_mobile_dock_is_icons_only_and_subnavigation_stays_bounded(monkeypatch):
     monkeypatch.setitem(router.PAGES, "/", ("Home", lambda *_: ft.Text("Page")))
     state = SimpleNamespace(snapshot=SimpleNamespace(config=SimpleNamespace(ui=SimpleNamespace(window_width=390)),
         data_report=SimpleNamespace(as_of_date="2026-07-01")), evidence_mode="simple", current_activity=None, last_message="Ready")
     view = build_shell(SimpleNamespace(width=390), state, "/")
     controls = list(_walk(view))
-    mobile = next(control for control in controls if getattr(control, "key", None) == "shell.mobile-navigation")
-    tile = next(control for control in _walk(mobile) if isinstance(control, ft.ExpansionTile))
-    assert tile.expanded is False and tile.controls[0].height == 260
-    assert any(getattr(control, "key", None) == "navigation.universe" for control in _walk(tile))
+    dock = next(control for control in controls if getattr(control, "key", None) == "shell.dock")
+    dock_items = [control for control in _walk(dock) if str(getattr(control, "key", "")).startswith("nav.workspace.")]
+    label = next(control for control in controls if getattr(control, "key", None) == "shell.dock.label.Home")
+    subnav = next(control for control in controls if getattr(control, "key", None) == "shell.workspace-navigation")
+    assert len(dock_items) == 9
+    assert label.visible is False
+    assert {control.key for control in _walk(subnav) if getattr(control, "key", None)} >= {"navigation.home", "navigation.onboarding"}
