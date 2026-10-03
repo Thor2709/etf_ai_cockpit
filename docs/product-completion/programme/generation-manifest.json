@@ -15,7 +15,7 @@
     },
     {
       "path": "docs/product-completion/CURRENT_STATUS.json",
-      "sha256": "ffccaf8fb869ba8d8aa00f8c25e87a0df1b87a94035a01769428faab1675d829"
+      "sha256": "4808bd26577ee4aee68994a4a862f7b5ce9251f19ceef52728075fae236a372c"
     },
     {
       "path": "docs/product-completion/DELIVERY_WORKFLOW.md",
@@ -23,7 +23,7 @@
     },
     {
       "path": "docs/product-completion/PROGRESS.md",
-      "sha256": "1e9da9503364b899919988776ceb175a83ecc8529e15a5131dd8d3ebd5d48317"
+      "sha256": "70f328b7b00387195ab918da0fb4524a3133d8899a1e00a5ee1b85843df9f2c8"
     },
     {
       "path": "docs/product-completion/programme/git-workflow.md",
@@ -83,7 +83,7 @@
     },
     {
       "path": "docs/product-completion/programme/readiness.json",
-      "sha256": "f384753559a9e0418a198ff0ca3e21e631181b2d60d3f3504ac8def2c1995808"
+      "sha256": "0cfec5e2b66b6744283d04c341b2556ed8747ff09f93b8e884cc584c1c600ec4"
     },
     {
       "path": "docs/product-completion/programme/roadmap.md",
@@ -151,7 +151,7 @@
     },
     {
       "path": "issues/issue_registry.json",
-      "sha256": "2e595aaab4185681842c8e538155b052db688ad20d64cfbb6c364c7fb5f3a414"
+      "sha256": "62c0dc19bf0f910790c8b11f026ef285e947c4a7ab0dd3bbf657d6ca207cf9a3"
     },
     {
       "path": "issues/open.md",
@@ -159,7 +159,7 @@
     },
     {
       "path": "issues/programme_control_state.json",
-      "sha256": "7af4820bb5f95806d5c456eef78b5a9855c1075d4f6e1dec5f400caf9929ae0e"
+      "sha256": "89e8808ff1ca7585be122f6c1686d421a5ff2e43542723161ce3e56cd3eae2c8"
     }
   ],
   "schema_version": "programme-generation.v1"
