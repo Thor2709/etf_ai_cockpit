@@ -9,6 +9,7 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.command_palette import search_commands
 from etf_cockpit.app.components.cards import panel
+from etf_cockpit.app.components.depth_selector import depth_label, depth_selector
 from etf_cockpit.app.components.kit import backdrop, glass_panel
 from etf_cockpit.app.components.flet_compat import border_only, padding_symmetric
 from etf_cockpit.app.pages.backtests import backtests_page
@@ -477,6 +478,28 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
             width=130,
         )
 
+    depth_chip_reason = "No analysis depth has been selected; choose Quick, Medium, High or Full."
+    depth_chip = value_pill(
+        "shell.as-of.analysis-depth",
+        "Analysis depth",
+        depth_label(getattr(state, "analysis_depth", None)),
+        depth_chip_reason,
+    )
+
+    def analysis_depth_selected(depth: str) -> None:
+        state.set_analysis_depth(depth)
+        rendered, reason = _available_display(depth_label(state.analysis_depth), depth_chip_reason)
+        depth_chip.data = "unavailable" if reason else "available"
+        depth_chip.tooltip = reason or f"Analysis depth: {rendered}"
+        depth_chip.content.controls[1].value = rendered
+        message_text.value = state.last_message
+        page.update()
+
+    analysis_depth_control = depth_selector(
+        getattr(state, "analysis_depth", None),
+        on_selected=analysis_depth_selected,
+        width=150 if not narrow else 130,
+    )
     as_of_date = getattr(data_report, "as_of_date", None)
     global_values = ft.Row(
         [
@@ -505,12 +528,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
                 getattr(state, "risk_profile", None),
                 "No selected risk profile is available in app state.",
             ),
-            value_pill(
-                "shell.as-of.analysis-depth",
-                "Analysis depth",
-                getattr(state, "analysis_depth", None),
-                "App state exposes evidence display mode, not analysis depth.",
-            ),
+            depth_chip,
         ],
         spacing=6,
         wrap=True,
@@ -560,7 +578,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
     header_content = ft.Column(
         [
             ft.Row(
-                [title_column, palette_column, evidence_mode, what_changed_button],
+                [title_column, palette_column, evidence_mode, analysis_depth_control, what_changed_button],
                 spacing=theme.SPACE_2,
                 run_spacing=theme.SPACE_2,
                 wrap=True,

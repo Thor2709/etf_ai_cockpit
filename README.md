@@ -7,7 +7,7 @@ programme also covers stocks, ordinary funds, supported fixed income,
 selected-currency bulk analysis and separate portfolio capabilities. Programme
 scope is not a claim that every capability is certified today.
 
-See the [contribution guide](CONTRIBUTING.md) and [reference documentation](docs/reference/README.md).
+See the [documentation index](docs/README.md), the [contribution guide](CONTRIBUTING.md) and [reference documentation](docs/reference/README.md).
 
 The app is a decision-support cockpit, not a financial adviser and not an execution bot. Models forecast, deterministic rules decide, risk gates block, backtests validate, and external audit imports are commentary only.
 
@@ -59,15 +59,7 @@ The configured market-data backbone is Yahoo Finance through `yfinance`. The val
 
 ## Pages
 
-- Dashboard - weekly decision view, data/model/backtest status and ranked ETF action table.
-- Portfolio - current versus target weights, drift, exposure and warnings.
-- ETF Detail - identity, metrics, forecasts, gates and action explanation.
-- Signals - component score comparison across momentum, trend, risk, rebalance, AI and final score.
-- Backtests - strategy versus buy-and-hold, equal-weight, momentum-only and trend-only baselines.
-- Audit - export an audit packet and import strict non-executable external audit commentary.
-- Data & Models - data status plus Toto/TimesFM availability.
-- Settings - editable config overview and validation status.
-- Diagnostics - Python, OS, DuckDB, Flet, model folders and log access checks.
+The shell groups every page into nine workspaces: Home, Research, Compare, Map, Universe, Portfolio, Lab, Changes and Help. [Workspaces and navigation](docs/user/WORKSPACES.md) lists each page and its route. Start with the [tutorials](docs/user/TUTORIALS.md) and the [user guide](docs/user/USER_GUIDE.md); operators use the [operator runbook](docs/operations/OPERATOR_RUNBOOK.md).
 
 ## Data
 
