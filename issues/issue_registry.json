@@ -23645,7 +23645,19 @@
         "Safety, recovery, reproducibility and legal gates pass.",
         "Remaining limitations are explicit, bounded and consistent with the frozen scope."
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "All ISSUE-0152 prerequisites integrated on main 6bafbdaf4975f2001d9692e5ba5c1133ab9d94f2 (lifecycle PRs #891-#896 and #899 #900 #901 #905; dependency-edge PR #898).",
+            "Readback on 6bafbdaf: scripts/programme_execution.py --json statuses {\"blocked\": 1, \"closed\": 17, \"integrated\": 182, \"research_only\": 2}; only ISSUE-0152 blocked, research_only 0061/0062 excluded.",
+            "Full release gate run 37126829802 on head 03c05dd02f234a6e4e327aa943a0107bfe234ea9 (contains the product merges above) passed validation-summary."
+          ],
+          "review_reference": "Exact head 6bafbdaf4975f2001d9692e5ba5c1133ab9d94f2: Claude Code (claude-opus-5-5) root review with independent Opus Agent review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-03",
+          "reviewer": "Claude Code root orchestrator with independent Opus Agent one-shot review (owner-authorised substitute)",
+          "status": "ready"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [],
       "canonical_id": "ISSUE-0152",
@@ -23692,7 +23704,7 @@
       "package_status": "",
       "phase": "phase-11-certification",
       "priority": "P0",
-      "programme_status": "blocked",
+      "programme_status": "ready",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0152-final-release-certification-and-completion-programme-closure",
@@ -23725,8 +23737,8 @@
       ],
       "title": "Run final release certification and close the completion programme",
       "ui_requirement": "Release Readiness dashboard with signed evidence and accepted limitations.",
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21",
+      "verified_commit": "6bafbdaf4975f2001d9692e5ba5c1133ab9d94f2",
+      "verified_date": "2026-10-03",
       "why": "A finite certification issue is required so “done” means release-complete against a frozen specification rather than an endless backlog.",
       "write_conflict_group": "programme-governance"
     },
@@ -30475,7 +30487,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "38f9c8240ea6f4d4f53a6464d1787d5d59ee1449bc9c392176a6dcb37cafe288",
+    "programme_control_state_sha256": "625c09836e3756b2b252dbfd65bd73fbf5ac2ead94fd7c8c523f4a745ff9aba7",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

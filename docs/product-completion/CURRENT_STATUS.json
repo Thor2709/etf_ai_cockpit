@@ -202,13 +202,11 @@
     "UPDATEV2-0029",
     "UPDATEV2-0030"
   ],
-  "blocked_issue_ids": [
-    "ISSUE-0152"
-  ],
+  "blocked_issue_ids": [],
   "counts": {
-    "blocked": 1,
     "closed": 17,
     "integrated": 182,
+    "ready": 1,
     "research_only": 2
   },
   "execution_allowed": false,
@@ -5276,5 +5274,5 @@
     "ISSUE-0062"
   ],
   "schema_version": "1.0",
-  "source_registry_sha256": "ef5af1dbf1d4f1f22d644a9a7a18a6c5aa99a75eb89fa6b26bc29450a629048b"
+  "source_registry_sha256": "71e1114fa994afab0f0a529818ebdf2c9c09858bc07506c16bad775f2d58d29e"
 }
