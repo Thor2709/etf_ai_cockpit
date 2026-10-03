@@ -203,7 +203,7 @@ def _safety_rail(state: AppState, data_report: object) -> ft.Container:
                 color=theme.TEXT,
                 size=theme.FONT_XS,
             ),
-            bgcolor="rgba(4,10,26,.30)",
+            bgcolor="#4c040a1a",
             border=ft.Border(
                 left=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
                 top=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
@@ -233,7 +233,7 @@ def _safety_rail(state: AppState, data_report: object) -> ft.Container:
         height=48,
         padding=ft.Padding(left=8, top=4, right=8, bottom=4),
         gradient=ft.LinearGradient(
-            colors=("rgba(14,24,48,.48)", "rgba(8,16,36,.40)"),
+            colors=("#7a0e1830", "#66081024"),
             begin=ft.Alignment(0, -1),
             end=ft.Alignment(0, 1),
         ),
@@ -311,7 +311,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
                 )
                 if selected
                 else ft.LinearGradient(
-                    colors=("rgba(255,255,255,.08)", "rgba(255,255,255,.04)"),
+                    colors=("#14ffffff", "#0affffff"),
                     begin=ft.Alignment(0, -1),
                     end=ft.Alignment(0, 1),
                 )
@@ -465,7 +465,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
                 spacing=1,
                 tight=True,
             ),
-            bgcolor="rgba(4,10,26,.38)",
+            bgcolor="#61040a1a",
             border=ft.Border(
                 left=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
                 top=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
