@@ -55,6 +55,7 @@ from etf_cockpit.app.pages.trust_evidence import (
 from etf_cockpit.app.pages.release_readiness import release_readiness_page
 from etf_cockpit.app.pages.programme_map import programme_map_page
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.interactive_profile_run import interactive_profile_binder
 from etf_cockpit.core.session_log import log_event
 from etf_cockpit.core.ui_acceptance import UIInvocationResult, command_contract_from_metadata
 
@@ -503,7 +504,11 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         open_dialog=lambda dialog: page.show_dialog(dialog) if hasattr(page, "show_dialog") else None,
         close_dialog=lambda dialog: page.pop_dialog() if hasattr(page, "pop_dialog") else None,
         get_selected=lambda: getattr(state, "analysis_depth", None),
-        run_controller=ProfileRunController(state, root=getattr(state, "settings_root", None)),
+        run_controller=ProfileRunController(
+            state,
+            root=getattr(state, "settings_root", None),
+            binder=interactive_profile_binder(lambda: getattr(state, "snapshot", None)),
+        ),
     )
     as_of_date = getattr(data_report, "as_of_date", None)
     global_values = ft.Row(
