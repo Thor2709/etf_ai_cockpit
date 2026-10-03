@@ -7,7 +7,8 @@ import threading
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import metric_card, panel, section_header
+from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.components.portfolio_b_style import metric_card, panel, restyle
 from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.formatting import format_currency, format_number
 from etf_cockpit.app.operations import OperationRecord, build_operation_preview, load_operation_records, save_operation_record
@@ -520,7 +521,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
         metric_card("Paper account", paper_status, "Reconciliation must be ready before submission"),
         metric_card("Live authority", "Disabled", "No credentials or order route", theme.GREEN),
     ]
-    return ft.Column(
+    root = ft.Column(
         [
             panel(ft.Column([section_header("Operations Centre", "Portfolio, training, paper proposals and live authority in one explicit local-first workspace."), message], spacing=6)),
             ft.ResponsiveRow([ft.Container(content=card, col={"sm": 12, "md": 4}) for card in portfolio_cards], spacing=10),
@@ -579,6 +580,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
         spacing=12,
         scroll=ft.ScrollMode.AUTO,
     )
+    return restyle(root, "operations")
 
 
 __all__ = ["operations_page"]

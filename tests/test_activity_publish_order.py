@@ -7,14 +7,16 @@ an empty history.
 
 from __future__ import annotations
 
-from functools import lru_cache
+import pytest
 
 from etf_cockpit.app.state import AppState
 from etf_cockpit.services import build_snapshot
 
 
-@lru_cache(maxsize=1)
-def _snapshot():
+@pytest.fixture
+def snapshot():
+    """Build the snapshot per test: a snapshot cached across tests can point at a deleted project root."""
+
     return build_snapshot()
 
 
@@ -28,14 +30,13 @@ class _ObservedState(AppState):
         super().__setattr__(name, value)
 
 
-def _state() -> _ObservedState:
-    snapshot = _snapshot()
+def _state(snapshot) -> _ObservedState:
     return _ObservedState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
 
 
-def test_finish_activity_publishes_entry_before_releasing_slot(tmp_path, monkeypatch) -> None:
+def test_finish_activity_publishes_entry_before_releasing_slot(snapshot, tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("etf_cockpit.app.state.ACTIVITY_LOG_PATH", tmp_path / "activity.jsonl")
-    state = _state()
+    state = _state(snapshot)
     entry = state.begin_activity("Publish order success")
 
     state.finish_activity("Done message", expected_action_id=entry.action_id)
@@ -44,9 +45,9 @@ def test_finish_activity_publishes_entry_before_releasing_slot(tmp_path, monkeyp
     assert state.__dict__["_released_with"] == [([entry.action_id], "Done message")]
 
 
-def test_fail_activity_publishes_entry_before_releasing_slot(tmp_path, monkeypatch) -> None:
+def test_fail_activity_publishes_entry_before_releasing_slot(snapshot, tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("etf_cockpit.app.state.ACTIVITY_LOG_PATH", tmp_path / "activity.jsonl")
-    state = _state()
+    state = _state(snapshot)
     entry = state.begin_activity("Publish order failure")
 
     failed = state.fail_activity("Publish order failure", TimeoutError("provider timeout"), expected_action_id=entry.action_id)

@@ -8,7 +8,7 @@ import warnings
 
 import pandas as pd
 
-from etf_cockpit.core.types import ComponentScores, DataQualityReport, SignalResult
+from etf_cockpit.core.types import ComponentScores, DataQualityReport, SignalResult, latest_signal, primary_signal
 from etf_cockpit.portfolio.proposals import create_manual_trade_proposal_report
 from etf_cockpit.portfolio import review_reports
 from etf_cockpit.portfolio.review_reports import create_portfolio_review_report
@@ -113,3 +113,21 @@ def test_review_rows_keep_the_canonical_score_when_present(tmp_path: Path) -> No
 
     row = report["review_rows"][0]
     assert row["canonical_score"]["formula_version"] == "score-engine-v3.0.0"
+
+
+def test_signal_selectors_do_not_depend_on_list_position(tmp_path: Path) -> None:
+    older = replace(_signal(), run_id="run-old", signal_date=pd.Timestamp("2026-06-25").date(), etf_id="OLD", total_score=0.99)
+    low = replace(_signal(), run_id="run-new", etf_id="LOW", total_score=0.1)
+    high = replace(_signal(), run_id="run-new", etf_id="HIGH", total_score=0.8, gate_policy_version="high-policy", gate_policy_checksum="h" * 64)
+    nan_score = replace(_signal(), run_id="run-new", etf_id="NAN", total_score=float("nan"))
+
+    shuffled = [older, low, nan_score, high]  # ascending/unranked: position 0 is neither latest nor primary
+    assert latest_signal(shuffled).run_id == "run-new"
+    assert latest_signal([older, high]).etf_id == "HIGH"
+    assert primary_signal(shuffled).etf_id == "HIGH"  # highest finite score of the latest date, not the older 0.99
+    assert latest_signal([]) is None and primary_signal([]) is None
+    assert primary_signal([low, replace(low, etf_id="TIE")]).etf_id == "LOW"  # ties keep list order
+
+    report = create_portfolio_review_report(shuffled, _data_report(), run_id="run-new", report_dir=tmp_path)
+    assert report["policy_version"] == "high-policy"
+    assert report["policy_checksum"] == "h" * 64
