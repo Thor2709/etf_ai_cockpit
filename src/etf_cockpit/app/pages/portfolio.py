@@ -12,9 +12,10 @@ import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
-from etf_cockpit.app.components.charts import portfolio_performance_chart
+from etf_cockpit.app.components.charts import allocation_donut, portfolio_performance_chart
 from etf_cockpit.app.components.fixed_income_views import portfolio_maturity_ladder_panel
-from etf_cockpit.app.components.overlap import overlap_evidence_panel
+from etf_cockpit.app.components.kit import pill_group
+from etf_cockpit.app.components.overlap import overlap_evidence_panel, report_weight
 from etf_cockpit.app.formatting import format_currency, format_number, format_percent
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import (
@@ -1432,6 +1433,16 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
         width=160,
         dense=True,
     )
+    mode_host = ft.Container(key="portfolio.holdings-mode-host")
+    mode_change: list[Callable[[str], None]] = []
+
+    def build_mode_toggle() -> ft.Control:
+        return holdings_mode_toggle(
+            str(holdings_view.value or "combined"),
+            on_change=lambda value: mode_change[0](value) if mode_change else None,
+        )
+
+    mode_host.content = build_mode_toggle()
     initial_analysis = analyse_portfolio_candidate(
         state.snapshot,
         initial,
@@ -1513,6 +1524,13 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
                 panel(ft.Text("Candidate results are unavailable until the validation error is corrected.", color=theme.AMBER, selectable=True))
             ]
             _safe_update(page)
+
+    def change_mode(value: str) -> None:
+        holdings_view.value = value
+        mode_host.content = build_mode_toggle()
+        analyse(None)
+
+    mode_change.append(change_mode)
 
     def rebalance_preview(_event: ft.ControlEvent | None) -> None:
         try:
@@ -1774,6 +1792,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> ft.Control:
                             "Select an account/portfolio snapshot and holdings view. Targets plus cash must equal exactly 100%; results cite the selected snapshot and remain advisory.",
                         ),
                         ft.Row([account, portfolio, snapshot, holdings_view], wrap=True),
+                        mode_host,
                         ft.Row([name, notional, cash], wrap=True),
                         ft.Row(list(target_inputs.values()), wrap=True, spacing=8),
                         ft.Row(
@@ -1991,6 +2010,7 @@ def _analysis_view(analysis: PortfolioAnalysis, *, benchmark_registry: object | 
                     scroll=ft.ScrollMode.AUTO,
                 )
             ),
+            _allocation_donut_panel(analysis),
             ft.Row(
                 [
                     _exposure_table("Sector exposure", analysis.sector_exposure),
@@ -2207,6 +2227,40 @@ def _monthly_portfolio_costs(analysis: PortfolioAnalysis) -> dict[str, object]:
         ],
         "execution_allowed": False,
     }
+
+
+HOLDINGS_MODE_LABELS = (("direct", "Direct"), ("look_through", "Look-through"), ("combined", "Combined"))
+
+
+def holdings_mode_toggle(selected: str, *, on_change: Callable[[str], object] | None = None) -> ft.Control:
+    """Direct / look-through / combined toggle over the existing holdings views."""
+
+    labels = [label for _, label in HOLDINGS_MODE_LABELS]
+    by_label = {label: value for value, label in HOLDINGS_MODE_LABELS}
+    current = dict(HOLDINGS_MODE_LABELS).get(selected, "Combined")
+    return pill_group(
+        labels,
+        current,
+        key="portfolio.holdings-mode",
+        label="Holdings mode",
+        on_change=(lambda label: on_change(by_label[label])) if on_change else None,
+    )
+
+
+def _allocation_donut_panel(analysis: PortfolioAnalysis) -> ft.Control:
+    view = analysis.snapshot_binding.holdings_view if analysis.snapshot_binding is not None else "combined"
+    mapped = [row for row in analysis.holdings if row.capability_status == "supported"]
+    unmapped_rows = [row for row in analysis.holdings if row.capability_status != "supported"]
+    unmapped = sum(row.current_weight for row in unmapped_rows) if analysis.holdings else None
+    donut = allocation_donut(
+        [(row.instrument_id, row.current_weight) for row in mapped],
+        key="portfolio.allocation-donut",
+        title=f"Allocation ({view.replace('_', '-')})",
+        unknown_weight=report_weight(analysis.overlap, "unknown_weight") if view != "direct" else None,
+        unmapped_weight=unmapped,
+        unavailable_reason="direct view has no look-through unknown weight" if view == "direct" else "no holdings evidence for this view",
+    )
+    return panel(ft.Column([section_header("Allocation donut", "Unknown and Unmapped shares are shown explicitly and never redistributed."), donut], spacing=6))
 
 
 def _holding_evidence_view(analysis: PortfolioAnalysis) -> ft.Control:
