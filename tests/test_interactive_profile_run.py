@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from datetime import date
 from types import SimpleNamespace
 
@@ -12,13 +13,19 @@ from etf_cockpit.application.analysis_depth import (
     ProfileRunUnavailable,
     load_analysis_depth_profiles,
     read_certification,
+    run_analysis_profile,
     run_analysis_profile_set,
 )
 from etf_cockpit.application.bulk_run import BulkAnalysisService
+from etf_cockpit.core.config import ETFConfig, UniverseConfig
+from etf_cockpit.core.types import DataQualityIssue, DataQualityReport, SignalResult
+from etf_cockpit.services import CockpitSnapshot
 from tests.test_analysis_depth_scheduling import _install_plan_estimate, _set_test_hardware
 from etf_cockpit.application.interactive_profile_run import (
     INTERACTIVE_ANALYZER_ID,
     LOCAL_OPTIONAL_STAGES,
+    SnapshotEvidence,
+    _CONFIG_FIELDS,
     build_profile_bindings,
     interactive_profile_binder,
 )
@@ -127,3 +134,60 @@ def test_binder_states_why_it_cannot_bind() -> None:
         interactive_profile_binder(lambda: None)("quick")
     with pytest.raises(ProfileRunUnavailable, match="no enabled instruments"):
         build_profile_bindings(fixture_snapshot(ids=()))
+
+
+def _run_with_cache(profile_id: str, snapshot, cache: dict, root) -> object:
+    profile = load_analysis_depth_profiles()[profile_id]
+    binding = next(b for b in build_profile_bindings(snapshot) if b.instrument_id == "AAA")
+    return run_analysis_profile(profile, binding, root=root, cache=cache)
+
+
+def test_changed_cost_metric_on_the_same_snapshot_and_cache_is_not_served_stale(tmp_path) -> None:
+    snapshot, cache = fixture_snapshot(), {}
+    first = _run_with_cache("medium", snapshot, cache, tmp_path)
+    assert first.status == "completed" and first.output["stages"]["core_costs"]["estimated_cost_bps"] == 13.0
+    snapshot.signals[0].supporting_metrics["estimated_cost_bps"] = 29.0
+    snapshot.signals[0].supporting_metrics["baseline_score"] = 0.2
+    second = _run_with_cache("medium", snapshot, cache, tmp_path)
+    assert second.output["stages"]["core_costs"]["estimated_cost_bps"] == 29.0
+    assert second.output["stages"]["forecast_baseline"]["baseline_score"] == 0.2
+
+
+def test_changed_isin_status_on_the_same_snapshot_and_cache_fails_identity_instead_of_reusing_a_pass(tmp_path) -> None:
+    snapshot, cache = fixture_snapshot(), {}
+    assert _run_with_cache("quick", snapshot, cache, tmp_path).status == "completed"
+    snapshot.config.universe.etfs[0].isin_status = "needs_verification"
+    second = _run_with_cache("quick", snapshot, cache, tmp_path)
+    assert second.status == "failed" and "ISIN status is needs_verification" in second.reason
+
+
+def test_changed_analysis_allowed_on_the_same_snapshot_and_cache_changes_the_data_gate(tmp_path) -> None:
+    snapshot, cache = fixture_snapshot(), {}
+    assert _run_with_cache("quick", snapshot, cache, tmp_path).status == "completed"
+    snapshot.data_report.analysis_allowed = False
+    second = _run_with_cache("quick", snapshot, cache, tmp_path)
+    assert second.status == "failed" and "portfolio data validation blocks analysis" in second.reason
+
+
+def test_unavailable_evidence_hashes_as_a_sentinel_not_zero() -> None:
+    zero, missing = fixture_snapshot(), fixture_snapshot()
+    zero.signals[0].supporting_metrics["estimated_cost_bps"] = 0.0
+    del missing.signals[0].supporting_metrics["estimated_cost_bps"]
+    digests = {SnapshotEvidence(s).analysis_input("AAA")["evidence_digest"] for s in (zero, missing, fixture_snapshot())}
+    assert len(digests) == 3
+
+
+def test_every_attribute_the_stages_read_exists_on_the_real_types() -> None:
+    config_fields = set(ETFConfig.model_fields)
+    assert set(_CONFIG_FIELDS) <= config_fields
+    assert {"universe_revision", "config", "prices", "latest_features", "signals", "data_report"} <= {
+        f.name for f in dataclasses.fields(CockpitSnapshot)
+    }
+    assert {"supporting_metrics", "blocked_by", "etf_id"} <= {f.name for f in dataclasses.fields(SignalResult)}
+    assert {"as_of_date", "issues"} <= {f.name for f in dataclasses.fields(DataQualityReport)}
+    assert isinstance(DataQualityReport.analysis_allowed, property)
+    assert {"etf_id", "severity", "code"} <= {f.name for f in dataclasses.fields(DataQualityIssue)}
+    assert {"etfs"} <= set(UniverseConfig.model_fields) and isinstance(UniverseConfig.enabled_ids, property)
+    etf = ETFConfig(id="AAA", name="A", ticker="A", role="core")
+    report = DataQualityReport(date(2026, 1, 3), [DataQualityIssue("AAA", "block", "x", "m")])
+    assert all(hasattr(etf, name) for name in _CONFIG_FIELDS) and report.analysis_allowed is False

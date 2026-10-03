@@ -52,6 +52,29 @@ def _text(value: object) -> str | None:
     return None if value is None else str(value)
 
 
+_MISSING = object()
+_UNAVAILABLE = {"unavailable": True}  # explicit sentinel; JSON-distinct from every real scalar
+# Every per-instrument config field and signal metric a stage function below reads.
+_CONFIG_FIELDS = (
+    "enabled", "isin", "isin_status", "instrument_type", "analysis_tier", "min_history_days",
+    "asset_class", "region", "sector", "theme", "role", "currency", "ter",
+)
+_METRIC_KEYS = ("estimated_cost_bps", "cost_model_id", "cost_data_quality", "baseline_score")
+
+
+def _stable(value: object) -> object:
+    """JSON-stable form of one evidence value; missing and non-finite values become the sentinel."""
+
+    if value is _MISSING or value is None:
+        return _UNAVAILABLE
+    if isinstance(value, bool) or isinstance(value, (int, str)):
+        return value
+    if isinstance(value, float):
+        return repr(value) if math.isfinite(value) else _UNAVAILABLE
+    number = _finite(value)
+    return str(value) if number is None else repr(number)
+
+
 class SnapshotEvidence:
     """Per-instrument lookups over one snapshot, built once per run."""
 
@@ -80,21 +103,36 @@ class SnapshotEvidence:
         return sorted({i.code for i in self.issues if i.severity == "warning" and i.etf_id in {etf_id, "ALL"}})
 
     def analysis_input(self, etf_id: str) -> dict[str, object]:
-        """Deterministic identity of the evidence a run reads, so cached stages never outlive it."""
+        """Deterministic identity of the evidence a run reads, so cached stages never outlive it.
 
-        feature = self.features.get(etf_id, {})
+        Hashes exactly the values the stage functions below read: every config field, the signal
+        metrics keys, the feature row (including its date and which values are unavailable), the
+        price statistics, blocked_by, the issue codes by severity and analysis_allowed. A missing
+        or non-finite value hashes as an explicit sentinel, never as zero.
+        """
+
+        feature = self.features.get(etf_id)
         signal = self.signals.get(etf_id)
+        config = self.configs.get(etf_id)
+        report = self.snapshot.data_report
+        metrics = signal.supporting_metrics if signal is not None else None
         payload = {
+            "config": None if config is None else {name: _stable(getattr(config, name, _MISSING)) for name in _CONFIG_FIELDS},
             "prices": self.price_stats.get(etf_id),
-            "features": {key: _finite(value) for key, value in sorted(feature.items()) if _finite(value) is not None},
+            "features": None if feature is None else {
+                "date": _stable(feature.get("date")),
+                "values": {key: _stable(feature[key]) for key in sorted(feature) if key not in {"date", "etf_id"}},
+            },
             "blocked_by": sorted(signal.blocked_by) if signal is not None else None,
+            "supporting_metrics": None if metrics is None else {key: _stable(metrics.get(key, _MISSING)) for key in _METRIC_KEYS},
+            "analysis_allowed": _stable(getattr(report, "analysis_allowed", _MISSING)),
             "blocking_issues": self.blocking_issue_codes(etf_id),
             "warning_issues": self.warning_issue_codes(etf_id),
         }
         digest = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
         return {
             "universe_revision": str(getattr(self.snapshot, "universe_revision", "") or ""),
-            "data_as_of": _text(getattr(self.snapshot.data_report, "as_of_date", None)),
+            "data_as_of": _text(getattr(report, "as_of_date", None)),
             "evidence_digest": digest,
         }
 
