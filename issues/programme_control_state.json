@@ -5429,7 +5429,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #545 merged the sole ISSUE-0099\u2192ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
+            "PR #545 merged the sole ISSUE-0099→ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies the required adapter registration, point-in-time cohort, robust statistics, lineage and replay boundary while ISSUE-0099 retains financial-sector implementation"
           ],
           "review_reference": "B04 ISSUE-0099 readiness after complete ISSUE-0098 dependency review",
@@ -5522,7 +5522,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #545 merged the sole ISSUE-0099\u2192ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
+            "PR #545 merged the sole ISSUE-0099→ISSUE-0098 dependency edge as complete in d149defcce3398c3cc463bc0d1cdbdf9a1e7cb4b with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies the required adapter registration, point-in-time cohort, robust statistics, lineage and replay boundary while ISSUE-0099 retains financial-sector implementation"
           ],
           "from": "planned",
@@ -5581,7 +5581,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #551 merged the sole ISSUE-0100\u2192ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
+            "PR #551 merged the sole ISSUE-0100→ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0100 retains all REIT, utility and infrastructure implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -5676,7 +5676,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #551 merged the sole ISSUE-0100\u2192ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
+            "PR #551 merged the sole ISSUE-0100→ISSUE-0098 dependency edge as complete in 65d35e21c397aaca77483cacc88babebdffd0014 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0100 retains all REIT, utility and infrastructure implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -5737,7 +5737,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #557 merged the sole ISSUE-0101\u2192ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
+            "PR #557 merged the sole ISSUE-0101→ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0101 retains all energy, materials and industrial implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -5832,7 +5832,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #557 merged the sole ISSUE-0101\u2192ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
+            "PR #557 merged the sole ISSUE-0101→ISSUE-0098 dependency edge as complete in 4469b423e18cfb04a7150d38286645d06ea0af67 with status guard and supply-chain validation passing",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0101 retains all energy, materials and industrial implementation scope",
             "Canonical readiness reports READY_BLOCKING_EDGES_RESOLVED and execution_allowed remains false"
           ],
@@ -5893,7 +5893,7 @@
       "acceptance_evidence": [
         {
           "evidence_references": [
-            "PR #638 merged the sole ISSUE-0102\u2192ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
+            "PR #638 merged the sole ISSUE-0102→ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
             "Release run 30737461361 passed classifier, preflight, supply-chain, authoritative Linux and Windows package gates and terminal validation summary; standalone status guard 30737461338 passed",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0102 retains all software, semiconductor, healthcare and biotechnology implementation scope; convergence run 30738361187 was zero action and execution_allowed remains false"
           ],
@@ -5988,7 +5988,7 @@
         {
           "allow_downgrade": false,
           "evidence_references": [
-            "PR #638 merged the sole ISSUE-0102\u2192ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
+            "PR #638 merged the sole ISSUE-0102→ISSUE-0098 dependency edge as complete in 179e16c71328c43a9475dce60743a2d1aeda5aa7 from exact reviewed head 871ea037c594844a0de9e72e7dbabd3405244b76",
             "Release run 30737461361 passed classifier, preflight, supply-chain, authoritative Linux and Windows package gates and terminal validation summary; standalone status guard 30737461338 passed",
             "ISSUE-0098 peer-cohort.v1 supplies adapter registration, point-in-time cohort hierarchy, robust statistics, lineage and replay while ISSUE-0102 retains all software, semiconductor, healthcare and biotechnology implementation scope; convergence run 30738361187 was zero action and execution_allowed remains false"
           ],
@@ -8837,12 +8837,17 @@
       "acceptance_evidence": [],
       "dependency_edge_evidence": {
         "ISSUE-0137": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "phase-08-frontend-api/ISSUE-0137/integrated-contract",
+          "evidence_references": [
+            "ISSUE-0137 is canonically integrated on main 96d2ab148b5654556ac5070d8beb201106a871ef; integration verified_commit e28ea076a6adcad7f6058a81baab57ab53a1ab68 (2026-10-03).",
+            "ISSUE-0137 integration evidence: Product: merged PRs #361/#362 (2026-07-18) plus final UI trains U0 #881 (61f92975), U1-U4/U6-U8 #882 (51e51628), U5 #883 (61859532).",
+            "ISSUE-0137 integration evidence: Full release gate run 37122709187 on head a05b0918bc27d3ba7d837c68b5e2c4b9ec38adc4 (contains the product merges above) passed validation-summary.",
+            "Edge ISSUE-0138->ISSUE-0137 reviewed against exact main 96d2ab148b5654556ac5070d8beb201106a871ef; execution_allowed=false unchanged."
+          ],
+          "reviewed_date": "2026-10-03",
+          "reviewer": "Claude Code root orchestrator (owner-authorised substitute for Codex V2 reviewer)",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "phase": "phase-08-frontend-api",
@@ -8852,8 +8857,39 @@
         "review_reference": "B00 canonical import from audited programme state",
         "to": "implemented_initially"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0137",
+            "evidence": {
+              "contract_reference": "phase-08-frontend-api/ISSUE-0137/integrated-contract",
+              "evidence_references": [
+                "ISSUE-0137 is canonically integrated on main 96d2ab148b5654556ac5070d8beb201106a871ef; integration verified_commit e28ea076a6adcad7f6058a81baab57ab53a1ab68 (2026-10-03).",
+                "ISSUE-0137 integration evidence: Product: merged PRs #361/#362 (2026-07-18) plus final UI trains U0 #881 (61f92975), U1-U4/U6-U8 #882 (51e51628), U5 #883 (61859532).",
+                "ISSUE-0137 integration evidence: Full release gate run 37122709187 on head a05b0918bc27d3ba7d837c68b5e2c4b9ec38adc4 (contains the product merges above) passed validation-summary.",
+                "Edge ISSUE-0138->ISSUE-0137 reviewed against exact main 96d2ab148b5654556ac5070d8beb201106a871ef; execution_allowed=false unchanged."
+              ],
+              "reviewed_date": "2026-10-03",
+              "reviewer": "Claude Code root orchestrator (owner-authorised substitute for Codex V2 reviewer)",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "ISSUE-0137 is canonically integrated on main 96d2ab148b5654556ac5070d8beb201106a871ef; integration verified_commit e28ea076a6adcad7f6058a81baab57ab53a1ab68 (2026-10-03).",
+            "ISSUE-0137 integration evidence: Product: merged PRs #361/#362 (2026-07-18) plus final UI trains U0 #881 (61f92975), U1-U4/U6-U8 #882 (51e51628), U5 #883 (61859532).",
+            "ISSUE-0137 integration evidence: Full release gate run 37122709187 on head a05b0918bc27d3ba7d837c68b5e2c4b9ec38adc4 (contains the product merges above) passed validation-summary.",
+            "Edge ISSUE-0138->ISSUE-0137 reviewed against exact main 96d2ab148b5654556ac5070d8beb201106a871ef; execution_allowed=false unchanged."
+          ],
+          "review_reference": "Edge ISSUE-0138->ISSUE-0137: dependency ISSUE-0137 integrated on main 96d2ab148b56; Claude Code root review.",
+          "reviewed_date": "2026-10-03",
+          "reviewer": "Claude Code root orchestrator (owner-authorised substitute for Codex V2 reviewer)",
+          "verified_commit": "96d2ab148b5654556ac5070d8beb201106a871ef"
+        }
+      ],
+      "verified_commit": "96d2ab148b5654556ac5070d8beb201106a871ef",
+      "verified_date": "2026-10-03"
     },
     "ISSUE-0139": {
       "acceptance_evidence": [],
@@ -8870,12 +8906,17 @@
           "state": "complete"
         },
         "ISSUE-0137": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "phase-08-frontend-api/ISSUE-0137/integrated-contract",
+          "evidence_references": [
+            "ISSUE-0137 is canonically integrated on main 96d2ab148b5654556ac5070d8beb201106a871ef; integration verified_commit e28ea076a6adcad7f6058a81baab57ab53a1ab68 (2026-10-03).",
+            "ISSUE-0137 integration evidence: Product: merged PRs #361/#362 (2026-07-18) plus final UI trains U0 #881 (61f92975), U1-U4/U6-U8 #882 (51e51628), U5 #883 (61859532).",
+            "ISSUE-0137 integration evidence: Full release gate run 37122709187 on head a05b0918bc27d3ba7d837c68b5e2c4b9ec38adc4 (contains the product merges above) passed validation-summary.",
+            "Edge ISSUE-0139->ISSUE-0137 reviewed against exact main 96d2ab148b5654556ac5070d8beb201106a871ef; execution_allowed=false unchanged."
+          ],
+          "reviewed_date": "2026-10-03",
+          "reviewer": "Claude Code root orchestrator (owner-authorised substitute for Codex V2 reviewer)",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "phase": "phase-08-frontend-api",
@@ -8910,21 +8951,55 @@
           "reviewed_date": "2026-10-03",
           "reviewer": "Claude Code root orchestrator (owner-authorised substitute for Codex V2 reviewer)",
           "verified_commit": "61859532b0c48059fa3f0d08fb774449ba173c0b"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0137",
+            "evidence": {
+              "contract_reference": "phase-08-frontend-api/ISSUE-0137/integrated-contract",
+              "evidence_references": [
+                "ISSUE-0137 is canonically integrated on main 96d2ab148b5654556ac5070d8beb201106a871ef; integration verified_commit e28ea076a6adcad7f6058a81baab57ab53a1ab68 (2026-10-03).",
+                "ISSUE-0137 integration evidence: Product: merged PRs #361/#362 (2026-07-18) plus final UI trains U0 #881 (61f92975), U1-U4/U6-U8 #882 (51e51628), U5 #883 (61859532).",
+                "ISSUE-0137 integration evidence: Full release gate run 37122709187 on head a05b0918bc27d3ba7d837c68b5e2c4b9ec38adc4 (contains the product merges above) passed validation-summary.",
+                "Edge ISSUE-0139->ISSUE-0137 reviewed against exact main 96d2ab148b5654556ac5070d8beb201106a871ef; execution_allowed=false unchanged."
+              ],
+              "reviewed_date": "2026-10-03",
+              "reviewer": "Claude Code root orchestrator (owner-authorised substitute for Codex V2 reviewer)",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "ISSUE-0137 is canonically integrated on main 96d2ab148b5654556ac5070d8beb201106a871ef; integration verified_commit e28ea076a6adcad7f6058a81baab57ab53a1ab68 (2026-10-03).",
+            "ISSUE-0137 integration evidence: Product: merged PRs #361/#362 (2026-07-18) plus final UI trains U0 #881 (61f92975), U1-U4/U6-U8 #882 (51e51628), U5 #883 (61859532).",
+            "ISSUE-0137 integration evidence: Full release gate run 37122709187 on head a05b0918bc27d3ba7d837c68b5e2c4b9ec38adc4 (contains the product merges above) passed validation-summary.",
+            "Edge ISSUE-0139->ISSUE-0137 reviewed against exact main 96d2ab148b5654556ac5070d8beb201106a871ef; execution_allowed=false unchanged."
+          ],
+          "review_reference": "Edge ISSUE-0139->ISSUE-0137: dependency ISSUE-0137 integrated on main 96d2ab148b56; Claude Code root review.",
+          "reviewed_date": "2026-10-03",
+          "reviewer": "Claude Code root orchestrator (owner-authorised substitute for Codex V2 reviewer)",
+          "verified_commit": "96d2ab148b5654556ac5070d8beb201106a871ef"
         }
       ],
-      "verified_commit": "61859532b0c48059fa3f0d08fb774449ba173c0b",
+      "verified_commit": "96d2ab148b5654556ac5070d8beb201106a871ef",
       "verified_date": "2026-10-03"
     },
     "ISSUE-0140": {
       "acceptance_evidence": [],
       "dependency_edge_evidence": {
         "ISSUE-0137": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "phase-08-frontend-api/ISSUE-0137/integrated-contract",
+          "evidence_references": [
+            "ISSUE-0137 is canonically integrated on main 96d2ab148b5654556ac5070d8beb201106a871ef; integration verified_commit e28ea076a6adcad7f6058a81baab57ab53a1ab68 (2026-10-03).",
+            "ISSUE-0137 integration evidence: Product: merged PRs #361/#362 (2026-07-18) plus final UI trains U0 #881 (61f92975), U1-U4/U6-U8 #882 (51e51628), U5 #883 (61859532).",
+            "ISSUE-0137 integration evidence: Full release gate run 37122709187 on head a05b0918bc27d3ba7d837c68b5e2c4b9ec38adc4 (contains the product merges above) passed validation-summary.",
+            "Edge ISSUE-0140->ISSUE-0137 reviewed against exact main 96d2ab148b5654556ac5070d8beb201106a871ef; execution_allowed=false unchanged."
+          ],
+          "reviewed_date": "2026-10-03",
+          "reviewer": "Claude Code root orchestrator (owner-authorised substitute for Codex V2 reviewer)",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "phase": "phase-08-frontend-api",
@@ -8934,8 +9009,39 @@
         "review_reference": "B00 canonical import from audited programme state",
         "to": "implemented_initially"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0137",
+            "evidence": {
+              "contract_reference": "phase-08-frontend-api/ISSUE-0137/integrated-contract",
+              "evidence_references": [
+                "ISSUE-0137 is canonically integrated on main 96d2ab148b5654556ac5070d8beb201106a871ef; integration verified_commit e28ea076a6adcad7f6058a81baab57ab53a1ab68 (2026-10-03).",
+                "ISSUE-0137 integration evidence: Product: merged PRs #361/#362 (2026-07-18) plus final UI trains U0 #881 (61f92975), U1-U4/U6-U8 #882 (51e51628), U5 #883 (61859532).",
+                "ISSUE-0137 integration evidence: Full release gate run 37122709187 on head a05b0918bc27d3ba7d837c68b5e2c4b9ec38adc4 (contains the product merges above) passed validation-summary.",
+                "Edge ISSUE-0140->ISSUE-0137 reviewed against exact main 96d2ab148b5654556ac5070d8beb201106a871ef; execution_allowed=false unchanged."
+              ],
+              "reviewed_date": "2026-10-03",
+              "reviewer": "Claude Code root orchestrator (owner-authorised substitute for Codex V2 reviewer)",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "ISSUE-0137 is canonically integrated on main 96d2ab148b5654556ac5070d8beb201106a871ef; integration verified_commit e28ea076a6adcad7f6058a81baab57ab53a1ab68 (2026-10-03).",
+            "ISSUE-0137 integration evidence: Product: merged PRs #361/#362 (2026-07-18) plus final UI trains U0 #881 (61f92975), U1-U4/U6-U8 #882 (51e51628), U5 #883 (61859532).",
+            "ISSUE-0137 integration evidence: Full release gate run 37122709187 on head a05b0918bc27d3ba7d837c68b5e2c4b9ec38adc4 (contains the product merges above) passed validation-summary.",
+            "Edge ISSUE-0140->ISSUE-0137 reviewed against exact main 96d2ab148b5654556ac5070d8beb201106a871ef; execution_allowed=false unchanged."
+          ],
+          "review_reference": "Edge ISSUE-0140->ISSUE-0137: dependency ISSUE-0137 integrated on main 96d2ab148b56; Claude Code root review.",
+          "reviewed_date": "2026-10-03",
+          "reviewer": "Claude Code root orchestrator (owner-authorised substitute for Codex V2 reviewer)",
+          "verified_commit": "96d2ab148b5654556ac5070d8beb201106a871ef"
+        }
+      ],
+      "verified_commit": "96d2ab148b5654556ac5070d8beb201106a871ef",
+      "verified_date": "2026-10-03"
     },
     "ISSUE-0141": {
       "acceptance_evidence": [],
@@ -13089,12 +13195,17 @@
           "state": "complete"
         },
         "ISSUE-0175": {
-          "contract_reference": "",
-          "evidence_references": [],
-          "reviewed_date": "",
-          "reviewer": "",
+          "contract_reference": "phase-08-frontend-api/ISSUE-0175/integrated-contract",
+          "evidence_references": [
+            "ISSUE-0175 is canonically integrated on main 96d2ab148b5654556ac5070d8beb201106a871ef; integration verified_commit ead5cf89d2f58652def51a28cd2eb996a4f2f568 (2026-10-03).",
+            "ISSUE-0175 integration evidence: Product: merged PRs #856 (slice A, 84a7b908), #865 (slice B, f4f44668), depth selector UI S175 #886 (0bd66871), S175b #887 (c4b8b3ed), S175c #889 (d28fff86), run binder S175d #890 (e28ea076).",
+            "ISSUE-0175 integration evidence: Full release gate run 37126829802 on head 03c05dd02f234a6e4e327aa943a0107bfe234ea9 (contains the product merges above) passed validation-summary.",
+            "Edge ISSUE-0172->ISSUE-0175 reviewed against exact main 96d2ab148b5654556ac5070d8beb201106a871ef; execution_allowed=false unchanged."
+          ],
+          "reviewed_date": "2026-10-03",
+          "reviewer": "Claude Code root orchestrator (owner-authorised substitute for Codex V2 reviewer)",
           "schema_version": "1.0",
-          "state": "unresolved"
+          "state": "complete"
         }
       },
       "phase": "phase-04-etf-research",
@@ -13490,9 +13601,38 @@
           "reviewer": "Claude Code root orchestrator with independent Opus Agent one-shot review (owner-authorised substitute)",
           "to": "in_progress",
           "verified_commit": "c1a58ff43312f179d67a13fcbc2366601be66936"
+        },
+        {
+          "dependency_edge": {
+            "dependency": "ISSUE-0175",
+            "evidence": {
+              "contract_reference": "phase-08-frontend-api/ISSUE-0175/integrated-contract",
+              "evidence_references": [
+                "ISSUE-0175 is canonically integrated on main 96d2ab148b5654556ac5070d8beb201106a871ef; integration verified_commit ead5cf89d2f58652def51a28cd2eb996a4f2f568 (2026-10-03).",
+                "ISSUE-0175 integration evidence: Product: merged PRs #856 (slice A, 84a7b908), #865 (slice B, f4f44668), depth selector UI S175 #886 (0bd66871), S175b #887 (c4b8b3ed), S175c #889 (d28fff86), run binder S175d #890 (e28ea076).",
+                "ISSUE-0175 integration evidence: Full release gate run 37126829802 on head 03c05dd02f234a6e4e327aa943a0107bfe234ea9 (contains the product merges above) passed validation-summary.",
+                "Edge ISSUE-0172->ISSUE-0175 reviewed against exact main 96d2ab148b5654556ac5070d8beb201106a871ef; execution_allowed=false unchanged."
+              ],
+              "reviewed_date": "2026-10-03",
+              "reviewer": "Claude Code root orchestrator (owner-authorised substitute for Codex V2 reviewer)",
+              "schema_version": "1.0",
+              "state": "complete"
+            }
+          },
+          "event_type": "dependency_edge_update",
+          "evidence_references": [
+            "ISSUE-0175 is canonically integrated on main 96d2ab148b5654556ac5070d8beb201106a871ef; integration verified_commit ead5cf89d2f58652def51a28cd2eb996a4f2f568 (2026-10-03).",
+            "ISSUE-0175 integration evidence: Product: merged PRs #856 (slice A, 84a7b908), #865 (slice B, f4f44668), depth selector UI S175 #886 (0bd66871), S175b #887 (c4b8b3ed), S175c #889 (d28fff86), run binder S175d #890 (e28ea076).",
+            "ISSUE-0175 integration evidence: Full release gate run 37126829802 on head 03c05dd02f234a6e4e327aa943a0107bfe234ea9 (contains the product merges above) passed validation-summary.",
+            "Edge ISSUE-0172->ISSUE-0175 reviewed against exact main 96d2ab148b5654556ac5070d8beb201106a871ef; execution_allowed=false unchanged."
+          ],
+          "review_reference": "Edge ISSUE-0172->ISSUE-0175: dependency ISSUE-0175 integrated on main 96d2ab148b56; Claude Code root review.",
+          "reviewed_date": "2026-10-03",
+          "reviewer": "Claude Code root orchestrator (owner-authorised substitute for Codex V2 reviewer)",
+          "verified_commit": "96d2ab148b5654556ac5070d8beb201106a871ef"
         }
       ],
-      "verified_commit": "c1a58ff43312f179d67a13fcbc2366601be66936",
+      "verified_commit": "96d2ab148b5654556ac5070d8beb201106a871ef",
       "verified_date": "2026-10-03"
     },
     "ISSUE-0173": {
