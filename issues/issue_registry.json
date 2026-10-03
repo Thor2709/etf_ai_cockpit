@@ -26616,7 +26616,18 @@
         "Missing benchmark/fee/dealing/history evidence blocks precise recommendations.",
         "Same analysis ID produces identical core values in detail, bulk and screener."
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product: merged PR #856 (slice A, 84a7b908), #861 (slice B, d9c97dfe), #864 (slice C, 85ce5771), #871 (slice D, c1a58ff4).",
+            "Full release gate run 37122709187 on head a05b0918bc27d3ba7d837c68b5e2c4b9ec38adc4 (contains the product merges above) passed validation-summary."
+          ],
+          "review_reference": "Exact head c1a58ff43312f179d67a13fcbc2366601be66936: Claude Code (claude-opus-5-5) root review with independent Opus Agent review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-03",
+          "reviewer": "Claude Code root orchestrator with independent Opus Agent one-shot review (owner-authorised substitute)",
+          "status": "in_progress"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [
         "ISSUE-0074",
@@ -26841,7 +26852,7 @@
       "package_status": "planned",
       "phase": "phase-04-etf-research",
       "priority": "P0",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -26861,7 +26872,7 @@
       "source_record_id": "ISSUE-0172",
       "source_title": "Build ordinary-fund analysis, peer cohorts, forecasts, recommendations and top-*N* screening",
       "title": "Build ordinary-fund analysis, peer cohorts, forecasts, recommendations and top-*N* screening",
-      "verified_commit": "61859532b0c48059fa3f0d08fb774449ba173c0b",
+      "verified_commit": "c1a58ff43312f179d67a13fcbc2366601be66936",
       "verified_date": "2026-10-03",
       "write_conflict_group": "etf-and-fund-research"
     },
@@ -30330,7 +30341,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "192701015f3f7263dac050ebe27fcd53964064b62f01ea0006962fb581f97380",
+    "programme_control_state_sha256": "3717578bc02e4b9e2a6c97093d5af314b92a0e4d1b3cc8faedc734e05f19d338",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

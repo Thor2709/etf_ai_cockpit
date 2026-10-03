@@ -12840,7 +12840,18 @@
       "verified_date": "2026-10-01"
     },
     "ISSUE-0172": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product: merged PR #856 (slice A, 84a7b908), #861 (slice B, d9c97dfe), #864 (slice C, 85ce5771), #871 (slice D, c1a58ff4).",
+            "Full release gate run 37122709187 on head a05b0918bc27d3ba7d837c68b5e2c4b9ec38adc4 (contains the product merges above) passed validation-summary."
+          ],
+          "review_reference": "Exact head c1a58ff43312f179d67a13fcbc2366601be66936: Claude Code (claude-opus-5-5) root review with independent Opus Agent review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-03",
+          "reviewer": "Claude Code root orchestrator with independent Opus Agent one-shot review (owner-authorised substitute)",
+          "status": "in_progress"
+        }
+      ],
       "dependency_edge_evidence": {
         "ISSUE-0074": {
           "contract_reference": "phase-01-governance-scope/ISSUE-0074/integrated-contract",
@@ -13019,11 +13030,11 @@
         }
       },
       "phase": "phase-04-etf-research",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "status_transition": {
         "from": "planned",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "planned"
+        "review_reference": "Exact head c1a58ff43312f179d67a13fcbc2366601be66936: Claude Code (claude-opus-5-5) root review with independent Opus Agent review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+        "to": "in_progress"
       },
       "transition_history": [
         {
@@ -13398,9 +13409,22 @@
           "reviewed_date": "2026-10-03",
           "reviewer": "Claude Code root orchestrator (owner-authorised substitute for Codex V2 reviewer)",
           "verified_commit": "61859532b0c48059fa3f0d08fb774449ba173c0b"
+        },
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "Product: merged PR #856 (slice A, 84a7b908), #861 (slice B, d9c97dfe), #864 (slice C, 85ce5771), #871 (slice D, c1a58ff4).",
+            "Full release gate run 37122709187 on head a05b0918bc27d3ba7d837c68b5e2c4b9ec38adc4 (contains the product merges above) passed validation-summary."
+          ],
+          "from": "planned",
+          "review_reference": "Exact head c1a58ff43312f179d67a13fcbc2366601be66936: Claude Code (claude-opus-5-5) root review with independent Opus Agent review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-03",
+          "reviewer": "Claude Code root orchestrator with independent Opus Agent one-shot review (owner-authorised substitute)",
+          "to": "in_progress",
+          "verified_commit": "c1a58ff43312f179d67a13fcbc2366601be66936"
         }
       ],
-      "verified_commit": "61859532b0c48059fa3f0d08fb774449ba173c0b",
+      "verified_commit": "c1a58ff43312f179d67a13fcbc2366601be66936",
       "verified_date": "2026-10-03"
     },
     "ISSUE-0173": {

@@ -52,4 +52,4 @@ Follow [`DELIVERY_WORKFLOW.md`](../../DELIVERY_WORKFLOW.md) for current E/O/H/C 
 | `ISSUE-0105` | `P0` | `integrated` | `etf-research` | `ISSUE-0082`, `UPDATEV2-0016` | - | `ISSUE-0108`, `ISSUE-0162`, `ISSUE-0172` | - |
 | `ISSUE-0106` | `P0/P1` | `integrated` | `etf-research` | `ISSUE-0128` | - | - | - |
 | `ISSUE-0107` | `P1/P2` | `integrated` | `etf-research` | `ISSUE-0088`, `ISSUE-0104` | - | - | - |
-| `ISSUE-0172` | `P0` | `planned` | `etf-and-fund-research` | `ISSUE-0074`, `ISSUE-0098`, `ISSUE-0105`, `ISSUE-0108`, `ISSUE-0109`, `ISSUE-0112`, `ISSUE-0120`, `ISSUE-0123`, `ISSUE-0128`, `ISSUE-0170`, `ISSUE-0171`, `ISSUE-0173`, `ISSUE-0174`, `ISSUE-0175` | - | - | - |
+| `ISSUE-0172` | `P0` | `in_progress` | `etf-and-fund-research` | `ISSUE-0074`, `ISSUE-0098`, `ISSUE-0105`, `ISSUE-0108`, `ISSUE-0109`, `ISSUE-0112`, `ISSUE-0120`, `ISSUE-0123`, `ISSUE-0128`, `ISSUE-0170`, `ISSUE-0171`, `ISSUE-0173`, `ISSUE-0174`, `ISSUE-0175` | - | - | - |
