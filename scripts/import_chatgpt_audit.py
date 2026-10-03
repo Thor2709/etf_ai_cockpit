@@ -9,8 +9,8 @@ for candidate in (ROOT / "src", ROOT / "app" / "src"):
     if candidate.exists():
         sys.path.insert(0, str(candidate))
 
-from etf_cockpit.core.config import load_config
-from etf_cockpit.services import ChatGPTBridge
+from etf_cockpit.core.config import load_config  # noqa: E402 - imports follow the sys.path bootstrap above
+from etf_cockpit.services import ChatGPTBridge  # noqa: E402 - imports follow the sys.path bootstrap above
 
 
 def main() -> None:

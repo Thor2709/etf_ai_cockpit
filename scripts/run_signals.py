@@ -9,14 +9,14 @@ for candidate in (ROOT / "src", ROOT / "app" / "src"):
     if candidate.exists():
         sys.path.insert(0, str(candidate))
 
-from etf_cockpit.core.config import load_config
-from etf_cockpit.services import FeatureService, SignalService
+from etf_cockpit.core.config import load_config  # noqa: E402 - imports follow the sys.path bootstrap above
+from etf_cockpit.services import FeatureService, SignalService  # noqa: E402 - imports follow the sys.path bootstrap above
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--date", default="latest")
-    args = parser.parse_args()
+    parser.parse_args()
     config = load_config()
     features = FeatureService(config).compute_features()
     signals = SignalService(config).generate_signals(features=features)
