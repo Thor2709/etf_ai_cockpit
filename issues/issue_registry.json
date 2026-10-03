@@ -22000,7 +22000,18 @@
         "Partial evidence is visually distinct without colour-only communication.",
         "Saved workspaces reproduce filters and versions."
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Product: merged PRs #363/#364 (2026-07-18) plus final UI trains U0 #881 (61f92975), U1-U4/U6-U8 #882 (51e51628), U5 #883 (61859532).",
+            "Full release gate run 37126829802 on head 03c05dd02f234a6e4e327aa943a0107bfe234ea9 (contains the product merges above) passed validation-summary."
+          ],
+          "review_reference": "Exact head 29b8a83041d11516a914121908fba38e271409f3: Claude Code (claude-opus-5-5) root review with independent Opus Agent review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-03",
+          "reviewer": "Claude Code root orchestrator with independent Opus Agent one-shot review (owner-authorised substitute)",
+          "status": "integrated"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [
         "ISSUE-0137"
@@ -22066,7 +22077,7 @@
       "package_status": "",
       "phase": "phase-08-frontend-api",
       "priority": "P0/P1",
-      "programme_status": "implemented_initially",
+      "programme_status": "integrated",
       "provenance": {
         "amendment_references": [
           "docs/product-completion/sources/2026-07-21/ETF_AI_Cockpit_Final_Release_Implementation_Spec_2026-07-21.md#amend-issue-0138-research-comparison-charting-and-screening-workspaces",
@@ -22098,7 +22109,7 @@
       ],
       "title": "Build professional research, comparison, charting and screening workspaces",
       "ui_requirement": "Discover, Instrument and Comparison workspaces.",
-      "verified_commit": "96d2ab148b5654556ac5070d8beb201106a871ef",
+      "verified_commit": "29b8a83041d11516a914121908fba38e271409f3",
       "verified_date": "2026-10-03",
       "why": "Users need to move from discovery to evidence, comparison, scenarios and decision efficiently.",
       "write_conflict_group": "frontend-and-api"
@@ -30442,7 +30453,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "23f8f1fd1509e9572b09a4d2b4f48d458063291d4f4a23788ffdb25dae5a089f",
+    "programme_control_state_sha256": "71bc519006cc9a266ebe9fe2e896530b76e70598a36a35cff18d0bd573b0136d",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }
