@@ -11,8 +11,9 @@ import flet as ft
 import pandas as pd
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, section_header
-from etf_cockpit.app.components.simple_scores import score_colour, simple_score_grouped_sections, simple_score_legend
+from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
+from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections, simple_score_legend
+from etf_cockpit.app.components.kit import kpi_tile, status_tag
 from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.state import ActivityUnavailableError, AppState, activity_result_error
 from etf_cockpit.application.contracts import ApiStatus, CommandResult, DashboardAction, DashboardActionCommand
@@ -157,13 +158,17 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
 
     return ft.Column(
         [
+            as_of_strip(state, key="dashboard.as-of"),
             _evidence_state_panel(state),
             _what_matters_today(state, scores=scores),
             cards,
-            _alerts_digest(page, state),
-            _run_changes_digest(page, state),
-            _news_digest(page, state),
             _action_bar(page, state),
+            disclosure(
+                "Alerts, run changes and news",
+                "Local warnings, score/rank changes since the previous run, and news/macro contradictions.",
+                ft.Column([_alerts_digest(page, state), _run_changes_digest(page, state), _news_digest(page, state)], spacing=12),
+                key="dashboard.details.signals",
+            ),
             simple_score_legend(),
             panel(
                 ft.Column(
@@ -177,12 +182,51 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
                     spacing=12,
                 ),
             ),
-            _activity_panel(state, page=page),
-            _secondary_actions(page, state),
+            disclosure(
+                "Activity and local imports",
+                "Session activity trace and the renew/import tools.",
+                ft.Column([_activity_panel(state, page=page), _secondary_actions(page, state)], spacing=12),
+                key="dashboard.details.activity",
+            ),
         ],
         expand=True,
         spacing=14,
         scroll=ft.ScrollMode.AUTO,
+    )
+
+
+def as_of_strip(state: object, *, key: str) -> ft.Control:
+    """Show the snapshot as-of date and price basis exactly as the shell as-of bar does."""
+
+    as_of = getattr(getattr(getattr(state, "snapshot", None), "data_report", None), "as_of_date", None)
+    if as_of in (None, ""):
+        date_tag = status_tag("As of: Unavailable", "w", key=f"{key}.date")
+        date_tag.tooltip = "No snapshot as-of date is available in the data-quality report."
+    else:
+        date_tag = status_tag(f"As of: {as_of}", "g", key=f"{key}.date")
+    basis_tag = status_tag("Price basis: adjusted", "g", key=f"{key}.basis")
+    return ft.Row(
+        [
+            date_tag,
+            basis_tag,
+            ft.Text("Matches the global as-of bar; every figure below is read at this date.", size=11, color=theme.MUTED),
+        ],
+        spacing=8,
+        wrap=True,
+        key=key,
+    )
+
+
+def disclosure(title: str, subtitle: str, content: ft.Control, *, key: str, expanded: bool = False) -> ft.ExpansionTile:
+    """Collapsed-by-default detail section so each page leads with its summary."""
+
+    return ft.ExpansionTile(
+        title=ft.Text(title, size=15, weight=ft.FontWeight.W_600, color=theme.TEXT),
+        subtitle=ft.Text(subtitle, size=12, color=theme.MUTED),
+        controls=[content],
+        expanded=expanded,
+        key=key,
+        tooltip=f"Show or hide: {title}",
     )
 
 
@@ -724,22 +768,17 @@ def _summary_cards(
     top_score_value = "N/A" if best_score is None else f"{best_score:.1f}/10"
     top_score_subtitle = "No scores yet" if best is None or best_score is None else f"{best.display_id} - {best.decision}"
     card_controls = [
-        metric_card("Instruments", str(total_count), f"{configured_count} primary, {candidate_count} secondary, {sparebanken_count} Sparebanken", theme.CYAN),
-        metric_card(
-            "Top score",
-            top_score_value,
-            top_score_subtitle,
-            score_colour(best_score),
-        ),
-        metric_card("Data health", data_status, f"as of {state.snapshot.data_report.as_of_date}", theme.GREEN if data_status == "Clean" else theme.AMBER),
-        metric_card("Model rows", str(model_pairs), "valid baseline/Toto/TimesFM pairs", theme.PURPLE),
-        metric_card(
+        kpi_tile("Instruments", str(total_count), f"{configured_count} primary, {candidate_count} secondary, {sparebanken_count} Sparebanken", key="dashboard.kpi.instruments"),
+        kpi_tile("Top score", top_score_value, top_score_subtitle, key="dashboard.kpi.top-score"),
+        kpi_tile("Data health", data_status, "as-of date in the strip above", key="dashboard.kpi.data-health"),
+        kpi_tile("Model rows", str(model_pairs), "valid baseline/Toto/TimesFM pairs", key="dashboard.kpi.model-rows"),
+        kpi_tile(
             "Regime",
             "N/A" if best is None else best.market_regime_label,
             "yfinance market context" if best is not None else "run scores",
-            score_colour(None if best is None else best.market_regime_score_10),
+            key="dashboard.kpi.regime",
         ),
-        metric_card("Final mode", mode, "advisory scoring only", theme.RED if mode == "Manual review" else theme.AMBER if mode == "Caution" else theme.GREEN),
+        kpi_tile("Final mode", mode, "advisory scoring only", key="dashboard.kpi.final-mode"),
     ]
     for card in card_controls:
         card.col = {"xs": 12, "sm": 6, "md": 4, "xl": 2}

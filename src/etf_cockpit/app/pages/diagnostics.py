@@ -8,7 +8,9 @@ import sys
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.components.glass_pages import page_panel
+from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.formatting import format_count, format_timestamp
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.architecture import build_report as build_architecture_report
 from etf_cockpit.core.paths import DATA_DIR, LOG_DIR, MODEL_DIR, ROOT
@@ -24,6 +26,9 @@ from etf_cockpit.application.ui_facade import (
 )
 from etf_cockpit.operations.event_store import load_events_with_tail_recovery
 from etf_cockpit.security.policy import build_security_report
+
+
+panel = page_panel("diagnostics")
 
 
 def _module_status(name: str) -> str:
@@ -166,7 +171,7 @@ def _performance_panel(state: AppState) -> ft.Control:
     except PerformanceBudgetError as exc:
         budget_report = {"status": "failed", "failures": [str(exc)], "storage_bytes": "unavailable"}
     rows: list[ft.Control] = [
-        ft.Text(f"Timing trace: {timing_path} | {len(timing_records)} parsed records", color=theme.MUTED, selectable=True),
+        ft.Text(f"Timing trace: {timing_path} | {format_count(len(timing_records))} parsed records", color=theme.MUTED, selectable=True),
         ft.Text(
             f"Durations: {len(durations)} | slow steps: {len(slow_steps)} | "
             f"cache hits: {cache_counts.get('hit', 0)} | misses: {cache_counts.get('miss', 0)} | "
@@ -233,7 +238,7 @@ def _session_log_panel() -> ft.Control:
                 f"{event.get('status') or 'n/a'} | {event.get('button_label') or event.get('operation') or ''}"
             )
             detail = (
-                f"{event.get('timestamp_local')} | action={event.get('action_id') or 'n/a'} | "
+                f"{format_timestamp(event.get('timestamp_local'))} | action={event.get('action_id') or 'n/a'} | "
                 f"message={event.get('user_message') or ''}"
             )
             if event.get("exception_type") or event.get("traceback_fingerprint"):

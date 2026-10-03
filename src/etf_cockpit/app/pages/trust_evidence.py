@@ -14,7 +14,9 @@ import flet as ft
 import pandas as pd
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
+from etf_cockpit.app.components import kit
+from etf_cockpit.app.components.cards import evidence_chip, section_header
+from etf_cockpit.app.pages._glass import glass
 from etf_cockpit.app.state import ActivityUnavailableError, AppState
 from etf_cockpit.app.selectors.instrument_detail import normalise_feature_driver_frame
 from etf_cockpit.application.digest import contradiction_digest_records
@@ -312,7 +314,7 @@ def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
         )
         for row in status_rows
     ]
-    capability_panel = panel(
+    capability_panel = glass("providers.capability", "Capability registry",
         ft.Column(
             [
                 section_header("Capability registry", "Providers, models and broker adapters share one allow-listed contract. Disabled capabilities are never probed and cannot escalate execution authority."),
@@ -328,7 +330,7 @@ def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
     )
     policy_rows = source_policy_rows(Path.cwd())
     terms_rows = legal_terms_rows(Path.cwd())
-    source_policy_panel = panel(
+    source_policy_panel = glass("providers.source-policy", "Mandatory source tiers",
         ft.Column(
             [
                 section_header("Mandatory source tiers", "The mandatory path accepts local imports, official bulk files or official cached snapshots. Optional providers remain visible but cannot become required by quota or subscription."),
@@ -341,7 +343,7 @@ def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
             scroll=ft.ScrollMode.AUTO,
         )
     )
-    legal_terms_panel = panel(
+    legal_terms_panel = glass("providers.legal-terms", "Legal terms and export boundaries",
         ft.Column(
             [
                 section_header("Legal terms and export boundaries", "Source, model and package terms are recorded locally and do not grant permission to redistribute restricted material."),
@@ -444,7 +446,7 @@ def _sfdr_panel(path: Path) -> ft.Control:
                 )
             )
         body = ft.Column(rows, spacing=5)
-    return panel(ft.Column([section_header("SFDR disclosure", "Classification and sustainability disclosures are evidence-only; SFDR never contributes return alpha, scores or execution authority."), body], spacing=8))
+    return glass("disclosures.sfdr", "SFDR disclosure", ft.Column([section_header("SFDR disclosure", "Classification and sustainability disclosures are evidence-only; SFDR never contributes return alpha, scores or execution authority."), body], spacing=8))
 
 
 def news_context_page(page: ft.Page, state: AppState) -> ft.Control:
@@ -612,7 +614,7 @@ def _news_context_extra(state: AppState, page: ft.Page | None = None) -> ft.Cont
             for _, row in events.head(30).iterrows()
         ]
 
-    return panel(
+    return glass("news.credibility", "News credibility and events",
         ft.Column(
             [
                 section_header("Manual note credibility", "Structured local-only flags distinguish detected claims from missing or unavailable supporting evidence; they cannot change scores or actions."),
@@ -637,15 +639,15 @@ def _status_page(
     extra: ft.Control | None = None,
 ) -> ft.Control:
     controls: list[ft.Control] = [
-        panel(
+        glass("evidence.status", "Evidence status header",
             ft.Column(
                 [
                     section_header(title, subtitle),
                     ft.Row(
                         [
-                            evidence_chip("Authority", "advisory/context only", theme.CYAN),
-                            evidence_chip("Missing data", "N/A, not invented", theme.AMBER),
-                            evidence_chip("Broker execution", "disabled", theme.GREEN),
+                            kit.status_tag("Authority: advisory/context only", "w", key="evidence.tag.authority"),
+                            kit.status_tag("Missing data: Unavailable, not invented", "w", key="evidence.tag.missing"),
+                            kit.status_tag("Broker execution: disabled", "g", key="evidence.tag.execution"),
                         ],
                         spacing=8,
                         wrap=True,
@@ -932,7 +934,7 @@ def _filing_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             ),
         )
 
-    return panel(ft.Column([section_header("Official filing import", "SEC EDGAR, filings.xbrl.org, Companies House and national OAM evidence. Network, entitlement and timing gaps remain explicit; no filing action starts scoring or execution."), ft.Row([cik_field, ft.OutlinedButton("Fetch SEC companyfacts", key="filings.fetch-sec", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec), ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec)], wrap=True), ft.Row([bulk_dataset, bulk_instrument, ft.OutlinedButton("Import local SEC ZIP", key="filings.import-sec-bulk", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec_bulk), ft.OutlinedButton("Fetch official SEC bulk", key="filings.fetch-sec-bulk", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec_bulk), ft.OutlinedButton("Use session cache", key="filings.cache-sec-bulk", on_click=cached_sec_bulk)], wrap=True), ft.Text("Local first import: enter CIK and instrument ID. Network refresh requires a unique saved identity and name/contact email. Bulk downloads can be several GB."), ft.Text(getattr(state, "sec_companyfacts_bulk_message", "No companyfacts bulk result in this session."), selectable=True), submissions_table, ft.Row([country_field, filing_id_field, ft.OutlinedButton("Discover ESEF filings", key="filings.discover-esef", icon=ft.Icons.SEARCH, on_click=discover_esef), ft.OutlinedButton("Download ESEF package", key="filings.download-esef", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=download_esef), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), ft.Row([oam_country_field, oam_issuer_field, oam_isin_field, oam_document_type_field, company_number_field], wrap=True), ft.Row([oam_date_from_field, oam_date_to_field, oam_endpoint_field, companies_house_key_field, ft.OutlinedButton("Discover official filings", key="filings.discover-oam", icon=ft.Icons.SEARCH, on_click=discover_oam), ft.OutlinedButton("Import local OAM export", key="filings.import-local-oam", icon=ft.Icons.UPLOAD_FILE, on_click=import_local_oam)], wrap=True), ft.Row([manual_country_field, manual_instrument_field, manual_document_type_field, manual_published_field, manual_available_field], wrap=True), ft.Row([manual_source_url_field, ft.OutlinedButton("Archive manual official filing", key="filings.import-manual-official", icon=ft.Icons.UPLOAD_FILE, on_click=import_manual_filing)], wrap=True), result], spacing=8))
+    return glass("filings.import", "Official filing import", ft.Column([section_header("Official filing import", "SEC EDGAR, filings.xbrl.org, Companies House and national OAM evidence. Network, entitlement and timing gaps remain explicit; no filing action starts scoring or execution."), ft.Row([cik_field, ft.OutlinedButton("Fetch SEC companyfacts", key="filings.fetch-sec", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec), ft.OutlinedButton("Import SEC companyfacts", key="filings.import-sec", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec)], wrap=True), ft.Row([bulk_dataset, bulk_instrument, ft.OutlinedButton("Import local SEC ZIP", key="filings.import-sec-bulk", icon=ft.Icons.UPLOAD_FILE, on_click=import_sec_bulk), ft.OutlinedButton("Fetch official SEC bulk", key="filings.fetch-sec-bulk", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=fetch_sec_bulk), ft.OutlinedButton("Use session cache", key="filings.cache-sec-bulk", on_click=cached_sec_bulk)], wrap=True), ft.Text("Local first import: enter CIK and instrument ID. Network refresh requires a unique saved identity and name/contact email. Bulk downloads can be several GB."), ft.Text(getattr(state, "sec_companyfacts_bulk_message", "No companyfacts bulk result in this session."), selectable=True), submissions_table, ft.Row([country_field, filing_id_field, ft.OutlinedButton("Discover ESEF filings", key="filings.discover-esef", icon=ft.Icons.SEARCH, on_click=discover_esef), ft.OutlinedButton("Download ESEF package", key="filings.download-esef", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=download_esef), ft.OutlinedButton("Import ESEF package", key="filings.import-esef", icon=ft.Icons.UPLOAD_FILE, on_click=import_esef)], wrap=True), ft.Row([oam_country_field, oam_issuer_field, oam_isin_field, oam_document_type_field, company_number_field], wrap=True), ft.Row([oam_date_from_field, oam_date_to_field, oam_endpoint_field, companies_house_key_field, ft.OutlinedButton("Discover official filings", key="filings.discover-oam", icon=ft.Icons.SEARCH, on_click=discover_oam), ft.OutlinedButton("Import local OAM export", key="filings.import-local-oam", icon=ft.Icons.UPLOAD_FILE, on_click=import_local_oam)], wrap=True), ft.Row([manual_country_field, manual_instrument_field, manual_document_type_field, manual_published_field, manual_available_field], wrap=True), ft.Row([manual_source_url_field, ft.OutlinedButton("Archive manual official filing", key="filings.import-manual-official", icon=ft.Icons.UPLOAD_FILE, on_click=import_manual_filing)], wrap=True), result], spacing=8))
 
 
 def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
@@ -1235,7 +1237,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
 
         _run_picker_activity(page, state, result, "Import SFDR disclosure", "Parsing SFDR disclosure", files[0], ".pdf", action)
 
-    return panel(
+    return glass("disclosures.import", "ETF disclosure import",
         ft.Column(
             [
                 section_header("ETF disclosure import", "Local factsheets, KIDs, prospectuses/reports, holdings and methodologies are registered with checksums and explicit missing/invalid states. Parser controls remain available for KIDs and methodologies."),
@@ -1301,7 +1303,7 @@ def _table_panel(
                 for row in preview.itertuples(index=False, name=None)
             ],
         )
-    return panel(
+    return glass(f"evidence.table.{_slug(label)}", f"{label} evidence table",
         ft.Column(
             [
                 section_header(label, f"{path}"),
@@ -1330,6 +1332,10 @@ def _read_frame(path: Path) -> pd.DataFrame:
         except Exception:
             continue
     return pd.DataFrame()
+
+
+def _slug(label: str) -> str:
+    return "".join(ch if ch.isalnum() else "-" for ch in label.lower()).strip("-")
 
 
 def _short(value: object, max_len: int = 96) -> str:

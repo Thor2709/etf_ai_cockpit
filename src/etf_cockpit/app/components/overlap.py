@@ -2,10 +2,33 @@
 
 from __future__ import annotations
 
+import math
+
 import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
+
+
+def report_weight(report: object, name: str) -> float | None:
+    """Return a finite report weight, or None when it is missing (never 0)."""
+
+    if str(getattr(report, "status", "missing")) == "missing" and not getattr(report, "report_hash", ""):
+        return None
+    try:
+        number = float(getattr(report, name, None))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _weight_text(report: object, name: str) -> str:
+    """Format a report weight; a missing/non-finite value is Unavailable, never 0."""
+
+    number = report_weight(report, name)
+    if number is None:
+        return "Unavailable (no holdings evidence or weight not reported)"
+    return f"{number:.1%}"
 
 
 def overlap_evidence_panel(report: object, *, key: str, title: str = "ETF direct overlap") -> ft.Control:
@@ -51,8 +74,8 @@ def overlap_evidence_panel(report: object, *, key: str, title: str = "ETF direct
         ft.Text(f"coverage_status={status} | execution_allowed=false", color=theme.TEXT, selectable=True),
         ft.Text(
             "look-through: "
-            f"mapped={getattr(report, 'mapped_weight', 0.0):.1%} | "
-            f"unknown/unmapped={getattr(report, 'unknown_weight', 0.0):.1%} | "
+            f"mapped={_weight_text(report, 'mapped_weight')} | "
+            f"unknown/unmapped={_weight_text(report, 'unknown_weight')} | "
             f"report_hash={getattr(report, 'report_hash', '') or 'N/A'}",
             color=theme.TEXT,
             selectable=True,
@@ -86,4 +109,4 @@ def overlap_evidence_panel(report: object, *, key: str, title: str = "ETF direct
     return panel(ft.Column(body, key=key, spacing=6, scroll=ft.ScrollMode.AUTO))
 
 
-__all__ = ["overlap_evidence_panel"]
+__all__ = ["overlap_evidence_panel", "report_weight"]

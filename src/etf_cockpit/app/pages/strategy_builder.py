@@ -5,7 +5,8 @@ from __future__ import annotations
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.components.kit import glass_panel, status_tag
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.strategy_templates import StrategyTemplateFacade
 
@@ -38,12 +39,14 @@ def strategy_builder_page(page: ft.Page, state: AppState) -> ft.Control:
 
     rows: list[ft.Control] = []
     for template in facade.templates:
+        enabled_now = facade.is_enabled(template.template_id)
         rows.append(
-            panel(
+            glass_panel(
                 ft.Column(
                     [
                         ft.Row(
                             [
+                                status_tag("Enabled" if enabled_now else "Disabled", "g" if enabled_now else "w", key=f"strategy-builder.status.{template.template_id}"),
                                 ft.Button(
                                     "Disable" if facade.is_enabled(template.template_id) else "Enable",
                                     data=(template.template_id, not facade.is_enabled(template.template_id)),
@@ -60,7 +63,10 @@ def strategy_builder_page(page: ft.Page, state: AppState) -> ft.Control:
                         ft.Text("context-only; no trade actions" if template.context_only else "long-only research/review template; no execution authority", color=theme.AMBER, selectable=True),
                     ],
                     spacing=6,
-                )
+                ),
+                key=f"strategy-builder.card.{template.template_id}",
+                label=f"Strategy template {template.name}",
+                padding=18,
             )
         )
     return ft.Column(

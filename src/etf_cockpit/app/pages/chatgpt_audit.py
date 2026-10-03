@@ -7,7 +7,8 @@ import threading
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.components.glass_pages import page_panel
+from etf_cockpit.app.components.cards import section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import (
     build_version_registry,
@@ -32,6 +33,9 @@ from etf_cockpit.audit.local_llm import (
 )
 from etf_cockpit.services import ChatGPTBridge
 from etf_cockpit.governance.product_scope import load_authority_matrix
+
+
+panel = page_panel("chatgpt-audit")
 
 
 def _manual_note_credibility_text() -> str:
