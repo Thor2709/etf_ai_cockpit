@@ -3,9 +3,14 @@ from __future__ import annotations
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
+from etf_cockpit.app.components.glass_pages import page_panel
+from etf_cockpit.app.components.cards import evidence_chip, section_header
+from etf_cockpit.app.formatting import format_timestamp
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.recovery_centre import RECOVERY_POLICIES, build_recovery_read_model, developer_mode_enabled
+
+
+panel = page_panel("errors-recovery")
 
 
 def errors_recovery_page(page: ft.Page, state: AppState) -> ft.Control:
@@ -17,7 +22,7 @@ def errors_recovery_page(page: ft.Page, state: AppState) -> ft.Control:
         colour = theme.AMBER if record.retryable else theme.RED
         controls: list[ft.Control] = [
             ft.Text(
-                f"{record.created_at} | {record.category.value} | action={record.action_id or 'n/a'}",
+                f"{format_timestamp(record.created_at)} | {record.category.value} | action={record.action_id or 'n/a'}",
                 color=colour,
                 size=12,
                 weight=ft.FontWeight.BOLD,
@@ -71,7 +76,7 @@ def _activity_log(state: AppState) -> ft.Control:
     if not entries:
         controls.append(ft.Text("No recent activity recorded.", color=theme.MUTED))
     for entry in entries:
-        controls.append(ft.Text(f"{entry.started_at} | action={getattr(entry, 'action_id', '') or entry.label} | {entry.status} | {entry.message or entry.step}", color=theme.TEXT, selectable=True))
+        controls.append(ft.Text(f"{format_timestamp(entry.started_at)} | action={getattr(entry, 'action_id', '') or entry.label} | {entry.status} | {entry.message or entry.step}", color=theme.TEXT, selectable=True))
     return ft.Column(controls, spacing=8)
 
 

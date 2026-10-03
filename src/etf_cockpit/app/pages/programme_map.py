@@ -5,11 +5,15 @@ from __future__ import annotations
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.components.glass_pages import page_panel
+from etf_cockpit.app.components.cards import section_header
 from etf_cockpit.app.components.governance_badges import status_badge
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.programme_map import ProgrammeMap, ProgrammeMapEntry, load_programme_map
 from etf_cockpit.core.paths import ROOT
+
+
+panel = page_panel("programme-map")
 
 
 def _entry_card(entry: ProgrammeMapEntry) -> ft.Container:

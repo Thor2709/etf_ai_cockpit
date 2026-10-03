@@ -8,7 +8,8 @@ import flet as ft
 import pandas as pd
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.components.glass_pages import page_panel
+from etf_cockpit.app.components.cards import section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.portfolio_imports import PortfolioImportApplication
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, DERIVED_DIR, ROOT
@@ -28,6 +29,9 @@ from etf_cockpit.application.ui_facade import (
     bulk_cache_health,
     load_simple_scoreboard,
 )
+
+
+panel = page_panel("import-export")
 
 
 def _record_export_terminal(

@@ -8,10 +8,14 @@ from pathlib import Path
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.components.glass_pages import page_panel
+from etf_cockpit.app.components.cards import section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import legal_terms_report
 from etf_cockpit.governance.product_scope import load_glossary
+
+
+panel = page_panel("help")
 
 
 PAGE_HELP: dict[str, str] = {

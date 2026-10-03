@@ -7,12 +7,17 @@ import json
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.components.glass_pages import page_panel
+from etf_cockpit.app.components.cards import section_header
 from etf_cockpit.app.components.governance_badges import status_badge
+from etf_cockpit.app.formatting import format_count
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.quality_programme import load_quality_programme_report
 from etf_cockpit.application.ui_facade import legal_terms_report, release_certification_report
 from etf_cockpit.core.paths import ROOT
+
+
+panel = page_panel("release-readiness")
 
 
 def release_readiness_page(_page: ft.Page | None, _state: AppState) -> ft.Control:
@@ -68,7 +73,7 @@ def release_readiness_page(_page: ft.Page | None, _state: AppState) -> ft.Contro
     quality_suites = quality.get("suites", []) or []
     quality_suite_lines = [
         ft.Text(
-            f"{suite.get('suite_id', 'unknown')}: {suite.get('status', 'unknown')} ({suite.get('duration_ms', 0)} ms)",
+            f"{suite.get('suite_id', 'unknown')}: {suite.get('status', 'unknown')} ({format_count(suite.get('duration_ms'), unavailable='duration unavailable')} ms)",
             color=theme.TEXT if suite.get("status") == "passed" else theme.AMBER,
             size=11,
             selectable=True,
