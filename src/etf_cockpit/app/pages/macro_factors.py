@@ -5,7 +5,9 @@ from __future__ import annotations
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.components import kit
+from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.pages._glass import glass, tone_for
 from etf_cockpit.app.pages.dashboard import _run_action
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
@@ -148,9 +150,14 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
                 icon=ft.Icons.REFRESH,
                 on_click=refresh_context if page is not None else None,
             ),
-            panel(
+            glass("macro.status", "Macro status",
                 ft.Column(
                     [
+                        kit.status_tag(
+                            "Unavailable" if error_text or status != "available" else "Available",
+                            tone_for(status if not error_text else "failed"),
+                            key="macro.status-tag",
+                        ),
                         ft.Text(status_text, color=status_colour, selectable=True),
                         ft.Text(
                             "Decision-time vintages select only observations whose available_at is on or before the decision time. "
@@ -168,7 +175,7 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
                     spacing=8,
                 )
             ),
-            panel(
+            glass("macro.coverage", "Macro coverage",
                 ft.Column(
                     [
                         ft.Text(
@@ -205,7 +212,7 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
                     spacing=8,
                 )
             ),
-            panel(
+            glass("macro.regime", "Regime and proxy context",
                 ft.Column(
                     [
                         ft.Text("Regime and proxy context", color=theme.TEXT, weight=ft.FontWeight.BOLD),
@@ -244,7 +251,7 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
                     spacing=8,
                 )
             ),
-            panel(
+            glass("macro.observations", "Latest local observations",
                 ft.Column(
                     [
                         ft.Text("Latest local observations", color=theme.TEXT, weight=ft.FontWeight.BOLD),
@@ -254,7 +261,7 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
                 ),
                 expand=True,
             ),
-            panel(
+            glass("macro.scenarios", "Scenario-linked macro evidence",
                 ft.Column(
                     [
                         ft.Text("Scenario-linked macro evidence", color=theme.TEXT, weight=ft.FontWeight.BOLD),

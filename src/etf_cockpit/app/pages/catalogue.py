@@ -5,7 +5,9 @@ from __future__ import annotations
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.components import kit
+from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.pages._glass import glass, kpi_row, tone_for
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import DataCatalogue, DataCatalogueError
 from etf_cockpit.core.paths import ROOT
@@ -63,13 +65,30 @@ def catalogue_page(_page: ft.Page, state: AppState) -> ft.Control:
     errors = validation.get("errors", [])
     validation_text = "\n".join(str(item) for item in errors) or "Lineage and schema contracts pass."
 
+    available = not error_text and status == "available"
+    counts_known = not error_text
+    kpis = kpi_row(
+        "catalogue.kpi",
+        [
+            ("Datasets", str(summary.get("dataset_count", 0)) if counts_known else None, "Registered locally" if counts_known else "Catalogue could not be read"),
+            ("Snapshots", str(summary.get("snapshot_count", 0)) if counts_known else None, "Immutable, content-addressed" if counts_known else "Catalogue could not be read"),
+            ("Lineage edges", str(summary.get("lineage_edge_count", 0)) if counts_known else None, "Upstream dependencies" if counts_known else "Catalogue could not be read"),
+        ],
+    )
+    status_badge = kit.status_tag(
+        "Available" if available else "Manual review required" if error_text else status.title(),
+        "g" if available else tone_for("failed" if error_text else status),
+        key="catalogue.status-tag",
+    )
+
     return ft.Column(
         [
             section_header(
                 "Data Catalogue",
                 "Generated local metadata, immutable dataset snapshots and redacted provenance; no remote fetch or execution authority.",
             ),
-            panel(
+            ft.Row([status_badge, kpis], wrap=True, spacing=16),
+            glass("catalogue.status", "Catalogue status",
                 ft.Column(
                     [
                         ft.Text(status_text, color=status_colour, selectable=True),
@@ -87,9 +106,9 @@ def catalogue_page(_page: ft.Page, state: AppState) -> ft.Control:
                     spacing=8,
                 )
             ),
-            panel(ft.Column([section_header("Registered datasets", "Owner, source, licence, quality and retention metadata."), ft.Text("\n".join(dataset_lines), color=theme.TEXT, selectable=True)])),
-            panel(ft.Column([section_header("Immutable snapshots", "Content hashes, row counts and dependency edges for reproducible local data."), ft.Text("\n".join(snapshot_lines), color=theme.MUTED, selectable=True)])),
-            panel(
+            glass("catalogue.datasets", "Registered datasets", ft.Column([section_header("Registered datasets", "Owner, source, licence, quality and retention metadata."), ft.Text("\n".join(dataset_lines), color=theme.TEXT, selectable=True)])),
+            glass("catalogue.snapshots", "Immutable snapshots", ft.Column([section_header("Immutable snapshots", "Content hashes, row counts and dependency edges for reproducible local data."), ft.Text("\n".join(snapshot_lines), color=theme.MUTED, selectable=True)])),
+            glass("catalogue.provenance", "Instrument provenance",
                 ft.Column(
                     [
                         section_header("Instrument provenance explorer", f"Selected instrument: {instrument_id or 'none'}"),
@@ -97,7 +116,7 @@ def catalogue_page(_page: ft.Page, state: AppState) -> ft.Control:
                     ]
                 )
             ),
-            panel(ft.Column([section_header("Lineage and schema checks", "Orphaned, stale and incompatible artefacts remain visible and non-authoritative."), ft.Text(validation_text, color=theme.MUTED, selectable=True)])),
+            glass("catalogue.lineage", "Lineage and schema checks", ft.Column([section_header("Lineage and schema checks", "Orphaned, stale and incompatible artefacts remain visible and non-authoritative."), ft.Text(validation_text, color=theme.MUTED, selectable=True)])),
         ],
         expand=True,
         scroll=ft.ScrollMode.AUTO,

@@ -3,8 +3,9 @@ from __future__ import annotations
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
-from etf_cockpit.app.components.flet_compat import border_all
+from etf_cockpit.app.components import kit
+from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.pages._glass import glass, kpi_row
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.application.ui_facade import AnomalyLedger, DataHealthReport, DataHealthRow, DataHealthStatus, build_data_health, bulk_cache_health, export_data_health, filter_data_health_rows
@@ -21,17 +22,13 @@ def data_health_page(page: ft.Page, state: AppState) -> ft.Control:
 
     def row_controls(row: DataHealthRow) -> ft.Control:
         colour = theme.GREEN if row.status is DataHealthStatus.HEALTHY else theme.AMBER if row.status in {DataHealthStatus.STALE, DataHealthStatus.UNAVAILABLE, DataHealthStatus.MISSING} else theme.RED
-        return ft.Container(
-            padding=12,
-            border=border_all(1, theme.BORDER),
-            border_radius=8,
-            bgcolor=theme.SURFACE,
-            content=ft.Column(
+        return kit.table_style(
+            ft.Column(
                 [
                     ft.Row(
                         [
                             ft.Text(row.dataset, color=theme.TEXT, weight=ft.FontWeight.BOLD, size=15),
-                            evidence_chip("Status", row.status.value, colour),
+                            kit.status_tag(f"Status: {row.status.value}", "g" if colour == theme.GREEN else "w" if colour == theme.AMBER else "b", key=f"data-health.status.{row.dataset}"),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         wrap=True,
@@ -60,6 +57,8 @@ def data_health_page(page: ft.Page, state: AppState) -> ft.Control:
                 ],
                 spacing=10,
             ),
+            key=f"data-health.row.{row.dataset}",
+            label=f"Dataset health: {row.dataset}",
         )
 
     inventory_rows = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
@@ -128,7 +127,7 @@ def data_health_page(page: ft.Page, state: AppState) -> ft.Control:
 
     return ft.Column(
         [
-            panel(
+            glass("data-health.header", "Data Health",
                 ft.Column(
                     [
                         section_header("Data Health", "Every configured store is classified as healthy, stale, missing, corrupt, schema-mismatched or unavailable. Missing data is never inferred."),
@@ -144,7 +143,16 @@ def data_health_page(page: ft.Page, state: AppState) -> ft.Control:
                     spacing=10,
                 )
             ),
-            panel(
+            kpi_row(
+                "data-health.kpi",
+                [
+                    ("Datasets", str(len(report.rows)), "Configured stores"),
+                    ("Healthy", str(sum(1 for item in report.rows if item.status is DataHealthStatus.HEALTHY)), "Passing freshness and schema checks"),
+                    ("Needs attention", str(sum(1 for item in report.rows if item.status is not DataHealthStatus.HEALTHY)), "Stale, missing, corrupt or unavailable"),
+                    ("As of", report.as_of_date or None, "Snapshot data-quality date" if report.as_of_date else "No as-of date in the snapshot"),
+                ],
+            ),
+            glass("data-health.anomaly", "Anomaly rules and quarantine",
                 ft.Column(
                     [
                         section_header(
@@ -185,7 +193,7 @@ def data_health_page(page: ft.Page, state: AppState) -> ft.Control:
                     spacing=8,
                 )
             ),
-            panel(
+            glass("data-health.bulk-cache", "Bulk source cache",
                 ft.Column(
                     [
                         section_header("Bulk source cache", "Raw bulk sources are immutable and content-addressed. Only validated staged generations may be promoted into analysis."),
@@ -194,7 +202,7 @@ def data_health_page(page: ft.Page, state: AppState) -> ft.Control:
                     spacing=10,
                 )
             ),
-            panel(
+            glass("data-health.inventory", "Dataset inventory",
                 ft.Column(
                     [
                         section_header("Dataset inventory", "Each store exposes its path, status, freshness, provenance checksum and most recent success or failure without hidden columns."),
