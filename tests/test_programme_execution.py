@@ -370,7 +370,7 @@ def test_every_ci_source_checkout_and_integration_base_are_explicit() -> None:
             assert "git rev-parse HEAD" in guard["run"]
             assert 'git merge-base --is-ancestor "$EXPECTED_BASE_SHA" "$EXPECTED_SOURCE_SHA"' in guard["run"]
             assert '$(git rev-parse origin/main)' in guard["run"]
-    assert count == 7
+    assert count == 8
 
 
 def test_archived_history_is_exact_and_not_current_instruction_authority() -> None:

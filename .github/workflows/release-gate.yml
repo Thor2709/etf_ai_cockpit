@@ -781,9 +781,120 @@ jobs:
           path: validation-evidence/parallel-pilot
           if-no-files-found: error
 
+  focused-tests:
+    # Pull requests that skip the package gate (tiers E/O) still run the tests related to their change;
+    # GitHub CI is the only test evidence. validation-summary fails when this job does not succeed.
+    needs: [classifier]
+    if: github.event_name == 'pull_request' && needs.classifier.outputs.package_gate_required != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      BASE_SHA: ${{ needs.classifier.outputs.base_sha }}
+      HEAD_SHA: ${{ needs.classifier.outputs.head_sha }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact source checkout
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          EXPECTED_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || '' }}
+        run: |
+          if [[ ! "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$(git rev-parse HEAD)" != "$EXPECTED_SOURCE_SHA" ]]; then
+            echo "Source checkout does not match the exact event head" >&2
+            exit 1
+          fi
+          if [[ -n "$EXPECTED_BASE_SHA" ]]; then
+            if [[ "$EXPECTED_BASE_REF" != "main" ]] || [[ ! "$EXPECTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$(git rev-parse origin/main)" != "$EXPECTED_BASE_SHA" ]]; then
+              echo "Validation base is not the freshly fetched canonical main" >&2
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$EXPECTED_BASE_SHA" "$EXPECTED_SOURCE_SHA"; then
+              echo "Head must incorporate the exact validated base; stale integration is not evidence" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Set up pinned Python
+        id: setup-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+          cache: pip
+          cache-dependency-path: |
+            requirements-release.txt
+            requirements-release-parsers.txt
+
+      - name: Install pinned release environment
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --requirement requirements-release.txt
+          python -m pip install --requirement requirements-release-parsers.txt
+
+      - name: Configure isolated user profile
+        shell: bash
+        run: |
+          profile="${RUNNER_TEMP}/etf-cockpit-profile-focused"
+          mkdir -p "$profile/config" "$profile/cache" "$profile/data"
+          {
+            echo "HOME=$profile"
+            echo "USERPROFILE=$profile"
+            echo "APPDATA=$profile/config"
+            echo "LOCALAPPDATA=$profile/data"
+            echo "XDG_CONFIG_HOME=$profile/config"
+            echo "XDG_CACHE_HOME=$profile/cache"
+            echo "PIP_CACHE_DIR=$profile/cache/pip"
+          } >> "$GITHUB_ENV"
+
+      - name: Select and run focused tests
+        shell: bash
+        run: |
+          mkdir -p artifacts/focused
+          python scripts/select_focused_tests.py --root . --base "$BASE_SHA" --head "$HEAD_SHA" > artifacts/focused/selected.txt
+          mapfile -t files < artifacts/focused/selected.txt
+          if [[ "${#files[@]}" -eq 0 ]]; then
+            echo "No focused tests: the change touches no test, importable module or UI surface." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "Focused tests (${#files[@]} files):" | tee -a "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' "${files[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          # Same two-phase split as the release gate: serial-marked tests never share a process pool.
+          # Exit code 5 (no tests collected in a phase) is fine; at least one phase must execute tests.
+          executed=0
+          failed=0
+          rc=0
+          python -m pytest "${files[@]}" -m "not serial" -n auto --dist worksteal --tb=short --junitxml=artifacts/focused/junit-focused.xml || rc=$?
+          if [[ "$rc" -eq 0 ]]; then executed=1; elif [[ "$rc" -ne 5 ]]; then failed=1; fi
+          rc=0
+          python -m pytest "${files[@]}" -m "serial" --tb=short --junitxml=artifacts/focused/junit-focused-serial.xml || rc=$?
+          if [[ "$rc" -eq 0 ]]; then executed=1; elif [[ "$rc" -ne 5 ]]; then failed=1; fi
+          if [[ "$failed" -ne 0 ]]; then
+            echo "Focused tests failed" >&2
+            exit 1
+          fi
+          if [[ "$executed" -eq 0 ]]; then
+            echo "Focused selection collected no tests" >&2
+            exit 1
+          fi
+
+      - name: Upload focused test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-focused-${{ github.sha }}
+          path: artifacts/focused
+          if-no-files-found: error
+
   validation-summary:
     if: always()
-    needs: [classifier, preflight, supply-chain, release-gate]
+    needs: [classifier, preflight, supply-chain, release-gate, focused-tests]
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
@@ -827,10 +938,12 @@ jobs:
           SUPPLY_CHAIN_RESULT: ${{ needs['supply-chain'].result }}
           RELEASE_GATE_RESULT: ${{ needs['release-gate'].result }}
           PACKAGE_GATE_REQUIRED: ${{ needs.classifier.outputs.package_gate_required }}
+          FOCUSED_RESULT: ${{ github.event_name == 'pull_request' && needs['focused-tests'].result || 'not-applicable' }}
         run: |
           python - <<'PY'
           import os
           from scripts.classify_validation import validation_summary_failures
+          from scripts.validation_summary import focused_tests_failures
 
           failures = validation_summary_failures(
               package_gate_required=os.environ["PACKAGE_GATE_REQUIRED"] == "true",
@@ -838,6 +951,10 @@ jobs:
               preflight=os.environ["PREFLIGHT_RESULT"],
               supply_chain=os.environ["SUPPLY_CHAIN_RESULT"],
               release_gate=os.environ["RELEASE_GATE_RESULT"],
+          )
+          failures += focused_tests_failures(
+              package_gate_required=os.environ["PACKAGE_GATE_REQUIRED"] == "true",
+              focused=os.environ["FOCUSED_RESULT"],
           )
           if failures:
               raise SystemExit("\n".join(failures))
@@ -852,6 +969,7 @@ jobs:
           PREFLIGHT_RESULT: ${{ needs.preflight.result }}
           SUPPLY_RESULT: ${{ needs['supply-chain'].result }}
           RELEASE_RESULT: ${{ needs['release-gate'].result }}
+          FOCUSED_RESULT: ${{ github.event_name == 'pull_request' && needs['focused-tests'].result || 'not-applicable' }}
         run: |
           python scripts/validation_summary.py \
             --root . \
@@ -862,6 +980,7 @@ jobs:
             --job-result "preflight=$PREFLIGHT_RESULT" \
             --job-result "supply_chain=$SUPPLY_RESULT" \
             --job-result "release=$RELEASE_RESULT" \
+            --job-result "focused=$FOCUSED_RESULT" \
             --output validation-evidence/terminal-summary.json
 
       - name: Upload terminal validation summary
