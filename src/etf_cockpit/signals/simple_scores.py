@@ -20,7 +20,7 @@ from etf_cockpit.application.benchmark_reference import (
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import BACKTESTS_DIR, DERIVED_DIR, FORECASTS_DIR, RAW_DIR, REPORTS_DIR, ROOT
-from etf_cockpit.core.types import SignalResult
+from etf_cockpit.core.types import SignalResult, latest_signal
 from etf_cockpit.data.classification import classification_score_state
 from etf_cockpit.data.trade_candidate_analysis import load_candidate_price_binding
 from etf_cockpit.data.macro_warehouse import MacroWarehouse, load_risk_free_proxy_mappings
@@ -711,7 +711,8 @@ def build_simple_instrument_scores(
     forecast_history = load_forecast_history()
     analysis_reference = (benchmark_reference or {}).get("analysis")
     reference_decision_time = analysis_reference.get("decision_time") if isinstance(analysis_reference, Mapping) else None
-    decision_as_of = signals[0].signal_date if signals else _parse_date(reference_decision_time)
+    newest_signal = latest_signal(signals)
+    decision_as_of = newest_signal.signal_date if newest_signal is not None else _parse_date(reference_decision_time)
     calibration = evaluate_forecast_calibration(forecast_history, prices)
     calibration_by_id = calibration_lookup(calibration)
     regime = build_market_regime(

@@ -5,7 +5,8 @@ from __future__ import annotations
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
+from etf_cockpit.app.components.cards import evidence_chip, section_header
+from etf_cockpit.app.components.portfolio_b_style import panel, restyle
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.portfolio_optimiser import (
     METHODS,
@@ -51,10 +52,12 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> ft.Contro
             )
             comparison = optimiser.compare(METHODS, constraints=constraints)
             result_host.controls = [_comparison_view(comparison, len(returns), constraints)]
+            restyle(result_host, "portfolio-optimiser.result")
             status.value = message or "Eight transparent methods compared on a held-out local return slice."
             status.color = colour
         except (TypeError, ValueError) as exc:
             result_host.controls = [panel(ft.Text(f"Optimisation unavailable: {exc}", color=theme.AMBER, selectable=True))]
+            restyle(result_host, "portfolio-optimiser.result")
             status.value = f"Optimisation unavailable: {exc}"
             status.color = theme.AMBER
         _safe_update(page)
@@ -63,7 +66,7 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> ft.Contro
         render(f"{_METHOD_LABELS.get(str(method.value), str(method.value))} recomputed; no order or proposal was created.", theme.GREEN)
 
     render()
-    return ft.Column(
+    root = ft.Column(
         [
             panel(
                 ft.Column(
@@ -102,6 +105,7 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> ft.Contro
         spacing=14,
         scroll=ft.ScrollMode.AUTO,
     )
+    return restyle(root, "portfolio-optimiser")
 
 
 def _comparison_view(comparison, observations: int, constraints: OptimiserConstraints) -> ft.Control:

@@ -29,6 +29,9 @@ if str(SOURCE_ROOT) not in sys.path:
 from etf_cockpit.app.router import PAGES  # noqa: E402
 
 APP_TITLE = "ETF AI Evidence Cockpit"
+# --timeout-s bounds the title wait only; each route may additionally use its settle time plus this
+# allowance for navigation and the screenshots (each DevTools command is separately bounded).
+SCREENSHOT_TIMEOUT_S = 30.0
 SAFE_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
@@ -176,7 +179,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Additional wait after the app title appears (default: 15000).",
     )
     parser.add_argument("--browser", help="Chromium-family executable path or command name.")
-    parser.add_argument("--timeout-s", type=float, default=60.0, help="Seconds to wait for each route title.")
+    parser.add_argument("--timeout-s", type=float, default=60.0, help="Seconds to wait for each route title (settle time and screenshots are extra).")
     return parser
 
 
@@ -239,9 +242,13 @@ async def render_routes(
     height: int,
     timeout_s: float,
     settle_ms: int,
+    capture_allowance_s: float | None = None,
 ) -> list[dict[str, Any]]:
     out_dir.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, Any]] = []
+    allowance_s = SCREENSHOT_TIMEOUT_S if capture_allowance_s is None else capture_allowance_s
+    # Title wait (timeout_s) + settle + screenshot allowance: the title wait is the only part --timeout-s limits.
+    route_limit_s = timeout_s + settle_ms / 1000 + allowance_s
     for route in routes:
         png_name = f"{route_to_slug(route)}.png"
         png_path = out_dir / png_name
@@ -256,12 +263,12 @@ async def render_routes(
                         timeout_s=timeout_s,
                         settle_ms=settle_ms,
                     ),
-                    timeout=timeout_s,
+                    timeout=route_limit_s,
                 )
             except TimeoutError as exc:
                 if str(exc):
                     raise
-                raise TimeoutError(f"Route capture exceeded {timeout_s:g} seconds.") from exc
+                raise TimeoutError(f"Route capture exceeded {route_limit_s:g} seconds.") from exc
             rows.append(_index_row(route, png_name, ok=True, error=None, console_errors=list(errors)))
         except Exception as exc:  # Each requested route must have an explicit result.
             rows.append(

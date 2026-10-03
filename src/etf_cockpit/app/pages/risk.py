@@ -8,7 +8,9 @@ import pandas as pd
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import metric_card, panel, section_header
+from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.components.portfolio_b_style import metric_card, panel, restyle
+from etf_cockpit.app.components.kit import cta_button
 from etf_cockpit.app.components.overlap import overlap_evidence_panel
 from etf_cockpit.app.components.simple_scores import _is_crowding_warning_state
 from etf_cockpit.app.state import AppState
@@ -852,6 +854,15 @@ def _drawdown_table(contribution: pd.DataFrame) -> ft.Control:
     )
 
 
+def _download_row(*buttons: ft.Control) -> ft.Control:
+    """Right-aligned local CSV download controls placed directly under a table."""
+    return ft.Row(list(buttons), alignment=ft.MainAxisAlignment.END, spacing=8, wrap=True)
+
+
+def _download_button(text: str, key: str, on_click) -> ft.Control:
+    return cta_button(text, key=key, label=f"{text}; writes a local file only", primary=False, on_click=on_click)
+
+
 def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
     allocation = allocation_frame(state.snapshot.config, state.snapshot.holdings)
     limit_report = exposure_limit_report(state.snapshot.config, allocation)
@@ -918,7 +929,13 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
     def export_attribution(_event: ft.ControlEvent) -> None:
         export_risk_frame("risk_performance_attribution", attribution_report.get("asset_contributions", pd.DataFrame()), "risk_performance_attribution.csv")
 
-    return ft.Column(
+    def export_exposure(dimension: str):
+        def handler(_event: ft.ControlEvent) -> None:
+            export_risk_frame(f"risk_exposure_{dimension}", exposure_summary(allocation, dimension), f"risk_exposure_{dimension}.csv")
+
+        return handler
+
+    root = ft.Column(
         [
             ft.Row(
                 [
@@ -930,6 +947,7 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
                 spacing=12,
             ),
             _limit_table(limit_report),
+            _download_row(_download_button("Download limits CSV", "risk.download-limits", export_limits)),
             ft.Row(
                 [
                     _exposure_table("Asset Class Exposure", exposure_summary(allocation, "asset_class")),
@@ -945,6 +963,12 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
                 ],
                 spacing=12,
             ),
+            _download_row(
+                *[
+                    _download_button(f"Download {dim.replace('_', ' ')} exposure CSV", f"risk.download-exposure-{dim.replace('_', '-')}", export_exposure(dim))
+                    for dim in ("asset_class", "region", "currency", "sector", "theme")
+                ]
+            ),
             _holdings_quality_panel(imported_holdings),
             overlap_evidence_panel(overlap, key="risk.etf-overlap"),
             _underlying_holdings_panel(eligible_holdings, allocation),
@@ -954,12 +978,15 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
             _robust_risk_summary_panel(robust_risk_report),
             ft.Row([_robust_estimator_panel(robust_risk_report), _robust_regime_panel(robust_risk_report)], spacing=12),
             _correlation_table(correlation),
+            _download_row(_download_button("Download correlation CSV", "risk.download-correlation", export_correlation)),
             _crowding_attribution_panel(),
             _friction_edge_panel(),
             _drawdown_table(contribution),
+            _download_row(_download_button("Download drawdown CSV", "risk.download-drawdown", export_drawdown)),
             panel(ft.Column([section_header("Risk evidence export", "CSV output is local-only and does not trigger execution. Empty canonical sources report unavailable and do not write placeholders."), ft.Row([ft.OutlinedButton("Export risk limits CSV", key="risk.export-limits", icon=ft.Icons.DOWNLOAD, on_click=export_limits), ft.OutlinedButton("Export allocation CSV", key="risk.export-allocation", icon=ft.Icons.DOWNLOAD, on_click=export_allocation), ft.OutlinedButton("Export holdings CSV", key="risk.export-holdings", icon=ft.Icons.DOWNLOAD, on_click=export_holdings), ft.OutlinedButton("Export correlation CSV", key="risk.export-correlation", icon=ft.Icons.DOWNLOAD, on_click=export_correlation), ft.OutlinedButton("Export drawdown CSV", key="risk.export-drawdown", icon=ft.Icons.DOWNLOAD, on_click=export_drawdown), ft.OutlinedButton("Export factor contributions CSV", key="risk.export-factor-contributions", icon=ft.Icons.DOWNLOAD, on_click=export_factor_contributions), ft.OutlinedButton("Export factor returns CSV", key="risk.export-factor-returns", icon=ft.Icons.DOWNLOAD, on_click=export_factor_history), ft.OutlinedButton("Export performance attribution CSV", key="risk.export-performance-attribution", icon=ft.Icons.DOWNLOAD, on_click=export_attribution)], wrap=True), export_status], spacing=8)),
         ],
         expand=True,
         spacing=14,
         scroll=ft.ScrollMode.AUTO,
     )
+    return restyle(root, "risk")
