@@ -1592,21 +1592,44 @@ def build_etf_economics_panel(
     return report.as_dict()
 
 
-def _scoreboard_row(instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:
+def _scoreboard_lookup(
+    instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None
+) -> tuple[dict[str, Any], str | None]:
+    """Return the scoreboard row and, when there is none, the explicit reason code why."""
+
     if _candidate_score_matches(candidate_score, instrument_id):
-        return _candidate_scoreboard(candidate_score)  # type: ignore[arg-type]
+        return _candidate_scoreboard(candidate_score), None  # type: ignore[arg-type]
     try:
         frame = load_simple_scoreboard(SCOREBOARD_PATH)
     except (OSError, ValueError):
         # Corrupt optional store: the score panel reports score evidence unavailable.
-        return {}
+        return {}, "scoreboard_store_unreadable"
+    if frame.empty:
+        return {}, "scoreboard_store_empty" if SCOREBOARD_PATH.exists() else "scoreboard_store_missing"
     rows = _instrument_rows(frame, instrument_id, columns=("instrument_id", "display_id", "etf_id"))
-    return rows.iloc[-1].to_dict() if not rows.empty else {}
+    if rows.empty:
+        return {}, "scoreboard_row_missing_for_instrument"
+    return rows.iloc[-1].to_dict(), None
 
 
-def _score_panel(signal: Any, scoreboard: Mapping[str, Any], derived: Mapping[str, Any], friction: Mapping[str, Any]) -> dict[str, Any]:
+def _scoreboard_row(instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:
+    return _scoreboard_lookup(instrument_id, candidate_score=candidate_score)[0]
+
+
+def _score_panel(
+    signal: Any,
+    scoreboard: Mapping[str, Any],
+    derived: Mapping[str, Any],
+    friction: Mapping[str, Any],
+    *,
+    scoreboard_reason_code: str | None = None,
+) -> dict[str, Any]:
     if signal is None and not scoreboard:
-        return _unavailable("Score evidence unavailable for this instrument.") | {"crowding": derived["crowding"], "friction": friction}
+        return _unavailable("Score evidence unavailable for this instrument.") | {
+            "reason_code": scoreboard_reason_code or "score_evidence_unavailable",
+            "crowding": derived["crowding"],
+            "friction": friction,
+        }
     gates: list[str] = []
     for value in _safe_sequence(getattr(signal, "blocked_by", ())):
         gate_id = _normalise_identifier(value)
@@ -1644,8 +1667,19 @@ def _score_panel(signal: Any, scoreboard: Mapping[str, Any], derived: Mapping[st
     freshness_valid = freshness is not None
     numeric_available = any(value is not None for value in (evidence_score, quality, signal_score))
     status = "available" if numeric_available and label_valid and reason_valid and freshness_valid else "manual_review"
+    reason_code: str | None = None
+    if status != "available":
+        # Explicit, machine-readable cause (first failed requirement); never an empty reason.
+        reason_code = (
+            scoreboard_reason_code
+            or (None if numeric_available else "score_numeric_evidence_unavailable")
+            or (None if label_valid else "score_label_unavailable")
+            or (None if reason_valid else "score_reason_unavailable")
+            or "score_freshness_unavailable"
+        )
     return {
         "status": status,
+        **({"reason_code": reason_code} if reason_code is not None else {}),
         "evidence_score": evidence_score,
         "evidence_quality": quality,
         "signal_score": signal_score,
@@ -2638,7 +2672,7 @@ def build_instrument_detail(
     )
     derived = _derived_evidence_panel(instrument_id, expected_currency=canonical_currency)
     friction = _friction_panel(instrument_id, candidate_score=candidate)
-    scoreboard = _scoreboard_row(instrument_id, candidate_score=candidate)
+    scoreboard, scoreboard_reason_code = _scoreboard_lookup(instrument_id, candidate_score=candidate)
     decision_time = getattr(getattr(snapshot, "data_report", None), "as_of_date", None)
     projection_time = str(decision_time or "").strip()
     if len(projection_time) == 10:
@@ -2849,7 +2883,7 @@ def build_instrument_detail(
             "innovation": innovation,
             "etf_liquidity": liquidity,
             "etf_economics": economics,
-            "scores": _score_panel(signal, scoreboard, derived, friction),
+            "scores": _score_panel(signal, scoreboard, derived, friction, scoreboard_reason_code=scoreboard_reason_code),
             "opportunity": opportunity,
             "feature_drivers": _feature_driver_panel(instrument_id),
             "risk": _risk_panel(features, friction, derived["crowding"]),

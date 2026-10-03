@@ -80,6 +80,39 @@ def _remove_isolated_root(root: Path) -> None:
     shutil.rmtree(root)
 
 
+def _pid_alive(pid: int) -> bool:
+    """True when a process with this id exists (never signals or terminates it)."""
+
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _owner_alive(heartbeat: Path) -> bool:
+    try:
+        return _pid_alive(int(heartbeat.read_text(encoding="ascii").strip() or 0))
+    except (OSError, ValueError):
+        return False
+
+
 def _prune_stale_isolated_roots() -> None:
     if not ISOLATED_ROOTS.is_dir():
         return
@@ -87,6 +120,8 @@ def _prune_stale_isolated_roots() -> None:
     for candidate in ISOLATED_ROOTS.iterdir():
         try:
             heartbeat = candidate / _HEARTBEAT
+            if heartbeat.exists() and _owner_alive(heartbeat):
+                continue  # a live session (any clock skew or long test) still owns this root
             if (heartbeat if heartbeat.exists() else candidate).stat().st_mtime < cutoff:
                 _remove_isolated_root(candidate)
         except OSError:
@@ -138,7 +173,7 @@ def _create_isolated_root() -> Path:
             shutil.copy2(source, destination)
     for name in _PRIVATE_DIRECTORIES:
         (root / name).mkdir(exist_ok=True)
-    (root / _HEARTBEAT).touch()
+    (root / _HEARTBEAT).write_text(str(os.getpid()), encoding="ascii")
     return root
 
 

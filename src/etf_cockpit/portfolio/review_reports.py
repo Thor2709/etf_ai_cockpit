@@ -7,7 +7,7 @@ from pathlib import Path
 
 from etf_cockpit.core.atomic_io import atomic_write_json
 from etf_cockpit.core.paths import REPORTS_DIR
-from etf_cockpit.core.types import DataQualityReport, SignalResult
+from etf_cockpit.core.types import DataQualityReport, SignalResult, primary_signal
 from etf_cockpit.governance.product_scope import load_gate_policy
 
 
@@ -62,7 +62,8 @@ def create_portfolio_review_report(
     status = "blocked" if not data_report.analysis_allowed else ("draft" if rows else "no_action")
     if not data_report.analysis_allowed:
         rows = []
-    first = signals[0].to_v2_dict() if signals else {}
+    primary = primary_signal(signals)
+    first = primary.to_v2_dict() if primary is not None else {}
     policy_version = str(first.get("gate_policy_version") or "unavailable")
     policy_checksum = str(first.get("gate_policy_checksum") or "unavailable")
     if policy_version == "unavailable" or policy_checksum == "unavailable":

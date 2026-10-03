@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 from etf_cockpit.core.config import AppConfig, save_provider_settings
 from etf_cockpit.core.atomic_io import atomic_write_bytes, sha256_file
 from etf_cockpit.core.migrations import run_startup_migrations
+from etf_cockpit.core.types import latest_signal
 from etf_cockpit.core.paths import CLEAN_DIR, FILINGS_STATEMENTS_PATH, RAW_DIR, ROOT, STATEMENT_FACTS_PATH
 from etf_cockpit.core.session_log import SESSION_LOG_PATH, log_event, redact_text
 from etf_cockpit.core.errors import ErrorStore, classify_exception
@@ -1617,10 +1618,11 @@ class AppState:
         return self.export_audit_packet()
 
     def create_trade_proposal(self) -> Path:
+        newest_signal = latest_signal(self.snapshot.signals)
         report = create_portfolio_review_report(
             self.snapshot.signals,
             self.snapshot.data_report,
-            run_id=self.snapshot.signals[0].run_id if self.snapshot.signals else "manual_trade_proposal",
+            run_id=newest_signal.run_id if newest_signal is not None else "manual_trade_proposal",
         )
         path = Path(str(report["path"]))
         self.last_message = f"{report['message']} Report: {path}"

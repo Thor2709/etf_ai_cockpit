@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from math import isfinite
 from typing import Literal
 import warnings
 
@@ -194,6 +196,35 @@ class SignalResult:
 
     def to_public_dict(self) -> dict[str, object]:
         return self.to_v2_dict()
+
+
+def latest_signal(signals: Sequence[SignalResult]) -> SignalResult | None:
+    """Return the signal of the most recent ``signal_date``; ties keep list order.
+
+    ``generate_signals`` returns one run's signals ranked by score, so list position says nothing about
+    recency.  Callers that need the run identity or the decision date must use this selector, never
+    ``signals[0]``.
+    """
+
+    return max(signals, key=lambda signal: signal.signal_date, default=None)
+
+
+def primary_signal(signals: Sequence[SignalResult]) -> SignalResult | None:
+    """Return the highest-``total_score`` signal of the latest ``signal_date`` (non-finite scores rank last).
+
+    Ties keep list order, which is the pipeline's documented score-descending order.
+    """
+
+    latest = latest_signal(signals)
+    if latest is None:
+        return None
+    current = [signal for signal in signals if signal.signal_date == latest.signal_date]
+
+    def rank(signal: SignalResult) -> float:
+        score = signal.total_score
+        return score if isinstance(score, (int, float)) and isfinite(score) else float("-inf")
+
+    return max(current, key=rank)
 
 
 @dataclass(frozen=True)
