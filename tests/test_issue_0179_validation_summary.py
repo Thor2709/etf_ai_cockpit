@@ -43,6 +43,7 @@ def _summary(tier: str) -> dict:
             "preflight": "success",
             "supply_chain": "success",
             "release": "success" if package else "skipped",
+            "focused": "success" if not package else "skipped",
         },
         "identities": {key: "d" * 64 for key in ("environment", "source", "dependency", "product_tree", "policy")},
         "controls": {
@@ -229,6 +230,7 @@ def _collect_candidate(
             "preflight": "success",
             "supply_chain": "success",
             "release": "skipped",
+            "focused": "success",
         },
     )
 
