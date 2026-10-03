@@ -7,6 +7,7 @@ computes a workload, SLO or resource figure.  Missing measurements are shown as
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 import threading
@@ -22,10 +23,11 @@ from etf_cockpit.application.analysis_depth import (
     AnalysisDepthProfile,
     AnalysisTimingRecord,
     ProfileRunBinding,
+    ProfileRunUnavailable,
     create_resource_plan,
     load_analysis_depth_profiles,
     read_certification,
-    run_analysis_profile,
+    run_analysis_profile_set,
     timing_percentiles,
 )
 from etf_cockpit.application.settings import ANALYSIS_DEPTHS
@@ -327,7 +329,7 @@ def certification_line(
     return "Certification: not available (no stored certify_benchmark result)", "w"
 
 
-ProfileRunBinder = Callable[[str], "ProfileRunBinding | None"]
+ProfileRunBinder = Callable[[str], "ProfileRunBinding | Sequence[ProfileRunBinding] | None"]
 RUN_KEY = "shell.analysis-depth-run"
 RUN_CANCEL_KEY = "shell.analysis-depth-run.cancel"
 RUN_STATUS_KEY = "shell.analysis-depth-run.status"
@@ -394,11 +396,19 @@ class ProfileRunController:
             if self.binder is not None:
                 try:
                     binding = self.binder(depth)
+                except ProfileRunUnavailable as exc:  # the binder states why nothing can run
+                    self.status = f"Run unavailable: {exc}"
+                    notify()
+                    return False
                 except Exception as exc:  # a broken binder must not break the shell
                     self.status = f"Run unavailable: stage runner binding failed ({type(exc).__name__})"
                     notify()
                     return False
-            if binding is None:
+            if isinstance(binding, ProfileRunBinding):
+                binding = (binding,)
+            elif binding is not None:
+                binding = tuple(binding)
+            if not binding:
                 self.status = RUN_UNAVAILABLE
                 notify()
                 return False
@@ -443,12 +453,17 @@ class ProfileRunController:
             if event.state != "running":
                 return
             self.status = f"Stage {event.stage_index}/{event.total_stages}: {event.stage_id}"
+            if event.instrument_count > 1:
+                self.status = (
+                    f"Instrument {event.instrument_index}/{event.instrument_count} {event.instrument_id}, "
+                    f"{self.status[0].lower()}{self.status[1:]}"
+                )
             try:
                 state.update_activity(
                     event.stage_id,
                     self.status,
-                    completed_units=event.stage_index - 1,
-                    total_units=event.total_stages,
+                    completed_units=(event.instrument_index - 1) * event.total_stages + event.stage_index - 1,
+                    total_units=event.instrument_count * event.total_stages,
                     expected_action_id=action_id,
                 )
             except WorkflowTransitionError:
@@ -457,7 +472,7 @@ class ProfileRunController:
             notify()
 
         try:
-            result = run_analysis_profile(
+            result = run_analysis_profile_set(
                 profile,
                 binding,
                 root=self.root,
