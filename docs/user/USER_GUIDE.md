@@ -1,5 +1,7 @@
 # ETF AI Cockpit user guide
 
+Release version: `0.1.0rc1`.
+
 The cockpit is a local research and evidence tool. It helps you inspect data,
 compare instruments, review model evidence and record your own decisions. It
 does not provide financial or tax advice. `execution_allowed=false`: this
@@ -164,7 +166,11 @@ replacing old evidence.
 
 ## Documentation map
 
-This guide and the in-app glossary are the user-facing explanations. The
+This guide and the in-app glossary are the user-facing explanations. Use
+[Workspaces and navigation](WORKSPACES.md) to find a page, the
+[tutorials](TUTORIALS.md) for step-by-step tasks, [Limitations](LIMITATIONS.md)
+for unsupported cases and the
+[operator runbook](../operations/OPERATOR_RUNBOOK.md) for troubleshooting. The
 canonical score methodology is documented in
 [`Score engine v3`](../architecture/canonical-score-engine-v3.md); the local
 paper ledger contract is in [`Paper trading`](../architecture/paper-trading.md).

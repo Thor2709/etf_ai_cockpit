@@ -2,6 +2,8 @@
 
 ## Clean-checkout setup and checks
 
+See the [developer guide](docs/development/DEVELOPER_GUIDE.md) for the repository map and how to add pages and plugins.
+
 From the repository root with Python 3.11 or newer:
 
 ```text
