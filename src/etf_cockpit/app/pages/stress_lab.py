@@ -5,7 +5,8 @@ from __future__ import annotations
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
+from etf_cockpit.app.components.cards import evidence_chip, section_header
+from etf_cockpit.app.components.portfolio_b_style import panel, restyle
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.stress_lab import (
     StressLabFacade,
@@ -69,6 +70,7 @@ def stress_lab_page(page: ft.Page | None, state: AppState) -> ft.Control:
             current_scenario = scenario_from_controls()
             result = facade.run(current_scenario, notional=_number(notional.value, "notional"))
             result_host.controls = [_result_view(result)]
+            restyle(result_host, "stress-lab.result")
             show(f"{current_scenario.name}: {result.status}; scenario PnL is evidence only.", theme.GREEN if result.status == "available" else theme.AMBER)
         except Exception as exc:
             result_host.controls = [ft.Text(f"Stress scenario unavailable: {exc}", color=theme.AMBER, selectable=True)]
@@ -106,12 +108,13 @@ def stress_lab_page(page: ft.Page | None, state: AppState) -> ft.Control:
                 notional=_number(notional.value, "notional"),
             )
             result_host.controls = [_reverse_view(result)]
+            restyle(result_host, "stress-lab.result")
             show(f"Reverse stress: {result['status']}; threshold remains a deterministic scenario boundary.", theme.GREEN if result["status"] == "available" else theme.AMBER)
         except Exception as exc:
             show(f"Reverse stress unavailable: {exc}", theme.AMBER)
 
     saved = _saved_view(facade)
-    return ft.Column(
+    root = ft.Column(
         [
             panel(ft.Column([
                 section_header("Stress Lab", "Replay adjusted-price history or apply explicit hypothetical shocks. Coverage, limitations and nonlinear gaps remain visible."),
@@ -140,6 +143,7 @@ def stress_lab_page(page: ft.Page | None, state: AppState) -> ft.Control:
         scroll=ft.ScrollMode.AUTO,
         spacing=14,
     )
+    return restyle(root, "stress-lab")
 
 
 def _result_view(result) -> ft.Control:

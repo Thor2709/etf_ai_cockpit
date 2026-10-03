@@ -8,7 +8,8 @@ import json
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.components.portfolio_b_style import panel, restyle
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import (
     ForwardEvidenceDiary,
@@ -180,7 +181,7 @@ def forward_evidence_page(page: ft.Page | None, state: AppState) -> ft.Control:
             show(f"Error: outcome was not recorded ({type(exc).__name__}: {exc}). The prior outcome remains unchanged.", theme.RED)
 
     refresh()
-    return ft.Column(
+    root = ft.Column(
         [
             section_header("Forward Evidence Diary", "Record quality-momentum and other local observation opportunities with decision-time hashes, then mature outcomes separately. Paper proposals are evidence only; execution_allowed=false."),
             _quality_momentum_summary(state),
@@ -213,6 +214,7 @@ def forward_evidence_page(page: ft.Page | None, state: AppState) -> ft.Control:
         scroll=ft.ScrollMode.AUTO,
         spacing=14,
     )
+    return restyle(root, "forward-evidence")
 
 
 __all__ = ["forward_evidence_page"]

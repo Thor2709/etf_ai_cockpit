@@ -9,7 +9,8 @@ from uuid import uuid4
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.components.portfolio_b_style import panel, restyle
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import DATA_DIR
 from etf_cockpit.application.ui_facade import DecisionJournal, JournalEntry, JournalIntegrityError
@@ -123,7 +124,7 @@ def decision_journal_page(page: ft.Page | None, state: AppState) -> ft.Control:
                 page.update()
 
     save = ft.FilledButton("Save note", key="decision-journal.save", tooltip="Save user-owned local note", on_click=save_note)
-    return ft.Column(
+    root = ft.Column(
         [
             section_header("User-owned local journal", "User-owned local notes and outcomes; no broker or execution authority is provided."),
             panel(
@@ -154,6 +155,7 @@ def decision_journal_page(page: ft.Page | None, state: AppState) -> ft.Control:
         scroll=ft.ScrollMode.AUTO,
         spacing=14,
     )
+    return restyle(root, "decision-journal")
 
 
 __all__ = ["decision_journal_page"]
