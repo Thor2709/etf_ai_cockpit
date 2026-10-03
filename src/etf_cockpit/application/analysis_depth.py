@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from dataclasses import replace
+from datetime import datetime, timezone
 from contextlib import nullcontext
 import hashlib
 import json
@@ -16,6 +17,7 @@ from pathlib import Path
 import threading
 import time
 import tracemalloc
+import uuid
 from collections.abc import Callable, Mapping, Sequence
 
 import yaml
@@ -824,6 +826,7 @@ def execute_profiled_stages(
     seeds: Sequence[int] | None = None,
     is_cancel_requested: Callable[[], bool] | None = None,
     cache_lock: threading.Lock | None = None,
+    on_stage_progress: Callable[[str, int, int, str], None] | None = None,
 ) -> tuple[dict[str, object], tuple[AnalysisTimingRecord, ...]]:
     """Run each frozen stage or reuse a content-identical durable stage result."""
 
@@ -841,7 +844,7 @@ def execute_profiled_stages(
     active_stage_elapsed = 0.0
     active_stage_cache_state = cache_state
     try:
-        for stage in profile.stages:
+        for stage_index, stage in enumerate(profile.stages, start=1):
             active_stage = stage
             active_stage_elapsed = 0.0
             active_stage_cache_state = cache_state
@@ -856,6 +859,8 @@ def execute_profiled_stages(
                     outcome="cancelled",
                 ))
                 break
+            if on_stage_progress is not None:
+                on_stage_progress(stage.stage_id, stage_index, len(profile.stages), "running")
             stage_horizons = tuple(horizons if horizons is not None else stage.horizons)
             stage_seeds = tuple(seeds if seeds is not None else stage.seeds)
             key = stage_cache_key(
@@ -1032,6 +1037,8 @@ def execute_profiled_stages(
                         stage_outputs[stage.stage_id] = stage_result
                     else:
                         cache[key] = {"content_hash": content_hash, "result": stage_result}
+            if on_stage_progress is not None:
+                on_stage_progress(stage.stage_id, stage_index, len(profile.stages), "completed")
 
     except AnalysisDepthError as exc:
         if active_stage is not None:
@@ -1196,7 +1203,266 @@ def certify_benchmark(
     }
 
 
+ProgressCallback = Callable[["ProfileRunProgress"], None]
+ANALYSIS_CERTIFICATIONS_RELATIVE_PATH = Path("data") / "analysis_certifications.parquet"
+ANALYSIS_CERTIFICATION_SCHEMA_VERSION = "analysis-certification.v1"
+_CERTIFICATION_STORE_LOCK = threading.Lock()
+_CERTIFICATION_COLUMNS = (
+    "schema_version",
+    "profile_id",
+    "manifest_hash",
+    "run_id",
+    "status",
+    "reason",
+    "p50_seconds",
+    "p95_seconds",
+    "slo_seconds",
+    "sample_count",
+    "created_at",
+)
+RESUME_NOTE = (
+    "Resume re-runs the profile with the same in-memory stage cache so stages already completed for identical "
+    "content are reused. It is not resumable across sessions: the timing store keeps no stage results."
+)
+
+
+@dataclass(frozen=True)
+class ProfileRunProgress:
+    """One per-stage progress event of a profile run (state is running or completed)."""
+
+    run_id: str
+    profile_id: str
+    stage_id: str
+    stage_index: int
+    total_stages: int
+    state: str
+
+
+@dataclass(frozen=True)
+class ProfileRunBinding:
+    """Everything a profile run needs besides the profile: the instrument, its input and the stage runner."""
+
+    instrument_id: str
+    analysis_input: object
+    analyzer_id: str
+    stage_runner: StageRunner
+
+
+@dataclass(frozen=True)
+class ProfileRunResult:
+    """Outcome of run_analysis_profile: completed, cancelled or failed (with a reason)."""
+
+    run_id: str
+    profile_id: str
+    manifest_hash: str
+    status: str
+    reason: str | None
+    completed_stages: tuple[str, ...]
+    total_stages: int
+    output: dict[str, object] | None
+    timing_records: tuple[AnalysisTimingRecord, ...]
+    resumable: bool
+    resume_note: str = RESUME_NOTE
+
+
+def run_analysis_profile(
+    profile: AnalysisDepthProfile,
+    binding: ProfileRunBinding,
+    *,
+    root: Path | None = None,
+    cache: dict[str, dict[str, object]] | None = None,
+    run_id: str | None = None,
+    on_progress: ProgressCallback | None = None,
+    is_cancel_requested: Callable[[], bool] | None = None,
+    resource_plan: AnalysisResourcePlan | None = None,
+) -> ProfileRunResult:
+    """Run the selected profile's frozen stages through execute_profiled_stages.
+
+    Reports per-stage progress, honours the cancel token between stages and fails
+    closed: any stage error stops the run with status failed and the reason.
+    Measured timings are appended to the timing store when a root is given; a
+    store failure also fails the run because the evidence would be lost.
+    """
+
+    resolved_run_id = run_id or f"depth-run-{uuid.uuid4().hex[:12]}"
+    stage_cache = cache if cache is not None else {}
+    total = len(profile.stages)
+    completed: list[str] = []
+
+    def failed(reason: str, records: Sequence[AnalysisTimingRecord] = ()) -> ProfileRunResult:
+        return ProfileRunResult(
+            resolved_run_id, profile.profile_id, profile.manifest_hash, "failed", reason,
+            tuple(completed), total, None, tuple(records), True,
+        )
+
+    def forward(stage_id: str, index: int, count: int, state: str) -> None:
+        if state == "completed":
+            completed.append(stage_id)
+        if on_progress is not None:
+            on_progress(ProfileRunProgress(resolved_run_id, profile.profile_id, stage_id, index, count, state))
+
+    try:
+        plan = resource_plan if resource_plan is not None else create_resource_plan(profile)
+        output, records = execute_profiled_stages(
+            profile,
+            binding.instrument_id,
+            binding.analysis_input,
+            binding.analyzer_id,
+            binding.stage_runner,
+            stage_cache,
+            run_id=resolved_run_id,
+            cache_state="warm" if stage_cache else "cold",
+            resource_plan=plan,
+            is_cancel_requested=is_cancel_requested,
+            on_stage_progress=forward,
+        )
+    except AnalysisDepthError as exc:
+        records = tuple(getattr(exc, "timing_records", ()))
+        persist_error = _persist_run_records(root, records)
+        reason = str(exc) if persist_error is None else f"{exc}; {persist_error}"
+        return failed(reason, records)
+    except Exception as exc:  # fail closed: any stage, runner or callback error stops the run
+        return failed(f"{type(exc).__name__}: {exc}")
+    persist_error = _persist_run_records(root, records)
+    if persist_error is not None:
+        return failed(persist_error, records)
+    cancelled = any(record.outcome == "cancelled" for record in records)
+    return ProfileRunResult(
+        resolved_run_id,
+        profile.profile_id,
+        profile.manifest_hash,
+        "cancelled" if cancelled else "completed",
+        "cancel requested; stopped between stages" if cancelled else None,
+        tuple(completed),
+        total,
+        output,
+        tuple(records),
+        cancelled,
+    )
+
+
+def _persist_run_records(root: Path | None, records: Sequence[AnalysisTimingRecord]) -> str | None:
+    if root is None or not records:
+        return None
+    try:
+        append_timing_records(root, records)
+    except Exception as exc:
+        return f"measured timings could not be stored ({type(exc).__name__}: {exc})"
+    return None
+
+
+def certify_and_record_benchmark(
+    root: Path,
+    profile: AnalysisDepthProfile,
+    *,
+    run_id: str,
+    records: Sequence[AnalysisTimingRecord],
+    fixture_id: str,
+    fixture_content_digest: str | None,
+    instrument_count: int,
+    cache_state: str,
+    cache_hits: int,
+    machine: Mapping[str, object] | None,
+    created_at: str | None = None,
+) -> dict[str, object]:
+    """Run certify_benchmark on measured p95 and persist the verdict next to the timing store.
+
+    Fails closed: without measured stage records for this run and profile nothing is
+    certified or stored, and a run with failed or cancelled stages can never be certified.
+    """
+
+    measured = [
+        record
+        for record in records
+        if record.run_id == run_id and record.profile_id == profile.profile_id and record.timing_kind == "stage"
+    ]
+    if not measured:
+        raise AnalysisDepthError("certification requires measured timing records for this run and profile")
+    stats = timing_percentiles(measured, profile_id=profile.profile_id)
+    verdict = certify_benchmark(
+        profile,
+        fixture_id=fixture_id,
+        fixture_content_digest=fixture_content_digest,
+        instrument_count=instrument_count,
+        cache_state=cache_state,
+        cache_hits=cache_hits,
+        p95_seconds=float(stats["p95_seconds"]),
+        machine=machine,
+    )
+    status, reason = str(verdict["status"]), verdict["reason"]
+    unsuccessful = sorted({record.outcome for record in measured if record.outcome in {"failed", "cancelled"}})
+    if unsuccessful:
+        status = "not_certified"
+        reason = "; ".join(item for item in (reason, f"run contains {'/'.join(unsuccessful)} stages") if item)
+    row: dict[str, object] = {
+        "schema_version": ANALYSIS_CERTIFICATION_SCHEMA_VERSION,
+        "profile_id": profile.profile_id,
+        "manifest_hash": profile.manifest_hash,
+        "run_id": run_id,
+        "status": status,
+        "reason": reason,
+        "p50_seconds": float(stats["p50_seconds"]),
+        "p95_seconds": float(stats["p95_seconds"]),
+        "slo_seconds": float(profile.slo_seconds),
+        "sample_count": int(stats["sample_count"]),
+        "created_at": created_at or datetime.now(timezone.utc).isoformat(),
+    }
+    import pandas as pd
+
+    path = Path(root) / ANALYSIS_CERTIFICATIONS_RELATIVE_PATH
+    with _CERTIFICATION_STORE_LOCK:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        frame = pd.DataFrame([row], columns=list(_CERTIFICATION_COLUMNS))
+        if path.is_file():
+            previous = pd.read_parquet(path)
+            if list(previous.columns) != list(_CERTIFICATION_COLUMNS):
+                raise AnalysisDepthError("analysis_certifications.parquet has an unsupported schema")
+            frame = pd.concat((previous, frame), ignore_index=True)
+        frame.to_parquet(path, index=False)
+    return row
+
+
+def read_certification(root: Path, profile_id: str, *, manifest_hash: str | None = None) -> dict[str, object] | None:
+    """Latest stored certification for a profile (and manifest hash), or None when none exists.
+
+    A stored certified row is only returned as certified when its own measured p95
+    meets the stored SLO target; otherwise it reads as not_certified.
+    """
+
+    path = Path(root) / ANALYSIS_CERTIFICATIONS_RELATIVE_PATH
+    if not path.is_file():
+        return None
+    import pandas as pd
+
+    frame = pd.read_parquet(path)
+    if list(frame.columns) != list(_CERTIFICATION_COLUMNS):
+        raise AnalysisDepthError("analysis_certifications.parquet has an unsupported schema")
+    frame = frame[frame["profile_id"] == profile_id]
+    if manifest_hash is not None:
+        frame = frame[frame["manifest_hash"] == manifest_hash]
+    if frame.empty:
+        return None
+    latest = frame.sort_values("created_at", kind="stable").iloc[-1].to_dict()
+    result = {
+        key: (None if value is None or value != value else (value.item() if hasattr(value, "item") else value))
+        for key, value in latest.items()
+    }
+    if result["status"] == "certified":
+        p95, slo = result.get("p95_seconds"), result.get("slo_seconds")
+        if (
+            not isinstance(p95, (int, float))
+            or not isinstance(slo, (int, float))
+            or not math.isfinite(p95)
+            or p95 > slo
+            or not result.get("sample_count")
+        ):
+            result["status"] = "not_certified"
+            result["reason"] = "stored certification is not backed by a measured run meeting the target"
+    return result
+
+
 __all__ = [
+    "ANALYSIS_CERTIFICATIONS_RELATIVE_PATH",
     "ANALYSIS_DEPTH_PROFILES_PATH",
     "ANALYSIS_TIMINGS_RELATIVE_PATH",
     "AnalysisDepthError",
@@ -1209,17 +1475,23 @@ __all__ = [
     "MANDATORY_STAGE_IDS",
     "MandatoryEvidenceError",
     "PROFILE_IDS",
+    "ProfileRunBinding",
+    "ProfileRunProgress",
+    "ProfileRunResult",
     "REFERENCE_FIXTURE_ID",
     "REFERENCE_INSTRUMENT_COUNT",
     "StageRunner",
     "analysis_run_identity",
     "append_timing_records",
+    "certify_and_record_benchmark",
     "certify_benchmark",
     "create_resource_plan",
     "execute_profiled_stages",
     "load_analysis_depth_profiles",
     "profile_from_dict",
+    "read_certification",
     "resource_plan_from_dict",
+    "run_analysis_profile",
     "stage_cache_key",
     "stage_output_hash",
     "timing_percentiles",
