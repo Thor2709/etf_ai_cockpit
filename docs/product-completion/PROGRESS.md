@@ -8,8 +8,7 @@ This file is generated from `issues/issue_registry.json`; it contains no wall-cl
 |---|---:|
 | `blocked` | 1 |
 | `closed` | 17 |
-| `implemented_initially` | 1 |
-| `integrated` | 181 |
+| `integrated` | 182 |
 | `research_only` | 2 |
 
 ## Ready issues
