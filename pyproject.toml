@@ -59,6 +59,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "etf_cockpit.resources" = ["benchmark_reference_registry.json"]
+"etf_cockpit.app" = ["assets/icons/*.png"]
 
 [tool.setuptools.data-files]
 "configs" = ["configs/ui_acceptance.yaml"]

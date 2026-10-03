@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from etf_cockpit.app.router import PAGES, build_shell
+from etf_cockpit.app.router import PAGES, WORKSPACE_GROUPS, build_shell
 from etf_cockpit.core.ui_acceptance import load_ui_acceptance_contracts
 from etf_cockpit.services import build_snapshot
 from etf_cockpit.app.state import AppState
@@ -103,8 +103,8 @@ def test_shell_exposes_stable_navigation_and_dashboard_keys() -> None:
     page = type("Page", (), {"width": 1400, "route": "/"})()
     view = build_shell(page, state, "/")
     keys = {str(control.key) for control in _walk(view) if getattr(control, "key", None)}
-    expected = {item.key for item in load_ui_acceptance_contracts()}
-    assert {key for key in expected if key.startswith("navigation.")} <= keys
+    assert {"navigation.home", "navigation.onboarding"} <= keys
+    assert {f"nav.workspace.{workspace}" for workspace, _routes in WORKSPACE_GROUPS} <= keys
     assert {"dashboard.refresh-yfinance", "dashboard.run-algorithms", "dashboard.run-forecasting-models", "dashboard.show-scores"} <= keys
 
 

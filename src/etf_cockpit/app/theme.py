@@ -3,8 +3,7 @@ from __future__ import annotations
 APP_NAME = "AI Evidence Cockpit"
 APP_TAGLINE = "Local-first ETF research and evidence"
 
-# Shared visual tokens keep the Flet implementation predictable across routes
-# and provide a stable contract for later frontend work.
+# Shared visual tokens keep the Flet implementation predictable across routes.
 SPACE_1 = 4
 SPACE_2 = 8
 SPACE_3 = 12
@@ -12,9 +11,10 @@ SPACE_4 = 16
 SPACE_5 = 24
 SPACE_6 = 32
 
-RADIUS_SM = 6
-RADIUS_MD = 8
-RADIUS_LG = 12
+RADIUS_SM = 8
+RADIUS_MD = 14
+RADIUS_LG = 30
+RADIUS_INNER = 22
 
 FONT_XS = 11
 FONT_SM = 12
@@ -22,19 +22,42 @@ FONT_MD = 14
 FONT_LG = 17
 FONT_XL = 20
 
-BG = "#101114"
-SURFACE = "#181b20"
-SURFACE_2 = "#22262e"
-BORDER = "#343a46"
-TEXT = "#f3f4f6"
-MUTED = "#a7b0be"
-GREEN = "#4ade80"
-LIGHT_GREEN = "#9be7a7"
-AMBER = "#f6b44b"
-RED = "#f87171"
-PURPLE = "#c084fc"
-CYAN = "#67e8f9"
-BLUE_GREY = "#7c8798"
+# Aurelian Clear 3 (reference theme 25).
+BG = "#0b1424"
+SURFACE = "#0e1830"
+SURFACE_2 = "#cc091020"
+BORDER = "#33ffffff"
+TEXT = "#f4f7fd"
+MUTED = "#c3cde2"
+GREEN = "#6fcfa6"
+LIGHT_GREEN = "#8fdcbc"
+AMBER = "#e6c27a"
+RED = "#e8897c"
+PURPLE = "#a99bf0"
+CYAN = "#9ad1ff"
+BLUE_GREY = "#8e9ab4"
+
+# Named Flet equivalents for theme-25 CSS tokens.
+GLASS_PANEL_GRADIENT = "linear-gradient(165deg,rgba(14,24,48,.30),rgba(8,16,36,.22))"
+GLASS_PANEL_BLUR = 11
+GLASS_PANEL_BORDER = "#33ffffff"
+GLASS_PANEL_SHADOW = "inset 0 1px 0 rgba(255,255,255,.4),inset 0 2px 10px rgba(255,255,255,.05),inset 0 -2px 7px rgba(0,0,0,.28),0 1px 2px rgba(0,0,0,.3),0 14px 30px rgba(2,6,20,.3),0 40px 80px rgba(2,6,20,.4)"
+RECESSED_WELL_GRADIENT = "linear-gradient(180deg,rgba(9,16,32,.88),rgba(9,16,32,.72))"
+RECESSED_WELL_BORDER = "#12ffffff"
+RAISED_CONTROL_GRADIENT = "linear-gradient(180deg,rgba(255,255,255,.26),rgba(255,255,255,.07))"
+HAIRLINE_BORDER = "#24ffffff"
+CARD_RADIUS = 30
+INNER_RADIUS = 22
+TEXT_SHADOW = "0 1px 8px rgba(0,0,0,.55)"
+FOOTER_RAIL_BACKGROUND = GLASS_PANEL_GRADIENT
+FOOTER_RAIL_BORDER = GLASS_PANEL_BORDER
+FOOTER_RAIL_RADIUS = 24
+QUAIL_SELECTED_GRADIENT = "linear-gradient(180deg,#47806b,#2a5645 55%,#21463a)"
+QUAIL_SELECTED_COLORS = ("#47806b", "#2a5645", "#21463a")
+QUAIL_SELECTED_INK = "#f0c2ae"
+QUAIL_SELECTED_HIGHLIGHT = "#66ffe1d2"
+QUAIL_SELECTED_SHADOW = "#10261e"
+CYLINDER_BAR_COLORS = ("#6aaee8", "#c4e4ff", "#6aaee8")
 
 ACTION_COLOURS = {
     "buy": GREEN,
@@ -44,7 +67,7 @@ ACTION_COLOURS = {
     "trim": AMBER,
     "trim_candidate": AMBER,
     "sell": RED,
-    "no_trade": "#737373",
+    "no_trade": BLUE_GREY,
     "manual_review": PURPLE,
     "watchlist": CYAN,
 }
