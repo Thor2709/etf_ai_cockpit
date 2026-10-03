@@ -6,7 +6,8 @@ import flet as ft
 import pandas as pd
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, section_header
+from etf_cockpit.app.components.cards import evidence_chip, section_header
+from etf_cockpit.app.components.research_surface import metric_card, panel
 from etf_cockpit.app.components.valuation_lab import (
     _recalculate_valuation,
     _research_number,
@@ -144,7 +145,7 @@ def _capital_allocation_panel(section: object) -> ft.Control:
             continue
         metric_value = item.get("value")
         if metric_value is None:
-            display = "n/a"
+            display = "N/A"
         elif item.get("unit") == "ratio":
             display = f"{float(metric_value) * 100.0:.2f}%"
         else:
@@ -221,7 +222,7 @@ def _metrics_panel(title: str, description: str, section: object) -> ft.Control:
         item = metrics[name]
         if not isinstance(item, dict):
             continue
-        display = "n/a" if item.get("value") is None else f"{float(item['value']):.3f}"
+        display = "N/A" if item.get("value") is None else f"{float(item['value']):.3f}"
         cards.append(metric_card(name.replace("_", " ").title(), display, str(item.get("status", "unavailable"))))
     if not cards:
         cards = [metric_card("Evidence", "Unavailable", "No canonical statement rows")]
@@ -288,7 +289,7 @@ def _capital_view(label: str, section: dict[str, object]) -> ft.Control:
         if isinstance(item, dict):
             cards.append(metric_card(name.replace("_", " ").title(), _research_value(item.get("value")), str(item.get("status", "unavailable"))))
     if not cards:
-        cards = [metric_card(f"{label} metrics", "n/a", str(section.get("status", "unavailable")))]
+        cards = [metric_card(f"{label} metrics", "N/A", str(section.get("status", "unavailable")))]
     assumptions = section.get("assumptions", {}) if isinstance(section.get("assumptions"), dict) else {}
     bridge = section.get("latest_bridge", {}) if isinstance(section.get("latest_bridge"), dict) else {}
     return ft.Column(
@@ -329,7 +330,7 @@ def _growth_panel(section: object) -> ft.Control:
         latest = item.get("latest_growth") if isinstance(item.get("latest_growth"), dict) else {}
         cards.append(metric_card(name.replace("_", " ").title(), _research_value(latest.get("value")), str(latest.get("status", item.get("status", "unavailable")))))
     if not cards:
-        cards = [metric_card("Reported growth", "n/a", "No canonical statement rows")]
+        cards = [metric_card("Reported growth", "N/A", "No canonical statement rows")]
     organic = value.get("organic_inorganic", {}) if isinstance(value, dict) else {}
     lineage = value.get("source_lineage", {}) if isinstance(value, dict) else {}
     source_ids = lineage.get("source_ids", []) if isinstance(lineage, dict) else []

@@ -9,7 +9,8 @@ from dataclasses import dataclass
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import panel, section_header
+from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.components.research_surface import panel
 from etf_cockpit.app.components.flet_compat import border_all
 from etf_cockpit.app.formatting import format_currency, format_number, format_percent
 

@@ -5,7 +5,8 @@ import math
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
+from etf_cockpit.app.components.cards import evidence_chip, section_header
+from etf_cockpit.app.components.research_surface import panel
 from etf_cockpit.app.components.flet_compat import border_all
 from etf_cockpit.application.ui_facade import SCORE_LEGEND, SimpleInstrumentScore, SimpleScoreComponent, group_simple_scores, load_score_history_summary
 

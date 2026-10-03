@@ -7,7 +7,8 @@ import flet as ft
 import pandas as pd
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
+from etf_cockpit.app.components.cards import evidence_chip, section_header
+from etf_cockpit.app.components.research_surface import distribution_range, panel
 from etf_cockpit.app.components.fixed_income_views import (
     build_fixed_income_bond_view_model,
     fixed_income_bond_panel,
@@ -285,7 +286,7 @@ def _render_crowding_attribution_panel(sections: dict[str, object]) -> ft.Contro
         f"Expected-return distribution ({horizon_text}): q10 {_pct(friction.get('q10_expected_return'))} | q50 {_pct(friction.get('q50_expected_return'))} | q90 {_pct(friction.get('q90_expected_return'))} | net {_pct(friction.get('net_expected_return'))} on {_euro(friction.get('expected_return_order_value_eur'))} | cost {_bps(friction.get('expected_return_cost_bps'))} / {_euro(friction.get('expected_return_cost_eur'))} | return/cost {_ratio(friction.get('expected_return_cost_ratio'))} | source {friction.get('expected_return_source_dataset', 'forecast_return_distribution')}",
         "These diagnostics are descriptive evidence only; execution_allowed=false.",
     ]
-    return panel(ft.Column([section_header("Crowding and attribution", "Configured sector/theme metadata and clean adjusted-price evidence; unavailable values remain N/A."), *[ft.Text(line, color=theme.MUTED, size=11, selectable=True) for line in lines]], spacing=5))
+    return ft.Column([panel(ft.Column([section_header("Crowding and attribution", "Configured sector/theme metadata and clean adjusted-price evidence; unavailable values remain N/A."), *[ft.Text(line, color=theme.MUTED, size=11, selectable=True) for line in lines]], spacing=5)), distribution_range(friction, key="instrument-detail.expected-return-range")], spacing=10)
 
 
 def _format_record_value(value: object) -> str:
