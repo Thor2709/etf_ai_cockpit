@@ -8,7 +8,8 @@ import pandas as pd
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import metric_card, panel, section_header
+from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.components.portfolio_b_style import metric_card, panel, restyle
 from etf_cockpit.app.components.kit import cta_button
 from etf_cockpit.app.components.overlap import overlap_evidence_panel
 from etf_cockpit.app.components.simple_scores import _is_crowding_warning_state
@@ -897,7 +898,7 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
 
         return handler
 
-    return ft.Column(
+    root = ft.Column(
         [
             ft.Row(
                 [
@@ -951,3 +952,4 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
         spacing=14,
         scroll=ft.ScrollMode.AUTO,
     )
+    return restyle(root, "risk")

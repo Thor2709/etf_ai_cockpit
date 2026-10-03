@@ -49,8 +49,7 @@ def test_download_button_writes_local_csv_only(tmp_path, monkeypatch) -> None:
     button = next(c for c in controls if getattr(c, "key", None) == "risk.download-exposure-region")
     button.on_click(None)
     names = [p.name for p in tmp_path.glob("*.csv")]
-    # Empty canonical sources report unavailable and write no placeholder file.
-    assert names in (["risk_exposure_region.csv"], [])
+    assert names == ["risk_exposure_region.csv"]
 
 
 def test_download_helpers_are_labelled_and_local() -> None:
