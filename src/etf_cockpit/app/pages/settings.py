@@ -171,7 +171,11 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
     )
     analysis_depth = ft.Dropdown(
         label="Analysis depth",
-        value=state.analysis_depth if state.analysis_depth in ANALYSIS_DEPTHS else settings_bundle.controls.analysis_depth,
+        value=(
+            getattr(state, "analysis_depth", None)
+            if getattr(state, "analysis_depth", None) in ANALYSIS_DEPTHS
+            else settings_bundle.controls.analysis_depth
+        ),
         options=[ft.dropdown.Option(item) for item in ANALYSIS_DEPTHS],
         key="settings.analysis-depth",
         width=190,

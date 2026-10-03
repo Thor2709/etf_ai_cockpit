@@ -16,6 +16,7 @@ if __package__ in {None, ""}:
 from etf_cockpit.application.analysis_depth import (
     AnalysisTimingRecord,
     REFERENCE_FIXTURE_ID,
+    certify_and_record_benchmark,
     certify_benchmark,
     create_resource_plan,
     execute_profiled_stages,
@@ -33,6 +34,7 @@ def run_benchmark(
     *,
     fixture_id: str = SYNTHETIC_FIXTURE_ID,
     low_resource: bool = False,
+    record_root: Path | None = None,
 ) -> dict[str, object]:
     """Run N deterministic local fixtures per profile and report measured SLOs."""
 
@@ -125,6 +127,19 @@ def run_benchmark(
             p95_seconds=float(percentiles["p95_seconds"]),
             machine=machine,
         )
+        if record_root is not None:
+            certify_and_record_benchmark(
+                record_root,
+                profile,
+                run_id=f"benchmark-{profile_id}",
+                records=measurements,
+                fixture_id=SYNTHETIC_FIXTURE_ID,
+                fixture_content_digest=fixture_content_digest,
+                instrument_count=instruments_per_profile,
+                cache_state="warm" if cache_hits > 0 else "cold",
+                cache_hits=cache_hits,
+                machine=machine,
+            )
         profile_results[profile_id] = {
             "measured_instruments": len(measurements),
             "fixture_id": fixture_id,
@@ -154,11 +169,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--instruments", type=int, default=10)
     parser.add_argument("--fixture-id", default="synthetic_test_fixture")
     parser.add_argument("--low-resource", action="store_true")
+    parser.add_argument(
+        "--record-root",
+        type=Path,
+        default=None,
+        help="Project root whose data/ folder receives the stored certification verdicts (default: not stored).",
+    )
     arguments = parser.parse_args(argv)
     report: dict[str, Any] = run_benchmark(
         arguments.instruments,
         fixture_id=arguments.fixture_id,
         low_resource=arguments.low_resource,
+        record_root=arguments.record_root,
     )
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0

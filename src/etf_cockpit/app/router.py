@@ -9,7 +9,7 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.command_palette import search_commands
 from etf_cockpit.app.components.cards import panel
-from etf_cockpit.app.components.depth_selector import depth_label, depth_selector
+from etf_cockpit.app.components.depth_selector import ProfileRunController, depth_label, depth_selector
 from etf_cockpit.app.components.kit import backdrop, glass_panel
 from etf_cockpit.app.components.flet_compat import border_only, padding_symmetric
 from etf_cockpit.app.pages.backtests import backtests_page
@@ -503,6 +503,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         open_dialog=lambda dialog: page.show_dialog(dialog) if hasattr(page, "show_dialog") else None,
         close_dialog=lambda dialog: page.pop_dialog() if hasattr(page, "pop_dialog") else None,
         get_selected=lambda: getattr(state, "analysis_depth", None),
+        run_controller=ProfileRunController(state, root=getattr(state, "settings_root", None)),
     )
     as_of_date = getattr(data_report, "as_of_date", None)
     global_values = ft.Row(

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import threading
 from typing import Callable
 
 import flet as ft
@@ -20,11 +21,15 @@ from etf_cockpit.application.analysis_depth import (
     AnalysisDepthError,
     AnalysisDepthProfile,
     AnalysisTimingRecord,
+    ProfileRunBinding,
     create_resource_plan,
     load_analysis_depth_profiles,
+    read_certification,
+    run_analysis_profile,
     timing_percentiles,
 )
 from etf_cockpit.application.settings import ANALYSIS_DEPTHS
+from etf_cockpit.core.workflow import WorkflowTransitionError
 
 UNAVAILABLE = "Unavailable"
 SELECTOR_KEY = "shell.analysis-depth-selector"
@@ -291,9 +296,10 @@ def timing_history(
 
 
 def _read_certification(root: Path, depth: str) -> dict[str, object] | None:
-    """No application API stores certify_benchmark results yet, so there is nothing to read."""
+    """Latest stored certify_benchmark verdict for the current manifest of this profile, if any."""
 
-    return None
+    manifest_hash = load_analysis_depth_profiles()[depth].manifest_hash
+    return read_certification(root, depth, manifest_hash=manifest_hash)
 
 
 def certification_line(
@@ -306,11 +312,185 @@ def certification_line(
     except Exception as exc:
         return f"Certification: not available ({type(exc).__name__})", "w"
     status = result.get("status") if isinstance(result, dict) else None
+    measured = ""
+    if isinstance(result, dict) and result.get("p95_seconds") is not None and result.get("slo_seconds") is not None:
+        measured = (
+            f"measured p50 {_duration(float(result.get('p50_seconds') or 0.0))}, "
+            f"p95 {_duration(float(result['p95_seconds']))} vs target {_duration(float(result['slo_seconds']))}, "
+            f"run {result.get('run_id')}"
+        )
     if status == "certified":
-        return "Certification: certified (stored benchmark result)", "g"
+        return f"Certification: certified ({measured or 'stored benchmark result'})", "g"
     if status == "not_certified":
-        return f"Certification: not certified ({result.get('reason') or 'reason not recorded'})", "b"
+        detail = result.get("reason") or "reason not recorded"
+        return f"Certification: not certified ({detail}{'; ' + measured if measured else ''})", "b"
     return "Certification: not available (no stored certify_benchmark result)", "w"
+
+
+ProfileRunBinder = Callable[[str], "ProfileRunBinding | None"]
+RUN_KEY = "shell.analysis-depth-run"
+RUN_CANCEL_KEY = "shell.analysis-depth-run.cancel"
+RUN_STATUS_KEY = "shell.analysis-depth-run.status"
+RUN_UNAVAILABLE = (
+    "Run unavailable: no analysis stage runner is registered for interactive profile runs, "
+    "so nothing was started and no result is shown."
+)
+
+
+class ProfileRunController:
+    """UI glue that runs the selected depth profile through the application facade.
+
+    Progress and the terminal state go through AppState begin/update/finish/fail
+    activity; cancellation is checked by the facade between stages. The binder
+    supplies the instrument, input and stage runner; without one the run is
+    reported as unavailable and nothing starts.
+    """
+
+    def __init__(
+        self,
+        state: object,
+        *,
+        root: Path | None = None,
+        binder: ProfileRunBinder | None = None,
+        profiles: dict[str, AnalysisDepthProfile] | None = None,
+        background: bool = True,
+    ) -> None:
+        self.state = state
+        self.root = root
+        self.binder = binder
+        self.profiles = profiles
+        self.background = background
+        self.status = "No profile run in progress."
+        self.action_id: str | None = None
+        self.cache: dict[str, dict[str, object]] = {}
+        self.thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+
+    @property
+    def running(self) -> bool:
+        return self.action_id is not None
+
+    def start(self, depth: str, on_change: Callable[[], None] | None = None) -> bool:
+        """Start a run of the selected profile; False (with a reason in status) when it cannot start."""
+
+        notify = on_change or (lambda: None)
+        if depth not in ANALYSIS_DEPTHS:
+            self.status = f"Run unavailable: {UNAVAILABLE} (select a depth first)"
+            notify()
+            return False
+        with self._lock:
+            if self.running:
+                self.status = "A profile run is already in progress; cancel it first."
+                notify()
+                return False
+            try:
+                registry = self.profiles if self.profiles is not None else load_analysis_depth_profiles()
+                profile = registry[depth]
+            except (AnalysisDepthError, KeyError) as exc:
+                self.status = f"Run unavailable: profile manifest unavailable: {exc}"
+                notify()
+                return False
+            binding = None
+            if self.binder is not None:
+                try:
+                    binding = self.binder(depth)
+                except Exception as exc:  # a broken binder must not break the shell
+                    self.status = f"Run unavailable: stage runner binding failed ({type(exc).__name__})"
+                    notify()
+                    return False
+            if binding is None:
+                self.status = RUN_UNAVAILABLE
+                notify()
+                return False
+            label = f"Run {depth.capitalize()} analysis profile"
+            try:
+                entry = self.state.begin_activity(label, "Starting")
+            except Exception as exc:  # another activity owns the slot
+                self.status = f"Run unavailable: {exc}"
+                notify()
+                return False
+            self.action_id = entry.action_id
+            self.status = f"{label}: starting."
+        notify()
+        if self.background:
+            self.thread = threading.Thread(
+                target=self._run, args=(profile, binding, label, entry.action_id, notify), daemon=True
+            )
+            self.thread.start()
+        else:
+            self._run(profile, binding, label, entry.action_id, notify)
+        return True
+
+    def cancel(self, on_change: Callable[[], None] | None = None) -> bool:
+        """Request cancellation; the facade stops the run between stages."""
+
+        notify = on_change or (lambda: None)
+        action_id = self.action_id
+        if action_id is None:
+            self.status = "No profile run is in progress."
+            notify()
+            return False
+        self.state.cancel_activity("Profile run cancelled by user", expected_action_id=action_id)
+        self.status = "Cancel requested; the run stops between stages."
+        notify()
+        return True
+
+    def _run(self, profile, binding, label: str, action_id: str, notify: Callable[[], None]) -> None:
+        state = self.state
+        controller = state.workflow_controller
+
+        def progress(event) -> None:
+            if event.state != "running":
+                return
+            self.status = f"Stage {event.stage_index}/{event.total_stages}: {event.stage_id}"
+            try:
+                state.update_activity(
+                    event.stage_id,
+                    self.status,
+                    completed_units=event.stage_index - 1,
+                    total_units=event.total_stages,
+                    expected_action_id=action_id,
+                )
+            except WorkflowTransitionError:
+                if not state.activity_was_cancelled(action_id):
+                    raise
+            notify()
+
+        try:
+            result = run_analysis_profile(
+                profile,
+                binding,
+                root=self.root,
+                cache=self.cache,
+                on_progress=progress,
+                is_cancel_requested=lambda: controller.is_cancel_requested(action_id),
+            )
+            if result.status == "completed":
+                message = f"{label}: completed {len(result.completed_stages)}/{result.total_stages} stages."
+                state.finish_activity(message, label=label, expected_action_id=action_id)
+                self.status = message
+            elif result.status == "cancelled":
+                self.status = (
+                    f"{label}: cancelled after {len(result.completed_stages)}/{result.total_stages} stages. "
+                    "Run again to resume with completed stages reused."
+                )
+            else:
+                reason = result.reason or "unknown failure"
+                state.fail_activity(label, RuntimeError(reason), expected_action_id=action_id)
+                self.status = f"{label}: failed ({reason}). Completed stages: {len(result.completed_stages)}."
+        except Exception as exc:  # fail closed and visible
+            if not state.activity_was_cancelled(action_id):
+                try:
+                    state.fail_activity(label, exc, expected_action_id=action_id)
+                except Exception:
+                    pass
+            self.status = f"{label}: failed ({type(exc).__name__}: {exc})"
+        finally:
+            if state.activity_was_cancelled(action_id):
+                state.restore_cancelled_activity_message(action_id)
+                state.release_activity(action_id)
+            self.action_id = None
+            notify()
 
 
 def depth_details_view(
@@ -321,6 +501,7 @@ def depth_details_view(
     history_reader: TimingReader = _read_all_timings,
     certification_reader: CertificationReader = _read_certification,
     on_update: Callable[[], None] | None = None,
+    run_controller: ProfileRunController | None = None,
 ) -> ft.Column:
     """Stage lists, omitted-evidence warning, read-only compare, history and certification."""
 
@@ -392,6 +573,28 @@ def depth_details_view(
     history_text = ft.Text("\n".join(history.lines), key=f"{DETAILS_KEY}.history", **muted)
     cert_text, cert_tone = certification_line(selected, root=root, certification_reader=certification_reader)
     cert_tag = status_tag(cert_text, cert_tone, key=f"{DETAILS_KEY}.certification")
+    run_status = ft.Text(
+        run_controller.status if run_controller is not None else f"Run profile: {UNAVAILABLE} (no run controller)",
+        key=RUN_STATUS_KEY,
+        **muted,
+    )
+
+    def run_changed() -> None:
+        if run_controller is not None:
+            run_status.value = run_controller.status
+        if on_update is not None:
+            on_update()
+
+    def start_run(_event: ft.ControlEvent) -> None:
+        if run_controller is not None:
+            run_controller.start(selected, run_changed)
+
+    def cancel_run(_event: ft.ControlEvent) -> None:
+        if run_controller is not None:
+            run_controller.cancel(run_changed)
+
+    run_button = ft.OutlinedButton("Run profile", key="shell.analysis-depth-run", disabled=run_controller is None, on_click=start_run)
+    cancel_button = ft.TextButton("Cancel run", key="shell.analysis-depth-run.cancel", disabled=run_controller is None, on_click=cancel_run)
     return ft.Column(
         [
             ft.Text(f"{selected.capitalize()} profile stages", color=theme.TEXT, weight=ft.FontWeight.BOLD),
@@ -401,6 +604,8 @@ def depth_details_view(
             diff_text,
             history_text,
             cert_tag,
+            ft.Row([run_button, cancel_button], spacing=8),
+            run_status,
         ],
         key=f"{DETAILS_KEY}.content",
         spacing=8,
@@ -422,6 +627,7 @@ def depth_selector(
     get_selected: Callable[[], str | None] | None = None,
     history_reader: TimingReader = _read_all_timings,
     certification_reader: CertificationReader = _read_certification,
+    run_controller: ProfileRunController | None = None,
 ) -> ft.Container:
     """Dropdown (Quick/Medium/High/Full) with a live SLO / workload detail line."""
 
@@ -474,6 +680,7 @@ def depth_selector(
                     profiles=profiles,
                     history_reader=history_reader,
                     certification_reader=certification_reader,
+                    run_controller=run_controller,
                     on_update=lambda: dialog.update() if getattr(dialog, "page", None) else None,
                 ),
             ),
