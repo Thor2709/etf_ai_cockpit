@@ -11,10 +11,12 @@ import shutil
 import socket
 import subprocess
 import sys
+import struct
 import tempfile
 import time
 import urllib.error
 import urllib.request
+import zlib
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -30,8 +32,114 @@ APP_TITLE = "ETF AI Evidence Cockpit"
 SAFE_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
+BLANK_VARIANCE_THRESHOLD = 4.0
+FLUTTER_ERROR_MARKERS = (
+    "flutter error",
+    "exception caught by",
+    "rendering library",
+    "widgets library",
+    "renderflex overflowed",
+    "unbounded",
+    "assertion failed",
+)
+
+
+def _decode_png_luma(data: bytes) -> tuple[int, int, list[bytearray]]:
+    """Decode a non-interlaced 8-bit RGB/RGBA/grey PNG into per-row luma bytes."""
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("Not a PNG file.")
+    position = 8
+    header: tuple[int, ...] | None = None
+    compressed = bytearray()
+    while position + 8 <= len(data):
+        length, kind = struct.unpack(">I4s", data[position : position + 8])
+        body = data[position + 8 : position + 8 + length]
+        position += 12 + length
+        if kind == b"IHDR":
+            header = struct.unpack(">IIBBBBB", body)
+        elif kind == b"IDAT":
+            compressed.extend(body)
+        elif kind == b"IEND":
+            break
+    if header is None:
+        raise ValueError("PNG has no IHDR chunk.")
+    width, height, depth, colour, _compression, _filter, interlace = header
+    channels = {0: 1, 2: 3, 4: 2, 6: 4}.get(colour)
+    if depth != 8 or channels is None or interlace:
+        raise ValueError("Unsupported PNG format for blank-canvas detection.")
+    raw = zlib.decompress(bytes(compressed))
+    stride = width * channels
+    previous = bytearray(stride)
+    rows: list[bytearray] = []
+    offset = 0
+    for _ in range(height):
+        method = raw[offset]
+        line = bytearray(raw[offset + 1 : offset + 1 + stride])
+        offset += 1 + stride
+        if method == 1:
+            for index in range(channels, stride):
+                line[index] = (line[index] + line[index - channels]) & 255
+        elif method == 2:
+            for index in range(stride):
+                line[index] = (line[index] + previous[index]) & 255
+        elif method == 3:
+            for index in range(stride):
+                left = line[index - channels] if index >= channels else 0
+                line[index] = (line[index] + ((left + previous[index]) >> 1)) & 255
+        elif method == 4:
+            for index in range(stride):
+                left = line[index - channels] if index >= channels else 0
+                up = previous[index]
+                corner = previous[index - channels] if index >= channels else 0
+                estimate = left + up - corner
+                dl, du, dc = abs(estimate - left), abs(estimate - up), abs(estimate - corner)
+                predictor = left if dl <= du and dl <= dc else (up if du <= dc else corner)
+                line[index] = (line[index] + predictor) & 255
+        elif method != 0:
+            raise ValueError(f"Unsupported PNG filter {method}.")
+        previous = line
+        if channels >= 3:
+            rows.append(
+                bytearray(
+                    (line[i] * 299 + line[i + 1] * 587 + line[i + 2] * 114) // 1000
+                    for i in range(0, stride, channels)
+                )
+            )
+        else:
+            rows.append(bytearray(line[i] for i in range(0, stride, channels)))
+    return width, height, rows
+
+
+def canvas_luma_variance(data: bytes, *, margin: int = 3, sample_step: int = 1) -> float:
+    """Return the luminance variance of the content area (frame margin excluded)."""
+    width, height, rows = _decode_png_luma(data)
+    left, right = min(margin, width // 4), max(width - margin, width * 3 // 4)
+    top, bottom = min(margin, height // 4), max(height - margin, height * 3 // 4)
+    values = [
+        rows[y][x]
+        for y in range(top, bottom, sample_step)
+        for x in range(left, right, sample_step)
+    ]
+    if not values:
+        return 0.0
+    mean = sum(values) / len(values)
+    return sum((value - mean) ** 2 for value in values) / len(values)
+
+
+def blank_canvas_reason(png_bytes: bytes, console_messages: list[str]) -> str | None:
+    """Return why a captured route must fail closed, or None when it looks rendered."""
+    flutter = [m for m in console_messages if any(k in m.lower() for k in FLUTTER_ERROR_MARKERS)]
+    if flutter:
+        return f"Flutter error logged in browser console: {flutter[0][:300]}"
+    variance = canvas_luma_variance(png_bytes)
+    if variance < BLANK_VARIANCE_THRESHOLD:
+        return f"Blank canvas: content-area pixel variance {variance:.3f} < {BLANK_VARIANCE_THRESHOLD:g}."
+    return None
+
+
 class CaptureDriver(Protocol):
     console_errors: list[str]
+    console_messages: list[str]
 
     async def capture(
         self,
@@ -175,6 +283,7 @@ class DevToolsDriver:
         self.command_timeout_s = command_timeout_s
         self._command_id = 0
         self.console_errors: list[str] = []
+        self.console_messages: list[str] = []
 
     @classmethod
     async def connect(
@@ -236,20 +345,24 @@ class DevToolsDriver:
     def _record_event(self, message: dict[str, Any]) -> None:
         method = message.get("method")
         params = message.get("params", {})
-        if method == "Runtime.consoleAPICalled" and params.get("type") == "error":
+        if method == "Runtime.consoleAPICalled":
             parts = [
                 arg.get("value", arg.get("description", ""))
                 for arg in params.get("args", [])
             ]
-            self.console_errors.append(" ".join(str(part) for part in parts if part))
+            text = " ".join(str(part) for part in parts if part)
+            self.console_messages.append(f"[{params.get('type')}] {text}")
+            if params.get("type") == "error":
+                self.console_errors.append(text)
         elif method == "Runtime.exceptionThrown":
             details = params.get("exceptionDetails", {})
             exception = details.get("exception", {})
-            self.console_errors.append(
-                str(details.get("text") or exception.get("description") or "Uncaught page exception")
-            )
+            text = str(details.get("text") or exception.get("description") or "Uncaught page exception")
+            self.console_messages.append(f"[exception] {text}")
+            self.console_errors.append(text)
         elif method == "Log.entryAdded":
             entry = params.get("entry", {})
+            self.console_messages.append(f"[log:{entry.get('level')}] {entry.get('text', '')}")
             if entry.get("level") == "error":
                 self.console_errors.append(str(entry.get("text", "Browser console error")))
 
@@ -295,6 +408,8 @@ class DevToolsDriver:
         settle_ms: int,
     ) -> list[str]:
         self.console_errors = []
+        self.console_messages = []
+        # Reset to a blank document so the previous route's title cannot satisfy the readiness wait.
         navigation = await self.command("Page.navigate", {"url": url})
         if navigation.get("errorText"):
             raise RuntimeError(str(navigation["errorText"]))
@@ -318,6 +433,19 @@ class DevToolsDriver:
             {"format": "png", "fromSurface": True, "captureBeyondViewport": True},
         )
         png_path.write_bytes(base64.b64decode(screenshot["data"]))
+        png_path.with_suffix(".console.txt").write_text(chr(10).join(self.console_messages), encoding="utf-8")
+        # A 10% scale probe keeps the pure-Python PNG decode fast; blankness survives downscaling.
+        probe = await self.command(
+            "Page.captureScreenshot",
+            {
+                "format": "png",
+                "fromSurface": True,
+                "clip": {"x": 0, "y": 0, "width": width, "height": height, "scale": 0.1},
+            },
+        )
+        reason = blank_canvas_reason(base64.b64decode(probe["data"]), self.console_messages)
+        if reason is not None:
+            raise RuntimeError(reason)
         return list(self.console_errors)
 
     async def close(self) -> None:
@@ -335,6 +463,7 @@ class FailedDriver:
     def __init__(self, message: str) -> None:
         self.message = message
         self.console_errors: list[str] = []
+        self.console_messages: list[str] = []
 
     async def capture(self, *_args: Any, **_kwargs: Any) -> list[str]:
         raise RuntimeError(self.message)
@@ -380,6 +509,22 @@ def _stop_process(process: subprocess.Popen[Any] | None) -> None:
         process.wait(timeout=5)
 
 
+def _save_app_log(app_log: Any, out_dir: Path) -> None:
+    """Keep the app process stdout/stderr next to the PNGs and echo its tail."""
+    try:
+        app_log.seek(0)
+        text = app_log.read().decode("utf-8", errors="replace")
+        app_log.close()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "app.log").write_text(text, encoding="utf-8")
+        tail = text.strip().splitlines()[-15:]
+        if tail:
+            print(f"App output tail ({out_dir / 'app.log'}):", file=sys.stderr)
+            print(chr(10).join(tail), file=sys.stderr)
+    except OSError as exc:
+        print(f"UI render could not save app log: {exc}", file=sys.stderr)
+
+
 async def run_harness(args: argparse.Namespace, browser_path: Path) -> int:
     routes = args.routes if args.routes is not None else list(PAGES)
     unknown = [route for route in routes if route not in PAGES]
@@ -410,16 +555,18 @@ async def run_harness(args: argparse.Namespace, browser_path: Path) -> int:
     driver: DevToolsDriver | None = None
     profile: tempfile.TemporaryDirectory[str] | None = None
     browser_log: Any = None
+    app_log: Any = None
     startup_error: str | None = None
     cleanup_error: str | None = None
     rows: list[dict[str, Any]] = []
     try:
+        app_log = tempfile.TemporaryFile(prefix="etf-cockpit-ui-render-app-")
         app_process = subprocess.Popen(
             [sys.executable, "-m", "etf_cockpit.main"],
             cwd=PROJECT_ROOT,
             env=app_environment,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=app_log,
+            stderr=subprocess.STDOUT,
         )
         await _wait_for_app(app_process, app_port, args.timeout_s)
         profile = tempfile.TemporaryDirectory(prefix="etf-cockpit-ui-render-")
@@ -494,6 +641,8 @@ async def run_harness(args: argparse.Namespace, browser_path: Path) -> int:
                     finally:
                         if browser_log is not None:
                             browser_log.close()
+                        if app_log is not None:
+                            _save_app_log(app_log, out_dir)
 
     if startup_error or cleanup_error:
         return 1
