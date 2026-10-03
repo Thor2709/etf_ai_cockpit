@@ -9,13 +9,13 @@ for candidate in (ROOT / "src", ROOT / "app" / "src"):
     if candidate.exists():
         sys.path.insert(0, str(candidate))
 
-from etf_cockpit.services import ChatGPTBridge, build_snapshot
+from etf_cockpit.services import ChatGPTBridge, build_snapshot  # noqa: E402 - imports follow the sys.path bootstrap above
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--date", default="latest")
-    args = parser.parse_args()
+    parser.parse_args()
     snapshot = build_snapshot()
     path = ChatGPTBridge(snapshot.config).export_review_pack(
         snapshot.data_report.as_of_date,
