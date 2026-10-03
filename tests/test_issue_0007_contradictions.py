@@ -180,7 +180,7 @@ def test_dashboard_macro_context_uses_cutoff_filtered_prices(monkeypatch):
     seen: list[pd.DataFrame] = []
     monkeypatch.setattr(dashboard, "load_news_items", lambda _path: news)
     monkeypatch.setattr(dashboard, "filter_news_contradiction_inputs", lambda *_args: (news, prices))
-    monkeypatch.setattr(dashboard, "build_macro_context", lambda frame, _rows: seen.append(frame.copy()) or {"status": "available", "regime": {"label": "risk-on"}})
+    monkeypatch.setattr(dashboard, "build_macro_context", lambda frame, _rows, **_kwargs: seen.append(frame.copy()) or {"status": "available", "regime": {"label": "risk-on"}})
     monkeypatch.setattr(dashboard, "load_fundamental_evidence", lambda _path: pd.DataFrame())
     monkeypatch.setattr(dashboard, "score_history_frame", lambda: pd.DataFrame())
     state = SimpleNamespace(snapshot=SimpleNamespace(prices=prices, config=SimpleNamespace(universe=SimpleNamespace(etfs=()))))
