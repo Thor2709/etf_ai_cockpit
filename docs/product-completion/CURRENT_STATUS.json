@@ -3079,16 +3079,16 @@
       "edges": [
         {
           "dependency_id": "ISSUE-0137",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "complete",
+          "reason_code": "EDGE_EVIDENCE_COMPLETE",
+          "resolved": true
         }
       ],
       "execution_allowed": false,
       "issue_id": "ISSUE-0138",
-      "ready": false,
+      "ready": true,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "READY_BLOCKING_EDGES_RESOLVED"
       ],
       "required_inputs": []
     },
@@ -3107,16 +3107,16 @@
         },
         {
           "dependency_id": "ISSUE-0137",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "complete",
+          "reason_code": "EDGE_EVIDENCE_COMPLETE",
+          "resolved": true
         }
       ],
       "execution_allowed": false,
       "issue_id": "ISSUE-0139",
-      "ready": false,
+      "ready": true,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "READY_BLOCKING_EDGES_RESOLVED"
       ],
       "required_inputs": []
     },
@@ -3129,16 +3129,16 @@
       "edges": [
         {
           "dependency_id": "ISSUE-0137",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "complete",
+          "reason_code": "EDGE_EVIDENCE_COMPLETE",
+          "resolved": true
         }
       ],
       "execution_allowed": false,
       "issue_id": "ISSUE-0140",
-      "ready": false,
+      "ready": true,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "READY_BLOCKING_EDGES_RESOLVED"
       ],
       "required_inputs": []
     },
@@ -4485,16 +4485,16 @@
         },
         {
           "dependency_id": "ISSUE-0175",
-          "evidence_state": "unresolved",
-          "reason_code": "EDGE_UNRESOLVED",
-          "resolved": false
+          "evidence_state": "complete",
+          "reason_code": "EDGE_EVIDENCE_COMPLETE",
+          "resolved": true
         }
       ],
       "execution_allowed": false,
       "issue_id": "ISSUE-0172",
-      "ready": false,
+      "ready": true,
       "reason_codes": [
-        "BLOCKED_UNRESOLVED_DEPENDENCY"
+        "READY_BLOCKING_EDGES_RESOLVED"
       ],
       "required_inputs": []
     },
@@ -5181,6 +5181,7 @@
     "ISSUE-0152",
     "ISSUE-0153",
     "ISSUE-0154",
+    "ISSUE-0172",
     "ISSUE-0175",
     "ISSUE-0177",
     "ISSUE-0178",
@@ -5205,6 +5206,8 @@
     "ISSUE-0106",
     "ISSUE-0112",
     "ISSUE-0137",
+    "ISSUE-0138",
+    "ISSUE-0139",
     "ISSUE-0148",
     "ISSUE-0155",
     "ISSUE-0156",
@@ -5233,6 +5236,7 @@
     "ISSUE-0100",
     "ISSUE-0101",
     "ISSUE-0102",
+    "ISSUE-0140",
     "ISSUE-0179",
     "ISSUE-0180",
     "ISSUE-0181",
@@ -5274,5 +5278,5 @@
     "ISSUE-0062"
   ],
   "schema_version": "1.0",
-  "source_registry_sha256": "8a0170e0a920f631e7880cdec05fc2623d0cc098d84169ed7df9c15df4f153c5"
+  "source_registry_sha256": "904c501d0402fa8c93bb6fd0eb2fead3f43b3470e2216b4948e522c063aa0b24"
 }
