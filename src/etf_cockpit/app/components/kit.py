@@ -41,10 +41,10 @@ def _accessible(control: ft.Control, *, key: str, label: str) -> ft.Control:
 def _well(content: ft.Control, *, expand: bool = False, padding: int = 14) -> ft.Container:
     return ft.Container(
         content=content,
-        gradient=_gradient(("rgba(9,16,32,.88)", "rgba(9,16,32,.72)")),
+        gradient=_gradient(("#e0091020", "#b8091020")),
         border=border_all(1, theme.RECESSED_WELL_BORDER),
         border_radius=theme.INNER_RADIUS,
-        shadow=[_shadow("rgba(0,0,0,.28)", blur=12, y=3)],
+        shadow=[_shadow("#47000000", blur=12, y=3)],
         padding=padding,
         expand=expand,
     )
@@ -62,11 +62,11 @@ def glass_panel(
     return _accessible(
         ft.Container(
             content=content,
-            gradient=_gradient(("rgba(14,24,48,.30)", "rgba(8,16,36,.22)")),
+            gradient=_gradient(("#4c0e1830", "#38081024")),
             blur=theme.GLASS_PANEL_BLUR,
             border=border_all(1, theme.GLASS_PANEL_BORDER),
             border_radius=theme.CARD_RADIUS,
-            shadow=[_shadow("rgba(2,6,20,.35)", blur=30, y=14)],
+            shadow=[_shadow("#59020614", blur=30, y=14)],
             padding=padding,
             expand=expand,
         ),
@@ -119,9 +119,9 @@ def kpi_tile(label: str, value: str, detail: str = "", *, key: str) -> ft.Contai
 def status_tag(text: str, tone: str = "g", *, key: str) -> ft.Container:
     """Show status in text and colour; the text remains the primary signal."""
     tones = {
-        "g": ("rgba(111,207,166,.16)", theme.GREEN),
-        "w": ("rgba(230,194,122,.16)", theme.AMBER),
-        "b": ("rgba(232,137,124,.16)", theme.RED),
+        "g": ("#296fcfa6", theme.GREEN),
+        "w": ("#29e6c27a", theme.AMBER),
+        "b": ("#29e8897c", theme.RED),
     }
     if tone not in tones:
         raise ValueError("tone must be one of 'g', 'w', or 'b'")
@@ -158,7 +158,7 @@ def score_bar(
         ),
         width=160,
         height=8,
-        bgcolor="rgba(0,0,0,.28)",
+        bgcolor="#47000000",
         border_radius=5,
         clip_behavior=ft.ClipBehavior.HARD_EDGE,
         expand=True,
@@ -205,7 +205,7 @@ def pill_group(
                     weight=ft.FontWeight.W_600,
                 ),
                 gradient=_gradient(theme.QUAIL_SELECTED_COLORS) if is_selected else _gradient(
-                    ("rgba(255,255,255,.08)", "rgba(255,255,255,.05)")
+                    ("#14ffffff", "#0dffffff")
                 ),
                 border=_control_border(selected=is_selected),
                 border_radius=12,
@@ -220,7 +220,7 @@ def pill_group(
     return _accessible(
         ft.Container(
             content=ft.Row(pills, spacing=4, tight=True),
-            bgcolor="rgba(4,10,26,.45)",
+            bgcolor="#73040a1a",
             border=border_all(1, theme.HAIRLINE_BORDER),
             border_radius=14,
             padding=4,
@@ -246,7 +246,7 @@ def toggle(
         height=18,
         bgcolor="#e6edff",
         border_radius=999,
-        shadow=[_shadow("rgba(0,0,0,.45)", blur=4, y=2)],
+        shadow=[_shadow("#73000000", blur=4, y=2)],
     )
     track = ft.Container(
         content=knob,
@@ -254,10 +254,10 @@ def toggle(
         width=40,
         height=22,
         gradient=_gradient(theme.QUAIL_SELECTED_COLORS) if value else None,
-        bgcolor=None if value else "rgba(0,0,0,.35)",
+        bgcolor=None if value else "#59000000",
         border_radius=12,
         border=_control_border(selected=value),
-        shadow=[_shadow("rgba(0,0,0,.45)", blur=5)],
+        shadow=[_shadow("#73000000", blur=5)],
     )
     return _accessible(
         ft.Container(
@@ -300,11 +300,11 @@ def cta_button(
                 weight=ft.FontWeight.W_700,
             ),
             gradient=_gradient(theme.QUAIL_SELECTED_COLORS) if selected else _gradient(
-                ("rgba(255,255,255,.20)", "rgba(255,255,255,.07)")
+                ("#33ffffff", "#12ffffff")
             ),
             border=_control_border(selected=selected),
             border_radius=13,
-            shadow=[_shadow(theme.QUAIL_SELECTED_SHADOW, blur=0, y=3), _shadow("rgba(0,0,0,.3)", blur=14, y=8)],
+            shadow=[_shadow(theme.QUAIL_SELECTED_SHADOW, blur=0, y=3), _shadow("#4c000000", blur=14, y=8)],
             padding=ft.Padding(left=18, top=10, right=18, bottom=10),
             on_click=on_click,
             ink=True,
@@ -347,12 +347,12 @@ def cylinder_bar(
                                 begin=ft.Alignment(-1, 0),
                                 end=ft.Alignment(1, 0),
                             ),
-                            border=border_all(1, "rgba(255,255,255,.16)"),
+                            border=border_all(1, "#29ffffff"),
                             border_radius=999,
                         ),
                         width=240,
                         height=15,
-                        bgcolor="rgba(0,0,0,.24)",
+                        bgcolor="#3d000000",
                         border_radius=999,
                         clip_behavior=ft.ClipBehavior.HARD_EDGE,
                     ),
