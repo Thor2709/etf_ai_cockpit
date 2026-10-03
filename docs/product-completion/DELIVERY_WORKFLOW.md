@@ -179,7 +179,17 @@ upward when history, classification or cadence is unknown.
   and source/supply policy. Package gates may be skipped only with exact-tree
   evidence reuse.
 - O: ordinary product work. Run focused and affected tests, UI/architecture
-  and static checks, source smoke and the central cadence policy.
+  and static checks, source smoke and the central cadence policy. Every pull
+  request with `package_gate_required=false` (tiers E and O) also runs the
+  GitHub-hosted `focused-tests` job (ubuntu-latest, pinned release
+  environment, `pytest -n auto`): `scripts/select_focused_tests.py --base
+  <sha> --head <sha>` selects the changed test files, the tests that import a
+  changed `src/etf_cockpit` module and, for changes under `src/etf_cockpit/app/`,
+  the UI contract sweep. An empty selection passes with a note; a non-empty
+  selection is never truncated. JUnit is uploaded as
+  `junit-focused-<sha>`. `validation-summary` fails when `focused-tests` does
+  not succeed and ignores it (skipped) when the package gate ran. GitHub CI is
+  the only test evidence for these pull requests.
 - H: CI, generator, classifier, policy, persistence, concurrency, canonical
   finance, point-in-time, security, release, programme-control or authority
   changes. Run the complete serial Linux and Windows packaged gates immediately.

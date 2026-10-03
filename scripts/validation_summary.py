@@ -57,6 +57,15 @@ SHA_RE = re.compile(r"[0-9a-f]{40}")
 HASH_RE = re.compile(r"[0-9a-f]{64}")
 STABLE_ID_RE = re.compile(r"(?:ISSUE|UPDATEV2)-[0-9]{4}")
 CLASSIFIER_TIERS = {"E", "O", "H", "C"}
+FOCUSED_NOT_APPLICABLE = "not-applicable"  # workflow-set for non-pull_request events (no focused job exists)
+
+
+def focused_tests_failures(*, package_gate_required: bool, focused: str | None) -> list[str]:
+    """Failures for the focused-tests job; ignored (expected skipped) when the package gate ran."""
+
+    if package_gate_required or focused in {"success", FOCUSED_NOT_APPLICABLE}:
+        return []
+    return [f"focused-tests result was {focused!r}, expected 'success'"]
 
 
 def validate_summary(report: dict[str, Any]) -> list[str]:
@@ -91,6 +100,10 @@ def validate_summary(report: dict[str, Any]) -> list[str]:
         )
     ):
         errors.append("terminal summary job results are inconsistent")
+    elif package is False and focused_tests_failures(
+        package_gate_required=False, focused=results.get("focused")
+    ):
+        errors.append("terminal summary focused-tests result is inconsistent")
     identities = report.get("identities")
     if (
         not isinstance(identities, dict)
