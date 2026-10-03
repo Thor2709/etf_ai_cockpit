@@ -215,6 +215,43 @@ def test_missing_serial_key_or_worker_count_keeps_the_plain_duration_balancing(m
     assert conftest._shard_assignment(3) == {}
 
 
+def _weighted_wall_loads(durations: dict, workers: int, total: int, assignment: dict[str, int]) -> list[float]:
+    """Shard wall time under the documented model: parallel seconds / workers + serial seconds."""
+
+    serial = durations["serial_files"]
+    loads = [0.0] * total
+    for path, seconds in durations["files"].items():
+        shard = conftest._shard_of(conftest._scheduling_scope(f"{path}::x"), total, assignment)
+        serial_seconds = min(serial.get(path, 0.0), seconds)
+        loads[shard - 1] += (seconds - serial_seconds) / workers + serial_seconds
+    return loads
+
+
+@pytest.mark.parametrize(("total", "serial_files", "parallel_files"), [(2, 1, 8), (3, 2, 16)])
+def test_weighted_balance_keeps_shard_wall_time_balanced_around_serial_heavy_files(
+    monkeypatch, tmp_path, total, serial_files, parallel_files
+) -> None:
+    durations = {
+        "unit": "seconds",
+        "files": {
+            **{f"tests/test_serial{index}.py": 90.0 for index in range(serial_files)},
+            **{f"tests/test_par{index:02d}.py": 40.0 for index in range(parallel_files)},
+        },
+        "serial_files": {f"tests/test_serial{index}.py": 90.0 for index in range(serial_files)},
+    }
+    _use_durations(monkeypatch, tmp_path, durations, "4")
+    assignment = conftest._shard_assignment(total)
+    loads = _weighted_wall_loads(durations, 4, total, assignment)
+    # A serial file weighs 90 s of wall time, a parallel file 40 / 4 = 10 s: LPT keeps the spread within one parallel file.
+    assert max(loads) - min(loads) <= 10.0
+    owners = {assignment[f"tests/test_serial{index}.py"] for index in range(serial_files)}
+    assert len(owners) == serial_files  # serial-heavy files never share a shard while others are free
+    # Balancing on raw seconds (no worker count) is measurably worse on the same wall-time model.
+    _use_durations(monkeypatch, tmp_path, durations, None)
+    plain = _weighted_wall_loads(durations, 4, total, conftest._shard_assignment(total))
+    assert max(plain) - min(plain) > 10.0
+
+
 @pytest.mark.parametrize("value", ["0/3", "4/3", "x/3", "1"])
 def test_invalid_shard_values_are_rejected(value: str) -> None:
     with pytest.raises(pytest.UsageError):

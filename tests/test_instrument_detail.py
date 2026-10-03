@@ -1218,3 +1218,43 @@ def test_detail_summary_stays_outside_research_scroll(monkeypatch):
     titles = [control.title.value for control in _walk_controls(research) if isinstance(control, ft.ExpansionTile)]
     assert "Identity and provenance" in titles and "Stock valuation and scenarios" in titles
     assert not any(isinstance(control, ft.ExpansionTile) for control in _walk_controls(summary))
+
+
+def test_unavailable_score_rows_carry_an_explicit_reason_code(tmp_path, monkeypatch) -> None:
+    import etf_cockpit.app.selectors.instrument_detail as selector
+
+    unavailable_friction = {"status": "unavailable", "execution_allowed": False}
+
+    def lookup() -> tuple[dict, str | None]:
+        return selector._scoreboard_lookup("VWCE")
+
+    corrupt = tmp_path / "scoreboard.parquet"
+    corrupt.write_bytes(b"not parquet")
+    monkeypatch.setattr(selector, "SCOREBOARD_PATH", corrupt)
+    assert lookup() == ({}, "scoreboard_store_unreadable")
+
+    monkeypatch.setattr(selector, "SCOREBOARD_PATH", tmp_path / "absent.parquet")
+    assert lookup() == ({}, "scoreboard_store_missing")
+
+    present = tmp_path / "present.parquet"
+    present.write_bytes(b"x")
+    monkeypatch.setattr(selector, "SCOREBOARD_PATH", present)
+    monkeypatch.setattr(selector, "load_simple_scoreboard", lambda path: pd.DataFrame())
+    assert lookup() == ({}, "scoreboard_store_empty")
+    monkeypatch.setattr(selector, "load_simple_scoreboard", lambda path: pd.DataFrame([{"instrument_id": "OTHER"}]))
+    assert lookup() == ({}, "scoreboard_row_missing_for_instrument")
+    assert selector._scoreboard_row("VWCE") == {}  # the row contract is unchanged
+
+    for expected in ("scoreboard_store_unreadable", "scoreboard_row_missing_for_instrument"):
+        panel = selector._score_panel(None, {}, {"crowding": {}}, unavailable_friction, scoreboard_reason_code=expected)
+        assert panel["status"] == "unavailable"
+        assert panel["reason_code"] == expected
+    default = selector._score_panel(None, {}, {"crowding": {}}, unavailable_friction)
+    assert default["reason_code"] == "score_evidence_unavailable"
+
+    # A signal-only panel that is not fully evidenced is manual review with a specific cause, never an empty reason.
+    review = selector._score_panel(
+        type("Signal", (), {"total_score": None})(), {}, {"crowding": {}}, unavailable_friction, scoreboard_reason_code=None
+    )
+    assert review["status"] == "manual_review"
+    assert review["reason_code"] == "score_numeric_evidence_unavailable"

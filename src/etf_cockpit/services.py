@@ -43,7 +43,7 @@ from etf_cockpit.core.paths import (
 )
 from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.core.timing import record_cache_event, timed_step
-from etf_cockpit.core.types import DataQualityReport, ForecastResult, SignalResult
+from etf_cockpit.core.types import DataQualityReport, ForecastResult, SignalResult, latest_signal
 from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowTransitionError, publication_scope
 from etf_cockpit.core.versioning import (
     current_settings_identity,
@@ -1891,7 +1891,8 @@ def _run_decision_shadow_guard(
 ) -> None:
     """Publish decision v1 beside v3 without allowing shadow errors to escape."""
 
-    run_id = signals[0].run_id if signals else None
+    newest_signal = latest_signal(signals)
+    run_id = newest_signal.run_id if newest_signal is not None else None
     try:
         liquidity_reports = {}
         if price_history is not None:

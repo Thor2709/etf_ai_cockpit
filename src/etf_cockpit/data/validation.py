@@ -62,7 +62,18 @@ def validate_prices(
         )
 
     frame = prices.copy()
-    frame["date"] = pd.to_datetime(frame["date"]).dt.date
+    parsed_dates = pd.to_datetime(frame["date"])
+    missing_date = parsed_dates.isna()
+    if missing_date.any():
+        # A NaT cannot be compared with a date: report the rows as a blocking issue and validate the rest.
+        issues.append(
+            DataQualityIssue("ALL", "block", "invalid_dates", f"{int(missing_date.sum())} price rows have a missing or unparsable date.")
+        )
+        frame = frame.loc[~missing_date].copy()
+        parsed_dates = parsed_dates.loc[~missing_date]
+        if frame.empty:
+            return DataQualityReport(as_of_date=as_of_date or date.today(), issues=issues)
+    frame["date"] = parsed_dates.dt.date
     effective_as_of = as_of_date or max(frame["date"])
     if max_stale_business_days is not None:
         block_stale_business_days = max_stale_business_days
