@@ -9765,17 +9765,45 @@
       "verified_date": "2026-10-01"
     },
     "ISSUE-0152": {
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "All ISSUE-0152 prerequisites integrated on main 6bafbdaf4975f2001d9692e5ba5c1133ab9d94f2 (lifecycle PRs #891-#896 and #899 #900 #901 #905; dependency-edge PR #898).",
+            "Readback on 6bafbdaf: scripts/programme_execution.py --json statuses {\"blocked\": 1, \"closed\": 17, \"integrated\": 182, \"research_only\": 2}; only ISSUE-0152 blocked, research_only 0061/0062 excluded.",
+            "Full release gate run 37126829802 on head 03c05dd02f234a6e4e327aa943a0107bfe234ea9 (contains the product merges above) passed validation-summary."
+          ],
+          "review_reference": "Exact head 6bafbdaf4975f2001d9692e5ba5c1133ab9d94f2: Claude Code (claude-opus-5-5) root review with independent Opus Agent review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-03",
+          "reviewer": "Claude Code root orchestrator with independent Opus Agent one-shot review (owner-authorised substitute)",
+          "status": "ready"
+        }
+      ],
       "dependency_edge_evidence": {},
       "phase": "phase-11-certification",
-      "programme_status": "blocked",
+      "programme_status": "ready",
       "status_transition": {
         "from": "blocked",
-        "review_reference": "B00 canonical import from audited programme state",
-        "to": "blocked"
+        "review_reference": "Exact head 6bafbdaf4975f2001d9692e5ba5c1133ab9d94f2: Claude Code (claude-opus-5-5) root review with independent Opus Agent review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+        "to": "ready"
       },
-      "verified_commit": "452d44034197cd5d837c1854603eea030e02acf6",
-      "verified_date": "2026-07-21"
+      "transition_history": [
+        {
+          "allow_downgrade": false,
+          "evidence_references": [
+            "All ISSUE-0152 prerequisites integrated on main 6bafbdaf4975f2001d9692e5ba5c1133ab9d94f2 (lifecycle PRs #891-#896 and #899 #900 #901 #905; dependency-edge PR #898).",
+            "Readback on 6bafbdaf: scripts/programme_execution.py --json statuses {\"blocked\": 1, \"closed\": 17, \"integrated\": 182, \"research_only\": 2}; only ISSUE-0152 blocked, research_only 0061/0062 excluded.",
+            "Full release gate run 37126829802 on head 03c05dd02f234a6e4e327aa943a0107bfe234ea9 (contains the product merges above) passed validation-summary."
+          ],
+          "from": "blocked",
+          "review_reference": "Exact head 6bafbdaf4975f2001d9692e5ba5c1133ab9d94f2: Claude Code (claude-opus-5-5) root review with independent Opus Agent review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-03",
+          "reviewer": "Claude Code root orchestrator with independent Opus Agent one-shot review (owner-authorised substitute)",
+          "to": "ready",
+          "verified_commit": "6bafbdaf4975f2001d9692e5ba5c1133ab9d94f2"
+        }
+      ],
+      "verified_commit": "6bafbdaf4975f2001d9692e5ba5c1133ab9d94f2",
+      "verified_date": "2026-10-03"
     },
     "ISSUE-0153": {
       "acceptance_evidence": [
