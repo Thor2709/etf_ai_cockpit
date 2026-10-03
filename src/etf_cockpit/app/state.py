@@ -359,6 +359,7 @@ class AppState:
     innovation_projection: dict[str, object] | None = None
     innovation_source_digest: str | None = None
     evidence_mode: str = "default"
+    analysis_depth: str | None = None
     score_history_warning: str | None = None
     application_api: LocalApplicationApi = field(init=False, repr=False)
 
@@ -393,6 +394,16 @@ class AppState:
             raise ValueError(f"Unsupported evidence mode: {mode}")
         self.evidence_mode = value
         self.last_message = theme.EVIDENCE_MODE_LABELS[value]
+        return value
+
+    def set_analysis_depth(self, depth: str) -> str:
+        """Select the analysis-depth profile; workload semantics stay in the application layer."""
+
+        value = str(depth or "").strip().lower()
+        if value not in ("quick", "medium", "high", "full"):
+            raise ValueError(f"Unsupported analysis depth: {depth}")
+        self.analysis_depth = value
+        self.last_message = f"Analysis depth: {value.capitalize()}"
         return value
 
     @classmethod
