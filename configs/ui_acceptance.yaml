@@ -5,6 +5,8 @@ controls:
   - {key: shell.analysis-depth-details, route: /, control_label: Depth details, callback: show_details, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_analysis_depth_details_ui.py, control_type: button}
   - {key: shell.analysis-depth-details.close, route: /, control_label: Close depth details, callback: close_dialog, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_analysis_depth_details_ui.py, control_type: button}
   - {key: shell.analysis-depth-compare, route: /, control_label: Compare with, callback: compare_changed, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_analysis_depth_details_ui.py, control_type: input}
+  - {key: shell.analysis-depth-run, route: /, control_label: Run profile, callback: start_run, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_analysis_depth_run_ui.py, control_type: button}
+  - {key: shell.analysis-depth-run.cancel, route: /, control_label: Cancel run, callback: cancel_run, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_analysis_depth_run_ui.py, control_type: button}
   - {key: shell.open-help, route: /, control_label: "Help & Glossary", callback: on_open_help, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_help_glossary_ui.py, control_type: navigation}
   # The navigation rail is generated from router.PAGES at desktop and mobile widths.
   - {key: navigation.home, route: /, control_label: Simple Scores, callback: navigate_to, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_accessibility_contracts.py, control_type: navigation}
