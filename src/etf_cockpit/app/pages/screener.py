@@ -9,7 +9,8 @@ import flet as ft
 import pandas as pd
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import evidence_chip, metric_card, panel, section_header
+from etf_cockpit.app.components.cards import evidence_chip, metric_card, section_header
+from etf_cockpit.app.components.kit import glass_panel
 from etf_cockpit.app.formatting import format_number, format_percent
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import (
@@ -38,6 +39,10 @@ _FUNDAMENTAL_FIELDS = (
     ("growth", "Growth"),
     ("shareholder_return", "Shareholder return"),
 )
+
+
+def _glass(key: str, label: str, content: ft.Control) -> ft.Container:
+    return glass_panel(content, key=f"screener.{key}", label=label, padding=18)
 
 
 def screener_page(_page: ft.Page, _state: AppState) -> ft.Control:
@@ -213,7 +218,7 @@ def screener_page(_page: ft.Page, _state: AppState) -> ft.Control:
     status_colour = theme.GREEN if not frame.empty else theme.AMBER
 
     controls: list[ft.Control] = [
-        panel(
+        _glass("overview", "Fundamentals screener overview",
             ft.Column(
                 [
                     section_header(
@@ -243,7 +248,7 @@ def screener_page(_page: ft.Page, _state: AppState) -> ft.Control:
         ),
         _fixed_income_returns_block(_page, fixed_income_result),
         _top_n_selection_block(_page, decision_time, _state.snapshot),
-        panel(
+        _glass("screen", "Reproducible local screen",
             ft.Column(
                 [
                     section_header(
@@ -285,7 +290,7 @@ def screener_page(_page: ft.Page, _state: AppState) -> ft.Control:
                 spacing=8,
             )
         ),
-        panel(
+        _glass("fundamentals", "Instrument fundamentals",
             ft.Column(
                 [
                     section_header(
@@ -510,7 +515,7 @@ def _top_n_selection_block(page: ft.Page | None, decision_time: str, snapshot: o
     slice_dimension.on_change = refresh_slice
     slice_value.on_change = refresh_slice
     render(current[0])
-    return panel(
+    return _glass("top-n", "Top-N selection",
         ft.Column(
             [
                 section_header(
@@ -903,7 +908,7 @@ def _fixed_income_returns_block(
             selectable=True,
         )
     )
-    return panel(
+    return _glass("fixed-income", "Fixed income returns",
         ft.Column(
             [
                 section_header(
