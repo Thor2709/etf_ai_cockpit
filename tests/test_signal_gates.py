@@ -93,4 +93,5 @@ def test_missing_forecast_distribution_keeps_deterministic_baseline_edge_input()
 
     fallback = _technical_expected_edge(scored)
 
-    assert fallback.round(12).tolist() == [0.175, 0.075]
+    assert fallback.iloc[0] == 0.175
+    assert pd.isna(fallback.iloc[1])

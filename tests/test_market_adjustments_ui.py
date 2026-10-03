@@ -145,7 +145,8 @@ def test_facade_applies_persisted_actions_and_dated_fx_without_mutating_local_pr
         local_currency="USD",
         output_currency="EUR",
         storage_root=tmp_path,
-        decision_time="2024-01-11T00:00:00Z",
+        # Exclusive cutoff: the 2024-01-11 bar is only usable for a decision made after it.
+        decision_time="2024-01-12T00:00:00Z",
     )
 
     assert result["status"] == "available"
