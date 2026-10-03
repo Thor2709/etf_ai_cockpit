@@ -15,7 +15,7 @@
     },
     {
       "path": "docs/product-completion/CURRENT_STATUS.json",
-      "sha256": "a363f266e2b092d693a888f3add1106839d3145d1898b7a6694f2daf2232b89e"
+      "sha256": "0371d5ca01453406465ebc10aa48d9f7b62460fd4e936b586a2977ed2221e670"
     },
     {
       "path": "docs/product-completion/DELIVERY_WORKFLOW.md",
@@ -23,7 +23,7 @@
     },
     {
       "path": "docs/product-completion/PROGRESS.md",
-      "sha256": "26e2afe8c68791c61028f59296a0fe3870a5d6b8065eb9a7994768ed60f4f0c4"
+      "sha256": "b60477f241b6d9ad560dc68c43612fa1311428b2a1d6d455397535c0a52270ce"
     },
     {
       "path": "docs/product-completion/programme/git-workflow.md",
@@ -47,7 +47,7 @@
     },
     {
       "path": "docs/product-completion/programme/phases/phase-04-etf-research.md",
-      "sha256": "f889aa409e08ac71e605e90833b25b82b92233f3fc3bf5c13c56bd0540b8dd8a"
+      "sha256": "4eb0dff9bbb652186b87423ad47fa327a4669b326d67046f6c9dd09b880ebfcf"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-05-returns-risk-portfolio.md",
@@ -83,11 +83,11 @@
     },
     {
       "path": "docs/product-completion/programme/readiness.json",
-      "sha256": "a44828e0be19773e9ce6ea7b0fc9be75514948f421c52a1533baee0e5aea8f96"
+      "sha256": "e73d0575f436120dbdfe6f38dedf1d3ee49db2098cdf0cf03327a80beae3b258"
     },
     {
       "path": "docs/product-completion/programme/roadmap.md",
-      "sha256": "f9c60be5c0a3adb0140190a9eb46918975c9b115d491ad10b7b69fdecea1fdd7"
+      "sha256": "2cb75908bdc1b25dd4dd3f09eb7ab0b23ef4d59a39dd22be23d39bc4633ed7c4"
     },
     {
       "path": "docs/product-completion/programme/test-and-performance-strategy.md",
@@ -147,11 +147,11 @@
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/source-to-canonical.csv",
-      "sha256": "a60fa3aaa9e167685c86cabe5c882bad2eb001c312db41ef05ec64833f905735"
+      "sha256": "b8da0907ace7eecc18431ece8642aad8b6696d0c2420e48aa2decc7630b46fb4"
     },
     {
       "path": "issues/issue_registry.json",
-      "sha256": "904c501d0402fa8c93bb6fd0eb2fead3f43b3470e2216b4948e522c063aa0b24"
+      "sha256": "90d12125a3753990d3b97434b4ab8d920bff049d96a51e85b0ef969aa7074494"
     },
     {
       "path": "issues/open.md",
@@ -159,7 +159,7 @@
     },
     {
       "path": "issues/programme_control_state.json",
-      "sha256": "979c24ee1f7ddd0de07681089b7a39f9b007b7eba649525537c921cc8f578be8"
+      "sha256": "23f8f1fd1509e9572b09a4d2b4f48d458063291d4f4a23788ffdb25dae5a089f"
     }
   ],
   "schema_version": "programme-generation.v1"
