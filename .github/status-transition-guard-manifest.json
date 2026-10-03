@@ -1,109 +1,27 @@
 {
   "allow_downgrades": false,
   "allow_other_status_changes": false,
-  "allowed_dependency_edge_updates": [
+  "allowed_status_transitions": [
     {
-      "dependency_id": "ISSUE-0136",
-      "issue_id": "ISSUE-0137"
-    },
-    {
-      "dependency_id": "ISSUE-0043",
-      "issue_id": "ISSUE-0148"
-    },
-    {
-      "dependency_id": "ISSUE-0136",
-      "issue_id": "ISSUE-0139"
-    },
-    {
-      "dependency_id": "ISSUE-0039",
-      "issue_id": "ISSUE-0175"
-    },
-    {
-      "dependency_id": "ISSUE-0077",
-      "issue_id": "ISSUE-0175"
-    },
-    {
-      "dependency_id": "ISSUE-0078",
-      "issue_id": "ISSUE-0175"
-    },
-    {
-      "dependency_id": "ISSUE-0121",
-      "issue_id": "ISSUE-0175"
-    },
-    {
-      "dependency_id": "ISSUE-0151",
-      "issue_id": "ISSUE-0175"
-    },
-    {
-      "dependency_id": "ISSUE-0165",
-      "issue_id": "ISSUE-0175"
-    },
-    {
-      "dependency_id": "ISSUE-0074",
-      "issue_id": "ISSUE-0172"
-    },
-    {
-      "dependency_id": "ISSUE-0098",
-      "issue_id": "ISSUE-0172"
-    },
-    {
-      "dependency_id": "ISSUE-0105",
-      "issue_id": "ISSUE-0172"
-    },
-    {
-      "dependency_id": "ISSUE-0108",
-      "issue_id": "ISSUE-0172"
-    },
-    {
-      "dependency_id": "ISSUE-0109",
-      "issue_id": "ISSUE-0172"
-    },
-    {
-      "dependency_id": "ISSUE-0112",
-      "issue_id": "ISSUE-0172"
-    },
-    {
-      "dependency_id": "ISSUE-0120",
-      "issue_id": "ISSUE-0172"
-    },
-    {
-      "dependency_id": "ISSUE-0123",
-      "issue_id": "ISSUE-0172"
-    },
-    {
-      "dependency_id": "ISSUE-0128",
-      "issue_id": "ISSUE-0172"
-    },
-    {
-      "dependency_id": "ISSUE-0170",
-      "issue_id": "ISSUE-0172"
-    },
-    {
-      "dependency_id": "ISSUE-0171",
-      "issue_id": "ISSUE-0172"
-    },
-    {
-      "dependency_id": "ISSUE-0173",
-      "issue_id": "ISSUE-0172"
-    },
-    {
-      "dependency_id": "ISSUE-0174",
-      "issue_id": "ISSUE-0172"
+      "from": "in_progress",
+      "issue_id": "ISSUE-0175",
+      "to": "integrated"
     }
   ],
-  "allowed_status_transitions": [],
-  "base_commit": "61859532b0c48059fa3f0d08fb774449ba173c0b",
-  "branch": "claude/E1-lifecycle-edges",
-  "issue_ids": [],
+  "base_commit": "6786282c8a33f2bf8e65401cf5a8459ed2b82737",
+  "branch": "claude/issue-0175-lifecyclec-20261003",
+  "issue_ids": [
+    "ISSUE-0175"
+  ],
   "registry_migration": {
     "added_issue_ids": [],
-    "base_registry_sha256": "2e595aaab4185681842c8e538155b052db688ad20d64cfbb6c364c7fb5f3a414",
+    "base_registry_sha256": "e4f84d6b802f629af4484ec428f57430ae9e487e73cc98e13a3d79e9d9eedc2d",
     "generator": "scripts/generate_issue_registry.py",
-    "mode": "generation_base_and_dependency_edge_evidence",
-    "proposed_registry_sha256": "62c0dc19bf0f910790c8b11f026ef285e947c4a7ab0dd3bbf657d6ca207cf9a3",
-    "reason": "Record only reviewed dependency edges to merged dependencies; preserve lifecycle states, product code, external authority and execution_allowed=false.",
+    "mode": "generation_base_and_status_transitions",
+    "proposed_registry_sha256": "8a0170e0a920f631e7880cdec05fc2623d0cc098d84169ed7df9c15df4f153c5",
+    "reason": "Transition only ISSUE-0175 from in_progress to integrated; preserve dependencies, GitHub issue open state, external authority and execution_allowed=false.",
     "removed_issue_ids": [],
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   },
-  "schema_version": "1.3"
+  "schema_version": "1.2"
 }

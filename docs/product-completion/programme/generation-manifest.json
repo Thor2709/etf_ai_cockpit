@@ -3,7 +3,7 @@
   "outputs": [
     {
       "path": ".github/status-transition-guard-manifest.json",
-      "sha256": "7b50ff637bf2108c30e1df72feddd9e5e0fce6d8bfe11e2044e93aad0d94eb97"
+      "sha256": "7f89cd8bec89f545db125ddd7791d59b481a57da73bd8c0ec6ec815cb21d6ab5"
     },
     {
       "path": "CHANGELOG.md",
@@ -15,7 +15,7 @@
     },
     {
       "path": "docs/product-completion/CURRENT_STATUS.json",
-      "sha256": "4808bd26577ee4aee68994a4a862f7b5ce9251f19ceef52728075fae236a372c"
+      "sha256": "8cc2f1d83961967beb0201edd0b995d1e110f146ab685d343aa42ade95db9c98"
     },
     {
       "path": "docs/product-completion/DELIVERY_WORKFLOW.md",
@@ -23,7 +23,7 @@
     },
     {
       "path": "docs/product-completion/PROGRESS.md",
-      "sha256": "70f328b7b00387195ab918da0fb4524a3133d8899a1e00a5ee1b85843df9f2c8"
+      "sha256": "e61d21c8c1fd2370ccb21ec1290b5477a7742c2b2da224e59841682f17309aa4"
     },
     {
       "path": "docs/product-completion/programme/git-workflow.md",
@@ -47,7 +47,7 @@
     },
     {
       "path": "docs/product-completion/programme/phases/phase-04-etf-research.md",
-      "sha256": "bf6d34dce58e60a612af9383f8dc1f0db3b9d02fac2752cfe72d6dfcaf80747e"
+      "sha256": "f889aa409e08ac71e605e90833b25b82b92233f3fc3bf5c13c56bd0540b8dd8a"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-05-returns-risk-portfolio.md",
@@ -63,7 +63,7 @@
     },
     {
       "path": "docs/product-completion/programme/phases/phase-08-frontend-api.md",
-      "sha256": "944e094442903b9b9d8e25b0566809348df4052a2076b9484118978c3301b046"
+      "sha256": "179ab177ad630ea402e250e96f95eeabaab8061cda4ecc3585486c6b37a1d392"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-09-quality-release-security.md",
@@ -71,7 +71,7 @@
     },
     {
       "path": "docs/product-completion/programme/phases/phase-10-audit-documentation-governance.md",
-      "sha256": "524d4377d8ab26b06e0f45312a3ea108a72168c3a9d2537d6d52ba5b0cc9c593"
+      "sha256": "3a62bd36610c2ecc3676ea01b633f217da6d12fa2cf1d22156ad0f23fab96853"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-11-certification.md",
@@ -83,11 +83,11 @@
     },
     {
       "path": "docs/product-completion/programme/readiness.json",
-      "sha256": "0cfec5e2b66b6744283d04c341b2556ed8747ff09f93b8e884cc584c1c600ec4"
+      "sha256": "07b2b9c56f606966615e4135c76f1ff2af6c4f99ee74f4dc322dc4f4c01ba323"
     },
     {
       "path": "docs/product-completion/programme/roadmap.md",
-      "sha256": "85d041d112391ca25216d9c54dde951c0164762eb4019eb22afd529350700f0a"
+      "sha256": "f9c60be5c0a3adb0140190a9eb46918975c9b115d491ad10b7b69fdecea1fdd7"
     },
     {
       "path": "docs/product-completion/programme/test-and-performance-strategy.md",
@@ -147,11 +147,11 @@
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/source-to-canonical.csv",
-      "sha256": "72c0b4b10372d6af2c1dc231587fa3c4ceb90d11974d290b9b0f601344cae15c"
+      "sha256": "a60fa3aaa9e167685c86cabe5c882bad2eb001c312db41ef05ec64833f905735"
     },
     {
       "path": "issues/issue_registry.json",
-      "sha256": "62c0dc19bf0f910790c8b11f026ef285e947c4a7ab0dd3bbf657d6ca207cf9a3"
+      "sha256": "8a0170e0a920f631e7880cdec05fc2623d0cc098d84169ed7df9c15df4f153c5"
     },
     {
       "path": "issues/open.md",
@@ -159,7 +159,7 @@
     },
     {
       "path": "issues/programme_control_state.json",
-      "sha256": "89e8808ff1ca7585be122f6c1686d421a5ff2e43542723161ce3e56cd3eae2c8"
+      "sha256": "835ab11505f3f36cbed601da6121e15fa53c9d66ce92c3f08324907565b0872e"
     }
   ],
   "schema_version": "programme-generation.v1"
