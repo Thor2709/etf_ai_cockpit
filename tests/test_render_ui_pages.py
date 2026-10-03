@@ -179,3 +179,57 @@ def test_route_timeout_writes_failure_and_harness_cleans_up_processes(
 
 async def _ready() -> None:
     return None
+
+
+def _png(width: int, height: int, pixel) -> bytes:
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+    rows = b"".join(
+        b"\x00" + b"".join(bytes(pixel(x, y)) for x in range(width)) for y in range(height)
+    )
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(rows))
+        + chunk(b"IEND", b"")
+    )
+
+
+def test_blank_canvas_detector_rejects_uniform_grey_inside_a_dark_frame() -> None:
+    def pixel(x: int, y: int) -> tuple[int, int, int]:
+        in_frame = x < 3 or y < 3 or x >= 117 or y >= 77
+        return (8, 16, 36) if in_frame else (182, 182, 182)
+
+    reason = renderer.blank_canvas_reason(_png(120, 80, pixel), [])
+
+    assert reason is not None and reason.startswith("Blank canvas")
+
+
+def test_blank_canvas_detector_accepts_a_rendered_page() -> None:
+    def pixel(x: int, y: int) -> tuple[int, int, int]:
+        return (230, 230, 240) if (x // 8 + y // 8) % 2 else (10, 20, 40)
+
+    assert renderer.blank_canvas_reason(_png(120, 80, pixel), ["[log] Flutter app loaded"]) is None
+
+
+def test_blank_canvas_detector_rejects_flutter_errors_in_console() -> None:
+    def pixel(x: int, y: int) -> tuple[int, int, int]:
+        return (230, 230, 240) if (x // 8 + y // 8) % 2 else (10, 20, 40)
+
+    reason = renderer.blank_canvas_reason(
+        _png(120, 80, pixel),
+        ["[error] Exception caught by rendering library: RenderBox was not laid out"],
+    )
+
+    assert reason is not None and "Flutter error" in reason
+
+
+def test_theme_colour_tokens_are_flet_parsable_not_css_rgba() -> None:
+    from etf_cockpit.app import theme
+
+    for name in ("SURFACE_2", "BORDER", "GLASS_PANEL_BORDER", "HAIRLINE_BORDER", "QUAIL_SELECTED_HIGHLIGHT"):
+        assert re.fullmatch(r"#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?", getattr(theme, name)), name
