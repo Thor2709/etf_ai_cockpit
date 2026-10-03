@@ -7,7 +7,7 @@ import flet as ft
 import pandas as pd
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.pages._lab_style import model_status_row, panel, section_header
+from etf_cockpit.app.pages._lab_style import lab_page, model_status_row, panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.application.monthly_decision_template import (
@@ -28,6 +28,7 @@ from etf_cockpit.application.ui_facade import (
 from etf_cockpit.plugins.builtins import plugin_status_rows
 
 
+@lab_page("data_models")
 def data_models_page(_page: ft.Page, state: AppState) -> ft.Control:
     latest_dates = state.snapshot.prices.groupby("etf_id")["date"].max().reset_index()
     rows = [

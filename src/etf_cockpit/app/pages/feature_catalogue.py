@@ -3,12 +3,13 @@ from __future__ import annotations
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.pages._lab_style import metric_card, panel, section_header
+from etf_cockpit.app.pages._lab_style import lab_page, metric_card, panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.features.feature_store import LocalFeatureStore
 
 
+@lab_page("feature_catalogue")
 def feature_catalogue_page(page: ft.Page, state: AppState) -> ft.Control:
     """Show feature definitions and a safe local training-data preview."""
 

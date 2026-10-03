@@ -7,7 +7,7 @@ import flet as ft
 import pandas as pd
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.pages._lab_style import metric_card, panel, section_header
+from etf_cockpit.app.pages._lab_style import lab_page, metric_card, panel, section_header
 from etf_cockpit.app.components.charts import equity_drawdown_chart, history_chart
 from etf_cockpit.app.components.tables import accessible_table
 from etf_cockpit.app.selectors.instrument_detail import (
@@ -62,6 +62,7 @@ def _negative_contributions_label(value: object) -> str:
     return "; ".join(records) if records else "unavailable"
 
 
+@lab_page("backtests")
 def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
     report = state.snapshot.backtest
     news_warning = _news_validation_warning()

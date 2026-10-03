@@ -49,3 +49,23 @@ def test_forecasts_alias_exports_forecast_lab() -> None:
     from etf_cockpit.app.pages import forecast_lab, forecasts
 
     assert forecasts.forecast_lab_page is forecast_lab.forecast_lab_page
+
+
+def test_lab_keys_are_deterministic_across_builds() -> None:
+    @lab.lab_page("demo")
+    def build():
+        return ft.Column(
+            [
+                lab.panel(ft.Column([lab.section_header("Same title")])),
+                lab.panel(ft.Column([lab.section_header("Same title")])),
+                lab.metric_card("Rows", "1"),
+                lab.metric_card("Rows", "2"),
+            ]
+        )
+
+    def keys(root):
+        return [c.key for c in _walk(root) if getattr(c, "key", None)]
+
+    first, second = keys(build()), keys(build())
+    assert first == second
+    assert len(set(first)) == len(first)

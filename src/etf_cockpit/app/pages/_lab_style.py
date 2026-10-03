@@ -7,16 +7,42 @@ They only change presentation and never compute values.
 
 from __future__ import annotations
 
-import itertools
+import functools
 import re
-from collections.abc import Mapping
+from collections import Counter
+from collections.abc import Callable, Mapping
+from typing import Any
 
 import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components import kit
 
-_COUNTER = itertools.count(1)
+_SCOPE: dict[str, Any] = {"page": "lab", "seen": Counter()}
+
+
+def lab_page(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Scope panel/metric keys to one page build; indexes restart on every build."""
+
+    def decorate(builder: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(builder)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            previous = dict(_SCOPE)
+            _SCOPE.update(page=name, seen=Counter())
+            try:
+                return builder(*args, **kwargs)
+            finally:
+                _SCOPE.update(previous)
+
+        return wrapper
+
+    return decorate
+
+
+def _next_index(kind: str, slug: str) -> int:
+    seen: Counter[str] = _SCOPE["seen"]
+    seen[f"{kind}.{slug}"] += 1
+    return seen[f"{kind}.{slug}"]
 
 
 def _slug(text: str) -> str:
@@ -49,13 +75,16 @@ def section_header(title: str, subtitle: str = "") -> ft.Column:
 
 def panel(content: ft.Control, *, expand: bool | int = False, padding: int = 14) -> ft.Container:
     title = _first_text(content) or "Lab panel"
-    key = f"lab.panel.{next(_COUNTER)}.{_slug(title)}"
+    slug = _slug(title)
+    key = f"lab.panel.{_SCOPE['page']}.{slug}.{_next_index('panel', slug)}"
     return kit.glass_panel(content, key=key, label=title[:80], expand=expand, padding=max(padding, 16))
 
 
 def metric_card(title: str, value: str, subtitle: str = "", status_colour: str = "#64748b") -> ft.Container:
     del status_colour
-    tile = kit.kpi_tile(title, value or "Unavailable", subtitle, key=f"lab.metric.{_slug(title)}.{next(_COUNTER)}")
+    slug = _slug(title)
+    key = f"lab.metric.{slug}.{_SCOPE['page']}.{_next_index('metric', slug)}"
+    tile = kit.kpi_tile(title, value or "Unavailable", subtitle, key=key)
     tile.expand = True
     return tile
 
