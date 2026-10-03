@@ -23129,7 +23129,17 @@
         "Every public contract and methodology has current documentation.",
         "Documentation version matches release."
       ],
-      "acceptance_evidence": [],
+      "acceptance_evidence": [
+        {
+          "evidence_references": [
+            "Full release gate run 37122709187 on head a05b0918bc27d3ba7d837c68b5e2c4b9ec38adc4 (contains the product merges above) passed validation-summary."
+          ],
+          "review_reference": "Exact head e28ea076a6adcad7f6058a81baab57ab53a1ab68: Claude Code (claude-opus-5-5) root review with independent Opus Agent review (owner-authorised substitute for Codex V2 reviewer/risk-reviewer).",
+          "reviewed_date": "2026-10-03",
+          "reviewer": "Claude Code root orchestrator with independent Opus Agent one-shot review (owner-authorised substitute)",
+          "status": "in_progress"
+        }
+      ],
       "activation_dependencies": [],
       "blocking_dependencies": [
         "ISSUE-0043"
@@ -23176,7 +23186,7 @@
       "package_status": "",
       "phase": "phase-10-audit-documentation-governance",
       "priority": "P0/P1",
-      "programme_status": "planned",
+      "programme_status": "in_progress",
       "provenance": {
         "amendment_references": [],
         "final_release_spec_sha256": "7a1d122e0bdbcb68dcd2b202a6f628f33718b2b9ae81cc2305649a7016d95810",
@@ -23203,7 +23213,7 @@
       ],
       "title": "Complete developer, plugin, methodology, operations and user documentation",
       "ui_requirement": "Help centre and context-sensitive links.",
-      "verified_commit": "61859532b0c48059fa3f0d08fb774449ba173c0b",
+      "verified_commit": "e28ea076a6adcad7f6058a81baab57ab53a1ab68",
       "verified_date": "2026-10-03",
       "why": "Completion requires reproducible developer onboarding and understandable user and operations procedures.",
       "write_conflict_group": "documentation"
@@ -30341,7 +30351,7 @@
     "package_registry_sha256": "42f401c32d2fddb17af97333303f4aeea0f2d2f8384e2b8da382529c0c7d107c",
     "package_reviewed_commit": "e149db50945401fb014955f0f79794a909796a75",
     "package_sha256": "39e30adc22c34a2f80640fa895caa21473457cea5bd0de872927051f8f99839b",
-    "programme_control_state_sha256": "3717578bc02e4b9e2a6c97093d5af314b92a0e4d1b3cc8faedc734e05f19d338",
+    "programme_control_state_sha256": "0dc3f6c9168473c968316366f620371bfbb65a723a909136ec248914f5c474ac",
     "repository": "Thor2709/etf_ai_cockpit",
     "source_manifest_sha256": "6409f0f8047f1b558262f5970d9bde00fa18b8444adb4c68d53365f07a6eca89"
   }

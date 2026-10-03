@@ -15,7 +15,7 @@
     },
     {
       "path": "docs/product-completion/CURRENT_STATUS.json",
-      "sha256": "8eb3b6a99a6e99cefedef9d1e26a118f76599021ea30721386caf0fd9a1bf88a"
+      "sha256": "8d8c3deff40d0621d9e89314bfe0bff965ac5612ab143789c1f4c944aca2d4c8"
     },
     {
       "path": "docs/product-completion/DELIVERY_WORKFLOW.md",
@@ -23,7 +23,7 @@
     },
     {
       "path": "docs/product-completion/PROGRESS.md",
-      "sha256": "fc2348141093c3d680bea6aa6233cf0032f5c52e3eb39e410f81b59ab91a7d4d"
+      "sha256": "18ac24cfd63371dd273e4d9440d8669b3f960c09b08806b9b1b00b0ba072fb78"
     },
     {
       "path": "docs/product-completion/programme/git-workflow.md",
@@ -71,7 +71,7 @@
     },
     {
       "path": "docs/product-completion/programme/phases/phase-10-audit-documentation-governance.md",
-      "sha256": "524d4377d8ab26b06e0f45312a3ea108a72168c3a9d2537d6d52ba5b0cc9c593"
+      "sha256": "4272e088c1b3ec3fd66478a877f00d00d5b97b59c1b3f77102132b4d5aca5d6f"
     },
     {
       "path": "docs/product-completion/programme/phases/phase-11-certification.md",
@@ -83,11 +83,11 @@
     },
     {
       "path": "docs/product-completion/programme/readiness.json",
-      "sha256": "3437e4cebe5c9162cc06fc419da81749652b063ebb0a60ad68fcdeb129454aed"
+      "sha256": "7e99bdfb106bd4018a64ea308ce3e4487c84a28ce1a089709b36867aa37e2fbe"
     },
     {
       "path": "docs/product-completion/programme/roadmap.md",
-      "sha256": "bbdbbc6d1705edcf627484e9f6e14977a3655821861e8f9b111eaa9c7d8b9963"
+      "sha256": "eefba7b8e4759d4ba4260b6fa450695be4295177b64bcda9561dace2175a739a"
     },
     {
       "path": "docs/product-completion/programme/test-and-performance-strategy.md",
@@ -147,11 +147,11 @@
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/source-to-canonical.csv",
-      "sha256": "9babc4ae4f809225dab1ecd5995516fe4e98819c5235e668b4138f94d5469aaf"
+      "sha256": "db557f92121eb24f89b1083c597be304ef371b56235231bff722716e545ebf7a"
     },
     {
       "path": "issues/issue_registry.json",
-      "sha256": "1adaef5e938a01c08069cd967b049e73327abeead8c77728d83ad5d99c339da6"
+      "sha256": "3fc5178b86818f4ca0601f608612255036ec70ecf9afa44e4314a8bf1d588d96"
     },
     {
       "path": "issues/open.md",
@@ -159,7 +159,7 @@
     },
     {
       "path": "issues/programme_control_state.json",
-      "sha256": "3717578bc02e4b9e2a6c97093d5af314b92a0e4d1b3cc8faedc734e05f19d338"
+      "sha256": "0dc3f6c9168473c968316366f620371bfbb65a723a909136ec248914f5c474ac"
     }
   ],
   "schema_version": "programme-generation.v1"
