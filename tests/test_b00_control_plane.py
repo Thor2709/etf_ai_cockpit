@@ -636,6 +636,7 @@ def test_registry_entrypoint_rejects_handcrafted_invalid_transition_events(
         "ready": "implemented_initially",
         "in_progress": "integrated",
         "implemented_initially": "closed",
+        "blocked": "in_progress",
     }
     if case == "skip":
         issue_id = next(
@@ -649,6 +650,7 @@ def test_registry_entrypoint_rejects_handcrafted_invalid_transition_events(
             source, frozenset()
         )
     legal_target = {
+        "blocked": "ready",
         "planned": "ready",
         "ready": "in_progress",
         "in_progress": "implemented_initially",
