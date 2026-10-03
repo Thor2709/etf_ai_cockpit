@@ -1236,6 +1236,13 @@ class ProfileRunProgress:
     stage_index: int
     total_stages: int
     state: str
+    instrument_id: str = ""
+    instrument_index: int = 1
+    instrument_count: int = 1
+
+
+class ProfileRunUnavailable(Exception):
+    """Raised by a binder when a profile run cannot start; the message is the visible reason."""
 
 
 @dataclass(frozen=True)
@@ -1338,6 +1345,93 @@ def run_analysis_profile(
         output,
         tuple(records),
         cancelled,
+    )
+
+
+def run_analysis_profile_set(
+    profile: AnalysisDepthProfile,
+    bindings: Sequence[ProfileRunBinding],
+    *,
+    root: Path | None = None,
+    cache: dict[str, dict[str, object]] | None = None,
+    run_id: str | None = None,
+    on_progress: ProgressCallback | None = None,
+    is_cancel_requested: Callable[[], bool] | None = None,
+    resource_plan: AnalysisResourcePlan | None = None,
+) -> ProfileRunResult:
+    """Run the profile for every binding (one per instrument) through run_analysis_profile.
+
+    Instruments run sequentially with one shared stage cache and run id. One
+    instrument failing does not hide the others: the run ends failed, with the
+    failing instruments and reasons, but every real timing is stored. Cancelling
+    stops before the next stage and the remaining instruments never start.
+    """
+
+    resolved_run_id = run_id or f"depth-run-{uuid.uuid4().hex[:12]}"
+    stage_cache = cache if cache is not None else {}
+    items = tuple(bindings)
+    count = len(items)
+    per_instrument = len(profile.stages)
+    total = per_instrument * count
+    if count == 0:
+        return ProfileRunResult(
+            resolved_run_id, profile.profile_id, profile.manifest_hash, "failed",
+            "no instruments to analyse", (), 0, None, (), False,
+        )
+    try:
+        plan = resource_plan if resource_plan is not None else create_resource_plan(profile)
+    except Exception as exc:
+        return ProfileRunResult(
+            resolved_run_id, profile.profile_id, profile.manifest_hash, "failed",
+            f"{type(exc).__name__}: {exc}", (), total, None, (), False,
+        )
+    completed: list[str] = []
+    records: list[AnalysisTimingRecord] = []
+    outputs: dict[str, object] = {}
+    failures: dict[str, str] = {}
+    cancelled = False
+    for position, binding in enumerate(items, start=1):
+        if is_cancel_requested is not None and is_cancel_requested():
+            cancelled = True
+            break
+
+        def relay(event: ProfileRunProgress, position: int = position, binding: ProfileRunBinding = binding) -> None:
+            if on_progress is not None:
+                on_progress(replace(
+                    event, instrument_id=binding.instrument_id, instrument_index=position, instrument_count=count
+                ))
+
+        result = run_analysis_profile(
+            profile,
+            binding,
+            root=root,
+            cache=stage_cache,
+            run_id=resolved_run_id,
+            on_progress=relay,
+            is_cancel_requested=is_cancel_requested,
+            resource_plan=plan,
+        )
+        records.extend(result.timing_records)
+        completed.extend(f"{binding.instrument_id}:{stage_id}" for stage_id in result.completed_stages)
+        if result.status == "completed":
+            outputs[binding.instrument_id] = result.output
+        elif result.status == "cancelled":
+            cancelled = True
+            break
+        else:
+            failures[binding.instrument_id] = result.reason or "unknown failure"
+    if cancelled:
+        status, reason = "cancelled", "cancel requested; stopped between stages"
+    elif failures:
+        shown = "; ".join(f"{name}: {why}" for name, why in list(failures.items())[:3])
+        more = f"; and {len(failures) - 3} more" if len(failures) > 3 else ""
+        status, reason = "failed", f"{len(failures)} of {count} instruments failed ({shown}{more})"
+    else:
+        status, reason = "completed", None
+    output = {"instruments": outputs, "failed_instruments": failures} if (outputs or failures) else None
+    return ProfileRunResult(
+        resolved_run_id, profile.profile_id, profile.manifest_hash, status, reason,
+        tuple(completed), total, output, tuple(records), status != "completed",
     )
 
 
@@ -1478,6 +1572,7 @@ __all__ = [
     "ProfileRunBinding",
     "ProfileRunProgress",
     "ProfileRunResult",
+    "ProfileRunUnavailable",
     "REFERENCE_FIXTURE_ID",
     "REFERENCE_INSTRUMENT_COUNT",
     "StageRunner",
@@ -1492,6 +1587,7 @@ __all__ = [
     "read_certification",
     "resource_plan_from_dict",
     "run_analysis_profile",
+    "run_analysis_profile_set",
     "stage_cache_key",
     "stage_output_hash",
     "timing_percentiles",
