@@ -488,6 +488,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
 
     def analysis_depth_selected(depth: str) -> None:
         state.set_analysis_depth(depth)
+        state.last_message = f"{state.last_message}. {state.persist_analysis_depth(depth)}"
         rendered, reason = _available_display(depth_label(state.analysis_depth), depth_chip_reason)
         depth_chip.data = "unavailable" if reason else "available"
         depth_chip.tooltip = reason or f"Analysis depth: {rendered}"
@@ -499,6 +500,9 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         getattr(state, "analysis_depth", None),
         on_selected=analysis_depth_selected,
         width=150 if not narrow else 130,
+        open_dialog=lambda dialog: page.show_dialog(dialog) if hasattr(page, "show_dialog") else None,
+        close_dialog=lambda dialog: page.pop_dialog() if hasattr(page, "pop_dialog") else None,
+        get_selected=lambda: getattr(state, "analysis_depth", None),
     )
     as_of_date = getattr(data_report, "as_of_date", None)
     global_values = ft.Row(
