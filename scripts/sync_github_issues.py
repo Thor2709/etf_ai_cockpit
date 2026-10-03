@@ -20,7 +20,7 @@ from typing import Any, Callable, Iterable
 try:
     from scripts import github_mutation_gateway as mutation_gateway
     from scripts.issue_registry_core import REGISTRY_PATH, deterministic_json
-except ModuleNotFoundError:
+except ImportError:
     import github_mutation_gateway as mutation_gateway
     from issue_registry_core import REGISTRY_PATH, deterministic_json
 

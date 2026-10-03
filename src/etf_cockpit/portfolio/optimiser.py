@@ -113,7 +113,15 @@ class PortfolioOptimiser:
                 raise ValueError(f"unsupported optimiser method: {requested}")
             current = _normalise_series(current_weights, self.ids, default=0.0)
             current_for_fallback = current
-            expected = _normalise_series(expected_returns, self.ids, default=None)
+            if requested == "robust_mean_risk" and expected_returns is not None:
+                try:
+                    expected = pd.Series(expected_returns, dtype=float).reindex(self.ids)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("expected_returns_unavailable: expected means must be numeric") from exc
+                if expected.isna().any() or not np.isfinite(expected.to_numpy(float)).all():
+                    raise ValueError("expected_returns_unavailable: missing_expected_returns")
+            else:
+                expected = _normalise_series(expected_returns, self.ids, default=None)
             weights = self._solve_method(requested, constraints, current, expected)
             weights = _project_weights(weights, constraints, self.ids, current)
             diagnostics = _diagnostics(weights, self.covariance, constraints, current)
@@ -127,6 +135,17 @@ class PortfolioOptimiser:
                 tuple(diagnostics["warnings"]),
             )
         except (FloatingPointError, KeyError, TypeError, ValueError, np.linalg.LinAlgError) as exc:
+            if str(exc).startswith(("covariance_unavailable:", "expected_returns_unavailable:")):
+                reason_code = str(exc).split(":", 1)[0]
+                return OptimiserSolution(
+                    requested,
+                    pd.Series(dtype=float),
+                    "unavailable",
+                    False,
+                    None,
+                    {"feasible": False, "reason_code": reason_code, "warnings": [str(exc)]},
+                    (str(exc),),
+                )
             # A numerical failure must be visible.  A feasible equal-weight
             # candidate is safer than arbitrary solver output and is marked as
             # a fallback so it cannot be mistaken for the requested method.
@@ -209,10 +228,16 @@ class PortfolioOptimiser:
         }
 
     def _validate_inputs(self) -> None:
-        if len(self.ids) < 1 or self.returns.empty:
+        if len(self.ids) < 1:
             raise ValueError("at least one adjusted-price return series is required")
+        if self.returns.empty:
+            raise ValueError("covariance_unavailable: no_shared_return_history")
+        if len(self.returns) < 2:
+            raise ValueError("covariance_unavailable: insufficient_shared_return_history")
         if not np.isfinite(self.returns.to_numpy(float)).all():
             raise ValueError("returns contain non-finite values")
+        if self.covariance.empty or not np.isfinite(self.covariance.to_numpy(float)).all():
+            raise ValueError("covariance_unavailable: covariance_inputs_incomplete")
 
     def _solve_method(self, method: str, constraints: OptimiserConstraints, current: pd.Series, expected: pd.Series) -> pd.Series:
         if method == "equal_weight":
@@ -246,9 +271,11 @@ def _clean_returns(returns: pd.DataFrame) -> pd.DataFrame:
 
 
 def _covariance(returns: pd.DataFrame) -> pd.DataFrame:
-    if returns.empty:
+    if len(returns) < 2:
         return pd.DataFrame()
-    matrix = returns.cov().fillna(0.0) * 252.0
+    matrix = returns.cov() * 252.0
+    if matrix.isna().to_numpy().any() or not np.isfinite(matrix.to_numpy(float)).all():
+        return pd.DataFrame()
     values = matrix.to_numpy(float)
     values = (values + values.T) / 2.0
     eigenvalues, eigenvectors = np.linalg.eigh(values)
@@ -390,7 +417,10 @@ def _cvar(returns: pd.DataFrame, constraints: OptimiserConstraints, ids: list[st
 
 
 def _robust_mean_risk(means: pd.Series, covariance: pd.DataFrame, constraints: OptimiserConstraints, ids: list[str]) -> pd.Series:
-    expected = means.reindex(ids).fillna(0.0).to_numpy(float)
+    expected_series = pd.to_numeric(means.reindex(ids), errors="coerce")
+    if expected_series.isna().any() or not np.isfinite(expected_series.to_numpy(float)).all():
+        raise ValueError("expected_returns_unavailable: missing_expected_returns")
+    expected = expected_series.to_numpy(float)
     matrix = covariance.reindex(index=ids, columns=ids).to_numpy(float)
     # Conservative uncertainty penalty prevents fragile high-mean allocations.
     uncertainty = np.sqrt(np.maximum(np.diag(matrix), 1e-12)) * 0.5
@@ -494,7 +524,10 @@ def _objective(method: str, weights: pd.Series, returns: pd.DataFrame, covarianc
     vector = weights.reindex(covariance.index).fillna(0.0).to_numpy(float)
     if method in {"minimum_variance", "equal_risk_contribution", "hrp", "maximum_diversification", "cvar", "inverse_volatility", "equal_weight"}:
         return float(max(0.0, vector @ covariance.to_numpy(float) @ vector))
-    mean = (expected if not expected.empty else returns.mean() * 252.0).reindex(covariance.index).fillna(0.0).to_numpy(float)
+    mean_series = (expected if not expected.empty else returns.mean() * 252.0).reindex(covariance.index)
+    if mean_series.isna().any() or not np.isfinite(mean_series.to_numpy(float)).all():
+        return None
+    mean = mean_series.to_numpy(float)
     return float(vector @ mean - 0.5 * (vector @ covariance.to_numpy(float) @ vector))
 
 

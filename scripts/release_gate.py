@@ -493,7 +493,7 @@ def _full_test_commands(
             "-n",
             str(xdist_workers),
             "--dist",
-            "loadfile",
+            "worksteal",
             *common,
             f"--junitxml={_junit_path(output_dir, 'junit-parallel.xml')}",
         ),

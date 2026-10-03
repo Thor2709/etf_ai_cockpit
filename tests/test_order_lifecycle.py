@@ -89,7 +89,11 @@ def test_two_concurrent_reservations_cannot_double_spend_cash(tmp_path: Path) ->
         outcomes = list(executor.map(lambda item: reserve(*item), [(first, "a"), (second, "b")]))
 
     assert sorted(outcomes) == ["rejected", "reserved"]
-    assert first.available_buying_power(account_id="account-1", currency="EUR") == Decimal("20")
+    assert first.available_buying_power(
+        account_id="account-1",
+        currency="EUR",
+        as_of=datetime(2026, 9, 30, 10, tzinfo=timezone.utc),
+    ) == Decimal("20")
 
 
 def test_duplicate_idempotency_key_creates_one_order_intent(tmp_path: Path) -> None:
@@ -120,11 +124,37 @@ def test_partial_fill_keeps_exact_decimal_residual_reservation(tmp_path: Path) -
 
     assert reservation.remaining_quantity == Decimal("6")
     assert reservation.reserved_amount == Decimal("60.25")
-    # Pinned to the fill day: the T+2 settlement of the fill releases its reservation once the wall clock passes
-    # 2026-10-02, so an unpinned (now) read is a date bomb.
     assert lifecycle.available_buying_power(
-        account_id="account-1", currency="EUR", as_of=datetime(2026, 9, 30, 11, tzinfo=timezone.utc)
+        account_id="account-1",
+        currency="EUR",
+        as_of=datetime(2026, 9, 30, 10, 0, 1, tzinfo=timezone.utc),
     ) == Decimal("899.85")
+
+
+def test_partial_fill_unsettled_debit_expires_on_settlement_date(tmp_path: Path) -> None:
+    lifecycle = _lifecycle(tmp_path / "orders.sqlite3")
+    _reserve(lifecycle, fee=Decimal("0.25"))
+    lifecycle.transition("order-1", OrderState.ACKNOWLEDGED, event_key="paper-ack")
+
+    lifecycle.record_fill(
+        "order-1",
+        fill_id="fill-1",
+        quantity=Decimal("4"),
+        price=Decimal("9.95"),
+        fee=Decimal("0.10"),
+        occurred_at=datetime(2026, 9, 30, 10, tzinfo=timezone.utc),
+    )
+
+    assert lifecycle.available_buying_power(
+        account_id="account-1",
+        currency="EUR",
+        as_of=datetime(2026, 9, 30, 10, 0, 1, tzinfo=timezone.utc),
+    ) == Decimal("899.85")
+    assert lifecycle.available_buying_power(
+        account_id="account-1",
+        currency="EUR",
+        as_of=datetime(2026, 10, 2, 0, tzinfo=timezone.utc),
+    ) == Decimal("939.75")
 
 
 def test_fill_cannot_consume_cash_reserved_for_another_order(tmp_path: Path) -> None:

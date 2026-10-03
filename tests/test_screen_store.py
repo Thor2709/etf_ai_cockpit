@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -180,7 +181,13 @@ def test_revision_lock_persistent_open_sharing_violation_times_out(tmp_path, mon
     (directory / ".revision.lock").write_text("{}", encoding="ascii")
     monkeypatch.setattr(screen_store, "_pid_alive", lambda _pid: True)
     ticks = iter((10.0, 15.0))
-    monkeypatch.setattr(screen_store.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(
+        screen_store,
+        "time",
+        SimpleNamespace(
+            monotonic=lambda: next(ticks), time=time.time, sleep=time.sleep
+        ),
+    )
     monkeypatch.setattr(screen_store.os, "open", lambda *_args: (_ for _ in ()).throw(PermissionError("sharing violation")))
     with pytest.raises(TimeoutError):
         with screen_store._revision_lock(directory):
@@ -226,7 +233,13 @@ def test_revision_lock_slow_absent_permission_preserves_original_before_deadline
         calls += 1
         raise error
 
-    monkeypatch.setattr(screen_store.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(
+        screen_store,
+        "time",
+        SimpleNamespace(
+            monotonic=lambda: next(ticks), time=time.time, sleep=time.sleep
+        ),
+    )
     monkeypatch.setattr(screen_store.os, "open", slow_open)
     with pytest.raises(PermissionError, match="slow ACL denied") as caught:
         with screen_store._revision_lock(directory):
@@ -251,7 +264,13 @@ def test_revision_lock_does_not_reclaim_malformed_or_live_stale_owner(
     stale = time.time() - 60
     os.utime(lock, (stale, stale))
     ticks = iter((10.0, 15.0))
-    monkeypatch.setattr(screen_store.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(
+        screen_store,
+        "time",
+        SimpleNamespace(
+            monotonic=lambda: next(ticks), time=time.time, sleep=time.sleep
+        ),
+    )
     with pytest.raises(TimeoutError):
         with screen_store._revision_lock(directory):
             pass
