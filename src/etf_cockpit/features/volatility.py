@@ -11,5 +11,5 @@ def realised_volatility(log_returns: pd.Series, window: int) -> pd.Series:
 
 
 def ewma_volatility(log_returns: pd.Series, lambda_: float = 0.97) -> pd.Series:
-    variance = log_returns.fillna(0).pow(2).ewm(alpha=1 - lambda_, adjust=False).mean()
-    return np.sqrt(variance * TRADING_DAYS_PER_YEAR)
+    variance = log_returns.pow(2).ewm(alpha=1 - lambda_, adjust=False, ignore_na=True).mean()
+    return np.sqrt(variance * TRADING_DAYS_PER_YEAR).where(log_returns.notna())

@@ -422,7 +422,8 @@ def _contradiction_record(
             macro_prices["etf_id"] = macro_prices["instrument_id"]
         instruments = getattr(getattr(getattr(state, "snapshot", None), "config", None), "universe", None)
         instrument_rows = getattr(instruments, "etfs", ()) if instruments is not None else ()
-        macro = build_macro_context(macro_prices, instrument_rows)
+        macro_as_of_date = decision_cutoff.date() if isinstance(decision_cutoff, pd.Timestamp) else None
+        macro = build_macro_context(macro_prices, instrument_rows, as_of_date=macro_as_of_date)
         try:
             # Preserve the existing warehouse provenance when available; the
             # feature-layer context remains the classification authority.

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
@@ -31,17 +33,26 @@ def evaluate_risk_gates(
             elif issue.severity == "warning":
                 warnings.append(issue.code)
 
-    if candidate_action in {"buy", "add"} and float(row.get("trend_200") or 0.0) <= 0:
-        blocked.append("below_sma_200")
+    if candidate_action in {"buy", "add"}:
+        trend_200 = _finite_float(row.get("trend_200"))
+        if trend_200 is None:
+            blocked.append("trend_evidence_unavailable")
+        elif trend_200 <= 0:
+            blocked.append("below_sma_200")
 
-    if candidate_action in {"buy", "add"} and float(row.get("drawdown_60d_max") or 0.0) < -config.risks.portfolio_limits.max_expected_drawdown_60d:
-        blocked.append("expected_drawdown_gate")
+    if candidate_action in {"buy", "add"}:
+        drawdown = _finite_float(row.get("drawdown_60d_max"))
+        if drawdown is None:
+            blocked.append("expected_drawdown_unavailable")
+        elif drawdown < -config.risks.portfolio_limits.max_expected_drawdown_60d:
+            blocked.append("expected_drawdown_gate")
 
     if candidate_action in {"buy", "add", "trim", "sell"}:
-        edge = abs(float(row.get("expected_edge_60d") or 0.0))
-        estimated_cost = float(row.get("cost_bps") or 0.0) / 10_000
-        required_edge = config.risks.portfolio_limits.min_edge_to_cost_ratio * estimated_cost
-        if edge < required_edge:
+        expected_edge = _finite_float(row.get("expected_edge_60d"))
+        cost_bps = _finite_float(row.get("cost_bps"))
+        if expected_edge is None or cost_bps is None or cost_bps < 0:
+            blocked.append("edge_inputs_unavailable")
+        elif abs(expected_edge) < config.risks.portfolio_limits.min_edge_to_cost_ratio * cost_bps / 10_000:
             blocked.append("edge_below_cost_threshold")
 
     if candidate_action in {"buy", "add"} and projected_weight is not None:
@@ -56,3 +67,11 @@ def evaluate_risk_gates(
         blocked.append("model_disagreement")
 
     return sorted(set(blocked)), sorted(set(warnings))
+
+
+def _finite_float(value: object) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None

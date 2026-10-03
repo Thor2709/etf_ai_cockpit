@@ -1204,7 +1204,13 @@ def test_injected_cash_comparison_propagates_without_changing_score_authority(
     tmp_path, monkeypatch
 ) -> None:
     snapshot = _snapshot_copy()
-    instrument_id = snapshot.signals[0].etf_id
+    # Signals are ordered by score, so pick the first configured EUR instrument
+    # explicitly: the injected result is EUR and must match the instrument currency.
+    instrument_id = next(
+        signal.etf_id
+        for signal in snapshot.signals
+        if str(snapshot.config.universe.by_id()[signal.etf_id].currency).upper() == "EUR"
+    )
     baseline = {
         score.display_id: score
         for score in build_simple_instrument_scores(

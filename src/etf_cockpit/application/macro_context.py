@@ -78,10 +78,12 @@ def build_macro_context_binding(
         )
 
     prices = _prices_as_of(getattr(snapshot, "prices", None), decision_time)
+    parsed_decision_time = pd.to_datetime(decision_time, errors="coerce", utc=True)
     context = build_macro_context(
         prices,
         _instruments(snapshot),
         observations,
+        as_of_date=None if pd.isna(parsed_decision_time) else parsed_decision_time.date(),
         benchmark_data_id=benchmark_data_id,
         benchmark_reference=benchmark_reference,
         benchmark_registry=benchmark_registry,

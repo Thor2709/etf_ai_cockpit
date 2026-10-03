@@ -4048,6 +4048,17 @@ def _load_market_series_projection(
     scoped = prices.loc[prices[identifier].astype(str).eq(str(instrument_id))].copy()
     if scoped.empty:
         return {"status": "unavailable", "reason_code": "market_series_unavailable", "frame": pd.DataFrame(), "execution_allowed": False}
+    if decision_time is not None:
+        decision_cutoff = pd.to_datetime(decision_time, errors="coerce", utc=True)
+        if pd.isna(decision_cutoff):
+            return {"status": "unavailable", "reason_code": "decision_time_invalid", "frame": pd.DataFrame(), "execution_allowed": False}
+        observation_times = pd.to_datetime(scoped["date"], errors="coerce", utc=True)
+        scoped = scoped.loc[observation_times.notna() & (observation_times < decision_cutoff)].copy()
+        if "known_at" in scoped:
+            known_times = pd.to_datetime(scoped["known_at"], errors="coerce", utc=True)
+            scoped = scoped.loc[known_times.notna() & (known_times < decision_cutoff)].copy()
+        if scoped.empty:
+            return {"status": "unavailable", "reason_code": "market_series_outside_decision_window", "frame": pd.DataFrame(), "execution_allowed": False}
     root = Path(storage_root or ROOT).resolve()
     actions = ()
     action_coverage = ()
@@ -4088,8 +4099,16 @@ def _load_market_series_projection(
                 return {"status": "unavailable", "reason_code": "required_fx_missing_stale_or_conflicted", "frame": pd.DataFrame(), "execution_allowed": False}
             rates.append(float(rate.rate))
         frame["fx_rate"] = rates
-        frame["fx_return"] = frame["fx_rate"].pct_change()
-        frame["output_total_return"] = (1.0 + frame["local_total_return"].fillna(0.0)) * (1.0 + frame["fx_return"].fillna(0.0)) - 1.0
+        frame["fx_return"] = frame["fx_rate"].pct_change(fill_method=None)
+        local_returns = frame["local_total_return"].copy()
+        fx_returns = frame["fx_return"].copy()
+        if local_returns.iloc[1:].isna().any() or fx_returns.iloc[1:].isna().any():
+            return {"status": "unavailable", "reason_code": "required_total_return_input_missing", "frame": pd.DataFrame(), "execution_allowed": False}
+        if not local_returns.empty:
+            # The first row has no prior observation; only this base-period return is defined as zero.
+            local_returns.iloc[0] = 0.0
+            fx_returns.iloc[0] = 0.0
+        frame["output_total_return"] = (1.0 + local_returns) * (1.0 + fx_returns) - 1.0
         frame["output_total_return_index"] = 100.0 * (1.0 + frame["output_total_return"]).cumprod()
     if basis == "raw":
         frame["series_value"] = frame["raw_close"] * (frame["fx_rate"] if "fx_rate" in frame else 1.0)
