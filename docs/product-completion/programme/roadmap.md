@@ -25,7 +25,7 @@ This roadmap is the lightweight programme view. `issues/issue_registry.json` own
 | `phase-08-frontend-api` | `ISSUE-0011, ISSUE-0016–ISSUE-0017, ISSUE-0020, ISSUE-0030, ISSUE-0037, ISSUE-0041–ISSUE-0043, ISSUE-0045, ISSUE-0136–ISSUE-0140, ISSUE-0158, ISSUE-0160–ISSUE-0161, ISSUE-0163, ISSUE-0165, ISSUE-0175, UPDATEV2-0027` - Typed local API and task-oriented frontend | 22 | integrated=22 | application-platform, frontend-and-api |
 | `phase-09-quality-release-security` | `ISSUE-0141–ISSUE-0146, ISSUE-0169, ISSUE-0176–ISSUE-0178, ISSUE-0180` - Quality, release, security and resilience | 11 | integrated=11 | programme-governance, quality-and-release, quality-release, security-and-release |
 | `phase-10-audit-documentation-governance` | `ISSUE-0147–ISSUE-0151` - Audit, reproducibility, documentation and governance | 5 | integrated=5 | audit-and-reproducibility, documentation, model-governance, programme-governance, quality-and-release |
-| `phase-11-certification` | `ISSUE-0152` - Final certification and programme closure | 1 | blocked=1 | programme-governance |
+| `phase-11-certification` | `ISSUE-0152` - Final certification and programme closure | 1 | ready=1 | programme-governance |
 
 ## Phase mapping
 
