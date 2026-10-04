@@ -14,7 +14,7 @@ import re
 import time
 import uuid
 
-from etf_cockpit.application.screening import ScreenQuery, ScreenResult
+from etf_cockpit.analysis.screening import ScreenQuery, ScreenResult
 from etf_cockpit.core.atomic_io import _fsync_directory, atomic_write_bytes
 from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import DATA_DIR
