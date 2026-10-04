@@ -15,8 +15,8 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     unavailable_reference_projection,
     validate_execution_disabled,
 )
-from etf_cockpit.application.benchmark_reference import validate_benchmark_reference
-from etf_cockpit.application.benchmark_reference import clip_to_decision_window
+from etf_cockpit.portfolio.benchmark_reference import validate_benchmark_reference
+from etf_cockpit.portfolio.benchmark_reference import clip_to_decision_window
 
 
 def build_market_regime(

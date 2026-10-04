@@ -15,7 +15,7 @@ import pandas as pd
 
 from etf_cockpit.backtest.benchmarks import equal_weights, momentum_weights, target_weights, trend_weights
 from etf_cockpit.backtest.metrics import performance_metrics
-from etf_cockpit.application.benchmark_reference import (
+from etf_cockpit.portfolio.benchmark_reference import (
     clip_to_decision_window,
     validate_benchmark_reference,
 )

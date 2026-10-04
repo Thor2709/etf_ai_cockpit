@@ -110,7 +110,6 @@ KNOWN_VIOLATIONS = frozenset(
         ("etf_cockpit.application.api", "etf_cockpit.app.operations"),
         ("etf_cockpit.application.ui_facade", "etf_cockpit.app.selectors.instrument_detail"),
         ("etf_cockpit.audit.local_llm", "etf_cockpit.services"),
-        ("etf_cockpit.backtest.engine", "etf_cockpit.application.benchmark_reference"),
         ("etf_cockpit.chatgpt_bridge.export_pack", "etf_cockpit.application.architecture"),
         ("etf_cockpit.chatgpt_bridge.export_pack", "etf_cockpit.application.settings"),
         ("etf_cockpit.core.config", "etf_cockpit.data.universe_store"),
@@ -127,16 +126,11 @@ KNOWN_VIOLATIONS = frozenset(
         ("etf_cockpit.data.screen_store", "etf_cockpit.application.screening"),
         ("etf_cockpit.data.sec_edgar_provider", "etf_cockpit.application.sec_bulk_import"),
         ("etf_cockpit.data.sec_edgar_provider", "etf_cockpit.application.sec_submissions_import"),
-        ("etf_cockpit.data.trade_candidate_analysis", "etf_cockpit.application.benchmark_reference"),
-        ("etf_cockpit.features.macro", "etf_cockpit.application.benchmark_reference"),
-        ("etf_cockpit.features.regime", "etf_cockpit.application.benchmark_reference"),
         ("etf_cockpit.governance.gate_policy", "etf_cockpit.signals.research_states"),
         ("etf_cockpit.governance.migrations", "etf_cockpit.signals.research_states"),
         ("etf_cockpit.governance.models", "etf_cockpit.signals.research_states"),
         ("etf_cockpit.governance.product_scope", "etf_cockpit.app.router"),
-        ("etf_cockpit.portfolio.attribution", "etf_cockpit.application.benchmark_reference"),
         ("etf_cockpit.portfolio.event_controls", "etf_cockpit.application.contracts"),
-        ("etf_cockpit.signals.simple_scores", "etf_cockpit.application.benchmark_reference"),
     }
 )
 

@@ -13,7 +13,7 @@ from typing import Iterable, Mapping
 import pandas as pd
 
 from etf_cockpit.features.regime import build_market_regime
-from etf_cockpit.application.benchmark_reference import (
+from etf_cockpit.portfolio.benchmark_reference import (
     clip_to_decision_window,
     unavailable_reference_projection,
     validate_benchmark_reference,

@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig, ProviderSection
-from etf_cockpit.application.benchmark_reference import adjusted_price_snapshot_binding
+from etf_cockpit.portfolio.benchmark_reference import adjusted_price_snapshot_binding
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, read_atomic_group
 from etf_cockpit.core.paths import FORECASTS_DIR, RAW_DIR, REPORTS_DIR
 from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope

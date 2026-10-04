@@ -125,7 +125,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     resolve_vwce_anchor,
     validate_execution_disabled,
 )
-from etf_cockpit.application.benchmark_reference import (
+from etf_cockpit.portfolio.benchmark_reference import (
     CanonicalReferenceContext,
     adjusted_price_snapshot_binding,
     clip_to_decision_window,

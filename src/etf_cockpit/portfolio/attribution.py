@@ -18,8 +18,8 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     BenchmarkReferenceError,
     unavailable_reference_projection,
 )
-from etf_cockpit.application.benchmark_reference import validate_benchmark_reference
-from etf_cockpit.application.benchmark_reference import clip_to_decision_window
+from etf_cockpit.portfolio.benchmark_reference import validate_benchmark_reference
+from etf_cockpit.portfolio.benchmark_reference import clip_to_decision_window
 
 ATTRIBUTION_MODEL_VERSION = "portfolio-attribution.v1"
 

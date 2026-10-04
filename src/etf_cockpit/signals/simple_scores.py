@@ -13,7 +13,7 @@ from typing import Iterable, Literal
 
 import pandas as pd
 
-from etf_cockpit.application.benchmark_reference import (
+from etf_cockpit.portfolio.benchmark_reference import (
     adjusted_price_binding_for_reference,
     validate_benchmark_reference,
 )
