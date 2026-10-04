@@ -28,6 +28,7 @@ from etf_cockpit.portfolio.performance_series import (
     PerformanceSeries,
     build_portfolio_performance_series,
 )
+from etf_cockpit.portfolio.review_reports import create_portfolio_review_report as create_portfolio_review_report
 from etf_cockpit.portfolio.holdings_table import build_portfolio_holdings_table
 from etf_cockpit.portfolio.forecast_aggregation import (
     PortfolioForecastSnapshot,

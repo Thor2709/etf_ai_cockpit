@@ -7,7 +7,7 @@ from pathlib import Path
 from etf_cockpit.data.classification import classification_score_state
 from contextlib import contextmanager
 from typing import Protocol
-from etf_cockpit.data.trust_artifacts import write_trust_artifacts_for_scores
+from etf_cockpit.data.trust_artifacts import refresh_static_trust_artifacts as refresh_static_trust_artifacts, write_trust_artifacts_for_scores
 from etf_cockpit.features.regime import build_market_regime, write_market_regime
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.models.calibration import (

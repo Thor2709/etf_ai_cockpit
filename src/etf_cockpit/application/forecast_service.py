@@ -27,7 +27,7 @@ from etf_cockpit.core.versioning import (
 from etf_cockpit.data.duckdb_store import load_prices
 from etf_cockpit.features.forecast_lab import build_forecast_lab_workspace as build_forecast_lab_workspace
 from etf_cockpit.models.baseline_models import baseline_forecast
-from etf_cockpit.models.forecast_scores import forecast_request_identity
+from etf_cockpit.models.forecast_scores import configured_forecast_request_identity as configured_forecast_request_identity, forecast_request_identity
 from etf_cockpit.portfolio.benchmark_reference_contract import CanonicalBenchmarkRegistry
 from etf_cockpit.portfolio.benchmark_reference import (
     CanonicalReferenceContext,

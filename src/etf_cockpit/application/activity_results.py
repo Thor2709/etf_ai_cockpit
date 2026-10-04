@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-
+from etf_cockpit.operations.event_store import (
+    current_activity_view as current_activity_view,
+    load_events_with_tail_recovery as load_events_with_tail_recovery,
+)
 
 
 class ActivityUnavailableError(RuntimeError):
