@@ -1353,6 +1353,7 @@ def test_signal_service_recomputes_supplied_features_without_current_price_bindi
     monkeypatch, binding_mode: str
 ) -> None:
     import etf_cockpit.services as services_module
+    import etf_cockpit.application.reference_context as reference_context
     import etf_cockpit.application.structural_evidence as structural_evidence
 
     captured: dict[str, object] = {}
@@ -1375,6 +1376,7 @@ def test_signal_service_recomputes_supplied_features_without_current_price_bindi
         "_reference_context_from_inputs",
         lambda *args, **kwargs: SimpleNamespace(identity=identity, benchmark_data_id=None),
     )
+    monkeypatch.setattr(reference_context, "_reference_context_from_inputs", services_module._reference_context_from_inputs)
     monkeypatch.setattr(services_module, "load_features", lambda *args, **kwargs: pd.DataFrame())
     recomputed = pd.DataFrame(
         [{"date": date(2025, 1, 2), "etf_id": "RECOMPUTED"}]

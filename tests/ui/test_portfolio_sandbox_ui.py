@@ -8,6 +8,7 @@ import pandas as pd
 from etf_cockpit.app.pages import portfolio
 from etf_cockpit.app.router import PAGES
 from etf_cockpit import services
+import etf_cockpit.application.reference_context as reference_context
 from etf_cockpit.application import portfolio_sandbox
 from etf_cockpit.core.config import load_config
 from etf_cockpit.portfolio.benchmark_reference_contract import (
@@ -173,6 +174,7 @@ def test_portfolio_ui_renders_available_canonical_identities_versions_and_digest
     state = _state()
     registry = _available_registry()
     monkeypatch.setattr(services, "load_canonical_benchmark_registry", lambda path: registry)
+    monkeypatch.setattr(reference_context, "load_canonical_benchmark_registry", services.load_canonical_benchmark_registry)
     evidence = services._benchmark_reference_snapshot_inputs(
         state.snapshot.config, state.snapshot.data_report.as_of_date,
         state.snapshot.holdings,

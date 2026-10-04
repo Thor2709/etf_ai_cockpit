@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from etf_cockpit import services
+import etf_cockpit.application.reference_context as reference_context
 import etf_cockpit.application.structural_evidence as structural_evidence
 import etf_cockpit.application.derived_cache as derived_cache
 from etf_cockpit.application.portfolio_sandbox import (
@@ -505,6 +506,7 @@ def test_build_snapshot_wires_available_reference_evidence_through_restart_and_s
     monkeypatch.setattr(
         services, "load_canonical_benchmark_registry", lambda path: source_backed_registry,
     )
+    monkeypatch.setattr(reference_context, "load_canonical_benchmark_registry", services.load_canonical_benchmark_registry)
 
     snapshot = services._build_snapshot(force_sample=True)
     assert isinstance(snapshot.benchmark_reference_registry, CanonicalBenchmarkRegistry)
@@ -610,6 +612,7 @@ def test_build_snapshot_no_trade_rejects_excluded_holdings_in_source_frame(monke
         "load_canonical_benchmark_registry",
         lambda path: source_backed_registry,
     )
+    monkeypatch.setattr(reference_context, "load_canonical_benchmark_registry", services.load_canonical_benchmark_registry)
 
     snapshot = services._build_snapshot(force_sample=True)
 
@@ -627,6 +630,7 @@ def test_snapshot_reference_inputs_fail_closed_when_local_registry_is_missing(
     monkeypatch.setattr(
         services, "BENCHMARK_REFERENCE_REGISTRY_PATH", tmp_path / "missing-registry.json",
     )
+    monkeypatch.setattr(reference_context, "BENCHMARK_REFERENCE_REGISTRY_PATH", services.BENCHMARK_REFERENCE_REGISTRY_PATH)
     evidence = services._benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
     assert evidence["registry"].as_payload()["records"] == []
     assert evidence["instrument"] is None
@@ -676,6 +680,7 @@ def test_snapshot_no_trade_reference_fails_closed_for_invalid_current_holdings(m
 def test_snapshot_no_trade_strips_stale_registry_record_when_holdings_are_missing(monkeypatch) -> None:
     registry = _canonical_reference_registry(_vwce_anchor())
     monkeypatch.setattr(services, "load_canonical_benchmark_registry", lambda path: registry)
+    monkeypatch.setattr(reference_context, "load_canonical_benchmark_registry", services.load_canonical_benchmark_registry)
 
     evidence = services._benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
 
@@ -744,6 +749,7 @@ def test_snapshot_inputs_select_newest_pit_anchor_and_replay_listing_history(mon
         vwce_anchors=(historical, revised),
     )
     monkeypatch.setattr(services, "load_canonical_benchmark_registry", lambda path: registry)
+    monkeypatch.setattr(reference_context, "load_canonical_benchmark_registry", services.load_canonical_benchmark_registry)
 
     old = services._benchmark_reference_snapshot_inputs(load_config(), "2024-07-18")
     current = services._benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
@@ -768,6 +774,7 @@ def test_snapshot_cash_chronology_is_accepted_by_score_readback(monkeypatch) -> 
         "load_canonical_benchmark_registry",
         lambda path: registry,
     )
+    monkeypatch.setattr(reference_context, "load_canonical_benchmark_registry", services.load_canonical_benchmark_registry)
 
     inputs = services._benchmark_reference_snapshot_inputs(
         load_config(),
@@ -824,6 +831,7 @@ def test_snapshot_inputs_fail_closed_only_on_true_latest_anchor_tie(monkeypatch)
     tied = replace(anchor, benchmark_name="Different source-backed revision")
     object.__setattr__(registry, "vwce_anchors", (anchor, tied))
     monkeypatch.setattr(services, "load_canonical_benchmark_registry", lambda path: registry)
+    monkeypatch.setattr(reference_context, "load_canonical_benchmark_registry", services.load_canonical_benchmark_registry)
 
     evidence = services._benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
     assert evidence["anchor"] is None
