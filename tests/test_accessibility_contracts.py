@@ -8,7 +8,7 @@ import pytest
 
 from etf_cockpit.app.router import PAGES, WORKSPACE_GROUPS, build_shell
 from etf_cockpit.core.ui_acceptance import load_ui_acceptance_contracts
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 from etf_cockpit.app.state import AppState
 
 

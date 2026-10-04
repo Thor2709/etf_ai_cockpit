@@ -11,7 +11,16 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-import etf_cockpit.services as services
+from etf_cockpit.application.backtest_service import BacktestService
+from etf_cockpit.application.derived_cache import (
+    _cached_structure_columns_match,
+    _reference_binding,
+    _write_universe_cache_metadata,
+)
+from etf_cockpit.application.reference_context import _backtest_calculation_context
+from etf_cockpit.backtest.engine import quality_momentum_evidence_checksum
+from etf_cockpit.core.config import load_config
+from etf_cockpit.data.etf_structure import structure_confidence_caps
 import etf_cockpit.application.signal_service as signal_service
 import etf_cockpit.application.data_service as data_service
 import etf_cockpit.application.backtest_service as backtest_service
@@ -20,7 +29,7 @@ import etf_cockpit.application.forecast_service as forecast_service
 import etf_cockpit.application.economics_inputs as economics_inputs
 import etf_cockpit.application.structural_evidence as structural_evidence
 import etf_cockpit.application.derived_cache as derived_cache
-from etf_cockpit.app.selectors.instrument_detail import (
+from etf_cockpit.application.instrument_detail_view import (
     InstrumentDetailViewModel,
     _SECTION_NAMES,
     _etf_structure_panel,
@@ -105,7 +114,7 @@ def test_score_panel_prefers_current_structurally_capped_signal_confidence_inclu
 
 
 def test_instrument_detail_standard_loading_reaches_local_factsheet_and_holdings_structure(tmp_path, monkeypatch) -> None:
-    import etf_cockpit.app.selectors.instrument_detail as selector
+    import etf_cockpit.application.instrument_detail_view as selector
     from etf_cockpit.data.fund_holdings import normalise_holdings
 
     registry = pd.DataFrame(
@@ -178,7 +187,7 @@ def test_instrument_detail_standard_loading_reaches_local_factsheet_and_holdings
 
 @pytest.mark.parametrize("corrupt_kind", ["factsheet", "holdings"])
 def test_instrument_detail_malformed_canonical_structure_is_unavailable(tmp_path, monkeypatch, corrupt_kind: str) -> None:
-    import etf_cockpit.app.selectors.instrument_detail as selector
+    import etf_cockpit.application.instrument_detail_view as selector
 
     factsheet_path = tmp_path / "etf_metadata.parquet"
     holdings_path = tmp_path / "fund_holdings.parquet"
@@ -203,7 +212,7 @@ def test_instrument_detail_malformed_canonical_structure_is_unavailable(tmp_path
 
 @pytest.mark.parametrize("corrupt_kind", ["factsheet", "holdings"])
 def test_instrument_detail_schema_malformed_canonical_structure_is_unavailable(tmp_path, monkeypatch, corrupt_kind: str) -> None:
-    import etf_cockpit.app.selectors.instrument_detail as selector
+    import etf_cockpit.application.instrument_detail_view as selector
 
     factsheet_path = tmp_path / "etf_metadata.parquet"
     holdings_path = tmp_path / "fund_holdings.parquet"
@@ -225,7 +234,7 @@ def test_instrument_detail_schema_malformed_canonical_structure_is_unavailable(t
 
 
 def test_missing_optional_holdings_preserves_valid_factsheet_evidence(tmp_path, monkeypatch) -> None:
-    import etf_cockpit.app.selectors.instrument_detail as selector
+    import etf_cockpit.application.instrument_detail_view as selector
 
     factsheet_path = tmp_path / "etf_metadata.parquet"
     pd.DataFrame([{
@@ -268,7 +277,7 @@ def test_missing_optional_holdings_preserves_valid_factsheet_evidence(tmp_path, 
 
 
 def test_holdings_with_instrument_id_and_unrelated_columns_fail_closed_at_structural_root(tmp_path, monkeypatch) -> None:
-    import etf_cockpit.app.selectors.instrument_detail as selector
+    import etf_cockpit.application.instrument_detail_view as selector
     from etf_cockpit.data.etf_structure import load_local_structural_evidence, structure_confidence_caps
 
     holdings_path = tmp_path / "fund_holdings.parquet"
@@ -435,7 +444,7 @@ def test_real_canonical_writers_preserve_bindings_through_shared_projection_and_
     caps = structure_confidence_caps(["ETF-1"], document_registry=registry, supplemental_rows=evidence.supplemental_rows, holdings=evidence.holdings, decision_time="2026-07-11")
     assert caps["ETF-1"] > 0.0
     assert caps.provenance["ETF-1"]["structure_provenance_hash"] != "unavailable"
-    config = services.load_config()
+    config = load_config()
     prices = generate_sample_prices(config, periods=260, end_date=date(2026, 7, 10))
     report = run_backtest(config, prices, structure_document_registry=registry, structure_supplemental_rows=evidence.supplemental_rows, structure_holdings=evidence.holdings)
     assert report.metadata["input_checksum"] == backtest_input_checksum(config, prices, pd.DataFrame(), structure_document_registry=registry, structure_supplemental_rows=evidence.supplemental_rows, structure_holdings=evidence.holdings)
@@ -1052,7 +1061,7 @@ def test_cached_structure_validation_rejects_invalid_or_unconfigured_instrument_
     )
     signal_log = pd.DataFrame([{"date": "2026-07-10", "etf_id": invalid_id}])
 
-    assert services._cached_structure_columns_match(
+    assert _cached_structure_columns_match(
         signal_log,
         pd.Series([0.0]),
         pd.Series(["unavailable"]),
@@ -1086,9 +1095,8 @@ def test_cached_structure_validation_batches_non_empty_evidence_by_decision_date
         }
         return result
 
-    monkeypatch.setattr(services, "structure_confidence_caps", fake_structure_caps)
-    monkeypatch.setattr(structural_evidence, "structure_confidence_caps", services.structure_confidence_caps)
-    monkeypatch.setattr(derived_cache, "structure_confidence_caps", services.structure_confidence_caps)
+    monkeypatch.setattr(structural_evidence, "structure_confidence_caps", fake_structure_caps)
+    monkeypatch.setattr(derived_cache, "structure_confidence_caps", fake_structure_caps)
     evidence = SimpleNamespace(
         document_registry=pd.DataFrame([{"source_id": "source-1"}]),
         report_records=pd.DataFrame(),
@@ -1108,7 +1116,7 @@ def test_cached_structure_validation_batches_non_empty_evidence_by_decision_date
         [f"{row.date()}:{instrument_id}" for row, instrument_id in zip(pd.to_datetime(signal_log["date"]), signal_log["etf_id"], strict=True)]
     )
 
-    assert services._cached_structure_columns_match(
+    assert _cached_structure_columns_match(
         signal_log, stored_caps, stored_hashes, evidence, ["ETF-1", "ETF-2"]
     ) is True
     assert calls == [
@@ -1119,7 +1127,7 @@ def test_cached_structure_validation_batches_non_empty_evidence_by_decision_date
     calls.clear()
     tampered_hashes = stored_hashes.copy()
     tampered_hashes.iloc[-1] = "tampered"
-    assert services._cached_structure_columns_match(
+    assert _cached_structure_columns_match(
         signal_log, stored_caps, tampered_hashes, evidence, ["ETF-1", "ETF-2"]
     ) is False
     assert calls == [
@@ -1174,7 +1182,7 @@ def test_cached_structure_validation_rejects_future_holdings_confidence() -> Non
         ),
     )
 
-    assert services._cached_structure_columns_match(
+    assert _cached_structure_columns_match(
         pd.DataFrame([{"date": "2026-07-15", "etf_id": "ETF-1"}]),
         pd.Series([1.0]),
         pd.Series(["forged-future-confidence"]),
@@ -1186,7 +1194,7 @@ def test_cached_structure_validation_rejects_future_holdings_confidence() -> Non
 def test_real_260_session_backtest_accepts_structural_holdings() -> None:
     from etf_cockpit.data.etf_structure import structure_confidence_caps
 
-    config = services.load_config()
+    config = load_config()
     prices = generate_sample_prices(config, periods=260, end_date=date(2026, 7, 10))
     holdings = pd.DataFrame([{
         "security": "Test holding", "weight": 0.4, "instrument_id": config.universe.enabled_ids[0],
@@ -1218,7 +1226,7 @@ def test_real_260_session_backtest_accepts_structural_holdings() -> None:
 def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path, monkeypatch) -> None:
     from etf_cockpit.data.fund_holdings import normalise_holdings
 
-    config = services.load_config()
+    config = load_config()
     prices = pd.DataFrame([{"etf_id": config.universe.enabled_ids[0], "date": "2026-07-10", "adjusted_close": 100.0}])
     fundamentals = pd.DataFrame()
     registry = pd.DataFrame([{"instrument_id": config.universe.enabled_ids[0], "source_id": "registry-1"}])
@@ -1263,7 +1271,7 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
             structure_supplemental_rows=structure_supplemental_rows,
             structure_holdings=structure_holdings,
         )
-        structural_caps = services.structure_confidence_caps(
+        structural_caps = structure_confidence_caps(
             [config_arg.universe.enabled_ids[0]],
             document_registry=structure_document_registry,
             report_records=structure_report_records,
@@ -1305,7 +1313,7 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
             metadata={
                 "input_checksum": checksum,
                 "quality_momentum_strategy_version": QUALITY_MOMENTUM_VERSION,
-                "quality_momentum_evidence_checksum": services.quality_momentum_evidence_checksum(evidence),
+                "quality_momentum_evidence_checksum": quality_momentum_evidence_checksum(evidence),
                 "operational_evidence_rows": [],
             },
             quality_momentum_evidence=evidence,
@@ -1326,61 +1334,44 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
     def fake_append(path, event, payload):
         return None
 
-    monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path / "backtests")
-    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", services.BACKTESTS_DIR)
-    monkeypatch.setattr(
-        services,
-        "IDENTITY_PATH",
-        tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
-    )
-    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
-    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
-    monkeypatch.setattr(services, "FUND_HOLDINGS_PATH", holdings_path)
-    monkeypatch.setattr(structural_evidence, "FUND_HOLDINGS_PATH", services.FUND_HOLDINGS_PATH)
-    monkeypatch.setattr(services, "ETF_METADATA_CLEAN_PATH", factsheet_path)
-    monkeypatch.setattr(structural_evidence, "ETF_METADATA_CLEAN_PATH", services.ETF_METADATA_CLEAN_PATH)
-    monkeypatch.setattr(services, "load_prices", lambda: prices)
-    monkeypatch.setattr(signal_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(data_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(backtest_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(services, "load_fundamental_evidence", lambda: fundamentals)
-    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", services.load_fundamental_evidence)
-    monkeypatch.setattr(services, "read_document_registry", lambda: registry)
-    monkeypatch.setattr(structural_evidence, "read_document_registry", services.read_document_registry)
-    monkeypatch.setattr(services, "read_etf_report_records", lambda: reports)
-    monkeypatch.setattr(economics_inputs, "read_etf_report_records", services.read_etf_report_records)
-    monkeypatch.setattr(structural_evidence, "read_etf_report_records", services.read_etf_report_records)
-    monkeypatch.setattr(services, "run_backtest", fake_run_backtest)
-    monkeypatch.setattr(backtest_service, "run_backtest", services.run_backtest)
-    monkeypatch.setattr(services, "current_settings_identity", fake_settings_identity)
-    monkeypatch.setattr(backtest_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(feature_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(forecast_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(services, "current_settings_revision", fake_settings_revision)
-    monkeypatch.setattr(signal_service, "current_settings_revision", services.current_settings_revision)
-    monkeypatch.setattr(data_service, "current_settings_revision", services.current_settings_revision)
-    monkeypatch.setattr(backtest_service, "current_settings_revision", services.current_settings_revision)
-    monkeypatch.setattr(forecast_service, "current_settings_revision", services.current_settings_revision)
-    monkeypatch.setattr(derived_cache, "current_settings_revision", services.current_settings_revision)
-    monkeypatch.setattr(services, "settings_bound_run_id", fake_run_id)
-    monkeypatch.setattr(backtest_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(feature_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(forecast_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(services, "ensure_run_manifest", fake_manifest)
-    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(services, "append_jsonl", fake_append)
-    monkeypatch.setattr(signal_service, "append_jsonl", services.append_jsonl)
-    monkeypatch.setattr(backtest_service, "append_jsonl", services.append_jsonl)
+    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", tmp_path / "backtests")
+    identity_path = tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet"
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(structural_evidence, "FUND_HOLDINGS_PATH", holdings_path)
+    monkeypatch.setattr(structural_evidence, "ETF_METADATA_CLEAN_PATH", factsheet_path)
+    monkeypatch.setattr(signal_service, "load_prices", lambda: prices)
+    monkeypatch.setattr(data_service, "load_prices", lambda: prices)
+    monkeypatch.setattr(backtest_service, "load_prices", lambda: prices)
+    monkeypatch.setattr(feature_service, "load_prices", lambda: prices)
+    monkeypatch.setattr(forecast_service, "load_prices", lambda: prices)
+    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", lambda: fundamentals)
+    monkeypatch.setattr(structural_evidence, "read_document_registry", lambda: registry)
+    monkeypatch.setattr(economics_inputs, "read_etf_report_records", lambda: reports)
+    monkeypatch.setattr(structural_evidence, "read_etf_report_records", lambda: reports)
+    monkeypatch.setattr(backtest_service, "run_backtest", fake_run_backtest)
+    monkeypatch.setattr(backtest_service, "current_settings_identity", fake_settings_identity)
+    monkeypatch.setattr(feature_service, "current_settings_identity", fake_settings_identity)
+    monkeypatch.setattr(forecast_service, "current_settings_identity", fake_settings_identity)
+    monkeypatch.setattr(signal_service, "current_settings_revision", fake_settings_revision)
+    monkeypatch.setattr(data_service, "current_settings_revision", fake_settings_revision)
+    monkeypatch.setattr(backtest_service, "current_settings_revision", fake_settings_revision)
+    monkeypatch.setattr(forecast_service, "current_settings_revision", fake_settings_revision)
+    monkeypatch.setattr(derived_cache, "current_settings_revision", fake_settings_revision)
+    monkeypatch.setattr(backtest_service, "settings_bound_run_id", fake_run_id)
+    monkeypatch.setattr(feature_service, "settings_bound_run_id", fake_run_id)
+    monkeypatch.setattr(forecast_service, "settings_bound_run_id", fake_run_id)
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", fake_manifest)
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", fake_manifest)
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", fake_manifest)
+    monkeypatch.setattr(signal_service, "append_jsonl", fake_append)
+    monkeypatch.setattr(backtest_service, "append_jsonl", fake_append)
 
-    service = services.BacktestService(config, universe_revision="universe-1")
+    service = BacktestService(config, universe_revision="universe-1")
     service.run_backtest()
     assert captured["structure_holdings"].equals(holdings)
     assert captured["structure_supplemental_rows"]["source_id"].tolist() == ["factsheet-1"]
-    persisted_signal_log = pd.read_csv(services.BACKTESTS_DIR / "signal_log.csv")
+    persisted_signal_log = pd.read_csv(backtest_service.BACKTESTS_DIR / "signal_log.csv")
     assert persisted_signal_log.loc[0, "structural_confidence_cap"] == captured["structural_cap"]
     assert persisted_signal_log.loc[0, "structural_provenance_hash"] == captured["structural_hash"]
     cached = service._load_cached_backtest()
@@ -1390,20 +1381,20 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
 
     tampered_cap = persisted_signal_log.copy()
     tampered_cap.loc[0, "structural_confidence_cap"] = float(captured["structural_cap"]) + 0.1
-    tampered_cap.to_csv(services.BACKTESTS_DIR / "signal_log.csv", index=False)
+    tampered_cap.to_csv(backtest_service.BACKTESTS_DIR / "signal_log.csv", index=False)
     assert service._load_cached_backtest() is None
 
     tampered_hash = persisted_signal_log.copy()
     tampered_hash.loc[0, "structural_provenance_hash"] = "d" * 64
-    tampered_hash.to_csv(services.BACKTESTS_DIR / "signal_log.csv", index=False)
+    tampered_hash.to_csv(backtest_service.BACKTESTS_DIR / "signal_log.csv", index=False)
     assert service._load_cached_backtest() is None
 
     missing_provenance = persisted_signal_log.drop(
         columns=["structural_confidence_cap", "structural_provenance_hash"]
     )
-    missing_provenance.to_csv(services.BACKTESTS_DIR / "signal_log.csv", index=False)
+    missing_provenance.to_csv(backtest_service.BACKTESTS_DIR / "signal_log.csv", index=False)
     assert service._load_cached_backtest() is None
-    persisted_signal_log.to_csv(services.BACKTESTS_DIR / "signal_log.csv", index=False)
+    persisted_signal_log.to_csv(backtest_service.BACKTESTS_DIR / "signal_log.csv", index=False)
 
     changed = holdings.copy()
     changed.loc[0, "weight"] = 0.6
@@ -1433,7 +1424,7 @@ def test_canonical_document_registry_fails_closed_on_corrupt_store(tmp_path) -> 
 
 
 def test_backtest_cache_is_invalidated_when_structural_loader_raises(tmp_path, monkeypatch) -> None:
-    config = services.load_config()
+    config = load_config()
     prices = pd.DataFrame(
         [{"etf_id": config.universe.enabled_ids[0], "date": "2026-07-10", "adjusted_close": 100.0}]
     )
@@ -1457,27 +1448,23 @@ def test_backtest_cache_is_invalidated_when_structural_loader_raises(tmp_path, m
             for strategy in ("momentum_only", "signal_strategy", "quality_momentum")
         ]
     )
-    monkeypatch.setattr(services, "BACKTESTS_DIR", backtests)
-    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", services.BACKTESTS_DIR)
-    monkeypatch.setattr(services, "load_prices", lambda: prices)
-    monkeypatch.setattr(signal_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(data_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(backtest_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(services, "load_fundamental_evidence", lambda: fundamentals)
-    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", services.load_fundamental_evidence)
-    monkeypatch.setattr(services, "current_settings_revision", lambda: "settings-1")
-    monkeypatch.setattr(signal_service, "current_settings_revision", services.current_settings_revision)
-    monkeypatch.setattr(data_service, "current_settings_revision", services.current_settings_revision)
-    monkeypatch.setattr(backtest_service, "current_settings_revision", services.current_settings_revision)
-    monkeypatch.setattr(forecast_service, "current_settings_revision", services.current_settings_revision)
-    monkeypatch.setattr(derived_cache, "current_settings_revision", services.current_settings_revision)
-    service = services.BacktestService(config, universe_revision="universe-1")
-    reference_context = services._backtest_calculation_context(
+    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", backtests)
+    monkeypatch.setattr(signal_service, "load_prices", lambda: prices)
+    monkeypatch.setattr(data_service, "load_prices", lambda: prices)
+    monkeypatch.setattr(backtest_service, "load_prices", lambda: prices)
+    monkeypatch.setattr(feature_service, "load_prices", lambda: prices)
+    monkeypatch.setattr(forecast_service, "load_prices", lambda: prices)
+    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", lambda: fundamentals)
+    monkeypatch.setattr(signal_service, "current_settings_revision", lambda: "settings-1")
+    monkeypatch.setattr(data_service, "current_settings_revision", lambda: "settings-1")
+    monkeypatch.setattr(backtest_service, "current_settings_revision", lambda: "settings-1")
+    monkeypatch.setattr(forecast_service, "current_settings_revision", lambda: "settings-1")
+    monkeypatch.setattr(derived_cache, "current_settings_revision", lambda: "settings-1")
+    service = BacktestService(config, universe_revision="universe-1")
+    reference_context = _backtest_calculation_context(
         config, service.reference_context, prices
     )
-    binding = services._reference_binding(reference_context)
+    binding = _reference_binding(reference_context)
     results["benchmark_strategy"] = binding["benchmark_strategy"]
     results.to_csv(backtests / "backtest_results.csv", index=False)
     pd.DataFrame({"signal_strategy": [100.0]}, index=pd.to_datetime(["2026-07-10"])).to_csv(
@@ -1496,7 +1483,7 @@ def test_backtest_cache_is_invalidated_when_structural_loader_raises(tmp_path, m
     metadata = {
         "input_checksum": backtest_input_checksum(config, prices, fundamentals),
         "quality_momentum_strategy_version": QUALITY_MOMENTUM_VERSION,
-        "quality_momentum_evidence_checksum": services.quality_momentum_evidence_checksum(evidence),
+        "quality_momentum_evidence_checksum": quality_momentum_evidence_checksum(evidence),
         **binding,
     }
     (backtests / "backtest_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
@@ -1509,7 +1496,7 @@ def test_backtest_cache_is_invalidated_when_structural_loader_raises(tmp_path, m
         "quality_momentum_evidence.csv",
         "backtest_metadata.json",
     ):
-        services._write_universe_cache_metadata(
+        _write_universe_cache_metadata(
             backtests / filename,
             "universe-1",
             "settings-1",
@@ -1523,9 +1510,8 @@ def test_backtest_cache_is_invalidated_when_structural_loader_raises(tmp_path, m
         loader_called = True
         raise ValueError("structural store is corrupt")
 
-    monkeypatch.setattr(services, "_load_local_structural_evidence", raise_structural_corruption)
-    monkeypatch.setattr(backtest_service, "_load_local_structural_evidence", services._load_local_structural_evidence)
-    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
+    monkeypatch.setattr(backtest_service, "_load_local_structural_evidence", raise_structural_corruption)
+    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", raise_structural_corruption)
 
     assert service._load_cached_backtest() is None
     assert loader_called is True

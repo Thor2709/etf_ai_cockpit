@@ -13,11 +13,11 @@ import pytest
 from etf_cockpit.app import router
 from etf_cockpit.app.router import PAGES, _page_route, navigate_to
 from etf_cockpit.app.pages.instrument_detail import _render_crowding_attribution_panel, _render_evidence_section, instrument_detail_page
-from etf_cockpit.app.selectors.instrument_detail import _attribution_panel, _backtest_panel, _derived_evidence_panel, _etf_disclosure_panel, _feature_driver_panel, _friction_panel, _fundamentals_panel, _instrument_rows, _news_item_record, _parsed_panel, _price_panel, _risk_panel, _run_changes_panel, _safe_bool, _score_panel, build_instrument_detail
+from etf_cockpit.application.instrument_detail_view import _attribution_panel, _backtest_panel, _derived_evidence_panel, _etf_disclosure_panel, _feature_driver_panel, _friction_panel, _fundamentals_panel, _instrument_rows, _news_item_record, _parsed_panel, _price_panel, _risk_panel, _run_changes_panel, _safe_bool, _score_panel, build_instrument_detail
 from etf_cockpit.backtest.engine import BacktestReport
 from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections
 from etf_cockpit.core.config import ETFConfig
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 from etf_cockpit.signals.simple_scores import SimpleInstrumentScore, SimpleScoreComponent
 
 
@@ -111,7 +111,7 @@ def _snapshot_copy():
 
 @pytest.fixture
 def valuation_scenario_evidence(tmp_path, monkeypatch):
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     values = {"free_cash_flow": 10.0, "shares_outstanding": 10.0, "net_debt": 5.0,
               "market_cap": 150.0, "equity": 80.0, "net_income": 12.0}
@@ -129,7 +129,7 @@ def valuation_scenario_evidence(tmp_path, monkeypatch):
 
 
 def test_valuation_scenario_results_and_context(valuation_scenario_evidence):
-    from etf_cockpit.app.selectors.instrument_detail import _valuation_panel
+    from etf_cockpit.application.instrument_detail_view import _valuation_panel
 
     _, assumptions = valuation_scenario_evidence
     panel = _valuation_panel("ACME", "stock", "2026-07-01", assumptions)
@@ -234,7 +234,7 @@ def test_valuation_scenario_producer_fail_closed(valuation_scenario_evidence, mo
 
 def test_valuation_scenario_controls_are_local_and_invalidate(valuation_scenario_evidence, monkeypatch):
     from etf_cockpit.app.pages.instrument_detail import _render_valuation_scenarios
-    from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel, _valuation_panel
+    from etf_cockpit.application.instrument_detail_view import InstrumentDetailViewModel, _valuation_panel
 
     _, assumptions = valuation_scenario_evidence
     initial = _valuation_panel("ACME", "stock", "2026-07-01")
@@ -270,7 +270,7 @@ def test_valuation_scenario_controls_are_local_and_invalidate(valuation_scenario
 
 
 def test_valuation_uses_only_selected_point_in_time_statements(tmp_path, monkeypatch) -> None:
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     rows = []
     for instrument, available, source, market_cap in (
@@ -298,7 +298,7 @@ def test_valuation_uses_only_selected_point_in_time_statements(tmp_path, monkeyp
 
 @pytest.mark.parametrize("cutoff", [None, "invalid", ["2026-01-01"]])
 def test_valuation_missing_decision_time_does_not_load(monkeypatch, cutoff) -> None:
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     def unexpected(*args, **kwargs):
         pytest.fail("Missing decision time must not load statement evidence")
@@ -313,7 +313,7 @@ def test_valuation_missing_decision_time_does_not_load(monkeypatch, cutoff) -> N
     ("end", ["2025-12-31"]), ("end", "not-a-date"),
 ])
 def test_valuation_invalid_selected_evidence_blocks_panel(monkeypatch, field, bad_value) -> None:
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     valid = {"instrument_id": "ACME", "canonical_metric": "net_income", "value": 10.0,
              "available_at": "2026-01-01", "filed": "2026-01-01", "end": "2025-12-31", "source_id": "known"}
@@ -328,7 +328,7 @@ def test_valuation_invalid_selected_evidence_blocks_panel(monkeypatch, field, ba
 
 
 def test_valuation_exact_same_day_cutoff_and_date_only_precision(tmp_path, monkeypatch) -> None:
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     rows = []
     for availability, source, cap in (("2026-07-01T08:00:00Z", "morning", 100.0),
@@ -356,7 +356,7 @@ def test_valuation_exact_same_day_cutoff_and_date_only_precision(tmp_path, monke
 
 
 def test_valuation_corrupt_store_is_explicit(tmp_path, monkeypatch) -> None:
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     path = tmp_path / "corrupt.parquet"
     path.write_bytes(b"invalid parquet")
@@ -368,7 +368,7 @@ def test_valuation_corrupt_store_is_explicit(tmp_path, monkeypatch) -> None:
 
 @pytest.mark.parametrize("asset_type", ["stock", "etf"])
 def test_valuation_visible_in_detail_for_stock_and_etf(tmp_path, monkeypatch, asset_type) -> None:
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     monkeypatch.setattr(selector, "STATEMENT_FACTS_PATH", tmp_path / "missing.parquet")
     report = BacktestReport(
@@ -379,7 +379,6 @@ def test_valuation_visible_in_detail_for_stock_and_etf(tmp_path, monkeypatch, as
         ai_added_value=False,
         quality_momentum_evidence=pd.DataFrame(columns=["etf_id", "date"]),
     )
-    monkeypatch.setattr("etf_cockpit.services.run_backtest", lambda *_args, **_kwargs: report)
     monkeypatch.setattr("etf_cockpit.application.backtest_service.run_backtest", lambda *_args, **_kwargs: report)
     snapshot = build_snapshot(force_sample=True)
     instrument = ETFConfig(id="valuation-example", name="Valuation Example", ticker="VAL", instrument_type=asset_type, role="watchlist")
@@ -397,7 +396,7 @@ def test_valuation_visible_in_detail_for_stock_and_etf(tmp_path, monkeypatch, as
 @pytest.fixture(autouse=True)
 def _isolated_detail_stores(tmp_path, monkeypatch):
     from etf_cockpit.app.pages import instrument_detail as detail_page
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
     from etf_cockpit.core import paths
     from etf_cockpit.data import bitemporal
 
@@ -409,7 +408,7 @@ def _isolated_detail_stores(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("instrument_id", ["VWCE", "journal-stock"])
 def test_normal_detail_route_reads_verified_scoped_journal(tmp_path, monkeypatch, instrument_id) -> None:
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
     from etf_cockpit.application.ui_facade import DecisionJournal, JournalEntry
 
     monkeypatch.setattr(selector, "DATA_DIR", tmp_path)
@@ -438,7 +437,7 @@ def test_normal_detail_route_reads_verified_scoped_journal(tmp_path, monkeypatch
 
 @pytest.mark.parametrize("state", ["empty", "corrupt", "locked"])
 def test_local_detail_journal_failures_are_explicit(tmp_path, monkeypatch, state) -> None:
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     monkeypatch.setattr(selector, "DATA_DIR", tmp_path)
     if state == "corrupt":
@@ -458,7 +457,7 @@ def test_local_detail_journal_failures_are_explicit(tmp_path, monkeypatch, state
 
 
 def test_injected_journal_projection_excludes_private_fields() -> None:
-    from etf_cockpit.app.selectors.instrument_detail import _journal_panel
+    from etf_cockpit.application.instrument_detail_view import _journal_panel
 
     panel = _journal_panel("VWCE", pd.DataFrame([{
         "instrument_id": "VWCE", "journal_id": "public-id", "thesis": "Public thesis",
@@ -530,7 +529,7 @@ def test_instrument_detail_assembles_all_required_sections_and_derived_fields() 
 
 
 def test_factor_risk_rejects_non_target_holdings_before_canonical_producer(monkeypatch) -> None:
-    from etf_cockpit.app.selectors import instrument_detail
+    from etf_cockpit.application import instrument_detail_view as instrument_detail
 
     config = SimpleNamespace(
         universe=SimpleNamespace(etfs=[SimpleNamespace(id="VWCE", enabled=True), SimpleNamespace(id="EXTRA", enabled=True)]),
@@ -568,7 +567,7 @@ def test_factor_risk_rejects_non_target_holdings_before_canonical_producer(monke
     ],
 )
 def test_factor_risk_rejects_invalid_source_before_lossy_allocation(field, value, monkeypatch) -> None:
-    from etf_cockpit.app.selectors import instrument_detail
+    from etf_cockpit.application import instrument_detail_view as instrument_detail
 
     row = {"etf_id": "VWCE", "current_weight": 1.0, "market_value_eur": 100.0}
     row[field] = value
@@ -627,7 +626,7 @@ def test_instrument_detail_uses_canonical_id_for_stock_and_sparebanken_rows() ->
 
 
 def test_instrument_detail_missing_or_corrupt_optional_stores_are_explicitly_unavailable(tmp_path, monkeypatch) -> None:
-    import etf_cockpit.app.selectors.instrument_detail as selector
+    import etf_cockpit.application.instrument_detail_view as selector
 
     snapshot = _snapshot_copy()
     for name in ("FEATURE_DRIVERS_PATH", "SCOREBOARD_PATH", "FUNDAMENTAL_CLEAN_PATH", "NEWS_CLEAN_PATH", "FUND_HOLDINGS_PATH"):
@@ -650,7 +649,7 @@ def test_instrument_detail_missing_or_corrupt_optional_stores_are_explicitly_una
 
 
 def test_instrument_detail_reads_holdings_csv_mirror_when_parquet_is_unavailable(tmp_path, monkeypatch) -> None:
-    import etf_cockpit.app.selectors.instrument_detail as selector
+    import etf_cockpit.application.instrument_detail_view as selector
 
     parquet_path = tmp_path / "fund_holdings.parquet"
     csv_path = tmp_path / "fund_holdings.csv"
@@ -996,7 +995,7 @@ def test_parsed_panel_rejects_contradictory_supported_ids() -> None:
 
 
 def test_derived_panels_reject_contradictory_supported_ids(monkeypatch, tmp_path) -> None:
-    import etf_cockpit.app.selectors.instrument_detail as selector
+    import etf_cockpit.application.instrument_detail_view as selector
 
     feature_path = tmp_path / "feature_drivers.parquet"
     scoreboard_path = tmp_path / "scoreboard.parquet"
@@ -1366,7 +1365,7 @@ def test_news_item_record_nullable_provenance_fails_closed() -> None:
 
 @pytest.mark.parametrize("scenario", ["stress", ["high"], {"level": "high"}, np.array(["high"]), 123])
 def test_friction_panel_malformed_scenarios_fail_closed_without_crashing(tmp_path, monkeypatch, scenario) -> None:
-    import etf_cockpit.app.selectors.instrument_detail as selector
+    import etf_cockpit.application.instrument_detail_view as selector
 
     frame = pd.DataFrame(
         [
@@ -1682,7 +1681,7 @@ def test_risk_panel_rejects_container_dates(date_value) -> None:
 @pytest.mark.parametrize("feature_source", ["latest_features", "features"])
 @pytest.mark.parametrize("holding_date", [None, "2026-09-01", "2020-01-01"])
 def test_factor_risk_unbound_historical_inputs_never_reach_producer(monkeypatch, feature_source, holding_date):
-    from etf_cockpit.app.selectors import instrument_detail
+    from etf_cockpit.application import instrument_detail_view as instrument_detail
 
     snapshot = _unbound_factor_snapshot()
     snapshot.latest_features = pd.DataFrame()
@@ -1709,7 +1708,7 @@ def test_factor_risk_unbound_historical_inputs_never_reach_producer(monkeypatch,
 
 @pytest.mark.parametrize("missing_source", ["all", "prices", "features"])
 def test_factor_risk_selected_instrument_absence_is_explicit(monkeypatch, missing_source):
-    from etf_cockpit.app.selectors import instrument_detail
+    from etf_cockpit.application import instrument_detail_view as instrument_detail
 
     snapshot = _unbound_factor_snapshot()
     selected = "OTHER" if missing_source == "all" else "VWCE"
@@ -1855,7 +1854,7 @@ def test_valuation_workspace_native_dialog_session_and_focus(monkeypatch):
     import asyncio
     import flet as ft
     from etf_cockpit.app.pages.instrument_detail import _valuation_workspace
-    from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel
+    from etf_cockpit.application.instrument_detail_view import InstrumentDetailViewModel
 
     model = InstrumentDetailViewModel("ACME", "Acme", "available", {"asset_type": "stock"}, {"valuation": {"status": "unavailable"}})
     dialogs = []

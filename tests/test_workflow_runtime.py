@@ -7,7 +7,7 @@ import pytest
 
 from etf_cockpit.app.pages.dashboard import _action_bar, _activity_panel
 from etf_cockpit.app.state import AppState
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 from etf_cockpit.core import session_log
 from etf_cockpit.core import workflow as workflow_module
 from etf_cockpit.core.workflow import (

@@ -10,7 +10,9 @@ import pytest
 from etf_cockpit.models import forecast_scores
 from etf_cockpit.models.forecast_scores import filter_forecasts_for_universe, latest_forecast_file, load_latest_forecasts
 from etf_cockpit.core.config import load_config
-from etf_cockpit import services
+from etf_cockpit.application.backtest_service import BacktestService
+from etf_cockpit.application.feature_service import FeatureService
+from etf_cockpit.application.forecast_service import ForecastService
 import etf_cockpit.application.signal_service as signal_service
 import etf_cockpit.application.data_service as data_service
 import etf_cockpit.application.backtest_service as backtest_service
@@ -97,77 +99,62 @@ def _service_reference_context():
 def test_feature_output_is_published_only_after_settings_bound_manifest_reservation(monkeypatch) -> None:
     events: list[tuple[str, str]] = []
     identity = {"settings_revision": "a" * 64}
-    monkeypatch.setattr(services, "current_settings_identity", lambda: identity)
-    monkeypatch.setattr(backtest_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(feature_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(forecast_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, *, settings_identity: f"{run_id}__s{settings_identity['settings_revision'][:8]}")
-    monkeypatch.setattr(backtest_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(feature_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(forecast_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(services, "ensure_run_manifest", lambda run_id, _dependencies, *, settings_identity: events.append(("manifest", f"{run_id}:{settings_identity['settings_revision'][:8]}")))
-    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(services, "compute_features", lambda _frame, benchmark_etf_id=None: pd.DataFrame({"value": [1]}))
-    monkeypatch.setattr(feature_service, "compute_features", services.compute_features)
-    monkeypatch.setattr(services, "write_features", lambda _frame, **_kwargs: events.append(("output", "features")))
-    monkeypatch.setattr(feature_service, "write_features", services.write_features)
+    monkeypatch.setattr(backtest_service, "current_settings_identity", lambda: identity)
+    monkeypatch.setattr(feature_service, "current_settings_identity", lambda: identity)
+    monkeypatch.setattr(forecast_service, "current_settings_identity", lambda: identity)
+    monkeypatch.setattr(backtest_service, "settings_bound_run_id", lambda run_id, *, settings_identity: f"{run_id}__s{settings_identity['settings_revision'][:8]}")
+    monkeypatch.setattr(feature_service, "settings_bound_run_id", lambda run_id, *, settings_identity: f"{run_id}__s{settings_identity['settings_revision'][:8]}")
+    monkeypatch.setattr(forecast_service, "settings_bound_run_id", lambda run_id, *, settings_identity: f"{run_id}__s{settings_identity['settings_revision'][:8]}")
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", lambda run_id, _dependencies, *, settings_identity: events.append(("manifest", f"{run_id}:{settings_identity['settings_revision'][:8]}")))
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda run_id, _dependencies, *, settings_identity: events.append(("manifest", f"{run_id}:{settings_identity['settings_revision'][:8]}")))
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda run_id, _dependencies, *, settings_identity: events.append(("manifest", f"{run_id}:{settings_identity['settings_revision'][:8]}")))
+    monkeypatch.setattr(feature_service, "compute_features", lambda _frame, benchmark_etf_id=None: pd.DataFrame({"value": [1]}))
+    monkeypatch.setattr(feature_service, "write_features", lambda _frame, **_kwargs: events.append(("output", "features")))
 
-    services.FeatureService(load_config()).compute_features(prices=_bound_feature_prices())
+    FeatureService(load_config()).compute_features(prices=_bound_feature_prices())
 
     assert events == [("manifest", "features_2025-01-01__saaaaaaaa:aaaaaaaa"), ("output", "features")]
 
 
 def test_feature_service_does_not_use_first_enabled_instrument_as_benchmark(monkeypatch) -> None:
     captured: list[object] = []
-    monkeypatch.setattr(services, "current_settings_identity", lambda: {"settings_revision": "a" * 64})
-    monkeypatch.setattr(backtest_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(feature_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(forecast_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
-    monkeypatch.setattr(backtest_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(feature_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(forecast_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(services, "compute_features", lambda _frame, benchmark_etf_id=None: captured.append(benchmark_etf_id) or pd.DataFrame({"value": [1]}))
-    monkeypatch.setattr(feature_service, "compute_features", services.compute_features)
-    monkeypatch.setattr(services, "write_features", lambda _frame, **_kwargs: None)
-    monkeypatch.setattr(feature_service, "write_features", services.write_features)
+    monkeypatch.setattr(backtest_service, "current_settings_identity", lambda: {"settings_revision": "a" * 64})
+    monkeypatch.setattr(feature_service, "current_settings_identity", lambda: {"settings_revision": "a" * 64})
+    monkeypatch.setattr(forecast_service, "current_settings_identity", lambda: {"settings_revision": "a" * 64})
+    monkeypatch.setattr(backtest_service, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(feature_service, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(forecast_service, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(feature_service, "compute_features", lambda _frame, benchmark_etf_id=None: captured.append(benchmark_etf_id) or pd.DataFrame({"value": [1]}))
+    monkeypatch.setattr(feature_service, "write_features", lambda _frame, **_kwargs: None)
 
-    services.FeatureService(load_config()).compute_features(prices=_bound_feature_prices())
+    FeatureService(load_config()).compute_features(prices=_bound_feature_prices())
 
     assert captured == [None]
 
 
 def test_feature_service_uses_explicit_canonical_benchmark_data_id(monkeypatch) -> None:
     captured: list[object] = []
-    monkeypatch.setattr(services, "current_settings_identity", lambda: {"settings_revision": "a" * 64})
-    monkeypatch.setattr(backtest_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(feature_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(forecast_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
-    monkeypatch.setattr(backtest_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(feature_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(forecast_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(services, "compute_features", lambda _frame, benchmark_etf_id=None: captured.append(benchmark_etf_id) or pd.DataFrame({"value": [1]}))
-    monkeypatch.setattr(feature_service, "compute_features", services.compute_features)
-    monkeypatch.setattr(services, "write_features", lambda _frame, **_kwargs: None)
-    monkeypatch.setattr(feature_service, "write_features", services.write_features)
+    monkeypatch.setattr(backtest_service, "current_settings_identity", lambda: {"settings_revision": "a" * 64})
+    monkeypatch.setattr(feature_service, "current_settings_identity", lambda: {"settings_revision": "a" * 64})
+    monkeypatch.setattr(forecast_service, "current_settings_identity", lambda: {"settings_revision": "a" * 64})
+    monkeypatch.setattr(backtest_service, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(feature_service, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(forecast_service, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(feature_service, "compute_features", lambda _frame, benchmark_etf_id=None: captured.append(benchmark_etf_id) or pd.DataFrame({"value": [1]}))
+    monkeypatch.setattr(feature_service, "write_features", lambda _frame, **_kwargs: None)
     prices = pd.DataFrame({
         "date": ["2024-02-01"],
         "etf_id": ["ETF-1"],
         "adjusted_close": [100.0],
     })
 
-    service = services.FeatureService(load_config(), reference_context=_service_reference_context())
+    service = FeatureService(load_config(), reference_context=_service_reference_context())
     service.compute_features(prices=prices)
 
     assert captured == ["ETF-1"]
@@ -175,22 +162,18 @@ def test_feature_service_uses_explicit_canonical_benchmark_data_id(monkeypatch) 
 
 def test_forecast_output_is_published_only_after_settings_bound_manifest_reservation(monkeypatch) -> None:
     events: list[tuple[str, str]] = []
-    service = services.ForecastService(load_config())
+    service = ForecastService(load_config())
     identity = {"settings_revision": "b" * 64}
-    monkeypatch.setattr(services, "current_settings_identity", lambda: identity)
-    monkeypatch.setattr(backtest_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(feature_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(forecast_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, *, settings_identity: f"{run_id}__s{settings_identity['settings_revision'][:8]}")
-    monkeypatch.setattr(backtest_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(feature_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(forecast_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(services, "ensure_run_manifest", lambda run_id, _dependencies, *, settings_identity: events.append(("manifest", f"{run_id}:{settings_identity['settings_revision'][:8]}")))
-    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(services, "baseline_forecast", lambda *_args, **_kwargs: [])
-    monkeypatch.setattr(forecast_service, "baseline_forecast", services.baseline_forecast)
+    monkeypatch.setattr(backtest_service, "current_settings_identity", lambda: identity)
+    monkeypatch.setattr(feature_service, "current_settings_identity", lambda: identity)
+    monkeypatch.setattr(forecast_service, "current_settings_identity", lambda: identity)
+    monkeypatch.setattr(backtest_service, "settings_bound_run_id", lambda run_id, *, settings_identity: f"{run_id}__s{settings_identity['settings_revision'][:8]}")
+    monkeypatch.setattr(feature_service, "settings_bound_run_id", lambda run_id, *, settings_identity: f"{run_id}__s{settings_identity['settings_revision'][:8]}")
+    monkeypatch.setattr(forecast_service, "settings_bound_run_id", lambda run_id, *, settings_identity: f"{run_id}__s{settings_identity['settings_revision'][:8]}")
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", lambda run_id, _dependencies, *, settings_identity: events.append(("manifest", f"{run_id}:{settings_identity['settings_revision'][:8]}")))
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda run_id, _dependencies, *, settings_identity: events.append(("manifest", f"{run_id}:{settings_identity['settings_revision'][:8]}")))
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda run_id, _dependencies, *, settings_identity: events.append(("manifest", f"{run_id}:{settings_identity['settings_revision'][:8]}")))
+    monkeypatch.setattr(forecast_service, "baseline_forecast", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(service, "_run_timesfm_forecasts", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(service, "_run_toto_forecasts", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(service, "_write_forecasts", lambda *_args, settings_revision, **_kwargs: events.append(("output", f"forecasts:{settings_revision[:8]}")))
@@ -203,21 +186,17 @@ def test_forecast_output_is_published_only_after_settings_bound_manifest_reserva
 
 def test_forecast_service_does_not_use_first_enabled_instrument_as_benchmark(monkeypatch) -> None:
     captured: list[object] = []
-    service = services.ForecastService(load_config())
-    monkeypatch.setattr(services, "current_settings_identity", lambda: {"settings_revision": "b" * 64})
-    monkeypatch.setattr(backtest_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(feature_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(forecast_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
-    monkeypatch.setattr(backtest_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(feature_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(forecast_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(services, "baseline_forecast", lambda *_args, **kwargs: captured.append(kwargs["benchmark_returns"]) or [])
-    monkeypatch.setattr(forecast_service, "baseline_forecast", services.baseline_forecast)
+    service = ForecastService(load_config())
+    monkeypatch.setattr(backtest_service, "current_settings_identity", lambda: {"settings_revision": "b" * 64})
+    monkeypatch.setattr(feature_service, "current_settings_identity", lambda: {"settings_revision": "b" * 64})
+    monkeypatch.setattr(forecast_service, "current_settings_identity", lambda: {"settings_revision": "b" * 64})
+    monkeypatch.setattr(backtest_service, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(feature_service, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(forecast_service, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(forecast_service, "baseline_forecast", lambda *_args, **kwargs: captured.append(kwargs["benchmark_returns"]) or [])
     monkeypatch.setattr(service, "_run_timesfm_forecasts", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(service, "_run_toto_forecasts", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(service, "_write_forecasts", lambda *_args, **_kwargs: None)
@@ -234,21 +213,17 @@ def test_forecast_service_does_not_use_first_enabled_instrument_as_benchmark(mon
 
 def test_forecast_service_uses_explicit_canonical_benchmark_data_id(monkeypatch) -> None:
     captured: list[object] = []
-    service = services.ForecastService(load_config(), reference_context=_service_reference_context())
-    monkeypatch.setattr(services, "current_settings_identity", lambda: {"settings_revision": "b" * 64})
-    monkeypatch.setattr(backtest_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(feature_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(forecast_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
-    monkeypatch.setattr(backtest_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(feature_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(forecast_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(services, "baseline_forecast", lambda *_args, **kwargs: captured.append(kwargs["benchmark_returns"]) or [])
-    monkeypatch.setattr(forecast_service, "baseline_forecast", services.baseline_forecast)
+    service = ForecastService(load_config(), reference_context=_service_reference_context())
+    monkeypatch.setattr(backtest_service, "current_settings_identity", lambda: {"settings_revision": "b" * 64})
+    monkeypatch.setattr(feature_service, "current_settings_identity", lambda: {"settings_revision": "b" * 64})
+    monkeypatch.setattr(forecast_service, "current_settings_identity", lambda: {"settings_revision": "b" * 64})
+    monkeypatch.setattr(backtest_service, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(feature_service, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(forecast_service, "settings_bound_run_id", lambda run_id, *, settings_identity: run_id)
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(forecast_service, "baseline_forecast", lambda *_args, **kwargs: captured.append(kwargs["benchmark_returns"]) or [])
     monkeypatch.setattr(service, "_run_timesfm_forecasts", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(service, "_run_toto_forecasts", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(service, "_write_forecasts", lambda *_args, **_kwargs: None)
@@ -277,43 +252,34 @@ def test_backtest_output_is_published_only_after_settings_bound_manifest_reserva
         metadata={},
         ai_added_value=False,
     )
-    monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
-    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", services.BACKTESTS_DIR)
-    monkeypatch.setattr(services, "load_prices", lambda: pd.DataFrame())
-    monkeypatch.setattr(signal_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(data_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(backtest_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(services, "load_fundamental_evidence", lambda: pd.DataFrame())
-    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", services.load_fundamental_evidence)
-    monkeypatch.setattr(services, "run_backtest", lambda *_args, **_kwargs: report)
-    monkeypatch.setattr(backtest_service, "run_backtest", services.run_backtest)
+    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", tmp_path)
+    monkeypatch.setattr(signal_service, "load_prices", lambda: pd.DataFrame())
+    monkeypatch.setattr(data_service, "load_prices", lambda: pd.DataFrame())
+    monkeypatch.setattr(backtest_service, "load_prices", lambda: pd.DataFrame())
+    monkeypatch.setattr(feature_service, "load_prices", lambda: pd.DataFrame())
+    monkeypatch.setattr(forecast_service, "load_prices", lambda: pd.DataFrame())
+    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", lambda: pd.DataFrame())
+    monkeypatch.setattr(backtest_service, "run_backtest", lambda *_args, **_kwargs: report)
     identity = {"settings_revision": "c" * 64}
-    monkeypatch.setattr(services, "current_settings_identity", lambda: identity)
-    monkeypatch.setattr(backtest_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(feature_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(forecast_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, *, settings_identity: f"{run_id}__s{settings_identity['settings_revision'][:8]}")
-    monkeypatch.setattr(backtest_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(feature_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(forecast_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(services, "ensure_run_manifest", lambda run_id, _dependencies, *, settings_identity: events.append(("manifest", f"{run_id}:{settings_identity['settings_revision'][:8]}")))
-    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
+    monkeypatch.setattr(backtest_service, "current_settings_identity", lambda: identity)
+    monkeypatch.setattr(feature_service, "current_settings_identity", lambda: identity)
+    monkeypatch.setattr(forecast_service, "current_settings_identity", lambda: identity)
+    monkeypatch.setattr(backtest_service, "settings_bound_run_id", lambda run_id, *, settings_identity: f"{run_id}__s{settings_identity['settings_revision'][:8]}")
+    monkeypatch.setattr(feature_service, "settings_bound_run_id", lambda run_id, *, settings_identity: f"{run_id}__s{settings_identity['settings_revision'][:8]}")
+    monkeypatch.setattr(forecast_service, "settings_bound_run_id", lambda run_id, *, settings_identity: f"{run_id}__s{settings_identity['settings_revision'][:8]}")
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", lambda run_id, _dependencies, *, settings_identity: events.append(("manifest", f"{run_id}:{settings_identity['settings_revision'][:8]}")))
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda run_id, _dependencies, *, settings_identity: events.append(("manifest", f"{run_id}:{settings_identity['settings_revision'][:8]}")))
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda run_id, _dependencies, *, settings_identity: events.append(("manifest", f"{run_id}:{settings_identity['settings_revision'][:8]}")))
     def capture_group(requests):
         published.extend(requests)
         events.append(("output", "backtest"))
 
-    monkeypatch.setattr(services, "atomic_write_group", capture_group)
-    monkeypatch.setattr(backtest_service, "atomic_write_group", services.atomic_write_group)
-    monkeypatch.setattr(derived_cache, "atomic_write_group", services.atomic_write_group)
-    monkeypatch.setattr(services, "append_jsonl", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(signal_service, "append_jsonl", services.append_jsonl)
-    monkeypatch.setattr(backtest_service, "append_jsonl", services.append_jsonl)
+    monkeypatch.setattr(backtest_service, "atomic_write_group", capture_group)
+    monkeypatch.setattr(derived_cache, "atomic_write_group", capture_group)
+    monkeypatch.setattr(signal_service, "append_jsonl", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(backtest_service, "append_jsonl", lambda *_args, **_kwargs: None)
 
-    services.BacktestService(load_config(), universe_revision="revision").run_backtest()
+    BacktestService(load_config(), universe_revision="revision").run_backtest()
 
     assert events[:2] == [("manifest", "backtest__scccccccc:cccccccc"), ("output", "backtest")]
     payloads = [request for request in published if not str(request.destination).endswith(".meta.json")]
@@ -331,10 +297,9 @@ def test_feature_run_threads_one_identity_when_settings_change_between_id_and_ma
     captured = {"settings_revision": "d" * 64}
     current = {"settings_revision": "e" * 64}
     seen: list[object] = []
-    monkeypatch.setattr(services, "current_settings_identity", lambda: captured)
-    monkeypatch.setattr(backtest_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(feature_service, "current_settings_identity", services.current_settings_identity)
-    monkeypatch.setattr(forecast_service, "current_settings_identity", services.current_settings_identity)
+    monkeypatch.setattr(backtest_service, "current_settings_identity", lambda: captured)
+    monkeypatch.setattr(feature_service, "current_settings_identity", lambda: captured)
+    monkeypatch.setattr(forecast_service, "current_settings_identity", lambda: captured)
 
     def allocate(run_id, *, settings_identity):
         seen.append(settings_identity)
@@ -344,20 +309,16 @@ def test_feature_run_threads_one_identity_when_settings_change_between_id_and_ma
     def reserve(_run_id, _dependencies, *, settings_identity):
         seen.append(settings_identity)
 
-    monkeypatch.setattr(services, "settings_bound_run_id", allocate)
-    monkeypatch.setattr(backtest_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(feature_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(forecast_service, "settings_bound_run_id", services.settings_bound_run_id)
-    monkeypatch.setattr(services, "ensure_run_manifest", reserve)
-    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(services, "compute_features", lambda _frame, benchmark_etf_id=None: pd.DataFrame({"value": [1]}))
-    monkeypatch.setattr(feature_service, "compute_features", services.compute_features)
-    monkeypatch.setattr(services, "write_features", lambda _frame, **_kwargs: None)
-    monkeypatch.setattr(feature_service, "write_features", services.write_features)
+    monkeypatch.setattr(backtest_service, "settings_bound_run_id", allocate)
+    monkeypatch.setattr(feature_service, "settings_bound_run_id", allocate)
+    monkeypatch.setattr(forecast_service, "settings_bound_run_id", allocate)
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", reserve)
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", reserve)
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", reserve)
+    monkeypatch.setattr(feature_service, "compute_features", lambda _frame, benchmark_etf_id=None: pd.DataFrame({"value": [1]}))
+    monkeypatch.setattr(feature_service, "write_features", lambda _frame, **_kwargs: None)
 
-    services.FeatureService(load_config()).compute_features(prices=_bound_feature_prices())
+    FeatureService(load_config()).compute_features(prices=_bound_feature_prices())
 
     assert seen[0] is seen[1] is captured
     assert seen[1]["settings_revision"] == "d" * 64

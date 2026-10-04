@@ -18,7 +18,8 @@ from etf_cockpit.core.paths import RAW_DIR
 from etf_cockpit.features.cash_comparison import build_cash_comparison
 from etf_cockpit.data.classification import ClassificationOverride, ClassificationStore
 from etf_cockpit.data.macro_warehouse import RiskFreeProxyMapping
-from etf_cockpit.services import DataService, build_snapshot
+from etf_cockpit.application.data_service import DataService
+from etf_cockpit.application.snapshot_builder import build_snapshot
 from etf_cockpit.signals import simple_scores as simple_scores_module
 from etf_cockpit.signals.friction_edge import estimate_friction_edge
 from etf_cockpit.signals.simple_scores import (

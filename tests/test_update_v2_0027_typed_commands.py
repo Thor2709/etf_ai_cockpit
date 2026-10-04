@@ -22,7 +22,9 @@ from etf_cockpit.application.contracts import (
     SubmitWorkflowCommand,
 )
 from etf_cockpit.core.types import DataQualityReport
-from etf_cockpit.services import CockpitSnapshot, _empty_backtest_report, build_snapshot, load_config
+from etf_cockpit.application.backtest_service import _empty_backtest_report
+from etf_cockpit.application.snapshot_builder import CockpitSnapshot, build_snapshot
+from etf_cockpit.core.config import load_config
 
 
 @lru_cache(maxsize=1)
@@ -317,7 +319,7 @@ def test_retry_click_uses_a_fresh_dashboard_idempotency_key(monkeypatch, tmp_pat
 
 
 def test_submit_workflow_still_uses_scheduler_not_dashboard_handler(tmp_path, monkeypatch) -> None:
-    from etf_cockpit.app.operations import build_operation_preview
+    from etf_cockpit.application.operation_records import build_operation_preview
 
     dashboard_handler_calls: list[object] = []
     api = LocalApplicationApi(

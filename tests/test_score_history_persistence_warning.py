@@ -12,7 +12,7 @@ import etf_cockpit.application.scoreboard_publication as scoreboard_publication
 from etf_cockpit.app.components.simple_scores import _score_history_panel
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core import session_log
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 SECRET = "sk-" + "live-should-never-surface"  # split to avoid tripping the secret scan
 

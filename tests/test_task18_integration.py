@@ -4,9 +4,9 @@ from dataclasses import replace
 
 import pandas as pd
 
-from etf_cockpit.app.selectors.instrument_detail import build_instrument_detail
+from etf_cockpit.application.instrument_detail_view import build_instrument_detail
 from etf_cockpit.core.config import load_config
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 from etf_cockpit.signals.simple_scores import build_simple_instrument_scores, simple_scoreboard_frame
 
 
@@ -40,7 +40,7 @@ def test_scoreboard_exports_crowding_sector_and_friction_authority_fields() -> N
 
 
 def test_instrument_detail_keeps_derived_evidence_unavailable_and_non_executable(tmp_path, monkeypatch) -> None:
-    import etf_cockpit.app.selectors.instrument_detail as selector
+    import etf_cockpit.application.instrument_detail_view as selector
 
     snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]

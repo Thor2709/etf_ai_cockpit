@@ -9,9 +9,9 @@ import pytest
 
 from etf_cockpit.app.pages.instrument_detail import render_event_calendar_panel
 from etf_cockpit.app.router import PAGES
-from etf_cockpit.app.selectors.instrument_detail import build_instrument_detail
+from etf_cockpit.application.instrument_detail_view import build_instrument_detail
 from etf_cockpit.data.event_calendar import EVENT_COLUMNS, EVENT_SCHEMA_VERSION, EVENT_TYPES, CalendarEvent, events_available_as_of, load_calendar_events, normalise_event_decision_time, persist_calendar_events, validate_event
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 def _event(**changes: str) -> CalendarEvent:
@@ -374,7 +374,7 @@ def test_conflicting_valid_observations_fail_load_disclosure_and_both_ui_surface
 
 
 def test_event_ui_surfaces_available_and_unavailable_states(monkeypatch) -> None:
-    import etf_cockpit.app.selectors.instrument_detail as selector
+    import etf_cockpit.application.instrument_detail_view as selector
 
     snapshot = build_snapshot()
     events = pd.DataFrame([_canonical_row(_event(instrument_id="VWCE"))])

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pandas as pd
 
 from etf_cockpit.app.pages.backtests import backtests_page
-from etf_cockpit.app.selectors.instrument_detail import (
+from etf_cockpit.application.instrument_detail_view import (
     _TAIL_DIAGNOSTIC_FIELDS,
     _strategy_tail_diagnostics,
 )

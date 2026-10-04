@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from etf_cockpit.signals.research_states import AuthorityDecision, GateResult
+from etf_cockpit.core.research_states import AuthorityDecision, GateResult
 from etf_cockpit.app.components.governance_badges import build_gate_summary
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from etf_cockpit.app.pages.instrument_detail import instrument_detail_page
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 def _text_values(control: object) -> list[str]:

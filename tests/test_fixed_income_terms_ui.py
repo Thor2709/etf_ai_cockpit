@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from etf_cockpit.app.pages.instrument_detail import _render_evidence_section
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 def _walk(control):
@@ -60,7 +60,7 @@ def _projection(instrument_id: str) -> dict[str, object]:
 
 
 def test_instrument_detail_selector_uses_read_only_terms_facade(monkeypatch) -> None:
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]

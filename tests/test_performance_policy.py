@@ -33,7 +33,7 @@ STARTUP_MODULES = (
     "etf_cockpit.main",
     "etf_cockpit.app.flet_app",
     "etf_cockpit.app.router",
-    "etf_cockpit.services",
+    "etf_cockpit.application.snapshot_builder",
     "etf_cockpit.app.state",
 )
 _STARTUP_IMPORT_ATTEMPTS = 3

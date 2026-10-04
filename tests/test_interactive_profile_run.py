@@ -19,7 +19,7 @@ from etf_cockpit.application.analysis_depth import (
 from etf_cockpit.application.bulk_run import BulkAnalysisService
 from etf_cockpit.core.config import ETFConfig, UniverseConfig
 from etf_cockpit.core.types import DataQualityIssue, DataQualityReport, SignalResult
-from etf_cockpit.services import CockpitSnapshot
+from etf_cockpit.application.snapshot_builder import CockpitSnapshot
 from tests.test_analysis_depth_scheduling import _install_plan_estimate, _set_test_hardware
 from etf_cockpit.application.interactive_profile_run import (
     INTERACTIVE_ANALYZER_ID,

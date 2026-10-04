@@ -43,6 +43,6 @@ enforces it and layer-breaking import edges fell from 84 (baseline `5e501154`) t
 - `data.sec_edgar_provider` -> `application.sec_bulk_import`: provider-owned SEC session seam (lazy).
 - `data.sec_edgar_provider` -> `application.sec_submissions_import`: provider-owned SEC session seam (lazy).
 
-Compatibility debt: 12 `KNOWN_VIOLATIONS` (`app/state.py`, `app/pages/onboarding.py` import data/domain modules directly)
-and 5 `COMPAT_ONLY_MODULES` (`services`, `app.operations`, `app.selectors.instrument_detail`, `application.screening`,
-`signals.research_states`). Each is retired by moving its last consumer to the canonical module and deleting it.
+Compatibility debt: 12 `KNOWN_VIOLATIONS` (`app/state.py`, `app/pages/onboarding.py` import data/domain modules directly).
+The 5 compatibility-only modules (`services`, `app.operations`, `app.selectors.instrument_detail`, `application.screening`,
+`signals.research_states`) were removed in P9b, after their last consumer moved to the canonical module.

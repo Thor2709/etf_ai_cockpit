@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from etf_cockpit.app.pages.backtests import _open_gap_warning_label
-from etf_cockpit.app.selectors.instrument_detail import _open_gap_warning_consistent
+from etf_cockpit.application.instrument_detail_view import _open_gap_warning_consistent
 from etf_cockpit.backtest.engine import _open_gap_warning, run_backtest
 from etf_cockpit.core.config import CostModel, load_config
 from etf_cockpit.data.sample_data import generate_sample_prices

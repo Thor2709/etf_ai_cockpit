@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from etf_cockpit.application.screening import ScreenFilter, ScreenQuery, ScreenSort, run_screen
+from etf_cockpit.analysis.screening import ScreenFilter, ScreenQuery, ScreenSort, run_screen
 
 
 ROWS = pd.DataFrame(

@@ -11,7 +11,7 @@ from etf_cockpit.app.router import PAGES, build_shell
 from etf_cockpit.app.state import AppState
 from etf_cockpit.app import state as state_module
 from etf_cockpit.core.ui_acceptance import build_main_ui_action_inventory
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 class _TestPage:

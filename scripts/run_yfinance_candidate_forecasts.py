@@ -16,7 +16,7 @@ if str(SRC) not in sys.path:
 from etf_cockpit.core.config import ProviderSection, load_config  # noqa: E402 - imports follow the sys.path bootstrap above
 from etf_cockpit.core.paths import FORECASTS_DIR  # noqa: E402 - imports follow the sys.path bootstrap above
 from etf_cockpit.data.yfinance_provider import YFinanceProvider  # noqa: E402 - imports follow the sys.path bootstrap above
-from etf_cockpit.services import ForecastService  # noqa: E402 - imports follow the sys.path bootstrap above
+from etf_cockpit.application.forecast_service import ForecastService  # noqa: E402 - imports follow the sys.path bootstrap above
 
 
 DEFAULT_CANDIDATES = ROOT / "data" / "raw" / "trade_candidates" / "yahoo_trade_candidates_2026-06-30.csv"

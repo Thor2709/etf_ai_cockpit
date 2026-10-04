@@ -22,7 +22,10 @@ from etf_cockpit.data.validation import validate_holdings, validate_prices
 from etf_cockpit.models.timesfm_adapter import TimesFMAdapter
 from etf_cockpit.models.toto_adapter import TotoAdapter
 from etf_cockpit.models.forecast_scores import forecast_component_maps
-from etf_cockpit.services import CockpitSnapshot, DataService, ForecastService, _empty_backtest_report
+from etf_cockpit.application.backtest_service import _empty_backtest_report
+from etf_cockpit.application.data_service import DataService
+from etf_cockpit.application.forecast_service import ForecastService
+from etf_cockpit.application.snapshot_builder import CockpitSnapshot
 
 
 def _audit_test_state() -> AppState:
@@ -576,7 +579,6 @@ def test_stale_fx_rate_blocks_non_eur_holding_reconciliation() -> None:
 def test_price_rollback_without_snapshot_returns_safe_message(tmp_path, monkeypatch) -> None:
     config = load_config()
     empty_snapshot_dir = tmp_path / "snapshots" / "prices"
-    monkeypatch.setattr("etf_cockpit.services.rollback_price_store", lambda: rollback_latest_price_import(snapshots_dir=empty_snapshot_dir))
     monkeypatch.setattr("etf_cockpit.application.data_service.rollback_price_store", lambda: rollback_latest_price_import(snapshots_dir=empty_snapshot_dir))
 
     message = DataService(config).rollback_latest_price_import()

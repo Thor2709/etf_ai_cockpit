@@ -140,9 +140,9 @@ network trust boundary; no public HTTP API is enabled.
 | Shared core/contracts | paths, atomic I/O, versioning, workflow, errors, acceptance metadata | stable, versioned and infrastructure-neutral where practical | `core/`, `governance/models.py`; core/governance tests | VERIFIED CURRENT |
 | Tests and validation | contract, invariant, UI, control and release evidence | may inspect boundaries; cannot weaken controls | `tests/`, `scripts/validate_app.py`, policy checkers | PARTIALLY IMPLEMENTED |
 
-The repository retains `services.py` (compatibility re-exports only), direct
-data/domain imports in `app/state.py` and the compatibility modules in 6.1 as
-transitional compatibility. The architecture-boundary checker, the layering
+The repository retains direct data/domain imports in `app/state.py` as
+transitional compatibility; the compatibility-only modules (`services.py` and
+four others, see 6.1) were removed in P9b. The architecture-boundary checker, the layering
 guard and ongoing ISSUE-0136–0140 work prevent that from being represented as a
 completed refactor.
 
@@ -158,9 +158,9 @@ Code moved between layers (ADR-0002); behaviour is unchanged.
 | Application: workflows and records | `filing_ingestion.py`, `filing_ingestion_workflows.py`, `scoreboard_publication.py`, `activity_results.py`, `onboarding_profile.py`, `operation_records.py` | logic extracted from `AppState`, the onboarding page and `app/operations.py` |
 | Lower-layer homes of moved code | `analysis/screening.py`, `portfolio/benchmark_reference.py`, `core/navigation.py`, `core/settings_bundle.py`, `core/research_states.py`, `governance/architecture_boundaries.py` | domain and shared logic that lower layers import without reaching up |
 | Application seams over moved code | `application/benchmark_reference.py`, `application/settings.py`, `application/architecture.py` | deliberate presentation-facing re-exports of the modules above |
-| Compatibility modules (`COMPAT_ONLY_MODULES`) | `services.py`, `app/operations.py`, `app/selectors/instrument_detail.py`, `application/screening.py`, `signals/research_states.py` | re-exports for tests and scripts; production code may not import them. Removal: delete the module and its entry once no test or script imports it |
+| Compatibility modules | none: `services.py`, `app/operations.py`, `app/selectors/instrument_detail.py`, `application/screening.py` and `signals/research_states.py` were removed in P9b | tests and scripts import the canonical modules directly |
 
-Layering guard: `tests/test_import_layering.py` classifies every runtime import by layer and fails on any layer-breaking edge that is not listed: 7 `ACCEPTED_EXCEPTIONS` (reviewed persistence/session seams, each with a reason), 12 `KNOWN_VIOLATIONS` (compatibility debt in `app/state.py` and `app/pages/onboarding.py`) and 5 `COMPAT_ONLY_MODULES`. Such edges fell from 84 at baseline `5e501154` to 19; the allowlists only shrink.
+Layering guard: `tests/test_import_layering.py` classifies every runtime import by layer and fails on any layer-breaking edge that is not listed: 7 `ACCEPTED_EXCEPTIONS` (reviewed persistence/session seams, each with a reason), 12 `KNOWN_VIOLATIONS` (compatibility debt in `app/state.py` and `app/pages/onboarding.py`). The five compatibility-only modules were removed in P9b. Such edges fell from 84 at baseline `5e501154` to 19; the allowlists only shrink.
 
 ## 7. Runtime views
 
@@ -187,7 +187,7 @@ sequenceDiagram
 **Boundary:** settings/universe revisions and the last valid local store.
 **Services:** `scripts/run_app.py`, `core/runtime.py`, `app/flet_app.py` and
 `application/snapshot_builder.py` (`build_snapshot()`; `run_app.py --smoke`
-uses the `services.py` re-export). **Persistence:** `data/`, `configs/`,
+calls it directly; the former `services.py` re-export was removed in P9b). **Persistence:** `data/`, `configs/`,
 `logs/` and local migration/recovery state. **Failure:** first run can create
 deterministic sample data; corrupt state fails closed and optional providers/models are
 unavailable rather than mandatory. **Audit:** startup diagnostics and
@@ -235,8 +235,8 @@ flowchart LR
 
 **Inputs:** frozen universe, filters/top-N request, horizon/profile/depth and
 provider snapshot. **Boundary:** run ID, universe/settings revision and frozen
-input hashes. **Services:** `analysis/screening.py` (engine; `application/screening.py`
-re-exports it), `application/screening_data.py`, `data/screen_store.py` and durable job
+input hashes. **Services:** `analysis/screening.py` (engine; the former `application/screening.py`
+re-export was removed in P9b), `application/screening_data.py`, `data/screen_store.py` and durable job
 services. **Persistence:** checkpoints, cached datasets and saved screen/run
 records. **Failure:** per-instrument unavailable results remain explicit;
 interruption resumes idempotently. **Audit:** ranked candidates, exclusions,

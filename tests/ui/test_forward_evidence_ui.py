@@ -6,7 +6,7 @@ import etf_cockpit.app.pages.forward_evidence as forward_evidence_module
 from etf_cockpit.app.pages.forward_evidence import forward_evidence_page
 from etf_cockpit.app.router import PAGES, workspace_for_route
 from etf_cockpit.app.state import AppState
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 def _walk(control):

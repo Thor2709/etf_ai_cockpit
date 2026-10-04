@@ -12,7 +12,22 @@ from typing import Literal
 import pandas as pd
 import pytest
 import etf_cockpit.models.forecast_scores as forecast_scores
-import etf_cockpit.services as services_module
+from etf_cockpit.application.backtest_service import BacktestService
+from etf_cockpit.application.derived_cache import (
+    _cache_matches_universe,
+    _cached_backtest_binding_matches,
+    _forecast_request_identity,
+    _read_bound_cache_payload,
+    _reference_binding,
+    _reference_identity_hash,
+    _write_bound_cache_group,
+    _write_universe_cache_metadata,
+    _price_snapshot_binding,
+)
+from etf_cockpit.application.feature_service import FeatureService
+from etf_cockpit.application.forecast_service import _postprocess_forecast_benchmark_fields, ForecastService
+from etf_cockpit.application.reference_context import _backtest_prices_for_reference
+from etf_cockpit.application.signal_service import SignalService
 from etf_cockpit.app import state as app_state_module
 from etf_cockpit.app.pages import dashboard as dashboard_module
 from etf_cockpit.app.state import AppState
@@ -43,17 +58,6 @@ from etf_cockpit.features.regime import (
     build_portfolio_fit_lookup,
 )
 from etf_cockpit.features.macro import build_macro_context
-from etf_cockpit.services import (
-    _cache_matches_universe,
-    _cached_backtest_binding_matches,
-    _forecast_request_identity,
-    _read_bound_cache_payload,
-    _reference_binding,
-    _reference_identity_hash,
-    _postprocess_forecast_benchmark_fields,
-    _write_bound_cache_group,
-    _write_universe_cache_metadata,
-)
 from etf_cockpit.data.duckdb_store import load_features, write_features
 from etf_cockpit.data.trade_candidate_analysis import (
     load_candidate_price_binding,
@@ -65,7 +69,6 @@ from etf_cockpit.models.forecast_scores import (
     latest_forecast_file,
     load_latest_forecasts,
 )
-from etf_cockpit.services import SignalService
 from etf_cockpit.signals import simple_scores as simple_scores_module
 from etf_cockpit.signals.simple_scores import build_simple_instrument_scores
 from etf_cockpit.core.config import load_config
@@ -261,7 +264,7 @@ def test_derived_caches_invalidate_after_adjusted_price_revision(tmp_path) -> No
         "end_date": "2025-01-02",
         "decision_time": "2025-01-02T23:59:59Z",
     }
-    binding = services_module._price_snapshot_binding(prices, calculation_window=window)
+    binding = _price_snapshot_binding(prices, calculation_window=window)
     assert binding is not None
     forecast_path = tmp_path / "forecast_results_20250102.csv"
     _write_bound_cache_group(
@@ -279,7 +282,7 @@ def test_derived_caches_invalidate_after_adjusted_price_revision(tmp_path) -> No
     assert metadata["effective_cutoff"] == window["decision_time"]
     assert _cache_matches_universe(forecast_path, "u1", "s1", identity, binding)
     revised = prices.assign(adjusted_close=[100.0, 102.0])
-    revised_binding = services_module._price_snapshot_binding(revised, calculation_window=window)
+    revised_binding = _price_snapshot_binding(revised, calculation_window=window)
     assert revised_binding is not None
     assert revised_binding["price_snapshot_revision"] != binding["price_snapshot_revision"]
     assert not _cache_matches_universe(forecast_path, "u1", "s1", identity, revised_binding)
@@ -327,32 +330,28 @@ def test_feature_and_forecast_services_clip_to_exact_declared_window(monkeypatch
             {"date": "2025-01-02 20:00:00Z", "etf_id": "ETF", "adjusted_close": 102.0},
         ]
     )
-    monkeypatch.setattr(services_module, "ensure_run_manifest", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services_module.ensure_run_manifest)
-    monkeypatch.setattr(feature_service, "ensure_run_manifest", services_module.ensure_run_manifest)
-    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services_module.ensure_run_manifest)
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
     captured_features: list[pd.DataFrame] = []
     monkeypatch.setattr(
-        services_module,
+        feature_service,
         "compute_features",
         lambda frame, benchmark_etf_id=None: captured_features.append(frame.copy()) or frame,
     )
-    monkeypatch.setattr(feature_service, "compute_features", services_module.compute_features)
-    monkeypatch.setattr(services_module, "write_features", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(feature_service, "write_features", services_module.write_features)
-    services_module.FeatureService(load_config(), reference_context=context).compute_features(
+    monkeypatch.setattr(feature_service, "write_features", lambda *_args, **_kwargs: None)
+    FeatureService(load_config(), reference_context=context).compute_features(
         date(2025, 1, 2), prices, reference_context=context,
     )
     assert captured_features[0]["date"].astype(str).tolist() == ["2025-01-01", "2025-01-02 12:00:00Z"]
 
     captured_forecast_dates: list[list[str]] = []
     monkeypatch.setattr(
-        services_module,
+        forecast_service,
         "baseline_forecast",
         lambda _etf_id, series, *_args, **_kwargs: captured_forecast_dates.append([str(value) for value in series.index]) or [],
     )
-    monkeypatch.setattr(forecast_service, "baseline_forecast", services_module.baseline_forecast)
-    service = services_module.ForecastService(load_config(), reference_context=context)
+    service = ForecastService(load_config(), reference_context=context)
     monkeypatch.setattr(service, "_run_timesfm_forecasts", lambda *_args: [])
     monkeypatch.setattr(service, "_run_toto_forecasts", lambda *_args: [])
     monkeypatch.setattr(service, "_write_forecasts", lambda *_args, **_kwargs: None)
@@ -628,21 +627,18 @@ def test_feature_and_forecast_consumers_cannot_use_unavailable_typed_benchmark(
         {"date": "2025-01-02", "etf_id": "BENCH", "adjusted_close": 102.0},
     ])
     captured: dict[str, object] = {}
-    monkeypatch.setattr(services_module, "ensure_run_manifest", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services_module.ensure_run_manifest)
-    monkeypatch.setattr(feature_service, "ensure_run_manifest", services_module.ensure_run_manifest)
-    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services_module.ensure_run_manifest)
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
-        services_module,
+        feature_service,
         "compute_features",
         lambda frame, benchmark_etf_id=None: captured.update(
             feature_benchmark=benchmark_etf_id,
         ) or frame,
     )
-    monkeypatch.setattr(feature_service, "compute_features", services_module.compute_features)
-    monkeypatch.setattr(services_module, "write_features", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(feature_service, "write_features", services_module.write_features)
-    services_module.FeatureService(load_config(), reference_context=context).compute_features(
+    monkeypatch.setattr(feature_service, "write_features", lambda *_args, **_kwargs: None)
+    FeatureService(load_config(), reference_context=context).compute_features(
         date(2025, 1, 2), prices,
     )
 
@@ -650,9 +646,8 @@ def test_feature_and_forecast_consumers_cannot_use_unavailable_typed_benchmark(
         captured["forecast_benchmark_returns"] = kwargs["benchmark_returns"]
         return []
 
-    monkeypatch.setattr(services_module, "baseline_forecast", capture_baseline)
-    monkeypatch.setattr(forecast_service, "baseline_forecast", services_module.baseline_forecast)
-    forecast_service = services_module.ForecastService(load_config(), reference_context=context)
+    monkeypatch.setattr(forecast_service, "baseline_forecast", capture_baseline)
+    forecast_service = ForecastService(load_config(), reference_context=context)
     monkeypatch.setattr(forecast_service, "_run_timesfm_forecasts", lambda *_args: [])
     monkeypatch.setattr(forecast_service, "_run_toto_forecasts", lambda *_args: [])
     monkeypatch.setattr(forecast_service, "_write_forecasts", lambda *_args, **_kwargs: None)
@@ -767,7 +762,6 @@ def test_forecast_pair_crash_rolls_back_without_exposing_intermediate_state(tmp_
 
         return real_group(requests, lifecycle_hook=hook)
 
-    monkeypatch.setattr("etf_cockpit.services.atomic_write_group", interrupted)
     monkeypatch.setattr("etf_cockpit.application.backtest_service.atomic_write_group", interrupted)
     monkeypatch.setattr("etf_cockpit.application.derived_cache.atomic_write_group", interrupted)
     with pytest.raises(atomic_io.AtomicWriteInterrupted):
@@ -850,7 +844,6 @@ def test_forecast_pair_crash_and_reader_interleaving_are_fail_closed(tmp_path, m
 
         return real_group(requests, lifecycle_hook=hook)
 
-    monkeypatch.setattr("etf_cockpit.services.atomic_write_group", interleaved)
     monkeypatch.setattr("etf_cockpit.application.backtest_service.atomic_write_group", interleaved)
     monkeypatch.setattr("etf_cockpit.application.derived_cache.atomic_write_group", interleaved)
     writer = threading.Thread(
@@ -1142,28 +1135,27 @@ def test_backtest_metadata_binds_fresh_reference_projection_and_rejects_tamper(t
 
     config = load_config()
     prices = generate_sample_prices(config, periods=360, end_date=date(2026, 6, 26))
-    monkeypatch.setattr(services_module, "BACKTESTS_DIR", tmp_path)
-    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", services_module.BACKTESTS_DIR)
-    monkeypatch.setattr(services_module, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(signal_service, "load_prices", services_module.load_prices)
-    monkeypatch.setattr(data_service, "load_prices", services_module.load_prices)
-    monkeypatch.setattr(backtest_service, "load_prices", services_module.load_prices)
-    monkeypatch.setattr(feature_service, "load_prices", services_module.load_prices)
-    monkeypatch.setattr(forecast_service, "load_prices", services_module.load_prices)
-    monkeypatch.setattr(services_module, "load_fundamental_evidence", pd.DataFrame)
-    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", services_module.load_fundamental_evidence)
+    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", tmp_path)
+    monkeypatch.setattr(signal_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(data_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(feature_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(forecast_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
-        services_module,
+        backtest_service,
         "_load_local_structural_evidence",
         lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
     )
-    monkeypatch.setattr(backtest_service, "_load_local_structural_evidence", services_module._load_local_structural_evidence)
-    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services_module._load_local_structural_evidence)
-    monkeypatch.setattr(services_module, "ensure_run_manifest", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services_module.ensure_run_manifest)
-    monkeypatch.setattr(feature_service, "ensure_run_manifest", services_module.ensure_run_manifest)
-    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services_module.ensure_run_manifest)
-    service = services_module.BacktestService(config, universe_revision="test-revision")
+    monkeypatch.setattr(
+        structural_evidence,
+        "_load_local_structural_evidence",
+        lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
+    )
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    service = BacktestService(config, universe_revision="test-revision")
     report = service.run_backtest()
     metadata_path = tmp_path / "backtest_metadata.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -1388,7 +1380,7 @@ def test_regime_rejects_nested_forged_benchmark_authority() -> None:
 def test_signal_service_recomputes_supplied_features_without_current_price_binding(
     monkeypatch, binding_mode: str
 ) -> None:
-    import etf_cockpit.services as services_module
+    from etf_cockpit.application.data_service import DataService
     import etf_cockpit.application.snapshot_builder as snapshot_builder
     import etf_cockpit.application.signal_service as signal_service
     import etf_cockpit.application.data_service as data_service
@@ -1400,27 +1392,22 @@ def test_signal_service_recomputes_supplied_features_without_current_price_bindi
 
     captured: dict[str, object] = {}
     prices = pd.DataFrame([{"date": date(2025, 1, 2), "etf_id": "VWCE", "adjusted_close": 100.0}])
-    monkeypatch.setattr(services_module, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(signal_service, "load_prices", services_module.load_prices)
-    monkeypatch.setattr(data_service, "load_prices", services_module.load_prices)
-    monkeypatch.setattr(backtest_service, "load_prices", services_module.load_prices)
-    monkeypatch.setattr(feature_service, "load_prices", services_module.load_prices)
-    monkeypatch.setattr(forecast_service, "load_prices", services_module.load_prices)
-    monkeypatch.setattr(services_module, "load_holdings", lambda: pd.DataFrame())
-    monkeypatch.setattr(snapshot_builder, "load_holdings", services_module.load_holdings)
-    monkeypatch.setattr(signal_service, "load_holdings", services_module.load_holdings)
-    monkeypatch.setattr(data_service, "load_holdings", services_module.load_holdings)
-    monkeypatch.setattr(services_module.DataService, "validate_prices", lambda *args, **kwargs: object())
-    monkeypatch.setattr(services_module, "model_availability", lambda config: {"toto": False, "timesfm": False})
-    monkeypatch.setattr(snapshot_builder, "model_availability", services_module.model_availability)
-    monkeypatch.setattr(signal_service, "model_availability", services_module.model_availability)
-    monkeypatch.setattr(services_module, "_load_structure_caps", lambda *args, **kwargs: {})
-    monkeypatch.setattr(snapshot_builder, "_load_structure_caps", services_module._load_structure_caps)
-    monkeypatch.setattr(signal_service, "_load_structure_caps", services_module._load_structure_caps)
-    monkeypatch.setattr(structural_evidence, "_load_structure_caps", services_module._load_structure_caps)
-    monkeypatch.setattr(services_module, "generate_signals", lambda *args, **kwargs: [])
-    monkeypatch.setattr(snapshot_builder, "generate_signals", services_module.generate_signals)
-    monkeypatch.setattr(signal_service, "generate_signals", services_module.generate_signals)
+    monkeypatch.setattr(signal_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(data_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(feature_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(forecast_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(snapshot_builder, "load_holdings", lambda: pd.DataFrame())
+    monkeypatch.setattr(signal_service, "load_holdings", lambda: pd.DataFrame())
+    monkeypatch.setattr(data_service, "load_holdings", lambda: pd.DataFrame())
+    monkeypatch.setattr(DataService, "validate_prices", lambda *args, **kwargs: object())
+    monkeypatch.setattr(snapshot_builder, "model_availability", lambda config: {"toto": False, "timesfm": False})
+    monkeypatch.setattr(signal_service, "model_availability", lambda config: {"toto": False, "timesfm": False})
+    monkeypatch.setattr(snapshot_builder, "_load_structure_caps", lambda *args, **kwargs: {})
+    monkeypatch.setattr(signal_service, "_load_structure_caps", lambda *args, **kwargs: {})
+    monkeypatch.setattr(structural_evidence, "_load_structure_caps", lambda *args, **kwargs: {})
+    monkeypatch.setattr(snapshot_builder, "generate_signals", lambda *args, **kwargs: [])
+    monkeypatch.setattr(signal_service, "generate_signals", lambda *args, **kwargs: [])
     identity = {
         "schema": "benchmark-reference-cache.v1",
         "status": "unavailable",
@@ -1428,21 +1415,31 @@ def test_signal_service_recomputes_supplied_features_without_current_price_bindi
         "execution_allowed": False,
     }
     monkeypatch.setattr(
-        services_module,
+        snapshot_builder,
         "_reference_context_from_inputs",
         lambda *args, **kwargs: SimpleNamespace(identity=identity, benchmark_data_id=None),
     )
-    monkeypatch.setattr(snapshot_builder, "_reference_context_from_inputs", services_module._reference_context_from_inputs)
-    monkeypatch.setattr(signal_service, "_reference_context_from_inputs", services_module._reference_context_from_inputs)
-    monkeypatch.setattr(data_service, "_reference_context_from_inputs", services_module._reference_context_from_inputs)
-    monkeypatch.setattr(reference_context, "_reference_context_from_inputs", services_module._reference_context_from_inputs)
-    monkeypatch.setattr(services_module, "load_features", lambda *args, **kwargs: pd.DataFrame())
-    monkeypatch.setattr(signal_service, "load_features", services_module.load_features)
+    monkeypatch.setattr(
+        signal_service,
+        "_reference_context_from_inputs",
+        lambda *args, **kwargs: SimpleNamespace(identity=identity, benchmark_data_id=None),
+    )
+    monkeypatch.setattr(
+        data_service,
+        "_reference_context_from_inputs",
+        lambda *args, **kwargs: SimpleNamespace(identity=identity, benchmark_data_id=None),
+    )
+    monkeypatch.setattr(
+        reference_context,
+        "_reference_context_from_inputs",
+        lambda *args, **kwargs: SimpleNamespace(identity=identity, benchmark_data_id=None),
+    )
+    monkeypatch.setattr(signal_service, "load_features", lambda *args, **kwargs: pd.DataFrame())
     recomputed = pd.DataFrame(
         [{"date": date(2025, 1, 2), "etf_id": "RECOMPUTED"}]
     )
     monkeypatch.setattr(
-        services_module.FeatureService,
+        FeatureService,
         "compute_features",
         lambda *_args, **_kwargs: recomputed,
     )
@@ -1451,17 +1448,15 @@ def test_signal_service_recomputes_supplied_features_without_current_price_bindi
         captured["feature_ids"] = frame["etf_id"].tolist()
         return frame
 
-    monkeypatch.setattr(services_module, "latest_features", capture_latest)
-    monkeypatch.setattr(snapshot_builder, "latest_features", services_module.latest_features)
-    monkeypatch.setattr(signal_service, "latest_features", services_module.latest_features)
+    monkeypatch.setattr(snapshot_builder, "latest_features", capture_latest)
+    monkeypatch.setattr(signal_service, "latest_features", capture_latest)
 
     def capture_forecasts(*args, **kwargs):
         captured.update(kwargs)
         return pd.DataFrame()
 
-    monkeypatch.setattr(services_module, "load_latest_forecasts", capture_forecasts)
-    monkeypatch.setattr(snapshot_builder, "load_latest_forecasts", services_module.load_latest_forecasts)
-    monkeypatch.setattr(signal_service, "load_latest_forecasts", services_module.load_latest_forecasts)
+    monkeypatch.setattr(snapshot_builder, "load_latest_forecasts", capture_forecasts)
+    monkeypatch.setattr(signal_service, "load_latest_forecasts", capture_forecasts)
     supplied_features = pd.DataFrame(columns=["date", "etf_id"])
     supplied_features.attrs["reference_identity"] = dict(identity)
     supplied_features.attrs["reference_identity_hash"] = _reference_identity_hash(identity)
@@ -1494,24 +1489,21 @@ def test_feature_service_without_as_of_derives_bound_window_before_publication(m
         {"date": "2025-01-01", "etf_id": "ETF", "adjusted_close": 100.0},
         {"date": "2025-01-02", "etf_id": "ETF", "adjusted_close": 101.0},
     ])
-    monkeypatch.setattr(services_module, "ensure_run_manifest", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services_module.ensure_run_manifest)
-    monkeypatch.setattr(feature_service, "ensure_run_manifest", services_module.ensure_run_manifest)
-    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services_module.ensure_run_manifest)
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
-        services_module,
+        feature_service,
         "compute_features",
         lambda frame, **_kwargs: pd.DataFrame({"date": frame["date"], "etf_id": frame["etf_id"]}),
     )
-    monkeypatch.setattr(feature_service, "compute_features", services_module.compute_features)
 
     def capture_write(frame, *, cache_metadata):
         captured["metadata"] = cache_metadata
         captured["attrs"] = dict(frame.attrs)
 
-    monkeypatch.setattr(services_module, "write_features", capture_write)
-    monkeypatch.setattr(feature_service, "write_features", services_module.write_features)
-    services_module.FeatureService(load_config()).compute_features(prices=prices)
+    monkeypatch.setattr(feature_service, "write_features", capture_write)
+    FeatureService(load_config()).compute_features(prices=prices)
 
     metadata = captured["metadata"]
     assert metadata["calculation_window"] == {
@@ -2072,12 +2064,12 @@ def test_canonical_feature_and_forecast_writes_reject_unbound_prices(tmp_path) -
     ])
     context = CanonicalReferenceContext(CanonicalBenchmarkRegistry())
     with pytest.raises(ValueError, match="snapshot identity is unavailable"):
-        services_module.FeatureService(load_config(), reference_context=context).compute_features(
+        FeatureService(load_config(), reference_context=context).compute_features(
             date(2025, 1, 1), malformed
         )
     output = tmp_path / "forecast_results_20250101.csv"
     with pytest.raises(ValueError, match="snapshot identity is unavailable"):
-        services_module.ForecastService(load_config(), reference_context=context).run_forecasts(
+        ForecastService(load_config(), reference_context=context).run_forecasts(
             date(2025, 1, 1), ["ETF"], malformed, output_path=output
         )
     assert not output.exists()
@@ -2604,7 +2596,7 @@ def test_backtest_write_and_readback_checksum_use_the_same_reference_window() ->
         decision_time=f"{dates[-1].date().isoformat()}T23:59:59Z",
         reference_portfolio_ids=("reference:test",),
     )
-    checksum_prices = services_module._backtest_prices_for_reference(prices, context)
+    checksum_prices = _backtest_prices_for_reference(prices, context)
     assert checksum_prices is not None
     report = run_backtest(
         config,

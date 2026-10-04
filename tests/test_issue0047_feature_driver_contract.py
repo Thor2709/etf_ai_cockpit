@@ -8,9 +8,9 @@ import pandas as pd
 from etf_cockpit.app.pages.instrument_detail import _driver_table
 from etf_cockpit.app.pages.trust_evidence import FEATURE_DRIVER_EVIDENCE_COLUMNS
 from etf_cockpit.app.pages.trust_evidence import _table_panel
-from etf_cockpit.app.selectors.instrument_detail import _feature_driver_panel
-from etf_cockpit.app.selectors.instrument_detail import _normalise_feature_driver_frame
-from etf_cockpit.app.selectors.instrument_detail import normalise_feature_driver_frame
+from etf_cockpit.application.instrument_detail_view import _feature_driver_panel
+from etf_cockpit.application.instrument_detail_view import _normalise_feature_driver_frame
+from etf_cockpit.application.instrument_detail_view import normalise_feature_driver_frame
 from etf_cockpit.data import trust_artifacts as trust
 from etf_cockpit.signals.feature_drivers import build_feature_drivers
 from etf_cockpit.signals.feature_drivers import claim_binding_hash
@@ -153,7 +153,7 @@ def test_selector_fail_closes_malformed_evidence_and_ui_exposes_traceability(mon
             }
         ]
     ).to_parquet(path)
-    monkeypatch.setattr("etf_cockpit.app.selectors.instrument_detail.FEATURE_DRIVERS_PATH", path)
+    monkeypatch.setattr("etf_cockpit.application.instrument_detail_view.FEATURE_DRIVERS_PATH", path)
 
     panel = _feature_driver_panel("A")
     row = panel["rows"][0]
@@ -288,7 +288,7 @@ def test_mixed_numeric_evidence_fails_closed_and_zero_survives_write_readback_an
 
     output = tmp_path / "feature_drivers.parquet"
     monkeypatch.setattr(trust, "FEATURE_DRIVERS_PATH", output)
-    monkeypatch.setattr("etf_cockpit.app.selectors.instrument_detail.FEATURE_DRIVERS_PATH", output)
+    monkeypatch.setattr("etf_cockpit.application.instrument_detail_view.FEATURE_DRIVERS_PATH", output)
     trust.write_feature_drivers(source)
     persisted = pd.read_parquet(output).set_index("component")
     assert persisted.loc["valid-zero", "counterfactual_sensitivity"] == 0.0
@@ -522,7 +522,7 @@ def test_selector_rederives_claim_authority_classifications_and_flags(monkeypatc
     path = tmp_path / "feature_drivers.parquet"
     source.to_parquet(path, index=False)
     monkeypatch.setattr(
-        "etf_cockpit.app.selectors.instrument_detail.FEATURE_DRIVERS_PATH", path
+        "etf_cockpit.application.instrument_detail_view.FEATURE_DRIVERS_PATH", path
     )
     panel = _feature_driver_panel("A")
     assert panel["top_positive"] == []
@@ -662,7 +662,7 @@ def test_missing_vintage_and_low_source_authority_cannot_enter_trusted_top_lists
     path = tmp_path / "feature_drivers.parquet"
     pd.DataFrame([missing_vintage, low_source]).to_parquet(path, index=False)
     monkeypatch.setattr(
-        "etf_cockpit.app.selectors.instrument_detail.FEATURE_DRIVERS_PATH", path
+        "etf_cockpit.application.instrument_detail_view.FEATURE_DRIVERS_PATH", path
     )
     panel = _feature_driver_panel("A")
     assert panel["top_positive"] == []
@@ -714,7 +714,7 @@ def test_canonical_context_authorities_and_causal_component_labels_fail_closed(
     path = tmp_path / "feature_drivers.parquet"
     rows.reset_index().to_parquet(path, index=False)
     monkeypatch.setattr(
-        "etf_cockpit.app.selectors.instrument_detail.FEATURE_DRIVERS_PATH", path
+        "etf_cockpit.application.instrument_detail_view.FEATURE_DRIVERS_PATH", path
     )
     panel = _feature_driver_panel("A")
     assert panel["top_positive"] == []

@@ -7,7 +7,7 @@ import pytest
 
 from etf_cockpit.app.pages.instrument_detail import _render_evidence_section
 from etf_cockpit.application.market_clock import build_market_clock_diagnostics
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 def _identity_projection(
@@ -154,7 +154,7 @@ def test_instrument_market_clock_panel_has_acceptance_key_and_authority_warning(
 def test_instrument_selector_queries_identity_at_snapshot_point_in_time(
     monkeypatch,
 ) -> None:
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]

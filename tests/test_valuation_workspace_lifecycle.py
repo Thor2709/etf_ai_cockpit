@@ -9,7 +9,7 @@ import pytest
 
 from etf_cockpit.app import router
 from etf_cockpit.app.pages import instrument_detail as detail
-from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel
+from etf_cockpit.application.instrument_detail_view import InstrumentDetailViewModel
 
 
 def _walk(node):

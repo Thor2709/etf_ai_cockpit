@@ -9,7 +9,8 @@ for candidate in (ROOT / "src", ROOT / "app" / "src"):
     if candidate.exists():
         sys.path.insert(0, str(candidate))
 
-from etf_cockpit.services import ChatGPTBridge, build_snapshot  # noqa: E402 - imports follow the sys.path bootstrap above
+from etf_cockpit.application.chatgpt_review import ChatGPTBridge  # noqa: E402 - imports follow the sys.path bootstrap above
+from etf_cockpit.application.snapshot_builder import build_snapshot  # noqa: E402 - imports follow the sys.path bootstrap above
 
 
 def main() -> None:

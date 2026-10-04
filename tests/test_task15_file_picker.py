@@ -8,7 +8,7 @@ import pandas as pd
 import etf_cockpit.app.pages.trust_evidence as trust_evidence
 import etf_cockpit.application.evidence_documents as evidence_documents
 from etf_cockpit.app.state import AppState
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 def test_web_file_picker_bytes_are_materialised_and_removed_after_import() -> None:

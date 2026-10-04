@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from etf_cockpit.app.state import AppState
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 @pytest.fixture

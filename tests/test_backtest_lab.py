@@ -27,16 +27,23 @@ from etf_cockpit.backtest.engine import (
     quality_momentum_evidence_checksum,
     run_backtest,
 )
-from etf_cockpit.backtest.metrics import performance_metrics, tail_event_diagnostics
+from etf_cockpit.backtest.metrics import performance_metrics, tail_event_diagnostics, max_drawdown
 from etf_cockpit.core.config import load_config
-from etf_cockpit.core.atomic_io import AtomicWriteRequest
+from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, read_atomic_group
 from etf_cockpit.data import duckdb_store, sample_data
 from etf_cockpit.data.sample_data import generate_sample_prices
 from etf_cockpit.data.market_calendar import ListingCalendarEvidence, MarketCalendarService
 from etf_cockpit.app.pages.signals import _latest_operational_row
-from etf_cockpit.app.selectors.instrument_detail import _operational_evidence_panel
+from etf_cockpit.application.instrument_detail_view import _operational_evidence_panel
 from etf_cockpit.portfolio.costs import estimate_execution_cost
-from etf_cockpit import services
+from etf_cockpit.application.backtest_service import (
+    BacktestService,
+    _normalise_operational_evidence_rows,
+    _open_backtest_calendar_identity_resolver,
+    _operational_evidence_input_binding,
+    _run_backtest_compatibly,
+)
+from etf_cockpit.application.derived_cache import _universe_cache_meta_path
 import etf_cockpit.application.signal_service as signal_service
 import etf_cockpit.application.data_service as data_service
 import etf_cockpit.application.backtest_service as backtest_service
@@ -47,7 +54,7 @@ import etf_cockpit.application.structural_evidence as structural_evidence
 import etf_cockpit.application.derived_cache as derived_cache
 from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.identity_master import IdentityClaim, IdentityMasterStore
-from etf_cockpit.data.local_storage import TransactionalStore
+from etf_cockpit.data.local_storage import TransactionalStore, storage_layout
 
 
 def _flat_calendar_identity(**updates: object) -> dict[str, object]:
@@ -1036,17 +1043,13 @@ def test_sample_calendar_identity_survives_persisted_backtest_without_identity_m
 def test_unreadable_identity_store_never_uses_sample_calendar_fallback(
     tmp_path, monkeypatch,
 ) -> None:
-    monkeypatch.setattr(
-        services,
-        "IDENTITY_PATH",
-        tmp_path / "data" / "clean" / "instrument_identity.parquet",
-    )
-    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
-    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
-    database = services.storage_layout(tmp_path).transactional_path
+    identity_path = tmp_path / "data" / "clean" / "instrument_identity.parquet"
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
+    database = storage_layout(tmp_path).transactional_path
     database.parent.mkdir(parents=True)
     database.write_bytes(b"corrupt identity store")
-    store, resolver = services._open_backtest_calendar_identity_resolver()
+    store, resolver = _open_backtest_calendar_identity_resolver()
     assert store is None
     assert resolver is not None
     config = load_config()
@@ -1073,19 +1076,14 @@ def test_identity_resolver_rejects_naive_point_in_time(tmp_path, monkeypatch) ->
         def close(self) -> None:
             pass
 
-    monkeypatch.setattr(
-        services,
-        "IDENTITY_PATH",
-        tmp_path / "data" / "clean" / "instrument_identity.parquet",
-    )
-    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
-    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
-    database = services.storage_layout(tmp_path).transactional_path
+    identity_path = tmp_path / "data" / "clean" / "instrument_identity.parquet"
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
+    database = storage_layout(tmp_path).transactional_path
     database.parent.mkdir(parents=True)
     database.write_bytes(b"store existence only")
-    monkeypatch.setattr(services, "IdentityMasterStore", lambda _root, **_kwargs: Store())
-    monkeypatch.setattr(backtest_service, "IdentityMasterStore", services.IdentityMasterStore)
-    store, resolver = services._open_backtest_calendar_identity_resolver()
+    monkeypatch.setattr(backtest_service, "IdentityMasterStore", lambda _root, **_kwargs: Store())
+    store, resolver = _open_backtest_calendar_identity_resolver()
     assert store is not None
     assert resolver is not None
 
@@ -1100,31 +1098,23 @@ def test_identity_resolver_rejects_naive_point_in_time(tmp_path, monkeypatch) ->
 
 
 def test_missing_identity_store_remains_read_only_and_explicitly_absent(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(
-        services,
-        "IDENTITY_PATH",
-        tmp_path / "data" / "clean" / "instrument_identity.parquet",
-    )
-    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
-    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
+    identity_path = tmp_path / "data" / "clean" / "instrument_identity.parquet"
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
 
-    store, resolver = services._open_backtest_calendar_identity_resolver()
+    store, resolver = _open_backtest_calendar_identity_resolver()
 
     assert store is None
     assert resolver is None
 
 
 def test_identity_resolver_service_probe_never_mutates_source_storage(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(
-        services,
-        "IDENTITY_PATH",
-        tmp_path / "data" / "clean" / "instrument_identity.parquet",
-    )
-    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
-    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
-    with services.IdentityMasterStore(tmp_path):
+    identity_path = tmp_path / "data" / "clean" / "instrument_identity.parquet"
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
+    with IdentityMasterStore(tmp_path):
         pass
-    database = services.storage_layout(tmp_path).transactional_path
+    database = storage_layout(tmp_path).transactional_path
 
     def source_state() -> dict[str, tuple[bytes, int]]:
         return {
@@ -1134,7 +1124,7 @@ def test_identity_resolver_service_probe_never_mutates_source_storage(tmp_path, 
         }
 
     before = source_state()
-    store, resolver = services._open_backtest_calendar_identity_resolver()
+    store, resolver = _open_backtest_calendar_identity_resolver()
     try:
         assert store is not None
         assert resolver is not None
@@ -1149,21 +1139,17 @@ def test_identity_resolver_service_probe_never_mutates_source_storage(tmp_path, 
 def test_identity_resolver_service_rejects_active_journal_without_mutation(
     tmp_path, monkeypatch, suffix
 ) -> None:
-    monkeypatch.setattr(
-        services,
-        "IDENTITY_PATH",
-        tmp_path / "data" / "clean" / "instrument_identity.parquet",
-    )
-    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
-    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
-    with services.IdentityMasterStore(tmp_path):
+    identity_path = tmp_path / "data" / "clean" / "instrument_identity.parquet"
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
+    with IdentityMasterStore(tmp_path):
         pass
-    database = services.storage_layout(tmp_path).transactional_path
+    database = storage_layout(tmp_path).transactional_path
     journal = Path(f"{database}{suffix}")
     journal.write_bytes(b"active journal evidence")
     before = {path.name: path.read_bytes() for path in database.parent.iterdir() if path.is_file()}
 
-    store, resolver = services._open_backtest_calendar_identity_resolver()
+    store, resolver = _open_backtest_calendar_identity_resolver()
 
     assert store is None
     assert resolver is not None
@@ -1193,7 +1179,7 @@ def test_backtest_signal_replay_is_nonpublishing_and_deterministically_timestamp
     }
 
     report = run_backtest(config, prices, rebalance_frequency_days=42)
-    replay = services._run_backtest_compatibly(
+    replay = _run_backtest_compatibly(
         config,
         prices,
         calendar_identity_resolver=lambda instrument_id, _timestamp: identities[instrument_id],
@@ -1502,11 +1488,11 @@ def test_cached_operational_rows_normalise_only_producer_dates() -> None:
         }
     ]
 
-    assert services._normalise_operational_evidence_rows(produced) == persisted
-    assert services._normalise_operational_evidence_rows(persisted) == persisted
-    assert services._normalise_operational_evidence_rows([{1: "non-string key"}]) is None
-    assert services._normalise_operational_evidence_rows({"rows": persisted}) is None
-    assert services._normalise_operational_evidence_rows(["not-a-row"]) is None
+    assert _normalise_operational_evidence_rows(produced) == persisted
+    assert _normalise_operational_evidence_rows(persisted) == persisted
+    assert _normalise_operational_evidence_rows([{1: "non-string key"}]) is None
+    assert _normalise_operational_evidence_rows({"rows": persisted}) is None
+    assert _normalise_operational_evidence_rows(["not-a-row"]) is None
 
 
 def test_operational_evidence_input_binding_tracks_every_non_price_input(tmp_path, monkeypatch) -> None:
@@ -1517,25 +1503,23 @@ def test_operational_evidence_input_binding_tracks_every_non_price_input(tmp_pat
     corrections = config_dir / "market_calendar_corrections.yaml"
     corrections.write_text("corrections: []\n", encoding="utf-8")
     identity_path = tmp_path / "root" / "data" / "reference" / "identity.parquet"
-    monkeypatch.setattr(services, "CONFIG_DIR", config_dir)
-    monkeypatch.setattr(backtest_service, "CONFIG_DIR", services.CONFIG_DIR)
-    monkeypatch.setattr(services, "IDENTITY_PATH", identity_path)
-    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
-    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
+    monkeypatch.setattr(backtest_service, "CONFIG_DIR", config_dir)
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
     store = storage_layout(identity_path.parents[2]).transactional_path
     config = load_config()
 
-    baseline = services._operational_evidence_input_binding(config)
+    baseline = _operational_evidence_input_binding(config)
     assert isinstance(baseline, str) and len(baseline) == 64
-    assert services._operational_evidence_input_binding(config) == baseline
+    assert _operational_evidence_input_binding(config) == baseline
 
     corrections.write_text("corrections: [changed]\n", encoding="utf-8")
-    changed_calendar = services._operational_evidence_input_binding(config)
+    changed_calendar = _operational_evidence_input_binding(config)
     assert changed_calendar != baseline
 
     root = identity_path.parents[2]
     IdentityMasterStore(root).close()
-    with_store = services._operational_evidence_input_binding(config)
+    with_store = _operational_evidence_input_binding(config)
     assert with_store != changed_calendar
     with IdentityMasterStore(root) as identity_store:
         identity_store.append_claims(
@@ -1552,7 +1536,7 @@ def test_operational_evidence_input_binding_tracks_every_non_price_input(tmp_pat
                 ),
             )
         )
-    with_claim = services._operational_evidence_input_binding(config)
+    with_claim = _operational_evidence_input_binding(config)
     assert with_claim != with_store
     assert "unreadable" not in {with_store, with_claim}
 
@@ -1560,19 +1544,19 @@ def test_operational_evidence_input_binding_tracks_every_non_price_input(tmp_pat
     # unchanged, so they cannot force a full backtest recompute.
     with TransactionalStore(root) as shared_store:
         shared_store.put("unrelated_ledger_v1", "row-1", {"value": 1})
-    assert services._operational_evidence_input_binding(config) == with_claim
+    assert _operational_evidence_input_binding(config) == with_claim
 
     # A read-only resolver cannot read a store with an active WAL, so the
     # evidence it produces differs and the binding must differ too.
     Path(f"{store}-wal").write_bytes(b"uncheckpointed")
-    with_wal = services._operational_evidence_input_binding(config)
+    with_wal = _operational_evidence_input_binding(config)
     assert with_wal != with_claim
     Path(f"{store}-wal").unlink()
-    assert services._operational_evidence_input_binding(config) == with_claim
+    assert _operational_evidence_input_binding(config) == with_claim
 
     cost_model = config.costs.cost_model.model_copy(update={"open_gap_warning_threshold": 0.05})
     changed_costs = config.model_copy(update={"costs": config.costs.model_copy(update={"cost_model": cost_model})})
-    assert services._operational_evidence_input_binding(changed_costs) != with_wal
+    assert _operational_evidence_input_binding(changed_costs) != with_wal
 
 
 def test_sample_calendar_identity_config_rejects_non_mapping_yaml(
@@ -1672,50 +1656,44 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     tmp_path, monkeypatch
 ) -> None:
     from etf_cockpit.data.etf_structure import LocalStructuralEvidence
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     config = load_config()
     prices = generate_sample_prices(config, periods=360, end_date=pd.Timestamp("2026-06-26").date())
+    identity_path = tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet"
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", tmp_path)
+    monkeypatch.setattr(signal_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(data_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(feature_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(forecast_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
-        services,
-        "IDENTITY_PATH",
-        tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
-    )
-    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
-    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
-    monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
-    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", services.BACKTESTS_DIR)
-    monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(signal_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(data_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(backtest_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
-    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", services.load_fundamental_evidence)
-    monkeypatch.setattr(
-        services,
+        backtest_service,
         "_load_local_structural_evidence",
         lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
     )
-    monkeypatch.setattr(backtest_service, "_load_local_structural_evidence", services._load_local_structural_evidence)
-    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
-    monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
-    service = services.BacktestService(config, universe_revision="test-revision")
+    monkeypatch.setattr(
+        structural_evidence,
+        "_load_local_structural_evidence",
+        lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
+    )
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    service = BacktestService(config, universe_revision="test-revision")
 
     generated = service.run_backtest()
-    monkeypatch.setattr(
-        services,
-        "structure_confidence_caps",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("empty structural evidence must not replay once per signal row")
-        ),
-    )
-    monkeypatch.setattr(structural_evidence, "structure_confidence_caps", services.structure_confidence_caps)
-    monkeypatch.setattr(derived_cache, "structure_confidence_caps", services.structure_confidence_caps)
+    for module in (structural_evidence, derived_cache):
+        monkeypatch.setattr(
+            module,
+            "structure_confidence_caps",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError("empty structural evidence must not replay once per signal row")
+            ),
+        )
     cached = service._load_cached_backtest()
 
     assert cached is not None
@@ -1738,7 +1716,7 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     assert panel["rows"]
     assert panel["execution_allowed"] is False
     metadata_path = tmp_path / "backtest_metadata.json"
-    metadata_sidecar_path = services._universe_cache_meta_path(metadata_path)
+    metadata_sidecar_path = _universe_cache_meta_path(metadata_path)
     original_metadata = metadata_path.read_bytes()
     original_metadata_sidecar = metadata_sidecar_path.read_bytes()
 
@@ -1789,7 +1767,7 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     metadata_sidecar_path.write_bytes(original_metadata_sidecar)
 
     results_path = tmp_path / "backtest_results.csv"
-    sidecar_path = services._universe_cache_meta_path(results_path)
+    sidecar_path = _universe_cache_meta_path(results_path)
     original_results = results_path.read_bytes()
     original_sidecar = sidecar_path.read_bytes()
 
@@ -1857,11 +1835,10 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     assert service._load_cached_backtest() is not None
     # Any change to a non-price operational input makes the cache stale.
     monkeypatch.setattr(
-        services,
+        backtest_service,
         "_operational_evidence_input_binding",
         lambda *_args, **_kwargs: "0" * 64,
     )
-    monkeypatch.setattr(backtest_service, "_operational_evidence_input_binding", services._operational_evidence_input_binding)
     assert service._load_cached_backtest() is None
 
 
@@ -1872,34 +1849,29 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
 
     config = load_config()
     prices = generate_sample_prices(config, periods=420, end_date=pd.Timestamp("2026-06-26").date())
+    identity_path = tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet"
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", tmp_path)
+    monkeypatch.setattr(signal_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(data_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(feature_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(forecast_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
-        services,
-        "IDENTITY_PATH",
-        tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
-    )
-    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
-    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
-    monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
-    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", services.BACKTESTS_DIR)
-    monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(signal_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(data_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(backtest_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
-    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", services.load_fundamental_evidence)
-    monkeypatch.setattr(
-        services,
+        backtest_service,
         "_load_local_structural_evidence",
         lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
     )
-    monkeypatch.setattr(backtest_service, "_load_local_structural_evidence", services._load_local_structural_evidence)
-    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
-    monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
+    monkeypatch.setattr(
+        structural_evidence,
+        "_load_local_structural_evidence",
+        lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
+    )
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *_args, **_kwargs: {})
     def mixed_availability_report(selected_config, selected_prices, **kwargs):
         report = run_backtest(
             selected_config,
@@ -1916,14 +1888,13 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
         diagnostics = tail_event_diagnostics(report.equity_curves[unavailable_strategy])
         for field, value in diagnostics.items():
             report.results.at[row_index, field] = value
-        report.results.at[row_index, "max_drawdown"] = services.max_drawdown(
+        report.results.at[row_index, "max_drawdown"] = max_drawdown(
             report.equity_curves[unavailable_strategy]
         )
         return report
 
-    monkeypatch.setattr(services, "_run_backtest_compatibly", mixed_availability_report)
-    monkeypatch.setattr(backtest_service, "_run_backtest_compatibly", services._run_backtest_compatibly)
-    service = services.BacktestService(config, universe_revision="test-revision")
+    monkeypatch.setattr(backtest_service, "_run_backtest_compatibly", mixed_availability_report)
+    service = BacktestService(config, universe_revision="test-revision")
 
     generated = service.run_backtest()
     counts = generated.results["high_volatility_loss_sessions"]
@@ -1936,12 +1907,15 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
         lambda **_kwargs: (_ for _ in ()).throw(AssertionError("valid cache must not be recomputed")),
     )
     monkeypatch.setattr(
-        services,
+        backtest_service,
         "atomic_write_group",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("cache hit must not publish")),
     )
-    monkeypatch.setattr(backtest_service, "atomic_write_group", services.atomic_write_group)
-    monkeypatch.setattr(derived_cache, "atomic_write_group", services.atomic_write_group)
+    monkeypatch.setattr(
+        derived_cache,
+        "atomic_write_group",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("cache hit must not publish")),
+    )
 
     cached = service.load_or_run_backtest()
 
@@ -1961,35 +1935,30 @@ def test_backtest_service_round_trips_genuinely_unavailable_operational_rows(
     config = load_config()
     prices = generate_sample_prices(config, periods=360, end_date=pd.Timestamp("2026-06-26").date())
     prices["calendar_identity"] = None
-    monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
-    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", services.BACKTESTS_DIR)
+    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", tmp_path)
+    identity_path = tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet"
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(signal_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(data_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(feature_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(forecast_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
-        services,
-        "IDENTITY_PATH",
-        tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
-    )
-    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
-    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
-    monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(signal_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(data_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(backtest_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
-    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", services.load_fundamental_evidence)
-    monkeypatch.setattr(
-        services,
+        backtest_service,
         "_load_local_structural_evidence",
         lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
     )
-    monkeypatch.setattr(backtest_service, "_load_local_structural_evidence", services._load_local_structural_evidence)
-    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
-    monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
-    service = services.BacktestService(config, universe_revision="test-revision")
+    monkeypatch.setattr(
+        structural_evidence,
+        "_load_local_structural_evidence",
+        lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
+    )
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    service = BacktestService(config, universe_revision="test-revision")
 
     generated = service.run_backtest()
     assert not generated.operational_evidence["evidence_status"].eq("available").any()
@@ -2007,39 +1976,34 @@ def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
 
     config = load_config()
     prices = generate_sample_prices(config, periods=360, end_date=pd.Timestamp("2026-06-26").date())
-    monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
-    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", services.BACKTESTS_DIR)
+    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", tmp_path)
+    identity_path = tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet"
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(signal_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(data_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(feature_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(forecast_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
-        services,
-        "IDENTITY_PATH",
-        tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
-    )
-    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
-    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
-    monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(signal_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(data_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(backtest_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)
-    monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
-    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", services.load_fundamental_evidence)
-    monkeypatch.setattr(
-        services,
+        backtest_service,
         "_load_local_structural_evidence",
         lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
     )
-    monkeypatch.setattr(backtest_service, "_load_local_structural_evidence", services._load_local_structural_evidence)
-    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
-    monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
-    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
-    service = services.BacktestService(config, universe_revision="test-revision")
+    monkeypatch.setattr(
+        structural_evidence,
+        "_load_local_structural_evidence",
+        lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
+    )
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    service = BacktestService(config, universe_revision="test-revision")
     service.run_backtest()
 
-    real_read = services.read_atomic_group
-    real_write = services.atomic_write_group
+    real_read = read_atomic_group
+    real_write = atomic_write_group
     calls: list[tuple] = []
     published = False
 
@@ -2055,7 +2019,7 @@ def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
             results = pd.read_csv(BytesIO(by_path[results_path]))
             results.loc[results["strategy_name"] == "signal_strategy", "calmar"] = 999.0
             replacement = results.to_csv(index=False).encode("utf-8")
-            sidecar_path = services._universe_cache_meta_path(results_path)
+            sidecar_path = _universe_cache_meta_path(results_path)
             sidecar = json.loads(by_path[sidecar_path].decode("utf-8"))
             sidecar["payload_sha256"] = hashlib.sha256(replacement).hexdigest()
             by_path[results_path] = replacement
@@ -2068,9 +2032,8 @@ def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
             )
         return snapshot
 
-    monkeypatch.setattr(services, "read_atomic_group", interleaved_read)
-    monkeypatch.setattr(backtest_service, "read_atomic_group", services.read_atomic_group)
-    monkeypatch.setattr(derived_cache, "read_atomic_group", services.read_atomic_group)
+    monkeypatch.setattr(backtest_service, "read_atomic_group", interleaved_read)
+    monkeypatch.setattr(derived_cache, "read_atomic_group", interleaved_read)
     cached = service._load_cached_backtest()
 
     assert cached is not None

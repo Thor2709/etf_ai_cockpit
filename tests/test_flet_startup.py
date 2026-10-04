@@ -11,7 +11,7 @@ from etf_cockpit.app.pages.dashboard import _run_action
 from etf_cockpit.app.flet_app import initialise_page
 from etf_cockpit.app.router import navigate_to
 from etf_cockpit.app.state import AppState
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 class FakePage:

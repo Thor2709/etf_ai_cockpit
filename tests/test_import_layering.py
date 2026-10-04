@@ -4,8 +4,7 @@ Every runtime import inside ``src/etf_cockpit`` (module-level and function-local
 imports are type-only and ignored) is classified by layer.  Edges that break the layering rules
 below fail unless they are listed in ``ACCEPTED_EXCEPTIONS`` (reviewed by-design seams, each with a
 reason) or ``KNOWN_VIOLATIONS`` (remaining compatibility debt).  Both only shrink -- a listed edge
-that no longer exists must be deleted, so a fixed boundary cannot silently regress.  Production code
-may not import the compatibility modules in ``COMPAT_ONLY_MODULES``.
+that no longer exists must be deleted, so a fixed boundary cannot silently regress.
 """
 
 from __future__ import annotations
@@ -21,7 +20,6 @@ PACKAGE = "etf_cockpit"
 
 PRESENTATION = frozenset({"app"})
 APPLICATION = frozenset({"application"})
-TRANSITIONAL = frozenset({"services"})
 COMPOSITION = frozenset({"", "main"})
 DOMAIN = frozenset({"analysis", "audit", "backtest", "features", "models", "portfolio", "signals", "trading", "validation"})
 INFRASTRUCTURE = frozenset({"chatgpt_bridge", "data", "operations", "parsers", "plugins", "security"})
@@ -44,12 +42,11 @@ PRESENTATION_SHARED_KERNEL = frozenset(
 )
 
 FORBIDDEN_TARGET_LAYERS = {
-    "shared": frozenset({"presentation", "application", "transitional", "domain", "infrastructure"}),
-    "domain": frozenset({"presentation", "application", "transitional"}),
-    "infrastructure": frozenset({"presentation", "application", "transitional"}),
-    "application": frozenset({"presentation", "transitional"}),
-    "transitional": frozenset({"presentation"}),
-    "presentation": frozenset({"domain", "infrastructure", "transitional", "shared"}),
+    "shared": frozenset({"presentation", "application", "domain", "infrastructure"}),
+    "domain": frozenset({"presentation", "application"}),
+    "infrastructure": frozenset({"presentation", "application"}),
+    "application": frozenset({"presentation"}),
+    "presentation": frozenset({"domain", "infrastructure", "shared"}),
 }
 
 # By-design exceptions (reviewed 2026-10-04): shared/infrastructure modules that own a persistence or session seam.
@@ -83,18 +80,6 @@ KNOWN_VIOLATIONS = frozenset(
     }
 )
 
-# Compatibility modules kept only for tests/scripts during the refactor: production code must import the canonical
-# module instead.
-COMPAT_ONLY_MODULES = frozenset(
-    {
-        "etf_cockpit.app.operations",
-        "etf_cockpit.app.selectors.instrument_detail",
-        "etf_cockpit.application.screening",
-        "etf_cockpit.services",
-        "etf_cockpit.signals.research_states",
-    }
-)
-
 
 def _layer(module: str) -> str:
     parts = module.split(".")
@@ -104,7 +89,6 @@ def _layer(module: str) -> str:
     for name, members in (
         ("presentation", PRESENTATION),
         ("application", APPLICATION),
-        ("transitional", TRANSITIONAL),
         ("domain", DOMAIN),
         ("infrastructure", INFRASTRUCTURE),
         ("shared", SHARED),
@@ -216,19 +200,6 @@ def test_every_subpackage_is_classified() -> None:
 def test_allowlists_are_disjoint_and_explained() -> None:
     assert not KNOWN_VIOLATIONS & ACCEPTED_EXCEPTIONS.keys()
     assert all(reason.strip() for reason in ACCEPTED_EXCEPTIONS.values())
-
-
-def test_production_code_does_not_import_compatibility_modules() -> None:
-    offenders = sorted(
-        (module, target)
-        for module, path in _modules().items()
-        if module not in COMPAT_ONLY_MODULES
-        for target in _imports(module, path)
-        if target in COMPAT_ONLY_MODULES
-    )
-    assert not offenders, "import the canonical module instead of a compatibility re-export:\n" + "\n".join(
-        f"  {source} -> {target}" for source, target in offenders
-    )
 
 
 def test_type_checking_guard_only_matches_the_typing_flag() -> None:

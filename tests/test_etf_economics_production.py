@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-import etf_cockpit.services as services
+from etf_cockpit.application.economics_inputs import _etf_economics_snapshot_inputs
 import etf_cockpit.application.backtest_service as backtest_service
 import etf_cockpit.application.economics_inputs as economics_inputs
 import etf_cockpit.application.structural_evidence as structural_evidence
@@ -50,8 +50,7 @@ def _load_production_inputs(
         known_at=DECISION_TIME,
         dest=economics_path,
     )
-    monkeypatch.setattr(services, "ETF_ECONOMICS_PATH", economics_path)
-    monkeypatch.setattr(economics_inputs, "ETF_ECONOMICS_PATH", services.ETF_ECONOMICS_PATH)
+    monkeypatch.setattr(economics_inputs, "ETF_ECONOMICS_PATH", economics_path)
     disclosure_checksum = _sha256(FIXTURE / "synthetic_disclosure.txt")
     assert manifest["data_status"] == "SYNTHETIC_NON_OFFICIAL_TEST_ONLY"
     assert manifest["disclosure_source_checksum"] == disclosure_checksum
@@ -82,43 +81,40 @@ def _load_production_inputs(
             return tuple(base_records)
         return load_etf_economics_records(path or economics_path, **kwargs)
 
-    monkeypatch.setattr(services, "load_etf_economics_records", economics_loader)
-    monkeypatch.setattr(economics_inputs, "load_etf_economics_records", services.load_etf_economics_records)
-    monkeypatch.setattr(
-        services,
-        "read_etf_report_records",
-        lambda: pd.DataFrame(
-            [
-                {
-                    "source_id": manifest["disclosure_source_id"],
-                    "source_sha256": disclosure_checksum,
-                    "source_authority": "issuer_document",
-                    "verification_status": "verified",
-                    "evidence_eligible": True,
-                }
-            ]
-        ),
-    )
-    monkeypatch.setattr(economics_inputs, "read_etf_report_records", services.read_etf_report_records)
-    monkeypatch.setattr(structural_evidence, "read_etf_report_records", services.read_etf_report_records)
+    monkeypatch.setattr(economics_inputs, "load_etf_economics_records", economics_loader)
+    for module in (economics_inputs, structural_evidence):
+        monkeypatch.setattr(
+            module,
+            "read_etf_report_records",
+            lambda: pd.DataFrame(
+                [
+                    {
+                        "source_id": manifest["disclosure_source_id"],
+                        "source_sha256": disclosure_checksum,
+                        "source_authority": "issuer_document",
+                        "verification_status": "verified",
+                        "evidence_eligible": True,
+                    }
+                ]
+            ),
+        )
     policy_path = FIXTURE / "closure-policy.json"
     monkeypatch.setattr(
-        services,
+        economics_inputs,
         "load_closure_proxy_policy",
         lambda: load_closure_proxy_policy(policy_path, trusted_sha256=_sha256(policy_path)),
     )
-    monkeypatch.setattr(economics_inputs, "load_closure_proxy_policy", services.load_closure_proxy_policy)
 
     root = tmp_path / "canonical-store"
-    monkeypatch.setattr(services, "IDENTITY_PATH", root / "data" / "clean" / "identity.parquet")
-    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
-    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
+    identity_path = root / "data" / "clean" / "identity.parquet"
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
     with CorporateActionCoverageStore(root) as store:
         for value in manifest["corporate_action_coverage"]:
             store.append(CorporateActionCoverage(**value))
 
     price_frame = prices if prices is not None else pd.read_csv(FIXTURE / "prices.csv")
-    records_out, fund, benchmark, policy = services._etf_economics_snapshot_inputs(
+    records_out, fund, benchmark, policy = _etf_economics_snapshot_inputs(
         price_frame, DECISION_TIME
     )
     return records_out, fund, benchmark, policy, price_frame

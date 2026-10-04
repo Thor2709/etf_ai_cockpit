@@ -19,7 +19,7 @@ def main() -> None:
     parser.add_argument("--smoke", action="store_true", help="Build the service snapshot without opening the UI.")
     args = parser.parse_args()
     if args.smoke:
-        from etf_cockpit.services import build_snapshot
+        from etf_cockpit.application.snapshot_builder import build_snapshot
 
         snapshot = build_snapshot()
         print(f"snapshot_ok as_of={snapshot.data_report.as_of_date} signals={len(snapshot.signals)} backtests={len(snapshot.backtest.results)}")

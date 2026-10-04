@@ -11,7 +11,9 @@ from etf_cockpit.app.pages.onboarding import onboarding_page
 from etf_cockpit.app.pages.settings import settings_page
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.types import DataQualityReport
-from etf_cockpit.services import CockpitSnapshot, _empty_backtest_report, build_snapshot, load_config
+from etf_cockpit.application.backtest_service import _empty_backtest_report
+from etf_cockpit.application.snapshot_builder import CockpitSnapshot, build_snapshot
+from etf_cockpit.core.config import load_config
 
 
 def _walk(control):

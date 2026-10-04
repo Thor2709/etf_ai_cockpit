@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from etf_cockpit.app.state import AppState
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 from scripts.issue_registry_core import ready_records
 from scripts import validate_app
 from scripts.validate_app import run_validation

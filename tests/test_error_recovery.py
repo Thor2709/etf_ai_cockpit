@@ -12,7 +12,8 @@ from etf_cockpit.core.errors import ErrorCategory, ErrorStore, classify_exceptio
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.types import ForecastResult
 from etf_cockpit.data.providers import ManualLocalFileProvider
-from etf_cockpit.services import BacktestService, ForecastService
+from etf_cockpit.application.backtest_service import BacktestService
+from etf_cockpit.application.forecast_service import ForecastService
 
 
 def test_error_classification_is_controlled_and_retryable() -> None:
@@ -144,7 +145,6 @@ def test_forecast_atomic_write_preserves_previous_output_on_failure(tmp_path: Pa
     def fail_write(*_args, **_kwargs):
         raise PermissionError("locked forecast output")
 
-    monkeypatch.setattr("etf_cockpit.services.atomic_write_group", fail_write)
     monkeypatch.setattr("etf_cockpit.application.backtest_service.atomic_write_group", fail_write)
     monkeypatch.setattr("etf_cockpit.application.derived_cache.atomic_write_group", fail_write)
     with pytest.raises(PermissionError):
@@ -163,21 +163,16 @@ def test_backtest_atomic_group_preserves_all_previous_outputs_on_failure(tmp_pat
         signal_log=pd.DataFrame(),
         ai_added_value=False,
     )
-    monkeypatch.setattr("etf_cockpit.services.BACKTESTS_DIR", tmp_path)
     monkeypatch.setattr("etf_cockpit.application.backtest_service.BACKTESTS_DIR", tmp_path)
-    monkeypatch.setattr("etf_cockpit.services.run_backtest", lambda *_args, **_kwargs: report)
     monkeypatch.setattr("etf_cockpit.application.backtest_service.run_backtest", lambda *_args, **_kwargs: report)
-    monkeypatch.setattr("etf_cockpit.services.load_prices", lambda: pd.DataFrame())
     monkeypatch.setattr("etf_cockpit.application.signal_service.load_prices", lambda: pd.DataFrame())
     monkeypatch.setattr("etf_cockpit.application.data_service.load_prices", lambda: pd.DataFrame())
     monkeypatch.setattr("etf_cockpit.application.backtest_service.load_prices", lambda: pd.DataFrame())
     monkeypatch.setattr("etf_cockpit.application.feature_service.load_prices", lambda: pd.DataFrame())
     monkeypatch.setattr("etf_cockpit.application.forecast_service.load_prices", lambda: pd.DataFrame())
-    monkeypatch.setattr("etf_cockpit.services.ensure_run_manifest", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("etf_cockpit.application.backtest_service.ensure_run_manifest", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("etf_cockpit.application.feature_service.ensure_run_manifest", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("etf_cockpit.application.forecast_service.ensure_run_manifest", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr("etf_cockpit.services.atomic_write_group", lambda *_args, **_kwargs: (_ for _ in ()).throw(PermissionError("locked backtest output")))
     monkeypatch.setattr("etf_cockpit.application.backtest_service.atomic_write_group", lambda *_args, **_kwargs: (_ for _ in ()).throw(PermissionError("locked backtest output")))
     monkeypatch.setattr("etf_cockpit.application.derived_cache.atomic_write_group", lambda *_args, **_kwargs: (_ for _ in ()).throw(PermissionError("locked backtest output")))
     with pytest.raises(PermissionError):

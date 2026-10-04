@@ -210,7 +210,7 @@ def test_workflow_commands_use_the_single_local_scheduler_and_are_cancelable(tmp
 @pytest.mark.parametrize("case", ["blocked", "unavailable", "tampered", "deleted", "null", "authority"])
 def test_paper_preview_restrictions_stop_direct_scheduler_submission(tmp_path, monkeypatch, case):
     from unittest.mock import Mock
-    from etf_cockpit.app.operations import build_operation_preview
+    from etf_cockpit.application.operation_records import build_operation_preview
     from etf_cockpit.application.contracts import EventBlockPolicy
     from etf_cockpit.data.event_calendar import CalendarEvent, persist_calendar_events
 
@@ -245,7 +245,7 @@ def test_paper_preview_restrictions_stop_direct_scheduler_submission(tmp_path, m
 
 
 def test_default_paper_preview_remains_submittable_and_idempotent(tmp_path):
-    from etf_cockpit.app.operations import build_operation_preview
+    from etf_cockpit.application.operation_records import build_operation_preview
 
     api = LocalApplicationApi(_snapshot, root=tmp_path)
     record = build_operation_preview(environment="paper", instrument_id="ETF1", quantity=1)
