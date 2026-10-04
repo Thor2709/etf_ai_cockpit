@@ -12,7 +12,7 @@ import pandas as pd
 from etf_cockpit.core.paths import FORECASTS_DIR
 from etf_cockpit.core.atomic_io import read_atomic_group
 from etf_cockpit.core.config import AppConfig
-from etf_cockpit.core.values import finite_float_numpy as _finite_or_none, stripped_text_or_none as _text_or_none
+from etf_cockpit.core.values import finite_float_or_none as _finite_or_none, stripped_text_or_none as _text_or_none
 from etf_cockpit.core.versioning import current_settings_revision
 from etf_cockpit.models.distribution_store import (
     HORIZON_VALIDATION_STATUSES,

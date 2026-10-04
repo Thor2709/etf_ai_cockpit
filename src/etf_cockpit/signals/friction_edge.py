@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from math import isclose
 from typing import Mapping
 
-from etf_cockpit.core.values import finite_float_isfinite as _finite
+from etf_cockpit.core.values import finite_float_or_none as _finite
 
 
 @dataclass(frozen=True)

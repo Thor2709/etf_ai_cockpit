@@ -33,7 +33,7 @@ import numpy as np
 import yaml
 
 from etf_cockpit.analysis.decision.contracts import OpportunityResult
-from etf_cockpit.core.values import finite_non_bool_number_or_none as _finite, positive_int_or_none as _positive_int
+from etf_cockpit.core.values import finite_non_bool_float_or_none as _finite, positive_int_or_none as _positive_int
 from etf_cockpit.portfolio.forecast_aggregation import PortfolioForecastSnapshot
 from etf_cockpit.portfolio.goals_constraints import (
     ConstraintResult,

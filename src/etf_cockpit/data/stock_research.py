@@ -18,7 +18,7 @@ import pandas as pd
 
 from etf_cockpit.core.atomic_io import sha256_file as _file_sha256
 from etf_cockpit.core.paths import RAW_DIR
-from etf_cockpit.core.values import as_finite_float as _float, mapping_or_attribute as _projection_member
+from etf_cockpit.core.values import finite_float_or_none as _float, mapping_or_attribute as _projection_member
 from etf_cockpit.data.capital_efficiency import capital_efficiency_analysis
 from etf_cockpit.data.statement_normalisation import statement_coverage, statement_view
 

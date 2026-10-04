@@ -26,7 +26,7 @@ from etf_cockpit.analysis.fixed_income_risk import (
     FixedIncomeRiskRecord,
     calculate_fixed_income_risk,
 )
-from etf_cockpit.core.values import as_finite_float as _finite
+from etf_cockpit.core.values import finite_float_or_none as _finite
 from etf_cockpit.data.fixed_income_risk_store import (
     StoredFixedIncomeRisk,
     read_fixed_income_risk,

@@ -15,7 +15,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-from etf_cockpit.core.values import finite_float_numpy as _finite_or_none, stripped_text_or_none as _noneable_text
+from etf_cockpit.core.values import finite_float_or_none as _finite_or_none, stripped_text_or_none as _noneable_text
 from etf_cockpit.models.calibration import coverage_confidence_interval, conformal_quantile_adjustment
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.resource_profiles import ResourcePolicy, estimate_workflow_resources

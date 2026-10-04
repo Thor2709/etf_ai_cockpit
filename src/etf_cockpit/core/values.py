@@ -1,17 +1,11 @@
-"""Generic value-coercion helpers shared by every layer (finite numbers, text, flags, UTC timestamps).
-
-Several functions behave identically and differ only in local variable names or in how finiteness is
-tested; they stay separate objects so the P9d proof can show bytecode equality per original group.
-"""
+"""Generic value-coercion helpers shared by every layer (finite numbers, text, flags, UTC timestamps)."""
 
 from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-from math import isfinite
 from numbers import Real
 
-import numpy as np
 import pandas as pd
 
 
@@ -25,36 +19,6 @@ def finite_float_or_none(value: object) -> float | None:
     return number if math.isfinite(number) else None
 
 
-def as_finite_float(value: object) -> float | None:
-    """Return float(value) when it is finite, else None (same behaviour as finite_float_or_none)."""
-
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    return result if math.isfinite(result) else None
-
-
-def finite_float_isfinite(value: object) -> float | None:
-    """Return float(value) when math.isfinite accepts it, else None (same behaviour as finite_float_or_none)."""
-
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    return result if isfinite(result) else None
-
-
-def finite_float_numpy(value: object) -> float | None:
-    """Return float(value) when np.isfinite accepts it, else None (same behaviour as finite_float_or_none)."""
-
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if np.isfinite(number) else None
-
-
 def finite_non_bool_float_or_none(value: object) -> float | None:
     """Return float(value) when finite; bool, non-numeric and overflowing input give None."""
 
@@ -65,18 +29,6 @@ def finite_non_bool_float_or_none(value: object) -> float | None:
     except (TypeError, ValueError, OverflowError):
         return None
     return result if math.isfinite(result) else None
-
-
-def finite_non_bool_number_or_none(value: object) -> float | None:
-    """Return float(value) when finite; bool, non-numeric and overflowing input give None (same behaviour as finite_non_bool_float_or_none)."""
-
-    if isinstance(value, bool):
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def is_finite_number(value: object) -> bool:

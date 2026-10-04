@@ -21,7 +21,7 @@ from typing import Literal
 import yaml
 
 from etf_cockpit.core.paths import CONFIG_DIR
-from etf_cockpit.core.values import finite_non_bool_number_or_none as _optional_number
+from etf_cockpit.core.values import finite_non_bool_float_or_none as _optional_number
 from etf_cockpit.portfolio.goals_constraints import (
     build_what_if_scenario,
     policy_record,

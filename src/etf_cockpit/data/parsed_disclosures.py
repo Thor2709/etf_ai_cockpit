@@ -1730,14 +1730,6 @@ def _cell_text(value: Any) -> str:
     return str(value).strip()
 
 
-def _file_checksum(path: Path) -> str:
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _snapshot_matches(path: Path, expected: bytes, expected_sha256: str) -> bool:
     digest = hashlib.sha256()
     offset = 0

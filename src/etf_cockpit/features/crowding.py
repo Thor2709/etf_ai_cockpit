@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 import pandas as pd
 
-from etf_cockpit.core.values import finite_float_isfinite as _safe_float
+from etf_cockpit.core.values import finite_float_or_none as _safe_float
 
 
 @dataclass(frozen=True)

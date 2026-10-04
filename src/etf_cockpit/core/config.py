@@ -545,9 +545,3 @@ def _write_env_value(env_path: Path, key: str, value: str) -> None:
 
 def _escape_env_value(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"').replace("\r", "").replace("\n", "")
-
-
-def _as_bool(value: object) -> bool:
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
-    return bool(value)

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import math
 from typing import Iterable, Mapping
 
-from etf_cockpit.core.values import as_finite_float as _number
+from etf_cockpit.core.values import finite_float_or_none as _number
 
 from .models import ECClaimState, SparebankEventAnalysis, UNAVAILABLE
 
