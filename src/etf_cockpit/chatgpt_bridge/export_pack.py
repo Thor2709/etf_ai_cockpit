@@ -52,7 +52,7 @@ from etf_cockpit.data.macro_warehouse import MacroWarehouse, MacroWarehouseError
 from etf_cockpit.data.legal_terms import legal_terms_report
 from etf_cockpit.data.bitemporal import BitemporalStore
 from etf_cockpit.audit.thesis_diary import export_thesis_diary_packet
-from etf_cockpit.application.architecture import build_report as build_architecture_report
+from etf_cockpit.governance.architecture_boundaries import build_report as build_architecture_report
 from etf_cockpit.core.settings_bundle import load_settings_bundle, settings_export
 from etf_cockpit.governance.product_scope import (
     load_authority_matrix,

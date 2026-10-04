@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from etf_cockpit.application.architecture import build_report
+from etf_cockpit.governance.architecture_boundaries import build_report
 
 
 def main(argv: list[str] | None = None) -> int:

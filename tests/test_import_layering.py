@@ -110,7 +110,6 @@ KNOWN_VIOLATIONS = frozenset(
         ("etf_cockpit.application.api", "etf_cockpit.app.operations"),
         ("etf_cockpit.application.ui_facade", "etf_cockpit.app.selectors.instrument_detail"),
         ("etf_cockpit.audit.local_llm", "etf_cockpit.services"),
-        ("etf_cockpit.chatgpt_bridge.export_pack", "etf_cockpit.application.architecture"),
         ("etf_cockpit.core.config", "etf_cockpit.data.universe_store"),
         ("etf_cockpit.core.config", "etf_cockpit.security.credentials"),
         ("etf_cockpit.core.job_scheduler", "etf_cockpit.data.local_storage"),
