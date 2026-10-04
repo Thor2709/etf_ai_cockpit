@@ -26,25 +26,25 @@ from etf_cockpit.application.api import LocalApplicationApi
 from etf_cockpit.application.sec_bulk_import import BulkImportResult, import_sec_companyfacts_bulk as _import_sec_companyfacts_bulk  # noqa: F401 - compatibility re-export
 from etf_cockpit.application.sec_submissions_import import SubmissionsImportResult, import_sec_submissions as _import_sec_submissions  # noqa: F401 - compatibility re-export
 from etf_cockpit.core.job_scheduler import DurableJobScheduler
-from etf_cockpit.data.trust_artifacts import IDENTITY_PATH, refresh_static_trust_artifacts, write_trust_artifacts_for_scores  # noqa: F401 - compatibility re-export (IDENTITY_PATH)
+from etf_cockpit.data.trust_artifacts import IDENTITY_PATH, refresh_static_trust_artifacts, write_trust_artifacts_for_scores  # noqa: F401 - compatibility re-export
+from etf_cockpit.data.classification import classification_score_state  # noqa: F401 - compatibility re-export
+from etf_cockpit.features.regime import build_market_regime, write_market_regime  # noqa: F401 - compatibility re-export
+from etf_cockpit.application.benchmark_reference import context_from_snapshot  # noqa: F401 - compatibility re-export
+from etf_cockpit.models.calibration import evaluate_forecast_calibration, load_forecast_history, write_forecast_calibration  # noqa: F401 - compatibility re-export
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider  # noqa: F401
 from etf_cockpit.data.esef_provider import FilingsXbrlOrgProvider  # noqa: F401 - compatibility re-export
 from etf_cockpit.data.oam_adapters import oam_adapter_for_country, write_filing_coverage, write_oam_discovery_registry  # noqa: F401 - compatibility re-export
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
-from etf_cockpit.data.classification import classification_score_state
 from etf_cockpit.parsers.contracts import RawDocument
 from etf_cockpit.parsers.esef_ixbrl import parse_esef_package  # noqa: F401 - compatibility re-export
 from etf_cockpit.parsers.sec_facts import parse_companyfacts, write_statement_evidence  # noqa: F401
-from etf_cockpit.features.regime import build_market_regime, write_market_regime
-from etf_cockpit.application.benchmark_reference import context_from_snapshot
-from etf_cockpit.models.calibration import evaluate_forecast_calibration, load_forecast_history, write_forecast_calibration
 from etf_cockpit.models.forecast_scores import configured_forecast_request_identity
 from etf_cockpit.operations.event_store import current_activity_view, load_events_with_tail_recovery
 from etf_cockpit.portfolio.review_reports import create_portfolio_review_report
 from etf_cockpit.application.chatgpt_review import ChatGPTBridge
 from etf_cockpit.application.data_service import DataService
 from etf_cockpit.application.snapshot_builder import CockpitSnapshot, build_snapshot
-from etf_cockpit.signals.simple_scores import SimpleInstrumentScore, build_simple_instrument_scores, load_latest_candidate_report, simple_scoreboard_frame, write_simple_scoreboard
+from etf_cockpit.signals.simple_scores import SimpleInstrumentScore, build_simple_instrument_scores, load_latest_candidate_report, simple_scoreboard_frame, write_simple_scoreboard  # noqa: F401 - compatibility re-export
 from etf_cockpit.app import theme
 from etf_cockpit.application.contracts import ApplicationCommand, DashboardActionCommand
 from etf_cockpit.application.filing_ingestion import (
@@ -57,6 +57,8 @@ from etf_cockpit.application.activity_results import (
     ActivityUnavailableError,
 )
 from etf_cockpit.application import filing_ingestion_workflows as _filing_ingestion_workflows
+from etf_cockpit.application.scoreboard_publication import _signal_classification_is_current
+from etf_cockpit.application import scoreboard_publication as _scoreboard_publication
 
 
 # Compatibility seam for existing callers and tests. This is the session trace,
@@ -122,27 +124,6 @@ def _tracked_activity(label: str, step: str) -> Callable[[Callable[..., _Tracked
         return cast(Callable[..., _TrackedResult], wrapped)
 
     return decorate
-
-
-def _signal_classification_is_current(signal: object, *, root: Path) -> bool:
-    instrument_id = str(getattr(signal, "etf_id", "") or "").strip()
-    if not instrument_id:
-        return False
-    metrics = getattr(signal, "supporting_metrics", {})
-    stored_token = (
-        str(metrics.get("classification_invalidation_hash") or "unavailable")
-        if isinstance(metrics, dict)
-        else "unavailable"
-    )
-    state = classification_score_state(root, instrument_id)
-    if str(state.get("status")) == "unavailable":
-        return False
-    current_token = str(state.get("invalidation_token") or "unavailable")
-    token_is_bound = stored_token not in {"", "none", "nan", "unavailable"}
-    return not (
-        (token_is_bound and stored_token != current_token)
-        or (bool(state.get("invalidated_score_keys")) and stored_token != current_token)
-    )
 
 
 @dataclass
@@ -1153,54 +1134,7 @@ class AppState:
 
     @_tracked_activity("Write scoreboard", "Building scoreboard")
     def _write_current_scoreboard(self) -> Path:
-        candidate_report, _ = load_latest_candidate_report()
-        reference_context = context_from_snapshot(
-            self.snapshot,
-            purpose="comparison",
-            analysis_id=f"scoreboard:{getattr(self.snapshot, 'universe_revision', 'unknown')}",
-        )
-        regime = build_market_regime(
-            self.snapshot.prices,
-            candidate_report,
-            benchmark_id=reference_context.benchmark_data_id,
-            benchmark_reference=reference_context.projection,
-            benchmark_registry=reference_context.registry,
-        )
-        with self.activity_publication():
-            write_market_regime(regime)
-        calibration = evaluate_forecast_calibration(load_forecast_history(), self.snapshot.prices)
-        with self.activity_publication():
-            write_forecast_calibration(calibration)
-        scores = build_simple_instrument_scores(
-            self.snapshot.config,
-            self.snapshot.signals,
-            self.snapshot.forecasts,
-            self.snapshot.prices,
-            benchmark_data_id=reference_context.benchmark_data_id,
-            benchmark_reference=reference_context.projection,
-            benchmark_registry=reference_context.registry,
-            reference_identity=reference_context.identity,
-            peer_member_ids=reference_context.peer_member_ids,
-            cash_observation_time=self.snapshot.benchmark_reference_decision_time,
-        )
-        with self.activity_publication():
-            path = write_simple_scoreboard(scores)
-        try:
-            with self.activity_publication():
-                write_trust_artifacts_for_scores(
-                    self.snapshot.config,
-                    scores,
-                    simple_scoreboard_frame(scores),
-                    prices=self.snapshot.prices,
-                )
-        except Exception as exc:
-            # The scoreboard itself is published; only the trust artifacts
-            # (score history, components, evidence ledger, drivers) are missing.
-            # Keep that absence explicit instead of looking like a first run.
-            self._record_score_history_failure(exc, path)
-        else:
-            self.score_history_warning = None
-        return path
+        return _scoreboard_publication._write_current_scoreboard(self)
 
     def _record_score_history_failure(self, exc: Exception, scoreboard_path: Path) -> None:
         reason = redact_text(" ".join(f"{type(exc).__name__}: {exc}".split()))[:240]
