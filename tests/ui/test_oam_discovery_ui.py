@@ -6,6 +6,7 @@ from pathlib import Path
 from etf_cockpit.app.pages.trust_evidence import filings_page
 from etf_cockpit.app.state import AppState
 import etf_cockpit.app.state as app_state_module
+import etf_cockpit.application.filing_ingestion_workflows as filing_ingestion_workflows
 from etf_cockpit.services import build_snapshot
 
 
@@ -52,11 +53,13 @@ def test_app_state_imports_local_oam_without_network_and_publishes_manual_eviden
         "write_oam_discovery_registry",
         lambda result, **_kwargs: (observed.update(registry_result=result) or registry),
     )
+    monkeypatch.setattr(filing_ingestion_workflows, "write_oam_discovery_registry", app_state_module.write_oam_discovery_registry)
     monkeypatch.setattr(
         app_state_module,
         "write_filing_coverage",
         lambda result, **_kwargs: (observed.update(coverage_result=result) or coverage),
     )
+    monkeypatch.setattr(filing_ingestion_workflows, "write_filing_coverage", app_state_module.write_filing_coverage)
     monkeypatch.setattr(
         "etf_cockpit.data.oam_adapters.urlopen",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("local import attempted network I/O")),

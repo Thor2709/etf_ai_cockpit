@@ -14,6 +14,7 @@ import pytest
 import yaml
 
 from etf_cockpit.app import state as app_state_module
+import etf_cockpit.application.filing_ingestion_workflows as filing_ingestion_workflows
 import etf_cockpit.application.filing_ingestion as filing_ingestion
 from etf_cockpit.app.pages.dashboard import _activity_panel
 from etf_cockpit.app.pages.dashboard import _export_pack, _run_action, _run_dialog_action
@@ -1334,12 +1335,14 @@ def test_esef_normal_unavailable_result_is_failed_terminal(tmp_path, monkeypatch
     source = tmp_path / "report.zip"
     source.write_bytes(b"not an ESEF package")
     monkeypatch.setattr(app_state_module, "RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr(filing_ingestion_workflows, "RAW_DIR", app_state_module.RAW_DIR)
     monkeypatch.setattr(filing_ingestion, "RAW_DIR", app_state_module.RAW_DIR)
     monkeypatch.setattr(
         app_state_module,
         "parse_esef_package",
         lambda _path: ParseResult((), (ParseWarning("invalid_package", "invalid", "error"),), "esef", "1", "unused", False),
     )
+    monkeypatch.setattr(filing_ingestion_workflows, "parse_esef_package", app_state_module.parse_esef_package)
     state = _state()
     action_id = state.begin_activity("Import ESEF package", "Reading package").action_id
     with state.share_activity(action_id), pytest.raises(ActivityUnavailableError) as raised:
@@ -2092,6 +2095,7 @@ def test_esef_discovery_cancel_does_not_publish_in_memory_success(tmp_path, monk
             return SimpleNamespace(status="ok", message="ok", data=("new-filing",))
 
     monkeypatch.setattr(app_state_module, "FilingsXbrlOrgProvider", Provider)
+    monkeypatch.setattr(filing_ingestion_workflows, "FilingsXbrlOrgProvider", app_state_module.FilingsXbrlOrgProvider)
     action_id = state.begin_activity("Discover ESEF filings", "Fetching").action_id
     errors: list[Exception] = []
 
@@ -2199,6 +2203,7 @@ def test_official_filing_normal_unavailable_result_is_failed_and_redacted(
                 )
 
         monkeypatch.setattr(app_state_module, "FilingsXbrlOrgProvider", UnavailableProvider)
+        monkeypatch.setattr(filing_ingestion_workflows, "FilingsXbrlOrgProvider", app_state_module.FilingsXbrlOrgProvider)
 
         def action(_action_id):
             return state.discover_esef_filings("NL")
@@ -2223,6 +2228,7 @@ def test_official_filing_normal_unavailable_result_is_failed_and_redacted(
 
         observed_guards: list[object] = []
         monkeypatch.setattr(app_state_module, "oam_adapter_for_country", lambda _country: UnavailableAdapter)
+        monkeypatch.setattr(filing_ingestion_workflows, "oam_adapter_for_country", app_state_module.oam_adapter_for_country)
         monkeypatch.setattr(
             app_state_module,
             "write_filing_coverage",
@@ -2231,6 +2237,7 @@ def test_official_filing_normal_unavailable_result_is_failed_and_redacted(
                 or tmp_path / "coverage.parquet"
             ),
         )
+        monkeypatch.setattr(filing_ingestion_workflows, "write_filing_coverage", app_state_module.write_filing_coverage)
         def action(action_id):
             return state.discover_oam(
                 "FR",
@@ -2261,7 +2268,9 @@ def test_official_filing_normal_unavailable_result_is_failed_and_redacted(
 def test_sec_companyfacts_publication_scope_serialises_cancellation(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "session.jsonl")
     monkeypatch.setattr(app_state_module, "STATEMENT_FACTS_PATH", tmp_path / "facts.parquet")
+    monkeypatch.setattr(filing_ingestion_workflows, "STATEMENT_FACTS_PATH", app_state_module.STATEMENT_FACTS_PATH)
     monkeypatch.setattr(app_state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "inventory.parquet")
+    monkeypatch.setattr(filing_ingestion_workflows, "FILINGS_STATEMENTS_PATH", app_state_module.FILINGS_STATEMENTS_PATH)
     payload = tmp_path / "facts.json"
     payload.write_text(
         json.dumps({"cik": 1, "facts": {"us-gaap": {"Assets": {"units": {"USD": [{"val": 1}]}}}}}),
@@ -2282,6 +2291,7 @@ def test_sec_companyfacts_publication_scope_serialises_cancellation(tmp_path, mo
         assert release.wait(_WAIT_S)
 
     monkeypatch.setattr(app_state_module, "write_statement_evidence", blocking_write)
+    monkeypatch.setattr(filing_ingestion_workflows, "write_statement_evidence", app_state_module.write_statement_evidence)
     original_record_output = state._record_activity_output
 
     def record_after_cancel(step, path):

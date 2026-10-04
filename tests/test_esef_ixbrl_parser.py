@@ -274,13 +274,17 @@ def test_arelle_worker_uses_pinned_validate_api_and_serialises_log_errors(monkey
 
 def test_state_import_persists_esef_facts_and_official_inventory(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion_workflows as filing_ingestion_workflows
     import etf_cockpit.application.filing_ingestion as filing_ingestion
     import pandas as pd
 
     monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
     monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")
+    monkeypatch.setattr(filing_ingestion_workflows, "STATEMENT_FACTS_PATH", state_module.STATEMENT_FACTS_PATH)
     monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "filings_statements.parquet")
+    monkeypatch.setattr(filing_ingestion_workflows, "FILINGS_STATEMENTS_PATH", state_module.FILINGS_STATEMENTS_PATH)
     monkeypatch.setattr(state_module, "RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr(filing_ingestion_workflows, "RAW_DIR", state_module.RAW_DIR)
     monkeypatch.setattr(filing_ingestion, "RAW_DIR", state_module.RAW_DIR)
     state = state_module.AppState.__new__(state_module.AppState)
     state.last_message = "Ready"
@@ -298,14 +302,18 @@ def test_state_import_persists_esef_facts_and_official_inventory(tmp_path: Path,
 
 def test_arbitrary_local_import_is_retained_but_requires_manual_review(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion_workflows as filing_ingestion_workflows
     import etf_cockpit.application.filing_ingestion as filing_ingestion
     import pandas as pd
 
     local_package = tmp_path / "local-copy.xbri"
     local_package.write_bytes(FIXTURE.read_bytes())
     monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")
+    monkeypatch.setattr(filing_ingestion_workflows, "STATEMENT_FACTS_PATH", state_module.STATEMENT_FACTS_PATH)
     monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "filings_statements.parquet")
+    monkeypatch.setattr(filing_ingestion_workflows, "FILINGS_STATEMENTS_PATH", state_module.FILINGS_STATEMENTS_PATH)
     monkeypatch.setattr(state_module, "RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr(filing_ingestion_workflows, "RAW_DIR", state_module.RAW_DIR)
     monkeypatch.setattr(filing_ingestion, "RAW_DIR", state_module.RAW_DIR)
     state = state_module.AppState.__new__(state_module.AppState)
     state.last_message = "Ready"
@@ -321,13 +329,17 @@ def test_arbitrary_local_import_is_retained_but_requires_manual_review(tmp_path:
 
 def test_invalid_local_import_is_retained_without_clean_store_mutation(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion_workflows as filing_ingestion_workflows
     import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     invalid = tmp_path / "invalid.xbri"
     invalid.write_bytes(b"not-a-zip")
     monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")
+    monkeypatch.setattr(filing_ingestion_workflows, "STATEMENT_FACTS_PATH", state_module.STATEMENT_FACTS_PATH)
     monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "filings_statements.parquet")
+    monkeypatch.setattr(filing_ingestion_workflows, "FILINGS_STATEMENTS_PATH", state_module.FILINGS_STATEMENTS_PATH)
     monkeypatch.setattr(state_module, "RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr(filing_ingestion_workflows, "RAW_DIR", state_module.RAW_DIR)
     monkeypatch.setattr(filing_ingestion, "RAW_DIR", state_module.RAW_DIR)
     state = state_module.AppState.__new__(state_module.AppState)
     state.last_message = "Ready"
@@ -343,6 +355,7 @@ def test_invalid_local_import_is_retained_without_clean_store_mutation(tmp_path:
 
 def test_state_discovery_and_download_keep_unavailable_state_explicit(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion_workflows as filing_ingestion_workflows
     from etf_cockpit.data.providers import ProviderResult
     from etf_cockpit.parsers.contracts import RawDocument
     from datetime import datetime, timezone
@@ -362,6 +375,7 @@ def test_state_discovery_and_download_keep_unavailable_state_explicit(tmp_path: 
             return RawDocument(package, "https://filings.xbrl.org/fixture.xbri", datetime.now(timezone.utc), "a" * 64, "filings_xbrl_org", "esef_report_package", "application/octet-stream", 200)
 
     monkeypatch.setattr(state_module, "FilingsXbrlOrgProvider", FakeProvider)
+    monkeypatch.setattr(filing_ingestion_workflows, "FilingsXbrlOrgProvider", state_module.FilingsXbrlOrgProvider)
     state = state_module.AppState.__new__(state_module.AppState)
     assert "complete" in state.discover_esef_filings("NL")
     assert "downloaded" in state.download_esef_package("fixture-1")

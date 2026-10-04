@@ -86,7 +86,6 @@ KNOWN_VIOLATIONS = frozenset(
         ("etf_cockpit.app.state", "etf_cockpit.data.esef_provider"),
         ("etf_cockpit.app.state", "etf_cockpit.data.instrument_identity"),
         ("etf_cockpit.app.state", "etf_cockpit.data.oam_adapters"),
-        ("etf_cockpit.app.state", "etf_cockpit.data.sec_edgar_bulk"),
         ("etf_cockpit.app.state", "etf_cockpit.data.sec_edgar_provider"),
         ("etf_cockpit.app.state", "etf_cockpit.data.trust_artifacts"),
         ("etf_cockpit.app.state", "etf_cockpit.features.regime"),
