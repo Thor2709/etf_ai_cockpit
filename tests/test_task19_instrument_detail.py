@@ -380,6 +380,7 @@ def test_valuation_visible_in_detail_for_stock_and_etf(tmp_path, monkeypatch, as
         quality_momentum_evidence=pd.DataFrame(columns=["etf_id", "date"]),
     )
     monkeypatch.setattr("etf_cockpit.services.run_backtest", lambda *_args, **_kwargs: report)
+    monkeypatch.setattr("etf_cockpit.application.backtest_service.run_backtest", lambda *_args, **_kwargs: report)
     snapshot = build_snapshot(force_sample=True)
     instrument = ETFConfig(id="valuation-example", name="Valuation Example", ticker="VAL", instrument_type=asset_type, role="watchlist")
     snapshot = replace(snapshot, config=snapshot.config.model_copy(update={

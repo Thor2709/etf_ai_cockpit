@@ -37,6 +37,7 @@ from etf_cockpit.app.pages.signals import _latest_operational_row
 from etf_cockpit.app.selectors.instrument_detail import _operational_evidence_panel
 from etf_cockpit.portfolio.costs import estimate_execution_cost
 from etf_cockpit import services
+import etf_cockpit.application.backtest_service as backtest_service
 import etf_cockpit.application.feature_service as feature_service
 import etf_cockpit.application.forecast_service as forecast_service
 import etf_cockpit.application.economics_inputs as economics_inputs
@@ -1038,6 +1039,7 @@ def test_unreadable_identity_store_never_uses_sample_calendar_fallback(
         "IDENTITY_PATH",
         tmp_path / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     database = services.storage_layout(tmp_path).transactional_path
     database.parent.mkdir(parents=True)
@@ -1074,11 +1076,13 @@ def test_identity_resolver_rejects_naive_point_in_time(tmp_path, monkeypatch) ->
         "IDENTITY_PATH",
         tmp_path / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     database = services.storage_layout(tmp_path).transactional_path
     database.parent.mkdir(parents=True)
     database.write_bytes(b"store existence only")
     monkeypatch.setattr(services, "IdentityMasterStore", lambda _root, **_kwargs: Store())
+    monkeypatch.setattr(backtest_service, "IdentityMasterStore", services.IdentityMasterStore)
     store, resolver = services._open_backtest_calendar_identity_resolver()
     assert store is not None
     assert resolver is not None
@@ -1099,6 +1103,7 @@ def test_missing_identity_store_remains_read_only_and_explicitly_absent(tmp_path
         "IDENTITY_PATH",
         tmp_path / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
 
     store, resolver = services._open_backtest_calendar_identity_resolver()
@@ -1113,6 +1118,7 @@ def test_identity_resolver_service_probe_never_mutates_source_storage(tmp_path, 
         "IDENTITY_PATH",
         tmp_path / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     with services.IdentityMasterStore(tmp_path):
         pass
@@ -1146,6 +1152,7 @@ def test_identity_resolver_service_rejects_active_journal_without_mutation(
         "IDENTITY_PATH",
         tmp_path / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     with services.IdentityMasterStore(tmp_path):
         pass
@@ -1509,7 +1516,9 @@ def test_operational_evidence_input_binding_tracks_every_non_price_input(tmp_pat
     corrections.write_text("corrections: []\n", encoding="utf-8")
     identity_path = tmp_path / "root" / "data" / "reference" / "identity.parquet"
     monkeypatch.setattr(services, "CONFIG_DIR", config_dir)
+    monkeypatch.setattr(backtest_service, "CONFIG_DIR", services.CONFIG_DIR)
     monkeypatch.setattr(services, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     store = storage_layout(identity_path.parents[2]).transactional_path
     config = load_config()
@@ -1670,19 +1679,25 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
         "IDENTITY_PATH",
         tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
+    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", services.BACKTESTS_DIR)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", services.load_prices)
     monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
     monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)
     monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
+    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", services.load_fundamental_evidence)
     monkeypatch.setattr(
         services,
         "_load_local_structural_evidence",
         lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
     )
+    monkeypatch.setattr(backtest_service, "_load_local_structural_evidence", services._load_local_structural_evidence)
     monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services.ensure_run_manifest)
     monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
     monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
     service = services.BacktestService(config, universe_revision="test-revision")
@@ -1842,6 +1857,7 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
         "_operational_evidence_input_binding",
         lambda *_args, **_kwargs: "0" * 64,
     )
+    monkeypatch.setattr(backtest_service, "_operational_evidence_input_binding", services._operational_evidence_input_binding)
     assert service._load_cached_backtest() is None
 
 
@@ -1857,19 +1873,25 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
         "IDENTITY_PATH",
         tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
+    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", services.BACKTESTS_DIR)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", services.load_prices)
     monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
     monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)
     monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
+    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", services.load_fundamental_evidence)
     monkeypatch.setattr(
         services,
         "_load_local_structural_evidence",
         lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
     )
+    monkeypatch.setattr(backtest_service, "_load_local_structural_evidence", services._load_local_structural_evidence)
     monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services.ensure_run_manifest)
     monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
     monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
     def mixed_availability_report(selected_config, selected_prices, **kwargs):
@@ -1894,6 +1916,7 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
         return report
 
     monkeypatch.setattr(services, "_run_backtest_compatibly", mixed_availability_report)
+    monkeypatch.setattr(backtest_service, "_run_backtest_compatibly", services._run_backtest_compatibly)
     service = services.BacktestService(config, universe_revision="test-revision")
 
     generated = service.run_backtest()
@@ -1911,6 +1934,7 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
         "atomic_write_group",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("cache hit must not publish")),
     )
+    monkeypatch.setattr(backtest_service, "atomic_write_group", services.atomic_write_group)
     monkeypatch.setattr(derived_cache, "atomic_write_group", services.atomic_write_group)
 
     cached = service.load_or_run_backtest()
@@ -1932,23 +1956,29 @@ def test_backtest_service_round_trips_genuinely_unavailable_operational_rows(
     prices = generate_sample_prices(config, periods=360, end_date=pd.Timestamp("2026-06-26").date())
     prices["calendar_identity"] = None
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
+    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", services.BACKTESTS_DIR)
     monkeypatch.setattr(
         services,
         "IDENTITY_PATH",
         tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", services.load_prices)
     monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
     monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)
     monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
+    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", services.load_fundamental_evidence)
     monkeypatch.setattr(
         services,
         "_load_local_structural_evidence",
         lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
     )
+    monkeypatch.setattr(backtest_service, "_load_local_structural_evidence", services._load_local_structural_evidence)
     monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services.ensure_run_manifest)
     monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
     monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
     service = services.BacktestService(config, universe_revision="test-revision")
@@ -1970,23 +2000,29 @@ def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
     config = load_config()
     prices = generate_sample_prices(config, periods=360, end_date=pd.Timestamp("2026-06-26").date())
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
+    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", services.BACKTESTS_DIR)
     monkeypatch.setattr(
         services,
         "IDENTITY_PATH",
         tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", services.load_prices)
     monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
     monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)
     monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
+    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", services.load_fundamental_evidence)
     monkeypatch.setattr(
         services,
         "_load_local_structural_evidence",
         lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
     )
+    monkeypatch.setattr(backtest_service, "_load_local_structural_evidence", services._load_local_structural_evidence)
     monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services.ensure_run_manifest)
     monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
     monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
     service = services.BacktestService(config, universe_revision="test-revision")
@@ -2023,6 +2059,7 @@ def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
         return snapshot
 
     monkeypatch.setattr(services, "read_atomic_group", interleaved_read)
+    monkeypatch.setattr(backtest_service, "read_atomic_group", services.read_atomic_group)
     monkeypatch.setattr(derived_cache, "read_atomic_group", services.read_atomic_group)
     cached = service._load_cached_backtest()
 

@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 import etf_cockpit.services as services
+import etf_cockpit.application.backtest_service as backtest_service
 import etf_cockpit.application.economics_inputs as economics_inputs
 import etf_cockpit.application.structural_evidence as structural_evidence
 from etf_cockpit.application import ui_facade
@@ -110,6 +111,7 @@ def _load_production_inputs(
 
     root = tmp_path / "canonical-store"
     monkeypatch.setattr(services, "IDENTITY_PATH", root / "data" / "clean" / "identity.parquet")
+    monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     with CorporateActionCoverageStore(root) as store:
         for value in manifest["corporate_action_coverage"]:

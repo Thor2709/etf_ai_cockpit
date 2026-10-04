@@ -308,6 +308,7 @@ def test_derived_caches_invalidate_after_adjusted_price_revision(tmp_path) -> No
 def test_feature_and_forecast_services_clip_to_exact_declared_window(monkeypatch, tmp_path) -> None:
     import etf_cockpit.application.feature_service as feature_service
     import etf_cockpit.application.forecast_service as forecast_service
+    import etf_cockpit.application.backtest_service as backtest_service
     declaration = SimpleNamespace(
         start_date="2025-01-01",
         end_date="2025-01-02",
@@ -327,6 +328,7 @@ def test_feature_and_forecast_services_clip_to_exact_declared_window(monkeypatch
         ]
     )
     monkeypatch.setattr(services_module, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services_module.ensure_run_manifest)
     monkeypatch.setattr(feature_service, "ensure_run_manifest", services_module.ensure_run_manifest)
     monkeypatch.setattr(forecast_service, "ensure_run_manifest", services_module.ensure_run_manifest)
     captured_features: list[pd.DataFrame] = []
@@ -617,6 +619,7 @@ def test_feature_and_forecast_consumers_cannot_use_unavailable_typed_benchmark(
 ) -> None:
     import etf_cockpit.application.feature_service as feature_service
     import etf_cockpit.application.forecast_service as forecast_service
+    import etf_cockpit.application.backtest_service as backtest_service
     context = _typed_context_with_registry_status("benchmark")
     prices = pd.DataFrame([
         {"date": "2025-01-01", "etf_id": "ETF", "adjusted_close": 100.0},
@@ -626,6 +629,7 @@ def test_feature_and_forecast_consumers_cannot_use_unavailable_typed_benchmark(
     ])
     captured: dict[str, object] = {}
     monkeypatch.setattr(services_module, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services_module.ensure_run_manifest)
     monkeypatch.setattr(feature_service, "ensure_run_manifest", services_module.ensure_run_manifest)
     monkeypatch.setattr(forecast_service, "ensure_run_manifest", services_module.ensure_run_manifest)
     monkeypatch.setattr(
@@ -764,6 +768,7 @@ def test_forecast_pair_crash_rolls_back_without_exposing_intermediate_state(tmp_
         return real_group(requests, lifecycle_hook=hook)
 
     monkeypatch.setattr("etf_cockpit.services.atomic_write_group", interrupted)
+    monkeypatch.setattr("etf_cockpit.application.backtest_service.atomic_write_group", interrupted)
     monkeypatch.setattr("etf_cockpit.application.derived_cache.atomic_write_group", interrupted)
     with pytest.raises(atomic_io.AtomicWriteInterrupted):
         _write_bound_cache_group(
@@ -846,6 +851,7 @@ def test_forecast_pair_crash_and_reader_interleaving_are_fail_closed(tmp_path, m
         return real_group(requests, lifecycle_hook=hook)
 
     monkeypatch.setattr("etf_cockpit.services.atomic_write_group", interleaved)
+    monkeypatch.setattr("etf_cockpit.application.backtest_service.atomic_write_group", interleaved)
     monkeypatch.setattr("etf_cockpit.application.derived_cache.atomic_write_group", interleaved)
     writer = threading.Thread(
         target=lambda: _write_bound_cache_group(
@@ -1130,21 +1136,27 @@ def test_backtest_metadata_binds_fresh_reference_projection_and_rejects_tamper(t
     import etf_cockpit.application.structural_evidence as structural_evidence
     import etf_cockpit.application.feature_service as feature_service
     import etf_cockpit.application.forecast_service as forecast_service
+    import etf_cockpit.application.backtest_service as backtest_service
 
     config = load_config()
     prices = generate_sample_prices(config, periods=360, end_date=date(2026, 6, 26))
     monkeypatch.setattr(services_module, "BACKTESTS_DIR", tmp_path)
+    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", services_module.BACKTESTS_DIR)
     monkeypatch.setattr(services_module, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", services_module.load_prices)
     monkeypatch.setattr(feature_service, "load_prices", services_module.load_prices)
     monkeypatch.setattr(forecast_service, "load_prices", services_module.load_prices)
     monkeypatch.setattr(services_module, "load_fundamental_evidence", pd.DataFrame)
+    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", services_module.load_fundamental_evidence)
     monkeypatch.setattr(
         services_module,
         "_load_local_structural_evidence",
         lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
     )
+    monkeypatch.setattr(backtest_service, "_load_local_structural_evidence", services_module._load_local_structural_evidence)
     monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services_module._load_local_structural_evidence)
     monkeypatch.setattr(services_module, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services_module.ensure_run_manifest)
     monkeypatch.setattr(feature_service, "ensure_run_manifest", services_module.ensure_run_manifest)
     monkeypatch.setattr(forecast_service, "ensure_run_manifest", services_module.ensure_run_manifest)
     service = services_module.BacktestService(config, universe_revision="test-revision")
@@ -1373,6 +1385,7 @@ def test_signal_service_recomputes_supplied_features_without_current_price_bindi
     monkeypatch, binding_mode: str
 ) -> None:
     import etf_cockpit.services as services_module
+    import etf_cockpit.application.backtest_service as backtest_service
     import etf_cockpit.application.feature_service as feature_service
     import etf_cockpit.application.forecast_service as forecast_service
     import etf_cockpit.application.reference_context as reference_context
@@ -1381,6 +1394,7 @@ def test_signal_service_recomputes_supplied_features_without_current_price_bindi
     captured: dict[str, object] = {}
     prices = pd.DataFrame([{"date": date(2025, 1, 2), "etf_id": "VWCE", "adjusted_close": 100.0}])
     monkeypatch.setattr(services_module, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", services_module.load_prices)
     monkeypatch.setattr(feature_service, "load_prices", services_module.load_prices)
     monkeypatch.setattr(forecast_service, "load_prices", services_module.load_prices)
     monkeypatch.setattr(services_module, "load_holdings", lambda: pd.DataFrame())
@@ -1448,12 +1462,14 @@ def test_signal_service_recomputes_supplied_features_without_current_price_bindi
 def test_feature_service_without_as_of_derives_bound_window_before_publication(monkeypatch) -> None:
     import etf_cockpit.application.feature_service as feature_service
     import etf_cockpit.application.forecast_service as forecast_service
+    import etf_cockpit.application.backtest_service as backtest_service
     captured: dict[str, object] = {}
     prices = pd.DataFrame([
         {"date": "2025-01-01", "etf_id": "ETF", "adjusted_close": 100.0},
         {"date": "2025-01-02", "etf_id": "ETF", "adjusted_close": 101.0},
     ])
     monkeypatch.setattr(services_module, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", services_module.ensure_run_manifest)
     monkeypatch.setattr(feature_service, "ensure_run_manifest", services_module.ensure_run_manifest)
     monkeypatch.setattr(forecast_service, "ensure_run_manifest", services_module.ensure_run_manifest)
     monkeypatch.setattr(

@@ -16,6 +16,7 @@ from etf_cockpit.app.state import AppState
 from etf_cockpit.backtest.engine import BacktestReport
 from etf_cockpit.models.forecast_scores import load_latest_forecasts
 import etf_cockpit.services as services
+import etf_cockpit.application.backtest_service as backtest_service
 from etf_cockpit.signals.simple_scores import _backtest_trust_lookup
 from etf_cockpit.core.config import (
     AppConfig,
@@ -605,6 +606,7 @@ def test_universe_revision_invalidates_dated_forecast_and_backtest_caches(tmp_pa
     assert load_latest_forecasts(directory=tmp_path, universe_revision=new_revision).empty
 
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
+    monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", services.BACKTESTS_DIR)
     for name in ("backtest_results.csv", "equity_curves.csv"):
         (tmp_path / name).write_text("sentinel\n", encoding="utf-8")
         (tmp_path / f"{name}.meta.json").write_text(
