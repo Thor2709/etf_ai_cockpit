@@ -8,8 +8,8 @@ from pathlib import Path
 import threading
 from typing import Any, Callable, TypeVar, cast
 
-from etf_cockpit.core.config import AppConfig, save_provider_settings
-from etf_cockpit.core.migrations import run_startup_migrations
+from etf_cockpit.application.settings import AppConfig, save_provider_settings
+from etf_cockpit.application.runtime import run_startup_migrations
 from etf_cockpit.core.types import latest_signal
 from etf_cockpit.core.paths import FILINGS_STATEMENTS_PATH, RAW_DIR, ROOT, STATEMENT_FACTS_PATH  # noqa: F401 - compatibility re-export
 from etf_cockpit.core.session_log import SESSION_LOG_PATH, log_event, redact_text
@@ -25,7 +25,7 @@ from etf_cockpit.core.workflow import (
 from etf_cockpit.application.api import LocalApplicationApi
 from etf_cockpit.application.sec_bulk_import import BulkImportResult, import_sec_companyfacts_bulk as _import_sec_companyfacts_bulk  # noqa: F401 - compatibility re-export
 from etf_cockpit.application.sec_submissions_import import SubmissionsImportResult, import_sec_submissions as _import_sec_submissions  # noqa: F401 - compatibility re-export
-from etf_cockpit.core.job_scheduler import DurableJobScheduler
+from etf_cockpit.application.runtime import DurableJobScheduler
 from etf_cockpit.data.trust_artifacts import IDENTITY_PATH, refresh_static_trust_artifacts, write_trust_artifacts_for_scores  # noqa: F401 - compatibility re-export
 from etf_cockpit.data.classification import classification_score_state  # noqa: F401 - compatibility re-export
 from etf_cockpit.features.regime import build_market_regime, write_market_regime  # noqa: F401 - compatibility re-export

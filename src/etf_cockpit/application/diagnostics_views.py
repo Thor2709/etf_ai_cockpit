@@ -4,6 +4,13 @@ from collections.abc import Mapping
 import json
 from pathlib import Path
 
+from etf_cockpit.core.performance import (
+    PerformanceBudgetError as PerformanceBudgetError,
+    build_performance_report as build_performance_report,
+)
+from etf_cockpit.operations.event_store import load_events_with_tail_recovery as load_events_with_tail_recovery
+from etf_cockpit.plugins.builtins import plugin_status_rows as plugin_status_rows
+from etf_cockpit.security.policy import build_security_report as build_security_report
 from etf_cockpit.analysis.parity_report import (
     analysis_parity_report_path,
     validate_parity_report,

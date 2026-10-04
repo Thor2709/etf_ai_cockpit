@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -20,9 +19,8 @@ from etf_cockpit.app.pages._glass import glass
 from etf_cockpit.app.state import ActivityUnavailableError, AppState
 from etf_cockpit.app.selectors.instrument_detail import normalise_feature_driver_frame
 from etf_cockpit.application.digest import contradiction_digest_records
-from etf_cockpit.core.atomic_io import atomic_write_bytes
-from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR, STATEMENT_FACTS_PATH
-from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowTransitionError, publication_scope
+from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR, STATEMENT_FACTS_PATH  # noqa: F401 - RAW_DIR kept: tests patch it on this page module
+from etf_cockpit.core.workflow import WorkflowTransitionError
 from etf_cockpit.application.ui_facade import (
     BENCHMARK_ATTRIBUTION_PATH,
     CORRELATION_CLUSTERS_PATH,
@@ -72,6 +70,7 @@ from etf_cockpit.application.ui_facade import (
     source_policy_rows,
 )
 from etf_cockpit.plugins.builtins import plugin_status_rows
+from etf_cockpit.application.evidence_documents import _retain_picker_source
 
 SFDR_RECORDS_PATH = CLEAN_DIR / "sfdr_records.parquet"
 
@@ -134,29 +133,6 @@ def _materialise_picker_file(selected: object, suffix: str) -> Iterator[Path | N
         yield temporary_path
     finally:
         temporary_path.unlink(missing_ok=True)
-
-
-def _retain_picker_source(
-    path: Path | None,
-    subdirectory: str,
-    *,
-    publish_guard: PublicationScopeFactory | None = None,
-) -> Path | None:
-    """Retain uploaded bytes under the raw evidence directory before parsing."""
-
-    if path is None or not path.is_file():
-        return None
-    payload = path.read_bytes()
-    digest = hashlib.sha256(payload).hexdigest()
-    suffix = path.suffix.lower() or ".pdf"
-    destination = RAW_DIR / subdirectory / f"{digest}{suffix}"
-    with publication_scope(publish_guard):
-        atomic_write_bytes(
-            destination,
-            payload,
-            validator=lambda candidate: hashlib.sha256(candidate.read_bytes()).hexdigest() == digest,
-        )
-    return destination
 
 
 def _latest_document_row(registry: pd.DataFrame, document_type: str) -> pd.Series | None:

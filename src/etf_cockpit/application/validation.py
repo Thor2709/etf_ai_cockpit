@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from etf_cockpit.features.synthetic_scenarios import SyntheticScenarioGenerator, SyntheticScenarioSpec
 from etf_cockpit.features.training_centre import LocalTrainingRegistry
 from etf_cockpit.application.benchmark_reference import (
     CanonicalReferenceContext,
@@ -222,4 +223,11 @@ def _module_source(module: object) -> bytes:
     return inspect.getsource(module).encode("utf-8")
 
 
-__all__ = ["build_validation_preview", "load_optimisation_evidence", "load_training_evidence", "record_validation_preview"]
+__all__ = [
+    "SyntheticScenarioGenerator",
+    "SyntheticScenarioSpec",
+    "build_validation_preview",
+    "load_optimisation_evidence",
+    "load_training_evidence",
+    "record_validation_preview",
+]

@@ -17,14 +17,14 @@ from etf_cockpit.application.ui_facade import (
     load_manual_news,
     manual_news_markdown,
 )
-from etf_cockpit.audit.thesis_diary import (
+from etf_cockpit.application.chatgpt_review import (
     ThesisDiaryIntegrityError,
     ThesisDiaryStore,
     disclosure_safe_entry,
     disclosure_safe_outcome,
     disclosure_safe_review,
 )
-from etf_cockpit.audit.local_llm import (
+from etf_cockpit.application.chatgpt_review import (
     build_local_audit_context,
     check_local_llm_status,
     generate_local_audit_commentary,
@@ -32,7 +32,7 @@ from etf_cockpit.audit.local_llm import (
     save_local_audit_commentary,
 )
 from etf_cockpit.application.chatgpt_review import ChatGPTBridge
-from etf_cockpit.governance.product_scope import load_authority_matrix
+from etf_cockpit.application.scope_facade import load_authority_matrix
 
 
 panel = page_panel("chatgpt-audit")

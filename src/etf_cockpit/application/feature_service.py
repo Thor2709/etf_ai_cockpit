@@ -17,6 +17,7 @@ from etf_cockpit.data.duckdb_store import (
     load_prices,
     write_features,
 )
+from etf_cockpit.features.feature_store import LocalFeatureStore as LocalFeatureStore
 from etf_cockpit.features.feature_pipeline import compute_features
 from etf_cockpit.portfolio.benchmark_reference_contract import CanonicalBenchmarkRegistry
 from etf_cockpit.portfolio.benchmark_reference import (

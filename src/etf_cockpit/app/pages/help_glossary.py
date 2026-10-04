@@ -12,7 +12,7 @@ from etf_cockpit.app.components.glass_pages import page_panel
 from etf_cockpit.app.components.cards import section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import legal_terms_report
-from etf_cockpit.governance.product_scope import load_glossary
+from etf_cockpit.application.scope_facade import load_glossary
 
 
 panel = page_panel("help")

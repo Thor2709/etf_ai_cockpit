@@ -5,7 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from etf_cockpit.governance.capability_scope import CAPABILITY_STAGES, strategy_capability_export
-from etf_cockpit.governance.product_scope import load_strategy_scope
+from etf_cockpit.governance.product_scope import (
+    load_authority_matrix,
+    load_feature_registry,
+    load_glossary,
+    load_product_governance,
+    load_strategy_scope,
+)
 
 
 @dataclass(frozen=True)
@@ -124,4 +130,13 @@ def capability_scope_view() -> ScopeCapabilityView:
     )
 
 
-__all__ = ["InstrumentCapabilityView", "ScopeCapabilityView", "StrategyCapabilityView", "capability_scope_view"]
+__all__ = [
+    "InstrumentCapabilityView",
+    "ScopeCapabilityView",
+    "StrategyCapabilityView",
+    "capability_scope_view",
+    "load_authority_matrix",
+    "load_feature_registry",
+    "load_glossary",
+    "load_product_governance",
+]

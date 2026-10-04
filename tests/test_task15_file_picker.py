@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pandas as pd
 
 import etf_cockpit.app.pages.trust_evidence as trust_evidence
+import etf_cockpit.application.evidence_documents as evidence_documents
 from etf_cockpit.app.state import AppState
 from etf_cockpit.services import build_snapshot
 
@@ -27,6 +28,7 @@ def test_web_file_picker_bytes_are_materialised_and_removed_after_import() -> No
 def test_web_file_picker_source_is_retained_at_durable_raw_path(tmp_path, monkeypatch) -> None:
     selected = SimpleNamespace(path=None, bytes=b"%PDF-1.7 uploaded fixture")
     monkeypatch.setattr(trust_evidence, "RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr(evidence_documents, "RAW_DIR", trust_evidence.RAW_DIR)
 
     with trust_evidence._materialise_picker_file(selected, suffix=".pdf") as path:
         retained = trust_evidence._retain_picker_source(path, "priips_kids")

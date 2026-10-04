@@ -17,15 +17,15 @@ from etf_cockpit.core.paths import DATA_DIR, LOG_DIR, MODEL_DIR, ROOT
 from etf_cockpit.core.session_log import read_session_events, session_log_status
 from etf_cockpit.core.errors import ErrorStore
 from etf_cockpit.core.timing import timing_summary
-from etf_cockpit.core.performance import PerformanceBudgetError, build_performance_report
+from etf_cockpit.application.diagnostics_views import PerformanceBudgetError, build_performance_report
 from etf_cockpit.application.ui_facade import (
     TransactionalStore,
     build_version_registry,
     compatibility_summary,
     load_analysis_parity_report,
 )
-from etf_cockpit.operations.event_store import load_events_with_tail_recovery
-from etf_cockpit.security.policy import build_security_report
+from etf_cockpit.application.diagnostics_views import load_events_with_tail_recovery
+from etf_cockpit.application.diagnostics_views import build_security_report
 
 
 panel = page_panel("diagnostics")

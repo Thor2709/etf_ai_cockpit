@@ -4,11 +4,11 @@ import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.pages._lab_style import lab_page, panel, section_header
-from etf_cockpit.core.job_scheduler import DurableJobScheduler
+from etf_cockpit.application.runtime import DurableJobScheduler
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.application.validation import build_validation_preview, load_optimisation_evidence, load_training_evidence, record_validation_preview
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
-from etf_cockpit.features.synthetic_scenarios import SyntheticScenarioGenerator, SyntheticScenarioSpec
+from etf_cockpit.application.validation import SyntheticScenarioGenerator, SyntheticScenarioSpec
 
 
 @lab_page("training_centre")

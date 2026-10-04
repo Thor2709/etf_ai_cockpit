@@ -25,7 +25,7 @@ from etf_cockpit.application.ui_facade import (
     reference_data_inventory,
     write_coverage_audit,
 )
-from etf_cockpit.plugins.builtins import plugin_status_rows
+from etf_cockpit.application.diagnostics_views import plugin_status_rows
 
 
 @lab_page("data_models")
