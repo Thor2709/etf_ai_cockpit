@@ -42,9 +42,11 @@ def _archive(path: Path) -> Path:
 
 
 def _configure_state(state_module, tmp_path: Path, monkeypatch) -> None:
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
     monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "facts.parquet")
     monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "inventory.parquet")
     monkeypatch.setattr(state_module, "IDENTITY_PATH", tmp_path / "identity.parquet")
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     monkeypatch.delenv("ETF_COCKPIT_SEC_EDGAR_USER_AGENT", raising=False)
 
 
@@ -54,11 +56,14 @@ def _persisted_identity(path: Path, instrument_id: str = "ONE") -> None:
 
 def test_plain_local_bulk_entrypoint_needs_no_user_agent_or_network(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     archive = _archive(tmp_path / "companyfacts.zip")
     monkeypatch.setattr(state_module, "IDENTITY_PATH", tmp_path / "identity.parquet")
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     monkeypatch.setattr(state_module, "SecEdgarProvider", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("local import must not create a provider")))
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
 
     result = _state(state_module).import_sec_companyfacts_bulk(
         archive,
@@ -74,11 +79,13 @@ def test_plain_local_bulk_entrypoint_needs_no_user_agent_or_network(tmp_path: Pa
 
 def test_same_session_cached_bulk_is_preferred_without_ua_or_network(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     identity_path = tmp_path / "identity.parquet"
     _persisted_identity(identity_path)
     monkeypatch.setattr(state_module, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     payload = _archive(tmp_path / "source.zip").read_bytes()
     provider = SecEdgarProvider(
         "ETF Research owner@company.eu",
@@ -87,10 +94,12 @@ def test_same_session_cached_bulk_is_preferred_without_ua_or_network(tmp_path: P
         rate_limit_seconds=0,
     )
     monkeypatch.setattr(state_module, "SecEdgarProvider", lambda *_args, **_kwargs: provider)
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     state = _state(state_module)
     state.fetch_sec_companyfacts_bulk("1", instrument_id="ONE", user_agent=provider.user_agent, cache_dir=tmp_path / "cache")
     provider.transport = lambda *_: pytest.fail("cache-only must not request network")
     monkeypatch.setattr(state_module, "SecEdgarProvider", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("validated cache should win before provider construction")))
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
 
     result = state.fetch_sec_companyfacts("1", cache_dir=tmp_path / "cache", instrument_id="ONE")
 
@@ -142,10 +151,12 @@ def test_cache_miss_without_ua_reports_truthful_fallback_reason(tmp_path: Path, 
 
 def test_supplied_bulk_identity_conflict_is_rejected_before_archive_or_writes(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     _persisted_identity(tmp_path / "identity.parquet")
     monkeypatch.setattr(state_module, "IDENTITY_PATH", tmp_path / "identity.parquet")
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     facts = tmp_path / "facts.parquet"
     inventory = tmp_path / "inventory.parquet"
     facts.write_bytes(b"prior-facts")
@@ -166,10 +177,12 @@ def test_supplied_bulk_identity_conflict_is_rejected_before_archive_or_writes(tm
 
 def test_supplied_bulk_identity_ambiguity_is_rejected_before_archive(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     pd.DataFrame([{"cik": "0000000001", "instrument_id": "ONE"}, {"cik": "1", "instrument_id": "TWO"}]).to_parquet(tmp_path / "identity.parquet", index=False)
     monkeypatch.setattr(state_module, "IDENTITY_PATH", tmp_path / "identity.parquet")
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     archive = _archive(tmp_path / "companyfacts.zip")
     result = _state(state_module).import_sec_companyfacts_bulk(archive, identity=_identity(), cache_dir=tmp_path / "cache")
 
@@ -179,9 +192,11 @@ def test_supplied_bulk_identity_ambiguity_is_rejected_before_archive(tmp_path: P
 
 def test_actual_provider_200_206_304_bulk_provenance_reaches_appstate(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     monkeypatch.setattr(state_module, "IDENTITY_PATH", tmp_path / "missing-identity.parquet")
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     payload = _archive(tmp_path / "source.zip").read_bytes()
 
     class Response:
@@ -235,11 +250,13 @@ def test_actual_provider_200_206_304_bulk_provenance_reaches_appstate(tmp_path: 
 
 def test_explicit_refresh_routes_actual_provider_document_to_canonical_stores(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     identity_path = tmp_path / "identity.parquet"
     _persisted_identity(identity_path)
     monkeypatch.setattr(state_module, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     archive = _archive(tmp_path / "source.zip")
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     provenance = RawDocument(archive, COMPANYFACTS_BULK_URL, datetime(2026, 9, 3, 4, tzinfo=timezone.utc), digest, "sec_edgar", "sec_companyfacts_bulk", "application/zip", 200)
@@ -252,6 +269,7 @@ def test_explicit_refresh_routes_actual_provider_document_to_canonical_stores(tm
             super().__init__(*_args, **_kwargs, transport=lambda *_: (archive.read_bytes(), 200, {}), rate_limit_seconds=0)
 
     monkeypatch.setattr(state_module, "SecEdgarProvider", Provider)
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     result = _state(state_module).fetch_sec_companyfacts_bulk("1", instrument_id="ONE", user_agent="ETF Research owner@company.eu", cache_dir=tmp_path / "cache")
 
     assert "SEC bulk import complete" in result
@@ -283,11 +301,13 @@ def test_cancellation_preserves_existing_bulk_stores(tmp_path: Path, monkeypatch
 
 def test_explicit_bulk_refresh_validates_identity_before_provider(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     identity_path = tmp_path / "identity.parquet"
     _persisted_identity(identity_path)
     monkeypatch.setattr(state_module, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     calls = 0
 
     class Provider:
@@ -299,6 +319,7 @@ def test_explicit_bulk_refresh_validates_identity_before_provider(tmp_path: Path
             raise AssertionError("invalid selection must not acquire")
 
     monkeypatch.setattr(state_module, "SecEdgarProvider", Provider)
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     result = _state(state_module).fetch_sec_companyfacts_bulk("1", instrument_id="WRONG", user_agent="ETF Research owner@company.eu", cache_dir=tmp_path / "cache")
 
     assert "conflicts with persisted" in result
@@ -307,6 +328,7 @@ def test_explicit_bulk_refresh_validates_identity_before_provider(tmp_path: Path
 
 def test_json_fallback_preserves_bounded_http429_quota_detail(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     provider = SecEdgarProvider(
@@ -317,6 +339,7 @@ def test_json_fallback_preserves_bounded_http429_quota_detail(tmp_path: Path, mo
         max_retries=0,
     )
     monkeypatch.setattr(state_module, "SecEdgarProvider", lambda *_args, **_kwargs: provider)
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
 
     result = _state(state_module).fetch_sec_companyfacts("1", cache_dir=tmp_path / "cache", user_agent="ETF Research owner@company.eu")
 
@@ -336,10 +359,12 @@ def test_json_fallback_preserves_bounded_http429_quota_detail(tmp_path: Path, mo
 def test_registry_integrity_rejects_before_bulk_import(tmp_path: Path, monkeypatch, rows, supplied_id) -> None:
     from dataclasses import replace
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     pd.DataFrame(rows).to_parquet(tmp_path / "identity.parquet", index=False)
     monkeypatch.setattr(state_module, "IDENTITY_PATH", tmp_path / "identity.parquet")
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     facts, inventory = tmp_path / "facts.parquet", tmp_path / "inventory.parquet"
     facts.write_bytes(b"existing-facts")
     inventory.write_bytes(b"existing-inventory")
@@ -362,10 +387,12 @@ def test_registry_integrity_rejects_before_bulk_import(tmp_path: Path, monkeypat
 
 def test_null_persisted_identity_cannot_construct_provider(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     pd.DataFrame([{"cik": "1", "instrument_id": None}]).to_parquet(tmp_path / "identity.parquet", index=False)
     monkeypatch.setattr(state_module, "IDENTITY_PATH", tmp_path / "identity.parquet")
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     calls = []
 
     def forbidden(*args, **kwargs):
@@ -373,6 +400,7 @@ def test_null_persisted_identity_cannot_construct_provider(tmp_path: Path, monke
         raise AssertionError("null instrument must not acquire")
 
     monkeypatch.setattr(state_module, "SecEdgarProvider", forbidden)
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     result = _state(state_module).fetch_sec_companyfacts_bulk("1", user_agent="ETF Research owner@company.eu", cache_dir=tmp_path / "cache")
     assert "unavailable" in result
     assert calls == []
@@ -382,15 +410,18 @@ def test_null_persisted_identity_cannot_construct_provider(tmp_path: Path, monke
 def test_real_wrapped_http_error_reports_quota(tmp_path: Path, monkeypatch) -> None:
     from urllib.error import HTTPError
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     monkeypatch.setattr(state_module, "IDENTITY_PATH", tmp_path / "missing-identity.parquet")
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
 
     def transport(url, headers):
         raise HTTPError(url, 429, "Too Many Requests", {}, None)
 
     provider = SecEdgarProvider("ETF Research owner@company.eu", cache_dir=tmp_path / "cache", transport=transport, rate_limit_seconds=0, max_retries=0)
     monkeypatch.setattr(state_module, "SecEdgarProvider", lambda *args, **kwargs: provider)
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     result = _state(state_module).fetch_sec_companyfacts("1", user_agent=provider.user_agent, cache_dir=tmp_path / "cache")
     assert "HTTP 429" in result
     assert "rate limit/quota" in result
@@ -423,10 +454,12 @@ def test_warning_message_is_bounded_with_checkpoint_detail() -> None:
 def test_appstate_interrupted_acquisition_reports_retained_partial(tmp_path: Path, monkeypatch) -> None:
     from io import BytesIO
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     _persisted_identity(tmp_path / "identity.parquet")
     monkeypatch.setattr(state_module, "IDENTITY_PATH", tmp_path / "identity.parquet")
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     payload = _archive(tmp_path / "source.zip").read_bytes()
 
     class InterruptedResponse:
@@ -445,6 +478,7 @@ def test_appstate_interrupted_acquisition_reports_retained_partial(tmp_path: Pat
 
     provider = SecEdgarProvider("ETF Research owner@company.eu", cache_dir=tmp_path / "cache", transport=lambda *args: InterruptedResponse(), rate_limit_seconds=0, max_retries=0)
     monkeypatch.setattr(state_module, "SecEdgarProvider", lambda *args, **kwargs: provider)
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     facts, inventory = tmp_path / "facts.parquet", tmp_path / "inventory.parquet"
     pd.DataFrame().to_parquet(facts, index=False)
     pd.DataFrame().to_parquet(inventory, index=False)
@@ -489,12 +523,14 @@ def test_appstate_interrupted_acquisition_reports_retained_partial(tmp_path: Pat
 
 def test_actual_provider_200_refresh_and_bad_cache_json_fallback(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     _persisted_identity(tmp_path / "identity.parquet")
     payload = _archive(tmp_path / "source.zip").read_bytes()
     provider = SecEdgarProvider("ETF Research owner@company.eu", cache_dir=tmp_path / "cache", transport=lambda *args: (payload, 200, {"ETag": '"initial"'}), rate_limit_seconds=0, max_retries=0)
     monkeypatch.setattr(state_module, "SecEdgarProvider", lambda *args, **kwargs: provider)
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     state = _state(state_module)
     result = state.fetch_sec_companyfacts_bulk("1", user_agent=provider.user_agent, cache_dir=tmp_path / "cache")
     assert "SEC bulk import complete" in result
@@ -520,6 +556,7 @@ def test_actual_provider_200_refresh_and_bad_cache_json_fallback(tmp_path: Path,
 @pytest.mark.parametrize("field,value", [("status", True), ("raw_path", "../outside.zip"), ("sha256", "0" * 64)])
 def test_invalid_bulk_cache_is_read_only_without_network(tmp_path: Path, monkeypatch, field, value) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     _persisted_identity(tmp_path / "identity.parquet")
@@ -538,6 +575,7 @@ def test_invalid_bulk_cache_is_read_only_without_network(tmp_path: Path, monkeyp
         raise AssertionError("no user-agent means no fallback network")
 
     monkeypatch.setattr(state_module, "SecEdgarProvider", forbidden)
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     state = _state(state_module)
     state._sec_bulk_provider = provider
     result = state.fetch_sec_companyfacts("1", cache_dir=tmp_path / "cache")
@@ -569,6 +607,7 @@ def test_cache_only_workflow_rejects_linked_namespace(tmp_path: Path, monkeypatc
 @pytest.mark.parametrize("initialized", [False, True])
 def test_json_parser_rejection_reports_retained_acquisition(tmp_path: Path, monkeypatch, initialized: bool) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     _persisted_identity(tmp_path / "identity.parquet")
@@ -578,6 +617,7 @@ def test_json_parser_rejection_reports_retained_acquisition(tmp_path: Path, monk
     before = (facts.read_bytes(), inventory.read_bytes())
     provider = SecEdgarProvider("ETF Research owner@company.eu", cache_dir=tmp_path / "cache", transport=lambda *args: (b'{"cik":1,"facts":[]}', 200, {}), rate_limit_seconds=0, max_retries=0)
     monkeypatch.setattr(state_module, "SecEdgarProvider", lambda *args, **kwargs: provider)
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     state = _state(state_module)
     state._sec_bulk_provider = provider
     if initialized:
@@ -600,6 +640,7 @@ def test_json_parser_rejection_reports_retained_acquisition(tmp_path: Path, monk
 @pytest.mark.parametrize("instrument_id", [" ONE ", "", " ", 1])
 def test_builder_rejects_noncanonical_instrument_before_io(tmp_path: Path, monkeypatch, entrypoint, instrument_id) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     _persisted_identity(tmp_path / "identity.parquet")
@@ -610,7 +651,9 @@ def test_builder_rejects_noncanonical_instrument_before_io(tmp_path: Path, monke
         raise AssertionError("noncanonical identity must fail before any acquisition/cache/import")
 
     monkeypatch.setattr(state_module, "SecEdgarProvider", forbidden)
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     monkeypatch.setattr(state_module, "_cached_sec_bulk_document", forbidden)
+    monkeypatch.setattr(filing_ingestion, "_cached_sec_bulk_document", state_module._cached_sec_bulk_document)
     monkeypatch.setattr(state_module, "_import_sec_companyfacts_bulk", forbidden)
     state = _state(state_module)
     kwargs = {"instrument_id": instrument_id, "cache_dir": tmp_path / "cache"}
@@ -631,6 +674,7 @@ def test_builder_rejects_noncanonical_instrument_before_io(tmp_path: Path, monke
 @pytest.mark.parametrize("initialized", [False, True])
 def test_cached_missing_member_without_agent_reports_retained_raw(tmp_path: Path, monkeypatch, initialized: bool) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     pd.DataFrame([{"cik": "2", "instrument_id": "TWO"}]).to_parquet(tmp_path / "identity.parquet", index=False)
@@ -643,6 +687,7 @@ def test_cached_missing_member_without_agent_reports_retained_raw(tmp_path: Path
     pd.DataFrame().to_parquet(inventory, index=False)
     before = (facts.read_bytes(), inventory.read_bytes())
     monkeypatch.setattr(state_module, "SecEdgarProvider", lambda *args, **kwargs: pytest.fail("no agent: no network"))
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     state = _state(state_module)
     state._sec_bulk_provider = provider
     if initialized:
@@ -673,6 +718,7 @@ def test_cached_missing_member_without_agent_reports_retained_raw(tmp_path: Path
 ], ids=["inverse-conflict", "ambiguous", "null", "empty", "noncanonical"])
 def test_json_fallback_rejects_invalid_registry_without_explicit_id(tmp_path: Path, monkeypatch, rows) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     pd.DataFrame(rows).to_parquet(tmp_path / "identity.parquet", index=False)
@@ -687,7 +733,9 @@ def test_json_fallback_rejects_invalid_registry_without_explicit_id(tmp_path: Pa
         raise AssertionError("invalid registry must block both acquisition paths")
 
     monkeypatch.setattr(state_module, "SecEdgarProvider", forbidden)
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     monkeypatch.setattr(state_module, "_cached_sec_bulk_document", forbidden)
+    monkeypatch.setattr(filing_ingestion, "_cached_sec_bulk_document", state_module._cached_sec_bulk_document)
     monkeypatch.setattr(state_module, "_import_sec_companyfacts_bulk", forbidden)
     state = _state(state_module)
     monkeypatch.setattr(state, "import_sec_companyfacts", forbidden)
@@ -700,6 +748,7 @@ def test_json_fallback_rejects_invalid_registry_without_explicit_id(tmp_path: Pa
 
 def test_json_first_run_without_binding_retains_manual_review_fallback(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     requests = []
@@ -710,6 +759,7 @@ def test_json_first_run_without_binding_retains_manual_review_fallback(tmp_path:
 
     provider = SecEdgarProvider("ETF Research owner@company.eu", cache_dir=tmp_path / "cache", transport=transport, rate_limit_seconds=0)
     monkeypatch.setattr(state_module, "SecEdgarProvider", lambda *args, **kwargs: provider)
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     result = _state(state_module).fetch_sec_companyfacts("1", user_agent=provider.user_agent, cache_dir=tmp_path / "cache")
     assert "SEC import complete" in result
     assert "manual identity review required" in result
@@ -719,6 +769,7 @@ def test_json_first_run_without_binding_retains_manual_review_fallback(tmp_path:
 
 def test_cold_appstate_cannot_rehydrate_bulk_session(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     _configure_state(state_module, tmp_path, monkeypatch)
     _persisted_identity(tmp_path / "identity.parquet")
@@ -728,6 +779,7 @@ def test_cold_appstate_cannot_rehydrate_bulk_session(tmp_path: Path, monkeypatch
     provider.fetch_companyfacts_bulk()
     before = {path.relative_to(cache): path.read_bytes() for path in cache.rglob("*") if path.is_file()}
     monkeypatch.setattr(state_module, "SecEdgarProvider", lambda *_args, **_kwargs: pytest.fail("cold cache must not create a provider"))
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     result = _state(state_module).fetch_sec_companyfacts("1", instrument_id="ONE", cache_dir=cache)
     assert "no same-session acquisition proof" in result
     assert not (tmp_path / "facts.parquet").exists()
@@ -736,6 +788,7 @@ def test_cold_appstate_cannot_rehydrate_bulk_session(tmp_path: Path, monkeypatch
 
 def test_cancelled_refresh_keeps_same_session_cache_and_official_stores(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
     from etf_cockpit.core.workflow import WorkflowTransitionError
 
     _configure_state(state_module, tmp_path, monkeypatch)
@@ -744,10 +797,12 @@ def test_cancelled_refresh_keeps_same_session_cache_and_official_stores(tmp_path
     payload = _archive(tmp_path / "source.zip").read_bytes()
     provider = SecEdgarProvider("ETF Research owner@company.eu", cache_dir=cache, transport=lambda *_: (payload, 200, {}), rate_limit_seconds=0)
     monkeypatch.setattr(state_module, "SecEdgarProvider", lambda *_args, **_kwargs: provider)
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     state = _state(state_module)
     assert "complete" in state.fetch_sec_companyfacts_bulk("1", instrument_id="ONE", user_agent=provider.user_agent, cache_dir=cache)
     before = {path: path.read_bytes() for path in (tmp_path / "facts.parquet", tmp_path / "inventory.parquet", cache / "sec_edgar_bulk/companyfacts.meta.json")}
     monkeypatch.setattr(state_module, "SecEdgarProvider", lambda *_args, **_kwargs: pytest.fail("refresh must reuse its session"))
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     provider.transport = lambda *_: pytest.fail("cancelled/cache-only calls must not request network")
 
     def cancel():
@@ -763,10 +818,12 @@ def test_cancelled_refresh_keeps_same_session_cache_and_official_stores(tmp_path
 
 def test_clean_first_run_explicit_local_identity_and_bounded_audit_outputs(tmp_path, monkeypatch):
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
     from etf_cockpit.chatgpt_bridge import export_pack
 
     _configure_state(state_module, tmp_path, monkeypatch)
     monkeypatch.setattr(state_module, "SecEdgarProvider", lambda *a, **k: pytest.fail("local must stay offline"))
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     state = _state(state_module)
     outputs = []
     def output(step, path):
@@ -791,6 +848,7 @@ def test_clean_first_run_explicit_local_identity_and_bounded_audit_outputs(tmp_p
 
 def test_submissions_bulk_local_and_explicit_session_cache(tmp_path, monkeypatch):
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
     from etf_cockpit.core.workflow import WorkflowTransitionError
 
     _configure_state(state_module, tmp_path, monkeypatch)
@@ -808,6 +866,7 @@ def test_submissions_bulk_local_and_explicit_session_cache(tmp_path, monkeypatch
     _persisted_identity(tmp_path / "identity.parquet")
     provider = SecEdgarProvider("ETF Research owner@company.eu", cache_dir=tmp_path / "cache", transport=lambda *_: (archive.read_bytes(), 200, {}), rate_limit_seconds=0)
     monkeypatch.setattr(state_module, "SecEdgarProvider", lambda *a, **k: provider)
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     assert "partial" in state.fetch_sec_submissions_bulk("1", instrument_id="ONE", user_agent=provider.user_agent, cache_dir=tmp_path / "cache")
     provider.transport = lambda *_: pytest.fail("cache and cancellation must stay offline")
     assert "partial" in state.fetch_sec_submissions_bulk("1", instrument_id="ONE", cache_dir=tmp_path / "cache", cache_only=True)

@@ -180,6 +180,7 @@ def test_sec_import_does_not_attribute_unresolved_cik_to_selected_etf(tmp_path: 
 
 def test_sec_import_resolves_known_cik_from_identity_store(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
     import pandas as pd
 
     payload_path = tmp_path / "facts.json"
@@ -187,6 +188,7 @@ def test_sec_import_resolves_known_cik_from_identity_store(tmp_path: Path, monke
     identity_path = tmp_path / "instrument_identity.parquet"
     pd.DataFrame([{"instrument_id": "MSFT", "cik": "789019"}]).to_parquet(identity_path, index=False)
     monkeypatch.setattr(state_module, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")
     monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "filings_statements.parquet")
     state = state_module.AppState.__new__(state_module.AppState)
@@ -199,6 +201,7 @@ def test_sec_import_resolves_known_cik_from_identity_store(tmp_path: Path, monke
 
 def test_sec_import_rejects_mismatched_supplied_instrument_id(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
     import pandas as pd
 
     payload_path = tmp_path / "facts.json"
@@ -208,6 +211,7 @@ def test_sec_import_rejects_mismatched_supplied_instrument_id(tmp_path: Path, mo
     facts_path = tmp_path / "statement_facts.parquet"
     inventory_path = tmp_path / "filings_statements.parquet"
     monkeypatch.setattr(state_module, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", facts_path)
     monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", inventory_path)
     state = state_module.AppState.__new__(state_module.AppState)

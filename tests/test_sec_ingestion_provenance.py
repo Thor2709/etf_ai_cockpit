@@ -61,6 +61,7 @@ def _document(path: Path) -> RawDocument:
 
 def test_fetch_companyfacts_preserves_fresh_and_revalidated_document_provenance(tmp_path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     cache_dir = tmp_path / "cache"
     responses = [(_payload(), 200, {"ETag": '"facts-v1"'}), (b"", 304, {})]
@@ -71,9 +72,11 @@ def test_fetch_companyfacts_preserves_fresh_and_revalidated_document_provenance(
         rate_limit_seconds=0,
     )
     monkeypatch.setattr(state_module, "SecEdgarProvider", lambda *_args, **_kwargs: provider)
+    monkeypatch.setattr(filing_ingestion, "SecEdgarProvider", state_module.SecEdgarProvider)
     monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "facts.parquet")
     monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "inventory.parquet")
     monkeypatch.setattr(state_module, "IDENTITY_PATH", tmp_path / "identity.parquet")
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     state = _state(state_module)
 
     first_message = state.fetch_sec_companyfacts("789019", cache_dir=cache_dir, user_agent=provider.user_agent)
@@ -98,6 +101,7 @@ def test_fetch_companyfacts_preserves_fresh_and_revalidated_document_provenance(
 
 def test_import_companyfacts_rejects_inconsistent_supplied_document_before_publish(tmp_path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     payload_path = tmp_path / "facts.json"
     payload_path.write_bytes(_payload())
@@ -105,6 +109,7 @@ def test_import_companyfacts_rejects_inconsistent_supplied_document_before_publi
     monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "facts.parquet")
     monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "inventory.parquet")
     monkeypatch.setattr(state_module, "IDENTITY_PATH", tmp_path / "identity.parquet")
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     state = _state(state_module)
 
     message = state.import_sec_companyfacts(payload_path, document=document)
@@ -129,6 +134,7 @@ def test_import_companyfacts_rejects_inconsistent_supplied_document_before_publi
 )
 def test_import_companyfacts_rejects_invalid_supplied_provenance_before_publish(tmp_path, monkeypatch, field, value) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     payload_path = tmp_path / "facts.json"
     payload_path.write_bytes(_payload())
@@ -136,6 +142,7 @@ def test_import_companyfacts_rejects_invalid_supplied_provenance_before_publish(
     monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "facts.parquet")
     monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "inventory.parquet")
     monkeypatch.setattr(state_module, "IDENTITY_PATH", tmp_path / "identity.parquet")
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     state = _state(state_module)
 
     message = state.import_sec_companyfacts(payload_path, document=replace(document, **{field: value}))
@@ -147,6 +154,7 @@ def test_import_companyfacts_rejects_invalid_supplied_provenance_before_publish(
 
 def test_import_companyfacts_rejects_document_path_mismatch_without_changing_existing_evidence(tmp_path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     payload_path = tmp_path / "facts.json"
     payload_path.write_bytes(_payload())
@@ -155,6 +163,7 @@ def test_import_companyfacts_rejects_document_path_mismatch_without_changing_exi
     monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "facts.parquet")
     monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "inventory.parquet")
     monkeypatch.setattr(state_module, "IDENTITY_PATH", tmp_path / "identity.parquet")
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     state = _state(state_module)
     assert "complete" in state.import_sec_companyfacts(payload_path)
     facts_before = (tmp_path / "facts.parquet").read_bytes()
@@ -169,6 +178,7 @@ def test_import_companyfacts_rejects_document_path_mismatch_without_changing_exi
 
 def test_import_companyfacts_rejects_changed_file_before_publication(tmp_path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     payload_path = tmp_path / "facts.json"
     payload_path.write_bytes(_payload())
@@ -183,6 +193,7 @@ def test_import_companyfacts_rejects_changed_file_before_publication(tmp_path, m
     monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "facts.parquet")
     monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "inventory.parquet")
     monkeypatch.setattr(state_module, "IDENTITY_PATH", tmp_path / "identity.parquet")
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     state = _state(state_module)
 
     message = state.import_sec_companyfacts(payload_path, document=document)
@@ -194,6 +205,7 @@ def test_import_companyfacts_rejects_changed_file_before_publication(tmp_path, m
 
 def test_import_companyfacts_captures_provider_generation_before_boundary_mutation(tmp_path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     original_bytes = _payload()
     source_sha256 = hashlib.sha256(original_bytes).hexdigest()
@@ -211,6 +223,7 @@ def test_import_companyfacts_captures_provider_generation_before_boundary_mutati
     monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "facts.parquet")
     monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "inventory.parquet")
     monkeypatch.setattr(state_module, "IDENTITY_PATH", tmp_path / "identity.parquet")
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     state = _state(state_module)
 
     message = state.import_sec_companyfacts(payload_path, document=document)
@@ -226,6 +239,7 @@ def test_import_companyfacts_captures_provider_generation_before_boundary_mutati
 
 def test_import_companyfacts_rejects_parser_checksum_mismatch_before_publication(tmp_path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     payload_path = tmp_path / "facts.json"
     payload_path.write_bytes(_payload())
@@ -239,6 +253,7 @@ def test_import_companyfacts_rejects_parser_checksum_mismatch_before_publication
     monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "facts.parquet")
     monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "inventory.parquet")
     monkeypatch.setattr(state_module, "IDENTITY_PATH", tmp_path / "identity.parquet")
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     state = _state(state_module)
 
     message = state.import_sec_companyfacts(payload_path, document=document)
@@ -250,12 +265,14 @@ def test_import_companyfacts_rejects_parser_checksum_mismatch_before_publication
 
 def test_path_import_keeps_local_compatibility_provenance(tmp_path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
 
     payload_path = tmp_path / "facts.json"
     payload_path.write_bytes(_payload())
     monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "facts.parquet")
     monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "inventory.parquet")
     monkeypatch.setattr(state_module, "IDENTITY_PATH", tmp_path / "identity.parquet")
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", state_module.IDENTITY_PATH)
     state = _state(state_module)
 
     message = state.import_sec_companyfacts(payload_path)

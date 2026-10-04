@@ -14,6 +14,7 @@ import pytest
 import yaml
 
 from etf_cockpit.app import state as app_state_module
+import etf_cockpit.application.filing_ingestion as filing_ingestion
 from etf_cockpit.app.pages.dashboard import _activity_panel
 from etf_cockpit.app.pages.dashboard import _export_pack, _run_action, _run_dialog_action
 from etf_cockpit.app.pages import dashboard as dashboard_page_module
@@ -1333,6 +1334,7 @@ def test_esef_normal_unavailable_result_is_failed_terminal(tmp_path, monkeypatch
     source = tmp_path / "report.zip"
     source.write_bytes(b"not an ESEF package")
     monkeypatch.setattr(app_state_module, "RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr(filing_ingestion, "RAW_DIR", app_state_module.RAW_DIR)
     monkeypatch.setattr(
         app_state_module,
         "parse_esef_package",
