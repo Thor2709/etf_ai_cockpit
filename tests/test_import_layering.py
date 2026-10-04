@@ -31,6 +31,7 @@ PRESENTATION_SHARED_KERNEL = frozenset(
     {
         "etf_cockpit.core.constants",
         "etf_cockpit.core.errors",
+        "etf_cockpit.core.navigation",
         "etf_cockpit.core.paths",
         "etf_cockpit.core.runtime",
         "etf_cockpit.core.session_log",
@@ -117,14 +118,11 @@ KNOWN_VIOLATIONS = frozenset(
         ("etf_cockpit.core.session_log", "etf_cockpit.operations.event_store"),
         ("etf_cockpit.core.types", "etf_cockpit.signals.canonical_scoring"),
         ("etf_cockpit.core.types", "etf_cockpit.signals.research_states"),
-        ("etf_cockpit.core.ui_acceptance", "etf_cockpit.app.command_palette"),
-        ("etf_cockpit.core.ui_acceptance", "etf_cockpit.app.router"),
         ("etf_cockpit.data.sec_edgar_provider", "etf_cockpit.application.sec_bulk_import"),
         ("etf_cockpit.data.sec_edgar_provider", "etf_cockpit.application.sec_submissions_import"),
         ("etf_cockpit.governance.gate_policy", "etf_cockpit.signals.research_states"),
         ("etf_cockpit.governance.migrations", "etf_cockpit.signals.research_states"),
         ("etf_cockpit.governance.models", "etf_cockpit.signals.research_states"),
-        ("etf_cockpit.governance.product_scope", "etf_cockpit.app.router"),
     }
 )
 

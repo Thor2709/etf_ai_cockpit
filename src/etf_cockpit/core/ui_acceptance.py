@@ -299,12 +299,13 @@ def build_main_ui_action_inventory(
     metadata in isolation without importing the Flet application shell.
     """
 
-    from etf_cockpit.app.command_palette import all_commands
-    from etf_cockpit.app.router import PAGES, WORKSPACE_GROUPS
+    from etf_cockpit.core.navigation import ROUTE_TITLES, WORKSPACE_GROUPS, all_commands
+
+    pages = {route: (title, None) for route, title in ROUTE_TITLES}
 
     controls = tuple(contracts or load_ui_acceptance_contracts())
     source_root = Path(__file__).resolve().parents[1] / "app"
-    validate_ui_acceptance_inventory(controls, PAGES, source_root=source_root)
+    validate_ui_acceptance_inventory(controls, pages, source_root=source_root)
     discovered = discover_actionable_controls(source_root)
     actionable_controls = tuple(
         item
@@ -313,8 +314,8 @@ def build_main_ui_action_inventory(
     )
     return generate_ui_action_inventory(
         actionable_controls,
-        PAGES,
-        all_commands(PAGES, WORKSPACE_GROUPS),
+        pages,
+        all_commands(pages, WORKSPACE_GROUPS),
     )
 
 
