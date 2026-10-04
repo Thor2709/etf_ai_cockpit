@@ -31,7 +31,7 @@ from etf_cockpit.audit.local_llm import (
     load_local_llm_settings,
     save_local_audit_commentary,
 )
-from etf_cockpit.services import ChatGPTBridge
+from etf_cockpit.application.chatgpt_review import ChatGPTBridge
 from etf_cockpit.governance.product_scope import load_authority_matrix
 
 

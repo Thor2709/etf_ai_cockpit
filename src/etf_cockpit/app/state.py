@@ -51,7 +51,9 @@ from etf_cockpit.models.calibration import evaluate_forecast_calibration, load_f
 from etf_cockpit.models.forecast_scores import configured_forecast_request_identity
 from etf_cockpit.operations.event_store import current_activity_view, load_events_with_tail_recovery
 from etf_cockpit.portfolio.review_reports import create_portfolio_review_report
-from etf_cockpit.services import ChatGPTBridge, CockpitSnapshot, DataService, build_snapshot
+from etf_cockpit.application.chatgpt_review import ChatGPTBridge
+from etf_cockpit.application.data_service import DataService
+from etf_cockpit.application.snapshot_builder import CockpitSnapshot, build_snapshot
 from etf_cockpit.signals.simple_scores import SimpleInstrumentScore, build_simple_instrument_scores, load_latest_candidate_report, simple_scoreboard_frame, write_simple_scoreboard
 from etf_cockpit.app import theme
 from etf_cockpit.application.contracts import ApplicationCommand, DashboardActionCommand
