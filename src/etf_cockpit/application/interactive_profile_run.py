@@ -27,7 +27,7 @@ from etf_cockpit.application.analysis_depth import (
 )
 
 if TYPE_CHECKING:
-    from etf_cockpit.services import CockpitSnapshot
+    from etf_cockpit.application.snapshot_builder import CockpitSnapshot
 
 INTERACTIVE_ANALYZER_ID = "interactive-snapshot-stages.v1"
 # Optional stages that read evidence already held by the snapshot. Every other optional stage

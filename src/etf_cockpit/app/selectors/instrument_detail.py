@@ -106,7 +106,7 @@ from etf_cockpit.audit.thesis_diary import (
 from etf_cockpit.core.paths import CLEAN_DIR, DATA_DIR
 
 if TYPE_CHECKING:
-    from etf_cockpit.services import CockpitSnapshot
+    from etf_cockpit.application.snapshot_builder import CockpitSnapshot
 
 
 @dataclass(frozen=True)

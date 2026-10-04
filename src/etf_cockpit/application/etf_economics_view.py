@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from etf_cockpit.data.etf_economics import calculate_etf_economics
 
 if TYPE_CHECKING:
-    from etf_cockpit.services import CockpitSnapshot
+    from etf_cockpit.application.snapshot_builder import CockpitSnapshot
 
 
 def build_etf_economics_panel(

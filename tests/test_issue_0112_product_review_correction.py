@@ -1389,6 +1389,7 @@ def test_signal_service_recomputes_supplied_features_without_current_price_bindi
     monkeypatch, binding_mode: str
 ) -> None:
     import etf_cockpit.services as services_module
+    import etf_cockpit.application.snapshot_builder as snapshot_builder
     import etf_cockpit.application.signal_service as signal_service
     import etf_cockpit.application.data_service as data_service
     import etf_cockpit.application.backtest_service as backtest_service
@@ -1406,15 +1407,19 @@ def test_signal_service_recomputes_supplied_features_without_current_price_bindi
     monkeypatch.setattr(feature_service, "load_prices", services_module.load_prices)
     monkeypatch.setattr(forecast_service, "load_prices", services_module.load_prices)
     monkeypatch.setattr(services_module, "load_holdings", lambda: pd.DataFrame())
+    monkeypatch.setattr(snapshot_builder, "load_holdings", services_module.load_holdings)
     monkeypatch.setattr(signal_service, "load_holdings", services_module.load_holdings)
     monkeypatch.setattr(data_service, "load_holdings", services_module.load_holdings)
     monkeypatch.setattr(services_module.DataService, "validate_prices", lambda *args, **kwargs: object())
     monkeypatch.setattr(services_module, "model_availability", lambda config: {"toto": False, "timesfm": False})
+    monkeypatch.setattr(snapshot_builder, "model_availability", services_module.model_availability)
     monkeypatch.setattr(signal_service, "model_availability", services_module.model_availability)
     monkeypatch.setattr(services_module, "_load_structure_caps", lambda *args, **kwargs: {})
+    monkeypatch.setattr(snapshot_builder, "_load_structure_caps", services_module._load_structure_caps)
     monkeypatch.setattr(signal_service, "_load_structure_caps", services_module._load_structure_caps)
     monkeypatch.setattr(structural_evidence, "_load_structure_caps", services_module._load_structure_caps)
     monkeypatch.setattr(services_module, "generate_signals", lambda *args, **kwargs: [])
+    monkeypatch.setattr(snapshot_builder, "generate_signals", services_module.generate_signals)
     monkeypatch.setattr(signal_service, "generate_signals", services_module.generate_signals)
     identity = {
         "schema": "benchmark-reference-cache.v1",
@@ -1427,6 +1432,7 @@ def test_signal_service_recomputes_supplied_features_without_current_price_bindi
         "_reference_context_from_inputs",
         lambda *args, **kwargs: SimpleNamespace(identity=identity, benchmark_data_id=None),
     )
+    monkeypatch.setattr(snapshot_builder, "_reference_context_from_inputs", services_module._reference_context_from_inputs)
     monkeypatch.setattr(signal_service, "_reference_context_from_inputs", services_module._reference_context_from_inputs)
     monkeypatch.setattr(data_service, "_reference_context_from_inputs", services_module._reference_context_from_inputs)
     monkeypatch.setattr(reference_context, "_reference_context_from_inputs", services_module._reference_context_from_inputs)
@@ -1446,6 +1452,7 @@ def test_signal_service_recomputes_supplied_features_without_current_price_bindi
         return frame
 
     monkeypatch.setattr(services_module, "latest_features", capture_latest)
+    monkeypatch.setattr(snapshot_builder, "latest_features", services_module.latest_features)
     monkeypatch.setattr(signal_service, "latest_features", services_module.latest_features)
 
     def capture_forecasts(*args, **kwargs):
@@ -1453,6 +1460,7 @@ def test_signal_service_recomputes_supplied_features_without_current_price_bindi
         return pd.DataFrame()
 
     monkeypatch.setattr(services_module, "load_latest_forecasts", capture_forecasts)
+    monkeypatch.setattr(snapshot_builder, "load_latest_forecasts", services_module.load_latest_forecasts)
     monkeypatch.setattr(signal_service, "load_latest_forecasts", services_module.load_latest_forecasts)
     supplied_features = pd.DataFrame(columns=["date", "etf_id"])
     supplied_features.attrs["reference_identity"] = dict(identity)
