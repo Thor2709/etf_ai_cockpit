@@ -71,6 +71,11 @@ from etf_cockpit.application.filing_ingestion import (
     _validate_sec_bulk_identity,
     _validate_sec_raw_document,
 )
+from etf_cockpit.application.activity_results import (
+    _legacy_unavailable,
+    activity_result_error,
+    ActivityUnavailableError,
+)
 
 
 # Compatibility seam for existing callers and tests. This is the session trace,
@@ -78,33 +83,6 @@ from etf_cockpit.application.filing_ingestion import (
 ACTIVITY_LOG_PATH = SESSION_LOG_PATH
 
 _TrackedResult = TypeVar("_TrackedResult")
-
-
-class ActivityUnavailableError(RuntimeError):
-    """A local action returned a readable unavailable result without raising."""
-
-
-def _legacy_unavailable(state: "AppState", message: str, cause: BaseException | None = None) -> str:
-    """Keep lightweight direct callers on the historical string-return contract."""
-
-    if not hasattr(state, "_activity_lock"):
-        return message
-    if cause is None:
-        raise ActivityUnavailableError(message)
-    raise ActivityUnavailableError(message) from cause
-
-
-def activity_result_error(result: object) -> str | None:
-    """Return a bounded typed failure message for normal-return result objects."""
-
-    ok = getattr(result, "ok", None)
-    status = getattr(result, "status", None)
-    status_value = getattr(status, "value", status)
-    failed = ok is False or status_value in {"failed", "unavailable", "error", "blocked"}
-    if not failed:
-        return None
-    message = getattr(result, "error", None) or getattr(result, "message", None) or status_value
-    return str(message or "Action was unavailable.").strip()
 
 
 def _tracked_activity(label: str, step: str) -> Callable[[Callable[..., _TrackedResult]], Callable[..., _TrackedResult]]:
