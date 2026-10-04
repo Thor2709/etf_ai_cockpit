@@ -125,7 +125,6 @@ KNOWN_VIOLATIONS = frozenset(
         ("etf_cockpit.governance.migrations", "etf_cockpit.signals.research_states"),
         ("etf_cockpit.governance.models", "etf_cockpit.signals.research_states"),
         ("etf_cockpit.governance.product_scope", "etf_cockpit.app.router"),
-        ("etf_cockpit.portfolio.event_controls", "etf_cockpit.application.contracts"),
     }
 )
 
