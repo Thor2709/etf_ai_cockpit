@@ -194,6 +194,7 @@ def test_valuation_scenario_missing_nonpositive_shares(valuation_scenario_eviden
         def unexpected_producer(*args, **kwargs):
             pytest.fail("Nonpositive sourced shares must be rejected before valuation")
         monkeypatch.setattr("etf_cockpit.application.ui_facade.valuation_analysis", unexpected_producer)
+        monkeypatch.setattr("etf_cockpit.application.valuation_views.valuation_analysis", unexpected_producer)
     result = load_valuation_evidence(path, instrument_id="ACME", decision_time="2026-07-01", assumptions=assumptions)
     assert (result["intrinsic_value"]["status"] if shares is None else result["status"]) == "unavailable"
     if shares is not None:
@@ -220,14 +221,14 @@ def test_valuation_scenario_nonpositive_shares_respect_scope(valuation_scenario_
 
 @pytest.mark.parametrize("failure", ["nested", "arithmetic"])
 def test_valuation_scenario_producer_fail_closed(valuation_scenario_evidence, monkeypatch, failure):
-    from etf_cockpit.application import ui_facade
+    from etf_cockpit.application import ui_facade, valuation_views
 
     path, assumptions = valuation_scenario_evidence
     def producer(*args, **kwargs):
         if failure == "arithmetic":
             raise ZeroDivisionError
         return {"intrinsic_value": {"scenarios": {"bull": {"per_share": float("inf")}}}}
-    monkeypatch.setattr(ui_facade, "valuation_analysis", producer)
+    monkeypatch.setattr(valuation_views, "valuation_analysis", producer)
     assert ui_facade.load_valuation_evidence(path, instrument_id="ACME", decision_time="2026-07-01", assumptions=assumptions)["status"] == "unavailable"
 
 

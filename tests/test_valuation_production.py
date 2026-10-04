@@ -2,7 +2,7 @@ from datetime import date
 
 import pandas as pd
 
-from etf_cockpit.application import ui_facade
+from etf_cockpit.application import ui_facade, valuation_views
 
 
 def _statement_facts() -> pd.DataFrame:
@@ -35,10 +35,10 @@ def _local_market_sources(monkeypatch, tmp_path) -> None:
     fx_path = tmp_path / "fx.parquet"
     price_path.touch()
     fx_path.touch()
-    monkeypatch.setattr(ui_facade, "PRICE_PARQUET", price_path)
-    monkeypatch.setattr(ui_facade, "FX_CLEAN_PATH", fx_path)
+    monkeypatch.setattr(valuation_views, "PRICE_PARQUET", price_path)
+    monkeypatch.setattr(valuation_views, "FX_CLEAN_PATH", fx_path)
     monkeypatch.setattr(
-        ui_facade,
+        valuation_views,
         "load_prices",
         lambda _path: pd.DataFrame(
             [
@@ -49,7 +49,7 @@ def _local_market_sources(monkeypatch, tmp_path) -> None:
         ),
     )
     monkeypatch.setattr(
-        ui_facade,
+        valuation_views,
         "load_fx_rates",
         lambda _path: pd.DataFrame(
             [
@@ -93,7 +93,7 @@ def test_valuation_reference_rate_uses_explicit_horizon_and_decision_time(monkey
         return {"status": "available", "rate": 0.04, "currency": currency, "available_at": "2026-01-03T00:00:00Z", "source_id": "curve-source"}
 
     monkeypatch.setattr(ui_facade.MacroWarehouse, "risk_free_rate", select_rate)
-    monkeypatch.setattr(ui_facade, "load_risk_free_proxy_mappings", lambda: ())
+    monkeypatch.setattr(valuation_views, "load_risk_free_proxy_mappings", lambda: ())
 
     result = ui_facade.load_valuation_market_inputs(
         "ACME",
@@ -118,7 +118,7 @@ def test_valuation_market_inputs_require_diluted_shares_and_quote_currency(monke
     assert "diluted share count" in missing_shares["reason"]
 
     monkeypatch.setattr(
-        ui_facade,
+        valuation_views,
         "load_prices",
         lambda _path: pd.DataFrame([{"instrument_id": "ACME", "date": date(2026, 1, 2), "close": 20.0}]),
     )
