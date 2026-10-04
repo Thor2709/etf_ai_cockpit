@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import csv
 import json
 import re
@@ -92,6 +93,19 @@ def raw_candidate_cycles(registry: dict[str, Any]) -> list[list[str]]:
 
 
 def route_inventory(root: Path) -> list[str]:
+    # The router builds PAGES from the Flet-free registry core/navigation.py::ROUTE_TITLES.
+    registry = root / "src/etf_cockpit/core/navigation.py"
+    if registry.exists():
+        for node in ast.parse(registry.read_text(encoding="utf-8")).body:
+            target: ast.expr
+            if isinstance(node, ast.AnnAssign) and node.value is not None:
+                target, value = node.target, node.value
+            elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+                target, value = node.targets[0], node.value
+            else:
+                continue
+            if isinstance(target, ast.Name) and target.id == "ROUTE_TITLES":
+                return [route for route, _title in ast.literal_eval(value)]
     path = root / "src/etf_cockpit/app/router.py"
     text = path.read_text(encoding="utf-8")
     match = re.search(r"^PAGES\s*=\s*\{(.*?)^\}", text, re.MULTILINE | re.DOTALL)
