@@ -1113,6 +1113,7 @@ def test_backtest_engine_keeps_relative_features_unavailable_without_benchmark(m
 
 def test_backtest_metadata_binds_fresh_reference_projection_and_rejects_tamper(tmp_path, monkeypatch) -> None:
     from etf_cockpit.data.etf_structure import LocalStructuralEvidence
+    import etf_cockpit.application.structural_evidence as structural_evidence
 
     config = load_config()
     prices = generate_sample_prices(config, periods=360, end_date=date(2026, 6, 26))
@@ -1124,6 +1125,7 @@ def test_backtest_metadata_binds_fresh_reference_projection_and_rejects_tamper(t
         "_load_local_structural_evidence",
         lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
     )
+    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services_module._load_local_structural_evidence)
     monkeypatch.setattr(services_module, "ensure_run_manifest", lambda *_args, **_kwargs: {})
     service = services_module.BacktestService(config, universe_revision="test-revision")
     report = service.run_backtest()
@@ -1351,6 +1353,7 @@ def test_signal_service_recomputes_supplied_features_without_current_price_bindi
     monkeypatch, binding_mode: str
 ) -> None:
     import etf_cockpit.services as services_module
+    import etf_cockpit.application.structural_evidence as structural_evidence
 
     captured: dict[str, object] = {}
     prices = pd.DataFrame([{"date": date(2025, 1, 2), "etf_id": "VWCE", "adjusted_close": 100.0}])
@@ -1359,6 +1362,7 @@ def test_signal_service_recomputes_supplied_features_without_current_price_bindi
     monkeypatch.setattr(services_module.DataService, "validate_prices", lambda *args, **kwargs: object())
     monkeypatch.setattr(services_module, "model_availability", lambda config: {"toto": False, "timesfm": False})
     monkeypatch.setattr(services_module, "_load_structure_caps", lambda *args, **kwargs: {})
+    monkeypatch.setattr(structural_evidence, "_load_structure_caps", services_module._load_structure_caps)
     monkeypatch.setattr(services_module, "generate_signals", lambda *args, **kwargs: [])
     identity = {
         "schema": "benchmark-reference-cache.v1",

@@ -65,7 +65,7 @@ from etf_cockpit.data.market_adjustments import (
     CorporateActionStore,
     apply_total_return_adjustments,
 )
-from etf_cockpit.data.etf_structure import load_local_structural_evidence, structure_confidence_caps
+from etf_cockpit.data.etf_structure import structure_confidence_caps
 from etf_cockpit.data.fx_data import commit_fx_import, fx_data_inventory, load_fx_rates, validate_fx_rates
 from etf_cockpit.data.fund_documents import read_document_registry
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
@@ -152,6 +152,10 @@ from etf_cockpit.application.derived_cache import (
     _write_bound_cache_group,
     _write_universe_cache_metadata,
 )
+from etf_cockpit.application.structural_evidence import (
+    _load_local_structural_evidence,
+    _load_structure_caps,
+)
 
 
 BENCHMARK_REFERENCE_REGISTRY_PATH: Path | None = None
@@ -220,15 +224,6 @@ def _holdings_imply_consistent_portfolio_total(
             abs_tol=_NO_TRADE_TOTAL_ABS_TOL_EUR,
         )
         for implied_total in implied_totals[1:]
-    )
-
-
-def _load_local_structural_evidence():
-    return load_local_structural_evidence(
-        registry_reader=read_document_registry,
-        report_reader=read_etf_report_records,
-        factsheet_path=ETF_METADATA_CLEAN_PATH,
-        holdings_path=FUND_HOLDINGS_PATH,
     )
 
 
@@ -370,36 +365,6 @@ def _open_backtest_calendar_identity_resolver() -> tuple[
             return unavailable(instrument_id, signal_timestamp)
 
     return store, resolve
-
-
-def _load_structure_caps(instrument_ids: object, decision_time: object) -> dict[str, float]:
-    """Load local structural evidence once at the signal service boundary."""
-
-    ids = [str(item) for item in instrument_ids] if instrument_ids is not None else []
-    try:
-        evidence = _load_local_structural_evidence()
-        return structure_confidence_caps(
-            ids,
-            document_registry=evidence.document_registry,
-            report_records=evidence.report_records,
-            supplemental_rows=evidence.supplemental_rows,
-            holdings=evidence.holdings,
-            decision_time=decision_time,
-        )
-    except (OSError, ValueError, TypeError, KeyError) as exc:
-        caps = structure_confidence_caps(ids, decision_time=decision_time)
-        for item in ids:
-            caps.provenance[item] = {
-                "structure_projection_version": "unavailable",
-                "structure_schema_version": "unavailable",
-                "structure_confidence_version": "unavailable",
-                "structure_provenance_hash": "unavailable",
-                "structure_confidence_cap": 0.0,
-                "status": "unavailable",
-                "reason_code": "structural_evidence_load_failed",
-                "reason": f"Structural evidence load failed ({type(exc).__name__}): {exc}",
-            }
-        return caps
 
 
 def _live_optional_models_from_config(config: AppConfig) -> bool:

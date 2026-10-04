@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 import etf_cockpit.services as services
+import etf_cockpit.application.structural_evidence as structural_evidence
 import etf_cockpit.application.derived_cache as derived_cache
 from etf_cockpit.app.selectors.instrument_detail import (
     InstrumentDetailViewModel,
@@ -1080,6 +1081,7 @@ def test_cached_structure_validation_batches_non_empty_evidence_by_decision_date
         return result
 
     monkeypatch.setattr(services, "structure_confidence_caps", fake_structure_caps)
+    monkeypatch.setattr(structural_evidence, "structure_confidence_caps", services.structure_confidence_caps)
     monkeypatch.setattr(derived_cache, "structure_confidence_caps", services.structure_confidence_caps)
     evidence = SimpleNamespace(
         document_registry=pd.DataFrame([{"source_id": "source-1"}]),
@@ -1325,11 +1327,15 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
         tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
     )
     monkeypatch.setattr(services, "FUND_HOLDINGS_PATH", holdings_path)
+    monkeypatch.setattr(structural_evidence, "FUND_HOLDINGS_PATH", services.FUND_HOLDINGS_PATH)
     monkeypatch.setattr(services, "ETF_METADATA_CLEAN_PATH", factsheet_path)
+    monkeypatch.setattr(structural_evidence, "ETF_METADATA_CLEAN_PATH", services.ETF_METADATA_CLEAN_PATH)
     monkeypatch.setattr(services, "load_prices", lambda: prices)
     monkeypatch.setattr(services, "load_fundamental_evidence", lambda: fundamentals)
     monkeypatch.setattr(services, "read_document_registry", lambda: registry)
+    monkeypatch.setattr(structural_evidence, "read_document_registry", services.read_document_registry)
     monkeypatch.setattr(services, "read_etf_report_records", lambda: reports)
+    monkeypatch.setattr(structural_evidence, "read_etf_report_records", services.read_etf_report_records)
     monkeypatch.setattr(services, "run_backtest", fake_run_backtest)
     monkeypatch.setattr(services, "current_settings_identity", fake_settings_identity)
     monkeypatch.setattr(services, "current_settings_revision", fake_settings_revision)
@@ -1475,6 +1481,7 @@ def test_backtest_cache_is_invalidated_when_structural_loader_raises(tmp_path, m
         raise ValueError("structural store is corrupt")
 
     monkeypatch.setattr(services, "_load_local_structural_evidence", raise_structural_corruption)
+    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
 
     assert service._load_cached_backtest() is None
     assert loader_called is True

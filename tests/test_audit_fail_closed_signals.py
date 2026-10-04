@@ -262,11 +262,13 @@ def test_missing_forecast_volatility_leaves_benchmark_probability_unavailable_wi
 
 def test_structural_load_failure_has_zero_confidence_cap_and_explicit_provenance(monkeypatch: pytest.MonkeyPatch) -> None:
     from etf_cockpit import services
+    import etf_cockpit.application.structural_evidence as structural_evidence
 
     def fail_load() -> None:
         raise ValueError("corrupt structural evidence")
 
     monkeypatch.setattr(services, "_load_local_structural_evidence", fail_load)
+    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
 
     caps = _load_structure_caps(["AAA"], date(2025, 1, 2))
 
@@ -278,11 +280,13 @@ def test_structural_load_failure_has_zero_confidence_cap_and_explicit_provenance
 
 def test_unexpected_structural_load_failure_propagates(monkeypatch: pytest.MonkeyPatch) -> None:
     from etf_cockpit import services
+    import etf_cockpit.application.structural_evidence as structural_evidence
 
     def fail_load() -> None:
         raise RuntimeError("unexpected loader failure")
 
     monkeypatch.setattr(services, "_load_local_structural_evidence", fail_load)
+    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
 
     with pytest.raises(RuntimeError, match="unexpected loader failure"):
         _load_structure_caps(["AAA"], date(2025, 1, 2))
@@ -290,12 +294,14 @@ def test_unexpected_structural_load_failure_propagates(monkeypatch: pytest.Monke
 
 def test_backtest_does_not_run_after_structural_evidence_load_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     from etf_cockpit import services
+    import etf_cockpit.application.structural_evidence as structural_evidence
 
     monkeypatch.setattr(services, "current_settings_identity", lambda: "settings")
     monkeypatch.setattr(services, "load_prices", pd.DataFrame)
     monkeypatch.setattr(services, "_backtest_calculation_context", lambda *_args: None)
     monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(services, "_load_local_structural_evidence", lambda: (_ for _ in ()).throw(ValueError("corrupt")))
+    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
 
     report = BacktestService(load_config(), universe_revision="audit-test").run_backtest()
 

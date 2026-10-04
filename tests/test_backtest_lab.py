@@ -37,6 +37,7 @@ from etf_cockpit.app.pages.signals import _latest_operational_row
 from etf_cockpit.app.selectors.instrument_detail import _operational_evidence_panel
 from etf_cockpit.portfolio.costs import estimate_execution_cost
 from etf_cockpit import services
+import etf_cockpit.application.structural_evidence as structural_evidence
 import etf_cockpit.application.derived_cache as derived_cache
 from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.identity_master import IdentityClaim, IdentityMasterStore
@@ -1668,6 +1669,7 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
         "_load_local_structural_evidence",
         lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
     )
+    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
     service = services.BacktestService(config, universe_revision="test-revision")
 
@@ -1679,6 +1681,7 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
             AssertionError("empty structural evidence must not replay once per signal row")
         ),
     )
+    monkeypatch.setattr(structural_evidence, "structure_confidence_caps", services.structure_confidence_caps)
     monkeypatch.setattr(derived_cache, "structure_confidence_caps", services.structure_confidence_caps)
     cached = service._load_cached_backtest()
 
@@ -1848,6 +1851,7 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
         "_load_local_structural_evidence",
         lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
     )
+    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
     def mixed_availability_report(selected_config, selected_prices, **kwargs):
         report = run_backtest(
@@ -1921,6 +1925,7 @@ def test_backtest_service_round_trips_genuinely_unavailable_operational_rows(
         "_load_local_structural_evidence",
         lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
     )
+    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
     service = services.BacktestService(config, universe_revision="test-revision")
 
@@ -1953,6 +1958,7 @@ def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
         "_load_local_structural_evidence",
         lambda: LocalStructuralEvidence(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()),
     )
+    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
     service = services.BacktestService(config, universe_revision="test-revision")
     service.run_backtest()

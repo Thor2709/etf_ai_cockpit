@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from etf_cockpit import services
+import etf_cockpit.application.structural_evidence as structural_evidence
 import etf_cockpit.application.derived_cache as derived_cache
 from etf_cockpit.application.portfolio_sandbox import (
     PORTFOLIO_SANDBOX_ENTITY,
@@ -495,6 +496,7 @@ def test_build_snapshot_wires_available_reference_evidence_through_restart_and_s
     monkeypatch.setattr(services, "model_diagnostics", lambda config: [])
     monkeypatch.setattr(services, "load_latest_forecasts", lambda **kwargs: pd.DataFrame())
     monkeypatch.setattr(services, "_load_structure_caps", lambda *args: {})
+    monkeypatch.setattr(structural_evidence, "_load_structure_caps", services._load_structure_caps)
     monkeypatch.setattr(services, "load_etf_economics_records", lambda: ())
     monkeypatch.setattr(services, "load_total_return_evidence", lambda path: None)
     monkeypatch.setattr(services, "load_closure_proxy_policy", lambda: None)
@@ -586,6 +588,7 @@ def test_build_snapshot_no_trade_rejects_excluded_holdings_in_source_frame(monke
     monkeypatch.setattr(services, "model_diagnostics", lambda config: [])
     monkeypatch.setattr(services, "load_latest_forecasts", lambda **kwargs: pd.DataFrame())
     monkeypatch.setattr(services, "_load_structure_caps", lambda *args: {})
+    monkeypatch.setattr(structural_evidence, "_load_structure_caps", services._load_structure_caps)
     monkeypatch.setattr(services, "load_etf_economics_records", lambda: ())
     monkeypatch.setattr(services, "load_total_return_evidence", lambda path: None)
     monkeypatch.setattr(services, "load_closure_proxy_policy", lambda: None)

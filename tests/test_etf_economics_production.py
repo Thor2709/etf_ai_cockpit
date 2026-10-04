@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 import etf_cockpit.services as services
+import etf_cockpit.application.structural_evidence as structural_evidence
 from etf_cockpit.application import ui_facade
 from etf_cockpit.data.etf_economics import (
     EtfEconomicsStore,
@@ -94,6 +95,7 @@ def _load_production_inputs(
             ]
         ),
     )
+    monkeypatch.setattr(structural_evidence, "read_etf_report_records", services.read_etf_report_records)
     policy_path = FIXTURE / "closure-policy.json"
     monkeypatch.setattr(
         services,
