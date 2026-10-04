@@ -294,13 +294,16 @@ def test_unexpected_structural_load_failure_propagates(monkeypatch: pytest.Monke
 
 def test_backtest_does_not_run_after_structural_evidence_load_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     from etf_cockpit import services
+    import etf_cockpit.application.feature_service as feature_service
     import etf_cockpit.application.forecast_service as forecast_service
     import etf_cockpit.application.reference_context as reference_context
     import etf_cockpit.application.structural_evidence as structural_evidence
 
     monkeypatch.setattr(services, "current_settings_identity", lambda: "settings")
+    monkeypatch.setattr(feature_service, "current_settings_identity", services.current_settings_identity)
     monkeypatch.setattr(forecast_service, "current_settings_identity", services.current_settings_identity)
     monkeypatch.setattr(services, "load_prices", pd.DataFrame)
+    monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
     monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)
     monkeypatch.setattr(services, "_backtest_calculation_context", lambda *_args: None)
     monkeypatch.setattr(reference_context, "_backtest_calculation_context", services._backtest_calculation_context)

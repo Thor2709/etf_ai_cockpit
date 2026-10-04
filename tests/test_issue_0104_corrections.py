@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 import etf_cockpit.services as services
+import etf_cockpit.application.feature_service as feature_service
 import etf_cockpit.application.forecast_service as forecast_service
 import etf_cockpit.application.economics_inputs as economics_inputs
 import etf_cockpit.application.structural_evidence as structural_evidence
@@ -1334,6 +1335,7 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
     monkeypatch.setattr(services, "ETF_METADATA_CLEAN_PATH", factsheet_path)
     monkeypatch.setattr(structural_evidence, "ETF_METADATA_CLEAN_PATH", services.ETF_METADATA_CLEAN_PATH)
     monkeypatch.setattr(services, "load_prices", lambda: prices)
+    monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
     monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)
     monkeypatch.setattr(services, "load_fundamental_evidence", lambda: fundamentals)
     monkeypatch.setattr(services, "read_document_registry", lambda: registry)
@@ -1343,13 +1345,16 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
     monkeypatch.setattr(structural_evidence, "read_etf_report_records", services.read_etf_report_records)
     monkeypatch.setattr(services, "run_backtest", fake_run_backtest)
     monkeypatch.setattr(services, "current_settings_identity", fake_settings_identity)
+    monkeypatch.setattr(feature_service, "current_settings_identity", services.current_settings_identity)
     monkeypatch.setattr(forecast_service, "current_settings_identity", services.current_settings_identity)
     monkeypatch.setattr(services, "current_settings_revision", fake_settings_revision)
     monkeypatch.setattr(forecast_service, "current_settings_revision", services.current_settings_revision)
     monkeypatch.setattr(derived_cache, "current_settings_revision", services.current_settings_revision)
     monkeypatch.setattr(services, "settings_bound_run_id", fake_run_id)
+    monkeypatch.setattr(feature_service, "settings_bound_run_id", services.settings_bound_run_id)
     monkeypatch.setattr(forecast_service, "settings_bound_run_id", services.settings_bound_run_id)
     monkeypatch.setattr(services, "ensure_run_manifest", fake_manifest)
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
     monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
     monkeypatch.setattr(services, "append_jsonl", fake_append)
 
@@ -1436,6 +1441,7 @@ def test_backtest_cache_is_invalidated_when_structural_loader_raises(tmp_path, m
     )
     monkeypatch.setattr(services, "BACKTESTS_DIR", backtests)
     monkeypatch.setattr(services, "load_prices", lambda: prices)
+    monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
     monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)
     monkeypatch.setattr(services, "load_fundamental_evidence", lambda: fundamentals)
     monkeypatch.setattr(services, "current_settings_revision", lambda: "settings-1")

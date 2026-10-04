@@ -22,6 +22,7 @@ from etf_cockpit.data.classification import (
 )
 from etf_cockpit.services import build_snapshot
 from etf_cockpit import services as services_module
+import etf_cockpit.application.feature_service as feature_service
 import etf_cockpit.application.forecast_service as forecast_service
 import etf_cockpit.application.derived_cache as derived_cache
 from etf_cockpit.signals.simple_scores import SimpleScoreComponent, build_simple_instrument_scores, simple_scoreboard_frame
@@ -138,6 +139,7 @@ def test_snapshot_retains_configured_manual_holdings_for_audit_export(monkeypatc
     monkeypatch.setattr(services_module, "DataService", FakeDataService)
     monkeypatch.setattr(services_module, "load_holdings", lambda: holdings.copy())
     monkeypatch.setattr(services_module, "_current_universe_revision", lambda: "revision")
+    monkeypatch.setattr(feature_service, "_current_universe_revision", services_module._current_universe_revision)
     monkeypatch.setattr(forecast_service, "_current_universe_revision", services_module._current_universe_revision)
     monkeypatch.setattr(derived_cache, "_current_universe_revision", services_module._current_universe_revision)
     monkeypatch.setattr(services_module, "model_availability", lambda _config: {"timesfm": False, "toto": False})

@@ -37,6 +37,7 @@ from etf_cockpit.app.pages.signals import _latest_operational_row
 from etf_cockpit.app.selectors.instrument_detail import _operational_evidence_panel
 from etf_cockpit.portfolio.costs import estimate_execution_cost
 from etf_cockpit import services
+import etf_cockpit.application.feature_service as feature_service
 import etf_cockpit.application.forecast_service as forecast_service
 import etf_cockpit.application.economics_inputs as economics_inputs
 import etf_cockpit.application.structural_evidence as structural_evidence
@@ -1672,6 +1673,7 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
     monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)
     monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
@@ -1681,6 +1683,7 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     )
     monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
     monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
     service = services.BacktestService(config, universe_revision="test-revision")
 
@@ -1857,6 +1860,7 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
     monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)
     monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
@@ -1866,6 +1870,7 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
     )
     monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
     monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
     def mixed_availability_report(selected_config, selected_prices, **kwargs):
         report = run_backtest(
@@ -1934,6 +1939,7 @@ def test_backtest_service_round_trips_genuinely_unavailable_operational_rows(
     )
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
     monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)
     monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
@@ -1943,6 +1949,7 @@ def test_backtest_service_round_trips_genuinely_unavailable_operational_rows(
     )
     monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
     monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
     service = services.BacktestService(config, universe_revision="test-revision")
 
@@ -1970,6 +1977,7 @@ def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
     )
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
     monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)
     monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
@@ -1979,6 +1987,7 @@ def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
     )
     monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", services._load_local_structural_evidence)
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", services.ensure_run_manifest)
     monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
     service = services.BacktestService(config, universe_revision="test-revision")
     service.run_backtest()
