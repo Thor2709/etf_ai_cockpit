@@ -21,7 +21,7 @@ from etf_cockpit.analysis.parity_report import (
     load_analysis_parity_config,
     write_parity_report,
 )
-from etf_cockpit.application import ui_facade
+from etf_cockpit.application import diagnostics_views, ui_facade
 from etf_cockpit.application.bulk_run import BulkAnalysisService
 from etf_cockpit.portfolio.holdings_table import build_portfolio_holdings_table
 from etf_cockpit.portfolio.performance_series import (
@@ -464,13 +464,13 @@ def test_diagnostics_uses_approved_path_and_missing_report_is_unavailable(tmp_pa
         },
     }
     write_parity_report(mismatch_report, approved)
-    monkeypatch.setattr(ui_facade, "analysis_parity_report_path", lambda: approved)
+    monkeypatch.setattr(diagnostics_views, "analysis_parity_report_path", lambda: approved)
     diagnostics = ui_facade.load_analysis_parity_report()
     assert diagnostics["status"] == "failed"
     assert diagnostics["first_mismatch"]["path"] == "analysis.bulk.ACME.baseline_z"
 
     missing_path = tmp_path / "missing-report.json"
-    monkeypatch.setattr(ui_facade, "analysis_parity_report_path", lambda: missing_path)
+    monkeypatch.setattr(diagnostics_views, "analysis_parity_report_path", lambda: missing_path)
     unavailable = ui_facade.load_analysis_parity_report()
     assert unavailable["status"] == "unavailable"
     assert unavailable["reason"]
