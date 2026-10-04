@@ -3,7 +3,8 @@
 Release version: `0.1.0rc1`.
 
 This guide lists every page the application registers in
-`src/etf_cockpit/app/router.py` and the workspace that groups it. The
+`src/etf_cockpit/core/navigation.py` (bound to page renderers by
+`src/etf_cockpit/app/router.py`) and the workspace that groups it. The
 [user guide](USER_GUIDE.md) explains how to read scores and evidence; the
 [tutorials](TUTORIALS.md) walk through complete tasks. Every page ends with a
 help panel; the `/help` page holds the glossary. Nothing in the application can

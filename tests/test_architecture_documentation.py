@@ -84,8 +84,8 @@ def test_runtime_scenarios_and_transitional_snapshot_are_explicit() -> None:
         "### 7.8 Proposal and authority decision",
     ):
         assert heading in sdd
-    assert "`services.CockpitSnapshot`" in sdd
-    assert "transitional `CockpitSnapshot` in\n`services.py`" in sdd
+    assert "`application.snapshot_builder.CockpitSnapshot`" in sdd
+    assert "transitional `CockpitSnapshot` in\n`application/snapshot_builder.py`" in sdd
     assert "`AnalysisSnapshot`" not in sdd
 
 

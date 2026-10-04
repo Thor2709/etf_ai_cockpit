@@ -134,16 +134,33 @@ network trust boundary; no public HTTP API is enabled.
 | Block | Responsibility and public contracts | Dependency rule | Principal paths / tests | State |
 |---|---|---|---|---|
 | Domain | typed evidence, identity, features, scores, risk, portfolio and replay | no Flet or concrete provider dependency | `core/types.py`, `data/contracts.py`, `features/`, `signals/`, `portfolio/`, `backtest/`; deterministic tests | VERIFIED CURRENT / transitional layout |
-| Application | orchestration, typed commands/queries, serialisable view models | may call domain ports; must not expose frames/domain objects to UI | `application/contracts.py`, `api.py`, `ui_facade.py`; `tests/test_application_api.py` | PARTIALLY IMPLEMENTED |
+| Application | orchestration, typed commands/queries, serialisable view models | may call domain ports; must not expose frames/domain objects to UI | `application/contracts.py`, `api.py`, `*_views.py` read models, `ui_facade.py` (presentation facade); `tests/test_application_api.py` | PARTIALLY IMPLEMENTED |
 | Infrastructure | providers, parsers, stores, migrations, credentials | implements contracts; cannot grant authority | `data/`, `parsers/`, `security/`, `operations/`; provider/storage tests | VERIFIED CURRENT |
-| Presentation | routes, workspaces, pages, selectors and components | calls application facades; no canonical formulas | `app/router.py`, `app/pages/`, `app/selectors/`; UI/acceptance tests | PARTIALLY IMPLEMENTED |
+| Presentation | routes, workspaces, pages and components | calls application facades; no canonical formulas | `core/navigation.py` (route titles, workspaces), `app/router.py`, `app/pages/`, `app/components/`; UI/acceptance tests | PARTIALLY IMPLEMENTED |
 | Shared core/contracts | paths, atomic I/O, versioning, workflow, errors, acceptance metadata | stable, versioned and infrastructure-neutral where practical | `core/`, `governance/models.py`; core/governance tests | VERIFIED CURRENT |
 | Tests and validation | contract, invariant, UI, control and release evidence | may inspect boundaries; cannot weaken controls | `tests/`, `scripts/validate_app.py`, policy checkers | PARTIALLY IMPLEMENTED |
 
-The repository retains older `services.py`, direct data modules and page/state
-integration as transitional compatibility. The architecture-boundary checker
-and ongoing ISSUE-0136–0140 work prevent that from being represented as a
+The repository retains `services.py` (compatibility re-exports only), direct
+data/domain imports in `app/state.py` and the compatibility modules in 6.1 as
+transitional compatibility. The architecture-boundary checker, the layering
+guard and ongoing ISSUE-0136–0140 work prevent that from being represented as a
 completed refactor.
+
+### 6.1 Layer map after the 2026-10 refactor
+
+Code moved between layers (ADR-0002); behaviour is unchanged.
+
+| Layer / group | Modules (under `src/etf_cockpit/`) | Role |
+|---|---|---|
+| Presentation | `app/` (`router.py`, `pages/`, `components/`, `state.py`) | Flet rendering; `router.py` binds the `core/navigation.py` routes to page renderers |
+| Application: facade and read models | `application/ui_facade.py` (explicit re-exports), `*_views.py` (decision, diagnostics, factor-risk, financial-institution, fixed-income, identity, market, paper, portfolio, sector, selection, valuation), `instrument_detail_view.py` | serialisable view models for pages |
+| Application: orchestration | `snapshot_builder.py` (`CockpitSnapshot`, `build_snapshot`), `data_service.py`, `feature_service.py`, `signal_service.py`, `forecast_service.py`, `backtest_service.py`, `derived_cache.py`, `structural_evidence.py`, `reference_context.py`, `economics_inputs.py`, `decision_rank.py`, `chatgpt_review.py` | snapshot and calculation orchestration formerly in `services.py` |
+| Application: workflows and records | `filing_ingestion.py`, `filing_ingestion_workflows.py`, `scoreboard_publication.py`, `activity_results.py`, `onboarding_profile.py`, `operation_records.py` | logic extracted from `AppState`, the onboarding page and `app/operations.py` |
+| Lower-layer homes of moved code | `analysis/screening.py`, `portfolio/benchmark_reference.py`, `core/navigation.py`, `core/settings_bundle.py`, `core/research_states.py`, `governance/architecture_boundaries.py` | domain and shared logic that lower layers import without reaching up |
+| Application seams over moved code | `application/benchmark_reference.py`, `application/settings.py`, `application/architecture.py` | deliberate presentation-facing re-exports of the modules above |
+| Compatibility modules (`COMPAT_ONLY_MODULES`) | `services.py`, `app/operations.py`, `app/selectors/instrument_detail.py`, `application/screening.py`, `signals/research_states.py` | re-exports for tests and scripts; production code may not import them. Removal: delete the module and its entry once no test or script imports it |
+
+Layering guard: `tests/test_import_layering.py` classifies every runtime import by layer and fails on any layer-breaking edge that is not listed: 7 `ACCEPTED_EXCEPTIONS` (reviewed persistence/session seams, each with a reason), 12 `KNOWN_VIOLATIONS` (compatibility debt in `app/state.py` and `app/pages/onboarding.py`) and 5 `COMPAT_ONLY_MODULES`. Such edges fell from 84 at baseline `5e501154` to 19; the allowlists only shrink.
 
 ## 7. Runtime views
 
@@ -169,9 +186,10 @@ sequenceDiagram
 **Inputs:** launcher mode, local settings and existing writable directories.
 **Boundary:** settings/universe revisions and the last valid local store.
 **Services:** `scripts/run_app.py`, `core/runtime.py`, `app/flet_app.py` and
-`services.build_snapshot()`. **Persistence:** `data/`, `configs/`, `logs/` and
-local migration/recovery state. **Failure:** first run can create deterministic
-sample data; corrupt state fails closed and optional providers/models are
+`application/snapshot_builder.py` (`build_snapshot()`; `run_app.py --smoke`
+uses the `services.py` re-export). **Persistence:** `data/`, `configs/`,
+`logs/` and local migration/recovery state. **Failure:** first run can create
+deterministic sample data; corrupt state fails closed and optional providers/models are
 unavailable rather than mandatory. **Audit:** startup diagnostics and
 `logs/session.jsonl`. This flow is **VERIFIED CURRENT**.
 
@@ -189,11 +207,13 @@ mutate those profiles. A changed policy version produces explicit
 **Inputs:** instrument identity, horizon/profile and point-in-time prices,
 classification and evidence. **Boundary:** settings/universe revisions plus
 the resolved evidence as-of time; the transitional aggregate is
-`services.CockpitSnapshot`, while typed evidence and score results live in
-`core/types.py`, `signals/canonical_scoring.py` and application view models.
-**Services:** `application/ui_facade.py`, feature services and signal/scoring
-services. **Persistence:** validated local evidence, feature/score history and
-exports. **Failure:** missing adjusted prices, FX, identity or chronology yields
+`application.snapshot_builder.CockpitSnapshot`, while typed evidence and
+score results live in `core/types.py`, `signals/canonical_scoring.py` and
+application view models. **Services:** `application/snapshot_builder.py`,
+`feature_service.py` and `signal_service.py` over
+`signals/canonical_scoring.py`, with `application/*_views.py` read models
+behind `application/ui_facade.py`. **Persistence:** validated local evidence,
+feature/score history and exports. **Failure:** missing adjusted prices, FX, identity or chronology yields
 unavailable/manual review. **Audit:** source-labelled metrics, reason codes,
 versions and local export evidence. This flow is **PARTIALLY IMPLEMENTED**
 across legacy and typed application surfaces.
@@ -215,8 +235,8 @@ flowchart LR
 
 **Inputs:** frozen universe, filters/top-N request, horizon/profile/depth and
 provider snapshot. **Boundary:** run ID, universe/settings revision and frozen
-input hashes. **Services:** `application/screening.py`,
-`application/screening_data.py`, `data/screen_store.py` and durable job
+input hashes. **Services:** `analysis/screening.py` (engine; `application/screening.py`
+re-exports it), `application/screening_data.py`, `data/screen_store.py` and durable job
 services. **Persistence:** checkpoints, cached datasets and saved screen/run
 records. **Failure:** per-instrument unavailable results remain explicit;
 interruption resumes idempotently. **Audit:** ranked candidates, exclusions,
@@ -309,7 +329,7 @@ them. Source policy selects only eligible evidence and preserves conflicts.
 Returns require adjusted, corporate-action-aware total-return evidence.
 Instrument classification determines compatible metrics, peers and strategy
 scope. The current aggregate is the transitional `CockpitSnapshot` in
-`services.py`; canonical typed evidence and score contracts are defined in
+`application/snapshot_builder.py`; canonical typed evidence and score contracts are defined in
 `core/types.py` and `signals/canonical_scoring.py`, then projected through
 application view models. Score engine v3 and forecast records carry provenance,
 uncertainty and unavailable states. Portfolio and paper ledgers use

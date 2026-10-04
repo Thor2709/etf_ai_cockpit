@@ -19,7 +19,7 @@ Measured costs for this slice are deliberately small and reproducible:
 | --- | --- | --- |
 | New production frontend dependencies | 0 | `pyproject.toml` and the package lock remain unchanged |
 | New frontend runtime/build pipelines | 0 | the existing Flet startup path is retained |
-| Information-architecture groups | 9 | `WORKSPACE_GROUPS` in `app/router.py` |
+| Information-architecture groups | 9 | `WORKSPACE_GROUPS` in `core/navigation.py` |
 | Explicit evidence states | 5 | `app/components/states.py` |
 | Evidence density modes | 3 | `theme.EVIDENCE_MODES` |
 

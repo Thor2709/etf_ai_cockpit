@@ -30,3 +30,19 @@ because they duplicate calculations and impede testing.
 
 [Application API](../application-api.md), `src/etf_cockpit/application/`,
 `tests/test_architecture_boundaries.py`.
+
+## Implementation status (2026-10-04)
+
+Code moved to the layers above without behaviour change ([layer map](../SDD.md)); `tests/test_import_layering.py`
+enforces it and layer-breaking import edges fell from 84 (baseline `5e501154`) to 19. Seven are accepted by design:
+- `core.config` -> `data.universe_store`: config loader overlays the persisted universe revision.
+- `core.config` -> `security.credentials`: provider settings resolve vault-held credentials.
+- `core.job_scheduler` -> `data.local_storage`: durable scheduler persists jobs in local storage.
+- `core.migrations` -> `operations.recovery`: startup migrations run the recovery journal.
+- `core.session_log` -> `operations.event_store`: session trace is written through the event store.
+- `data.sec_edgar_provider` -> `application.sec_bulk_import`: provider-owned SEC session seam (lazy).
+- `data.sec_edgar_provider` -> `application.sec_submissions_import`: provider-owned SEC session seam (lazy).
+
+Compatibility debt: 12 `KNOWN_VIOLATIONS` (`app/state.py`, `app/pages/onboarding.py` import data/domain modules directly)
+and 5 `COMPAT_ONLY_MODULES` (`services`, `app.operations`, `app.selectors.instrument_detail`, `application.screening`,
+`signals.research_states`). Each is retired by moving its last consumer to the canonical module and deleting it.
