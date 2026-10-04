@@ -69,7 +69,7 @@ from etf_cockpit.application.ui_facade import (
     sort_news_items,
     source_policy_rows,
 )
-from etf_cockpit.plugins.builtins import plugin_status_rows
+from etf_cockpit.application.diagnostics_views import plugin_status_rows
 from etf_cockpit.application.evidence_documents import _retain_picker_source
 
 SFDR_RECORDS_PATH = CLEAN_DIR / "sfdr_records.parquet"
@@ -1084,7 +1084,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         )
 
     async def import_kid(_event: ft.ControlEvent) -> None:
-        from etf_cockpit.parsers.priips_kid import parse_priips_kid
+        from etf_cockpit.application.document_parsers import parse_priips_kid
 
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["pdf"], with_data=True)
         if not files:
@@ -1126,7 +1126,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         _run_picker_activity(page, state, result, "Import PRIIPs KID", "Parsing PRIIPs KID", files[0], ".pdf", action)
 
     async def import_methodology(_event: ft.ControlEvent) -> None:
-        from etf_cockpit.parsers.index_methodology import parse_index_methodology
+        from etf_cockpit.application.document_parsers import parse_index_methodology
 
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["pdf"], with_data=True)
         if not files:
@@ -1135,7 +1135,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             return
 
         def action(path: Path, action_id: str) -> str:
-            from etf_cockpit.parsers.index_methodology import apply_methodology_holdings_assessment
+            from etf_cockpit.application.document_parsers import apply_methodology_holdings_assessment
 
             state.update_activity("Parsing index methodology", "Parsing the selected methodology PDF.", completed_units=1, total_units=3, expected_action_id=action_id)
             retained_path = _retain_picker_source(
@@ -1181,7 +1181,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         )
 
     async def import_sfdr(_event: ft.ControlEvent) -> None:
-        from etf_cockpit.parsers.sfdr import parse_sfdr
+        from etf_cockpit.application.document_parsers import parse_sfdr
         import importlib
         persist_sfdr_with_document = importlib.import_module("etf_cockpit.data.parsed_disclosures").persist_sfdr_with_document
 

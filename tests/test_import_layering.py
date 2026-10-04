@@ -56,10 +56,6 @@ KNOWN_VIOLATIONS = frozenset(
     {
         ("etf_cockpit.app.pages.onboarding", "etf_cockpit.core.atomic_io"),
         ("etf_cockpit.app.pages.onboarding", "etf_cockpit.core.config"),
-        ("etf_cockpit.app.pages.trust_evidence", "etf_cockpit.parsers.index_methodology"),
-        ("etf_cockpit.app.pages.trust_evidence", "etf_cockpit.parsers.priips_kid"),
-        ("etf_cockpit.app.pages.trust_evidence", "etf_cockpit.parsers.sfdr"),
-        ("etf_cockpit.app.pages.trust_evidence", "etf_cockpit.plugins.builtins"),
         ("etf_cockpit.app.state", "etf_cockpit.data.classification"),
         ("etf_cockpit.app.state", "etf_cockpit.data.esef_provider"),
         ("etf_cockpit.app.state", "etf_cockpit.data.oam_adapters"),
