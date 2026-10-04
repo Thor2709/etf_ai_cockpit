@@ -37,6 +37,7 @@ from etf_cockpit.app.pages.signals import _latest_operational_row
 from etf_cockpit.app.selectors.instrument_detail import _operational_evidence_panel
 from etf_cockpit.portfolio.costs import estimate_execution_cost
 from etf_cockpit import services
+import etf_cockpit.application.derived_cache as derived_cache
 from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.identity_master import IdentityClaim, IdentityMasterStore
 from etf_cockpit.data.local_storage import TransactionalStore
@@ -1678,6 +1679,7 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
             AssertionError("empty structural evidence must not replay once per signal row")
         ),
     )
+    monkeypatch.setattr(derived_cache, "structure_confidence_caps", services.structure_confidence_caps)
     cached = service._load_cached_backtest()
 
     assert cached is not None
@@ -1886,6 +1888,7 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
         "atomic_write_group",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("cache hit must not publish")),
     )
+    monkeypatch.setattr(derived_cache, "atomic_write_group", services.atomic_write_group)
 
     cached = service.load_or_run_backtest()
 
@@ -1985,6 +1988,7 @@ def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
         return snapshot
 
     monkeypatch.setattr(services, "read_atomic_group", interleaved_read)
+    monkeypatch.setattr(derived_cache, "read_atomic_group", services.read_atomic_group)
     cached = service._load_cached_backtest()
 
     assert cached is not None

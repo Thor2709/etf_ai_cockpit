@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from etf_cockpit import services
+import etf_cockpit.application.derived_cache as derived_cache
 from etf_cockpit.application.portfolio_sandbox import (
     PORTFOLIO_SANDBOX_ENTITY,
     PORTFOLIO_SANDBOX_RESULT_ENTITY,
@@ -485,6 +486,7 @@ def test_build_snapshot_wires_available_reference_evidence_through_restart_and_s
     monkeypatch.setattr(services, "ensure_project_dirs", lambda: None)
     monkeypatch.setattr(services, "load_config", load_config)
     monkeypatch.setattr(services, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(derived_cache, "_current_universe_revision", services._current_universe_revision)
     monkeypatch.setattr(services, "DataService", FakeDataService)
     monkeypatch.setattr(services, "load_holdings", lambda: pd.DataFrame([
         {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
@@ -574,6 +576,7 @@ def test_build_snapshot_no_trade_rejects_excluded_holdings_in_source_frame(monke
     monkeypatch.setattr(services, "ensure_project_dirs", lambda: None)
     monkeypatch.setattr(services, "load_config", load_config)
     monkeypatch.setattr(services, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(derived_cache, "_current_universe_revision", services._current_universe_revision)
     monkeypatch.setattr(services, "DataService", FakeDataService)
     monkeypatch.setattr(services, "load_holdings", lambda: pd.DataFrame([
         {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},

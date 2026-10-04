@@ -11,6 +11,7 @@ from etf_cockpit.models import forecast_scores
 from etf_cockpit.models.forecast_scores import filter_forecasts_for_universe, latest_forecast_file, load_latest_forecasts
 from etf_cockpit.core.config import load_config
 from etf_cockpit import services
+import etf_cockpit.application.derived_cache as derived_cache
 from etf_cockpit.application.benchmark_reference import resolve_canonical_reference
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     BenchmarkDefinition,
@@ -221,6 +222,7 @@ def test_backtest_output_is_published_only_after_settings_bound_manifest_reserva
         events.append(("output", "backtest"))
 
     monkeypatch.setattr(services, "atomic_write_group", capture_group)
+    monkeypatch.setattr(derived_cache, "atomic_write_group", services.atomic_write_group)
     monkeypatch.setattr(services, "append_jsonl", lambda *_args, **_kwargs: None)
 
     services.BacktestService(load_config(), universe_revision="revision").run_backtest()

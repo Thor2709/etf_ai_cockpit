@@ -750,6 +750,7 @@ def test_forecast_pair_crash_rolls_back_without_exposing_intermediate_state(tmp_
         return real_group(requests, lifecycle_hook=hook)
 
     monkeypatch.setattr("etf_cockpit.services.atomic_write_group", interrupted)
+    monkeypatch.setattr("etf_cockpit.application.derived_cache.atomic_write_group", interrupted)
     with pytest.raises(atomic_io.AtomicWriteInterrupted):
         _write_bound_cache_group(
             path, new, lambda candidate: pd.read_csv(candidate), "u1", "s1", identity,
@@ -831,6 +832,7 @@ def test_forecast_pair_crash_and_reader_interleaving_are_fail_closed(tmp_path, m
         return real_group(requests, lifecycle_hook=hook)
 
     monkeypatch.setattr("etf_cockpit.services.atomic_write_group", interleaved)
+    monkeypatch.setattr("etf_cockpit.application.derived_cache.atomic_write_group", interleaved)
     writer = threading.Thread(
         target=lambda: _write_bound_cache_group(
             path, new, lambda candidate: pd.read_csv(candidate), "u1", "s1", identity,

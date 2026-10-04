@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 import etf_cockpit.services as services
+import etf_cockpit.application.derived_cache as derived_cache
 from etf_cockpit.app.selectors.instrument_detail import (
     InstrumentDetailViewModel,
     _SECTION_NAMES,
@@ -1079,6 +1080,7 @@ def test_cached_structure_validation_batches_non_empty_evidence_by_decision_date
         return result
 
     monkeypatch.setattr(services, "structure_confidence_caps", fake_structure_caps)
+    monkeypatch.setattr(derived_cache, "structure_confidence_caps", services.structure_confidence_caps)
     evidence = SimpleNamespace(
         document_registry=pd.DataFrame([{"source_id": "source-1"}]),
         report_records=pd.DataFrame(),
@@ -1331,6 +1333,7 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
     monkeypatch.setattr(services, "run_backtest", fake_run_backtest)
     monkeypatch.setattr(services, "current_settings_identity", fake_settings_identity)
     monkeypatch.setattr(services, "current_settings_revision", fake_settings_revision)
+    monkeypatch.setattr(derived_cache, "current_settings_revision", services.current_settings_revision)
     monkeypatch.setattr(services, "settings_bound_run_id", fake_run_id)
     monkeypatch.setattr(services, "ensure_run_manifest", fake_manifest)
     monkeypatch.setattr(services, "append_jsonl", fake_append)
@@ -1420,6 +1423,7 @@ def test_backtest_cache_is_invalidated_when_structural_loader_raises(tmp_path, m
     monkeypatch.setattr(services, "load_prices", lambda: prices)
     monkeypatch.setattr(services, "load_fundamental_evidence", lambda: fundamentals)
     monkeypatch.setattr(services, "current_settings_revision", lambda: "settings-1")
+    monkeypatch.setattr(derived_cache, "current_settings_revision", services.current_settings_revision)
     service = services.BacktestService(config, universe_revision="universe-1")
     reference_context = services._backtest_calculation_context(
         config, service.reference_context, prices

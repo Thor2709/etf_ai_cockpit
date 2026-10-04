@@ -145,6 +145,7 @@ def test_forecast_atomic_write_preserves_previous_output_on_failure(tmp_path: Pa
         raise PermissionError("locked forecast output")
 
     monkeypatch.setattr("etf_cockpit.services.atomic_write_group", fail_write)
+    monkeypatch.setattr("etf_cockpit.application.derived_cache.atomic_write_group", fail_write)
     with pytest.raises(PermissionError):
         ForecastService(load_config())._write_forecasts([forecast], date(2026, 7, 12), output_path=destination)
     assert destination.read_text(encoding="utf-8") == "old,clean\n1,yes\n"
@@ -166,6 +167,7 @@ def test_backtest_atomic_group_preserves_all_previous_outputs_on_failure(tmp_pat
     monkeypatch.setattr("etf_cockpit.services.load_prices", lambda: pd.DataFrame())
     monkeypatch.setattr("etf_cockpit.services.ensure_run_manifest", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("etf_cockpit.services.atomic_write_group", lambda *_args, **_kwargs: (_ for _ in ()).throw(PermissionError("locked backtest output")))
+    monkeypatch.setattr("etf_cockpit.application.derived_cache.atomic_write_group", lambda *_args, **_kwargs: (_ for _ in ()).throw(PermissionError("locked backtest output")))
     with pytest.raises(PermissionError):
         BacktestService(load_config()).run_backtest()
     assert [path.read_text(encoding="utf-8") for path in paths] == ["previous\n"] * 4
