@@ -11,7 +11,7 @@ from etf_cockpit.app.components.fixed_income_views import (
     fixed_income_bond_panel,
 )
 from etf_cockpit.data.event_calendar import EVENT_COLUMNS
-from etf_cockpit.application import ui_facade
+from etf_cockpit.application import portfolio_views, ui_facade
 from etf_cockpit.portfolio.calendar import build_portfolio_calendar
 from etf_cockpit.portfolio.maturity_ladder import build_portfolio_maturity_ladder
 
@@ -219,9 +219,9 @@ def test_facade_ladder_loader_uses_the_snapshot_decision_cutoff(monkeypatch) -> 
         ],
     }
     loaded_terms: list[dict[str, object]] = []
-    monkeypatch.setattr(ui_facade, "select_holdings_view", lambda rows, _view: rows)
+    monkeypatch.setattr(portfolio_views, "select_holdings_view", lambda rows, _view: rows)
     monkeypatch.setattr(
-        ui_facade,
+        portfolio_views,
         "load_portfolio_calendar_projection",
         lambda *_args, **_kwargs: calendar,
     )
@@ -230,7 +230,7 @@ def test_facade_ladder_loader_uses_the_snapshot_decision_cutoff(monkeypatch) -> 
         loaded_terms.append(dict(kwargs))
         return terms
 
-    monkeypatch.setattr(ui_facade, "load_fixed_income_terms_projection", load_terms)
+    monkeypatch.setattr(portfolio_views, "load_fixed_income_terms_projection", load_terms)
     projection = ui_facade.load_portfolio_maturity_ladder_projection(snapshot, analysis)
 
     assert loaded_terms == [{"storage_root": ui_facade.ROOT, "effective_at": cutoff, "decision_time": cutoff}]

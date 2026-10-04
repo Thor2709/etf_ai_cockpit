@@ -9,7 +9,7 @@ from flet.canvas import Canvas, Line, Rect
 
 from etf_cockpit.app.components.charts import portfolio_performance_chart
 from etf_cockpit.app.pages import portfolio
-from etf_cockpit.application import ui_facade
+from etf_cockpit.application import portfolio_views, ui_facade
 from etf_cockpit.application.portfolio_valuation import save_portfolio_valuation_history
 from etf_cockpit.portfolio.performance_series import (
     build_portfolio_performance_series,
@@ -231,8 +231,8 @@ def test_default_eur_and_missing_non_eur_fx_are_explicitly_unavailable() -> None
 
 def test_csv_matches_series_and_facade_loader_feeds_portfolio_chart_block(monkeypatch) -> None:
     snapshots = _snapshots(pd.bdate_range("2026-04-06", periods=3), [100.0, 101.0, 102.0])
-    monkeypatch.setattr(ui_facade, "load_portfolio_valuation_history", lambda: {"snapshots": snapshots})
-    monkeypatch.setattr(ui_facade, "load_fx_rates", lambda: pd.DataFrame())
+    monkeypatch.setattr(portfolio_views, "load_portfolio_valuation_history", lambda: {"snapshots": snapshots})
+    monkeypatch.setattr(portfolio_views, "load_fx_rates", lambda: pd.DataFrame())
     series = ui_facade.load_portfolio_performance_series(metric="portfolio_value", aggregation="day")
     exported = pd.read_csv(StringIO(performance_series_to_csv(series)))
     expected = performance_series_frame(series)

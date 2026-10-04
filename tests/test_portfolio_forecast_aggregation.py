@@ -10,7 +10,7 @@ from etf_cockpit.portfolio.forecast_aggregation import (
     PortfolioForecastConfig,
     build_portfolio_forecast_snapshot,
 )
-from etf_cockpit.application import ui_facade
+from etf_cockpit.application import portfolio_views, ui_facade
 
 
 _CONFIG = PortfolioForecastConfig(scenario_seed=168, scenario_count=12000, stress_correlation=1.0)
@@ -234,8 +234,8 @@ def test_facade_loader_binds_saved_holdings_analysis_and_risk(monkeypatch) -> No
         },
         "execution_allowed": False,
     }
-    monkeypatch.setattr(ui_facade, "load_portfolio_holdings_projection", lambda *_args, **_kwargs: projection)
-    monkeypatch.setattr(ui_facade, "load_forecast_return_distributions", lambda *_args, **_kwargs: {"AAA": analysis_input["distributions"]["AAA"]})
+    monkeypatch.setattr(portfolio_views, "load_portfolio_holdings_projection", lambda *_args, **_kwargs: projection)
+    monkeypatch.setattr(portfolio_views, "load_forecast_return_distributions", lambda *_args, **_kwargs: {"AAA": analysis_input["distributions"]["AAA"]})
     analysis = SimpleNamespace(
         snapshot_binding=SimpleNamespace(
             portfolio_id=portfolio["portfolio_id"],
@@ -298,8 +298,8 @@ def test_facade_uses_reconciled_snapshot_total_including_cash_for_target_notiona
         "covariances": {"sample": {"columns": ["AAA"], "index": ["AAA"], "data": [[0.04]]}},
         "execution_allowed": False,
     }
-    monkeypatch.setattr(ui_facade, "load_portfolio_holdings_projection", lambda *_args, **_kwargs: projection)
-    monkeypatch.setattr(ui_facade, "load_forecast_return_distributions", lambda *_args, **_kwargs: {"AAA": distribution})
+    monkeypatch.setattr(portfolio_views, "load_portfolio_holdings_projection", lambda *_args, **_kwargs: projection)
+    monkeypatch.setattr(portfolio_views, "load_forecast_return_distributions", lambda *_args, **_kwargs: {"AAA": distribution})
     analysis = SimpleNamespace(
         snapshot_binding=SimpleNamespace(
             portfolio_id=portfolio["portfolio_id"],
