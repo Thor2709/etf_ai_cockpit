@@ -13,7 +13,7 @@ from io import BytesIO
 from pathlib import Path, PurePosixPath
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group
-from etf_cockpit.application.settings import SETTINGS_SCHEMA_VERSION, SettingsError, load_settings_bundle
+from etf_cockpit.core.settings_bundle import SETTINGS_SCHEMA_VERSION, SettingsError, load_settings_bundle
 
 
 # Named schemas are intentionally allow-listed.  A future-looking label such

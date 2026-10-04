@@ -478,7 +478,7 @@ def _resolved_settings_identity(
     if supplied is not None:
         identity = dict(supplied)
     else:
-        from etf_cockpit.application.settings import load_settings_bundle, settings_run_identity
+        from etf_cockpit.core.settings_bundle import load_settings_bundle, settings_run_identity
 
         resolved_root = Path(root) if root is not None else ROOT
         identity = settings_run_identity(load_settings_bundle(resolved_root))
