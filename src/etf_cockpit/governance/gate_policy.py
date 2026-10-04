@@ -15,7 +15,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, StrictBool, ValidationError
 
 from etf_cockpit.governance.product_scope import load_gate_policy
-from etf_cockpit.signals.research_states import (
+from etf_cockpit.core.research_states import (
     AuthorityDecision,
     GateResult,
     GateSeverity,

@@ -109,13 +109,8 @@ KNOWN_VIOLATIONS = frozenset(
         ("etf_cockpit.core.job_scheduler", "etf_cockpit.data.local_storage"),
         ("etf_cockpit.core.migrations", "etf_cockpit.operations.recovery"),
         ("etf_cockpit.core.session_log", "etf_cockpit.operations.event_store"),
-        ("etf_cockpit.core.types", "etf_cockpit.signals.canonical_scoring"),
-        ("etf_cockpit.core.types", "etf_cockpit.signals.research_states"),
         ("etf_cockpit.data.sec_edgar_provider", "etf_cockpit.application.sec_bulk_import"),
         ("etf_cockpit.data.sec_edgar_provider", "etf_cockpit.application.sec_submissions_import"),
-        ("etf_cockpit.governance.gate_policy", "etf_cockpit.signals.research_states"),
-        ("etf_cockpit.governance.migrations", "etf_cockpit.signals.research_states"),
-        ("etf_cockpit.governance.models", "etf_cockpit.signals.research_states"),
     }
 )
 

@@ -13,7 +13,7 @@ from typing import Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_serializer, field_validator, model_validator
 
-from etf_cockpit.signals.research_states import (
+from etf_cockpit.core.research_states import (
     AuthorityDecision,
     GateResult,
     GateSeverity as GateSeverityEnum,

@@ -20,7 +20,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
 from etf_cockpit.core.paths import CONFIG_DIR
-from etf_cockpit.signals.research_states import (
+from etf_cockpit.core.research_states import (
     AnalysisStatus,
     MigrationSemantics,
     PortfolioReviewState,
