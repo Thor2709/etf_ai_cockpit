@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from etf_cockpit import services
+import etf_cockpit.application.forecast_service as forecast_service
 import etf_cockpit.application.economics_inputs as economics_inputs
 import etf_cockpit.application.reference_context as reference_context
 import etf_cockpit.application.structural_evidence as structural_evidence
@@ -489,6 +490,7 @@ def test_build_snapshot_wires_available_reference_evidence_through_restart_and_s
     monkeypatch.setattr(services, "ensure_project_dirs", lambda: None)
     monkeypatch.setattr(services, "load_config", load_config)
     monkeypatch.setattr(services, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(forecast_service, "_current_universe_revision", services._current_universe_revision)
     monkeypatch.setattr(derived_cache, "_current_universe_revision", services._current_universe_revision)
     monkeypatch.setattr(services, "DataService", FakeDataService)
     monkeypatch.setattr(services, "load_holdings", lambda: pd.DataFrame([
@@ -584,6 +586,7 @@ def test_build_snapshot_no_trade_rejects_excluded_holdings_in_source_frame(monke
     monkeypatch.setattr(services, "ensure_project_dirs", lambda: None)
     monkeypatch.setattr(services, "load_config", load_config)
     monkeypatch.setattr(services, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(forecast_service, "_current_universe_revision", services._current_universe_revision)
     monkeypatch.setattr(derived_cache, "_current_universe_revision", services._current_universe_revision)
     monkeypatch.setattr(services, "DataService", FakeDataService)
     monkeypatch.setattr(services, "load_holdings", lambda: pd.DataFrame([

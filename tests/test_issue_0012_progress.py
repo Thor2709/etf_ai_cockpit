@@ -37,6 +37,7 @@ from etf_cockpit.core.workflow import (
     WorkflowTransitionError,
 )
 from etf_cockpit import services as services_module
+import etf_cockpit.application.forecast_service as forecast_service
 from etf_cockpit.data import duckdb_store as duckdb_store_module
 from etf_cockpit.data import fund_holdings as fund_holdings_module
 from etf_cockpit.data import import_pipeline as import_pipeline_module
@@ -1125,9 +1126,11 @@ def test_forecast_service_emits_model_steps_at_execution_boundaries(monkeypatch)
     service = ForecastService(snapshot.config)
 
     monkeypatch.setattr(services_module, "baseline_forecast", lambda *_args, **_kwargs: observed.append("baseline-call") or [])
+    monkeypatch.setattr(forecast_service, "baseline_forecast", services_module.baseline_forecast)
     monkeypatch.setattr(service, "_run_timesfm_forecasts", lambda *_args: observed.append("timesfm-call") or [])
     monkeypatch.setattr(service, "_run_toto_forecasts", lambda *_args: observed.append("toto-call") or [])
     monkeypatch.setattr(services_module, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services_module.ensure_run_manifest)
     monkeypatch.setattr(service, "_write_forecasts", lambda *_args, **_kwargs: None)
 
     service.run_forecasts(
@@ -1195,6 +1198,7 @@ def test_cancellation_after_service_commit_blocks_snapshot_derived_write(tmp_pat
 
     def guarded_snapshot(*, force_sample=False, publish_guard=None):
         monkeypatch.setattr(services_module, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(forecast_service, "ensure_run_manifest", services_module.ensure_run_manifest)
         monkeypatch.setattr(services_module, "write_features", lambda _features: derived_writes.append(1))
         services_module.FeatureService(snapshot.config).compute_features(
             snapshot.data_report.as_of_date,

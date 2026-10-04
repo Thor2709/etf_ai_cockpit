@@ -136,6 +136,7 @@ def test_bound_factor_panel_rejects_descriptor_tampering_with_unchanged_price_bi
 
 def test_bound_factor_panel_accepts_real_snapshot_with_feature_service_binding(monkeypatch):
     from etf_cockpit import services
+    import etf_cockpit.application.forecast_service as forecast_service
     from etf_cockpit.core.config import load_config
     from etf_cockpit.core.types import DataQualityReport
     from etf_cockpit.backtest.engine import BacktestReport
@@ -145,8 +146,11 @@ def test_bound_factor_panel_accepts_real_snapshot_with_feature_service_binding(m
     # Keep storage publication private while executing the real feature service,
     # canonical feature calculation and binding construction without substitutions.
     monkeypatch.setattr(services, "current_settings_identity", lambda: {"settings_revision": "a" * 64})
+    monkeypatch.setattr(forecast_service, "current_settings_identity", services.current_settings_identity)
     monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, **kw: run_id)
+    monkeypatch.setattr(forecast_service, "settings_bound_run_id", services.settings_bound_run_id)
     monkeypatch.setattr(services, "ensure_run_manifest", lambda *a, **kw: None)
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", services.ensure_run_manifest)
     monkeypatch.setattr(services, "write_features", lambda *a, **kw: None)
     features = services.FeatureService(config).compute_features(prices=fixture.prices, as_of_date=fixture.data_report.as_of_date)
     snapshot = services.CockpitSnapshot(
