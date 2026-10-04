@@ -1749,6 +1749,7 @@ def _block_factor_producer(monkeypatch):
 
     monkeypatch.setattr("etf_cockpit.portfolio.factor_risk.build_factor_risk_report", unexpected_calculation)
     monkeypatch.setattr("etf_cockpit.application.ui_facade.build_factor_risk_report", unexpected_calculation)
+    monkeypatch.setattr("etf_cockpit.application.factor_risk_views.build_factor_risk_report", unexpected_calculation)
 
 
 @pytest.mark.parametrize("instrument_id", ["VWCE", "metric-stock"])
