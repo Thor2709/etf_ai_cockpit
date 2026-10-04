@@ -9,7 +9,7 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import section_header
 from etf_cockpit.app.pages._glass import glass
-from etf_cockpit.app.pages.onboarding import overlay_universe_config
+from etf_cockpit.application.onboarding_profile import overlay_universe_config
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.paths import ROOT

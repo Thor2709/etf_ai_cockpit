@@ -20,6 +20,7 @@ from etf_cockpit.data.universe_store import (
 from etf_cockpit.app.pages.onboarding import OnboardingProfile, OnboardingRevisionConflict, ProviderQuotaExceeded, TickerValidationResult, complete_onboarding, load_onboarding, onboarding_page, validate_onboarding
 import flet as ft
 import etf_cockpit.app.pages.onboarding as onboarding_module
+import etf_cockpit.application.onboarding_profile as onboarding_profile
 
 
 @pytest.fixture(autouse=True)
@@ -32,6 +33,7 @@ def canonical_project_root(tmp_path, monkeypatch):
         if source.is_file():
             shutil.copyfile(source, configs / name)
     monkeypatch.setattr(onboarding_module, "ROOT", tmp_path)
+    monkeypatch.setattr(onboarding_profile, "ROOT", onboarding_module.ROOT)
 
 
 def test_supported_and_rejected_asset_decisions_are_explicit() -> None:
@@ -292,6 +294,7 @@ def test_onboarding_group_conflicts_with_canonical_save_after_precondition(tmp_p
         blocked_observed.append(not canonical_done.wait(timeout=0.25))
 
     monkeypatch.setattr(onboarding_module, "_assert_universe_revision", interleaving_assert)
+    monkeypatch.setattr(onboarding_profile, "_assert_universe_revision", onboarding_module._assert_universe_revision)
     complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
 
     assert canonical_done.wait(timeout=5)
@@ -311,6 +314,7 @@ def test_two_stale_onboarding_writers_have_one_success_and_one_conflict(tmp_path
         return original_stage(*args, **kwargs)
 
     monkeypatch.setattr(onboarding_module, "_stage_universe_payload", staged)
+    monkeypatch.setattr(onboarding_profile, "_stage_universe_payload", onboarding_module._stage_universe_payload)
     profiles = (
         OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", tickers=("STALEA",), bootstrap_mode="bulk"),
         OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", tickers=("STALEB",), bootstrap_mode="bulk"),
@@ -490,6 +494,7 @@ def test_onboarding_save_reloads_active_state(monkeypatch) -> None:
         "complete_onboarding",
         lambda *args, **kwargs: onboarding_module.OnboardingResult(True, (), (), "onboarding-revision"),
     )
+    monkeypatch.setattr(onboarding_profile, "complete_onboarding", onboarding_module.complete_onboarding)
     state = _State()
     page = _Page()
     control = onboarding_page(page, state, validator=lambda _ticker: True)
@@ -615,6 +620,7 @@ def test_group_publish_failure_leaves_all_onboarding_outputs_absent(tmp_path, mo
         raise OSError("injected grouped publish failure")
 
     monkeypatch.setattr(onboarding_module, "atomic_write_group", fail_group)
+    monkeypatch.setattr(onboarding_profile, "atomic_write_group", onboarding_module.atomic_write_group)
     with pytest.raises(OSError, match="injected grouped publish failure"):
         complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
 
@@ -652,6 +658,7 @@ def test_group_publish_revalidates_destination_identity_after_guard_precondition
             original_configs.rename(configs)
 
     monkeypatch.setattr(onboarding_module, "atomic_write_group", swap_before_writer_resolution)
+    monkeypatch.setattr(onboarding_profile, "atomic_write_group", onboarding_module.atomic_write_group)
     with pytest.raises(ValueError, match="symlink"):
         complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
 

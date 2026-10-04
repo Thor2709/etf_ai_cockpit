@@ -259,6 +259,7 @@ def test_default_paper_preview_remains_submittable_and_idempotent(tmp_path):
 
 def test_app_state_runtime_uses_persisted_profile_for_submission_and_claim(tmp_path, monkeypatch) -> None:
     from etf_cockpit.app.pages import onboarding as onboarding_module
+    import etf_cockpit.application.onboarding_profile as onboarding_profile
     from etf_cockpit.app.state import AppState
 
     monkeypatch.setattr(state_module, "ROOT", tmp_path)
@@ -267,6 +268,7 @@ def test_app_state_runtime_uses_persisted_profile_for_submission_and_claim(tmp_p
         "load_onboarding",
         lambda _root=None: SimpleNamespace(hardware_profile="minimum"),
     )
+    monkeypatch.setattr(onboarding_profile, "load_onboarding", onboarding_module.load_onboarding)
 
     state = AppState(snapshot=_snapshot(), selected_etf="ETF1")
     scheduler = state.application_api._scheduler
