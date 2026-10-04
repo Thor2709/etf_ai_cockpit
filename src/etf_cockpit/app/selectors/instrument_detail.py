@@ -5,7 +5,7 @@ from datetime import date, datetime
 import math
 from numbers import Integral, Real
 from pathlib import Path
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 import pandas as pd
 
@@ -24,7 +24,6 @@ from etf_cockpit.application.ui_facade import (
     assess_fundamental_row,
     build_market_clock_diagnostics,
     operational_calendar_record_is_canonical,
-    calculate_etf_economics,
     build_direct_overlap_view,
     build_document_inventory,
     compare_runs,
@@ -75,7 +74,7 @@ from etf_cockpit.analysis.candles import (
     validate_ohlcv,
 )
 from etf_cockpit.features.etf_economics import calculate_etf_liquidity
-from etf_cockpit.services import CockpitSnapshot
+from etf_cockpit.application.etf_economics_view import build_etf_economics_panel
 from etf_cockpit.application.ui_facade import SimpleInstrumentScore
 from etf_cockpit.application.ui_facade import load_peer_cohort_projection
 from etf_cockpit.application.ui_facade import (
@@ -105,6 +104,9 @@ from etf_cockpit.audit.thesis_diary import (
     disclosure_safe_review,
 )
 from etf_cockpit.core.paths import CLEAN_DIR, DATA_DIR
+
+if TYPE_CHECKING:
+    from etf_cockpit.services import CockpitSnapshot
 
 
 @dataclass(frozen=True)
@@ -1534,60 +1536,6 @@ def build_etf_liquidity_panel(
         quote_evidence=quotes,
         as_of=getattr(getattr(snapshot, "data_report", None), "as_of_date", None),
         stress_multiplier=stress_multiplier,
-    )
-    return report.as_dict()
-
-
-def build_etf_economics_panel(
-    snapshot: CockpitSnapshot,
-    instrument_id: str,
-    *,
-    records: object = None,
-    fund_total_return: object = None,
-    benchmark_total_return: object = None,
-    as_of: object = None,
-    horizon_days: int = 252,
-    benchmark_id: str | None = None,
-    currency: str | None = None,
-    closure_policy: object = None,
-) -> dict[str, Any]:
-    """Return the local ETF economics read model without provider access."""
-
-    supplied_records = records
-    if supplied_records is None:
-        for name in ("etf_economics", "etf_economics_records", "economics_records"):
-            candidate = getattr(snapshot, name, None)
-            if candidate is not None:
-                supplied_records = candidate
-                break
-    supplied_fund = fund_total_return
-    if supplied_fund is None:
-        for name in ("etf_fund_total_return", "fund_total_return"):
-            candidate = getattr(snapshot, name, None)
-            if candidate is not None:
-                supplied_fund = candidate
-                break
-    supplied_benchmark = benchmark_total_return
-    if supplied_benchmark is None:
-        for name in ("etf_benchmark_total_return", "benchmark_total_return"):
-            candidate = getattr(snapshot, name, None)
-            if candidate is not None:
-                supplied_benchmark = candidate
-                break
-    supplied_policy = closure_policy
-    if supplied_policy is None:
-        supplied_policy = getattr(snapshot, "etf_closure_policy", None)
-    decision_time = as_of if as_of is not None else getattr(getattr(snapshot, "data_report", None), "as_of_date", None)
-    report = calculate_etf_economics(
-        instrument_id,
-        supplied_records if supplied_records is not None else (),
-        fund_total_return=supplied_fund,
-        benchmark_total_return=supplied_benchmark,
-        as_of=decision_time,
-        horizon_days=horizon_days,
-        benchmark_id=benchmark_id,
-        currency=currency,
-        closure_policy=supplied_policy,
     )
     return report.as_dict()
 

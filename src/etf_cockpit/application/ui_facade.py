@@ -4138,7 +4138,7 @@ def load_etf_economics_projection(
 
     from types import SimpleNamespace
 
-    from etf_cockpit.app.selectors.instrument_detail import build_etf_economics_panel
+    from etf_cockpit.application.etf_economics_view import build_etf_economics_panel
 
     fund_evidence = getattr(snapshot, "etf_fund_total_return", None)
     benchmark_evidence = getattr(snapshot, "etf_benchmark_total_return", None)
@@ -4836,11 +4836,11 @@ def _ui_decision_rank_route(
     promotion_record: Mapping[str, object] | None = None,
     cutover_enabled: bool | None = None,
 ) -> dict[str, object]:
-    from etf_cockpit.services import decision_rank_route
+    from etf_cockpit.analysis.decision.rank_validation import route_consumer_rank
 
-    return decision_rank_route(
+    return route_consumer_rank(
         consumer,
-        rank_scores,
+        rank_scores or {},
         promotion_record=promotion_record,
         cutover_enabled=cutover_enabled,
     )
