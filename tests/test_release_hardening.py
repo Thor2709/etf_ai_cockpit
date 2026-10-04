@@ -577,6 +577,7 @@ def test_price_rollback_without_snapshot_returns_safe_message(tmp_path, monkeypa
     config = load_config()
     empty_snapshot_dir = tmp_path / "snapshots" / "prices"
     monkeypatch.setattr("etf_cockpit.services.rollback_price_store", lambda: rollback_latest_price_import(snapshots_dir=empty_snapshot_dir))
+    monkeypatch.setattr("etf_cockpit.application.data_service.rollback_price_store", lambda: rollback_latest_price_import(snapshots_dir=empty_snapshot_dir))
 
     message = DataService(config).rollback_latest_price_import()
 

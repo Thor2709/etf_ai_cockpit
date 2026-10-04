@@ -72,6 +72,7 @@ def test_source_dashboard_refresh_analyse_score_and_export_journey(tmp_path: Pat
     from etf_cockpit.data.providers import ProviderResult
     from etf_cockpit.services import build_snapshot
     import etf_cockpit.services as services_module
+    import etf_cockpit.application.data_service as data_service
 
     events: list[str] = []
     snapshot = build_snapshot()
@@ -129,6 +130,7 @@ def test_source_dashboard_refresh_analyse_score_and_export_journey(tmp_path: Pat
             return ProviderResult("yfinance", "etf_holdings", "unavailable", "No synthetic holdings fixture.")
 
     monkeypatch.setattr(services_module, "YFinanceProvider", OfflineYFinance)
+    monkeypatch.setattr(data_service, "YFinanceProvider", services_module.YFinanceProvider)
     monkeypatch.setattr(trade_candidate_analysis, "YFinanceProvider", OfflineYFinance)
     monkeypatch.setattr(services_module.DataService, "_reference_context", lambda _self: {
         "known_etfs": [], "isin_to_etf_id": {}, "ticker_to_etf_id": {}
@@ -144,6 +146,7 @@ def test_source_dashboard_refresh_analyse_score_and_export_journey(tmp_path: Pat
             snapshots_dir=tmp_path / "snapshots" / "prices",
         ),
     )
+    monkeypatch.setattr(data_service, "commit_price_import", services_module.commit_price_import)
     candidate_path = tmp_path / "candidates.csv"
     pd.DataFrame([{"instrument_id": "SYNTH", "yahoo_symbol": "SYNTH"}]).to_csv(candidate_path, index=False)
     monkeypatch.setattr(trade_candidate_analysis, "latest_candidate_input", lambda: candidate_path)

@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from etf_cockpit import services
+import etf_cockpit.application.data_service as data_service
 from etf_cockpit.core.config import load_config
 
 
@@ -26,6 +27,7 @@ def test_provider_failure_preserves_last_valid_price_state(monkeypatch, tmp_path
         last_valid.write_bytes(b"invalid replacement")
 
     monkeypatch.setattr(services, "commit_price_import", record_commit)
+    monkeypatch.setattr(data_service, "commit_price_import", services.commit_price_import)
     service = services.DataService(load_config())
 
     message = service.refresh_yfinance_data(include_reference_data=False)

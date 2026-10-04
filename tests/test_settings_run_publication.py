@@ -11,6 +11,7 @@ from etf_cockpit.models import forecast_scores
 from etf_cockpit.models.forecast_scores import filter_forecasts_for_universe, latest_forecast_file, load_latest_forecasts
 from etf_cockpit.core.config import load_config
 from etf_cockpit import services
+import etf_cockpit.application.data_service as data_service
 import etf_cockpit.application.backtest_service as backtest_service
 import etf_cockpit.application.feature_service as feature_service
 import etf_cockpit.application.forecast_service as forecast_service
@@ -278,6 +279,7 @@ def test_backtest_output_is_published_only_after_settings_bound_manifest_reserva
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
     monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", services.BACKTESTS_DIR)
     monkeypatch.setattr(services, "load_prices", lambda: pd.DataFrame())
+    monkeypatch.setattr(data_service, "load_prices", services.load_prices)
     monkeypatch.setattr(backtest_service, "load_prices", services.load_prices)
     monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
     monkeypatch.setattr(forecast_service, "load_prices", services.load_prices)

@@ -37,6 +37,7 @@ from etf_cockpit.core.workflow import (
     WorkflowTransitionError,
 )
 from etf_cockpit import services as services_module
+import etf_cockpit.application.data_service as data_service
 import etf_cockpit.application.backtest_service as backtest_service
 import etf_cockpit.application.feature_service as feature_service
 import etf_cockpit.application.forecast_service as forecast_service
@@ -1162,6 +1163,7 @@ def test_cancel_guard_blocks_real_price_and_forecast_write_boundaries(tmp_path, 
     provider = SimpleNamespace(fetch_prices=lambda *_args: provider_result)
     monkeypatch.setattr(services_module.YFinanceProvider, "from_config", staticmethod(lambda _config: provider))
     monkeypatch.setattr(services_module, "validate_prices", lambda *_args, **_kwargs: SimpleNamespace(issues=[]))
+    monkeypatch.setattr(data_service, "validate_prices", services_module.validate_prices)
     price_commit_called = False
 
     def commit_prices(_result):
@@ -1169,6 +1171,7 @@ def test_cancel_guard_blocks_real_price_and_forecast_write_boundaries(tmp_path, 
         price_commit_called = True
 
     monkeypatch.setattr(services_module, "commit_price_import", commit_prices)
+    monkeypatch.setattr(data_service, "commit_price_import", services_module.commit_price_import)
 
     def cancelled() -> None:
         raise WorkflowTransitionError("cancelled before publication")
@@ -1377,9 +1380,12 @@ def test_yfinance_reference_failure_redacts_secret_and_cancellation_is_not_swall
     )
     monkeypatch.setattr(services_module.YFinanceProvider, "from_config", staticmethod(lambda _config: provider))
     monkeypatch.setattr(services_module, "validate_prices", lambda *_args, **_kwargs: SimpleNamespace(issues=[]))
+    monkeypatch.setattr(data_service, "validate_prices", services_module.validate_prices)
     monkeypatch.setattr(services_module, "commit_price_import", lambda _result: SimpleNamespace(rows=1, clean_path="prices", previous_snapshot_path=None))
+    monkeypatch.setattr(data_service, "commit_price_import", services_module.commit_price_import)
     monkeypatch.setattr(services_module.DataService, "_reference_context", lambda _self: {"known_etfs": [], "isin_to_etf_id": {}, "ticker_to_etf_id": {}})
     monkeypatch.setattr(services_module, "commit_reference_import", lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("token=raw-provider-secret")))
+    monkeypatch.setattr(data_service, "commit_reference_import", services_module.commit_reference_import)
 
     message = services_module.DataService(snapshot.config).refresh_yfinance_data()
     assert "raw-provider-secret" not in message
@@ -1534,6 +1540,7 @@ def test_sample_publication_scope_serialises_cancel_and_rejects_clean_store_writ
 
     monkeypatch.setattr(services_module.pd.DataFrame, "to_csv", blocking_to_csv)
     monkeypatch.setattr(services_module, "initialise_store", initialise_after_cancel)
+    monkeypatch.setattr(data_service, "initialise_store", services_module.initialise_store)
 
     def run_update() -> None:
         try:
@@ -1636,6 +1643,7 @@ def test_api_status_publication_scope_serialises_cancel_and_redacts_unavailable(
     )
     monkeypatch.setattr(services_module.YFinanceProvider, "from_config", staticmethod(lambda _config: provider))
     monkeypatch.setattr(services_module, "validate_prices", lambda *_args, **_kwargs: SimpleNamespace(issues=[]))
+    monkeypatch.setattr(data_service, "validate_prices", services_module.validate_prices)
 
     def guarded_snapshot(*, force_sample=False, publish_guard=None):
         with publish_guard():
@@ -1649,6 +1657,7 @@ def test_api_status_publication_scope_serialises_cancel_and_redacts_unavailable(
         return SimpleNamespace(rows=1, clean_path="prices", previous_snapshot_path=None)
 
     monkeypatch.setattr(services_module, "commit_price_import", blocking_commit)
+    monkeypatch.setattr(data_service, "commit_price_import", services_module.commit_price_import)
 
     def run_status() -> None:
         try:

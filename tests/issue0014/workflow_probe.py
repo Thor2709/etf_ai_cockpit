@@ -143,8 +143,10 @@ def _main_workflow_probe() -> dict[str, object]:
     import etf_cockpit.data.yfinance_provider as yfinance_provider
     import etf_cockpit.data.trade_candidate_analysis as trade_candidate_analysis
     import etf_cockpit.services as services
+    import etf_cockpit.application.data_service as data_service
 
     services.date = _FixedDate
+    data_service.date = _FixedDate
     trade_candidate_analysis.date = _FixedDate
     yfinance_provider.date = _FixedDate
     config = load_config()
