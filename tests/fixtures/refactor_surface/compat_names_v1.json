@@ -524,6 +524,7 @@
    "normalise_event_decision_time",
    "normalise_holdings",
    "operational_calendar_record_is_canonical",
+   "pd",
    "performance_series_frame",
    "persist_index_methodology_with_document",
    "persist_priips_kid_with_document",
