@@ -54,9 +54,6 @@ FORBIDDEN_TARGET_LAYERS = {
 # Transitional debt at origin/main 5e501154 (2026-10-04).  Remove entries as the refactor fixes them.
 KNOWN_VIOLATIONS = frozenset(
     {
-        ("etf_cockpit.app.operations", "etf_cockpit.core.atomic_io"),
-        ("etf_cockpit.app.operations", "etf_cockpit.data.event_calendar"),
-        ("etf_cockpit.app.operations", "etf_cockpit.portfolio.event_controls"),
         ("etf_cockpit.app.pages.chatgpt_audit", "etf_cockpit.audit.local_llm"),
         ("etf_cockpit.app.pages.chatgpt_audit", "etf_cockpit.audit.thesis_diary"),
         ("etf_cockpit.app.pages.chatgpt_audit", "etf_cockpit.governance.product_scope"),
@@ -108,7 +105,6 @@ KNOWN_VIOLATIONS = frozenset(
         ("etf_cockpit.app.state", "etf_cockpit.portfolio.review_reports"),
         ("etf_cockpit.app.state", "etf_cockpit.services"),
         ("etf_cockpit.app.state", "etf_cockpit.signals.simple_scores"),
-        ("etf_cockpit.application.api", "etf_cockpit.app.operations"),
         ("etf_cockpit.application.ui_facade", "etf_cockpit.app.selectors.instrument_detail"),
         ("etf_cockpit.audit.local_llm", "etf_cockpit.services"),
         ("etf_cockpit.core.config", "etf_cockpit.data.universe_store"),

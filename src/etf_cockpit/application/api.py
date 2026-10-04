@@ -741,7 +741,7 @@ class LocalApplicationApi:
 
     def _execute_new(self, command: ApplicationCommand) -> CommandResult:
         if isinstance(command, SubmitWorkflowCommand) and command.workflow_type == "paper_proposal_preview":
-            from etf_cockpit.app.operations import validate_operation_record
+            from etf_cockpit.application.operation_records import validate_operation_record
 
             try:
                 validate_operation_record(command.input_payload, for_submission=True)
