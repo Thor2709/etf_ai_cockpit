@@ -13,7 +13,7 @@ from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, w
 from etf_cockpit.data.classification import classification_score_state
 from etf_cockpit.governance.migrations import _snapshot_checksum, validated_portfolio_snapshot
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.signals.research_states import (
+from etf_cockpit.core.research_states import (
     PortfolioReviewState,
     ResearchState,
     research_state_for_legacy_action,

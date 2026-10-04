@@ -2,9 +2,10 @@
 
 Every runtime import inside ``src/etf_cockpit`` (module-level and function-local; ``TYPE_CHECKING``
 imports are type-only and ignored) is classified by layer.  Edges that break the layering rules
-below fail unless they are listed in ``KNOWN_VIOLATIONS``: the documented transitional debt that
-the architecture refactor removes.  The allowlist only shrinks -- a listed edge that no longer
-exists must be deleted, so a fixed boundary cannot silently regress.
+below fail unless they are listed in ``ACCEPTED_EXCEPTIONS`` (reviewed by-design seams, each with a
+reason) or ``KNOWN_VIOLATIONS`` (remaining compatibility debt).  Both only shrink -- a listed edge
+that no longer exists must be deleted, so a fixed boundary cannot silently regress.  Production code
+may not import the compatibility modules in ``COMPAT_ONLY_MODULES``.
 """
 
 from __future__ import annotations
@@ -46,12 +47,25 @@ FORBIDDEN_TARGET_LAYERS = {
     "shared": frozenset({"presentation", "application", "transitional", "domain", "infrastructure"}),
     "domain": frozenset({"presentation", "application", "transitional"}),
     "infrastructure": frozenset({"presentation", "application", "transitional"}),
-    "application": frozenset({"presentation"}),
+    "application": frozenset({"presentation", "transitional"}),
     "transitional": frozenset({"presentation"}),
     "presentation": frozenset({"domain", "infrastructure", "transitional", "shared"}),
 }
 
-# Transitional debt at origin/main 5e501154 (2026-10-04).  Remove entries as the refactor fixes them.
+# By-design exceptions (reviewed 2026-10-04): shared/infrastructure modules that own a persistence or session seam.
+# Each needs a reason; the set only shrinks.
+ACCEPTED_EXCEPTIONS: dict[tuple[str, str], str] = {
+    ("etf_cockpit.core.config", "etf_cockpit.data.universe_store"): "config loader overlays the persisted universe revision",
+    ("etf_cockpit.core.config", "etf_cockpit.security.credentials"): "provider settings resolve vault-held credentials",
+    ("etf_cockpit.core.job_scheduler", "etf_cockpit.data.local_storage"): "durable scheduler persists jobs in local storage",
+    ("etf_cockpit.core.migrations", "etf_cockpit.operations.recovery"): "startup migrations run the recovery journal",
+    ("etf_cockpit.core.session_log", "etf_cockpit.operations.event_store"): "session trace is written through the event store",
+    ("etf_cockpit.data.sec_edgar_provider", "etf_cockpit.application.sec_bulk_import"): "provider-owned SEC session seam (lazy)",
+    ("etf_cockpit.data.sec_edgar_provider", "etf_cockpit.application.sec_submissions_import"): "provider-owned SEC session seam (lazy)",
+}
+
+# Remaining transitional debt: compatibility re-exports that tests still import or patch through the old module.
+# Remove entries as consumers migrate; the set only shrinks.
 KNOWN_VIOLATIONS = frozenset(
     {
         ("etf_cockpit.app.pages.onboarding", "etf_cockpit.core.atomic_io"),
@@ -66,13 +80,18 @@ KNOWN_VIOLATIONS = frozenset(
         ("etf_cockpit.app.state", "etf_cockpit.parsers.esef_ixbrl"),
         ("etf_cockpit.app.state", "etf_cockpit.parsers.sec_facts"),
         ("etf_cockpit.app.state", "etf_cockpit.signals.simple_scores"),
-        ("etf_cockpit.core.config", "etf_cockpit.data.universe_store"),
-        ("etf_cockpit.core.config", "etf_cockpit.security.credentials"),
-        ("etf_cockpit.core.job_scheduler", "etf_cockpit.data.local_storage"),
-        ("etf_cockpit.core.migrations", "etf_cockpit.operations.recovery"),
-        ("etf_cockpit.core.session_log", "etf_cockpit.operations.event_store"),
-        ("etf_cockpit.data.sec_edgar_provider", "etf_cockpit.application.sec_bulk_import"),
-        ("etf_cockpit.data.sec_edgar_provider", "etf_cockpit.application.sec_submissions_import"),
+    }
+)
+
+# Compatibility modules kept only for tests/scripts during the refactor: production code must import the canonical
+# module instead.
+COMPAT_ONLY_MODULES = frozenset(
+    {
+        "etf_cockpit.app.operations",
+        "etf_cockpit.app.selectors.instrument_detail",
+        "etf_cockpit.application.screening",
+        "etf_cockpit.services",
+        "etf_cockpit.signals.research_states",
     }
 )
 
@@ -170,15 +189,15 @@ def layering_violations() -> set[tuple[str, str]]:
 
 
 def test_no_new_layering_violations() -> None:
-    new = sorted(layering_violations() - KNOWN_VIOLATIONS)
+    new = sorted(layering_violations() - KNOWN_VIOLATIONS - ACCEPTED_EXCEPTIONS.keys())
     assert not new, "new layer-boundary violations (ADR-0002); route them through the proper layer:\n" + "\n".join(
         f"  {source} -> {target}" for source, target in new
     )
 
 
 def test_layering_allowlist_only_shrinks() -> None:
-    fixed = sorted(KNOWN_VIOLATIONS - layering_violations())
-    assert not fixed, "these allowlisted violations no longer exist; delete them from KNOWN_VIOLATIONS:\n" + "\n".join(
+    fixed = sorted((KNOWN_VIOLATIONS | ACCEPTED_EXCEPTIONS.keys()) - layering_violations())
+    assert not fixed, "these allowlisted violations no longer exist; delete them from KNOWN_VIOLATIONS / ACCEPTED_EXCEPTIONS:\n" + "\n".join(
         f"  {source} -> {target}" for source, target in fixed
     )
 
@@ -186,3 +205,21 @@ def test_layering_allowlist_only_shrinks() -> None:
 def test_every_subpackage_is_classified() -> None:
     for module in _modules():
         _layer(module)
+
+
+def test_allowlists_are_disjoint_and_explained() -> None:
+    assert not KNOWN_VIOLATIONS & ACCEPTED_EXCEPTIONS.keys()
+    assert all(reason.strip() for reason in ACCEPTED_EXCEPTIONS.values())
+
+
+def test_production_code_does_not_import_compatibility_modules() -> None:
+    offenders = sorted(
+        (module, target)
+        for module, path in _modules().items()
+        if module not in COMPAT_ONLY_MODULES
+        for target in _imports(module, path)
+        if target in COMPAT_ONLY_MODULES
+    )
+    assert not offenders, "import the canonical module instead of a compatibility re-export:\n" + "\n".join(
+        f"  {source} -> {target}" for source, target in offenders
+    )

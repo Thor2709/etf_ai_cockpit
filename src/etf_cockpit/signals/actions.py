@@ -4,7 +4,7 @@ from typing import Mapping
 
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.governance.migrations import LegacyAction
-from etf_cockpit.signals.research_states import (
+from etf_cockpit.core.research_states import (
     InternalSignalIntent,
     ResearchState,
     internal_intent_for_legacy_action,

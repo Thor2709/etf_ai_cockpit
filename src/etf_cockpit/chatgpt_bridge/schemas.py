@@ -5,7 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from etf_cockpit.core.constants import ALLOWED_ACTIONS
-from etf_cockpit.signals.research_states import PortfolioReviewState, ResearchState
+from etf_cockpit.core.research_states import PortfolioReviewState, ResearchState
 
 
 class PortfolioActionAudit(BaseModel):

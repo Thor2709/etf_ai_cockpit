@@ -52,7 +52,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     BenchmarkReferenceError,
     CanonicalBenchmarkRegistry,
 )
-from etf_cockpit.signals.research_states import (
+from etf_cockpit.core.research_states import (
     ALLOWED_EVIDENCE_SOURCE_IDS,
     AnalysisStatus,
     AuthorityDecision,

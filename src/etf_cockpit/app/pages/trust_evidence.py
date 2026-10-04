@@ -17,7 +17,7 @@ from etf_cockpit.app.components import kit
 from etf_cockpit.app.components.cards import evidence_chip, section_header
 from etf_cockpit.app.pages._glass import glass
 from etf_cockpit.app.state import ActivityUnavailableError, AppState
-from etf_cockpit.app.selectors.instrument_detail import normalise_feature_driver_frame
+from etf_cockpit.application.instrument_detail_view import normalise_feature_driver_frame
 from etf_cockpit.application.digest import contradiction_digest_records
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR, STATEMENT_FACTS_PATH  # noqa: F401 - RAW_DIR kept: tests patch it on this page module
 from etf_cockpit.core.workflow import WorkflowTransitionError

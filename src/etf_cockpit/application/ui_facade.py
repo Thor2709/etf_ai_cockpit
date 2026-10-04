@@ -221,7 +221,7 @@ from etf_cockpit.application.contracts import (
     PageRequest,
     SubmitWorkflowCommand,
 )
-from etf_cockpit.application.screening import (
+from etf_cockpit.analysis.screening import (
     ScreenFilter,
     ScreenSort,
     run_screen,
