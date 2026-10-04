@@ -33,6 +33,7 @@ from etf_cockpit.data.market_adjustments import (
 )
 from etf_cockpit.features.etf_economics import calculate_etf_liquidity
 import etf_cockpit.services as services
+import etf_cockpit.application.economics_inputs as economics_inputs
 from etf_cockpit.services import build_snapshot
 
 
@@ -665,12 +666,15 @@ def test_build_snapshot_loader_outputs_reach_available_instrument_economics(monk
         [100.0 + index * 0.08 for index in range(253)], instrument_id="FTSE-ALL-WORLD", start="2020-01-01"
     )
     monkeypatch.setattr(services, "_trusted_etf_economics_records", lambda: tuple(replace(item, artifact_known_at=effective) for item in EtfEconomicsStore(records).records))
+    monkeypatch.setattr(economics_inputs, "_trusted_etf_economics_records", services._trusted_etf_economics_records)
     monkeypatch.setattr(
         services,
         "load_total_return_evidence",
         lambda path: fund if path == services.ETF_FUND_TOTAL_RETURN_PATH else benchmark,
     )
+    monkeypatch.setattr(economics_inputs, "load_total_return_evidence", services.load_total_return_evidence)
     monkeypatch.setattr(services, "load_closure_proxy_policy", _closure_policy)
+    monkeypatch.setattr(economics_inputs, "load_closure_proxy_policy", services.load_closure_proxy_policy)
 
     snapshot = services.build_snapshot()
     model = build_instrument_detail(

@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 import etf_cockpit.services as services
+import etf_cockpit.application.economics_inputs as economics_inputs
 import etf_cockpit.application.structural_evidence as structural_evidence
 import etf_cockpit.application.derived_cache as derived_cache
 from etf_cockpit.app.selectors.instrument_detail import (
@@ -1326,6 +1327,7 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
         "IDENTITY_PATH",
         tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(services, "FUND_HOLDINGS_PATH", holdings_path)
     monkeypatch.setattr(structural_evidence, "FUND_HOLDINGS_PATH", services.FUND_HOLDINGS_PATH)
     monkeypatch.setattr(services, "ETF_METADATA_CLEAN_PATH", factsheet_path)
@@ -1335,6 +1337,7 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
     monkeypatch.setattr(services, "read_document_registry", lambda: registry)
     monkeypatch.setattr(structural_evidence, "read_document_registry", services.read_document_registry)
     monkeypatch.setattr(services, "read_etf_report_records", lambda: reports)
+    monkeypatch.setattr(economics_inputs, "read_etf_report_records", services.read_etf_report_records)
     monkeypatch.setattr(structural_evidence, "read_etf_report_records", services.read_etf_report_records)
     monkeypatch.setattr(services, "run_backtest", fake_run_backtest)
     monkeypatch.setattr(services, "current_settings_identity", fake_settings_identity)

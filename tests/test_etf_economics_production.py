@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 import etf_cockpit.services as services
+import etf_cockpit.application.economics_inputs as economics_inputs
 import etf_cockpit.application.structural_evidence as structural_evidence
 from etf_cockpit.application import ui_facade
 from etf_cockpit.data.etf_economics import (
@@ -49,6 +50,7 @@ def _load_production_inputs(
         dest=economics_path,
     )
     monkeypatch.setattr(services, "ETF_ECONOMICS_PATH", economics_path)
+    monkeypatch.setattr(economics_inputs, "ETF_ECONOMICS_PATH", services.ETF_ECONOMICS_PATH)
     disclosure_checksum = _sha256(FIXTURE / "synthetic_disclosure.txt")
     assert manifest["data_status"] == "SYNTHETIC_NON_OFFICIAL_TEST_ONLY"
     assert manifest["disclosure_source_checksum"] == disclosure_checksum
@@ -80,6 +82,7 @@ def _load_production_inputs(
         return load_etf_economics_records(path or economics_path, **kwargs)
 
     monkeypatch.setattr(services, "load_etf_economics_records", economics_loader)
+    monkeypatch.setattr(economics_inputs, "load_etf_economics_records", services.load_etf_economics_records)
     monkeypatch.setattr(
         services,
         "read_etf_report_records",
@@ -95,6 +98,7 @@ def _load_production_inputs(
             ]
         ),
     )
+    monkeypatch.setattr(economics_inputs, "read_etf_report_records", services.read_etf_report_records)
     monkeypatch.setattr(structural_evidence, "read_etf_report_records", services.read_etf_report_records)
     policy_path = FIXTURE / "closure-policy.json"
     monkeypatch.setattr(
@@ -102,9 +106,11 @@ def _load_production_inputs(
         "load_closure_proxy_policy",
         lambda: load_closure_proxy_policy(policy_path, trusted_sha256=_sha256(policy_path)),
     )
+    monkeypatch.setattr(economics_inputs, "load_closure_proxy_policy", services.load_closure_proxy_policy)
 
     root = tmp_path / "canonical-store"
     monkeypatch.setattr(services, "IDENTITY_PATH", root / "data" / "clean" / "identity.parquet")
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     with CorporateActionCoverageStore(root) as store:
         for value in manifest["corporate_action_coverage"]:
             store.append(CorporateActionCoverage(**value))

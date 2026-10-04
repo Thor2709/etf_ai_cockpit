@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from etf_cockpit import services
+import etf_cockpit.application.economics_inputs as economics_inputs
 import etf_cockpit.application.reference_context as reference_context
 import etf_cockpit.application.structural_evidence as structural_evidence
 import etf_cockpit.application.derived_cache as derived_cache
@@ -499,8 +500,11 @@ def test_build_snapshot_wires_available_reference_evidence_through_restart_and_s
     monkeypatch.setattr(services, "_load_structure_caps", lambda *args: {})
     monkeypatch.setattr(structural_evidence, "_load_structure_caps", services._load_structure_caps)
     monkeypatch.setattr(services, "load_etf_economics_records", lambda: ())
+    monkeypatch.setattr(economics_inputs, "load_etf_economics_records", services.load_etf_economics_records)
     monkeypatch.setattr(services, "load_total_return_evidence", lambda path: None)
+    monkeypatch.setattr(economics_inputs, "load_total_return_evidence", services.load_total_return_evidence)
     monkeypatch.setattr(services, "load_closure_proxy_policy", lambda: None)
+    monkeypatch.setattr(economics_inputs, "load_closure_proxy_policy", services.load_closure_proxy_policy)
     source_backed_anchor = _vwce_anchor()
     source_backed_registry = _canonical_reference_registry(source_backed_anchor)
     monkeypatch.setattr(
@@ -592,8 +596,11 @@ def test_build_snapshot_no_trade_rejects_excluded_holdings_in_source_frame(monke
     monkeypatch.setattr(services, "_load_structure_caps", lambda *args: {})
     monkeypatch.setattr(structural_evidence, "_load_structure_caps", services._load_structure_caps)
     monkeypatch.setattr(services, "load_etf_economics_records", lambda: ())
+    monkeypatch.setattr(economics_inputs, "load_etf_economics_records", services.load_etf_economics_records)
     monkeypatch.setattr(services, "load_total_return_evidence", lambda path: None)
+    monkeypatch.setattr(economics_inputs, "load_total_return_evidence", services.load_total_return_evidence)
     monkeypatch.setattr(services, "load_closure_proxy_policy", lambda: None)
+    monkeypatch.setattr(economics_inputs, "load_closure_proxy_policy", services.load_closure_proxy_policy)
     source_backed_anchor = _vwce_anchor()
     source_backed_registry = _canonical_reference_registry(source_backed_anchor)
     source_backed_registry = CanonicalBenchmarkRegistry(

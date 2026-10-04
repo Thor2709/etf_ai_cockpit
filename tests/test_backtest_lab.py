@@ -37,6 +37,7 @@ from etf_cockpit.app.pages.signals import _latest_operational_row
 from etf_cockpit.app.selectors.instrument_detail import _operational_evidence_panel
 from etf_cockpit.portfolio.costs import estimate_execution_cost
 from etf_cockpit import services
+import etf_cockpit.application.economics_inputs as economics_inputs
 import etf_cockpit.application.structural_evidence as structural_evidence
 import etf_cockpit.application.derived_cache as derived_cache
 from etf_cockpit.data.contracts import SourceAuthority
@@ -1035,6 +1036,7 @@ def test_unreadable_identity_store_never_uses_sample_calendar_fallback(
         "IDENTITY_PATH",
         tmp_path / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     database = services.storage_layout(tmp_path).transactional_path
     database.parent.mkdir(parents=True)
     database.write_bytes(b"corrupt identity store")
@@ -1070,6 +1072,7 @@ def test_identity_resolver_rejects_naive_point_in_time(tmp_path, monkeypatch) ->
         "IDENTITY_PATH",
         tmp_path / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     database = services.storage_layout(tmp_path).transactional_path
     database.parent.mkdir(parents=True)
     database.write_bytes(b"store existence only")
@@ -1094,6 +1097,7 @@ def test_missing_identity_store_remains_read_only_and_explicitly_absent(tmp_path
         "IDENTITY_PATH",
         tmp_path / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
 
     store, resolver = services._open_backtest_calendar_identity_resolver()
 
@@ -1107,6 +1111,7 @@ def test_identity_resolver_service_probe_never_mutates_source_storage(tmp_path, 
         "IDENTITY_PATH",
         tmp_path / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     with services.IdentityMasterStore(tmp_path):
         pass
     database = services.storage_layout(tmp_path).transactional_path
@@ -1139,6 +1144,7 @@ def test_identity_resolver_service_rejects_active_journal_without_mutation(
         "IDENTITY_PATH",
         tmp_path / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     with services.IdentityMasterStore(tmp_path):
         pass
     database = services.storage_layout(tmp_path).transactional_path
@@ -1502,6 +1508,7 @@ def test_operational_evidence_input_binding_tracks_every_non_price_input(tmp_pat
     identity_path = tmp_path / "root" / "data" / "reference" / "identity.parquet"
     monkeypatch.setattr(services, "CONFIG_DIR", config_dir)
     monkeypatch.setattr(services, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     store = storage_layout(identity_path.parents[2]).transactional_path
     config = load_config()
 
@@ -1661,6 +1668,7 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
         "IDENTITY_PATH",
         tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
     monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
@@ -1843,6 +1851,7 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
         "IDENTITY_PATH",
         tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
     monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
@@ -1918,6 +1927,7 @@ def test_backtest_service_round_trips_genuinely_unavailable_operational_rows(
         "IDENTITY_PATH",
         tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
     monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
@@ -1951,6 +1961,7 @@ def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
         "IDENTITY_PATH",
         tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet",
     )
+    monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
     monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
