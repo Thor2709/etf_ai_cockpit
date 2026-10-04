@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from etf_cockpit import services
+import etf_cockpit.application.signal_service as signal_service
 import etf_cockpit.application.data_service as data_service
 import etf_cockpit.application.backtest_service as backtest_service
 import etf_cockpit.application.feature_service as feature_service
@@ -493,21 +494,27 @@ def test_build_snapshot_wires_available_reference_evidence_through_restart_and_s
     monkeypatch.setattr(services, "ensure_project_dirs", lambda: None)
     monkeypatch.setattr(services, "load_config", load_config)
     monkeypatch.setattr(services, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(signal_service, "_current_universe_revision", services._current_universe_revision)
     monkeypatch.setattr(data_service, "_current_universe_revision", services._current_universe_revision)
     monkeypatch.setattr(backtest_service, "_current_universe_revision", services._current_universe_revision)
     monkeypatch.setattr(feature_service, "_current_universe_revision", services._current_universe_revision)
     monkeypatch.setattr(forecast_service, "_current_universe_revision", services._current_universe_revision)
     monkeypatch.setattr(derived_cache, "_current_universe_revision", services._current_universe_revision)
     monkeypatch.setattr(services, "DataService", FakeDataService)
+    monkeypatch.setattr(signal_service, "DataService", services.DataService)
     monkeypatch.setattr(data_service, "DataService", services.DataService)
     monkeypatch.setattr(services, "load_holdings", lambda: pd.DataFrame([
         {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
     ]))
+    monkeypatch.setattr(signal_service, "load_holdings", services.load_holdings)
     monkeypatch.setattr(data_service, "load_holdings", services.load_holdings)
     monkeypatch.setattr(services, "model_availability", lambda config: {"timesfm": False, "toto": False})
+    monkeypatch.setattr(signal_service, "model_availability", services.model_availability)
     monkeypatch.setattr(services, "model_diagnostics", lambda config: [])
     monkeypatch.setattr(services, "load_latest_forecasts", lambda **kwargs: pd.DataFrame())
+    monkeypatch.setattr(signal_service, "load_latest_forecasts", services.load_latest_forecasts)
     monkeypatch.setattr(services, "_load_structure_caps", lambda *args: {})
+    monkeypatch.setattr(signal_service, "_load_structure_caps", services._load_structure_caps)
     monkeypatch.setattr(structural_evidence, "_load_structure_caps", services._load_structure_caps)
     monkeypatch.setattr(services, "load_etf_economics_records", lambda: ())
     monkeypatch.setattr(economics_inputs, "load_etf_economics_records", services.load_etf_economics_records)
@@ -594,22 +601,28 @@ def test_build_snapshot_no_trade_rejects_excluded_holdings_in_source_frame(monke
     monkeypatch.setattr(services, "ensure_project_dirs", lambda: None)
     monkeypatch.setattr(services, "load_config", load_config)
     monkeypatch.setattr(services, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(signal_service, "_current_universe_revision", services._current_universe_revision)
     monkeypatch.setattr(data_service, "_current_universe_revision", services._current_universe_revision)
     monkeypatch.setattr(backtest_service, "_current_universe_revision", services._current_universe_revision)
     monkeypatch.setattr(feature_service, "_current_universe_revision", services._current_universe_revision)
     monkeypatch.setattr(forecast_service, "_current_universe_revision", services._current_universe_revision)
     monkeypatch.setattr(derived_cache, "_current_universe_revision", services._current_universe_revision)
     monkeypatch.setattr(services, "DataService", FakeDataService)
+    monkeypatch.setattr(signal_service, "DataService", services.DataService)
     monkeypatch.setattr(data_service, "DataService", services.DataService)
     monkeypatch.setattr(services, "load_holdings", lambda: pd.DataFrame([
         {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
         {"etf_id": "OUTSIDE", "current_weight": 0.3, "market_value_eur": 30_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
     ]))
+    monkeypatch.setattr(signal_service, "load_holdings", services.load_holdings)
     monkeypatch.setattr(data_service, "load_holdings", services.load_holdings)
     monkeypatch.setattr(services, "model_availability", lambda config: {"timesfm": False, "toto": False})
+    monkeypatch.setattr(signal_service, "model_availability", services.model_availability)
     monkeypatch.setattr(services, "model_diagnostics", lambda config: [])
     monkeypatch.setattr(services, "load_latest_forecasts", lambda **kwargs: pd.DataFrame())
+    monkeypatch.setattr(signal_service, "load_latest_forecasts", services.load_latest_forecasts)
     monkeypatch.setattr(services, "_load_structure_caps", lambda *args: {})
+    monkeypatch.setattr(signal_service, "_load_structure_caps", services._load_structure_caps)
     monkeypatch.setattr(structural_evidence, "_load_structure_caps", services._load_structure_caps)
     monkeypatch.setattr(services, "load_etf_economics_records", lambda: ())
     monkeypatch.setattr(economics_inputs, "load_etf_economics_records", services.load_etf_economics_records)

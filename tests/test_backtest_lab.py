@@ -37,6 +37,7 @@ from etf_cockpit.app.pages.signals import _latest_operational_row
 from etf_cockpit.app.selectors.instrument_detail import _operational_evidence_panel
 from etf_cockpit.portfolio.costs import estimate_execution_cost
 from etf_cockpit import services
+import etf_cockpit.application.signal_service as signal_service
 import etf_cockpit.application.data_service as data_service
 import etf_cockpit.application.backtest_service as backtest_service
 import etf_cockpit.application.feature_service as feature_service
@@ -1685,6 +1686,7 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
     monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", services.BACKTESTS_DIR)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(signal_service, "load_prices", services.load_prices)
     monkeypatch.setattr(data_service, "load_prices", services.load_prices)
     monkeypatch.setattr(backtest_service, "load_prices", services.load_prices)
     monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
@@ -1880,6 +1882,7 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
     monkeypatch.setattr(services, "BACKTESTS_DIR", tmp_path)
     monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", services.BACKTESTS_DIR)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(signal_service, "load_prices", services.load_prices)
     monkeypatch.setattr(data_service, "load_prices", services.load_prices)
     monkeypatch.setattr(backtest_service, "load_prices", services.load_prices)
     monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
@@ -1968,6 +1971,7 @@ def test_backtest_service_round_trips_genuinely_unavailable_operational_rows(
     monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(signal_service, "load_prices", services.load_prices)
     monkeypatch.setattr(data_service, "load_prices", services.load_prices)
     monkeypatch.setattr(backtest_service, "load_prices", services.load_prices)
     monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
@@ -2013,6 +2017,7 @@ def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
     monkeypatch.setattr(backtest_service, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", services.IDENTITY_PATH)
     monkeypatch.setattr(services, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(signal_service, "load_prices", services.load_prices)
     monkeypatch.setattr(data_service, "load_prices", services.load_prices)
     monkeypatch.setattr(backtest_service, "load_prices", services.load_prices)
     monkeypatch.setattr(feature_service, "load_prices", services.load_prices)
