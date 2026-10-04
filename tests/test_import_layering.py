@@ -138,8 +138,14 @@ def _type_checking_nodes(tree: ast.AST) -> set[int]:
     for node in ast.walk(tree):
         if isinstance(node, ast.If):
             test = node.test
-            name = test.id if isinstance(test, ast.Name) else test.attr if isinstance(test, ast.Attribute) else ""
-            if name == "TYPE_CHECKING":
+            # only the typing flag itself: `TYPE_CHECKING` or `typing.TYPE_CHECKING` (any other object attribute is runtime)
+            is_flag = (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
+                isinstance(test, ast.Attribute)
+                and test.attr == "TYPE_CHECKING"
+                and isinstance(test.value, ast.Name)
+                and test.value.id in {"typing", "typing_extensions"}
+            )
+            if is_flag:
                 for child in node.body:
                     guarded.update(id(item) for item in ast.walk(child))
     return guarded
@@ -223,3 +229,40 @@ def test_production_code_does_not_import_compatibility_modules() -> None:
     assert not offenders, "import the canonical module instead of a compatibility re-export:\n" + "\n".join(
         f"  {source} -> {target}" for source, target in offenders
     )
+
+
+def test_type_checking_guard_only_matches_the_typing_flag() -> None:
+    source = (
+        "if TYPE_CHECKING:\n    import a\n"
+        "if typing.TYPE_CHECKING:\n    import b\n"
+        "if flags.TYPE_CHECKING:\n    import c\n"
+    )
+    tree = ast.parse(source)
+    guarded = _type_checking_nodes(tree)
+    imported = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import) and id(node) in guarded
+        for alias in node.names
+    }
+    assert imported == {"a", "b"}
+
+
+def test_document_parser_facade_loads_only_the_requested_parser() -> None:
+    import os
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; import etf_cockpit.application.document_parsers as d; d.parse_priips_kid; "
+        "print(sorted(m for m in ('etf_cockpit.parsers.sfdr', 'etf_cockpit.parsers.index_methodology') if m in sys.modules))"
+    )
+    env = {**os.environ, "PYTHONPATH": str(SRC)}
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+    assert result.stdout.strip() == "[]"
