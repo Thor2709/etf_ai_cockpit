@@ -569,14 +569,5 @@ def _retrieved_at(metadata: Mapping[str, Any]) -> datetime:
     return parsed
 
 
-def _cached_acquisition_status(metadata: Mapping[str, Any]) -> int:
-    """Read only a validated acquisition status from the cache metadata."""
-
-    status = metadata.get("status", 200)
-    if type(status) is not int or status not in {200, 206}:
-        raise ValueError("SEC cached metadata acquisition status is invalid")
-    return status
-
-
 def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()

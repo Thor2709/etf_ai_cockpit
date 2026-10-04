@@ -467,10 +467,6 @@ def validate_yahoo_symbols(symbols: dict[str, str]) -> dict[str, YahooSymbolVali
     return result
 
 
-def _looks_like_yahoo_symbol(value: str) -> bool:
-    return looks_like_yahoo_symbol(value)
-
-
 def _normalise_fx_pair(pair: str) -> tuple[str, str, str]:
     compact = "".join(ch for ch in pair.upper() if ch.isalpha())
     if len(compact) != 6:

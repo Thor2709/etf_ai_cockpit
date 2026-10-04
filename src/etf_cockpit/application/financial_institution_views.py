@@ -283,14 +283,6 @@ def _evidence_roots(root: Path, instrument_id: str = "") -> tuple[Path, ...]:
     return tuple(dict.fromkeys(roots))
 
 
-def _select_ec_facts(payload: Mapping[str, object], instrument_id: str, decision: object) -> Mapping[str, object]:
-    """Select the identity-bound EC revision known at the decision cutoff."""
-
-    selected = _select_ec_revision(payload, instrument_id, decision)
-    facts = selected.get("facts") if isinstance(selected, Mapping) else None
-    return facts if isinstance(facts, Mapping) else {}
-
-
 def _select_ec_revision(payload: Mapping[str, object], instrument_id: str, decision: object) -> Mapping[str, object]:
     """Return the complete identity-bound EC revision envelope at the cutoff."""
 

@@ -19,7 +19,6 @@ from etf_cockpit.core.paths import DATA_DIR
 
 
 THESIS_DIARY_SCHEMA = "thesis-diary.v1"
-THESIS_DIARY_DIR = DATA_DIR / "thesis_diary"
 _HASH_RE = re.compile(r"[0-9a-f]{64}\Z")
 _ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _OPERATIONS = {"created", "redaction", "review", "expiry", "outcome"}

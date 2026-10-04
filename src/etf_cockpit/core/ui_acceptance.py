@@ -224,10 +224,6 @@ def load_ui_acceptance_contracts(path: Path | None = None) -> tuple[UIAcceptance
     return tuple(contracts)
 
 
-def declared_keys(contracts: Iterable[UIAcceptance] | None = None) -> set[str]:
-    return {item.key for item in contracts or load_ui_acceptance_contracts()}
-
-
 def validate_ui_acceptance_inventory(
     contracts: Iterable[UIAcceptance],
     registered_routes: Iterable[str],
@@ -519,9 +515,6 @@ def serialise_ui_action_inventory(inventory: Iterable[UIAction]) -> str:
     )
 
 
-serialize_ui_action_inventory = serialise_ui_action_inventory
-
-
 def _route_slug(route: str) -> str:
     return route.strip("/").replace("/", "-") or "home"
 
@@ -676,12 +669,6 @@ def discover_actionable_controls(source_root: Path) -> dict[str, DiscoveredContr
         )
         for key, values in found.items()
     }
-
-
-def discover_actionable_control_keys(source_root: Path) -> dict[str, tuple[str, ...]]:
-    """Compatibility projection of actionable keys to source locations."""
-
-    return {key: item.locations for key, item in discover_actionable_controls(source_root).items()}
 
 
 def _record_discovered(

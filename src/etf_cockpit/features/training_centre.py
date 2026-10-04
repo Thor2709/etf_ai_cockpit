@@ -33,7 +33,6 @@ from etf_cockpit.models.monitoring import (
 
 
 RunStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
-PromotionState = Literal["unpromoted", "approved", "challenger", "champion", "retired"]
 
 _ENTITY_EXPERIMENT = "training.experiment"
 _ENTITY_RUN = "training.run"

@@ -8,11 +8,6 @@ from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.paths import PORTFOLIOS_DIR
 
 
-def import_holdings_csv(path: Path, *, destination: Path | None = None) -> Path:
-    frame = pd.read_csv(path)
-    return import_holdings_frame(frame, destination=destination)
-
-
 def import_holdings_frame(frame: pd.DataFrame, *, destination: Path | None = None) -> Path:
     """Validate and publish an already-previewed canonical holdings frame."""
 

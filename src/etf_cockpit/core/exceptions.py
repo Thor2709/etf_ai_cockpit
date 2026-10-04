@@ -9,10 +9,6 @@ class ConfigError(CockpitError):
     """Raised when a config file fails validation."""
 
 
-class DataQualityError(CockpitError):
-    """Raised when data cannot be used safely."""
-
-
 class AuditImportError(CockpitError):
     """Raised when a ChatGPT audit import is invalid."""
 

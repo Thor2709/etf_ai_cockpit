@@ -272,10 +272,6 @@ def _apply_historical_shock(frame: pd.DataFrame, returns: pd.DataFrame | None, a
     return result
 
 
-def _common_shock(shocks: Mapping[str, float], row: Mapping[str, object]) -> float:
-    return math.fsum(_common_shock_components(shocks, row).values())
-
-
 def _common_shock_components(shocks: Mapping[str, float], row: Mapping[str, object]) -> dict[str, float]:
     asset_class = str(row.get("asset_class", "equity")).casefold()
     components: dict[str, float] = {}

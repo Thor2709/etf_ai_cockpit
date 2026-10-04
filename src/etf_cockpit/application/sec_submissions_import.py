@@ -984,33 +984,6 @@ def _validated_filing_provenance(document: RawDocument, path: Path, digest: str,
     return _local_document(path, "sec_filing")
 
 
-def _validated_aux_provenance(document: RawDocument | None, path: Path, digest: str, name: str, cik: str, *, source_is_bulk: bool = False) -> RawDocument:
-    if document is None:
-        return _local_document(path, "sec_submissions")
-    if not isinstance(document.path, Path) or document.path.absolute() != path.absolute() or document.sha256 != digest:
-        raise ValueError("submissions history provenance path/checksum does not match supplied bytes")
-    if not isinstance(document.retrieved_at, datetime) or document.retrieved_at.tzinfo is None or document.retrieved_at.utcoffset() is None:
-        raise ValueError("submissions history provenance timestamp must be timezone-aware")
-    if type(document.http_status) is not int or document.http_status not in {200, 206, 304}:
-        raise ValueError("submissions history provenance HTTP status is invalid")
-    parsed = urlparse(document.source_url)
-    if document.provider_id == "sec_edgar":
-        if document.document_type != "sec_submissions" or document.media_type != "application/json":
-            raise ValueError("submissions history provenance document type or media type is invalid")
-        expected_url = SUBMISSIONS_BULK_URL if source_is_bulk else f"https://data.sec.gov/submissions/{name}"
-        if document.source_url != expected_url:
-            raise ValueError("submissions history provenance URL is not the advertised SEC source")
-        # A detached RawDocument is never an archive-bound provider proof.
-        return _local_document(path, "sec_submissions")
-    elif document.provider_id != "sec_local_import":
-        raise ValueError("submissions history provenance provider is invalid")
-    elif document.document_type != "sec_submissions" or document.media_type != "application/json" or parsed.scheme != "file":
-        raise ValueError("local submissions history provenance type or media is invalid")
-    if parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise ValueError("submissions history provenance URL contains unexpected components")
-    return document
-
-
 def _document_from_metadata(path: Path, item: dict[str, object]) -> RawDocument:
     """Re-bind a local input to its previously admitted acquisition lineage."""
 
@@ -1024,19 +997,6 @@ def _document_from_metadata(path: Path, item: dict[str, object]) -> RawDocument:
         str(item["document_type"]),
         str(item["media_type"]),
         int(item["http_status"]),
-    )
-
-
-def _rebind_document_path(document: RawDocument, path: Path) -> RawDocument:
-    return RawDocument(
-        path,
-        document.source_url,
-        document.retrieved_at,
-        document.sha256,
-        document.provider_id,
-        document.document_type,
-        document.media_type,
-        document.http_status,
     )
 
 

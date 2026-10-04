@@ -28,9 +28,6 @@ from etf_cockpit.core.research_states import (
     normalise_analysis_status,
     research_state_for_legacy_action,
 )
-
-
-V1_SCHEMA_PREFIXES = ("1", "1.")
 V2_SCHEMA_VERSION = "2.0"
 MIGRATION_VERSION = "2.0"
 GATE_POLICY_PATH = CONFIG_DIR / "gate_policy.yaml"

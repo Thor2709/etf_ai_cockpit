@@ -243,15 +243,6 @@ def _validated_benchmark_data_id(
     return selected_id
 
 
-def _optional_price_pivot(prices: pd.DataFrame, value: str, columns: list[str]) -> pd.DataFrame:
-    if value not in prices.columns:
-        return pd.DataFrame(index=pd.to_datetime(prices["date"]).drop_duplicates().sort_values(), columns=columns, dtype=float)
-    frame = prices.loc[:, ["date", "etf_id", value]].copy()
-    frame["date"] = pd.to_datetime(frame["date"])
-    frame[value] = pd.to_numeric(frame[value], errors="coerce")
-    return frame.pivot(index="date", columns="etf_id", values=value).sort_index().reindex(columns=columns)
-
-
 def _corporate_action_adjusted_pivot(
     prices: pd.DataFrame, value: str, columns: list[str]
 ) -> pd.DataFrame:

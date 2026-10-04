@@ -491,20 +491,6 @@ def _candidate_chronology(
     return max(parsed_values), True
 
 
-def _candidate_timestamp(row: pd.Series, fields: tuple[str, ...]) -> pd.Timestamp | None:
-    value, valid = _candidate_chronology(row, fields, date_only_end_of_day=True)
-    return value if valid else None
-
-
-def _candidate_observation_timestamp(row: pd.Series) -> pd.Timestamp | None:
-    value, valid = _candidate_chronology(
-        row,
-        ("effective_at", "as_of", "as_of_date", "latest_date", "date"),
-        date_only_end_of_day=True,
-    )
-    return value if valid else None
-
-
 def _candidate_provenance(row: pd.Series) -> str | None:
     for field in ("provenance", "source_dataset", "source_id", "source", "data_policy"):
         if field not in row:

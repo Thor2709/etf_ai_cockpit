@@ -119,10 +119,6 @@ class DirectOverlapReport:
     report_hash: str = ""
 
 
-def overlap_warning() -> str:
-    return "Direct overlap is evidence-only; unresolved holdings are never renormalised away."
-
-
 def calculate_direct_overlap(
     holdings: pd.DataFrame,
     instrument_ids: Sequence[str],

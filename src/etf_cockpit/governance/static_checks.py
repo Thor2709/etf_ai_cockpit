@@ -174,7 +174,6 @@ _PROHIBITED_CREDENTIAL_NAME_RE = re.compile(
     r"|(?:api[_-]?key|secret|token|password|private[_-]?key).*(?:broker|order|execution)"
 )
 _ENDPOINT_NAME_RE = re.compile(r"(?i)(?:broker|order|execution).*(?:endpoint|url)")
-_PLACEHOLDER_VALUES = frozenset({"", "none", "null", "example", "changeme", "placeholder", "***"})
 
 
 _POLICY = {
@@ -350,7 +349,6 @@ def _literal_strings(node: ast.AST) -> Iterator[str]:
 _AUTHORITY_KEYS = frozenset({"execution_allowed", "executable_authority"})
 _DYNAMIC_IMPORT_CALLS = frozenset({"__import__", "importlib.import_module", "import_module"})
 _TRANSPORT_IMPORTS = frozenset({"httpx", "requests", "socket", "subprocess", "urllib", "urllib3"})
-_TRANSPORT_CONTEXT_RE = re.compile(r"(?i)(?:^|[_/.-])(?:broker|order|execution)(?:$|[_/.-])")
 _BROKER_ENDPOINT_CONTEXT_RE = re.compile(r"(?i)(?:broker|order|execution|trade|fill|position|account)")
 
 

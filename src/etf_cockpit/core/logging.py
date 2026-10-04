@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from etf_cockpit.core.constants import APP_VERSION
@@ -31,10 +30,3 @@ def append_jsonl(log_name: str, event_type: str, payload: dict[str, Any], run_id
     }
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(entry, default=str, sort_keys=True) + "\n")
-
-
-def read_tail(path: Path, max_lines: int = 50) -> list[str]:
-    if not path.exists():
-        return []
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    return lines[-max_lines:]

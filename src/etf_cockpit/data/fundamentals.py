@@ -28,13 +28,6 @@ FUNDAMENTAL_SCHEMA_VERSION = "fundamental_evidence.v4"
 FUNDAMENTAL_CLEAN_PATH = CLEAN_DIR / "fundamentals.parquet"
 FUNDAMENTAL_RAW_DIR = RAW_DIR / "fundamentals"
 _FIELDS = ("valuation", "profitability", "leverage", "growth", "shareholder_return")
-_FIELD_LABELS = {
-    "valuation": "valuation",
-    "profitability": "profitability",
-    "leverage": "leverage",
-    "growth": "growth",
-    "shareholder_return": "shareholder_return",
-}
 
 
 @dataclass(frozen=True)

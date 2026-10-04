@@ -11,7 +11,3 @@ def current_holdings() -> pd.DataFrame:
 
 def portfolio_value(holdings: pd.DataFrame) -> float:
     return float(holdings["market_value_eur"].sum())
-
-
-def cash_weight_from_targets(total_security_weight: float) -> float:
-    return max(0.0, 1.0 - total_security_weight)

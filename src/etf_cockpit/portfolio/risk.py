@@ -1,28 +1,8 @@
 from __future__ import annotations
 
-import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.types import DataQualityIssue
-
-
-def concentration_warnings(config: AppConfig, allocation: pd.DataFrame) -> list[str]:
-    warnings: list[str] = []
-    limits = config.risks.portfolio_limits
-    for _, row in allocation.iterrows():
-        if row["current_weight"] > min(row.get("max_weight", 1.0), limits.max_single_etf_weight):
-            warnings.append(f"{row['etf_id']} exceeds single ETF cap.")
-    for column, limit, label in [
-        ("sector", limits.max_sector_weight, "sector"),
-        ("region", limits.max_region_weight, "region"),
-        ("theme", limits.max_theme_weight, "theme"),
-    ]:
-        if column in allocation:
-            grouped = allocation.groupby(column, dropna=False)["current_weight"].sum()
-            for key, weight in grouped.items():
-                if pd.notna(key) and weight > limit:
-                    warnings.append(f"{label} cap exceeded: {key} at {weight:.1%}.")
-    return warnings
 
 
 def target_policy_issues(config: AppConfig) -> list[DataQualityIssue]:

@@ -527,22 +527,6 @@ def _profile_tickers(profile: OnboardingProfile) -> tuple[str, ...]:
     return tuple(dict.fromkeys(_text(symbol).upper() for symbol in profile.asset_scope if _text(symbol)))
 
 
-def validate_tickers(
-    tickers: Iterable[str],
-    *,
-    validator: Callable[[str], bool | TickerValidationResult] | None = None,
-    online: bool = False,
-    local_evidence: Iterable[str] = (),
-) -> tuple[str, ...]:
-    unresolved, _statuses = _validate_tickers_with_status(
-        tickers,
-        validator=validator,
-        online=online,
-        local_evidence=local_evidence,
-    )
-    return unresolved
-
-
 def _validate_tickers_with_status(
     tickers: Iterable[str],
     *,
@@ -1166,6 +1150,3 @@ def load_onboarding(_root: Path | None = None) -> OnboardingProfile:
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         raise ValueError(f"onboarding settings are invalid: {exc}") from exc
     return profile
-
-
-load_onboarding_profile = load_onboarding

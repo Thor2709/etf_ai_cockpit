@@ -6,7 +6,6 @@ from pathlib import Path
 import hashlib
 import json
 
-import duckdb
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, read_atomic_group, wait_for_atomic_group
@@ -247,9 +246,3 @@ def _reference_identity_matches(
         )
     except (TypeError, ValueError, RecursionError):
         return False
-
-
-def query_parquet(sql: str) -> pd.DataFrame:
-    with duckdb.connect(database=":memory:") as con:
-        con.execute("SET enable_progress_bar=false")
-        return con.execute(sql).df()

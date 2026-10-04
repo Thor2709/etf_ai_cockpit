@@ -1398,51 +1398,6 @@ def _candidate_identity_rows(config: AppConfig) -> list[dict[str, Any]]:
     return rows
 
 
-def _optional_free_provider_rows(now: str) -> list[dict[str, Any]]:
-    specs = [
-        ("sec_edgar", "filings", "official_regulator", "Optional no-key SEC EDGAR provider. Disabled until explicitly requested or mapped."),
-        ("fred", "macro", "official_regulator", "Optional FRED macro context provider. Disabled by default."),
-        ("stooq", "prices", "vendor_unofficial", "Optional Stooq fallback price provider. Disabled by default."),
-        ("rss", "news", "manual_context", "Optional RSS news/context provider. Context only and disabled by default."),
-        ("esef_local", "filings", "official_filing", "Manual local ESEF/iXBRL importer. Awaiting local files."),
-        ("etf_disclosure_local", "etf_disclosures", "issuer_document", "Manual ETF disclosure importer. Awaiting local files."),
-        ("priips_kid_local", "priips_kid", "issuer_document", "Manual PRIIPs KID parser. Awaiting local files."),
-        ("index_methodology_local", "index_methodology", "issuer_document", "Manual index methodology importer. Awaiting local files."),
-    ]
-    return [
-        {
-            "provider_id": f"{name}:{dataset_type}",
-            "provider_name": name,
-            "dataset_type": dataset_type,
-            "active_provider": "disabled",
-            "enabled": False,
-            "status": "unavailable",
-            "message": message,
-            "source_authority": authority,
-            "authority_rank": SOURCE_AUTHORITY.get(authority, 0),
-            "requires_api_key": False,
-            "has_api_key": False,
-            "base_url_configured": False,
-            "capabilities": json.dumps({"available_now": False, "context_only": dataset_type in {"news", "macro"}}),
-            "last_probe_at": now,
-            "executable_authority": False,
-        }
-        for name, dataset_type, authority, message in specs
-    ]
-
-
-def _capabilities_for_dataset(dataset_type: str, active_provider: str) -> str:
-    active = active_provider == "yfinance"
-    capabilities = {
-        "fetch_prices": active and dataset_type == "prices",
-        "fetch_fx": active and dataset_type == "fx",
-        "fetch_etf_metadata": active and dataset_type == "etf_metadata",
-        "fetch_etf_holdings": active and dataset_type == "etf_holdings",
-        "score_eligible": active,
-    }
-    return json.dumps(capabilities, sort_keys=True)
-
-
 def _etf_disclosure_inventory(identity: pd.DataFrame, configured_etf_ids: Iterable[str] | None = None) -> pd.DataFrame:
     if configured_etf_ids is not None:
         instrument_ids = {str(value).strip() for value in configured_etf_ids if str(value).strip()}

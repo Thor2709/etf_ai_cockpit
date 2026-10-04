@@ -243,28 +243,6 @@ def _write_universe_cache_metadata(
     atomic_write_bytes(metadata_path, payload, lambda candidate: json.loads(candidate.read_text(encoding="utf-8")))
 
 
-def _write_bound_cache_metadata(
-    path: Path,
-    revision: str,
-    settings_revision: str,
-    reference_identity: Mapping[str, object] | None,
-    price_binding: Mapping[str, object] | None = None,
-) -> None:
-    """Write reference-bound metadata, retaining the old test seam."""
-
-    if reference_identity is None:
-        _write_universe_cache_metadata(path, revision, settings_revision, price_binding=price_binding)
-        return
-    try:
-        _write_universe_cache_metadata(path, revision, settings_revision, reference_identity, price_binding)
-    except TypeError as exc:
-        # A narrow compatibility path for callers monkeypatching the former
-        # three-argument helper; production always uses the bound form above.
-        if "positional" not in str(exc) and "argument" not in str(exc):
-            raise
-        _write_universe_cache_metadata(path, revision, settings_revision, price_binding=price_binding)
-
-
 def _bound_cache_metadata_payload(
     revision: str,
     settings_revision: str,

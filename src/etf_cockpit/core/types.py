@@ -43,20 +43,6 @@ class DatasetMetadata:
 
 
 @dataclass(frozen=True)
-class ETFIdentity:
-    etf_id: str
-    name: str
-    isin: str | None
-    ticker: str
-    exchange: str | None
-    currency: str
-    role: str
-    region: str | None = None
-    sector: str | None = None
-    theme: str | None = None
-
-
-@dataclass(frozen=True)
 class ForecastResult:
     run_id: str
     model_name: str

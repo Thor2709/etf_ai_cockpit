@@ -493,10 +493,6 @@ def _uncertainty(value: object) -> str:
     return text or "unavailable"
 
 
-def _missingness(row: pd.Series) -> str:
-    return "missing" if _text(row.get("direction")) == "missing" else "not_missing"
-
-
 def _conflict(row: pd.Series) -> str:
     explicit = _text(row.get("conflict"))
     if explicit:

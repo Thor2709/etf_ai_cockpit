@@ -26,7 +26,6 @@ from etf_cockpit.data.fund_documents import (
 
 
 FUND_HOLDINGS_PATH = CLEAN_DIR / "fund_holdings.parquet"
-HOLDINGS_CLEAN_PATH = FUND_HOLDINGS_PATH
 _EXPLICIT_IDENTITY_COLUMNS = ("isin", "ticker", "holding_id", "security_id")
 REQUIRED_HOLDINGS_COLUMNS = (
     "security",
@@ -664,6 +663,3 @@ def _attach_document_binding(frame: pd.DataFrame, document: object) -> pd.DataFr
             result[column] = None
         result.loc[mask, column] = value
     return result
-
-
-persist_holdings = write_holdings_records

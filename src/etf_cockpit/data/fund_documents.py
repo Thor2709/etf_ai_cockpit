@@ -415,7 +415,6 @@ def read_document_registry(*, path: Path = FUND_DOCUMENTS_PATH) -> pd.DataFrame:
 
 # Compatibility aliases for provider/import callers.
 document_inventory = build_document_inventory
-persist_document_registry = write_document_registry
 
 
 def _register_report_document(

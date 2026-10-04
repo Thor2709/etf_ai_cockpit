@@ -2256,11 +2256,6 @@ def build_priips_kid_cost_evidence(record: object, *, as_of_date: date | None = 
     )
 
 
-# Compatibility-friendly aliases for evidence-ledger/import callers.
-build_kid_cost_evidence = build_priips_kid_cost_evidence
-priips_kid_cost_component = build_priips_kid_cost_evidence
-
-
 def _candidate_liquidity_component(row: pd.Series) -> SimpleScoreComponent:
     avg_turnover = _safe_float(row.get("median_turnover_60d_eur"))
     spread_proxy = _safe_float(row.get("high_low_spread_proxy_20"))
@@ -2504,10 +2499,6 @@ def _model_backtest_validity(
         "model_authority_reason": authority_reason,
         "calibration_required": calibration_required,
     }
-
-
-def _backtest_trust_label() -> str:
-    return "Backtest trust pending"
 
 
 def _component_score_map(components: list[SimpleScoreComponent]) -> dict[str, float | None]:
