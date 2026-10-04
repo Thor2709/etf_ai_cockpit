@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import re
 from typing import Generic, TypeVar
 from urllib.parse import urlparse
+
+from etf_cockpit.core.atomic_io import sha256_file as _sha256_file
 
 
 T = TypeVar("T")
@@ -66,14 +67,6 @@ class ParseResult(Generic[T]):
     parser_version: str
     source_sha256: str
     success: bool
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _safe_relative_path(value: object) -> str:

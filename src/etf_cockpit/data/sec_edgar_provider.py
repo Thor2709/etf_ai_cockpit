@@ -21,6 +21,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes, atomic_write_json
+from etf_cockpit.core.values import string_dict_or_empty as _headers_dict
 from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority
 from etf_cockpit.parsers.contracts import RawDocument
@@ -498,15 +499,6 @@ def _normalise_response(value: Any) -> _Response:
         payload = value.read()
         return _Response(bytes(payload), int(getattr(value, "status", 200)), _headers_dict(getattr(value, "headers", {})))
     raise TypeError("SEC transport must return bytes, response tuple or response object")
-
-
-def _headers_dict(value: object) -> dict[str, str]:
-    if isinstance(value, Mapping):
-        return {str(key): str(item) for key, item in value.items()}
-    try:
-        return {str(key): str(value[key]) for key in value.keys()}  # type: ignore[union-attr]
-    except (AttributeError, KeyError, TypeError):
-        return {}
 
 
 def _parse_json(payload: bytes) -> dict[str, Any]:

@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from etf_cockpit.core import atomic_io
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.core.session_log import SESSION_LOG_PATH, append_event
+from etf_cockpit.core.values import is_lowercase_sha256_hex as _valid_checksum
 from etf_cockpit.operations.models import WriteTransaction
 
 
@@ -225,14 +226,6 @@ def _validated_path(value: object, root: Path, label: str) -> tuple[Path | None,
     if not _is_contained(path, root):
         return None, f"{label} is outside recovery root: {path}"
     return path, None
-
-
-def _valid_checksum(value: object) -> bool:
-    return (
-        isinstance(value, str)
-        and len(value) == 64
-        and all(character in "0123456789abcdef" for character in value)
-    )
 
 
 def _validate_v2_payload(

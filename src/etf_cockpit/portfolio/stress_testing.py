@@ -14,6 +14,8 @@ from typing import Mapping
 
 import pandas as pd
 
+from etf_cockpit.core.values import finite_float_or_none as _finite
+
 
 STRESS_SCHEMA_VERSION = "stress_scenario.v1"
 EXECUTION_ALLOWED = False
@@ -332,14 +334,6 @@ def _shocks(values: Mapping[str, float]) -> dict[str, float]:
             raise StressScenarioError("Scenario shocks must be finite and within +/-500%.")
         result[name] = value
     return result
-
-
-def _finite(value: object) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _identifier(value: object, label: str) -> str:

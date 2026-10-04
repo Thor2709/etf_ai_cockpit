@@ -13,7 +13,8 @@ from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, a
 from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import FILINGS_STATEMENTS_PATH
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
-from etf_cockpit.parsers.contracts import ParseResult, ParseWarning, RawDocument, _sha256_file
+from etf_cockpit.parsers.contracts import ParseResult, ParseWarning, RawDocument
+from etf_cockpit.parsers.esef_ixbrl import _safe_sha
 
 
 STATEMENT_FACTS_SCHEMA_VERSION = "statement_facts.v1"
@@ -515,13 +516,6 @@ def _source_id(cik: str, taxonomy: str, concept: str, unit: str, accession: str 
 
 def _failure(source_sha: str, code: str, message: str) -> ParseResult[StatementFact]:
     return ParseResult((), (ParseWarning(code, message, "error"),), "sec_companyfacts", "1.1", source_sha, False)
-
-
-def _safe_sha(path: Path) -> str:
-    try:
-        return _sha256_file(path)
-    except OSError:
-        return ""
 
 
 def _normalise_cik(value: Any) -> str | None:

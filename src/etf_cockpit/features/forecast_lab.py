@@ -15,6 +15,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
+from etf_cockpit.core.values import finite_float_numpy as _finite_or_none, stripped_text_or_none as _noneable_text
 from etf_cockpit.models.calibration import coverage_confidence_interval, conformal_quantile_adjustment
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.resource_profiles import ResourcePolicy, estimate_workflow_resources
@@ -843,21 +844,6 @@ def _price_row_is_stale(row: pd.Series) -> bool:
         if value is not None and value.casefold() in {"stale", "warning", "block", "unknown"}:
             return True
     return False
-
-
-def _noneable_text(value: object) -> str | None:
-    if value is None or pd.isna(value):
-        return None
-    text = str(value).strip()
-    return text or None
-
-
-def _finite_or_none(value: object) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if np.isfinite(number) else None
 
 
 def _adjusted_flag(value: object) -> bool:

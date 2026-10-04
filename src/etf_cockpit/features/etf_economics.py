@@ -8,26 +8,18 @@ signal, never an execution permission.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-import math
 from collections.abc import Mapping
 
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
+from etf_cockpit.core.values import finite_float_or_none as _finite
 from etf_cockpit.portfolio.costs import estimate_execution_cost
 
 
 ETF_ECONOMICS_MODEL_ID = "etf-economics-v1"
 _QUOTE_ID_COLUMNS = ("instrument_id", "etf_id", "display_id")
 _OFF_HOURS_SESSIONS = frozenset({"pre_market", "premarket", "after_hours", "post_market", "postmarket", "overnight", "off_hours", "closed"})
-
-
-def _finite(value: object) -> float | None:
-    try:
-        number = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _positive(value: object) -> float | None:

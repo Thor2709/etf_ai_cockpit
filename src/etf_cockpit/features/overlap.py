@@ -13,6 +13,8 @@ from typing import Literal, Mapping, Sequence
 
 import pandas as pd
 
+from etf_cockpit.core.values import clean_text_or_empty as _text
+
 
 _ISIN = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
 _TOLERANCE = 1e-9
@@ -784,12 +786,6 @@ def _consistent_dimension(rows: list[pd.Series], column: str, warnings: list[str
         warnings.append(f"Conflicting {column} values were omitted for {identity}.")
         return None
     return values[0] if values else None
-
-
-def _text(value: object) -> str:
-    if value is None or (not isinstance(value, (str, bytes)) and pd.isna(value)):
-        return ""
-    return str(value).strip()
 
 
 def _missing(

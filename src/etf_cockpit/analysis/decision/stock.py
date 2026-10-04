@@ -40,6 +40,7 @@ from etf_cockpit.analysis.peer_cohorts import (
 )
 from etf_cockpit.analysis.sparebank.claim import routing as route_sparebank_ec
 from etf_cockpit.analysis.sparebank.models import CONTRACT_ID as SPAREBANK_ANALYSIS_CONTRACT
+from etf_cockpit.core.values import mapping_or_attribute as _projection_member
 from etf_cockpit.data.classification import InstrumentContextV2
 
 
@@ -882,12 +883,6 @@ def _business_model(context: InstrumentContextV2 | None) -> str | None:
     if context is None:
         return None
     return next(iter(context.business_model_tags), None)
-
-
-def _projection_member(value: object, name: str, default: object = None) -> object:
-    if isinstance(value, Mapping):
-        return value.get(name, default)
-    return getattr(value, name, default)
 
 
 def _is_financial_projection(projection: object | None, instrument: str) -> bool:

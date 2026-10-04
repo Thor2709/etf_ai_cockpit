@@ -2,22 +2,14 @@ from __future__ import annotations
 
 import hashlib
 from datetime import date, datetime, timezone
-from pathlib import Path
 from typing import Literal
 
 import pandas as pd
 
+from etf_cockpit.core.atomic_io import sha256_file as sha256_file
 from etf_cockpit.core.types import DatasetMetadata, StalenessStatus
 
 DatasetKind = Literal["prices", "etf_factsheet", "etf_holdings", "manual_news", "fx", "unknown"]
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def sha256_dataframe(frame: pd.DataFrame) -> str:

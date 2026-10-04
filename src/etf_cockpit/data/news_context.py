@@ -15,6 +15,8 @@ import pandas as pd
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR
+from etf_cockpit.data.event_calendar import _frame_checksum
+from etf_cockpit.core.values import aware_utc_timestamp_or_none as _contradiction_timestamp
 
 
 NEWS_SCHEMA_VERSION = "news_context.v2"
@@ -628,16 +630,6 @@ def _headline_direction(headline: object) -> str:
     return "up" if has_positive and not has_negative else "down" if has_negative and not has_positive else "unknown"
 
 
-def _contradiction_timestamp(value: object) -> pd.Timestamp | None:
-    try:
-        timestamp = pd.Timestamp(value)
-    except (TypeError, ValueError):
-        return None
-    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
-        return None
-    return timestamp.tz_convert("UTC")
-
-
 def _evidence_timestamp(value: object) -> pd.Timestamp | None:
     timestamp = _contradiction_timestamp(value)
     if timestamp is not None:
@@ -773,13 +765,6 @@ def _read_clean_strict(path: Path) -> pd.DataFrame:
     frame["context_only"] = True
     frame["executable_authority"] = False
     return frame
-
-
-def _frame_checksum(frame: pd.DataFrame) -> str:
-    if frame.empty:
-        return hashlib.sha256(b"empty").hexdigest()
-    stable = frame.sort_index(axis=1).astype(str).sort_values(list(frame.columns), kind="stable")
-    return hashlib.sha256(stable.to_csv(index=False).encode("utf-8")).hexdigest()
 
 
 def _payload_checksum(payload: dict[str, Any]) -> str:

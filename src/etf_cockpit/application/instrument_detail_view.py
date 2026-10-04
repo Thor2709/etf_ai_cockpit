@@ -73,6 +73,7 @@ from etf_cockpit.analysis.candles import (
     score_candle_contribution,
     validate_ohlcv,
 )
+from etf_cockpit.core.values import finite_float_or_none as _safe_float
 from etf_cockpit.features.etf_economics import calculate_etf_liquidity
 from etf_cockpit.application.etf_economics_view import build_etf_economics_panel
 from etf_cockpit.application.ui_facade import SimpleInstrumentScore
@@ -104,6 +105,7 @@ from etf_cockpit.audit.thesis_diary import (
     disclosure_safe_review,
 )
 from etf_cockpit.core.paths import CLEAN_DIR, DATA_DIR
+from etf_cockpit.signals.feature_drivers import _evidence_number as _feature_driver_number
 
 if TYPE_CHECKING:
     from etf_cockpit.application.snapshot_builder import CockpitSnapshot
@@ -214,14 +216,6 @@ def _unavailable(message: str) -> dict[str, Any]:
     """Return a consistent, non-authoritative unavailable panel."""
 
     return {"status": "unavailable", "message": message, "execution_allowed": False}
-
-
-def _safe_float(value: object) -> float | None:
-    try:
-        number = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _safe_datetime_scalar(value: object) -> pd.Timestamp | None:
@@ -621,27 +615,6 @@ def _feature_driver_direction(value: object) -> str:
     if pd.isna(value):
         return "missing"
     return "positive" if float(value) >= 6.5 else "negative" if float(value) < 4.0 else "mixed"
-
-
-def _feature_driver_number(
-    value: object,
-    *,
-    minimum: float | None,
-    maximum: float | None,
-) -> float | None:
-    if isinstance(value, bool) or not pd.api.types.is_scalar(value):
-        return None
-    try:
-        number = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(number):
-        return None
-    if minimum is not None and number < minimum:
-        return None
-    if maximum is not None and number > maximum:
-        return None
-    return number
 
 
 def _feature_driver_uncertainty(value: object) -> object:

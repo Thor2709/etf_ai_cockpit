@@ -9,11 +9,11 @@ execution authority.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-import math
 
 import numpy as np
 import pandas as pd
 
+from etf_cockpit.core.values import finite_float_or_none as _finite
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     BenchmarkReferenceError,
     unavailable_reference_projection,
@@ -727,14 +727,6 @@ def _frame_status(frame: pd.DataFrame) -> str:
     if "status" in frame.columns and frame["status"].astype(str).eq("partial").any():
         return "partial"
     return "available"
-
-
-def _finite(value: object) -> float | None:
-    try:
-        number = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 __all__ = ["ATTRIBUTION_MODEL_VERSION", "build_performance_attribution"]

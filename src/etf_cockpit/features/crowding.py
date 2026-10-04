@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isfinite
 from collections.abc import Sequence
 from typing import Any, Mapping
 
 import pandas as pd
+
+from etf_cockpit.core.values import finite_float_isfinite as _safe_float
 
 
 @dataclass(frozen=True)
@@ -364,14 +365,6 @@ def _dominant(counts: dict[str, int], total: int) -> str | None:
 def _text(value: object) -> str | None:
     text = str(value or "").strip()
     return text or None
-
-
-def _safe_float(value: object) -> float | None:
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    return result if isfinite(result) else None
 
 
 def _as_of(index: pd.Index) -> str | None:

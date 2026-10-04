@@ -16,8 +16,11 @@ import pandas as pd
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR, SNAPSHOTS_DIR
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.types import DatasetMetadata
+from etf_cockpit.data.import_pipeline import _snapshot_existing_clean, _source_path
 from etf_cockpit.data.provenance import metadata_from_frame, price_staleness_status, sha256_dataframe
 from etf_cockpit.data.providers import ProviderResult
+from etf_cockpit.data.validation import _business_days_between
+from etf_cockpit.data.reference_data import _first_present, _metadata_to_json
 
 FX_CLEAN_PATH = CLEAN_DIR / "fx.parquet"
 DATE_COLUMNS = ("as_of_date", "date", "rate_date")
@@ -496,19 +499,6 @@ def _normalise_currency(value: str) -> str | None:
     return currency if re.fullmatch(r"[A-Z]{3}", currency) else None
 
 
-def _business_days_between(start: date, end: date) -> int:
-    if start >= end:
-        return 0
-    return len(pd.bdate_range(pd.Timestamp(start) + pd.offsets.BDay(1), pd.Timestamp(end)))
-
-
-def _first_present(frame: pd.DataFrame, columns: tuple[str, ...]) -> str | None:
-    for column in columns:
-        if column in frame.columns:
-            return column
-    return None
-
-
 def _column_or_default(frame: pd.DataFrame, column: str, default: str) -> pd.Series:
     if column in frame.columns:
         return frame[column].fillna(default).astype(str).str.strip().replace("", default)
@@ -528,36 +518,3 @@ def _store_raw_fx_import(result: ProviderResult, frame: pd.DataFrame, raw_dir: P
     raw_path = raw_dir / f"{timestamp}_{checksum[:12]}_fx.parquet"
     frame.to_parquet(raw_path, index=False)
     return raw_path
-
-
-def _snapshot_existing_clean(clean_path: Path, snapshots_dir: Path, timestamp: str) -> Path | None:
-    if not clean_path.exists():
-        return None
-    snapshot_path = snapshots_dir / f"{timestamp}_previous_{clean_path.name}"
-    shutil.copy2(clean_path, snapshot_path)
-    return snapshot_path
-
-
-def _source_path(metadata: DatasetMetadata | None) -> Path | None:
-    if metadata is None:
-        return None
-    try:
-        return Path(metadata.provider_or_manual_source)
-    except Exception:
-        return None
-
-
-def _metadata_to_json(metadata: DatasetMetadata) -> dict[str, object]:
-    return {
-        "source_name": metadata.source_name,
-        "source_type": metadata.source_type,
-        "as_of_date": metadata.as_of_date.isoformat() if metadata.as_of_date else None,
-        "ingested_at": metadata.ingested_at.isoformat() if metadata.ingested_at else None,
-        "currency": metadata.currency,
-        "timezone": metadata.timezone,
-        "provider_or_manual_source": metadata.provider_or_manual_source,
-        "checksum": metadata.checksum,
-        "staleness_status": metadata.staleness_status,
-        "age_days": metadata.age_days,
-        "notes": metadata.notes,
-    }

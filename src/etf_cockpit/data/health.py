@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -10,6 +9,7 @@ from typing import Iterable
 
 import pandas as pd
 
+from etf_cockpit.core.atomic_io import sha256_file as _sha256
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.migrations import MIGRATIONS
 from etf_cockpit.data.bitemporal import BitemporalStore
@@ -566,14 +566,6 @@ def _as_date(value: str | date | None) -> date | None:
     if value:
         return datetime.fromisoformat(str(value)).date()
     return None
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def datetime_now() -> str:

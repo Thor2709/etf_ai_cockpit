@@ -12,6 +12,7 @@ from typing import Callable, Generic, TypeVar
 from uuid import uuid4
 
 from etf_cockpit.core.atomic_io import atomic_write_json
+from etf_cockpit.core.values import is_lowercase_sha256_hex as _valid_sha256
 from etf_cockpit.data.contracts import redact_text
 
 T = TypeVar("T")
@@ -456,14 +457,6 @@ def _sha256(payload: bytes) -> str:
 
 def _error_fingerprint(error: str) -> str:
     return _sha256(redact_text(error).encode("utf-8"))
-
-
-def _valid_sha256(value: object) -> bool:
-    return (
-        isinstance(value, str)
-        and len(value) == 64
-        and all(character in "0123456789abcdef" for character in value)
-    )
 
 
 def _valid_timestamp(value: str) -> bool:

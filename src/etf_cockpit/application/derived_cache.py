@@ -29,6 +29,7 @@ from etf_cockpit.core.atomic_io import (
     read_atomic_group,
 )
 from etf_cockpit.core.versioning import current_settings_revision
+from etf_cockpit.data.duckdb_store import _cache_binding_matches as _price_binding_matches
 from etf_cockpit.data.etf_structure import structure_confidence_caps
 from etf_cockpit.data.universe_store import load_universe
 from etf_cockpit.models.forecast_scores import forecast_request_identity
@@ -380,25 +381,6 @@ def _price_snapshot_binding(
     """Build the adjusted-price identity used by derived-cache sidecars."""
 
     return adjusted_price_snapshot_binding(prices, calculation_window=calculation_window)
-
-
-def _price_binding_matches(metadata: Mapping[str, object], expected: Mapping[str, object]) -> bool:
-    checksum = expected.get("price_snapshot_checksum")
-    revision = expected.get("price_snapshot_revision")
-    cutoff = expected.get("effective_cutoff")
-    window = expected.get("calculation_window")
-    valid = (
-        isinstance(checksum, str)
-        and len(checksum) == 64
-        and all(character in "0123456789abcdef" for character in checksum)
-        and revision == checksum
-        and isinstance(cutoff, str)
-        and bool(cutoff)
-        and isinstance(window, Mapping)
-        and window.get("decision_time") == cutoff
-        and all(isinstance(window.get(key), str) and window.get(key) for key in ("start_date", "end_date"))
-    )
-    return valid and all(metadata.get(key) == value for key, value in expected.items())
 
 
 def _forecast_request_identity(

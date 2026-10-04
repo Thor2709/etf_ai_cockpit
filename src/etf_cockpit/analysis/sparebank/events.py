@@ -6,18 +6,12 @@ from datetime import datetime, timezone
 import math
 from typing import Iterable, Mapping
 
+from etf_cockpit.core.values import as_finite_float as _number
+
 from .models import ECClaimState, SparebankEventAnalysis, UNAVAILABLE
 
 
 SUPPORTED_EVENTS = frozenset({"primary_issue", "conversion", "secondary_sale", "rights_issue", "buyback", "merger", "deficit_coverage"})
-
-
-def _number(value: object) -> float | None:
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    return result if math.isfinite(result) else None
 
 
 def _time(value: object) -> datetime | None:

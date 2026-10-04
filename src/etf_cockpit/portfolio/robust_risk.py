@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from etf_cockpit.analysis.fixed_income_risk import FixedIncomeRiskRecord
+from etf_cockpit.portfolio.factor_risk import _condition_number
 
 
 ROBUST_RISK_MODEL_VERSION = "robust_risk.v1"
@@ -501,14 +502,6 @@ def _weights(allocation: pd.DataFrame | None, ids: list[str]) -> pd.Series:
     if float(weights.abs().sum()) <= 0:
         weights[:] = 1.0 / max(1, len(ids))
     return weights.astype(float)
-
-
-def _condition_number(matrix: np.ndarray) -> float | None:
-    try:
-        value = float(np.linalg.cond(matrix))
-    except np.linalg.LinAlgError:
-        return None
-    return value if np.isfinite(value) else None
 
 
 def _unavailable_report(message: str, returns: pd.DataFrame, weights: pd.Series) -> dict[str, object]:

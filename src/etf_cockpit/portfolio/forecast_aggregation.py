@@ -24,6 +24,7 @@ from typing import Literal
 import numpy as np
 import yaml
 
+from etf_cockpit.core.values import finite_non_bool_float_or_none as _finite
 from etf_cockpit.models.distribution_store import normalise_quantiles
 
 
@@ -1095,16 +1096,6 @@ def _integer(value: object, *, minimum: int) -> int | None:
     if isinstance(value, float) and not value.is_integer():
         return None
     return result if result >= minimum else None
-
-
-def _finite(value: object) -> float | None:
-    if isinstance(value, bool):
-        return None
-    try:
-        result = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError, OverflowError):
-        return None
-    return result if math.isfinite(result) else None
 
 
 def _currency(value: object) -> str | None:

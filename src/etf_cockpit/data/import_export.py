@@ -12,6 +12,7 @@ import uuid
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group, parquet_payload, validate_parquet_file
+from etf_cockpit.core.values import stripped_text_or_none as _metadata_optional_text
 
 
 @dataclass(frozen=True)
@@ -525,13 +526,6 @@ def _metadata_text(value: object, default: str) -> str:
         return default
     text = str(value).strip()
     return text if text else default
-
-
-def _metadata_optional_text(value: object) -> str | None:
-    if value is None or pd.isna(value):
-        return None
-    text = str(value).strip()
-    return text or None
 
 
 def _parse_boolean(value: object) -> bool | None:

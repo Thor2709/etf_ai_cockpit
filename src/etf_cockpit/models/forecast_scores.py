@@ -12,6 +12,7 @@ import pandas as pd
 from etf_cockpit.core.paths import FORECASTS_DIR
 from etf_cockpit.core.atomic_io import read_atomic_group
 from etf_cockpit.core.config import AppConfig
+from etf_cockpit.core.values import finite_float_numpy as _finite_or_none, stripped_text_or_none as _text_or_none
 from etf_cockpit.core.versioning import current_settings_revision
 from etf_cockpit.models.distribution_store import (
     HORIZON_VALIDATION_STATUSES,
@@ -879,21 +880,6 @@ def _choose_horizon_row_for(group: pd.DataFrame, primary_horizon: int) -> pd.Ser
         if not matches.empty:
             return matches.iloc[-1]
     return group.sort_values("horizon_days").iloc[-1]
-
-
-def _finite_or_none(value: object) -> float | None:
-    try:
-        number = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-    return number if np.isfinite(number) else None
-
-
-def _text_or_none(value: object) -> str | None:
-    if value is None or pd.isna(value):
-        return None
-    text = str(value).strip()
-    return text or None
 
 
 def _timestamp_iso_or_none(value: object) -> str | None:

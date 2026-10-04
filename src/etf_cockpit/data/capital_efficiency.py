@@ -12,6 +12,7 @@ import math
 
 import pandas as pd
 
+from etf_cockpit.core.values import as_finite_float as _float, source_text_or_empty as _metadata_text
 from etf_cockpit.data.statement_normalisation import statement_coverage, statement_view
 
 
@@ -399,17 +400,6 @@ def _period_comparability(
         "periods": periods,
         "execution_allowed": False,
     }
-
-
-def _metadata_text(value: object) -> str:
-    if value is None:
-        return ""
-    try:
-        if pd.isna(value):
-            return ""
-    except (TypeError, ValueError):
-        return ""
-    return str(value).strip()
 
 
 def _mark_current_metrics_unavailable(section: dict[str, object], reason: str) -> None:
@@ -1186,14 +1176,6 @@ def _alias_value(
         ),
         None,
     )
-
-
-def _float(value: object) -> float | None:
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    return result if math.isfinite(result) else None
 
 
 def _rate(value: object) -> float | None:

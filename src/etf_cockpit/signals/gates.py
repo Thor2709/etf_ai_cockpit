@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import math
-
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.types import DataQualityReport
+from etf_cockpit.core.values import finite_float_or_none as _finite_float
 from etf_cockpit.portfolio.risk import projected_weight_allowed
 
 
@@ -67,11 +66,3 @@ def evaluate_risk_gates(
         blocked.append("model_disagreement")
 
     return sorted(set(blocked)), sorted(set(warnings))
-
-
-def _finite_float(value: object) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None

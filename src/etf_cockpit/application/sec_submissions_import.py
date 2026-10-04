@@ -15,12 +15,12 @@ import tempfile
 import zipfile
 from urllib.parse import urlparse
 
-from etf_cockpit.core.atomic_io import atomic_write_json
+from etf_cockpit.core.atomic_io import atomic_write_json, sha256_file as _sha256_file
 from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowTransitionError, publication_scope
 from etf_cockpit.data.bulk_cache import BulkCacheError, ContentAddressedCache
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
-from etf_cockpit.data.sec_edgar_bulk import SecEdgarBulkError, _open_zipfile, _validate_zip_container
+from etf_cockpit.data.sec_edgar_bulk import SecEdgarBulkError, _open_zipfile, _validate_zip_container, _is_reparse
 from etf_cockpit.parsers.contracts import ParseWarning, RawDocument
 from etf_cockpit.parsers.sec_submissions import PARSER_NAME, PARSER_VERSION, SubmissionRecord, parse_submissions
 
@@ -1045,13 +1045,6 @@ def _validate_namespace(path: Path, root: Path) -> None:
         current = current.parent
 
 
-def _is_reparse(path: Path) -> bool:
-    try:
-        return bool(int(getattr(path.lstat(), "st_file_attributes", 0)) & 0x400)
-    except OSError:
-        return False
-
-
 def _validate_cache_targets(cache: ContentAddressedCache, source_id: str | None) -> None:
     targets = [
         cache.root, cache.base, cache.objects, cache.manifests, cache.staging,
@@ -1069,14 +1062,6 @@ def _validate_cache_targets(cache: ContentAddressedCache, source_id: str | None)
         _validate_namespace(target, cache.root)
         if target.exists() and (target.is_symlink() or _is_reparse(target)):
             raise BulkCacheError("SEC submissions cache target is a link")
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _capture_input(source: Path, destination: Path, *, max_bytes: int) -> str:

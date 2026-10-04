@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes
+from etf_cockpit.core.values import string_dict_or_empty as _headers_dict
 from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.parsers.contracts import RawDocument, load_fixture_manifest
 from etf_cockpit.data.providers import ProviderResult
@@ -211,12 +212,3 @@ def _normalise_response(value: object) -> _Response:
         payload = value.read(MAX_RESPONSE_BYTES + 1)
         return _Response(bytes(payload), int(getattr(value, "status", 200)), _headers_dict(getattr(value, "headers", {})))
     raise TypeError("ESEF transport must return bytes, response tuple or response object")
-
-
-def _headers_dict(value: object) -> dict[str, str]:
-    if isinstance(value, Mapping):
-        return {str(key): str(item) for key, item in value.items()}
-    try:
-        return {str(key): str(value[key]) for key in value.keys()}  # type: ignore[union-attr]
-    except (AttributeError, KeyError, TypeError):
-        return {}

@@ -26,6 +26,7 @@ from etf_cockpit.analysis.fixed_income_risk import (
     FixedIncomeRiskRecord,
     calculate_fixed_income_risk,
 )
+from etf_cockpit.core.values import as_finite_float as _finite
 from etf_cockpit.data.fixed_income_risk_store import (
     StoredFixedIncomeRisk,
     read_fixed_income_risk,
@@ -930,14 +931,6 @@ def _frame_ids(frame: pd.DataFrame) -> set[str]:
     if frame.empty or "etf_id" not in frame.columns:
         return set()
     return {str(value) for value in frame["etf_id"].dropna().tolist()}
-
-
-def _finite(value: object) -> float | None:
-    try:
-        result = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-    return result if math.isfinite(result) else None
 
 
 def _integer(value: object) -> int | None:

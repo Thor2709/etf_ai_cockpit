@@ -6,13 +6,14 @@ from datetime import date, datetime
 import hashlib
 import json
 from math import isfinite, tanh
-from numbers import Integral
 from pathlib import Path
 import re
 from typing import Iterable, Literal
 
 import pandas as pd
 
+from etf_cockpit.data.trust_artifacts import _strict_nullable_revision_array
+from etf_cockpit.core.values import bool_like_or_none as _bool_like, stripped_text_or_none as _noneable_str
 from etf_cockpit.portfolio.benchmark_reference import (
     adjusted_price_binding_for_reference,
     validate_benchmark_reference,
@@ -1211,18 +1212,6 @@ def simple_scoreboard_frame(
     frame = pd.DataFrame(rows)
     frame["cash_curve_revision"] = _strict_nullable_revision_array(revision_values)
     return frame
-
-
-def _strict_nullable_revision_array(values: list[object]) -> pd.arrays.IntegerArray:
-    normalised: list[int | None] = []
-    for value in values:
-        if value is None or pd.isna(value):
-            normalised.append(None)
-            continue
-        if isinstance(value, bool) or not isinstance(value, Integral):
-            raise ValueError("cash_curve_revision must be a nullable integer")
-        normalised.append(int(value))
-    return pd.array(normalised, dtype="Int64")
 
 
 def write_simple_scoreboard(scores: list[SimpleInstrumentScore], path: Path | None = None) -> Path:
@@ -3528,13 +3517,6 @@ def _safe_int(value: object) -> int | None:
     return None if number is None else int(number)
 
 
-def _noneable_str(value: object) -> str | None:
-    if value is None or pd.isna(value):
-        return None
-    text = str(value).strip()
-    return text or None
-
-
 def _clamp(value: float) -> float:
     return max(-1.0, min(1.0, float(value)))
 
@@ -3581,24 +3563,6 @@ def _fmt_bool(value: object) -> str:
 def _fmt_number(value: object) -> str:
     number = _safe_float(value)
     return "n/a" if number is None else f"{number:.2f}"
-
-
-def _bool_like(value: object) -> bool | None:
-    if value is None or not pd.api.types.is_scalar(value):
-        return None
-    try:
-        if bool(pd.isna(value)):
-            return None
-    except (TypeError, ValueError):
-        return None
-    if isinstance(value, bool):
-        return value
-    text = str(value).strip().lower()
-    if text in {"true", "1", "yes", "y"}:
-        return True
-    if text in {"false", "0", "no", "n"}:
-        return False
-    return None
 
 
 def _split_flags(value: object) -> list[str]:

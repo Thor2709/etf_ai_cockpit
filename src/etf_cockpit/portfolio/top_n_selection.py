@@ -33,6 +33,7 @@ import numpy as np
 import yaml
 
 from etf_cockpit.analysis.decision.contracts import OpportunityResult
+from etf_cockpit.core.values import finite_non_bool_number_or_none as _finite, positive_int_or_none as _positive_int
 from etf_cockpit.portfolio.forecast_aggregation import PortfolioForecastSnapshot
 from etf_cockpit.portfolio.goals_constraints import (
     ConstraintResult,
@@ -872,22 +873,6 @@ def _field(value: object, key: str | None, default: object = None) -> object:
     if isinstance(value, Mapping):
         return value.get(key, default)
     return getattr(value, key, default)
-
-
-def _finite(value: object) -> float | None:
-    if isinstance(value, bool):
-        return None
-    try:
-        number = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError, OverflowError):
-        return None
-    return number if math.isfinite(number) else None
-
-
-def _positive_int(value: object) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        return None
-    return value
 
 
 def _nonnegative_int(value: object) -> int | None:

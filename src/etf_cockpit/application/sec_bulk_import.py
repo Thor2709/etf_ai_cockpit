@@ -16,7 +16,7 @@ import tempfile
 import zipfile
 from typing import Any, Iterator
 
-from etf_cockpit.core.atomic_io import atomic_write_json
+from etf_cockpit.core.atomic_io import atomic_write_json, sha256_file as _sha256_file
 from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowTransitionError, publication_scope
 from etf_cockpit.data.bulk_cache import (
@@ -676,14 +676,6 @@ def _normalise_cik(value: object) -> str | None:
     if not re.fullmatch(r"[0-9]{1,10}", text) or int(text) <= 0:
         return None
     return text.zfill(10)
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _warning_payload(warnings: Iterable[Any]) -> tuple[dict[str, object], ...]:

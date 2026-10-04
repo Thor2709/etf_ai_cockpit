@@ -11,6 +11,7 @@ from typing import Literal, Mapping
 import pandas as pd
 
 from etf_cockpit.analysis.look_through import LookThroughSummary, calculate_look_through
+from etf_cockpit.core.values import clean_text_or_empty as _text
 from etf_cockpit.data.event_calendar import normalise_event_decision_time
 from etf_cockpit.features.overlap import (
     DirectOverlapReport,
@@ -716,12 +717,6 @@ def _first_text(values: Mapping[str, object], fields: tuple[str, ...]) -> str | 
 def _optional_text(value: object) -> str | None:
     text = _text(value)
     return text or None
-
-
-def _text(value: object) -> str:
-    if value is None or (not isinstance(value, (str, bytes)) and pd.isna(value)):
-        return ""
-    return str(value).strip()
 
 
 __all__ = [

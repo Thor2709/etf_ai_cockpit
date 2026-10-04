@@ -14,6 +14,7 @@ from datetime import date
 import math
 import pandas as pd
 
+from etf_cockpit.core.values import source_text_or_empty as _source_text
 from etf_cockpit.data.market_adjustments import (
     CorporateAction,
     CorporateActionCoverage,
@@ -1170,17 +1171,6 @@ def _source_timing_complete(provenance: object) -> bool:
         ):
             return False
     return True
-
-
-def _source_text(value: object) -> str:
-    if value is None:
-        return ""
-    try:
-        if pd.isna(value):
-            return ""
-    except (TypeError, ValueError):
-        return ""
-    return str(value).strip()
 
 
 def _row_source_provenance_for_first_metric(

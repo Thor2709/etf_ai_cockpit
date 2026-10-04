@@ -17,6 +17,8 @@ import random
 import statistics
 from typing import Any
 
+from etf_cockpit.core.values import finite_float_or_none as _finite
+
 
 def decompose_forecast_uncertainty(
     distribution: Mapping[str, object] | None,
@@ -301,14 +303,6 @@ def _settings(settings: object) -> dict[str, object] | None:
 def _identifier(value: object) -> str | None:
     text = str(value).strip() if value is not None else ""
     return text if text and text.casefold() not in {"none", "nan", "<na>"} else None
-
-
-def _finite(value: object) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _probability(value: object) -> float | None:

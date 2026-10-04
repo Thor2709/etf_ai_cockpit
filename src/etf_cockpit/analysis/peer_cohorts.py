@@ -6,12 +6,12 @@ from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import json
-import math
 import random
 import statistics
 from statistics import NormalDist
 from typing import Mapping, Sequence
 
+from etf_cockpit.core.values import is_finite_number as _finite
 from etf_cockpit.data.classification import (
     DEFAULT_LEAF_CONFIDENCE,
     InstrumentContextV2,
@@ -1146,13 +1146,6 @@ def _valid_pairs(
             "at least one finite value with a positive weight is required"
         )
     return pairs
-
-
-def _finite(value: object) -> bool:
-    try:
-        return math.isfinite(float(value))  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return False
 
 
 def _time(value: str) -> datetime:

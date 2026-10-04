@@ -26,7 +26,7 @@ import zipfile
 
 import pandas as pd
 
-from etf_cockpit.core.atomic_io import atomic_write_bytes
+from etf_cockpit.core.atomic_io import atomic_write_bytes, sha256_file as _file_checksum
 from etf_cockpit.data.identity_master import (
     IdentityMasterSchemaError,
     IdentityMasterStore,
@@ -1826,14 +1826,6 @@ def _preview_matches_stage(supplied: ImportPreview, durable: ImportPreview) -> b
         and supplied.checksum == durable.checksum
         and _frame_checksum(supplied.frame) == durable.checksum
     )
-
-
-def _file_checksum(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _warning_value(warnings: Iterable[str], key: str) -> str:
