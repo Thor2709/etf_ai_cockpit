@@ -58,7 +58,6 @@ def test_s5_02_esef_dimensions_survive():
     assert "100" in statement_view(facts, "latest_restated")["value"].astype(str).tolist()
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S5-03: Percent fees are divided twice")
 def test_s5_03_percent_fee_survives_manifest_enrichment(monkeypatch):
     frame = pd.DataFrame([dict(
         instrument_id="ETF", as_of="2026-09-01", known_at="2026-09-02", ter=0.5, fee_unit="percent",
@@ -70,7 +69,6 @@ def test_s5_03_percent_fee_survives_manifest_enrichment(monkeypatch):
     assert records[0].ter == pytest.approx(0.005)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S5-04: Distinct filings collapse before ambiguity check")
 def test_s5_04_distinct_issuer_filings_remain_ambiguous(tmp_path):
     adapter = NetherlandsAfmOamAdapter(endpoint="https://www.afm.nl/export", enabled=True, cache_dir=tmp_path)
     rows = [
@@ -118,7 +116,6 @@ def test_s5_06_esef_import_stamps_fact_availability(monkeypatch, tmp_path):
     assert not statement_view(stored, "as_known_at", as_known_at="2100-01-01").empty
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S5-07: Balance and flow periods cannot produce ROIC")
 def test_s5_07_roic_combines_flow_and_balance_facts():
     values = dict(revenue=200, operating_income=20, equity=100, debt=30, cash=10)
     flow = {"revenue", "operating_income"}
@@ -133,7 +130,6 @@ def test_s5_07_roic_combines_flow_and_balance_facts():
     assert result["reported"]["metrics"]["roic"]["value"] == pytest.approx(0.125)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S5-08: Acronym headers disappear in OAM key normalisation")
 def test_s5_08_uppercase_isin_header_matches():
     adapter = NetherlandsAfmOamAdapter(endpoint="https://www.afm.nl/export")
     query = OAMDiscoveryRequest(isin="IE00B4L5Y983")

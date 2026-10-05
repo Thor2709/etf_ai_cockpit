@@ -231,6 +231,12 @@ class EtfEconomicsObservation:
         object.__setattr__(self, "fee_unit", fee_unit)
         object.__setattr__(self, "ter", _normalise_fee(self.ter, "ter", fee_unit))
         object.__setattr__(self, "ocf", _normalise_fee(self.ocf, "ocf", fee_unit))
+        if fee_unit == "percent":
+            # Fees are now decimal fractions: record that so reconstruction (replace/from_mapping) cannot divide again.
+            object.__setattr__(self, "fee_unit", "decimal_fraction")
+            for unit_field in ("ter_unit", "ocf_unit"):
+                if _text(getattr(self, unit_field)) is not None:
+                    object.__setattr__(self, unit_field, "decimal_fraction")
 
         for field_name, minimum in (("aum", 0.0), ("distribution_amount", 0.0)):
             object.__setattr__(self, field_name, _number(getattr(self, field_name), field_name, minimum=minimum))
