@@ -470,7 +470,13 @@ def _full_test_commands(
     root: Path,
     output_dir: Path | str,
     xdist_workers: int,
+    *,
+    targets: tuple[str, ...] = (),
+    parallel_junit: str = "junit-parallel.xml",
+    serial_junit: str = "junit-serial.xml",
 ) -> tuple[tuple[str, ...], ...]:
+    """Build the pytest command(s); ``targets`` and the xdist junit names let preflight reuse the phases."""
+
     if xdist_workers < 0:
         raise ValueError("xdist worker count must be zero or greater")
     pytest = _python_command(root, "-m", "pytest")
@@ -495,14 +501,16 @@ def _full_test_commands(
             "--dist",
             "worksteal",
             *common,
-            f"--junitxml={_junit_path(output_dir, 'junit-parallel.xml')}",
+            f"--junitxml={_junit_path(output_dir, parallel_junit)}",
+            *targets,
         ),
         pytest
         + (
             "-m",
             "serial",
             *common,
-            f"--junitxml={_junit_path(output_dir, 'junit-serial.xml')}",
+            f"--junitxml={_junit_path(output_dir, serial_junit)}",
+            *targets,
         ),
     )
 
@@ -756,6 +764,22 @@ def _auto_xdist_workers() -> int:
     cap = _nonnegative_int(os.environ.get(XDIST_MAX_ENV, "16"))
     workers = min(_usable_cpu_count(), cap)
     return workers if workers > 1 else 0
+
+
+def xdist_available() -> bool:
+    """True when pytest-xdist is installed (the two-phase strategy needs it)."""
+
+    try:
+        importlib.metadata.version("pytest-xdist")
+    except importlib.metadata.PackageNotFoundError:
+        return False
+    return True
+
+
+def resolve_xdist_workers() -> int:
+    """The ``--xdist-workers auto`` count for a pytest run, or 0 (serial) without pytest-xdist."""
+
+    return _auto_xdist_workers() if xdist_available() else 0
 
 
 def _nonnegative_int(value: str) -> int:

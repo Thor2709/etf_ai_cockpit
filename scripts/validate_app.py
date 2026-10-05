@@ -19,9 +19,11 @@ from typing import Iterable, cast
 
 
 try:
+    from scripts import release_gate
     from scripts.git_change_paths import changed_paths, working_paths
 except ModuleNotFoundError:
-    from git_change_paths import changed_paths, working_paths
+    import release_gate  # type: ignore[no-redef]
+    from git_change_paths import changed_paths, working_paths  # type: ignore[no-redef]
 
 
 SCHEMA_VERSION = "1.0"
@@ -32,6 +34,8 @@ MODES = ("quick", "changed", "issue", "phase", "full", "offline", "packaged")
 # test failure after full replay was added. This remains bounded and does not
 # remove or retry any required test.
 CHANGED_TEST_TIMEOUT_SECONDS = 2700
+# pytest exits 5 when a selector collects nothing; a changed-test phase may legitimately hold no tests.
+PYTEST_NO_TESTS_COLLECTED = 5
 
 
 @dataclass
@@ -83,6 +87,7 @@ class _Check:
     required: bool = True
     environment: tuple[tuple[str, str], ...] = ()
     timeout_seconds: int = 120
+    no_tests_ok: bool = False
 
 
 def run_validation(
@@ -216,23 +221,45 @@ def _checks_for_mode(
     if mode == "changed":
         changed_tests = _changed_test_paths(root)
         if changed_tests:
-            junit = (report_dir or root / REPORT_DIRECTORY / "latest") / "junit-affected.xml"
-            checks.append(
-                _Check(
-                    "changed_tests",
-                    (
-                        python,
-                        "-m",
-                        "pytest",
-                        "-q",
-                        "--durations=100",
-                        "--durations-min=0.25",
-                        f"--junitxml={junit}",
-                        *changed_tests,
-                    ),
-                    timeout_seconds=CHANGED_TEST_TIMEOUT_SECONDS,
+            junit_dir = report_dir or root / REPORT_DIRECTORY / "latest"
+            workers = release_gate.resolve_xdist_workers()
+            if workers > 0:
+                # Same two-phase xdist strategy as the release gate: "not serial" in parallel, then "serial".
+                phases = release_gate._full_test_commands(
+                    root,
+                    junit_dir,
+                    workers,
+                    targets=tuple(changed_tests),
+                    parallel_junit="junit-affected-parallel.xml",
+                    serial_junit="junit-affected-serial.xml",
                 )
-            )
+                checks.extend(
+                    _Check(
+                        name,
+                        command,
+                        timeout_seconds=CHANGED_TEST_TIMEOUT_SECONDS,
+                        no_tests_ok=True,
+                    )
+                    for name, command in zip(("changed_tests_parallel", "changed_tests_serial"), phases)
+                )
+            else:
+                junit = junit_dir / "junit-affected.xml"
+                checks.append(
+                    _Check(
+                        "changed_tests",
+                        (
+                            python,
+                            "-m",
+                            "pytest",
+                            "-q",
+                            "--durations=100",
+                            "--durations-min=0.25",
+                            f"--junitxml={junit}",
+                            *changed_tests,
+                        ),
+                        timeout_seconds=CHANGED_TEST_TIMEOUT_SECONDS,
+                    )
+                )
         else:
             checks.append(_Check("changed_scope", (python, "-c", "print('No changed test paths detected')")))
     return checks
@@ -299,6 +326,17 @@ def _run_check(root: Path, check: _Check) -> CheckResult:
             env={**os.environ, **dict(check.environment)},
         )
         output = (completed.stdout + completed.stderr).strip()
+        if check.no_tests_ok and completed.returncode == PYTEST_NO_TESTS_COLLECTED:
+            # Mirrors the release gate's empty-phase rule: nothing collected in this phase is a pass.
+            return CheckResult(
+                name=check.name,
+                command=command_text,
+                exit_code=0,
+                duration_ms=round((time.perf_counter() - started) * 1000, 3),
+                status="passed",
+                required=check.required,
+                output="no tests collected in this phase",
+            )
         status = "passed" if completed.returncode == 0 else "failed"
         return CheckResult(
             name=check.name,
