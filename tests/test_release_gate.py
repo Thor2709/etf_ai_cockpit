@@ -619,7 +619,7 @@ def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     assert "ubuntu-latest" in workflow
     assert "fail-fast: false" in workflow
     assert "timeout-minutes: 50" in workflow
-    assert "timeout-minutes: 30" in preflight
+    assert "timeout-minutes: 55" in preflight
     assert "Configure isolated user profile" in workflow
     assert "Pin reviewed canonical generation base" in workflow
     assert "PR_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}" in workflow
