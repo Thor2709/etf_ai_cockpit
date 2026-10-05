@@ -1223,3 +1223,15 @@ def test_future_inception_and_malformed_policy_checksum_fail_closed() -> None:
 
     with pytest.raises(EtfEconomicsError, match="SHA-256 identity"):
         replace(_closure_policy(), source_checksum="not-a-checksum")
+
+
+def test_percent_fee_observation_is_idempotent_across_reconstruction() -> None:
+    from etf_cockpit.data.etf_economics import EtfEconomicsObservation
+
+    base = {**_economics_records()[0], "ter": 0.5, "ocf": 0.6, "fee_unit": "percent", "ter_unit": "percent", "ocf_unit": "percent"}
+    record = EtfEconomicsObservation.from_mapping(base)
+    assert (record.ter, record.ocf) == pytest.approx((0.005, 0.006))
+    assert (record.fee_unit, record.ter_unit, record.ocf_unit) == ("decimal_fraction",) * 3
+    again = EtfEconomicsObservation.from_mapping(record.as_dict())
+    assert again == record
+    assert replace(record, artifact_sha256=None) == record

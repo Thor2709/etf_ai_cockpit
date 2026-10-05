@@ -459,6 +459,7 @@ class OAMAdapter:
             amendment_of = _first(values, "amendment_of", "amends", "replaces", "previous_filing_id")
             source_url = _first(values, "source_url", "source", "url", "link")
             document_url = _first(values, "document_url", "download_url", "file_url", "url", "link")
+            declared_document_url = document_url
             if not issuer and not isin:
                 continue
             if request.issuer and request.issuer.casefold() not in issuer.casefold():
@@ -496,9 +497,16 @@ class OAMAdapter:
             if published and _timestamp_precision(published) == "unavailable":
                 warnings = (*warnings, "publication_timestamp_unavailable")
             source_prefix = "oam-local:" if local_import else "oam:"
-            source_id = source_prefix + hashlib.sha256(
-                "|".join((self.provider_id, snapshot_sha256 if local_import else source, isin, title, published or "")).encode("utf-8")
-            ).hexdigest()[:24]
+            # Filing identity: issuer, document and amendment links are part of it so distinct filings that
+            # share a title/date (and the endpoint as source) are not merged before the ambiguity check.
+            identity = json.dumps(
+                [
+                    self.provider_id, snapshot_sha256 if local_import else source, isin, title, published or "",
+                    issuer, declared_document_url, document_type, amendment_of,
+                ],
+                separators=(",", ":"),
+            )
+            source_id = source_prefix + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
             if local_import:
                 source_id = _local_oam_source_id(self.provider_id, snapshot_sha256, raw)
                 identity_status = (
@@ -1123,12 +1131,18 @@ def _flatten_attributes(raw: Mapping[str, object]) -> dict[str, object]:
         nested = values.get(key)
         if isinstance(nested, Mapping):
             values = {**values, **nested}
-    return {re.sub(r"(?<!^)(?=[A-Z])", "_", str(key).strip()).lower().replace("-", "_"): value for key, value in values.items()}
+    return {_canonical_key(key): value for key, value in values.items()}
+
+
+def _canonical_key(key: object) -> str:
+    """snake_case a header, keeping acronym runs whole: ISIN -> isin, documentURL -> document_url."""
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", "_", str(key).strip())
+    return spaced.lower().replace("-", "_")
 
 
 def _first(values: Mapping[str, object], *keys: str) -> str:
     for key in keys:
-        value = values.get(key.lower().replace("-", "_"))
+        value = values.get(_canonical_key(key))
         if value is not None and str(value).strip():
             return str(value).strip()
     return ""
