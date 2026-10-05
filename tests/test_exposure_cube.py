@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.portfolio.exposure_cube import build_portfolio_exposure_cube
-from etf_cockpit.application.ui_facade import load_portfolio_exposure_projection
+from etf_cockpit.application.portfolio_views import load_portfolio_exposure_projection
 
 
 _DECISION_TIME = datetime(2026, 7, 18, 10, tzinfo=timezone.utc)

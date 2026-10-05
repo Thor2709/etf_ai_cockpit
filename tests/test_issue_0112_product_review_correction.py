@@ -35,11 +35,11 @@ from etf_cockpit.app.state import AppState
 from etf_cockpit.application.benchmark_reference import (
     CanonicalReferenceContext,
     clip_to_decision_window,
-    resolve_canonical_reference,
     unavailable_reference_projection,
     validate_benchmark_reference,
     adjusted_price_snapshot_binding,
 )
+from etf_cockpit.portfolio.benchmark_reference import resolve_canonical_reference
 from etf_cockpit.application.validation import _clip_to_reference_window
 from etf_cockpit.backtest.engine import (
     BacktestDataUnavailableError,

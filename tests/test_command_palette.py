@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from etf_cockpit.app.command_palette import all_commands, search_commands
+from etf_cockpit.app.command_palette import search_commands
+from etf_cockpit.core.navigation import all_commands
 
 
 PAGES = {

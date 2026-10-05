@@ -12,7 +12,6 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.app.state import AppState
-import etf_cockpit.app.state as state_module
 import etf_cockpit.application.scoreboard_publication as scoreboard_publication
 from etf_cockpit.backtest.engine import BacktestReport
 from etf_cockpit.core.config import (
@@ -234,8 +233,7 @@ def test_classification_invalidation_removes_stale_signals_and_selected_score(mo
             }
         return {"status": "available", "invalidation_token": "same-token", "invalidated_score_keys": ()}
 
-    monkeypatch.setattr(state_module, "classification_score_state", fake_score_state)
-    monkeypatch.setattr(scoreboard_publication, "classification_score_state", state_module.classification_score_state)
+    monkeypatch.setattr(scoreboard_publication, "classification_score_state", fake_score_state)
     stale = SimpleNamespace(etf_id="A", supporting_metrics={"classification_invalidation_hash": "old-token"})
     unrelated = SimpleNamespace(etf_id="B", supporting_metrics={"classification_invalidation_hash": "same-token"})
     state = AppState(

@@ -12,7 +12,6 @@ from etf_cockpit.governance.architecture_boundaries import (
     PRESENTATION_DIRS,
     BoundaryViolation,
     build_report,
-    find_violations,
 )
 
 __all__ = [
@@ -21,5 +20,4 @@ __all__ = [
     "PRESENTATION_DIRS",
     "BoundaryViolation",
     "build_report",
-    "find_violations",
 ]

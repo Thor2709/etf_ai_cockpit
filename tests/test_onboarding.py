@@ -17,7 +17,12 @@ from etf_cockpit.data.universe_store import (
     save_universe,
     support_decision,
 )
-from etf_cockpit.app.pages.onboarding import OnboardingProfile, OnboardingRevisionConflict, ProviderQuotaExceeded, TickerValidationResult, complete_onboarding, load_onboarding, onboarding_page, validate_onboarding
+from etf_cockpit.app.pages.onboarding import OnboardingProfile, TickerValidationResult, complete_onboarding, load_onboarding, onboarding_page
+from etf_cockpit.application.onboarding_profile import (
+    OnboardingRevisionConflict,
+    ProviderQuotaExceeded,
+    validate_onboarding,
+)
 import flet as ft
 import etf_cockpit.app.pages.onboarding as onboarding_module
 import etf_cockpit.application.onboarding_profile as onboarding_profile
@@ -53,7 +58,7 @@ def test_onboarding_rejects_empty_scope_and_preserves_unresolved_symbols() -> No
 
 
 def test_onboarding_keeps_dot_and_underscore_tickers_as_distinct_records() -> None:
-    records = onboarding_module._onboarding_records(
+    records = onboarding_profile._onboarding_records(
         OnboardingProfile("EUR", "Europe", ("stock",), "balanced", "medium", tickers=("A.B", "A_B")),
         (),
     )
@@ -112,7 +117,7 @@ def test_merge_records_replaces_same_id_across_tiers_even_when_allowed() -> None
     primary = UniverseRecord("SAME-ID", "Primary", "NO0000000001", "verified", "PRIMARY", "stock", "primary")
     secondary = UniverseRecord("SAME-ID", "Secondary", "NO0000000002", "verified", "SECONDARY", "stock", "secondary")
 
-    assert onboarding_module._merge_records(
+    assert onboarding_profile._merge_records(
         (primary,), (secondary,), allow_cross_tier_duplicates=True
     ) == (secondary,)
 
@@ -121,7 +126,7 @@ def test_merge_records_replaces_case_variant_id_across_tiers_even_when_allowed()
     primary = UniverseRecord("SAME-ID", "Primary", "NO0000000001", "verified", "PRIMARY", "stock", "primary")
     secondary = UniverseRecord("same-id", "Secondary", "NO0000000002", "verified", "SECONDARY", "stock", "secondary")
 
-    assert onboarding_module._merge_records(
+    assert onboarding_profile._merge_records(
         (primary,), (secondary,), allow_cross_tier_duplicates=True
     ) == (secondary,)
 
@@ -129,7 +134,7 @@ def test_merge_records_preserves_same_ticker_across_tiers_when_allowed() -> None
     primary = UniverseRecord("PRIMARY", "Primary", "NO0000000001", "verified", "SHARED", "stock", "primary")
     secondary = UniverseRecord("SECONDARY", "Secondary", "NO0000000002", "verified", "SHARED", "stock", "secondary")
 
-    records = onboarding_module._merge_records((primary,), (secondary,), allow_cross_tier_duplicates=True)
+    records = onboarding_profile._merge_records((primary,), (secondary,), allow_cross_tier_duplicates=True)
 
     assert records == (primary, secondary)
 
@@ -138,7 +143,7 @@ def test_merge_records_replaces_same_tier_ticker_collision() -> None:
     original = UniverseRecord("ORIGINAL", "Original", "NO0000000001", "verified", "SHARED", "stock", "secondary")
     replacement = UniverseRecord("REPLACEMENT", "Replacement", "NO0000000002", "verified", "SHARED", "stock", "secondary")
 
-    records = onboarding_module._merge_records((original,), (replacement,))
+    records = onboarding_profile._merge_records((original,), (replacement,))
 
     assert records == (replacement,)
 
@@ -191,7 +196,7 @@ def test_merge_records_replaces_same_tier_isin_collision() -> None:
     original = UniverseRecord("ORIGINAL", "Original", "NO0000000001", "verified", "ORIGINAL", "stock", "secondary")
     replacement = UniverseRecord("REPLACEMENT", "Replacement", "NO0000000001", "verified", "REPLACEMENT", "stock", "secondary")
 
-    records = onboarding_module._merge_records((original,), (replacement,))
+    records = onboarding_profile._merge_records((original,), (replacement,))
 
     assert records == (replacement,)
 
@@ -200,7 +205,7 @@ def test_merge_records_uses_only_verified_shape_valid_isin_authority() -> None:
     unverified_a = UniverseRecord("A", "A", "NO0000000001", "needs_verification", "A", "stock", "secondary")
     unverified_b = UniverseRecord("B", "B", "NO0000000001", "needs_verification", "B", "stock", "secondary")
 
-    records = onboarding_module._merge_records((unverified_a,), (unverified_b,))
+    records = onboarding_profile._merge_records((unverified_a,), (unverified_b,))
 
     assert records == (unverified_a, unverified_b)
 
@@ -209,7 +214,7 @@ def test_merge_records_rejects_malformed_verified_isin() -> None:
     malformed = UniverseRecord("BAD", "Bad", "not-an-isin", "verified", "BAD", "stock", "secondary")
 
     with pytest.raises(ValueError, match="malformed verified isin"):
-        onboarding_module._merge_records((malformed,))
+        onboarding_profile._merge_records((malformed,))
 
 
 def test_onboarding_ambiguous_identity_replacement_fails_before_any_write(tmp_path) -> None:
@@ -254,7 +259,7 @@ def test_merge_records_replaces_disallowed_cross_tier_collision(identity: str) -
     original = UniverseRecord(**{**original.__dict__, identity: values[identity]})
     replacement = UniverseRecord(**{**replacement.__dict__, identity: values[identity]})
 
-    records = onboarding_module._merge_records((original,), (replacement,), allow_cross_tier_duplicates=False)
+    records = onboarding_profile._merge_records((original,), (replacement,), allow_cross_tier_duplicates=False)
 
     assert records == (replacement,)
 
@@ -283,7 +288,7 @@ def test_onboarding_group_conflicts_with_canonical_save_after_precondition(tmp_p
         finally:
             canonical_done.set()
 
-    original_assert = onboarding_module._assert_universe_revision
+    original_assert = onboarding_profile._assert_universe_revision
     blocked_observed: list[bool] = []
 
     def interleaving_assert(path, expected_revision) -> None:
@@ -293,8 +298,7 @@ def test_onboarding_group_conflicts_with_canonical_save_after_precondition(tmp_p
         assert canonical_started.wait(timeout=1)
         blocked_observed.append(not canonical_done.wait(timeout=0.25))
 
-    monkeypatch.setattr(onboarding_module, "_assert_universe_revision", interleaving_assert)
-    monkeypatch.setattr(onboarding_profile, "_assert_universe_revision", onboarding_module._assert_universe_revision)
+    monkeypatch.setattr(onboarding_profile, "_assert_universe_revision", interleaving_assert)
     complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
 
     assert canonical_done.wait(timeout=5)
@@ -306,15 +310,14 @@ def test_onboarding_group_conflicts_with_canonical_save_after_precondition(tmp_p
 
 def test_two_stale_onboarding_writers_have_one_success_and_one_conflict(tmp_path, monkeypatch) -> None:
     complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
-    original_stage = onboarding_module._stage_universe_payload
+    original_stage = onboarding_profile._stage_universe_payload
     barrier = threading.Barrier(2)
 
     def staged(*args, **kwargs):
         barrier.wait(timeout=5)
         return original_stage(*args, **kwargs)
 
-    monkeypatch.setattr(onboarding_module, "_stage_universe_payload", staged)
-    monkeypatch.setattr(onboarding_profile, "_stage_universe_payload", onboarding_module._stage_universe_payload)
+    monkeypatch.setattr(onboarding_profile, "_stage_universe_payload", staged)
     profiles = (
         OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", tickers=("STALEA",), bootstrap_mode="bulk"),
         OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M", tickers=("STALEB",), bootstrap_mode="bulk"),
@@ -492,7 +495,7 @@ def test_onboarding_save_reloads_active_state(monkeypatch) -> None:
     monkeypatch.setattr(
         onboarding_module,
         "complete_onboarding",
-        lambda *args, **kwargs: onboarding_module.OnboardingResult(True, (), (), "onboarding-revision"),
+        lambda *args, **kwargs: onboarding_profile.OnboardingResult(True, (), (), "onboarding-revision"),
     )
     monkeypatch.setattr(onboarding_profile, "complete_onboarding", onboarding_module.complete_onboarding)
     state = _State()
@@ -619,8 +622,7 @@ def test_group_publish_failure_leaves_all_onboarding_outputs_absent(tmp_path, mo
     def fail_group(*_args, **_kwargs):
         raise OSError("injected grouped publish failure")
 
-    monkeypatch.setattr(onboarding_module, "atomic_write_group", fail_group)
-    monkeypatch.setattr(onboarding_profile, "atomic_write_group", onboarding_module.atomic_write_group)
+    monkeypatch.setattr(onboarding_profile, "atomic_write_group", fail_group)
     with pytest.raises(OSError, match="injected grouped publish failure"):
         complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
 
@@ -633,7 +635,7 @@ def test_group_publish_revalidates_destination_identity_after_guard_precondition
         pytest.skip("directory junction test requires Windows cmd")
     outside = tmp_path.parent / f"{tmp_path.name}-outside"
     outside.mkdir()
-    original = onboarding_module.atomic_write_group
+    original = onboarding_profile.atomic_write_group
 
     def swap_before_writer_resolution(requests, **kwargs):
         configs = onboarding_module.ROOT / "configs"
@@ -657,8 +659,7 @@ def test_group_publish_revalidates_destination_identity_after_guard_precondition
             configs.rmdir()
             original_configs.rename(configs)
 
-    monkeypatch.setattr(onboarding_module, "atomic_write_group", swap_before_writer_resolution)
-    monkeypatch.setattr(onboarding_profile, "atomic_write_group", onboarding_module.atomic_write_group)
+    monkeypatch.setattr(onboarding_profile, "atomic_write_group", swap_before_writer_resolution)
     with pytest.raises(ValueError, match="symlink"):
         complete_onboarding(OnboardingProfile("EUR", "Europe", ("stock",), "medium", "3M"), tmp_path)
 
@@ -863,7 +864,7 @@ def test_load_onboarding_rejects_boolean_bootstrap_rows(tmp_path) -> None:
     path = onboarding_module.ROOT / "configs" / "onboarding.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["setup"]["bootstrap"]["rows"] = True
-    payload["revision"] = onboarding_module._onboarding_payload_revision(payload)
+    payload["revision"] = onboarding_profile._onboarding_payload_revision(payload)
     payload["checksum"] = payload["revision"]
     path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -877,7 +878,7 @@ def test_load_onboarding_requires_exact_recomputed_unresolved_symbols(tmp_path) 
     path = onboarding_module.ROOT / "configs" / "onboarding.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["unresolved_symbols"] = []
-    payload["revision"] = onboarding_module._onboarding_payload_revision(payload)
+    payload["revision"] = onboarding_profile._onboarding_payload_revision(payload)
     payload["checksum"] = payload["revision"]
     path.write_text(json.dumps(payload), encoding="utf-8")
 

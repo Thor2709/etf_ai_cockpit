@@ -21,8 +21,8 @@ import etf_cockpit.application.decision_views as decision_views
 from etf_cockpit.application.ui_facade import (
     load_opportunity_assessment,
     load_score_metric_history_projection,
-    route_decision_rank_rows,
 )
+from etf_cockpit.application.decision_views import route_decision_rank_rows
 from etf_cockpit.portfolio.costs import COST_MODEL_ID
 
 

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable, TypeVar, cast
 from etf_cockpit.application.settings import AppConfig, save_provider_settings
 from etf_cockpit.application.runtime import run_startup_migrations
 from etf_cockpit.core.types import latest_signal
-from etf_cockpit.core.paths import FILINGS_STATEMENTS_PATH, RAW_DIR, ROOT, STATEMENT_FACTS_PATH  # noqa: F401 - compatibility re-export
+from etf_cockpit.core.paths import RAW_DIR, ROOT  # noqa: F401 - compatibility re-export
 from etf_cockpit.core.session_log import SESSION_LOG_PATH, log_event, redact_text
 from etf_cockpit.core.errors import ErrorStore, classify_exception
 from etf_cockpit.core.timing import timed_step
@@ -23,37 +23,22 @@ from etf_cockpit.core.workflow import (
     WorkflowTransitionError,
 )
 from etf_cockpit.application.api import LocalApplicationApi
-from etf_cockpit.application.sec_bulk_import import BulkImportResult, import_sec_companyfacts_bulk as _import_sec_companyfacts_bulk  # noqa: F401 - compatibility re-export
-from etf_cockpit.application.sec_submissions_import import SubmissionsImportResult, import_sec_submissions as _import_sec_submissions  # noqa: F401 - compatibility re-export
+from etf_cockpit.application.sec_bulk_import import BulkImportResult  # noqa: F401 - compatibility re-export
+from etf_cockpit.application.sec_submissions_import import SubmissionsImportResult  # noqa: F401 - compatibility re-export
 from etf_cockpit.application.runtime import DurableJobScheduler
 from etf_cockpit.application.scoreboard_publication import refresh_static_trust_artifacts
-from etf_cockpit.data.trust_artifacts import IDENTITY_PATH, write_trust_artifacts_for_scores  # noqa: F401 - compatibility re-export
-from etf_cockpit.data.classification import classification_score_state  # noqa: F401 - compatibility re-export
-from etf_cockpit.features.regime import build_market_regime, write_market_regime  # noqa: F401 - compatibility re-export
-from etf_cockpit.application.benchmark_reference import context_from_snapshot  # noqa: F401 - compatibility re-export
-from etf_cockpit.models.calibration import evaluate_forecast_calibration, load_forecast_history, write_forecast_calibration  # noqa: F401 - compatibility re-export
-from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider  # noqa: F401
-from etf_cockpit.data.esef_provider import FilingsXbrlOrgProvider  # noqa: F401 - compatibility re-export
-from etf_cockpit.data.oam_adapters import oam_adapter_for_country, write_filing_coverage, write_oam_discovery_registry  # noqa: F401 - compatibility re-export
 if TYPE_CHECKING:
     from etf_cockpit.data.instrument_identity import CanonicalIdentity
     from etf_cockpit.parsers.contracts import RawDocument
-from etf_cockpit.parsers.esef_ixbrl import parse_esef_package  # noqa: F401 - compatibility re-export
-from etf_cockpit.parsers.sec_facts import parse_companyfacts, write_statement_evidence  # noqa: F401
 from etf_cockpit.application.forecast_service import configured_forecast_request_identity
 from etf_cockpit.application.activity_results import current_activity_view, load_events_with_tail_recovery
 from etf_cockpit.application.portfolio_views import create_portfolio_review_report
 from etf_cockpit.application.chatgpt_review import ChatGPTBridge
 from etf_cockpit.application.data_service import DataService
 from etf_cockpit.application.snapshot_builder import CockpitSnapshot, build_snapshot
-from etf_cockpit.signals.simple_scores import SimpleInstrumentScore, build_simple_instrument_scores, load_latest_candidate_report, simple_scoreboard_frame, write_simple_scoreboard  # noqa: F401 - compatibility re-export
+from etf_cockpit.signals.simple_scores import SimpleInstrumentScore  # noqa: F401 - compatibility re-export
 from etf_cockpit.app import theme
 from etf_cockpit.application.contracts import ApplicationCommand, DashboardActionCommand
-from etf_cockpit.application.filing_ingestion import (
-    _bulk_result_message,  # noqa: F401
-    _cached_sec_bulk_document,  # noqa: F401
-    _sec_failure_detail,  # noqa: F401
-)
 from etf_cockpit.application.activity_results import (
     activity_result_error,
     ActivityUnavailableError,

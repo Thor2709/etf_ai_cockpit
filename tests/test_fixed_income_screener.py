@@ -27,7 +27,7 @@ from etf_cockpit.analysis.fixed_income_screener import (
     build_fixed_income_screener,
     load_fixed_income_screener_config,
 )
-from etf_cockpit.application.ui_facade import _persist_fixed_income_screener_snapshot
+from etf_cockpit.application.fixed_income_views import _persist_fixed_income_screener_snapshot
 from etf_cockpit.app.pages import portfolio as portfolio_page
 from etf_cockpit.app.pages import screener as screener_page
 from etf_cockpit.data.local_storage import TransactionalStore

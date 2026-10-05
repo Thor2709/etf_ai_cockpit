@@ -279,10 +279,8 @@ def test_state_import_persists_esef_facts_and_official_inventory(tmp_path: Path,
     import pandas as pd
 
     monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
-    monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")
-    monkeypatch.setattr(filing_ingestion_workflows, "STATEMENT_FACTS_PATH", state_module.STATEMENT_FACTS_PATH)
-    monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "filings_statements.parquet")
-    monkeypatch.setattr(filing_ingestion_workflows, "FILINGS_STATEMENTS_PATH", state_module.FILINGS_STATEMENTS_PATH)
+    monkeypatch.setattr(filing_ingestion_workflows, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")
+    monkeypatch.setattr(filing_ingestion_workflows, "FILINGS_STATEMENTS_PATH", tmp_path / "filings_statements.parquet")
     monkeypatch.setattr(state_module, "RAW_DIR", tmp_path / "raw")
     monkeypatch.setattr(filing_ingestion_workflows, "RAW_DIR", state_module.RAW_DIR)
     monkeypatch.setattr(filing_ingestion, "RAW_DIR", state_module.RAW_DIR)
@@ -308,10 +306,8 @@ def test_arbitrary_local_import_is_retained_but_requires_manual_review(tmp_path:
 
     local_package = tmp_path / "local-copy.xbri"
     local_package.write_bytes(FIXTURE.read_bytes())
-    monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")
-    monkeypatch.setattr(filing_ingestion_workflows, "STATEMENT_FACTS_PATH", state_module.STATEMENT_FACTS_PATH)
-    monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "filings_statements.parquet")
-    monkeypatch.setattr(filing_ingestion_workflows, "FILINGS_STATEMENTS_PATH", state_module.FILINGS_STATEMENTS_PATH)
+    monkeypatch.setattr(filing_ingestion_workflows, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")
+    monkeypatch.setattr(filing_ingestion_workflows, "FILINGS_STATEMENTS_PATH", tmp_path / "filings_statements.parquet")
     monkeypatch.setattr(state_module, "RAW_DIR", tmp_path / "raw")
     monkeypatch.setattr(filing_ingestion_workflows, "RAW_DIR", state_module.RAW_DIR)
     monkeypatch.setattr(filing_ingestion, "RAW_DIR", state_module.RAW_DIR)
@@ -334,10 +330,8 @@ def test_invalid_local_import_is_retained_without_clean_store_mutation(tmp_path:
 
     invalid = tmp_path / "invalid.xbri"
     invalid.write_bytes(b"not-a-zip")
-    monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")
-    monkeypatch.setattr(filing_ingestion_workflows, "STATEMENT_FACTS_PATH", state_module.STATEMENT_FACTS_PATH)
-    monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "filings_statements.parquet")
-    monkeypatch.setattr(filing_ingestion_workflows, "FILINGS_STATEMENTS_PATH", state_module.FILINGS_STATEMENTS_PATH)
+    monkeypatch.setattr(filing_ingestion_workflows, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")
+    monkeypatch.setattr(filing_ingestion_workflows, "FILINGS_STATEMENTS_PATH", tmp_path / "filings_statements.parquet")
     monkeypatch.setattr(state_module, "RAW_DIR", tmp_path / "raw")
     monkeypatch.setattr(filing_ingestion_workflows, "RAW_DIR", state_module.RAW_DIR)
     monkeypatch.setattr(filing_ingestion, "RAW_DIR", state_module.RAW_DIR)
@@ -374,8 +368,7 @@ def test_state_discovery_and_download_keep_unavailable_state_explicit(tmp_path: 
         def download_report_package(self, _filing_id, _package_url=None):
             return RawDocument(package, "https://filings.xbrl.org/fixture.xbri", datetime.now(timezone.utc), "a" * 64, "filings_xbrl_org", "esef_report_package", "application/octet-stream", 200)
 
-    monkeypatch.setattr(state_module, "FilingsXbrlOrgProvider", FakeProvider)
-    monkeypatch.setattr(filing_ingestion_workflows, "FilingsXbrlOrgProvider", state_module.FilingsXbrlOrgProvider)
+    monkeypatch.setattr(filing_ingestion_workflows, "FilingsXbrlOrgProvider", FakeProvider)
     state = state_module.AppState.__new__(state_module.AppState)
     assert "complete" in state.discover_esef_filings("NL")
     assert "downloaded" in state.download_esef_package("fixture-1")

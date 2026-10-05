@@ -193,7 +193,6 @@ def test_valuation_scenario_missing_nonpositive_shares(valuation_scenario_eviden
     if shares is not None:
         def unexpected_producer(*args, **kwargs):
             pytest.fail("Nonpositive sourced shares must be rejected before valuation")
-        monkeypatch.setattr("etf_cockpit.application.ui_facade.valuation_analysis", unexpected_producer)
         monkeypatch.setattr("etf_cockpit.application.valuation_views.valuation_analysis", unexpected_producer)
     result = load_valuation_evidence(path, instrument_id="ACME", decision_time="2026-07-01", assumptions=assumptions)
     assert (result["intrinsic_value"]["status"] if shares is None else result["status"]) == "unavailable"
@@ -319,7 +318,7 @@ def test_valuation_invalid_selected_evidence_blocks_panel(monkeypatch, field, ba
              "available_at": "2026-01-01", "filed": "2026-01-01", "end": "2025-12-31", "source_id": "known"}
     bad = valid | {"canonical_metric": "market_cap", "value": 100.0, field: bad_value}
     frame = pd.DataFrame([valid, bad])
-    monkeypatch.setattr("etf_cockpit.application.ui_facade.pd.read_parquet", lambda *_args: frame)
+    monkeypatch.setattr("pandas.read_parquet", lambda *_args: frame)
     panel = selector._valuation_panel("ACME", "stock", "2026-07-01T12:00:00Z")
     assert panel["status"] == "unavailable"
     assert panel["execution_allowed"] is False

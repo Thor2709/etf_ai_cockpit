@@ -25,9 +25,9 @@ from etf_cockpit.analysis.fixed_income_risk import (
 )
 from etf_cockpit.application.api import LocalApplicationApi
 from etf_cockpit.application.ui_facade import (
-    calculate_fixed_income_risk_projection,
     load_fixed_income_risk_projection,
 )
+from etf_cockpit.application.fixed_income_views import calculate_fixed_income_risk_projection
 from etf_cockpit.data.fixed_income_risk_store import (
     StoredFixedIncomeRisk,
     read_fixed_income_risk,

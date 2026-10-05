@@ -6,19 +6,10 @@ implementations remain compatible while later slices move them behind typed
 ports and application commands.
 """
 
-import pandas as pd  # noqa: F401 - tests patch ui_facade.pd.read_parquet
-
-from etf_cockpit.analysis.parity_report import (
-    analysis_parity_report_path,
-)
-from etf_cockpit.core.paths import LOG_DIR, STATEMENT_FACTS_PATH
-from etf_cockpit.core.paths import ROOT
+from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
 from etf_cockpit.data.event_calendar import load_calendar_events, normalise_event_decision_time
-from etf_cockpit.data.duckdb_store import PRICE_PARQUET, load_prices
-from etf_cockpit.data.fx_data import FX_CLEAN_PATH, load_fx_rates
-from etf_cockpit.data.local_storage import StorageRevisionConflict, TransactionalStore, storage_layout
-from etf_cockpit.data.macro_warehouse import MacroWarehouse, load_risk_free_proxy_mappings
-from etf_cockpit.data.stock_research import valuation_analysis
+from etf_cockpit.data.local_storage import StorageRevisionConflict, TransactionalStore
+from etf_cockpit.data.macro_warehouse import MacroWarehouse
 from etf_cockpit.data.fund_documents import read_document_registry
 from etf_cockpit.data.parsed_disclosures import read_etf_report_records
 from etf_cockpit.features.cash_comparison import (
@@ -34,7 +25,6 @@ from etf_cockpit.analysis.etf_tax_context import (
     calculate_net_return_scenario,  # noqa: F401
     load_tax_hedge_assumptions,  # noqa: F401
 )
-from etf_cockpit.application.portfolio_valuation import load_portfolio_valuation_history  # noqa: F401
 from etf_cockpit.portfolio.performance_series import (
     performance_series_frame,  # noqa: F401
 )
@@ -68,7 +58,6 @@ from etf_cockpit.data.event_calendar import (
     EVENT_CLEAN_PATH,
     events_available_as_of,
 )
-from etf_cockpit.data.etf_economics import calculate_etf_economics
 from etf_cockpit.data.export_tables import export_table
 from etf_cockpit.data.fund_documents import import_etf_document
 from etf_cockpit.data.fund_holdings import (
@@ -120,12 +109,6 @@ from etf_cockpit.data.stock_research import (
 from etf_cockpit.backtest.event_engine import event_engine_status
 from etf_cockpit.governance.release_certification import release_certification_report
 from etf_cockpit.governance.supply_chain_intake import supply_chain_intake_report
-from etf_cockpit.data.fixed_income_terms import (
-    fixed_income_terms_exists,
-)
-from etf_cockpit.analysis.fixed_income_screener import (
-    load_fixed_income_screener_config,
-)
 from etf_cockpit.data.classification import (
     ClassificationOverride,
 )
@@ -245,7 +228,6 @@ from etf_cockpit.core.resource_profiles import resource_profile_report
 from etf_cockpit.models.forecast_scores import (
     CANONICAL_DISTRIBUTION_HORIZONS_DAYS,  # noqa: F401
     PRIMARY_MODEL_HORIZON_DAYS,  # noqa: F401
-    forecast_return_distributions as load_forecast_return_distributions,
 )  # noqa: F401
 from etf_cockpit.models.model_zoo import model_zoo_frame
 from etf_cockpit.models.coverage_audit import (
@@ -325,8 +307,6 @@ from etf_cockpit.signals.feature_drivers import (  # noqa: F401
     normalise_bound_claim,
 )
 from etf_cockpit.application.paper_views import (
-    load_canary_status,
-    load_paper_incidents,
     load_paper_tca_view,
     load_paper_timeline,
     load_paper_trade_rows,
@@ -338,15 +318,10 @@ from etf_cockpit.application.identity_views import (
     save_classification_overrides,
 )
 from etf_cockpit.application.financial_institution_views import (
-    _select_ec_revision,  # noqa: F401 - consumed through the facade by Sparebank tests
     load_financial_institution_projection,
 )
 from etf_cockpit.application.fixed_income_views import (
-    _fixed_income_saved_risk_inputs,  # noqa: F401 - compatibility re-export (consumed through the facade)
-    _fixed_income_saved_valuation_inputs,  # noqa: F401 - compatibility re-export (consumed through the facade)
-    _persist_fixed_income_screener_snapshot,  # noqa: F401 - compatibility re-export (consumed through the facade)
     calculate_fixed_income_analytics_projection,
-    calculate_fixed_income_risk_projection,
     load_fixed_income_analytics_projection,
     load_fixed_income_market_data_projection,
     load_fixed_income_risk_projection,
@@ -356,23 +331,18 @@ from etf_cockpit.application.fixed_income_views import (
 from etf_cockpit.application.factor_risk_views import load_bound_factor_risk_panel
 from etf_cockpit.application.portfolio_views import (
     load_portfolio_calendar_projection,
-    load_portfolio_exposure_projection,
     load_portfolio_forecast_aggregation,
     load_portfolio_holdings_projection,
     load_portfolio_maturity_ladder_projection,
     load_portfolio_performance_series,
     load_portfolio_risk_profile_projection,
-    project_portfolio_currency,
 )
 from etf_cockpit.application.decision_views import (
     build_screen_rows,
     load_opportunity_assessment,
     load_score_metric_history_projection,
-    route_decision_rank_rows,
 )
 from etf_cockpit.application.diagnostics_views import (
-    build_profiled_forecast_lab_workspace,
-    build_resource_profile_diagnostics,
     load_analysis_parity_report,
 )
 from etf_cockpit.application.selection_views import (
@@ -380,9 +350,6 @@ from etf_cockpit.application.selection_views import (
     load_top_n_selection,
 )
 from etf_cockpit.application.market_views import (
-    _load_market_series_projection,  # noqa: F401 - compatibility re-export (consumed through the facade)
-    load_etf_economics_projection,
-    load_etf_look_through,
     load_etf_structure_projection,
     load_market_series_projection,
 )
@@ -405,7 +372,6 @@ __all__ = [
     "add_record",
     "allocation_frame",
     "analyse_portfolio_candidate",
-    "analysis_parity_report_path",
     "AnomalyLedger",
     "ApiStatus",
     "assess_fundamental_row",
@@ -420,9 +386,7 @@ __all__ = [
     "build_market_clock_diagnostics",
     "build_performance_attribution",
     "build_portfolio_candidate",
-    "build_profiled_forecast_lab_workspace",
     "build_rebalance_report",
-    "build_resource_profile_diagnostics",
     "build_robust_risk_report",
     "build_screen_rows",
     "build_simple_instrument_scores",
@@ -430,9 +394,7 @@ __all__ = [
     "build_universe_manifest",
     "build_version_registry",
     "bulk_cache_health",
-    "calculate_etf_economics",
     "calculate_fixed_income_analytics_projection",
-    "calculate_fixed_income_risk_projection",
     "calculate_net_return_scenario",
     "CancelWorkflowCommand",
     "candidate_id",
@@ -489,7 +451,6 @@ __all__ = [
     "FILINGS_STATEMENTS_PATH",
     "filter_data_health_rows",
     "filter_forecasts_for_universe",
-    "fixed_income_terms_exists",
     "forecast_score_details",
     "format_model_inventory_line",
     "ForwardEvidenceDiary",
@@ -498,7 +459,6 @@ __all__ = [
     "ForwardInputManifest",
     "FUND_HOLDINGS_PATH",
     "FUNDAMENTAL_CLEAN_PATH",
-    "FX_CLEAN_PATH",
     "fx_data_inventory",
     "generated_cache_cleanup",
     "group_simple_scores",
@@ -521,24 +481,18 @@ __all__ = [
     "load_analysis_parity_report",
     "load_bound_factor_risk_panel",
     "load_calendar_events",
-    "load_canary_status",
     "load_candidate_price_binding",
     "load_capital_allocation_analysis",
     "load_classification_projection",
     "load_cyclical_projection",
-    "load_etf_economics_projection",
-    "load_etf_look_through",
     "load_etf_structure_projection",
     "load_financial_institution_projection",
     "load_fixed_income_analytics_projection",
     "load_fixed_income_market_data_projection",
     "load_fixed_income_risk_projection",
     "load_fixed_income_screener",
-    "load_fixed_income_screener_config",
     "load_fixed_income_terms_projection",
-    "load_forecast_return_distributions",
     "load_fundamental_evidence",
-    "load_fx_rates",
     "load_identity_projection",
     "load_innovation_projection",
     "load_latest_forecasts",
@@ -548,25 +502,20 @@ __all__ = [
     "load_news_items",
     "load_opportunity_assessment",
     "load_optional_research_import",
-    "load_paper_incidents",
     "load_paper_tca_view",
     "load_paper_timeline",
     "load_paper_trade_rows",
     "load_peer_cohort_projection",
     "load_portfolio_calendar_projection",
     "load_portfolio_candidate",
-    "load_portfolio_exposure_projection",
     "load_portfolio_forecast_aggregation",
     "load_portfolio_goals_projection",
     "load_portfolio_holdings_projection",
     "load_portfolio_maturity_ladder_projection",
     "load_portfolio_performance_series",
     "load_portfolio_risk_profile_projection",
-    "load_portfolio_valuation_history",
-    "load_prices",
     "load_real_asset_projection",
     "load_reference_dataset",
-    "load_risk_free_proxy_mappings",
     "load_score_history_summary",
     "load_score_metric_history_projection",
     "load_screen",
@@ -578,7 +527,6 @@ __all__ = [
     "load_universe",
     "load_valuation_evidence",
     "load_valuation_market_inputs",
-    "LOG_DIR",
     "MacroWarehouse",
     "MacroWarehouseError",
     "MANUAL_FILING_QUEUE_PATH",
@@ -601,10 +549,8 @@ __all__ = [
     "PortfolioAnalysis",
     "PortfolioCandidate",
     "PortfolioSandboxPersistenceError",
-    "PRICE_PARQUET",
     "PRIIPS_KID_RECORDS_PATH",
     "PRIMARY_MODEL_HORIZON_DAYS",
-    "project_portfolio_currency",
     "PROVIDER_PROBE_PATH",
     "ProviderRegistry",
     "query_for_snapshot",
@@ -626,8 +572,6 @@ __all__ = [
     "resume_universe_import",
     "return_correlation_matrix",
     "review_etf_report",
-    "ROOT",
-    "route_decision_rank_rows",
     "run_disaster_recovery_drill",
     "run_screen",
     "save_classification_overrides",
@@ -652,7 +596,6 @@ __all__ = [
     "SOURCE_CONFLICTS_PATH",
     "source_policy_rows",
     "STATEMENT_FACTS_PATH",
-    "storage_layout",
     "StorageRevisionConflict",
     "SubmitWorkflowCommand",
     "supply_chain_intake_report",
@@ -666,6 +609,5 @@ __all__ = [
     "validate_import",
     "validate_restore",
     "validate_universe",
-    "valuation_analysis",
     "write_coverage_audit",
 ]

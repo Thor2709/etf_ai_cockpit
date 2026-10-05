@@ -19,7 +19,7 @@ import etf_cockpit.application.backtest_service as backtest_service
 import etf_cockpit.application.feature_service as feature_service
 import etf_cockpit.application.forecast_service as forecast_service
 import etf_cockpit.application.derived_cache as derived_cache
-from etf_cockpit.application.benchmark_reference import resolve_canonical_reference
+from etf_cockpit.portfolio.benchmark_reference import resolve_canonical_reference
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     BenchmarkDefinition,
     CanonicalBenchmarkRegistry,

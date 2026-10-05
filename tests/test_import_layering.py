@@ -65,17 +65,7 @@ ACCEPTED_EXCEPTIONS: dict[tuple[str, str], str] = {
 # Remove entries as consumers migrate; the set only shrinks.
 KNOWN_VIOLATIONS = frozenset(
     {
-        ("etf_cockpit.app.pages.onboarding", "etf_cockpit.core.atomic_io"),
         ("etf_cockpit.app.pages.onboarding", "etf_cockpit.core.config"),
-        ("etf_cockpit.app.state", "etf_cockpit.data.classification"),
-        ("etf_cockpit.app.state", "etf_cockpit.data.esef_provider"),
-        ("etf_cockpit.app.state", "etf_cockpit.data.oam_adapters"),
-        ("etf_cockpit.app.state", "etf_cockpit.data.sec_edgar_provider"),
-        ("etf_cockpit.app.state", "etf_cockpit.data.trust_artifacts"),
-        ("etf_cockpit.app.state", "etf_cockpit.features.regime"),
-        ("etf_cockpit.app.state", "etf_cockpit.models.calibration"),
-        ("etf_cockpit.app.state", "etf_cockpit.parsers.esef_ixbrl"),
-        ("etf_cockpit.app.state", "etf_cockpit.parsers.sec_facts"),
         ("etf_cockpit.app.state", "etf_cockpit.signals.simple_scores"),
     }
 )

@@ -44,7 +44,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     PeerSetDefinition,
     declare_reference_portfolios,
 )
-from etf_cockpit.application.benchmark_reference import resolve_canonical_reference
+from etf_cockpit.portfolio.benchmark_reference import resolve_canonical_reference
 
 
 _SNAPSHOT_TEMPLATE = None

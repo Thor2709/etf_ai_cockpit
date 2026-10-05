@@ -233,7 +233,7 @@ def test_facade_ladder_loader_uses_the_snapshot_decision_cutoff(monkeypatch) -> 
     monkeypatch.setattr(portfolio_views, "load_fixed_income_terms_projection", load_terms)
     projection = ui_facade.load_portfolio_maturity_ladder_projection(snapshot, analysis)
 
-    assert loaded_terms == [{"storage_root": ui_facade.ROOT, "effective_at": cutoff, "decision_time": cutoff}]
+    assert loaded_terms == [{"storage_root": portfolio_views.ROOT, "effective_at": cutoff, "decision_time": cutoff}]
     assert projection["decision_time"] == cutoff
     assert projection["totals"][0]["amount"] == Decimal("300")
 

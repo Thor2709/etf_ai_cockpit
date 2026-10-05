@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.analysis.look_through import calculate_look_through
-from etf_cockpit.application.ui_facade import load_etf_look_through
+from etf_cockpit.application.market_views import load_etf_look_through
 
 
 DECISION_TIME = "2026-07-15T16:00:00Z"

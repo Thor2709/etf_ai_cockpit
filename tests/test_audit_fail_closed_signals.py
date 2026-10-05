@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from etf_cockpit.application import ui_facade
+from etf_cockpit.application import market_views, ui_facade
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.types import ComponentScores, DataQualityReport, ForecastResult, SignalResult
 from etf_cockpit.features import macro, regime, volatility
@@ -696,7 +696,7 @@ def test_total_return_chart_seeds_only_the_first_undefined_fx_return(monkeypatch
         ]
     )
 
-    result = ui_facade._load_market_series_projection(
+    result = market_views._load_market_series_projection(
         prices,
         "AAA",
         basis="raw",
@@ -730,7 +730,7 @@ def test_total_return_chart_rejects_a_later_fx_return_gap(monkeypatch: pytest.Mo
         ]
     )
 
-    result = ui_facade._load_market_series_projection(
+    result = market_views._load_market_series_projection(
         prices,
         "AAA",
         basis="raw",

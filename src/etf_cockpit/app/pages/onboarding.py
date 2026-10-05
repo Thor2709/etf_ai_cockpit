@@ -24,18 +24,6 @@ from etf_cockpit.application.onboarding_profile import (
     overlay_universe_config,
     TickerValidationResult,
 )
-from etf_cockpit.application.onboarding_profile import (
-    OnboardingResult,  # noqa: F401 - compatibility re-export
-    OnboardingRevisionConflict,  # noqa: F401 - compatibility re-export
-    ProviderQuotaExceeded,  # noqa: F401 - compatibility re-export
-    _assert_universe_revision,  # noqa: F401 - compatibility re-export
-    _merge_records,  # noqa: F401 - compatibility re-export
-    _onboarding_payload_revision,  # noqa: F401 - compatibility re-export
-    _onboarding_records,  # noqa: F401 - compatibility re-export
-    _stage_universe_payload,  # noqa: F401 - compatibility re-export
-    validate_onboarding,  # noqa: F401 - compatibility re-export
-)
-from etf_cockpit.core.atomic_io import atomic_write_group  # noqa: F401 - compatibility re-export
 
 
 def _as_of_strip(state: AppState | None) -> ft.Control:

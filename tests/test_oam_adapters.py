@@ -987,10 +987,8 @@ def _assert_app_rejects_without_publication(source, country, tmp_path, monkeypat
     def unexpected_publication(*args, **kwargs):
         pytest.fail("Rejected export must not publish registry or coverage")
 
-    monkeypatch.setattr(state_module, "write_oam_discovery_registry", unexpected_publication)
-    monkeypatch.setattr(filing_ingestion_workflows, "write_oam_discovery_registry", state_module.write_oam_discovery_registry)
-    monkeypatch.setattr(state_module, "write_filing_coverage", unexpected_publication)
-    monkeypatch.setattr(filing_ingestion_workflows, "write_filing_coverage", state_module.write_filing_coverage)
+    monkeypatch.setattr(filing_ingestion_workflows, "write_oam_discovery_registry", unexpected_publication)
+    monkeypatch.setattr(filing_ingestion_workflows, "write_filing_coverage", unexpected_publication)
     state = state_module.AppState.__new__(state_module.AppState)
     with pytest.raises(state_module.ActivityUnavailableError, match="rejected"):
         state.import_local_oam(source, country, cache_dir=tmp_path / "app-cache", **query)

@@ -13,7 +13,6 @@ from etf_cockpit.portfolio.benchmark_reference import (
     adjusted_price_snapshot_binding,
     clip_to_decision_window,
     context_from_snapshot,
-    resolve_canonical_reference,
     unavailable_reference_projection,
     validate_benchmark_reference,
 )
@@ -24,7 +23,6 @@ __all__ = [
     "adjusted_price_snapshot_binding",
     "clip_to_decision_window",
     "context_from_snapshot",
-    "resolve_canonical_reference",
     "unavailable_reference_projection",
     "validate_benchmark_reference",
 ]
