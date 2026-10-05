@@ -1264,8 +1264,7 @@ def test_cancel_guard_blocks_real_candidate_report_and_holdings_atomic_group(tmp
 
     disclosure_source = tmp_path / "factsheet.pdf"
     disclosure_source.write_bytes(b"issuer disclosure")
-    monkeypatch.setattr(trust_evidence_module, "RAW_DIR", tmp_path / "raw")
-    monkeypatch.setattr(evidence_documents, "RAW_DIR", trust_evidence_module.RAW_DIR)
+    monkeypatch.setattr(evidence_documents, "RAW_DIR", tmp_path / "raw")
     with pytest.raises(WorkflowTransitionError, match="cancelled"):
         trust_evidence_module._retain_picker_source(disclosure_source, "factsheets", publish_guard=cancelled)
     assert not (tmp_path / "raw").exists()
@@ -1870,8 +1869,7 @@ def test_disclosure_browser_picker_bytes_retain_registry_source_after_worker(
 
     monkeypatch.setattr(trust_evidence_module, "_attach_picker", lambda *_args: Picker())
     monkeypatch.setattr(trust_evidence_module, "_refresh_activity_shell", lambda *_args: None)
-    monkeypatch.setattr(trust_evidence_module, "RAW_DIR", tmp_path / "raw")
-    monkeypatch.setattr(evidence_documents, "RAW_DIR", trust_evidence_module.RAW_DIR)
+    monkeypatch.setattr(evidence_documents, "RAW_DIR", tmp_path / "raw")
     registry_path = tmp_path / "fund_documents.parquet"
     holdings_path = tmp_path / "fund_holdings.parquet"
     entered = threading.Event()

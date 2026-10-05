@@ -89,7 +89,7 @@ def test_minimum_profile_runs_without_foundation_models(monkeypatch: pytest.Monk
         snapshot=HardwareSnapshot("test", 1, 2_048, 1_536, 5_000, False, "cpu-only"),
     )
     report = forecast_lab.build_forecast_lab_workspace(
-        config, _forecasts(), _prices(), timing_records=[], profile_id="minimum"
+        config, _forecasts(), _prices(), profile_id="minimum"
     )
 
     assert estimate["profile"] == "minimum"
@@ -191,7 +191,7 @@ def test_cross_profile_numerical_parity(monkeypatch: pytest.MonkeyPatch) -> None
 
     for profile_id in ("minimum", "recommended", "high"):
         report = forecast_lab.build_forecast_lab_workspace(
-            config, forecasts, prices, timing_records=[], profile_id=profile_id
+            config, forecasts, prices, profile_id=profile_id
         )
         estimate = report["resource_profile"]
         baseline = report["models"].set_index("model_name").loc["baseline"]
