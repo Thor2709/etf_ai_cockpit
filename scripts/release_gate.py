@@ -1431,7 +1431,13 @@ def _print_failure_digest(root: Path, output_dir: Path) -> None:
         if spec is None or spec.loader is None:
             return
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        # @dataclass resolves cls.__module__ through sys.modules, so the module must be registered before exec.
+        sys.modules[spec.name] = module
+        try:
+            spec.loader.exec_module(module)
+        except BaseException:
+            sys.modules.pop(spec.name, None)
+            raise
         print("\n--- failure digest ---\n" + module.render([output_dir], root))
     except Exception as exc:  # noqa: BLE001 - the digest must never change the gate outcome
         print(f"failure digest unavailable: {exc}", file=sys.stderr)

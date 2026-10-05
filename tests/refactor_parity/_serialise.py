@@ -20,6 +20,8 @@ from pathlib import PurePath
 import numpy as np
 import pandas as pd
 
+from refactor_parity._harness import FLOAT_ABS
+
 NAN = "<NaN>"
 POS_INF = "<inf>"
 NEG_INF = "<-inf>"
@@ -155,13 +157,52 @@ def frame_golden(
 
 
 LARGE_LIST_LIMIT = 50
+# Floats inside a compacted list are hashed at 8 significant digits (relative 1e-8, a decade coarser than the
+# harness FLOAT_REL of 1e-9 so a rounding-boundary flip from last-bit noise is improbable); |x| < FLOAT_ABS is 0.0.
+LIST_FLOAT_SIGNIFICANT_DIGITS = 8
+FIELD_DIGEST_HEX = 16
+_MISSING_KEY = ["m"]
+
+
+def _canonical(value: object) -> object:
+    """Injective, tagged canonical form of an already-jsonable value used only for list digests.
+
+    Floats: ``|x| < FLOAT_ABS`` (including -0.0) becomes 0.0, every other float keeps
+    ``LIST_FLOAT_SIGNIFICANT_DIGITS`` significant digits, so last-bit libm/SIMD noise (also on extreme magnitudes
+    such as 3e17, where six decimal places are ~23 significant digits) cannot change the digest while a relative
+    change of 1e-6 still does.  Strings keep the sha256 mask and 6-place text decimals.  Every node is a tagged
+    list, so a float, a string, an int and a container can never collide.
+    """
+
+    if value is None:
+        return ["n"]
+    if isinstance(value, bool):
+        return ["b", value]
+    if isinstance(value, int):
+        return ["i", value]
+    if isinstance(value, float):
+        return ["f", f"{0.0 if abs(value) < FLOAT_ABS else value:.{LIST_FLOAT_SIGNIFICANT_DIGITS - 1}e}"]
+    if isinstance(value, str):
+        return ["s", _normalise_text(value)]
+    if isinstance(value, list):
+        return ["l", [_canonical(item) for item in value]]
+    if isinstance(value, dict):
+        return ["d", [[str(key), _canonical(value[key])] for key in sorted(value, key=str)]]
+    raise TypeError(f"not a jsonable value: {type(value).__name__}")
+
+
+def _digest(canonical: object, hex_length: int) -> str:
+    text = json.dumps(canonical, allow_nan=False, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:hex_length]
 
 
 def compact_large_lists(value: object, *, limit: int = LARGE_LIST_LIMIT) -> object:
     """Replace every list longer than ``limit`` by length, first/last item and a content digest.
 
-    The digest is a 32-hex prefix of a sha256 over the masked, float-normalised JSON text (6 decimal places), so it
-    is exact for strings/ints/booleans and stable against last-bit float noise.
+    ``digest32`` is a 32-hex prefix of a sha256 over the canonical form of the list (see ``_canonical``): exact for
+    strings/ints/booleans/None, platform-stable for floats (|x| < FLOAT_ABS folded to 0.0, otherwise 8 significant
+    digits).  When every item is a dict, ``field_digests`` adds one 16-hex digest per key (over that key's column,
+    a missing key being distinct from None) so a mismatch names the field(s).
     """
 
     if isinstance(value, dict):
@@ -169,11 +210,17 @@ def compact_large_lists(value: object, *, limit: int = LARGE_LIST_LIMIT) -> obje
     if isinstance(value, list):
         if len(value) <= limit:
             return [compact_large_lists(item, limit=limit) for item in value]
-        text = _normalise_text(json.dumps(value, sort_keys=True, allow_nan=False, ensure_ascii=False))
-        return {
+        compact: dict[str, object] = {
             "list_length": len(value),
-            "digest32": hashlib.sha256(text.encode("utf-8")).hexdigest()[:32],
-            "first_item": compact_large_lists(value[0], limit=limit),
-            "last_item": compact_large_lists(value[-1], limit=limit),
+            "digest32": _digest(_canonical(value), 32),
         }
+        if all(isinstance(item, dict) for item in value):
+            keys = sorted({str(key) for item in value for key in item})
+            compact["field_digests"] = {
+                key: _digest([_canonical(item[key]) if key in item else _MISSING_KEY for item in value], FIELD_DIGEST_HEX)
+                for key in keys
+            }
+        compact["first_item"] = compact_large_lists(value[0], limit=limit)
+        compact["last_item"] = compact_large_lists(value[-1], limit=limit)
+        return compact
     return value

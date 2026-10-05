@@ -10,7 +10,9 @@ NOTES = (
     "(summary metrics for all 7 strategies, column-major, incl. column order), digests of equity_curves / trade_log / "
     "signal_log / quality_momentum_evidence (shape, columns, dtypes, numeric sum/mean/min/max, first+last 3 rows, exact "
     "hash of the non-float columns with decimals inside text rounded to 6 places), and the metadata (lists longer than "
-    "50 items are replaced by length + 32-hex content digest + first/last item). Also pinned: the cached reload (the "
+    "50 items are replaced by length + 32-hex content digest + first/last item; the digest covers a canonical form in "
+    "which floats with |x| < 1e-12 are 0.0 and others keep 8 significant digits, so it is platform-stable, and lists "
+    "of dicts also carry a 16-hex digest per field name). Also pinned: the cached reload (the "
     "second snapshot) returns the same results table. sha256 values are masked; floats rel=1e-9/abs=1e-12. "
     "Defaults chosen: 3 sample rows, 6-place text rounding, list compaction limit 50."
 )
