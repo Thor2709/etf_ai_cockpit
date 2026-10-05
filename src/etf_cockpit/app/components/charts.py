@@ -349,32 +349,6 @@ def allocation_donut(
     return ft.Container(content=ft.Column(body, spacing=4), key=key, padding=10, border=border_all(1, BORDER))
 
 
-def drift_bar(current: float, target: float, soft_band: float, hard_band: float, width: int = 180) -> ft.Column:
-    drift = current - target
-    colour = GREEN if abs(drift) <= soft_band else AMBER if abs(drift) <= hard_band else RED
-    fill_width = max(4, min(width, int(width * min(abs(drift) / max(hard_band, 0.001), 1.0))))
-    return ft.Column(
-        [
-            ft.Row(
-                [
-                    ft.Text(f"{current:.1%}", size=11, color=TEXT),
-                    ft.Text(f"target {target:.1%}", size=11, color=MUTED),
-                ],
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            ),
-            ft.Container(
-                content=ft.Container(width=fill_width, height=6, bgcolor=colour, border_radius=4),
-                width=width,
-                height=6,
-                bgcolor=SURFACE_2,
-                border_radius=4,
-                border=border_all(1, BORDER),
-            ),
-        ],
-        spacing=4,
-    )
-
-
 def score_bar(value: float, width: int = 90) -> ft.Container:
     colour = GREEN if value > 0.2 else RED if value < -0.2 else AMBER
     fill_width = max(3, int(width * min(abs(value), 1.0)))
@@ -413,7 +387,3 @@ def score_meter(value: float, width: int = 132) -> ft.Row:
         spacing=7,
         tight=True,
     )
-
-
-def model_status_dot(available: bool) -> ft.Container:
-    return ft.Container(width=8, height=8, bgcolor=CYAN if available else MUTED, border_radius=4)

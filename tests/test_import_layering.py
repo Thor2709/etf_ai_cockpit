@@ -37,6 +37,7 @@ PRESENTATION_SHARED_KERNEL = frozenset(
         "etf_cockpit.core.timing",
         "etf_cockpit.core.types",
         "etf_cockpit.core.ui_acceptance",
+        "etf_cockpit.core.values",
         "etf_cockpit.core.workflow",
     }
 )
