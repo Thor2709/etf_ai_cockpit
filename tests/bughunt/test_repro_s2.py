@@ -9,7 +9,6 @@ import pandas as pd
 import pytest
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S2-01: Portfolio wealth uses geometric averaging instead of holdings accounting")
 def test_s2_01_geometric_portfolio_value():
     from etf_cockpit.backtest.engine import run_backtest
     from etf_cockpit.core.config import load_config
@@ -25,7 +24,6 @@ def test_s2_01_geometric_portfolio_value():
     assert math.isclose(result.equity_curves["equal_weight"].iloc[-1], 15000.0)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S2-02: Holdout comparison fits portfolio weights using the holdout")
 def test_s2_02_holdout_weights_use_training_only():
     from etf_cockpit.portfolio.optimiser import OptimiserConstraints, PortfolioOptimiser
 
