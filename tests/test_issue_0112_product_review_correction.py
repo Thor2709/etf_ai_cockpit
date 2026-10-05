@@ -14,14 +14,15 @@ import pytest
 import etf_cockpit.models.forecast_scores as forecast_scores
 from etf_cockpit.application.backtest_service import BacktestService
 from etf_cockpit.application.derived_cache import (
+    _bound_cache_metadata_payload,
     _cache_matches_universe,
     _cached_backtest_binding_matches,
     _forecast_request_identity,
     _read_bound_cache_payload,
     _reference_binding,
     _reference_identity_hash,
+    _universe_cache_meta_path,
     _write_bound_cache_group,
-    _write_universe_cache_metadata,
     _price_snapshot_binding,
 )
 from etf_cockpit.application.feature_service import FeatureService
@@ -242,12 +243,17 @@ def test_cache_metadata_requires_matching_canonical_reference_identity(tmp_path)
         "calculation_schema": "canonical-benchmark-cash.v1",
         "execution_allowed": False,
     }
-    _write_universe_cache_metadata(path, "universe", "settings", identity)
+    _universe_cache_meta_path(path).write_bytes(
+        _bound_cache_metadata_payload("universe", "settings", identity, path.read_bytes())
+    )
     assert _cache_matches_universe(path, "universe", "settings", identity)
     assert not _cache_matches_universe(path, "universe", "settings", {**identity, "status": "available"})
     legacy = tmp_path / "legacy.csv"
     legacy.write_text("etf_id\nBENCH\n", encoding="utf-8")
-    _write_universe_cache_metadata(legacy, "universe", "settings")
+    _universe_cache_meta_path(legacy).write_text(
+        json.dumps({"schema_version": 2, "universe_revision": "universe", "settings_revision": "settings"}),
+        encoding="utf-8",
+    )
     assert not _cache_matches_universe(legacy, "universe", "settings", identity)
 
 

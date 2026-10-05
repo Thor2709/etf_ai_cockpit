@@ -117,13 +117,6 @@ def validate_import(import_type: str, path: Path) -> ImportPreview:
     return preview
 
 
-def commit_import(preview_id: str, *, root: Path | None = None) -> ImportCommitResult:
-    preview = _PREVIEWS.get(str(preview_id))
-    if preview is None or not preview.valid:
-        raise ValueError("A valid import preview is required before commit")
-    return ImportService(root or Path.cwd()).commit(preview.preview_id)
-
-
 class ImportService:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)

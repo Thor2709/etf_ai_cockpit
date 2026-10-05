@@ -24,7 +24,6 @@ from etf_cockpit.backtest.metrics import (
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.atomic_io import (
     AtomicWriteRequest,
-    atomic_write_bytes,
     atomic_write_group,
     read_atomic_group,
 )
@@ -199,49 +198,6 @@ def _cached_structure_columns_match(
             if float(row.stored_cap) != expected_cap or row.stored_hash != expected_hash:
                 return False
     return True
-
-
-def _write_universe_cache_metadata(
-    path: Path,
-    revision: str,
-    settings_revision: str | None = None,
-    reference_identity: Mapping[str, object] | None = None,
-    price_binding: Mapping[str, object] | None = None,
-    forecast_request_identity: Mapping[str, object] | None = None,
-) -> None:
-    metadata_path = _universe_cache_meta_path(path)
-    payload_sha256 = (
-        hashlib.sha256(path.read_bytes()).hexdigest()
-        if reference_identity is not None and path.is_file()
-        else None
-    )
-    payload = json.dumps(
-        {
-            "schema_version": 2,
-            "universe_revision": revision,
-            "settings_revision": settings_revision or current_settings_revision(),
-            **({"payload_sha256": payload_sha256} if payload_sha256 is not None else {}),
-            **(
-                {
-                    "reference_identity": dict(reference_identity),
-                    "reference_identity_hash": _reference_identity_hash(reference_identity),
-                }
-                if reference_identity is not None
-                else {}
-            ),
-            **(dict(price_binding) if price_binding is not None else {}),
-            **(
-                {
-                    "forecast_request_identity": dict(forecast_request_identity),
-                    "forecast_request_identity_hash": _reference_identity_hash(forecast_request_identity),
-                }
-                if forecast_request_identity is not None
-                else {}
-            ),
-        },
-        sort_keys=True,
-    ).encode("utf-8")
-    atomic_write_bytes(metadata_path, payload, lambda candidate: json.loads(candidate.read_text(encoding="utf-8")))
 
 
 def _bound_cache_metadata_payload(

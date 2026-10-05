@@ -205,67 +205,6 @@ def _load_market_series_projection(
     }
 
 
-def load_etf_economics_projection(
-    snapshot: object,
-    instrument_id: str,
-    *,
-    as_of: object = None,
-    horizon_days: int = 252,
-) -> dict[str, object]:
-    """Load the economics panel through the application-facing read model."""
-
-    from types import SimpleNamespace
-
-    from etf_cockpit.application.etf_economics_view import build_etf_economics_panel
-
-    fund_evidence = getattr(snapshot, "etf_fund_total_return", None)
-    benchmark_evidence = getattr(snapshot, "etf_benchmark_total_return", None)
-    if isinstance(fund_evidence, dict) or isinstance(benchmark_evidence, dict):
-        import pandas as pd
-
-        records = getattr(snapshot, "etf_economics_records", ())
-        decision_time = as_of if as_of is not None else getattr(
-            getattr(snapshot, "data_report", None), "as_of_date", None
-        )
-        cutoff = None
-        if decision_time is not None:
-            cutoff = pd.Timestamp(decision_time)
-            cutoff = cutoff.tz_localize("UTC") if cutoff.tzinfo is None else cutoff.tz_convert("UTC")
-            if len(str(decision_time).strip()) <= 10:
-                cutoff += pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
-        eligible_funds = [
-            item
-            for item in records
-            if getattr(item, "scope", None) == "fund"
-            and getattr(item, "instrument_id", None) == instrument_id
-            and (
-                cutoff is None
-                or (pd.Timestamp(item.as_of) <= cutoff and pd.Timestamp(item.known_at) <= cutoff)
-            )
-        ]
-        latest_fund = max(
-            eligible_funds,
-            key=lambda item: (item.as_of, item.known_at or ""),
-            default=None,
-        )
-        if isinstance(fund_evidence, dict):
-            fund_evidence = fund_evidence.get(instrument_id)
-        if isinstance(benchmark_evidence, dict):
-            benchmark_id = latest_fund.benchmark_id if latest_fund is not None else None
-            benchmark_evidence = benchmark_evidence.get(benchmark_id)
-        snapshot = SimpleNamespace(
-            etf_economics_records=records,
-            etf_fund_total_return=fund_evidence,
-            etf_benchmark_total_return=benchmark_evidence,
-            etf_closure_policy=getattr(snapshot, "etf_closure_policy", None),
-            data_report=getattr(snapshot, "data_report", None),
-        )
-
-    return build_etf_economics_panel(
-        snapshot, instrument_id, as_of=as_of, horizon_days=horizon_days
-    )
-
-
 def load_market_series_projection(
     prices: object,
     instrument_id: str,

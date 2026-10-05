@@ -756,7 +756,7 @@ def test_dependent_callers_report_corrupt_scoreboard_as_unavailable(tmp_path, mo
     assert friction["reason_code"] == "scoreboard_store_unreadable"
     assert "unavailable" in friction["friction_reason"]
     assert friction["execution_allowed"] is False
-    assert selector._scoreboard_row("VWCE") == {}
+    assert selector._scoreboard_lookup("VWCE")[0] == {}
     # The loader itself must keep raising: no empty-frame conversion.
     with pytest.raises(ValueError):
         simple_scores.load_simple_scoreboard(corrupt)

@@ -151,19 +151,6 @@ def _document_checksum(row: pd.Series | None) -> str:
     return "" if value is None or pd.isna(value) else str(value)
 
 
-def _start_disclosure_import(state: AppState, result: ft.Control, label: str) -> str | None:
-    """Expose a durable running state before a disclosure parser begins."""
-
-    try:
-        action_id = state.begin_activity(label, "Reading selected document").action_id
-    except WorkflowTransitionError:
-        owner = state.current_activity.label if state.current_activity is not None else "Another action"
-        result.value = f"{label} blocked: {owner} is already running."
-        return None
-    result.value = f"{label} in progress: reading selected document..."
-    return action_id
-
-
 def _refresh_activity_shell(page: ft.Page, state: AppState) -> None:
     if not hasattr(page, "views"):
         page.update()

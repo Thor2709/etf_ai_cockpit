@@ -75,10 +75,9 @@ def test_approved_import_shapes_validate_and_commit_only_after_preview(tmp_path:
     preview = validate_import(import_type, source)
     assert preview.valid is True, preview.errors
     assert preview.preview_id
-    assert callable(getattr(import_export, "commit_import", None))
-    with pytest.raises(ValueError):
-        import_export.commit_import("preview-not-registered")
     service = ImportService(tmp_path)
+    with pytest.raises(ValueError):
+        service.commit("preview-not-registered")
     service.register(preview)
     result = service.commit(preview.preview_id)
     assert result.status == "committed"

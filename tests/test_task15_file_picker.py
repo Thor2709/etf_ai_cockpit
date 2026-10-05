@@ -58,10 +58,22 @@ def test_import_progress_is_visible_and_durable_on_activity_state(tmp_path, monk
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     result = SimpleNamespace(value="")
+    page = SimpleNamespace(update=lambda: None)
+    observed: dict[str, object] = {}
 
-    trust_evidence._start_disclosure_import(state, result, "Import PRIIPs KID")
+    def action(_action_id: str) -> str:
+        activity = state.current_activity
+        observed["status"] = None if activity is None else activity.status
+        observed["step"] = None if activity is None else activity.step
+        observed["message"] = result.value
+        return "Done."
 
-    assert state.current_activity is not None
-    assert state.current_activity.status == "running"
-    assert state.current_activity.step == "Reading selected document"
-    assert "in progress" in result.value.lower()
+    worker = trust_evidence._run_official_filing_action(
+        page, state, result, "Import PRIIPs KID", "Reading selected document", action
+    )
+    assert worker is not None
+    worker.join(timeout=30)
+
+    assert observed["status"] == "running"
+    assert observed["step"] == "Reading selected document"
+    assert "in progress" in str(observed["message"]).lower()

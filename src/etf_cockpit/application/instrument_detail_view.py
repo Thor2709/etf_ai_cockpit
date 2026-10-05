@@ -1533,10 +1533,6 @@ def _scoreboard_lookup(
     return rows.iloc[-1].to_dict(), None
 
 
-def _scoreboard_row(instrument_id: str, *, candidate_score: SimpleInstrumentScore | None = None) -> dict[str, Any]:
-    return _scoreboard_lookup(instrument_id, candidate_score=candidate_score)[0]
-
-
 def _score_panel(
     signal: Any,
     scoreboard: Mapping[str, Any],

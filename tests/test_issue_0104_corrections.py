@@ -14,8 +14,9 @@ import pytest
 from etf_cockpit.application.backtest_service import BacktestService
 from etf_cockpit.application.derived_cache import (
     _cached_structure_columns_match,
+    _bound_cache_metadata_payload,
     _reference_binding,
-    _write_universe_cache_metadata,
+    _universe_cache_meta_path,
 )
 from etf_cockpit.application.reference_context import _backtest_calculation_context
 from etf_cockpit.backtest.engine import quality_momentum_evidence_checksum
@@ -1496,11 +1497,11 @@ def test_backtest_cache_is_invalidated_when_structural_loader_raises(tmp_path, m
         "quality_momentum_evidence.csv",
         "backtest_metadata.json",
     ):
-        _write_universe_cache_metadata(
-            backtests / filename,
-            "universe-1",
-            "settings-1",
-            reference_identity=reference_context.identity,
+        cached_path = backtests / filename
+        _universe_cache_meta_path(cached_path).write_bytes(
+            _bound_cache_metadata_payload(
+                "universe-1", "settings-1", reference_context.identity, cached_path.read_bytes()
+            )
         )
 
     loader_called = False

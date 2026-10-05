@@ -10,7 +10,7 @@ import pytest
 
 from etf_cockpit.parsers.priips_kid import PriipsKidRecord
 from etf_cockpit.app.router import build_shell
-from etf_cockpit.app.components.simple_scores import _component_row, simple_score_grouped_sections, simple_score_tiles
+from etf_cockpit.app.components.simple_scores import _component_row, simple_score_grouped_sections
 from etf_cockpit.app.components.simple_scores import _score_history_panel
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.config import load_config
@@ -1169,10 +1169,10 @@ def test_scoreboard_multi_file_write_rolls_back_on_late_template_failure(tmp_pat
     assert {path: path.read_bytes() for path in paths} == previous
 
 
-def test_simple_score_tiles_render_instrument_rows() -> None:
+def test_simple_score_grouped_sections_render_instrument_rows() -> None:
     config = load_config()
     scores = build_simple_instrument_scores(config, [], pd.DataFrame(), pd.DataFrame())
-    tiles = simple_score_tiles(scores)
+    tiles = simple_score_grouped_sections(scores)
     text = "\n".join(_control_texts(tiles))
 
     assert "VWCE - Vanguard FTSE All-World UCITS ETF USD Accumulating" in text
@@ -1184,7 +1184,7 @@ def test_simple_score_tiles_render_instrument_rows() -> None:
 def test_score_row_arrow_does_not_toggle_twice_on_parent_click() -> None:
     config = load_config()
     score = build_simple_instrument_scores(config, [], pd.DataFrame(), pd.DataFrame())[0]
-    controls = simple_score_tiles([score])
+    controls = simple_score_grouped_sections([score])
     buttons = [control for control in _control_nodes(controls) if type(control).__name__ == "IconButton"]
 
     handlers = [control for control in _control_nodes(controls) if callable(getattr(control, "on_click", None))]

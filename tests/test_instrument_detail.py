@@ -271,7 +271,7 @@ def test_instrument_detail_scoreboard_reader_hides_classification_invalidated_sc
         lambda path: load_simple_scoreboard(path, root=tmp_path),
     )
 
-    row = selector._scoreboard_row("A")
+    row = selector._scoreboard_lookup("A")[0]
     panel = selector._score_panel(
         None,
         row,
@@ -1243,7 +1243,6 @@ def test_unavailable_score_rows_carry_an_explicit_reason_code(tmp_path, monkeypa
     assert lookup() == ({}, "scoreboard_store_empty")
     monkeypatch.setattr(selector, "load_simple_scoreboard", lambda path: pd.DataFrame([{"instrument_id": "OTHER"}]))
     assert lookup() == ({}, "scoreboard_row_missing_for_instrument")
-    assert selector._scoreboard_row("VWCE") == {}  # the row contract is unchanged
 
     for expected in ("scoreboard_store_unreadable", "scoreboard_row_missing_for_instrument"):
         panel = selector._score_panel(None, {}, {"crowding": {}}, unavailable_friction, scoreboard_reason_code=expected)

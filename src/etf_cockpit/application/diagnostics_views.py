@@ -1,4 +1,4 @@
-"""Diagnostics read models: analysis parity report, resource profiles and profiled forecast-lab workspace (application; ADR-0002)."""
+"""Diagnostics read models: analysis parity report and resource profiles (application; ADR-0002)."""
 
 from collections.abc import Mapping
 import json
@@ -19,22 +19,6 @@ from etf_cockpit.core.resource_profiles import (
     HardwareSnapshot,
     resource_profile_report,
 )
-
-
-def build_profiled_forecast_lab_workspace(
-    config: object,
-    forecasts: object,
-    prices: object,
-    *,
-    profile_id: str = "auto",
-) -> dict[str, object]:
-    """Build Forecast Lab through the app facade with an explicit hardware profile."""
-
-    from etf_cockpit.features.forecast_lab import build_forecast_lab_workspace
-
-    return build_forecast_lab_workspace(
-        config, forecasts, prices, profile_id=profile_id
-    )
 
 
 def build_resource_profile_diagnostics(

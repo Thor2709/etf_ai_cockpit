@@ -2120,11 +2120,22 @@ def test_disclosure_import_concurrent_loser_is_readably_blocked(label) -> None:
     state = _state()
     barrier = threading.Barrier(2)
     results = [SimpleNamespace(value=""), SimpleNamespace(value="")]
-    action_ids: list[str | None] = []
+    page = SimpleNamespace(update=lambda: None)
+    hold = threading.Event()
+    background: list[threading.Thread | None] = []
 
     def start(result) -> None:
         barrier.wait()
-        action_ids.append(trust_evidence_module._start_disclosure_import(state, result, label))
+        background.append(
+            trust_evidence_module._run_official_filing_action(
+                page,
+                state,
+                result,
+                label,
+                "Parsing selected document",
+                lambda _action_id: (hold.wait(_WAIT_S), "Done.")[1],
+            )
+        )
 
     workers = [threading.Thread(target=start, args=(result,)) for result in results]
     for worker in workers:
@@ -2132,10 +2143,12 @@ def test_disclosure_import_concurrent_loser_is_readably_blocked(label) -> None:
     for worker in workers:
         worker.join(timeout=2)
 
-    assert sum(action_id is not None for action_id in action_ids) == 1
+    assert sum(thread is not None for thread in background) == 1
     assert any("blocked:" in result.value and "already running" in result.value for result in results)
-    state.cancel_activity(expected_action_id=state.current_activity.action_id)
-    state.release_activity(state.current_activity.action_id)
+    hold.set()
+    for thread in background:
+        if thread is not None:
+            thread.join(timeout=_WAIT_S)
 
 
 def test_tracked_retry_reenters_canonical_wrapper(tmp_path, monkeypatch) -> None:

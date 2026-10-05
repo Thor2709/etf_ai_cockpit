@@ -13,7 +13,7 @@ from etf_cockpit.application.economics_inputs import _etf_economics_snapshot_inp
 import etf_cockpit.application.backtest_service as backtest_service
 import etf_cockpit.application.economics_inputs as economics_inputs
 import etf_cockpit.application.structural_evidence as structural_evidence
-from etf_cockpit.application import market_views
+from etf_cockpit.application.etf_economics_view import build_etf_economics_panel
 from etf_cockpit.data.etf_economics import (
     EtfEconomicsStore,
     import_etf_economics_artifact,
@@ -128,7 +128,7 @@ def _visible_panel(records, fund, benchmark, policy, *, horizon_days: int = 3):
         etf_closure_policy=policy,
         data_report=SimpleNamespace(as_of_date=DECISION_TIME),
     )
-    return market_views.load_etf_economics_projection(
+    return build_etf_economics_panel(
         snapshot,
         INSTRUMENT_ID,
         horizon_days=horizon_days,
