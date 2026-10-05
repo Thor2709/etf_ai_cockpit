@@ -75,8 +75,8 @@ class PaperAccountSnapshot:
     base_currency: str
     status: str
     cash: float
-    equity: float
-    pnl: float
+    equity: float | None
+    pnl: float | None
     benchmark_return: float | None
     drawdown: float | None
     open_positions: int
@@ -98,8 +98,8 @@ class PaperAccountSnapshot:
             "base_currency": self.base_currency,
             "status": self.status,
             "cash": round(self.cash, 8),
-            "equity": round(self.equity, 8),
-            "pnl": round(self.pnl, 8),
+            "equity": None if self.equity is None else round(self.equity, 8),
+            "pnl": None if self.pnl is None else round(self.pnl, 8),
             "benchmark_return": None if self.benchmark_return is None else round(self.benchmark_return, 8),
             "drawdown": None if self.drawdown is None else round(self.drawdown, 8),
             "open_positions": self.open_positions,
@@ -469,6 +469,8 @@ class PaperLedger:
             self._require_open(state)
             if any(item.get("proposal_id") == proposal_id for item in state["orders"].values()):
                 raise PaperLedgerError("A proposal that has been accepted cannot also be rejected.")
+            if proposal_id in state["deferred"]:
+                raise PaperLedgerError("A deferred proposal cannot also be rejected.")
             if proposal_id in state["rejections"]:
                 return dict(state["rejections"][proposal_id])
             rejection = {
@@ -706,11 +708,18 @@ class PaperLedger:
         source_authority: str,
         source_checksum: str,
         horizon_days: int = 20,
+        exit_fx_rate: float | None = None,
         occurred_at: datetime | None = None,
     ) -> dict[str, object]:
-        """Mature one filled proposal against adjusted-price, benchmark and cash evidence."""
+        """Mature one filled proposal against adjusted-price, benchmark and cash evidence.
+
+        Entry and exit are compared on one basis: fills are restated for every split recorded after them
+        (the adjusted close is on the post-split basis) and the exit is converted with ``exit_fx_rate``.
+        Fills with a non-unit FX rate require ``exit_fx_rate``; without it maturation is blocked.
+        """
 
         exit_price = _positive(adjusted_close, "adjusted_close")
+        exit_fx = None if exit_fx_rate is None else _positive(exit_fx_rate, "exit_fx_rate")
         benchmark = _number(benchmark_return, "benchmark_return")
         cash = _number(cash_return, "cash_return")
         if not isinstance(horizon_days, int) or not 1 <= horizon_days <= 3_650:
@@ -739,16 +748,32 @@ class PaperLedger:
             ]
             if not order_fills:
                 raise PaperLedgerError("A paper outcome requires at least one recorded fill.")
-            quantity = sum(float(item["quantity"]) for item in order_fills)
+            if exit_fx is None and any(_decimal_number(item.get("fx_rate", 1.0), "fx_rate") != 1 for item in order_fills):
+                raise PaperLedgerError("Exit FX evidence (exit_fx_rate) is required to mature an outcome with converted fills.")
+            # Restate each fill for the splits recorded after it so entry and exit share the adjusted-price basis.
+            instrument = str(order["instrument_id"]).upper()
+            split_factor: dict[str, float] = {}
+            for event in events:
+                event_payload = event.get("payload")
+                if not isinstance(event_payload, Mapping):
+                    continue
+                if event.get("event_type") == "fill_recorded" and event_payload.get("order_id") == order.get("order_id"):
+                    split_factor[str(event_payload["fill_id"])] = 1.0
+                elif event.get("event_type") == "corporate_action" and str(event_payload.get("instrument_id", "")).upper() == instrument:
+                    for fill_key in split_factor:
+                        split_factor[fill_key] *= float(event_payload["split_ratio"])
+            quantity = sum(float(item["quantity"]) * split_factor.get(str(item["fill_id"]), 1.0) for item in order_fills)
             entry_value = sum(float(item["quantity"]) * float(item["price"]) * float(item.get("fx_rate", 1.0)) for item in order_fills)
             fees = sum(float(item.get("fee", 0.0)) for item in order_fills)
             entry_price = entry_value / quantity
+            exit_value_price = exit_price * (1.0 if exit_fx is None else exit_fx)
             direction = 1.0 if order.get("side") == "buy" else -1.0
-            gross_return = direction * (exit_price - entry_price) / entry_price
+            gross_return = direction * (exit_value_price - entry_price) / entry_price
             cost_return = fees / entry_value if entry_value else 0.0
             net_return = gross_return - cost_return
             outcome_id = "outcome_" + _digest(
-                {"account_id": self.account_id, "order_id": order["order_id"], "adjusted_close": exit_price, "benchmark_return": benchmark, "cash_return": cash, "horizon_days": horizon_days, "source_checksum": provenance["source_checksum"]}
+                {"account_id": self.account_id, "order_id": order["order_id"], "adjusted_close": exit_price, "benchmark_return": benchmark, "cash_return": cash, "horizon_days": horizon_days, "source_checksum": provenance["source_checksum"],
+                 **({} if exit_fx is None else {"exit_fx_rate": exit_fx})}
             )[:20]
             existing = next(
                 (
@@ -765,6 +790,7 @@ class PaperLedger:
                         ("adjusted_close", exit_price),
                         ("benchmark_return", benchmark),
                         ("cash_return", cash),
+                        ("exit_fx_rate", exit_fx),
                         ("source_authority", provenance["source_authority"]),
                         ("source_checksum", provenance["source_checksum"]),
                     )
@@ -789,6 +815,7 @@ class PaperLedger:
                 "excess_return_vs_benchmark": round(net_return - benchmark, 12),
                 "excess_return_vs_cash": round(net_return - cash, 12),
                 "price_basis": "adjusted_close",
+                **({} if exit_fx is None else {"exit_fx_rate": exit_fx}),
                 "outcome_as_of": _timestamp(occurred_at),
                 **provenance,
                 "execution_allowed": False,
@@ -1704,6 +1731,7 @@ class PaperLedger:
         positions: list[PaperPosition] = []
         market_value = 0.0
         unrealised = 0.0
+        unmarked: list[str] = []
         for instrument_id, raw in sorted(positions_state.items()):
             quantity = float(raw.get("quantity", 0.0))
             if quantity <= 1e-8:
@@ -1714,6 +1742,8 @@ class PaperLedger:
             if position_unrealised is not None:
                 market_value += float(mark_price) * mark_fx * quantity
                 unrealised += position_unrealised
+            else:
+                unmarked.append(instrument_id)
             positions.append(
                 PaperPosition(
                     instrument_id=instrument_id,
@@ -1727,16 +1757,18 @@ class PaperLedger:
                 )
             )
         cash = float(state["cash"])
-        equity = cash + market_value
         initial_cash = float(state["initial_cash"])
-        pnl = equity - initial_cash
+        # A nonzero position without a mark has an unknown value: equity, P&L and drawdown are unavailable,
+        # never a total that silently counts the holding as zero.
+        equity = None if unmarked else cash + market_value
+        pnl = None if equity is None else equity - initial_cash
         trade_pnls = [float(value) for value in state["trade_pnls"]]
         wins = [value for value in trade_pnls if value > 0]
         losses = [value for value in trade_pnls if value < 0]
         win_rate = None if not trade_pnls else len(wins) / len(trade_pnls)
         payoff_ratio = None if not wins or not losses else sum(wins) / abs(sum(losses))
         peak = max(initial_cash, float(state.get("equity_peak", initial_cash)))
-        drawdown = None if peak <= 0 else (equity - peak) / peak
+        drawdown = None if equity is None or peak <= 0 else (equity - peak) / peak
         try:
             from etf_cockpit.trading.incidents import IncidentJournal
 
@@ -1766,6 +1798,11 @@ class PaperLedger:
                 "Paper order pipeline frozen until clean reconciliation; execution_allowed=false."
                 if frozen
                 else "Local paper simulation only; execution_allowed=false."
+            )
+            + (
+                f" Valuation unavailable: no mark for {', '.join(unmarked)}."
+                if unmarked
+                else ""
             ),
             matured_outcomes=len(state["outcomes"]),
             operational_incidents=len(state["operational_errors"]),
@@ -1778,8 +1815,11 @@ def _update_equity_peak(state: dict[str, object]) -> None:
         return
     marked_value = 0.0
     for position in positions.values():
-        if not isinstance(position, Mapping) or position.get("mark_price") is None:
+        if not isinstance(position, Mapping) or float(position.get("quantity", 0.0)) <= 1e-8:
             continue
+        if position.get("mark_price") is None:
+            # Incomplete valuation: the peak only moves on complete valuations.
+            return
         marked_value += float(position.get("quantity", 0.0)) * float(position["mark_price"]) * float(position.get("mark_fx_rate", 1.0))
     equity = float(state.get("cash", 0.0)) + marked_value
     state["equity_peak"] = max(float(state.get("equity_peak", 0.0)), equity)

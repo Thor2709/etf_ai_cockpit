@@ -612,6 +612,7 @@ class LocalApplicationApi:
             benchmark_return=request.benchmark_return,
             cash_return=request.cash_return,
             horizon_days=request.horizon_days,
+            exit_fx_rate=request.exit_fx_rate,
             source_authority=request.source_authority,
             source_checksum=request.source_checksum,
             occurred_at=request.as_of,
