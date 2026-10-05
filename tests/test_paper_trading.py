@@ -396,3 +396,55 @@ def test_paper_mode_has_no_network_authority() -> None:
     assert "requests" not in source
     assert "httpx" not in source
     assert "urllib" not in source
+
+
+def test_unmarked_position_does_not_move_equity_peak_and_marking_restores_valuation(tmp_path: Path) -> None:
+    ledger = PaperLedger(tmp_path)
+    ledger.open_account(initial_cash=1_000)
+    order = ledger.accept_proposal(_proposal(source="peak"), execution_price=10)
+    ledger.record_fill(str(order["order_id"]), quantity=10, price=10)
+    assert ledger.snapshot().equity is None
+    assert ledger.snapshot().to_payload()["equity"] is None
+    marked = ledger.mark("VWCE", adjusted_close=9, source_authority="test-adjusted-close", source_checksum="a" * 64)
+    assert marked.equity == pytest.approx(990)
+    assert marked.pnl == pytest.approx(-10)
+    assert marked.drawdown == pytest.approx(-0.01)
+
+
+def test_reject_after_defer_is_refused_without_writing_an_event(tmp_path: Path) -> None:
+    ledger = PaperLedger(tmp_path)
+    ledger.open_account(initial_cash=1_000)
+    proposal = _proposal(source="reject-after-defer")
+    ledger.defer_proposal(proposal, reason="Wait")
+    events_before = len(ledger._read_events())
+    with pytest.raises(PaperLedgerError, match="deferred"):
+        ledger.reject_proposal(proposal, reason="Decline")
+    assert len(ledger._read_events()) == events_before
+
+
+def test_outcome_restates_pre_split_fills_but_not_post_split_fills(tmp_path: Path) -> None:
+    ledger = PaperLedger(tmp_path)
+    ledger.open_account(initial_cash=1_000)
+    order = ledger.accept_proposal(_proposal(source="split-mix"), execution_price=10)
+    ledger.record_fill(str(order["order_id"]), quantity=4, price=10)
+    ledger.apply_corporate_action("VWCE", split_ratio=2, source_authority="fixture", source_checksum="a" * 64)
+    ledger.record_fill(str(order["order_id"]), quantity=6, price=5)
+    result = ledger.mature_outcome(
+        str(order["order_id"]), adjusted_close=6, benchmark_return=0, cash_return=0, source_authority="fixture", source_checksum="b" * 64
+    )
+    assert result["quantity"] == pytest.approx(14)
+    assert result["entry_price"] == pytest.approx(5)
+    assert result["gross_return"] == pytest.approx(0.2)
+
+
+def test_outcome_with_converted_fills_requires_exit_fx_evidence(tmp_path: Path) -> None:
+    ledger = PaperLedger(tmp_path)
+    ledger.open_account(initial_cash=1_000)
+    order = ledger.accept_proposal(_proposal(source="fx-outcome"), execution_price=10, fx_rate=0.5)
+    ledger.record_fill(str(order["order_id"]), quantity=10, price=10, fx_rate=0.5)
+    evidence = dict(benchmark_return=0, cash_return=0, source_authority="fixture", source_checksum="b" * 64)
+    with pytest.raises(PaperLedgerError, match="exit_fx_rate"):
+        ledger.mature_outcome(str(order["order_id"]), adjusted_close=10, **evidence)
+    result = ledger.mature_outcome(str(order["order_id"]), adjusted_close=10, exit_fx_rate=0.5, **evidence)
+    assert result["gross_return"] == pytest.approx(0)
+    assert result["exit_fx_rate"] == 0.5

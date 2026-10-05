@@ -17,12 +17,11 @@ from etf_cockpit.portfolio.ledger import Ledger
 from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError
 from etf_cockpit.portfolio.rebalancing import RebalanceConstraints, build_rebalance_report
 from etf_cockpit.portfolio.reconciliation import source_entry_id
-from etf_cockpit.trading.incidents import IncidentJournal, IncidentJournalError, IncidentJournalIntegrityError
+from etf_cockpit.trading.incidents import IncidentJournal, IncidentJournalError
 from tests.test_paper_trading import _proposal
 from tests.test_portfolio_reconciliation import _application_with_trade, _cutoff, _map_account
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S1-01: Rejecting a deferred proposal makes the ledger unreadable")
 def test_s1_01_reject_after_defer(tmp_path: Path) -> None:
     ledger = PaperLedger(tmp_path)
     ledger.open_account(initial_cash=1000)
@@ -37,7 +36,6 @@ def test_s1_01_reject_after_defer(tmp_path: Path) -> None:
     assert ledger.snapshot().status == "ready"
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S1-05: Matured returns compare incompatible execution and adjusted prices")
 def test_s1_05_split_neutral_outcome(tmp_path: Path) -> None:
     ledger = PaperLedger(tmp_path)
     ledger.open_account(initial_cash=1000)
@@ -50,7 +48,6 @@ def test_s1_05_split_neutral_outcome(tmp_path: Path) -> None:
     assert result["gross_return"] == pytest.approx(0)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S1-06: Unmarked holdings are valued as zero in account totals")
 def test_s1_06_unmarked_position_valuation_unknown(tmp_path: Path) -> None:
     ledger = PaperLedger(tmp_path)
     ledger.open_account(initial_cash=1000)
@@ -63,7 +60,6 @@ def test_s1_06_unmarked_position_valuation_unknown(tmp_path: Path) -> None:
     assert snapshot.drawdown is None
 
 
-@pytest.mark.xfail(strict=True, raises=IncidentJournalIntegrityError, reason="S1-02: Interrupted incident append permanently invalidates its integrity anchor")
 def test_s1_02_failed_anchor_update_leaves_readable_journal(tmp_path: Path) -> None:
     journal = IncidentJournal(tmp_path)
     journal.record("baseline", message="Baseline", occurred_at=datetime(2026, 1, 1, tzinfo=timezone.utc))
@@ -136,7 +132,6 @@ def _walk(control: object):
         yield from _walk(content)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S1-07: Equal partial fills from separate UI actions are discarded")
 def test_s1_07_equal_partial_fill_actions_not_silently_dropped(tmp_path: Path) -> None:
     ledger = PaperLedger(tmp_path)
     ledger.open_account(initial_cash=1000)

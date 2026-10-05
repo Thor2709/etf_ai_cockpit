@@ -208,6 +208,7 @@ class PaperOutcomeMatureRequest(ContractModel):
     benchmark_return: float
     cash_return: float
     horizon_days: int = Field(default=20, ge=1, le=3650)
+    exit_fx_rate: float | None = Field(default=None, gt=0)
     as_of: datetime
     source_authority: str = Field(min_length=1, max_length=160)
     source_checksum: str = Field(min_length=64, max_length=64)

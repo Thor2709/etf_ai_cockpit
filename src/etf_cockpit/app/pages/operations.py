@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from collections.abc import Mapping
 import threading
+import uuid
 
 import flet as ft
 
@@ -309,16 +310,23 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
             message.value = f"Proposal deferral could not be recorded safely: {exc}"
         _safe_update(page)
 
+    fill_intent: dict[str, str] = {}
+
     def fill_paper_order(_event: ft.ControlEvent) -> None:
+        # One fill-intent ID per user action: created once, reused only while the action has not succeeded
+        # (a retry after an error), so two deliberate equal partial fills are two ledger events.
+        intent_id = fill_intent.setdefault("id", "fill_" + uuid.uuid4().hex[:20])
         try:
             result = api.fill_paper_order(
                 PaperFillRequest(
                     account_id=str(paper_account_id.value or "local-paper"),
                     order_id=str(paper_order_id.value or ""),
+                    fill_id=intent_id,
                     quantity=float(str(paper_fill_quantity.value or "0").replace(",", "")),
                     price=float(str(paper_fill_price.value or "0").replace(",", "")),
                 )
             )
+            fill_intent.clear()
             paper_order_id.value = result.order_id
             message.value = f"Paper fill recorded for {result.order_id}; status={result.status}; execution_allowed=false."
             refresh_paper_account()
@@ -586,12 +594,16 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
 __all__ = ["operations_page"]
 
 
+def _value_or_unavailable(value: object) -> object:
+    return "unavailable" if value is None else value
+
+
 def _paper_summary(item: object | None) -> str:
     if item is None:
         return "Paper account: unavailable · open a local account before paper activity."
     return (
         f"Paper account: {getattr(item, 'status', 'unavailable')} · cash={getattr(item, 'cash', None)} · "
-        f"equity={getattr(item, 'equity', None)} · PnL={getattr(item, 'pnl', None)} · "
+        f"equity={_value_or_unavailable(getattr(item, 'equity', None))} · PnL={_value_or_unavailable(getattr(item, 'pnl', None))} · "
         f"positions={getattr(item, 'open_positions', 0)} · reconciliation={getattr(item, 'reconciliation_status', 'unavailable')} · "
         f"matured_outcomes={getattr(item, 'matured_outcomes', 0)} · operational_incidents={getattr(item, 'operational_incidents', 0)} · "
         "execution_allowed=false"
