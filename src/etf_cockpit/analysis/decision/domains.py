@@ -399,11 +399,22 @@ def _score_metric(
             definition, evidence, None, "UNAVAILABLE", "RANK_AUTHORITY_NOT_GRANTED"
         ), None, None
     try:
+        # The classification context is resolved once at its own effective
+        # cutoff (decision time on the shadow path), so the cohort cutoff is
+        # that of the context. The metric's own effective period still bounds
+        # the peer evidence: only peer observations effective no later than
+        # the metric's effective time are comparable (S4-05).
+        metric_effective = _parse_time(evidence.effective_at)
+        comparable_peers = [
+            item
+            for item in peer_observations
+            if _effective_not_after(item, metric_effective)
+        ]
         cohort = construct_cohort(
             target_context,
-            peer_observations,
+            comparable_peers,
             metric=definition.metric_id,
-            effective_at=evidence.effective_at,
+            effective_at=target_context.effective_at,
             decision_time=decision.isoformat().replace("+00:00", "Z"),
             minimum_support=minimum_support,
             comparison_scope=definition.comparison_scope,
@@ -710,6 +721,14 @@ def _weighted_mean(values: Sequence[tuple[float, float]]) -> float | None:
     if total_weight <= 0:
         return None
     return sum(value * weight for value, weight in values if weight > 0) / total_weight
+
+
+def _effective_not_after(item: PeerObservation, limit: datetime) -> bool:
+    try:
+        return _parse_time(item.effective_at) <= limit
+    except ValueError:
+        # Malformed peer timestamps stay in so the cohort records the exclusion.
+        return True
 
 
 def _parse_time(value: str) -> datetime:

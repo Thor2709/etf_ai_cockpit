@@ -33,6 +33,7 @@ from etf_cockpit.analysis.innovation_sector_adapters import (
     build_innovation_projection,
     innovation_adapter_definitions,
 )
+from etf_cockpit.analysis.look_through import calculate_look_through
 from etf_cockpit.analysis.peer_cohorts import AdapterRegistry, PeerObservation
 from etf_cockpit.analysis.sparebank.events import deficit_coverage
 from etf_cockpit.application.market_views import load_etf_look_through
@@ -121,11 +122,6 @@ def test_s4_03_default_loss_basis_independent_of_curve():
     assert without.default_recovery == with_curve.default_recovery
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S4-04: gap stop fills outside the execution bar",
-)
 def test_s4_04_gap_stop_uses_reachable_execution_price():
     bars = [(100, 102, 99, 101), (104, 106, 103, 105), (100, 101, 99, 100), (90, 91, 89, 90)]
     candles = [
@@ -140,11 +136,6 @@ def test_s4_04_gap_stop_uses_reachable_execution_price():
     assert 89 <= trade["exit_price"] <= 91
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S4-05: historical metric date invalidates classification context",
-)
 def test_s4_05_historical_metric_uses_decision_classification_cutoff():
     t, e, k = "2025-03-01T00:00:00Z", "2024-12-31T00:00:00Z", "2025-02-01T00:00:00Z"
 
@@ -167,14 +158,11 @@ def test_s4_05_historical_metric_uses_decision_classification_cutoff():
         "X", "stock", "software", t, [m], DomainRegistry("v", "a" * 64, (d,)),
         target_context=ctx("X"), peer_observations=peers,
     )
-    assert r.drivers[0].status == "AVAILABLE"
+    # normalisation reports lower-case "available"; failures are upper-case
+    assert r.drivers[0].status.upper() == "AVAILABLE"
+    assert r.drivers[0].reason_code != "PEER_COHORT_UNAVAILABLE"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S4-06: unknown newer holdings hide older usable snapshot",
-)
 def test_s4_06_latest_holdings_means_latest_known_snapshot():
     common = dict(instrument_id="F", isin="US0378331005", weight=1, source="issuer")
     h = pd.DataFrame(
@@ -213,14 +201,47 @@ def test_s4_07_percentage_dilution_reconciles_with_share_counts():
     assert dilution.value == 10
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S4-08: validated candle volume is discarded",
-)
 def test_s4_08_candle_features_preserve_valid_volume():
     r = calculate_candle_features(
         dict(open=100, high=102, low=99, close=101, volume=12345, price_basis="raw")
     )
     assert r["status"] == "available"
     assert r["volume"] == 12345
+
+
+def _s4_candles(bars):
+    return [
+        dict(date=f"2026-09-0{i + 1}", open=o, high=h, low=lo, close=c, volume=10, price_basis="raw")
+        for i, (o, h, lo, c) in enumerate(bars)
+    ]
+
+
+def test_s4_04_gap_through_target_fills_at_open_inside_bar():
+    bars = [(100, 102, 99, 101), (104, 106, 103, 105), (100, 101, 99, 100), (110, 111, 109, 110)]
+    r = backtest_candle_templates(_s4_candles(bars))
+    trade = next(x for x in r["rows"] if x.get("signal_date") == "2026-09-02")
+    assert trade["exit_reason"] == "target"
+    assert trade["exit_price"] == 110
+
+
+def test_s4_04_short_gap_up_through_stop_fills_at_open():
+    bars = [(100, 102, 99, 101), (98, 99, 96, 97), (100, 101, 99, 100), (105, 106, 104, 105)]
+    r = backtest_candle_templates(_s4_candles(bars))
+    trade = next(x for x in r["rows"] if x.get("signal_date") == "2026-09-02")
+    assert trade["side"] == "short"
+    assert trade["exit_reason"] == "stop"
+    assert trade["exit_price"] == 105
+
+
+def test_s4_06_requested_source_applies_before_latest_date_selection():
+    base = dict(instrument_id="F", isin="US0378331005", weight=1)
+    h = pd.DataFrame(
+        [
+            dict(base, as_of="2026-09-29", known_at="2026-09-30T00:00:00Z", source="issuer", source_id="s1"),
+            dict(base, as_of="2026-09-30", known_at="2026-09-30T12:00:00Z", source="vendor", source_id="s2"),
+        ]
+    )
+    r = calculate_look_through(
+        h, instrument_id="F", decision_time="2026-10-01T00:00:00Z", source="issuer"
+    )
+    assert r.holdings_date == "2026-09-29"

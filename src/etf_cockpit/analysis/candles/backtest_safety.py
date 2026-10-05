@@ -115,9 +115,27 @@ def backtest_candle_templates(
 
             high = float(holding_features["high"])
             low = float(holding_features["low"])
+            open_price = float(holding_features["open"])
+            holding_date = candles[holding_index].get("date", candles[holding_index].get("as_of_date"))
+            # A bar that opens through the stop or target is filled at its open,
+            # the first reachable price; the stop/target level itself never
+            # traded in that bar (D9). The open precedes any intrabar move, so
+            # this is not an ambiguous bar. Stop and target are on opposite
+            # sides of the entry, so both cannot be breached at the open.
+            gap_stop = open_price <= stop if side == "long" else open_price >= stop
+            gap_target = open_price >= target if side == "long" else open_price <= target
+            if gap_stop or gap_target:
+                outcome.update({
+                    "status": "closed",
+                    "exit_date": holding_date,
+                    "holding_bars": holding_index - entry_index + 1,
+                    "exit_price": open_price,
+                    "exit_reason": "stop" if gap_stop else "target",
+                    "gap_fill": True,
+                })
+                break
             stop_hit = low <= stop if side == "long" else high >= stop
             target_hit = high >= target if side == "long" else low <= target
-            holding_date = candles[holding_index].get("date", candles[holding_index].get("as_of_date"))
             if stop_hit and target_hit:
                 outcome.update({
                     "status": "ambiguous",
