@@ -85,7 +85,6 @@ def _posted_application(tmp_path: Path):
     return app, event_id
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S1-03: Historical reconciliation consults future journal entries and reversals")
 def test_s1_03_future_reversal_does_not_change_historical_match(tmp_path: Path) -> None:
     app, event_id = _posted_application(tmp_path)
     query = dict(authority="broker", as_of=_AS_OF, known_at=_cutoff())
@@ -99,7 +98,6 @@ def test_s1_03_future_reversal_does_not_change_historical_match(tmp_path: Path) 
     assert app.reconcile(**query).matched_source_rows == 1
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S1-04: Historical reconciliation selects account mappings recorded after its cutoff")
 def test_s1_04_future_mapping_does_not_replace_historical_mapping(tmp_path: Path) -> None:
     app, _event_id = _posted_application(tmp_path)
     query = dict(authority="broker", as_of=_AS_OF, known_at=_cutoff())
@@ -119,12 +117,40 @@ def test_s1_04_future_mapping_does_not_replace_historical_mapping(tmp_path: Path
     assert after.matched_source_rows == 1
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S1-08: Lot rounding and cash fitting bypass minimum trade constraints")
 def test_s1_08_final_trades_respect_minimum() -> None:
     holdings = pd.DataFrame([dict(etf_id="VWCE", current_weight=0.9, market_value_eur=900, quantity=900, price_eur=1)])
     constraints = RebalanceConstraints(cash_buffer_weight=0.095, min_trade_eur=50)
     report = build_rebalance_report(load_config(), holdings, {"VWCE": 1}, portfolio_value_eur=1000, constraints=constraints)
     assert [t.trade_value_eur for t in report.trades if t.trade_value_eur != 0 and abs(t.trade_value_eur) < 50] == []
+
+
+def test_s1_03_posting_recorded_after_known_at_does_not_satisfy_match(tmp_path: Path) -> None:
+    app, event_id = _application_with_trade(tmp_path)
+    _map_account(app)
+    before_posting = _cutoff()
+    app.apply_adjustment(event_id, authority="broker", as_of=_AS_OF, known_at=_cutoff(), reviewer="operator", reason="Post")
+    historical = app.reconcile(authority="broker", as_of=_AS_OF, known_at=before_posting)
+    assert historical.matched_source_rows == 0
+    assert "source_without_ledger_entry" in {item.kind for item in historical.discrepancies}
+    assert app.reconcile(authority="broker", as_of=_AS_OF, known_at=_cutoff()).matched_source_rows == 1
+
+
+def test_s1_04_mapping_recorded_after_known_at_is_not_selected(tmp_path: Path) -> None:
+    app, event_id = _application_with_trade(tmp_path)
+    before_mapping = _cutoff()
+    _map_account(app)
+    report = app.reconcile(authority="broker", as_of=_AS_OF, known_at=before_mapping)
+    assert report.account_mappings == ()
+    with pytest.raises(ValueError, match="mapping"):
+        app.apply_adjustment(event_id, authority="broker", as_of=_AS_OF, known_at=before_mapping, reviewer="operator", reason="Post")
+
+
+def test_s1_08_lot_rounding_below_minimum_is_deferred() -> None:
+    holdings = pd.DataFrame([dict(etf_id="VWCE", current_weight=0.9, market_value_eur=900, quantity=900, price_eur=1)])
+    constraints = RebalanceConstraints(min_trade_eur=50, lot_size=40)
+    report = build_rebalance_report(load_config(), holdings, {"VWCE": 0.96}, target_cash_weight=0.04, portfolio_value_eur=1000, constraints=constraints)
+    assert [t.trade_value_eur for t in report.trades if t.trade_value_eur != 0 and abs(t.trade_value_eur) < 50] == []
+    assert [t.status for t in report.trades] == ["deferred_below_minimum"]
 
 
 def _walk(control: object):
