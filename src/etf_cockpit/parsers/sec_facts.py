@@ -71,8 +71,16 @@ def statement_facts_from_esef(
     instrument_id: str,
     source_sha256: str,
     source_provider: str = "filings_xbrl_org",
+    known_at: str | None = None,
 ) -> tuple[StatementFact, ...]:
-    """Adapt parsed ESEF facts to the versioned statement-facts contract."""
+    """Adapt parsed ESEF facts to the versioned statement-facts contract.
+
+    ``known_at`` is the time the retained package was acquired; it stamps both
+    ``known_at`` and ``available_at`` (the filing date is not known for a local
+    import).  Without it the facts stay unavailable for point-in-time views.
+    Facts reported in a dimensional context (segment, member, ...) keep their
+    dimensional identity and are never mapped to a canonical total metric.
+    """
 
     from etf_cockpit.parsers.esef_ixbrl import map_ifrs_fact
 
@@ -82,11 +90,14 @@ def statement_facts_from_esef(
         unit = str(getattr(record, "unit", "") or "")
         period_end = _record_value(record, "period_end") or None
         period_start = _record_value(record, "period_start") or None
+        dimensions = _esef_dimensions(getattr(record, "context_dimensions", ()))
+        mapping_status = str(getattr(record, "mapping_status", "") or "")
         canonical_metric = map_ifrs_fact(concept, _record_value(record, "namespace") or None)
+        if dimensions or mapping_status == "unsupported_numeric":
+            canonical_metric = None
         source_anchor = f"{concept}:{unit}:{period_start}:{period_end}:{_record_value(record, 'context_id')}"
         provider_id = str(source_provider or "filings_xbrl_org").strip() or "filings_xbrl_org"
         source_id = f"{provider_id}:{source_sha256[:16]}:{hashlib.sha256(source_anchor.encode('utf-8')).hexdigest()[:16]}"
-        mapping_status = str(getattr(record, "mapping_status", "") or "")
         namespace = str(_record_value(record, "namespace") or "")
         is_extension = mapping_status == "unmapped_extension" or (namespace and "ifrs" not in namespace.lower())
         result.append(
@@ -109,14 +120,14 @@ def statement_facts_from_esef(
                 canonical_metric=canonical_metric,
                 mapping_status="mapped" if canonical_metric else "unmapped_extension" if is_extension else "unmapped",
                 is_custom=is_extension,
-                dimensions="",
+                dimensions=dimensions,
                 currency=_currency_from_unit(unit),
                 period_type="duration" if period_start else "instant",
                 mapping_confidence="high" if canonical_metric else "manual_review",
                 manual_review_required=canonical_metric is None,
                 restatement_kind="reported",
-                available_at=None,
-                known_at=None,
+                available_at=known_at,
+                known_at=known_at,
                 effective_at=period_end,
                 source_url=None,
                 filing_version=source_sha256,
@@ -124,6 +135,15 @@ def statement_facts_from_esef(
             )
         )
     return tuple(result)
+
+
+def _esef_dimensions(value: object) -> str:
+    """Serialise ESEF context dimensions like SEC ``dimensions``: sorted compact JSON, or empty."""
+
+    if not value:
+        return ""
+    pairs = [(str(axis), str(member)) for axis, member in value]  # type: ignore[misc]
+    return json.dumps(dict(sorted(pairs)), ensure_ascii=False, separators=(",", ":"))
 
 
 # Deliberately small and explicit.  A fact not listed here is retained for
@@ -357,6 +377,13 @@ def _statement_facts_write_frame(records: tuple[StatementFact, ...], destination
     if not existing.empty:
         frame = pd.concat([existing, frame], ignore_index=True, sort=False)
     if "source_id" in frame.columns and not frame.empty:
+        for column in ("available_at", "known_at"):
+            if column in frame.columns:
+                # Keep the first observed knowledge time when a source is re-imported.
+                stamped = frame.loc[frame[column].map(lambda item: isinstance(item, str) and bool(item.strip())), ["source_id", column]]
+                first = stamped.groupby("source_id")[column].min()
+                mapped = frame["source_id"].map(first)
+                frame[column] = mapped.where(mapped.notna(), frame[column])
         frame = frame.drop_duplicates(subset=["source_id"], keep="last")
     authoritative = select_authoritative_facts(frame.to_dict(orient="records"), vendor_records)
     authoritative_ids = {_record_value(record, "source_id") for record in authoritative if _record_value(record, "source_id")}

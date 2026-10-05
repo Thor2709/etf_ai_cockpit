@@ -32,7 +32,6 @@ def _fact(value, context="c", dims=()):
     )
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S5-01: Inline XBRL scale and sign are ignored")
 def test_s5_01_inline_scale_and_sign(tmp_path, monkeypatch):
     path = tmp_path / "report.xbri"
     xml = (
@@ -49,7 +48,6 @@ def test_s5_01_inline_scale_and_sign(tmp_path, monkeypatch):
     assert float(result.records[0].value) == -125000000
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S5-02: Segment facts overwrite consolidated totals")
 def test_s5_02_esef_dimensions_survive():
     raw = [_fact("100", "consolidated"), _fact("60", "segment", (("Axis", "Segment"),))]
     facts = statement_facts_from_esef(raw, instrument_id="X", source_sha256="a" * 64)
@@ -84,7 +82,6 @@ def test_s5_04_distinct_issuer_filings_remain_ambiguous(tmp_path):
     assert result.status == "manual_review"
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S5-05: Invalid risk indicators become score eligible")
 def test_s5_05_invalid_sri_is_not_eligible(monkeypatch):
     text = "\n".join([
         "Key Information Document", "Product: Example ETF", "ISIN: IE00B4L5Y983",
@@ -100,7 +97,6 @@ def test_s5_05_invalid_sri_is_not_eligible(monkeypatch):
     assert result.records[0].sri != 7
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S5-06: Imported ESEF facts lack knowledge timestamps")
 def test_s5_06_esef_import_stamps_fact_availability(monkeypatch, tmp_path):
     sha = "a" * 64
     fact = XbrlFact("X", "Revenue", "100", "EUR", "0", "c", "2025-01-01", "2025-12-31", "report.xhtml", "mapped")

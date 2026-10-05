@@ -395,3 +395,33 @@ def test_sec_network_fetch_requires_configured_contact_user_agent(monkeypatch) -
 
     assert "configure ETF_COCKPIT_SEC_EDGAR_USER_AGENT" in message
     assert "contact@example.invalid" not in message
+
+
+def test_esef_dimensional_fact_is_not_a_canonical_total_and_stamps_known_at() -> None:
+    from etf_cockpit.parsers.sec_facts import statement_facts_from_esef
+
+    def fact(context: str, dims: tuple) -> XbrlFact:
+        return XbrlFact("L", "Revenue", "100", "EUR", "0", context, "2025-01-01", "2025-12-31", "r.xhtml", "mapped", dims, "https://xbrl.ifrs.org/taxonomy/ifrs-full")
+
+    total, segment = statement_facts_from_esef(
+        (fact("c", ()), fact("s", (("Axis", "Segment"),))), instrument_id="X", source_sha256="a" * 64, known_at="2026-10-01T00:00:00+00:00"
+    )
+
+    assert total.canonical_metric == "revenue" and total.dimensions == ""
+    assert segment.canonical_metric is None and segment.manual_review_required is True
+    assert segment.dimensions == '{"Axis":"Segment"}'
+    assert total.known_at == total.available_at == "2026-10-01T00:00:00+00:00"
+
+
+def test_esef_reimport_keeps_first_observed_known_at(tmp_path: Path) -> None:
+    import pandas as pd
+    from etf_cockpit.parsers.sec_facts import statement_facts_from_esef
+
+    record = XbrlFact("L", "Revenue", "100", "EUR", "0", "c", "2025-01-01", "2025-12-31", "r.xhtml", "mapped")
+    destination = tmp_path / "facts.parquet"
+    for stamp in ("2026-01-01T00:00:00+00:00", "2026-06-01T00:00:00+00:00"):
+        write_statement_facts(statement_facts_from_esef((record,), instrument_id="X", source_sha256="a" * 64, known_at=stamp), destination)
+
+    stored = pd.read_parquet(destination)
+    assert len(stored) == 1
+    assert stored["known_at"].iloc[0] == stored["available_at"].iloc[0] == "2026-01-01T00:00:00+00:00"
