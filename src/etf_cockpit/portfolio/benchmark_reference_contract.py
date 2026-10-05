@@ -182,6 +182,12 @@ def _hashes(values: Sequence[str], field: str, *, allow_empty: bool = False) -> 
     return result
 
 
+def _status_hashes(status: str, hashes: Sequence[str], label: str) -> tuple[str, ...]:
+    if status not in {"available", "stale", "unavailable"}:
+        raise BenchmarkReferenceError(f"{label} status is unsupported")
+    return _hashes(hashes, "source_hashes", allow_empty=status == "unavailable")
+
+
 def _canonical(value: object) -> object:
     if isinstance(value, Mapping):
         if any(not isinstance(key, str) for key in value):
@@ -332,6 +338,13 @@ def _validate_window(
         raise BenchmarkReferenceError("end_date cannot be after decision_time")
 
 
+def _validate_horizon_bounds(minimum: object, maximum: object, label: str) -> None:
+    minimum_horizon = _horizon(minimum, f"{label} minimum_horizon_years")
+    maximum_horizon = _horizon(maximum, f"{label} maximum_horizon_years")
+    if minimum_horizon is None or maximum_horizon is None or not 0 <= minimum_horizon <= maximum_horizon:
+        raise BenchmarkReferenceError(f"{label} horizon bounds are invalid")
+
+
 @dataclass(frozen=True)
 class BenchmarkDefinition:
     benchmark_id: str
@@ -362,19 +375,11 @@ class BenchmarkDefinition:
         object.__setattr__(self, "selector", _selector(self.selector, "benchmark selector"))
         if self.currency != self.currency.upper() or not re.fullmatch(r"[A-Z]{3}", self.currency):
             raise BenchmarkReferenceError("benchmark currency must be an ISO-4217 code")
-        minimum_horizon = _horizon(self.minimum_horizon_years, "benchmark minimum_horizon_years")
-        maximum_horizon = _horizon(self.maximum_horizon_years, "benchmark maximum_horizon_years")
-        if minimum_horizon is None or maximum_horizon is None or not 0 <= minimum_horizon <= maximum_horizon:
-            raise BenchmarkReferenceError("benchmark horizon bounds are invalid")
+        _validate_horizon_bounds(self.minimum_horizon_years, self.maximum_horizon_years, "benchmark")
         _validate_window(self.effective_at, self.known_at, self.start_date, self.end_date)
         _text(self.methodology, "methodology")
         object.__setattr__(self, "constituents", _normalise_ids(self.constituents, "constituents"))
-        if self.status not in {"available", "stale", "unavailable"}:
-            raise BenchmarkReferenceError("benchmark status is unsupported")
-        object.__setattr__(
-            self, "source_hashes",
-            _hashes(self.source_hashes, "source_hashes", allow_empty=self.status == "unavailable"),
-        )
+        object.__setattr__(self, "source_hashes", _status_hashes(self.status, self.source_hashes, "benchmark"))
         if type(self.opportunity_anchor) is not bool:
             raise BenchmarkReferenceError("opportunity_anchor must be a boolean")
         if self.canonical_identity is not None:
@@ -432,18 +437,10 @@ class CashProxyDefinition:
         object.__setattr__(self, "selector", _selector(self.selector, "cash selector"))
         if self.currency != self.currency.upper() or not re.fullmatch(r"[A-Z]{3}", self.currency):
             raise BenchmarkReferenceError("cash currency must be an ISO-4217 code")
-        minimum_horizon = _horizon(self.minimum_horizon_years, "cash minimum_horizon_years")
-        maximum_horizon = _horizon(self.maximum_horizon_years, "cash maximum_horizon_years")
-        if minimum_horizon is None or maximum_horizon is None or not 0 <= minimum_horizon <= maximum_horizon:
-            raise BenchmarkReferenceError("cash horizon bounds are invalid")
+        _validate_horizon_bounds(self.minimum_horizon_years, self.maximum_horizon_years, "cash")
         _validate_window(self.effective_at, self.known_at, self.start_date, self.end_date)
         _text(self.methodology, "methodology")
-        if self.status not in {"available", "stale", "unavailable"}:
-            raise BenchmarkReferenceError("cash status is unsupported")
-        object.__setattr__(
-            self, "source_hashes",
-            _hashes(self.source_hashes, "source_hashes", allow_empty=self.status == "unavailable"),
-        )
+        object.__setattr__(self, "source_hashes", _status_hashes(self.status, self.source_hashes, "cash"))
         if self.execution_allowed is not False:
             raise BenchmarkReferenceError("cash contract cannot grant execution authority")
 
@@ -494,12 +491,7 @@ class PeerSetDefinition:
         if _timestamp(self.effective_at, "effective_at") > _timestamp(self.known_at, "known_at"):
             raise BenchmarkReferenceError("effective_at cannot be after known_at")
         _text(self.methodology, "methodology")
-        if self.status not in {"available", "stale", "unavailable"}:
-            raise BenchmarkReferenceError("peer set status is unsupported")
-        object.__setattr__(
-            self, "source_hashes",
-            _hashes(self.source_hashes, "source_hashes", allow_empty=self.status == "unavailable"),
-        )
+        object.__setattr__(self, "source_hashes", _status_hashes(self.status, self.source_hashes, "peer set"))
         if self.execution_allowed is not False:
             raise BenchmarkReferenceError("peer contract cannot grant execution authority")
 
@@ -693,12 +685,7 @@ class VwceAnchorEvidence:
             raise BenchmarkReferenceError("risk indicator must be a versioned string fact")
         if not re.fullmatch(r"[A-Z]{3}", self.currency):
             raise BenchmarkReferenceError("VWCE currency must be an ISO-4217 code")
-        if self.status not in {"available", "stale", "unavailable"}:
-            raise BenchmarkReferenceError("VWCE status is unsupported")
-        object.__setattr__(
-            self, "source_hashes",
-            _hashes(self.source_hashes, "source_hashes", allow_empty=self.status == "unavailable"),
-        )
+        object.__setattr__(self, "source_hashes", _status_hashes(self.status, self.source_hashes, "VWCE"))
         if not self.listing_observations:
             raise BenchmarkReferenceError("at least one VWCE listing observation is required")
         object.__setattr__(self, "listing_observations", tuple(self.listing_observations))

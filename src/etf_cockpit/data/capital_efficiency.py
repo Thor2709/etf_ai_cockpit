@@ -93,24 +93,10 @@ def capital_efficiency_analysis(
         for item in period_comparability["periods"]
     }
     for item in reported["history"]:
-        period = comparability_by_period.get((item.get("period_key"), item.get("period_end")), {})
-        item["comparability"] = {
-            "status": period.get("status", "unavailable"),
-            "reason": period.get("reason", "period_facts_missing"),
-            "currency": period.get("currency"),
-            "accounting_scope": period.get("accounting_scope"),
-            "source_ids": period.get("source_ids", ()),
-        }
+        _attach_comparability(item, comparability_by_period)
     breakdown = reported["invested_capital_breakdown"]
     for item in breakdown["history"]:
-        period = comparability_by_period.get((item.get("period_key"), item.get("period_end")), {})
-        item["comparability"] = {
-            "status": period.get("status", "unavailable"),
-            "reason": period.get("reason", "period_facts_missing"),
-            "currency": period.get("currency"),
-            "accounting_scope": period.get("accounting_scope"),
-            "source_ids": period.get("source_ids", ()),
-        }
+        period = _attach_comparability(item, comparability_by_period)
         if strict_comparability and period.get("status") != "available":
             for name in (
                 "reported_invested_capital",
@@ -186,6 +172,20 @@ def capital_efficiency_analysis(
         "source_lineage": _lineage(frame),
         "execution_allowed": False,
     }
+
+
+def _attach_comparability(
+    item: dict[str, object], comparability_by_period: Mapping[object, Mapping[str, object]]
+) -> Mapping[str, object]:
+    period = comparability_by_period.get((item.get("period_key"), item.get("period_end")), {})
+    item["comparability"] = {
+        "status": period.get("status", "unavailable"),
+        "reason": period.get("reason", "period_facts_missing"),
+        "currency": period.get("currency"),
+        "accounting_scope": period.get("accounting_scope"),
+        "source_ids": period.get("source_ids", ()),
+    }
+    return period
 
 
 def _canonical_frame(

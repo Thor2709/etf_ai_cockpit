@@ -51,6 +51,27 @@ class DayCountConvention(StrEnum):
     THIRTY_E_360 = "30E/360"
 
 
+def _check_calendar_evidence(evidence: Any, label: str, id_fields: tuple[str, ...]) -> None:
+    for field_name in (*id_fields, "calendar_id", "timezone", "source_id", "source_version"):
+        if not str(getattr(evidence, field_name)).strip():
+            raise MarketClockError(f"{label} calendar {field_name} is required")
+    if evidence.known_at.tzinfo is None:
+        raise MarketClockError(f"{label} calendar known_at must be timezone-aware")
+    if not _SHA256.fullmatch(evidence.source_checksum.casefold()):
+        raise MarketClockError(f"{label} calendar source_checksum must be a SHA-256 digest")
+    if evidence.valid_to is not None and evidence.valid_to <= evidence.valid_from:
+        raise MarketClockError(f"{label} calendar valid_to must follow valid_from")
+    if evidence.conflict_ids:
+        raise MarketClockError(f"{label} calendar evidence must be conflict-free")
+
+
+def _check_calendar_timezone(timezone_name: str, label: str) -> None:
+    try:
+        ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError as exc:
+        raise MarketClockError(f"{label} calendar timezone is unknown: {timezone_name}") from exc
+
+
 @dataclass(frozen=True)
 class ListingCalendarEvidence:
     """Immutable MIC/calendar/timezone link supplied by the identity master."""
@@ -71,35 +92,10 @@ class ListingCalendarEvidence:
     closing_auction_minutes: int = 0
 
     def __post_init__(self) -> None:
-        for field_name in (
-            "listing_id",
-            "instrument_id",
-            "mic",
-            "calendar_id",
-            "timezone",
-            "source_id",
-            "source_version",
-        ):
-            if not str(getattr(self, field_name)).strip():
-                raise MarketClockError(f"listing calendar {field_name} is required")
-        if self.known_at.tzinfo is None:
-            raise MarketClockError("listing calendar known_at must be timezone-aware")
-        if not _SHA256.fullmatch(self.source_checksum.casefold()):
-            raise MarketClockError(
-                "listing calendar source_checksum must be a SHA-256 digest"
-            )
-        if self.valid_to is not None and self.valid_to <= self.valid_from:
-            raise MarketClockError("listing calendar valid_to must follow valid_from")
-        if self.conflict_ids:
-            raise MarketClockError("listing calendar evidence must be conflict-free")
+        _check_calendar_evidence(self, "listing", ("listing_id", "instrument_id", "mic"))
         if self.opening_auction_minutes < 0 or self.closing_auction_minutes < 0:
             raise MarketClockError("listing auction windows cannot be negative")
-        try:
-            ZoneInfo(self.timezone)
-        except ZoneInfoNotFoundError as exc:
-            raise MarketClockError(
-                f"listing calendar timezone is unknown: {self.timezone}"
-            ) from exc
+        _check_calendar_timezone(self.timezone, "listing")
 
     @property
     def lineage_hash(self) -> str:
@@ -123,36 +119,8 @@ class SettlementCalendarEvidence:
     conflict_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        for field_name in (
-            "settlement_calendar_id",
-            "instrument_id",
-            "calendar_id",
-            "timezone",
-            "source_id",
-            "source_version",
-        ):
-            if not str(getattr(self, field_name)).strip():
-                raise MarketClockError(f"settlement calendar {field_name} is required")
-        if self.known_at.tzinfo is None:
-            raise MarketClockError(
-                "settlement calendar known_at must be timezone-aware"
-            )
-        if not _SHA256.fullmatch(self.source_checksum.casefold()):
-            raise MarketClockError(
-                "settlement calendar source_checksum must be a SHA-256 digest"
-            )
-        if self.valid_to is not None and self.valid_to <= self.valid_from:
-            raise MarketClockError(
-                "settlement calendar valid_to must follow valid_from"
-            )
-        if self.conflict_ids:
-            raise MarketClockError("settlement calendar evidence must be conflict-free")
-        try:
-            ZoneInfo(self.timezone)
-        except ZoneInfoNotFoundError as exc:
-            raise MarketClockError(
-                f"settlement calendar timezone is unknown: {self.timezone}"
-            ) from exc
+        _check_calendar_evidence(self, "settlement", ("settlement_calendar_id", "instrument_id"))
+        _check_calendar_timezone(self.timezone, "settlement")
 
     @property
     def lineage_hash(self) -> str:

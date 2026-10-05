@@ -96,15 +96,26 @@ def _validate_csv_file(path: Path) -> None:
         raise ValueError("CSV mirror is malformed") from exc
 
 
+def _rows_or_unavailable(
+    result: ParseResult[Any],
+    instrument_id: str,
+    row_builder: Any,
+    unavailable_builder: Any,
+    **row_kwargs: Any,
+) -> list[dict[str, Any]]:
+    rows = [row_builder(result, instrument_id, record, **row_kwargs) for record in result.records]
+    if not rows:
+        rows = [unavailable_builder(result, instrument_id)]
+    return rows
+
+
 def persist_priips_kid_result(
     result: ParseResult[PriipsKidRecord],
     instrument_id: str,
     *,
     destination: Path = PRIIPS_KID_RECORDS_PATH,
 ) -> Path:
-    rows = [_kid_row(result, instrument_id, record) for record in result.records]
-    if not rows:
-        rows = [_kid_unavailable_row(result, instrument_id)]
+    rows = _rows_or_unavailable(result, instrument_id, _kid_row, _kid_unavailable_row)
     return _persist_rows(rows, destination, KID_COLUMNS)
 
 
@@ -117,9 +128,7 @@ def persist_index_methodology_result(
 ) -> Path:
     if holdings is not None:
         result = apply_methodology_holdings_assessment(result, holdings)
-    rows = [_methodology_row(result, instrument_id, record) for record in result.records]
-    if not rows:
-        rows = [_methodology_unavailable_row(result, instrument_id)]
+    rows = _rows_or_unavailable(result, instrument_id, _methodology_row, _methodology_unavailable_row)
     return _persist_rows(rows, destination, METHODOLOGY_COLUMNS)
 
 
@@ -137,9 +146,7 @@ def persist_sfdr_result(
     *,
     destination: Path = SFDR_RECORDS_PATH,
 ) -> Path:
-    rows = [_sfdr_row(result, instrument_id, record) for record in result.records]
-    if not rows:
-        rows = [_sfdr_unavailable_row(result, instrument_id)]
+    rows = _rows_or_unavailable(result, instrument_id, _sfdr_row, _sfdr_unavailable_row)
     return _persist_sfdr_rows(rows, destination)
 
 
@@ -264,19 +271,15 @@ def _persist_with_document(
     registry_destination = Path(registry_destination)
     if document_type == "kid":
         columns = KID_COLUMNS
-        rows = [_kid_row(result, instrument_id, record) for record in result.records]
-        if not rows:
-            rows = [_kid_unavailable_row(result, instrument_id)]
+        rows = _rows_or_unavailable(result, instrument_id, _kid_row, _kid_unavailable_row)
     elif document_type == "methodology":
         columns = METHODOLOGY_COLUMNS
-        rows = [_methodology_row(result, instrument_id, record) for record in result.records]
-        if not rows:
-            rows = [_methodology_unavailable_row(result, instrument_id)]
+        rows = _rows_or_unavailable(result, instrument_id, _methodology_row, _methodology_unavailable_row)
     else:
         columns = SFDR_COLUMNS
-        rows = [_sfdr_row(result, instrument_id, record, document_date=document_date) for record in result.records]
-        if not rows:
-            rows = [_sfdr_unavailable_row(result, instrument_id)]
+        rows = _rows_or_unavailable(
+            result, instrument_id, _sfdr_row, _sfdr_unavailable_row, document_date=document_date
+        )
     if result.success or document_available is True:
         document = register_document(
             Path(document_path),
