@@ -9,7 +9,8 @@ from typing import Mapping
 
 import pandas as pd
 
-from etf_cockpit.core.values import clean_text_or_empty as _clean_text, finite_real_or_none as _finite_number
+from etf_cockpit.core.values import finite_real_or_none as _finite_number
+from etf_cockpit.core.pandas_values import clean_text_or_empty as _clean_text
 from etf_cockpit.data.event_calendar import normalise_event_decision_time
 from etf_cockpit.data.fund_holdings import normalise_holdings
 from etf_cockpit.features.overlap import (

@@ -14,7 +14,7 @@ from datetime import date
 import math
 import pandas as pd
 
-from etf_cockpit.core.values import source_text_or_empty as _source_text
+from etf_cockpit.core.pandas_values import source_text_or_empty as _source_text
 from etf_cockpit.data.market_adjustments import (
     CorporateAction,
     CorporateActionCoverage,

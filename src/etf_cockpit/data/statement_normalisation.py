@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
-from etf_cockpit.core.values import float_nan_text_or_empty as _text
+from etf_cockpit.core.pandas_values import float_nan_text_or_empty as _text
 
 
 STATEMENT_VIEW_SCHEMA_VERSION = "canonical_statements.v1"

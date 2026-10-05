@@ -112,6 +112,20 @@ def test_optional_model_imports_remain_lazy_in_startup_and_adapters() -> None:
 
 # Wall-clock budget (startup_cold): CPU contention from parallel workers would distort it.
 @pytest.mark.serial
+def test_shared_value_helpers_do_not_import_pandas() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    result = _run_python(
+        """
+        import sys
+        import etf_cockpit.core.values
+        print(sorted(name for name in ("pandas", "numpy") if name in sys.modules))
+        """,
+        repo_root,
+    )
+    _assert_subprocess_ok(result)
+    assert result.stdout.strip() == "[]"
+
+
 def test_startup_import_timing_stays_within_versioned_budget(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     timing_path = tmp_path / "startup-timings.jsonl"

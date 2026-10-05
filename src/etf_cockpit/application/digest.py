@@ -13,7 +13,7 @@ from typing import Any
 
 import pandas as pd
 
-from etf_cockpit.core.values import aware_utc_timestamp_or_none as _aware_utc
+from etf_cockpit.core.pandas_values import aware_utc_timestamp_or_none as _aware_utc
 from etf_cockpit.data.news_context import NEWS_SCHEMA_VERSION, NewsItem, build_news_macro_contradictions, validate_news_item
 from etf_cockpit.features.macro import build_macro_context as _build_macro_context
 

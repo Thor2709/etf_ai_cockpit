@@ -16,7 +16,7 @@ import pandas as pd
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR
 from etf_cockpit.data.event_calendar import _frame_checksum
-from etf_cockpit.core.values import aware_utc_timestamp_or_none as _contradiction_timestamp
+from etf_cockpit.core.pandas_values import aware_utc_timestamp_or_none as _contradiction_timestamp
 
 
 NEWS_SCHEMA_VERSION = "news_context.v2"

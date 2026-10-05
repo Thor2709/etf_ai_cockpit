@@ -13,7 +13,7 @@ import math
 import numpy as np
 import pandas as pd
 
-from etf_cockpit.core.values import float_nan_text_or_empty as _clean_label
+from etf_cockpit.core.pandas_values import float_nan_text_or_empty as _clean_label
 
 
 FACTOR_MODEL_VERSION = "factor_risk.v1"

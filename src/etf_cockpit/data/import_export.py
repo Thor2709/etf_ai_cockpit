@@ -12,7 +12,7 @@ import uuid
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group, parquet_payload, validate_parquet_file
-from etf_cockpit.core.values import stripped_text_or_none as _metadata_optional_text
+from etf_cockpit.core.pandas_values import stripped_text_or_none as _metadata_optional_text
 
 
 @dataclass(frozen=True)

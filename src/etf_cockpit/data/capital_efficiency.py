@@ -12,7 +12,8 @@ import math
 
 import pandas as pd
 
-from etf_cockpit.core.values import finite_float_or_none as _float, source_text_or_empty as _metadata_text
+from etf_cockpit.core.values import finite_float_or_none as _float
+from etf_cockpit.core.pandas_values import source_text_or_empty as _metadata_text
 from etf_cockpit.data.statement_normalisation import statement_coverage, statement_view
 
 

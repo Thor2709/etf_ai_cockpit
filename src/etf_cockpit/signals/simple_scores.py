@@ -13,7 +13,7 @@ from typing import Iterable, Literal
 import pandas as pd
 
 from etf_cockpit.data.trust_artifacts import _strict_nullable_revision_array
-from etf_cockpit.core.values import bool_like_or_none as _bool_like, stripped_text_or_none as _noneable_str
+from etf_cockpit.core.pandas_values import bool_like_or_none as _bool_like, stripped_text_or_none as _noneable_str
 from etf_cockpit.portfolio.benchmark_reference import (
     adjusted_price_binding_for_reference,
     validate_benchmark_reference,

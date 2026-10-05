@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from etf_cockpit.core.paths import DERIVED_DIR
-from etf_cockpit.core.values import bool_like_or_none as _bool_like
+from etf_cockpit.core.pandas_values import bool_like_or_none as _bool_like
 from etf_cockpit.features.benchmark_attribution import build_benchmark_attribution
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     CanonicalBenchmarkRegistry,
