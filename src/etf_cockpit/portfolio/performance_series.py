@@ -190,7 +190,7 @@ def build_portfolio_performance_series(
         converted_period = converted.loc[period_rows.index]
         if (
             not period_rows.empty
-            and selected_aggregation in {"quarter", "year"}
+            and selected_aggregation in {"week", "month", "quarter", "year"}
             and selected_metric in {"twr_index", "twr_return", "investment_pnl"}
         ):
             previous_rows = selected.loc[selected["date"].lt(period_rows.iloc[0]["date"])].tail(1)
