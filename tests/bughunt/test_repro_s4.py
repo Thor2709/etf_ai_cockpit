@@ -90,11 +90,6 @@ def test_s4_01_ex_coupon_dirty_price():
     assert calculate_fixed_income_analytics(v).dirty_price == D("102.5")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S4-02: deficit waterfall overdraws capital pools",
-)
 def test_s4_02_deficit_cannot_overdraw_capital_pools():
     r = deficit_coverage(300, owner_nominal=100, owner_premium_fund=50, self_owned_capital=100)
     assert r["self_owned_reduction"] <= 100
@@ -196,11 +191,6 @@ def test_s4_06_latest_holdings_means_latest_known_snapshot():
     assert r["reported_total_weight"] == 1.0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S4-07: percentage dilution compared with fractional dilution",
-)
 def test_s4_07_percentage_dilution_reconciles_with_share_counts():
     t, e = "2025-03-01T00:00:00Z", "2024-12-31T00:00:00Z"
     ctx = _context("X", effective_at=e, decision_time=t)
