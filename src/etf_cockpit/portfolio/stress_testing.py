@@ -115,9 +115,9 @@ def run_stress_scenario(
     for row in frame.to_dict("records"):
         instrument_id = str(row["instrument_id"])
         weight = float(row["weight"])
-        base_return = row.get("historical_return")
+        base_return = _finite(row.get("historical_return"))
         if base_return is not None:
-            shock = float(base_return)
+            shock = base_return
             source = "historical_adjusted_return"
             components: dict[str, float] = {"historical_adjusted_return": shock}
         elif scenario.historical_date:

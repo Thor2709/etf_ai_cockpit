@@ -632,9 +632,15 @@ def _correlation_root(correlation: np.ndarray) -> np.ndarray | None:
         eigenvalues, eigenvectors = np.linalg.eigh(correlation)
     except np.linalg.LinAlgError:
         return None
-    if not np.isfinite(eigenvalues).all() or np.any(eigenvalues < 0):
+    if not np.isfinite(eigenvalues).all():
         return None
-    return eigenvectors @ np.diag(np.sqrt(eigenvalues))
+    # Scale-aware rounding tolerance (numpy.linalg.matrix_rank convention): a valid rank-deficient
+    # matrix such as an all-ones stress correlation yields eigenvalues like -4e-16, which are
+    # clipped to zero; materially negative eigenvalues stay rejected.
+    tolerance = max(correlation.shape) * np.finfo(float).eps * max(1.0, float(np.max(np.abs(eigenvalues))))
+    if np.any(eigenvalues < -tolerance):
+        return None
+    return eigenvectors @ np.diag(np.sqrt(np.clip(eigenvalues, 0.0, None)))
 
 
 def _covariance_variance(weights: np.ndarray, covariance: np.ndarray, horizon_days: int) -> float | None:

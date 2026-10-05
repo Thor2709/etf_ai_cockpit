@@ -75,7 +75,7 @@ def build_performance_attribution(
     cash_contribution = float((daily["cash_contribution"]).sum()) if not daily.empty else 0.0
     identity_residual = float((total_return or 0.0) - asset_sum - cash_contribution)
 
-    factor_attribution = _factor_attribution(daily, wealth, factor_returns, factor_exposures)
+    factor_attribution = _factor_attribution(daily, wealth, factor_returns, factor_exposures, portfolio_weights)
     currency_attribution = _currency_attribution(asset_summary, allocation)
     bounded_costs, cost_evidence_status = _costs_in_declared_window(costs, reference_context)
     cost_attribution, cost_total, tax_total = _cost_attribution(bounded_costs)
@@ -372,7 +372,7 @@ def _asset_summary(frame: pd.DataFrame) -> pd.DataFrame:
     return result[columns]
 
 
-def _factor_attribution(daily: pd.DataFrame, wealth: pd.Series, factor_returns: pd.DataFrame | None, factor_exposures: pd.DataFrame | None) -> pd.DataFrame:
+def _factor_attribution(daily: pd.DataFrame, wealth: pd.Series, factor_returns: pd.DataFrame | None, factor_exposures: pd.DataFrame | None, portfolio_weights: pd.Series) -> pd.DataFrame:
     columns = ["factor", "contribution", "share", "observations", "status"]
     if daily.empty or factor_returns is None or factor_returns.empty or factor_exposures is None or factor_exposures.empty:
         return pd.DataFrame(columns=columns)
@@ -382,6 +382,11 @@ def _factor_attribution(daily: pd.DataFrame, wealth: pd.Series, factor_returns: 
     if not factors or "date" not in factor_returns.columns or "factor_return" not in factor_returns.columns:
         return pd.DataFrame(columns=columns)
     weighted = exposure.reindex(columns=factors).apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    # Portfolio factor exposure = sum_i(weight_i x instrument exposure_i); unheld instruments carry no weight.
+    held = portfolio_weights.copy()
+    held.index = held.index.astype(str)
+    exposure_covered = bool(held.index.isin(exposure.index).all())
+    portfolio_exposure = weighted.reindex(held.index).fillna(0.0).mul(held, axis=0).sum()
     factor_rows: list[dict[str, object]] = []
     factor_frame = factor_returns.copy()
     factor_frame["date"] = pd.to_datetime(factor_frame["date"], errors="coerce")
@@ -391,9 +396,9 @@ def _factor_attribution(daily: pd.DataFrame, wealth: pd.Series, factor_returns: 
     for factor in factors:
         series = factor_frame.loc[factor_frame["factor"].eq(factor)].set_index("date")["factor_return"]
         joined = pd.concat([series, daily["wealth"].shift(1)], axis=1, join="inner").dropna()
-        exposure_value = float(weighted[factor].mean())
+        exposure_value = float(portfolio_exposure[factor])
         contribution = float((joined.iloc[:, 0] * joined.iloc[:, 1] * exposure_value).sum()) if not joined.empty else 0.0
-        factor_rows.append({"factor": factor, "contribution": contribution, "share": None, "observations": int(len(joined)), "status": "available" if len(joined) >= 3 else "partial"})
+        factor_rows.append({"factor": factor, "contribution": contribution, "share": None, "observations": int(len(joined)), "status": "available" if len(joined) >= 3 and exposure_covered else "partial"})
     result = pd.DataFrame(factor_rows, columns=columns)
     total = float(result["contribution"].sum()) if not result.empty else 0.0
     if total:

@@ -13,6 +13,7 @@ from etf_cockpit.portfolio.factor_risk import _condition_number
 
 ROBUST_RISK_MODEL_VERSION = "robust_risk.v1"
 ANNUALISATION_FACTOR = 252.0
+EQUAL_WEIGHT_FALLBACK_BASIS = "equal_weight_illustrative_fallback_no_allocation_evidence"
 ESTIMATOR_NAMES = ("sample", "ewma", "shrinkage", "robust", "diagonal", "factor_model")
 
 
@@ -34,7 +35,7 @@ def build_robust_risk_report(
     returns = _return_matrix(prices, window=window)
     fixed_income = integrate_fixed_income_risk(fixed_income_records)
     ids = list(returns.columns)
-    weights = _weights(allocation, ids)
+    weights, weights_basis = _weights(allocation, ids)
     if returns.empty or len(ids) < 2:
         report = _unavailable_report("At least two instruments with adjusted-price returns are required.", returns, weights)
         report["fixed_income_risk"] = fixed_income
@@ -56,6 +57,7 @@ def build_robust_risk_report(
         selected_covariance = covariances["sample"]
         validation_warnings.append("selected_estimator_unavailable_fallback_sample")
     contribution, portfolio = _portfolio_contributions(selected_covariance, weights)
+    portfolio["weights_basis"] = weights_basis
     bootstrap = _bootstrap_uncertainty(returns, weights, block_size=block_size, repetitions=bootstrap_reps, seed=seed)
     regimes = _regime_report(returns, weights)
     tail_risk = _tail_risk_report(returns, weights, prices, allocation)
@@ -69,9 +71,12 @@ def build_robust_risk_report(
         "estimators": estimator_meta,
         "out_of_sample": comparison.to_dict("records"),
         "selection_method": "lowest validation covariance Frobenius error; sample baseline if validation is unavailable",
+        "weights_basis": weights_basis,
         "warnings": validation_warnings,
     }
     warnings = [*validation_warnings]
+    if weights_basis == EQUAL_WEIGHT_FALLBACK_BASIS:
+        warnings.append(EQUAL_WEIGHT_FALLBACK_BASIS)
     if bootstrap.get("status") != "available":
         warnings.append("bootstrap_uncertainty_unavailable")
     if tail_risk.get("liquidity_adjusted", {}).get("status") != "available":
@@ -368,9 +373,14 @@ def _out_of_sample_selection(returns: pd.DataFrame, factor_report: dict[str, obj
         return pd.DataFrame(columns=["estimator", "validation_error", "validation_observations", "selected"]), "sample", ["out_of_sample_validation_unavailable"]
     split = max(10, int(len(returns) * 0.7))
     train, validation = returns.iloc[:split], returns.iloc[split:]
+    unavailable = (pd.DataFrame(columns=["estimator", "validation_error", "validation_observations", "selected"]), "sample", ["out_of_sample_validation_unavailable"])
+    if len(validation.dropna(how="any")) < 2:
+        return unavailable
     train_matrices, _ = _covariance_estimators(train, factor_report, ewma_lambda=ewma_lambda, shrinkage_alpha=shrinkage_alpha)
     realised = validation.dropna(how="any").cov() * ANNUALISATION_FACTOR
     realised, _ = _psd_repair(realised, list(returns.columns))
+    if realised.empty:
+        return unavailable
     denominator = max(float(np.linalg.norm(realised.to_numpy(float), ord="fro")), 1e-12)
     rows: list[dict[str, object]] = []
     for estimator, matrix in train_matrices.items():
@@ -490,18 +500,24 @@ def _liquidity_adjusted_risk(prices: pd.DataFrame, allocation: pd.DataFrame | No
     return {"status": "available", "method": "sqrt(1 + mean(weight / average_traded_value * 10000))", "mean_pressure": float(np.mean(pressure)), "multiplier": multiplier, "portfolio_vol_multiplier": multiplier}
 
 
-def _weights(allocation: pd.DataFrame | None, ids: list[str]) -> pd.Series:
+def _weights(allocation: pd.DataFrame | None, ids: list[str]) -> tuple[pd.Series, str]:
+    """Return portfolio weights and their basis.
+
+    Explicit allocation evidence is honoured as given, including an all-zero (cash-only)
+    allocation. Equal weight is used only when no allocation weights are supplied at all
+    and is labelled as an illustrative fallback.
+    """
+
+    equal = pd.Series(1.0 / max(1, len(ids)), index=ids, dtype=float)
     if allocation is None or allocation.empty or "etf_id" not in allocation.columns:
-        return pd.Series(1.0 / max(1, len(ids)), index=ids, dtype=float)
+        return equal, EQUAL_WEIGHT_FALLBACK_BASIS
     column = "current_weight" if "current_weight" in allocation.columns else "target_weight" if "target_weight" in allocation.columns else None
     if column is None:
-        return pd.Series(1.0 / max(1, len(ids)), index=ids, dtype=float)
+        return equal, EQUAL_WEIGHT_FALLBACK_BASIS
     frame = allocation[["etf_id", column]].copy()
     frame[column] = pd.to_numeric(frame[column], errors="coerce").fillna(0.0)
     weights = frame.groupby("etf_id")[column].sum().reindex(ids).fillna(0.0)
-    if float(weights.abs().sum()) <= 0:
-        weights[:] = 1.0 / max(1, len(ids))
-    return weights.astype(float)
+    return weights.astype(float), "allocation_weights"
 
 
 def _unavailable_report(message: str, returns: pd.DataFrame, weights: pd.Series) -> dict[str, object]:

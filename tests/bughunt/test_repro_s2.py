@@ -51,7 +51,6 @@ def _two_asset_prices(*, a_rows: int = 41) -> pd.DataFrame:
     )
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S2-03: Explicit cash-only allocations become fully invested portfolios")
 def test_s2_03_explicit_cash_only_weights_remain_zero():
     from etf_cockpit.portfolio.robust_risk import build_robust_risk_report
 
@@ -60,7 +59,6 @@ def test_s2_03_explicit_cash_only_weights_remain_zero():
     assert report["portfolio"]["weight_sum"] == 0.0
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S2-04: Weekly and monthly aggregation discard the first day's performance")
 def test_s2_04_month_includes_first_day_pnl():
     from etf_cockpit.portfolio.performance_series import build_portfolio_performance_series
     from etf_cockpit.portfolio.valuation import SNAPSHOT_COLUMNS
@@ -89,7 +87,6 @@ def test_s2_04_month_includes_first_day_pnl():
     assert result.points[-1].value == 10.0
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S2-05: Missing historical returns pass as complete stress coverage")
 def test_s2_05_missing_historical_mark_is_partial():
     from etf_cockpit.portfolio.stress_testing import StressScenario, run_stress_scenario
 
@@ -100,7 +97,6 @@ def test_s2_05_missing_historical_mark_is_partial():
     assert result.status == "partial" and result.coverage["missing_instruments"] == ["B"]
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S2-06: Default stress correlation rejects valid portfolio forecasts")
 def test_s2_06_default_stress_accepts_valid_psd_matrix():
     from etf_cockpit.portfolio.forecast_aggregation import _correlation_root, load_portfolio_forecast_config
 
@@ -110,7 +106,6 @@ def test_s2_06_default_stress_accepts_valid_psd_matrix():
     assert _correlation_root(matrix) is not None
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S2-07: Factor attribution ignores portfolio allocation weights")
 def test_s2_07_factor_attribution_uses_actual_weights():
     from etf_cockpit.portfolio.attribution import build_performance_attribution
     from etf_cockpit.portfolio.factor_risk import build_factor_risk_report
@@ -132,7 +127,6 @@ def test_s2_07_factor_attribution_uses_actual_weights():
     assert contribution < -0.01
 
 
-@pytest.mark.xfail(strict=True, raises=ValueError, reason="S2-08: Sparse validation history crashes otherwise valid risk analysis")
 def test_s2_08_sparse_holdout_falls_back_without_crashing():
     from etf_cockpit.portfolio.robust_risk import build_robust_risk_report
 
