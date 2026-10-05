@@ -160,7 +160,7 @@ Code moved between layers (ADR-0002); behaviour is unchanged.
 | Application seams over moved code | `application/benchmark_reference.py`, `application/settings.py`, `application/architecture.py` | deliberate presentation-facing re-exports of the modules above |
 | Compatibility modules | none: `services.py`, `app/operations.py`, `app/selectors/instrument_detail.py`, `application/screening.py` and `signals/research_states.py` were removed in P9b | tests and scripts import the canonical modules directly |
 
-Layering guard: `tests/test_import_layering.py` classifies every runtime import by layer and fails on any layer-breaking edge that is not listed: 7 `ACCEPTED_EXCEPTIONS` (reviewed persistence/session seams, each with a reason), 2 `KNOWN_VIOLATIONS` (compatibility debt in `app/state.py` and `app/pages/onboarding.py`). The five compatibility-only modules were removed in P9b and the re-exports that only tests read in P9c. Such edges fell from 84 at baseline `5e501154` to 9; the allowlists only shrink.
+Layering guard: `tests/test_import_layering.py` classifies every runtime import by layer and fails on any layer-breaking edge that is not listed: 7 `ACCEPTED_EXCEPTIONS` (reviewed persistence/session seams, each with a reason), 0 `KNOWN_VIOLATIONS` (the last two edges, in `app/state.py` and `app/pages/onboarding.py`, were routed through `application` in P5). The five compatibility-only modules were removed in P9b and the re-exports that only tests read in P9c. Such edges fell from 84 at baseline `5e501154` to 7; the allowlists only shrink.
 
 ## 7. Runtime views
 

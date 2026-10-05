@@ -36,7 +36,7 @@ from etf_cockpit.application.portfolio_views import create_portfolio_review_repo
 from etf_cockpit.application.chatgpt_review import ChatGPTBridge
 from etf_cockpit.application.data_service import DataService
 from etf_cockpit.application.snapshot_builder import CockpitSnapshot, build_snapshot
-from etf_cockpit.signals.simple_scores import SimpleInstrumentScore  # noqa: F401 - compatibility re-export
+from etf_cockpit.application.ui_facade import SimpleInstrumentScore
 from etf_cockpit.app import theme
 from etf_cockpit.application.contracts import ApplicationCommand, DashboardActionCommand
 from etf_cockpit.application.activity_results import (

@@ -8,8 +8,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.components.kit import status_tag
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.settings import ANALYSIS_DEPTHS, HORIZONS, OUTPUT_CURRENCIES, RISK_PROFILES
-from etf_cockpit.core.config import load_config
+from etf_cockpit.application.settings import ANALYSIS_DEPTHS, HORIZONS, load_config, OUTPUT_CURRENCIES, RISK_PROFILES
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.application.ui_facade import legal_terms_report, resource_profile_report, source_policy_rows
 from etf_cockpit.application.onboarding_profile import (

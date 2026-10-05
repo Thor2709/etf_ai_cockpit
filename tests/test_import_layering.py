@@ -64,12 +64,7 @@ ACCEPTED_EXCEPTIONS: dict[tuple[str, str], str] = {
 
 # Remaining transitional debt: compatibility re-exports that tests still import or patch through the old module.
 # Remove entries as consumers migrate; the set only shrinks.
-KNOWN_VIOLATIONS = frozenset(
-    {
-        ("etf_cockpit.app.pages.onboarding", "etf_cockpit.core.config"),
-        ("etf_cockpit.app.state", "etf_cockpit.signals.simple_scores"),
-    }
-)
+KNOWN_VIOLATIONS: frozenset[tuple[str, str]] = frozenset()
 
 
 def _layer(module: str) -> str:
