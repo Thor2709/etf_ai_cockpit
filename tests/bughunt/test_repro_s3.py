@@ -40,7 +40,6 @@ def test_s3_01_valid_score_evidence_passes_authority():
     assert next(g for g in decision.gates if g.gate_id == "evidence").passed
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S3-02: Log forecasts are consumed as simple returns")
 def test_s3_02_log_forecast_units_are_respected():
     p = pd.DataFrame({
         "etf_id": ["X"] * 5,
@@ -92,7 +91,6 @@ def test_s3_04_future_peer_does_not_change_known_candidate(monkeypatch):
     assert score([a]).final_score_10 == score([a, b]).final_score_10
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S3-05: Native turnover is treated as euros")
 def test_s3_05_non_eur_capacity_requires_fx_evidence():
     p = pd.DataFrame({
         "etf_id": ["VUSA"] * 20,
@@ -109,12 +107,41 @@ def test_s3_05_non_eur_capacity_requires_fx_evidence():
     )
     r = calculate_etf_liquidity(cfg, p, "VUSA", order_value_eur=1100)
     assert r.exchange_capacity_eur is None
+    assert r.rolling_turnover_eur_20d is None
+    assert r.capacity_status == "blocked_missing_liquidity"
+    assert "fx_rate_to_eur" in r.missing_evidence
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S3-06: Old peaks contaminate rolling drawdown gates")
+def test_s3_05_eur_quoted_instrument_keeps_capacity():
+    p = pd.DataFrame({
+        "etf_id": ["VWCE"] * 20,
+        "date": pd.date_range("2026-01-01", periods=20),
+        "close": [10.0] * 20,
+        "adjusted_close": [10.0] * 20,
+        "volume": [1000.0] * 20,
+        "currency": ["EUR"] * 20,
+    })
+    cfg = N(
+        costs=CostConfig(),
+        universe=UniverseConfig(etfs=[ETFConfig(
+            id="VWCE", name="VWCE", ticker="VWCE.DE", role="core", currency="EUR")]),
+    )
+    r = calculate_etf_liquidity(cfg, p, "VWCE", order_value_eur=100)
+    assert r.exchange_capacity_eur == pytest.approx(1000.0)
+
+
 def test_s3_06_peak_outside_window_does_not_affect_rolling_drawdown():
     p = pd.Series([100.0] + [50.0] * 200 + [50.0 + 0.01 * i for i in range(1, 61)])
     assert rolling_max_drawdown(p, 60).iloc[-1] == pytest.approx(0.0)
+
+
+def test_s3_06_drawdown_is_peak_to_trough_inside_window():
+    p = pd.Series([10.0, 12.0, 6.0, 8.0, 9.0])
+    out = rolling_max_drawdown(p, 3)
+    assert out.iloc[:2].isna().all()
+    assert out.iloc[2] == pytest.approx(-0.5)
+    assert out.iloc[3] == pytest.approx(-0.5)
+    assert out.iloc[4] == pytest.approx(0.0)
 
 
 def test_s3_07_baseline_ensemble_weight_is_preserved():

@@ -549,7 +549,8 @@ def _matured_rows(
         else:
             cost_bps = _finite_or_none((round_trip_cost_bps or {}).get(str(row["etf_id"])))
             round_trip_cost = None if cost_bps is None or cost_bps < 0 else cost_bps / 10_000.0
-        gross_value = direction * actual
+        # Money boundary: the log-return outcome becomes a simple return before costs.
+        gross_value = direction * float(np.expm1(actual))
         rows.append(
             {
                 "model_name": str(row["model_name"]),
@@ -751,7 +752,8 @@ def _actual_return(
         return None, None, "origin_adjusted_price_invalid"
     if target_value is None or target_value <= 0:
         return None, None, "target_adjusted_price_invalid"
-    return target_value / start_value - 1.0, pd.Timestamp(clean.index[target]), None
+    # Forecast returns are log returns (see models.base); keep outcomes in log units.
+    return float(np.log(target_value / start_value)), pd.Timestamp(clean.index[target]), None
 
 
 def _naive_utc(values: pd.Series) -> pd.Series:
