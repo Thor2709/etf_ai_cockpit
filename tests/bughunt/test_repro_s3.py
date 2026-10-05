@@ -24,7 +24,6 @@ from etf_cockpit.signals.canonical_scoring import canonical_score_from_signal_ro
 from etf_cockpit.signals.friction_edge import estimate_friction_adjusted_return
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S3-01: Valid scoreboard evidence always fails the authority gate")
 def test_s3_01_valid_score_evidence_passes_authority():
     components = s._attach_component_provenance(
         [s._component("momentum", 1.0, ""), s._component("etf_exposure", 1.0, "")],
@@ -65,7 +64,6 @@ def test_s3_02_log_forecast_units_are_respected():
     assert r.net_expected_return == pytest.approx(0.09)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S3-03: Historical scores use future holdings")
 def test_s3_03_future_holdings_cannot_support_historical_score(monkeypatch):
     h = pd.DataFrame({"etf_id": ["VWCE"], "weight": [1.0], "as_of_date": ["2026-10-05"]})
     monkeypatch.setattr(s, "load_reference_dataset", lambda *_: h)
@@ -76,7 +74,6 @@ def test_s3_03_future_holdings_cannot_support_historical_score(monkeypatch):
     assert not c.score_eligible
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S3-04: Future candidates contaminate historical peer scores")
 def test_s3_04_future_peer_does_not_change_known_candidate(monkeypatch):
     monkeypatch.setattr(s, "_etf_exposure_lookup", dict)
     a = dict(
@@ -120,7 +117,6 @@ def test_s3_06_peak_outside_window_does_not_affect_rolling_drawdown():
     assert rolling_max_drawdown(p, 60).iloc[-1] == pytest.approx(0.0)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S3-07: Canonical scoring silently discards the baseline weight")
 def test_s3_07_baseline_ensemble_weight_is_preserved():
     config = N(models=N(ensemble={"weights": {"momentum": 0.5, "baseline_ml": 0.5}}))
     score = canonical_score_from_signal_row(
@@ -129,7 +125,6 @@ def test_s3_07_baseline_ensemble_weight_is_preserved():
     assert score.legacy_composite_raw == pytest.approx(0.5)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S3-08: Configured stocks receive ETF scoring policies")
 def test_s3_08_configured_stock_uses_stock_policy(monkeypatch):
     monkeypatch.setattr(s, "_etf_exposure_lookup", dict)
     cfg = N(
