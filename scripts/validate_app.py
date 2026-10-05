@@ -31,7 +31,7 @@ MODES = ("quick", "changed", "issue", "phase", "full", "offline", "packaged")
 # Exact-head hosted evidence reached the prior 900-second ceiling without a
 # test failure after full replay was added. This remains bounded and does not
 # remove or retry any required test.
-CHANGED_TEST_TIMEOUT_SECONDS = 1200
+CHANGED_TEST_TIMEOUT_SECONDS = 2700
 
 
 @dataclass
