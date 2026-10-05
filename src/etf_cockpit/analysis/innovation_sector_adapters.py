@@ -413,6 +413,14 @@ def _metric_result(item: InnovationMetricEvidence, formula: InnovationFormulaDef
     )
 
 
+def _dilution_fraction(row: InnovationMetricResult) -> float | None:
+    """Disclosed dilution as a fraction: percent evidence is divided by 100 before reconciliation."""
+    if not isinstance(row.value, (int, float)) or isinstance(row.value, bool):
+        return None
+    value = float(row.value)
+    return value / 100.0 if row.unit == "percent" else value
+
+
 def _derived_sector_metrics(model: str, rows: list[InnovationMetricResult], limitations: set[str]) -> list[InnovationMetricResult]:
     if model == "software":
         return _derived_software_metrics(rows, limitations)
@@ -435,7 +443,8 @@ def _derived_sector_metrics(model: str, rows: list[InnovationMetricResult], limi
     dilution = by_metric["dilution_rate"]
     if shares.status == "available" and potential.status == "available" and isinstance(shares.value, (int, float)) and isinstance(potential.value, (int, float)) and float(shares.value) > 0 and float(potential.value) >= 0:
         derived_rate = float(potential.value) / float(shares.value)
-        if dilution.status == "available" and isinstance(dilution.value, (int, float)) and not math.isclose(float(dilution.value), derived_rate, rel_tol=0.1, abs_tol=0.005):
+        disclosed = _dilution_fraction(dilution)
+        if dilution.status == "available" and disclosed is not None and not math.isclose(disclosed, derived_rate, rel_tol=0.1, abs_tol=0.005):
             limitations.add("dilution_reconciliation:statement_mismatch")
             rows[rows.index(dilution)] = replace(dilution, status="unavailable", value=None, limitations=tuple(sorted({*dilution.limitations, "statement_mismatch"})))
         elif dilution.status != "available":
@@ -458,8 +467,8 @@ def _derived_software_metrics(rows: list[InnovationMetricResult], limitations: s
         derived_rate = (float(diluted.value) - float(basic.value)) / float(basic.value)
         if (
             dilution.status == "available"
-            and isinstance(dilution.value, (int, float))
-            and not math.isclose(float(dilution.value), derived_rate, rel_tol=0.1, abs_tol=0.005)
+            and (disclosed := _dilution_fraction(dilution)) is not None
+            and not math.isclose(disclosed, derived_rate, rel_tol=0.1, abs_tol=0.005)
         ):
             limitations.add("dilution_reconciliation:statement_mismatch")
             rows[rows.index(dilution)] = replace(
@@ -493,7 +502,7 @@ def _checks(model: str, rows: Sequence[InnovationMetricResult], limitations: set
         )
         return (InnovationCheck(
             "dilution_reconciliation", "available" if reconciled else "partial",
-            float(dilution.value) if isinstance(dilution.value, (int, float)) else None,
+            _dilution_fraction(dilution),
             "ratio", "(diluted_shares - basic_shares) / basic_shares",
             "reconciled" if reconciled else "inputs_missing_or_mismatch",
         ),)
@@ -510,7 +519,7 @@ def _checks(model: str, rows: Sequence[InnovationMetricResult], limitations: set
     dilution_reconciled = dilution.status == "available" and not any(
         item.startswith("dilution_reconciliation:") for item in limitations
     )
-    checks.append(InnovationCheck("dilution_reconciliation", "available" if dilution_reconciled else "partial", float(dilution.value) if isinstance(dilution.value, (int, float)) else None, "ratio", "potential_dilution_shares / shares_outstanding", "reconciled" if dilution_reconciled else "inputs_missing_or_mismatch"))
+    checks.append(InnovationCheck("dilution_reconciliation", "available" if dilution_reconciled else "partial", _dilution_fraction(dilution), "ratio", "potential_dilution_shares / shares_outstanding", "reconciled" if dilution_reconciled else "inputs_missing_or_mismatch"))
     return tuple(checks)
 
 
