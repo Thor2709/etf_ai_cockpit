@@ -10,7 +10,7 @@ from etf_cockpit.analysis.innovation_sector_adapters import (
     innovation_adapter_definitions,
 )
 from etf_cockpit.analysis.peer_cohorts import AdapterRegistry
-from etf_cockpit.analysis.sparebank.events import deficit_coverage
+from etf_cockpit.analysis.sparebank.events import analyse_events, deficit_coverage
 from etf_cockpit.data.classification import ClassificationEvidence, resolve_instrument_context
 from etf_cockpit.data.contracts import SourceAuthority as A
 
@@ -93,3 +93,18 @@ def test_biotech_percentage_dilution_reconciles():
     assert dilution.status == "available"
     assert dilution.value == 20
     assert dilution.unit == "percent"
+
+
+def test_uncovered_deficit_fails_closed_to_partial():
+    covered = deficit_coverage(200, owner_nominal=100, owner_premium_fund=50, self_owned_capital=100)
+    assert covered["status"] == "resolved"
+    short = deficit_coverage(300, owner_nominal=100, owner_premium_fund=50, self_owned_capital=100)
+    assert short["status"] == "partial"
+    assert short["unknown_fields"] == ("uncovered_deficit",)
+    analysis = analyse_events(
+        [{"event_type": "deficit_coverage", "deficit": 300, "owner_nominal": 100,
+          "owner_premium_fund": 50, "self_owned_capital": 100, "known_at": "2025-01-01T00:00:00Z"}],
+        decision_time="2025-02-01T00:00:00Z",
+    )
+    assert analysis.events[0]["status"] == "partial"
+    assert analysis.status == "partial"

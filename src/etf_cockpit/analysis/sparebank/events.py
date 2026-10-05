@@ -136,7 +136,7 @@ def deficit_coverage(deficit: float, *, owner_nominal: float, owner_premium_fund
     carried = max(0.0, amount - first_absorbed)
     nominal_share = min(carried, nominal_pool)
     uncovered = max(0.0, carried - nominal_share)
-    return {"status": "resolved", "statute_version": statute_version, "reform_sensitive": True, "waterfall": (("self_owned_capital", self_share), ("owner_side_above_nominal", owner_fund_share), ("premium_funds", 0.0), ("nominal_ec_capital", nominal_share)), "self_owned_reduction": self_share, "owner_fund_reduction": owner_fund_share, "nominal_reduction": nominal_share, "uncovered_deficit": uncovered, "owner_book_after": nominal_pool + fund_pool - owner_fund_share - nominal_share, "owner_share_of_deficit": owner_fund_share / amount if amount else None}
+    return {"status": "partial" if uncovered > 0 else "resolved", "unknown_fields": ("uncovered_deficit",) if uncovered > 0 else (), "statute_version": statute_version, "reform_sensitive": True, "waterfall": (("self_owned_capital", self_share), ("owner_side_above_nominal", owner_fund_share), ("premium_funds", 0.0), ("nominal_ec_capital", nominal_share)), "self_owned_reduction": self_share, "owner_fund_reduction": owner_fund_share, "nominal_reduction": nominal_share, "uncovered_deficit": uncovered, "owner_book_after": nominal_pool + fund_pool - owner_fund_share - nominal_share, "owner_share_of_deficit": owner_fund_share / amount if amount else None}
 
 
 def merger_ratios(*, bank_value_split: float | None = None, target_ec_exchange_ratio: float | None = None, post_merger_ec_class_ownership: float | None = None, post_merger_eierbrok: float | None = None) -> Mapping[str, float | None]:
