@@ -372,3 +372,34 @@ def test_state_discovery_and_download_keep_unavailable_state_explicit(tmp_path: 
     state = state_module.AppState.__new__(state_module.AppState)
     assert "complete" in state.discover_esef_filings("NL")
     assert "downloaded" in state.download_esef_package("fixture-1")
+
+
+def _write_numeric_package(path: Path, facts: str) -> None:
+    xhtml = f"""<?xml version='1.0'?>
+    <html xmlns='http://www.w3.org/1999/xhtml' xmlns:ix='http://www.xbrl.org/2013/inlineXBRL'
+      xmlns:xbrli='http://www.xbrl.org/2003/instance' xmlns:ifrs-full='https://xbrl.ifrs.org/taxonomy/2024-03-27/ifrs-full'>
+      <body><xbrli:context id='c'><xbrli:entity><xbrli:identifier>549300TESTLEI00000001</xbrli:identifier></xbrli:entity>
+        <xbrli:period><xbrli:startDate>2025-01-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period></xbrli:context>
+        {facts}</body></html>"""
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("META-INF/reportPackage.json", "{}")
+        archive.writestr("reports/report.xhtml", xhtml)
+
+
+def test_inline_formats_decode_and_unsupported_numeric_is_not_mapped(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
+    package = tmp_path / "numeric.xbri"
+    _write_numeric_package(
+        package,
+        "<ix:nonFraction name='ifrs-full:Revenue' contextRef='c' unitRef='EUR' format='ixt:num-comma-decimal' scale='3'>1.234,5</ix:nonFraction>"
+        "<ix:nonFraction name='ifrs-full:Assets' contextRef='c' unitRef='EUR' format='ixt:num-dot-decimal' scale='-2' sign='-'>1,500</ix:nonFraction>"
+        "<ix:nonFraction name='ifrs-full:Equity' contextRef='c' unitRef='EUR' format='ixt:numwordsen'>one hundred</ix:nonFraction>",
+    )
+
+    result = parse_esef_package(package)
+
+    values = {record.concept: record for record in result.records}
+    assert float(values["Revenue"].value) == 1234500.0 and values["Revenue"].mapping_status == "mapped"
+    assert float(values["Assets"].value) == -15.0
+    assert values["Equity"].value == "one hundred" and values["Equity"].mapping_status == "unsupported_numeric"
+    assert any(warning.code == "unsupported_numeric_fact" for warning in result.warnings)
