@@ -321,6 +321,11 @@ def _alternative(
         if price is not None and abs(requested_value) > REBALANCE_TOLERANCE and quantity == 0:
             status = "deferred_below_lot"
             desired_value = 0.0
+        if _below_minimum(desired_value, constraints):
+            # Lot rounding can shrink a qualifying trade under the minimum; defer it like the pre-rounding check.
+            desired_value = 0.0
+            quantity = 0.0 if quantity is not None else None
+            status = forced_status or "deferred_below_minimum"
         tax = _tax_estimate(tax_lots, instrument_id, desired_value, constraints)
         if tax is None:
             # The sale is deferred, so zero tax here is the cost of no trade, not an estimate of unknown gains.
@@ -394,6 +399,9 @@ def _fit_cash(rows: list[RebalanceTrade], current: dict[str, dict[str, object]],
         )
         if item.price_eur is not None and quantity is not None:
             value = quantity * item.price_eur
+        if _below_minimum(value, constraints):
+            value = 0.0
+            quantity = 0.0 if quantity is not None else None
         cost = estimate_execution_cost(config, item.instrument_id, abs(value))
         tax = _tax_estimate(tax_lots, item.instrument_id, value, constraints)
         adjusted.append(RebalanceTrade(**{**item.__dict__, "trade_value_eur": round(value, 8), "proposed_weight": round(item.current_weight + value / portfolio_value, 10), "quantity": None if quantity is None else round(quantity, 8), "estimated_cost_eur": round(cost.total_cost_eur, 8), "estimated_tax_eur": round(tax, 8), "status": item.status if value else "deferred_cash_buffer"}))
@@ -450,6 +458,9 @@ def _fit_cash(rows: list[RebalanceTrade], current: dict[str, dict[str, object]],
             if item.price_eur is not None and quantity is not None:
                 value = quantity * item.price_eur
 
+        if _below_minimum(value, constraints):
+            value = 0.0
+            quantity = 0.0 if quantity is not None else None
         cost = estimate_execution_cost(config, item.instrument_id, abs(value))
         tax = _tax_estimate(tax_lots, item.instrument_id, value, constraints)
         adjusted[index] = RebalanceTrade(
@@ -463,6 +474,12 @@ def _fit_cash(rows: list[RebalanceTrade], current: dict[str, dict[str, object]],
                 "status": item.status if value else "deferred_cash_buffer",
             }
         )
+
+
+def _below_minimum(value: float, constraints: RebalanceConstraints) -> bool:
+    """True for a non-zero trade smaller than the configured minimum trade value."""
+
+    return REBALANCE_TOLERANCE < abs(value) and abs(value) + REBALANCE_TOLERANCE < float(constraints.min_trade_eur)
 
 
 def _clean_targets(targets: Mapping[str, object]) -> dict[str, float]:

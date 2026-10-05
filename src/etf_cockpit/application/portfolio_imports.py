@@ -82,7 +82,7 @@ class PortfolioImportApplication:
                 source_events = self._store.source_events(
                     as_of=as_of, known_at=known_at, store=store
                 )
-                mappings = load_account_mappings(store, authority=authority)
+                mappings = load_account_mappings(store, authority=authority, known_at=known_at)
                 return reconcile_imports(
                     store.connection,
                     source_events.to_dict(orient="records"),
@@ -145,7 +145,7 @@ class PortfolioImportApplication:
                 if len(rows) != 1:
                     raise ValueError("adjustment requires one active, visible source event")
                 row = rows.iloc[0].to_dict()
-                mappings = load_account_mappings(store, authority=authority)
+                mappings = load_account_mappings(store, authority=authority, known_at=known_at)
                 mapping = mappings.get(str(row.get("account_id") or ""))
                 if mapping is None:
                     raise ValueError("adjustment requires a reviewer-approved source account mapping")
