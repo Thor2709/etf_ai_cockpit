@@ -76,11 +76,6 @@ def _context(name, *, effective_at, decision_time):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S4-01: ex-coupon pricing includes detached coupon",
-)
 def test_s4_01_ex_coupon_dirty_price():
     flows = (
         CF(date(2026, 7, 1), D("2.5"), "coupon", "v", date(2026, 1, 1), date(2026, 7, 1), date(2026, 6, 24)),
@@ -107,11 +102,6 @@ def test_s4_02_deficit_cannot_overdraw_capital_pools():
     assert r["owner_book_after"] == 0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S4-03: default loss changes when curve is supplied",
-)
 def test_s4_03_default_loss_basis_independent_of_curve():
     t = datetime(2026, 1, 1, tzinfo=timezone.utc)
     v = FixedIncomeValuationInput(
