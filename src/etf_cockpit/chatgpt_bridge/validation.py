@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from etf_cockpit.chatgpt_bridge.schemas import ChatGPTAudit, ChatGPTAuditV2
 from etf_cockpit.core.exceptions import AuditImportError
 
@@ -26,7 +28,12 @@ def validate_audit_text(raw_text: str, known_etf_ids: set[str]) -> ChatGPTAudit 
         payload = json.loads(raw_text)
     except json.JSONDecodeError as exc:
         raise AuditImportError(f"Audit JSON is invalid: {exc}") from exc
-    audit = ChatGPTAuditV2.model_validate(payload) if str(payload.get("schema_version")) == "2.0" else ChatGPTAudit.model_validate(payload)
+    if not isinstance(payload, dict):
+        raise AuditImportError("Audit JSON must contain an object")
+    try:
+        audit = ChatGPTAuditV2.model_validate(payload) if str(payload.get("schema_version")) == "2.0" else ChatGPTAudit.model_validate(payload)
+    except ValidationError as exc:
+        raise AuditImportError(f"Audit JSON does not match the supported schema: {exc}") from exc
     referenced_ids = {item.etf_id for item in audit.portfolio_actions} | {item.etf_id for item in audit.ignored_signals}
     unknown = referenced_ids - known_etf_ids
     if unknown:

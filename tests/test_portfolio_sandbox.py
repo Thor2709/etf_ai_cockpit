@@ -150,9 +150,16 @@ def _canonical_reference_registry(
     )
 
 
+def _config_with_liquidity_evidence():
+    config = load_config().model_copy(deep=True)
+    for etf in config.universe.etfs:
+        etf.average_daily_value_usd = 1_000_000
+    return config
+
+
 def _snapshot(*, revision: str = "universe-1", vwce_weight: float = 0.4):
     return SimpleNamespace(
-        config=load_config(),
+        config=_config_with_liquidity_evidence(),
         holdings=pd.DataFrame(
             [
                 {"etf_id": "VWCE", "current_weight": vwce_weight, "market_value_eur": 40_000.0},

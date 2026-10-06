@@ -27,8 +27,13 @@ def import_audit_json(path: Path, config: AppConfig) -> ChatGPTAudit | ChatGPTAu
     if _contains_unredacted_secret(raw_text):
         raise AuditImportError("Audit JSON contains unredacted secret material")
     audit = validate_audit_file(path, set(config.universe.enabled_ids))
+    try:
+        review_date = datetime.strptime(audit.review_date, "%Y-%m-%d").date().isoformat()
+    except ValueError as exc:
+        raise AuditImportError("Audit review_date must be an ISO calendar date (YYYY-MM-DD)") from exc
+    if review_date != audit.review_date:
+        raise AuditImportError("Audit review_date must be an ISO calendar date (YYYY-MM-DD)")
     CHATGPT_IMPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    out = CHATGPT_IMPORTS_DIR / f"chatgpt_audit_{audit.review_date}.json"
     convictions = [action.conviction for action in audit.portfolio_actions]
     note = {
         "source": str(path),
@@ -42,7 +47,18 @@ def import_audit_json(path: Path, config: AppConfig) -> ChatGPTAudit | ChatGPTAu
         "can_change_configuration": False,
         "audit": audit.model_dump(),
     }
-    out.write_text(json.dumps(note, indent=2), encoding="utf-8")
+    payload = json.dumps(note, indent=2)
+    filename = f"chatgpt_audit_{review_date}.json"
+    suffix = 1
+    while True:
+        out = CHATGPT_IMPORTS_DIR / filename
+        try:
+            with out.open("x", encoding="utf-8") as handle:
+                handle.write(payload)
+            break
+        except FileExistsError:
+            filename = f"chatgpt_audit_{review_date}_{suffix}.json"
+            suffix += 1
     append_jsonl(
         "chatgpt_audits.jsonl",
         "chatgpt_audit_imported",

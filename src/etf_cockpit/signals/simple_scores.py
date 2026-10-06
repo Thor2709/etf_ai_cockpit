@@ -967,7 +967,7 @@ def _attach_authority(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
     """Publish the same typed authority envelope on scoreboard release rows."""
 
     evidence_present = any(
-        component.status == "ok"
+        str(component.status or "").strip().lower() == "ok"
         and component.score_10 is not None
         and component.source_id in ALLOWED_EVIDENCE_SOURCE_IDS
         for component in score.components
@@ -1301,6 +1301,7 @@ def build_universe_simple_scores(
         quality_info = price_quality.get(signal.etf_id, {})
         liquidity_info = liquidity.get(signal.etf_id, {})
         exposure_info = etf_exposure.get(signal.etf_id)
+        stock_like = _is_stock_like_asset_type(asset_type)
         as_of_date = _noneable_str(price_info.get("date")) or _noneable_str(signal.signal_date)
         components = _attach_component_provenance(
             [
@@ -1331,7 +1332,11 @@ def build_universe_simple_scores(
                 authority="high",
             ),
             _liquidity_component(liquidity_info),
-            _etf_exposure_component(exposure_info),
+            *(
+                _configured_stock_fundamental_components()
+                if stock_like
+                else [_etf_exposure_component(exposure_info, signal.signal_date)]
+            ),
             _forecast_component(signal.etf_id, "baseline", raw_forecast_scores, forecast_details, forecasts),
             _forecast_component(signal.etf_id, "timesfm", raw_forecast_scores, forecast_details, forecasts),
             _forecast_component(signal.etf_id, "toto", raw_forecast_scores, forecast_details, forecasts),
@@ -1339,8 +1344,14 @@ def build_universe_simple_scores(
             as_of_date,
             signal.signal_date,
         )
-        _raw_final, evidence_score = combine_component_scores(components, ETF_EVIDENCE_WEIGHTS)
-        quality_score = _evidence_quality_score(components, warnings=[*signal.blocked_by, *signal.warnings], asset_type="ETF")
+        _raw_final, evidence_score = combine_component_scores(
+            components, STOCK_EVIDENCE_WEIGHTS if stock_like else ETF_EVIDENCE_WEIGHTS
+        )
+        quality_score = _evidence_quality_score(
+            components,
+            warnings=[*signal.blocked_by, *signal.warnings],
+            asset_type=asset_type if stock_like else "ETF",
+        )
         risk_friction = _risk_friction_score(components, warnings=[*signal.blocked_by, *signal.warnings])
         final_label, final_action, decision = final_label_from_scores(
             evidence_score,
@@ -1373,7 +1384,7 @@ def build_universe_simple_scores(
             candidate=False,
         )
         template_labels = strategy_template_labels(
-            asset_type="ETF",
+            asset_type=asset_type if stock_like else "ETF",
             evidence_score=evidence_score,
             risk_friction_score=risk_friction,
             component_scores=_component_score_map(components),
@@ -1523,7 +1534,7 @@ def build_candidate_simple_scores(
     return_distributions = forecast_return_distributions(forecasts)
     forecast_details = forecast_score_details(forecasts)
     source = _candidate_source_frame(report, forecasts)
-    relative_reference = _candidate_relative_reference(source)
+    relative_reference = _candidate_relative_reference(source, decision_date)
     etf_exposure = _etf_exposure_lookup()
     calibration_by_id = calibration_by_id or {}
     regime = regime or {}
@@ -1578,7 +1589,7 @@ def build_candidate_simple_scores(
             _candidate_liquidity_component(row),
         ]
         if asset_type == "ETF":
-            component_rows.append(_etf_exposure_component(etf_exposure.get(instrument_id)))
+            component_rows.append(_etf_exposure_component(etf_exposure.get(instrument_id), decision_date))
         else:
             component_rows.extend(
                 [
@@ -1957,11 +1968,22 @@ def _attach_component_provenance(
 ) -> list[SimpleScoreComponent]:
     clean_date = _noneable_str(as_of_date)
     freshness = _component_freshness_status(clean_date, decision_date)
+
+    def component_freshness(component: SimpleScoreComponent) -> str:
+        if component.freshness_status:
+            return component.freshness_status
+        # Evidence carrying its own date must itself be known at the decision
+        # date; the shared price date cannot vouch for evidence dated later.
+        own_date = _parse_date(component.as_of_date)
+        if own_date is not None and decision_date is not None and own_date > decision_date:
+            return "unavailable"
+        return freshness
+
     return [
         replace(
             component,
             as_of_date=component.as_of_date or clean_date,
-            freshness_status=component.freshness_status or freshness,
+            freshness_status=component_freshness(component),
         )
         for component in components
     ]
@@ -2039,7 +2061,14 @@ def _candidate_source_frame(report: pd.DataFrame, forecasts: pd.DataFrame) -> pd
     return pd.DataFrame({"instrument_id": ids, "name": ids, "yahoo_symbol": ids})
 
 
-def _candidate_relative_reference(frame: pd.DataFrame) -> float | None:
+def _candidate_relative_reference(frame: pd.DataFrame, decision_date: date | None = None) -> float | None:
+    if decision_date is not None and "latest_date" in frame:
+        # Peers observed after the decision date (or undated) are not known
+        # evidence and must not move a historical peer reference.
+        known = frame["latest_date"].map(
+            lambda value: (parsed := _parse_date(value)) is not None and parsed <= decision_date
+        )
+        frame = frame.loc[known.astype(bool)]
     for column in ("return_6m", "return_12m", "return_3m"):
         if column not in frame:
             continue
@@ -2239,20 +2268,37 @@ def _liquidity_raw_and_reason(avg_turnover_eur: float | None, spread_proxy: floa
     return _score_10_to_raw(score), why
 
 
-def _etf_exposure_component(info: dict[str, object] | None) -> SimpleScoreComponent:
+def _etf_exposure_unavailable(why: str) -> SimpleScoreComponent:
+    return SimpleScoreComponent(
+        key="etf_exposure",
+        label=COMPONENT_LABELS["etf_exposure"],
+        score_10=None,
+        raw_score=None,
+        status="N/A",
+        explanation=COMPONENT_EXPLANATIONS["etf_exposure"],
+        good_score=GOOD_SCORE_TEXT["etf_exposure"],
+        why=why,
+        authority="medium",
+        score_role="evidence",
+    )
+
+
+def _etf_exposure_component(
+    info: dict[str, object] | None,
+    decision_date: date | None = None,
+) -> SimpleScoreComponent:
     if not info:
-        return SimpleScoreComponent(
-            key="etf_exposure",
-            label=COMPONENT_LABELS["etf_exposure"],
-            score_10=None,
-            raw_score=None,
-            status="N/A",
-            explanation=COMPONENT_EXPLANATIONS["etf_exposure"],
-            good_score=GOOD_SCORE_TEXT["etf_exposure"],
-            why="Yahoo fund holdings are unavailable for this ETF, so exposure is not included in the evidence score and quality is reduced slightly.",
-            authority="medium",
-            score_role="evidence",
+        return _etf_exposure_unavailable(
+            "Yahoo fund holdings are unavailable for this ETF, so exposure is not included in the evidence score and quality is reduced slightly."
         )
+    vintage = _noneable_str(info.get("as_of_date"))
+    if decision_date is not None:
+        vintage_date = _parse_date(vintage)
+        if vintage_date is None or vintage_date > decision_date:
+            return _etf_exposure_unavailable(
+                f"ETF holdings vintage ({vintage or 'undated'}) is not known at the decision date "
+                f"{decision_date.isoformat()}, so exposure is excluded from the evidence score."
+            )
     top_weight = _safe_float(info.get("top_weight_sum"))
     largest = _safe_float(info.get("largest_weight"))
     if top_weight is None or largest is None:
@@ -2271,7 +2317,21 @@ def _etf_exposure_component(info: dict[str, object] | None) -> SimpleScoreCompon
         f"Yahoo exposes {count} top-holding rows. Top available holdings sum to {top_weight:.1%}; "
         f"largest holding is {largest:.1%}. Holdings may be partial."
     )
-    return _component("etf_exposure", _score_10_to_raw(score), why, authority="medium")
+    return replace(
+        _component("etf_exposure", _score_10_to_raw(score), why, authority="medium"),
+        as_of_date=vintage,
+    )
+
+
+def _configured_stock_fundamental_components() -> list[SimpleScoreComponent]:
+    """Configured stocks have no fundamentals source: keep these components explicitly unavailable."""
+
+    reason = "No fundamentals source is loaded for this configured stock, so it is excluded from the evidence score."
+    return [
+        _optional_score_component("stock_value", None, f"Stock value: {reason}", authority="medium"),
+        _optional_score_component("stock_quality", None, f"Stock quality: {reason}", authority="medium"),
+        _optional_score_component("analyst_revision", None, f"Analyst revision: {reason}", authority="low"),
+    ]
 
 
 def _optional_score_component(key: str, score_10: object, why: str, *, authority: str) -> SimpleScoreComponent:
@@ -3324,13 +3384,28 @@ def _etf_exposure_lookup() -> dict[str, dict[str, object]]:
         return {}
     frame = holdings.copy()
     frame["weight"] = pd.to_numeric(frame["weight"], errors="coerce")
+    has_vintage = "as_of_date" in frame.columns
+    if has_vintage:
+        frame["_vintage"] = pd.to_datetime(frame["as_of_date"], errors="coerce")
     output: dict[str, dict[str, object]] = {}
     for etf_id, group in frame.dropna(subset=["weight"]).groupby("etf_id", sort=False):
+        # One holdings vintage per ETF (the latest dated one): mixing vintages
+        # would double-count constituents, and the vintage date must travel
+        # with the exposure so callers can reject evidence from after the
+        # decision date.
+        vintage: str | None = None
+        if has_vintage:
+            dated = group.dropna(subset=["_vintage"])
+            if not dated.empty:
+                latest = dated["_vintage"].max()
+                group = dated[dated["_vintage"] == latest]
+                vintage = latest.date().isoformat()
         weights = group["weight"].sort_values(ascending=False)
         output[str(etf_id)] = {
             "holding_count": int(len(weights)),
             "top_weight_sum": float(weights.head(10).sum()),
             "largest_weight": float(weights.iloc[0]) if not weights.empty else None,
+            "as_of_date": vintage,
         }
     return output
 

@@ -159,7 +159,19 @@ def _build_financial_projection_from_evidence(
             else:
                 eligible = prices.loc[prices["instrument_id"].astype(str).eq(str(instrument_id))].copy()
                 eligible["_price_date"] = pd.to_datetime(eligible["date"], errors="coerce", utc=True)
-                eligible = eligible.loc[eligible["_price_date"].notna() & eligible["_price_date"].le(pd.Timestamp(decision))]
+                available_at = eligible["_price_date"].where(
+                    eligible["_price_date"].ne(eligible["_price_date"].dt.normalize()),
+                    eligible["_price_date"].dt.normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59),
+                )
+                if "known_at" in eligible.columns:
+                    known_at = pd.to_datetime(eligible["known_at"], errors="coerce", utc=True)
+                    available_at = pd.concat([available_at, known_at], axis=1).max(axis=1, skipna=False)
+                eligible = eligible.loc[
+                    eligible["_price_date"].notna()
+                    & available_at.notna()
+                    & eligible["_price_date"].le(pd.Timestamp(decision))
+                    & available_at.le(pd.Timestamp(decision))
+                ]
                 if eligible.empty:
                     decision_price_projection["reason_code"] = "decision_price_unavailable_as_of_decision"
                 else:
