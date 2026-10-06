@@ -234,7 +234,7 @@ def parse_euronext_listing(payload: bytes, config: EuronextListingConfig | None 
     positions = {name: header.index(name) for name in ("name", "isin", "symbol", "market", "currency")}
     accepted: list[dict[str, str]] = []
     rejected: list[ListingRejection] = []
-    seen_isins: set[str] = set()
+    seen_isins: dict[str, dict[str, str]] = {}
     allowed_markets = set(active_config.markets)
     for row_number, record in enumerate(records[header_index + 4 :], start=header_index + 5):
         if not record or not any(value.strip() for value in record):
@@ -256,20 +256,21 @@ def parse_euronext_listing(payload: bytes, config: EuronextListingConfig | None 
         if market not in allowed_markets:
             rejected.append(ListingRejection(row_number, raw_isin, f"unknown market: {market}"))
             continue
-        if raw_isin.casefold() in seen_isins:
-            rejected.append(ListingRejection(row_number, raw_isin, "duplicate ISIN"))
+        row = {
+            "instrument_id": raw_isin,
+            "symbol": symbol,
+            "name": name,
+            "market": market,
+            "currency": currency,
+            "yfinance_ticker": f"{symbol}.OL",
+        }
+        isin_key = raw_isin.casefold()
+        if isin_key in seen_isins:
+            reason = "duplicate ISIN" if seen_isins[isin_key] == row else "conflicting duplicate ISIN"
+            rejected.append(ListingRejection(row_number, raw_isin, reason))
             continue
-        seen_isins.add(raw_isin.casefold())
-        accepted.append(
-            {
-                "instrument_id": raw_isin,
-                "symbol": symbol,
-                "name": name,
-                "market": market,
-                "currency": currency,
-                "yfinance_ticker": f"{symbol}.OL",
-            }
-        )
+        seen_isins[isin_key] = row
+        accepted.append(row)
     return ParsedListing(as_of_date, tuple(accepted), tuple(rejected))
 
 
@@ -286,6 +287,11 @@ def capture_euronext_oslo_listing(
         config = load_euronext_listing_config(config_path)
         downloaded = EuronextListingProvider(config, transport=transport, clock=clock).fetch()
         parsed = parse_euronext_listing(downloaded.payload, config)
+        completeness_rejections = tuple(
+            rejection for rejection in parsed.rejected_rows if rejection.reason != "duplicate ISIN"
+        )
+        if completeness_rejections:
+            raise EuronextListingError("Euronext listing contains rejected instrument rows")
         if len(parsed.rows) < config.minimum_rows:
             raise EuronextListingError(
                 f"Euronext listing has {len(parsed.rows)} accepted rows; minimum is {config.minimum_rows}"

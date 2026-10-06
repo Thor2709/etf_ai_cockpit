@@ -20,7 +20,6 @@ from etf_cockpit.data.bond_analytics_store import BondAnalyticsRecord
 from etf_cockpit.data.universe_membership import CaptureStatus
 from etf_cockpit.data.fixed_income_terms import (
     FixedIncomeSecurityTerms,
-    FixedIncomeTermsError,
     SettlementConvention,
     generate_contractual_schedules,
 )
@@ -111,7 +110,6 @@ def test_s6_04_failed_commit_preserves_previous_projection(tmp_path, monkeypatch
     assert bond_analytics_store.read_bond_analytics(path)[0]["record_id"] == "old"
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S6-05: Malformed listing rows close valid memberships")
 def test_s6_05_malformed_member_prevents_complete_capture(monkeypatch):
     config = replace(euronext_listing.load_euronext_listing_config(), minimum_rows=1)
     payload = (
@@ -130,7 +128,6 @@ def test_s6_05_malformed_member_prevents_complete_capture(monkeypatch):
     recorder.assert_not_called()
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S6-06: Ineligible news bypasses cutoff validation")
 def test_s6_06_rejected_news_cannot_flag_cutoff_contradiction():
     cutoff = datetime(2026, 10, 5, 12, tzinfo=timezone.utc)
     item = NewsItem(
@@ -164,7 +161,6 @@ def test_s6_07_foreign_candidate_requires_fx_for_eur_amounts():
     assert pd.isna(result["median_turnover_60d_eur"])
 
 
-@pytest.mark.xfail(strict=True, raises=FixedIncomeTermsError, reason="S6-08: Coupon month subtraction rejects regular month-end bonds")
 def test_s6_08_regular_month_end_coupon_schedule():
     timestamp = datetime(2024, 8, 31, tzinfo=timezone.utc)
     calendar = SettlementCalendarEvidence(

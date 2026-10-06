@@ -461,10 +461,13 @@ def generate_contractual_schedules(
     contractual_dates: list[date] = []
     if item.coupon_type == "fixed_rate":
         months = 12 // item.coupon_frequency
-        cursor = item.maturity_date
-        while cursor > item.issue_date:
+        month_offset = 0
+        while True:
+            cursor = _add_months(item.maturity_date, -month_offset)
+            if cursor <= item.issue_date:
+                break
             contractual_dates.append(cursor)
-            cursor = _add_months(cursor, -months)
+            month_offset += months
         if cursor != item.issue_date:
             raise FixedIncomeTermsError(
                 "irregular or stub coupon schedules require explicit unsupported terms"
