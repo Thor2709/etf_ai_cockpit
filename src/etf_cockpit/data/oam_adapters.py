@@ -893,6 +893,7 @@ def write_oam_discovery_registry(
             incoming_ids = set(frame["source_id"].dropna().astype(str))
             if "source_id" in existing.columns:
                 existing = existing[~existing["source_id"].fillna("").astype(str).isin(incoming_ids)]
+                existing = _drop_superseded_legacy_official_rows(existing, frame)
             combined = pd.concat([existing, frame], ignore_index=True)
         elif frame.empty:
             # A failed/manual-review result with no records must never replace a
@@ -911,6 +912,53 @@ def write_oam_discovery_registry(
         with publication_scope(publish_guard):
             _write_parquet_atomic(combined, destination)
     return destination
+
+
+def _legacy_official_source_id(row: Mapping[str, object]) -> str:
+    """The pre-S5-04 official ``source_id``: provider|source|isin|title|published only."""
+
+    def text(key: str) -> str:
+        value = row.get(key)
+        return "" if value is None or (not isinstance(value, str) and pd.isna(value)) else str(value)
+
+    return "oam:" + hashlib.sha256(
+        "|".join(
+            (text("provider_id"), text("source_url"), text("isin"), text("title"), text("published_at"))
+        ).encode("utf-8")
+    ).hexdigest()[:24]
+
+
+def _drop_superseded_legacy_official_rows(existing: pd.DataFrame, incoming: pd.DataFrame) -> pd.DataFrame:
+    """Drop rows persisted under the old official id when the same filing is re-observed.
+
+    The official ``source_id`` now also hashes issuer, document link, document type and
+    amendment link. A registry written before that change would otherwise keep the old row
+    next to the re-discovered one. Only an exact match of every identity field is treated as
+    the same filing, so a distinct filing that once collapsed onto the old id is kept.
+    """
+
+    if existing.empty or incoming.empty:
+        return existing
+    identity_fields = ("provider_id", "issuer", "document_url", "document_type", "amendment_of")
+
+    def key(row: Mapping[str, object]) -> tuple[str, ...]:
+        return tuple(
+            "" if row.get(field) is None or (not isinstance(row.get(field), str) and pd.isna(row.get(field))) else str(row.get(field))
+            for field in identity_fields
+        )
+
+    superseded: set[tuple[str, tuple[str, ...]]] = set()
+    for row in incoming.to_dict("records"):
+        source_id = str(row.get("source_id") or "")
+        if source_id.startswith("oam:") and row.get("source_authority") != "local_user_import":
+            superseded.add((_legacy_official_source_id(row), key(row)))
+    if not superseded:
+        return existing
+    keep = [
+        (str(row.get("source_id") or ""), key(row)) not in superseded
+        for row in existing.to_dict("records")
+    ]
+    return existing.loc[keep]
 
 
 def _local_oam_source_id(provider_id: str, snapshot_sha256: str, raw: Mapping[str, object]) -> str:
