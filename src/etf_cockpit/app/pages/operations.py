@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from collections.abc import Mapping
 import threading
+import uuid
 
 import flet as ft
 
@@ -30,6 +31,7 @@ from etf_cockpit.application.contracts import (
     PaperProposalRejectRequest,
     ProposalReviewRequest,
     SubmitWorkflowCommand,
+    PageRequest,
 )
 
 
@@ -41,8 +43,13 @@ def _safe_update(page: ft.Page | None) -> None:
 def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
     api = state.application_api
     paper = api.get_paper()
-    portfolios = api.get_portfolios()
-    total_value = sum(item.market_value or 0.0 for item in portfolios.items)
+    portfolio_page = api.get_portfolios(PageRequest())
+    total_value = sum(item.market_value or 0.0 for item in portfolio_page.items)
+    next_offset = getattr(portfolio_page, "next_offset", None)
+    while next_offset is not None:
+        portfolio_page = api.get_portfolios(PageRequest(offset=next_offset, limit=portfolio_page.limit))
+        total_value += sum(item.market_value or 0.0 for item in portfolio_page.items)
+        next_offset = getattr(portfolio_page, "next_offset", None)
     paper_status = paper.items[0].status if paper.items else "unavailable"
     message = ft.Text("No operation has been submitted.", color=theme.MUTED, selectable=True)
     operation_state = ft.Text("State: idle", color=theme.TEXT, weight=ft.FontWeight.BOLD, selectable=True)
@@ -159,6 +166,9 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
             audit={**record.audit, "workflow_id": workflow_id or record.audit.get("workflow_id")},
         )
         save_operation_record(updated)
+        if active_record is None or active_record.operation_id != record.operation_id:
+            refresh_records()
+            return
         set_record(updated)
         busy = False
         preview_button.disabled = False
@@ -169,13 +179,23 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
 
     def run_workflow(record: OperationRecord, workflow_id: str) -> None:
         try:
-            result = api.run_next_job(lambda _context: {"operation_id": record.operation_id, "execution_allowed": False})
+            def runner(_context: object) -> dict[str, object]:
+                return {"operation_id": record.operation_id, "execution_allowed": False}
+
+            runner.workflow_id = workflow_id
+            result = api.run_next_job(runner)
             if result is None:
                 finish(record, "failed", "The paper preview workflow did not claim a job.", workflow_id=workflow_id)
-            elif any(item.workflow_id == workflow_id and item.status == "cancelled" for item in api.get_jobs().items):
-                finish(record, "cancelled", "Cancellation recorded; no order was transmitted.", workflow_id=workflow_id)
+            elif getattr(result, "workflow_id", None) != workflow_id:
+                finish(record, "failed", "The paper preview worker claimed an unexpected workflow.", workflow_id=workflow_id)
             else:
-                finish(record, "completed", "Paper proposal preview completed; no order was transmitted.", workflow_id=workflow_id)
+                status = str(getattr(result, "status", ""))
+                if status == "succeeded":
+                    finish(record, "completed", "Paper proposal preview completed; no order was transmitted.", workflow_id=workflow_id)
+                elif status == "cancelled":
+                    finish(record, "cancelled", "Cancellation recorded; no order was transmitted.", workflow_id=workflow_id)
+                else:
+                    finish(record, status if status in {"failed", "queued", "running", "blocked"} else "failed", f"Paper preview workflow ended with status {status or 'unknown'}; no order was transmitted.", workflow_id=workflow_id)
         except Exception as exc:
             finish(record, "failed", f"Paper preview failed safely: {type(exc).__name__}: {exc}", workflow_id=workflow_id)
 
@@ -309,16 +329,23 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
             message.value = f"Proposal deferral could not be recorded safely: {exc}"
         _safe_update(page)
 
+    fill_intent: dict[str, str] = {}
+
     def fill_paper_order(_event: ft.ControlEvent) -> None:
+        # One fill-intent ID per user action: created once, reused only while the action has not succeeded
+        # (a retry after an error), so two deliberate equal partial fills are two ledger events.
+        intent_id = fill_intent.setdefault("id", "fill_" + uuid.uuid4().hex[:20])
         try:
             result = api.fill_paper_order(
                 PaperFillRequest(
                     account_id=str(paper_account_id.value or "local-paper"),
                     order_id=str(paper_order_id.value or ""),
+                    fill_id=intent_id,
                     quantity=float(str(paper_fill_quantity.value or "0").replace(",", "")),
                     price=float(str(paper_fill_price.value or "0").replace(",", "")),
                 )
             )
+            fill_intent.clear()
             paper_order_id.value = result.order_id
             message.value = f"Paper fill recorded for {result.order_id}; status={result.status}; execution_allowed=false."
             refresh_paper_account()
@@ -586,12 +613,16 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
 __all__ = ["operations_page"]
 
 
+def _value_or_unavailable(value: object) -> object:
+    return "unavailable" if value is None else value
+
+
 def _paper_summary(item: object | None) -> str:
     if item is None:
         return "Paper account: unavailable · open a local account before paper activity."
     return (
         f"Paper account: {getattr(item, 'status', 'unavailable')} · cash={getattr(item, 'cash', None)} · "
-        f"equity={getattr(item, 'equity', None)} · PnL={getattr(item, 'pnl', None)} · "
+        f"equity={_value_or_unavailable(getattr(item, 'equity', None))} · PnL={_value_or_unavailable(getattr(item, 'pnl', None))} · "
         f"positions={getattr(item, 'open_positions', 0)} · reconciliation={getattr(item, 'reconciliation_status', 'unavailable')} · "
         f"matured_outcomes={getattr(item, 'matured_outcomes', 0)} · operational_incidents={getattr(item, 'operational_incidents', 0)} · "
         "execution_allowed=false"

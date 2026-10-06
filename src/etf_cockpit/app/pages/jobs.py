@@ -271,7 +271,7 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
             return
 
         def worker() -> None:
-            api.run_next_job(lambda _context: {"event_chain_valid": api.verify_event_chain()})
+            api.run_next_job(lambda _context: {"event_chain_valid": api.verify_event_chain(workflow_id=result.resource_id)}, workflow_id=result.resource_id)
             refresh()
 
         threading.Thread(target=worker, name="durable-job-self-check", daemon=True).start()

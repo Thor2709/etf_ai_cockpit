@@ -470,10 +470,10 @@ def _record_capture(
     raw_row_count: int | None = None,
     snapshot_date: str | None = None,
 ) -> CaptureStatus:
-    _scope_kind, complete, _configured_source = _validate_scope(scope)
+    _scope_kind, complete, configured_source = _validate_scope(scope)
     payload, materialised = _materialise_rows(rows, raw_payload=raw_payload)
     identifiers = [_instrument_id(row) for row in materialised]
-    if not identifiers:
+    if not identifiers and not configured_source:
         raise MembershipCaptureError("membership payload is empty")
     folded = [item.casefold() for item in identifiers]
     if len(set(folded)) != len(folded):

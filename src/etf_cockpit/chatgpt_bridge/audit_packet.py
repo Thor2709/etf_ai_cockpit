@@ -81,6 +81,8 @@ def validate_audit_archive(path: Path) -> AuditValidationReport:
             if "audit_manifest.json" not in names:
                 return AuditValidationReport(False, (), ("audit_manifest.json",), (), ())
             manifest = json.loads(archive.read("audit_manifest.json"))
+            if not isinstance(manifest, dict):
+                return AuditValidationReport(False, (), ("manifest_not_object",), (), ())
             required_items = manifest.get("required", [])
             if not isinstance(required_items, list):
                 return AuditValidationReport(False, (), ("required_not_list",), (), ())

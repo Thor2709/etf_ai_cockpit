@@ -84,10 +84,14 @@ def _signed_manifest_status(root: Path, release_commit: str) -> tuple[str, str]:
         signature = json.loads(signature_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         return "blocked", f"ISSUE-0152 release manifest evidence is unreadable: {type(exc).__name__}: {exc}"
+    if not isinstance(manifest, dict) or not isinstance(signature, dict):
+        return "blocked", "ISSUE-0152 release manifest evidence must contain JSON objects"
     if signature.get("status") != "signed":
         return "blocked", "ISSUE-0152 release manifest signature status is not signed"
+    if release_commit == "unavailable":
+        return "blocked", "current release commit is unavailable for signed manifest verification"
     git_payload = manifest.get("git")
-    if release_commit != "unavailable" and (not isinstance(git_payload, dict) or git_payload.get("head") != release_commit):
+    if not isinstance(git_payload, dict) or git_payload.get("head") != release_commit:
         return "blocked", "ISSUE-0152 release manifest does not match the current release commit"
     return "passed", "signed release manifest matches the current candidate"
 

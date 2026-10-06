@@ -28,6 +28,7 @@ from etf_cockpit.models.ensemble import effective_ensemble_weights
 FORMULA_PATH = CONFIG_DIR / "score_engine_v3.yaml"
 _BLOCKED_FRESHNESS = {"stale", "stale_block", "unavailable", "missing", "unknown", "not_checked"}
 _MODEL_AUTHORITIES = {"model", "model_advisory"}
+_LEGACY_WEIGHT_KEYS = {"baseline_ml": "baseline"}
 
 
 class CanonicalScoreError(ValueError):
@@ -368,10 +369,10 @@ def canonical_score_from_signal_row(
     )
     return build_canonical_score(
         instrument_id=instrument_id,
-        asset_type="ETF",
+        asset_type=_signal_asset_type(row, config, instrument_id),
         decision_time=decision_time,
         components=components,
-        legacy_component_weights={str(key): float(value) for key, value in weights.items()},
+        legacy_component_weights=_legacy_component_weights(weights),
         legacy_penalties={
             "cost_penalty": _number(row.get("cost_penalty")) or 0.0,
             "turnover_penalty": _number(row.get("turnover_penalty")) or 0.0,
@@ -471,6 +472,31 @@ def _legacy_composite(
     for key, penalty in (penalties or {}).items():
         result -= max(0.0, float(penalty))
     return round(_clamp(result), 4)
+
+
+def _legacy_component_weights(weights: Mapping[str, float]) -> dict[str, float]:
+    """Map ensemble weight keys onto canonical component keys (baseline_ml -> baseline)."""
+
+    mapped: dict[str, float] = {}
+    for key, value in weights.items():
+        canonical_key = _LEGACY_WEIGHT_KEYS.get(str(key), str(key))
+        mapped[canonical_key] = mapped.get(canonical_key, 0.0) + float(value)
+    return mapped
+
+
+def _signal_asset_type(row: Mapping[str, object], config: object, instrument_id: str) -> str:
+    """Resolve the scoring policy from the row, else the configured instrument; default ETF."""
+
+    declared = next(
+        (value for value in (row.get("asset_type"), row.get("instrument_type")) if isinstance(value, str) and value.strip()),
+        None,
+    )
+    if declared is None:
+        universe = getattr(config, "universe", None)
+        lookup = getattr(universe, "by_id", None)
+        identity = lookup().get(instrument_id) if callable(lookup) else None
+        declared = getattr(identity, "instrument_type", None)
+    return "STOCK" if str(declared or "").strip().casefold() == "stock" else "ETF"
 
 
 def _signal_component(key: str, raw: object, role: str, source_id: str, freshness: str, explanation: str, *, authority: str = "vendor_unofficial", status: str = "ok") -> CanonicalComponent:

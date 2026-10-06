@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import json
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 from etf_cockpit.core.paths import WORKSPACES_DIR
+
+
+def _json_default(value: object) -> str:
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 def save_workspace(name: str, payload: dict[str, Any], *, directory: Path = WORKSPACES_DIR) -> Path:
@@ -16,7 +23,7 @@ def save_workspace(name: str, payload: dict[str, Any], *, directory: Path = WORK
     content = dict(payload)
     content.setdefault("schema_version", "1.0")
     content.setdefault("execution_allowed", False)
-    path.write_text(json.dumps(content, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(content, ensure_ascii=False, indent=2, sort_keys=True, default=_json_default) + "\n", encoding="utf-8")
     return path
 
 

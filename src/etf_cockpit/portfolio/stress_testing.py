@@ -115,9 +115,9 @@ def run_stress_scenario(
     for row in frame.to_dict("records"):
         instrument_id = str(row["instrument_id"])
         weight = float(row["weight"])
-        base_return = row.get("historical_return")
+        base_return = _finite(row.get("historical_return"))
         if base_return is not None:
-            shock = float(base_return)
+            shock = base_return
             source = "historical_adjusted_return"
             components: dict[str, float] = {"historical_adjusted_return": shock}
         elif scenario.historical_date:
@@ -178,10 +178,16 @@ def reverse_stress(
     if upper_bound <= 0 or iterations < 8:
         raise StressScenarioError("reverse stress bounds are invalid.")
     baseline = StressScenario("reverse-stress", "Reverse stress", {shock_name: 0.0})
+    shock_direction = 1.0 if shock_name == "liquidity" else -1.0
 
     def breached(magnitude: float) -> bool:
         result = run_stress_scenario(
-            StressScenario(baseline.scenario_id, baseline.name, {shock_name: -magnitude}, baseline.horizon_days),
+            StressScenario(
+                baseline.scenario_id,
+                baseline.name,
+                {shock_name: shock_direction * magnitude},
+                baseline.horizon_days,
+            ),
             allocation,
             factor_exposures=factor_exposures,
             notional=notional,

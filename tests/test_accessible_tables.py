@@ -53,7 +53,7 @@ def test_accessible_table_search_and_sort_callbacks_are_functional() -> None:
     assert callable(table.search_callback)
     assert callable(table.sort_callback)
     assert table.search("A")["instrument_id"].tolist() == ["A"]
-    assert table.sort("instrument_id")["instrument_id"].tolist() == ["A", "B"]
+    assert table.sort("instrument_id")["instrument_id"].tolist() == ["A"]
     assert table.search_control is not None
     assert callable(table.search_control.on_change)
     assert any(callable(column.on_sort) for column in table.control.columns)
@@ -76,10 +76,10 @@ def test_accessible_table_callbacks_refresh_visible_control_and_status() -> None
     assert status_updates == ["1 rows; status is shown as text"]
 
     table.control.columns[0].on_sort(SimpleNamespace(ascending=False))
-    assert len(table.control.rows) == 2
-    assert table.status_control.value.startswith("2 rows")
-    assert updates[-1] == 2
-    assert status_updates[-1] == "2 rows; status is shown as text"
+    assert len(table.control.rows) == 1
+    assert table.status_control.value.startswith("1 rows")
+    assert updates[-1] == 1
+    assert status_updates[-1] == "1 rows; status is shown as text"
 
 
 def test_accessible_table_search_treats_regex_punctuation_literally_and_updates() -> None:

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import ipaddress
 import json
+import math
 import threading
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import urlsplit
 
 import requests
 import yaml
@@ -87,7 +90,8 @@ def check_local_llm_status(settings: LocalLLMSettings | None = None) -> LocalLLM
     if not settings.enabled:
         return LocalLLMStatus(status="disabled", message="Local LLM audit is disabled in configs/local_llm.yaml.", base_url=settings.base_url)
     try:
-        response = requests.get(f"{settings.base_url.rstrip('/')}/models", headers=_headers(settings), timeout=settings.timeout_seconds)
+        _validate_local_endpoint(settings.base_url)
+        response = requests.get(f"{settings.base_url.rstrip('/')}/models", headers=_headers(settings), timeout=settings.timeout_seconds, allow_redirects=False)
         response.raise_for_status()
         payload = response.json()
         models = payload.get("data", []) if isinstance(payload, dict) else []
@@ -173,12 +177,35 @@ def _normalise_context_snapshot(context: dict[str, Any]) -> dict[str, Any]:
 
     if not isinstance(context, dict):
         raise ValueError("LLM audit context must be a JSON object")
-    snapshot = {key: value for key, value in context.items() if key != "generation_time"}
+    snapshot = _normalise_finite_json({key: value for key, value in context.items() if key != "generation_time"})
     try:
         canonical_json(snapshot)
     except ValueError as exc:
         raise ValueError("LLM audit context must be deterministic JSON") from exc
     return deepcopy(snapshot)
+
+
+def _normalise_finite_json(value: Any) -> Any:
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _normalise_finite_json(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_normalise_finite_json(item) for item in value]
+    return value
+
+
+def _validate_local_endpoint(base_url: str) -> None:
+    parsed = urlsplit(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Local LLM endpoint must be an HTTP loopback URL")
+    hostname = parsed.hostname.rstrip(".").casefold()
+    try:
+        loopback = ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        loopback = hostname == "localhost"
+    if not loopback:
+        raise ValueError("Local LLM endpoint must resolve to loopback")
 
 
 def _prompt_context(prompt: str) -> dict[str, Any]:
@@ -251,6 +278,7 @@ def generate_local_audit_commentary(
         headers=_headers(settings),
         json=body,
         timeout=settings.timeout_seconds,
+        allow_redirects=False,
     )
     response.raise_for_status()
     payload = response.json()

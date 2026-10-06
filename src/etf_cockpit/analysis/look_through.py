@@ -355,7 +355,9 @@ def _select_holdings(
     if frame.empty:
         return frame, None, source, None, None
     date_column = next((name for name in ("as_of", "as_of_date") if name in frame.columns), None)
+    known_column = next((name for name in ("known_at", "available_at") if name in frame.columns), None)
     requested_date = _as_date(holdings_date) if holdings_date is not None else None
+    selection_warning = None
     if requested_date is not None:
         chosen_date = requested_date
         if date_column is not None:
@@ -366,14 +368,31 @@ def _select_holdings(
         frame = frame.loc[eligible].copy()
         if frame.empty:
             return frame, None, source, "No holdings snapshot dated on or before the analysis date exists.", None
-        chosen_date = max(value for value in frame[date_column].map(_as_date) if value is not None)
+        # "Latest" means the latest snapshot that is usable: known by the
+        # decision time and matching the requested source. A newer snapshot
+        # that is not yet known must not hide an older usable one (S4-06). When
+        # no snapshot is usable the latest dated one is kept so the downstream
+        # checks report the specific reason.
+        usable = frame
+        if known_column is not None:
+            known_values = usable[known_column].map(normalise_event_decision_time)
+            usable = usable.loc[known_values.map(lambda value: value is not None and value <= cutoff)]
+        if source is not None and "source" in usable.columns:
+            usable = usable.loc[usable["source"].map(_clean_text).eq(source)]
+        latest_date = max(value for value in frame[date_column].map(_as_date) if value is not None)
+        chosen_date = latest_date
+        if not usable.empty:
+            chosen_date = max(value for value in usable[date_column].map(_as_date) if value is not None)
+            if chosen_date < latest_date:
+                selection_warning = (
+                    "Newer holdings snapshots not yet known by the decision time or not matching the requested source were skipped."
+                )
         frame = frame.loc[frame[date_column].map(_as_date).eq(chosen_date)].copy()
     else:
         return frame.iloc[0:0], None, source, "The holdings snapshot has no as-of date.", None
     if chosen_date is None or chosen_date > analysis:
         return frame.iloc[0:0], chosen_date, source, "The holdings date is after the analysis date.", None
 
-    known_column = next((name for name in ("known_at", "available_at") if name in frame.columns), None)
     known_at = None
     warning = None
     if known_column is not None:
@@ -404,7 +423,7 @@ def _select_holdings(
         selected_source = source_values[0] if len(source_values) == 1 else None
     else:
         selected_source = source
-    warning = "; ".join(value for value in (warning, source_warning) if value) or None
+    warning = "; ".join(value for value in (warning, selection_warning, source_warning) if value) or None
     return frame, chosen_date, selected_source, warning, known_at
 
 

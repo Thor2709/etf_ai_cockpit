@@ -882,6 +882,9 @@ def _save_universe(
     revision = _payload_revision(payload)
     payload["revision"] = revision
     encoded = (json.dumps(payload, indent=2, default=str) + "\n").encode("utf-8")
+    from etf_cockpit.core.settings_bundle import _universe_settings_update, load_settings_bundle
+
+    settings_requests, settings_precondition = _universe_settings_update(root, encoded)
 
     def validate(path: Path) -> None:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -927,6 +930,7 @@ def _save_universe(
             raise UniverseRevisionConflict(
                 f"Expected revision {expected_revision or '<empty>'}, found {current or '<empty>'}"
             )
+        settings_precondition()
 
     def lifecycle_hook(state: str, _journal_path: Path) -> None:
         nonlocal backup_manifest, backup_path, committed_verified
@@ -952,12 +956,16 @@ def _save_universe(
 
     try:
         atomic_write_group(
-            (AtomicWriteRequest(_CheckedUniverseDestination(root, path), encoded, validate),),  # type: ignore[arg-type]
+            (
+                *settings_requests,
+                AtomicWriteRequest(_CheckedUniverseDestination(root, path), encoded, validate),  # type: ignore[arg-type]
+            ),
             lifecycle_hook=lifecycle_hook,
             precondition=precondition,
         )
         if not committed_verified:
             raise IOError("Universe guarded commit verification did not complete")
+        load_settings_bundle(root)
         return UniverseSaveResult(path, revision, len(items), backup_path)
     except BaseException:
         if backup_manifest is not None and not committed_verified:

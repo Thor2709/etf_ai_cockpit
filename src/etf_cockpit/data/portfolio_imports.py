@@ -391,13 +391,18 @@ class PortfolioImportStore:
                         if payload.get("staging_status") in {"accepted", "correction"}
                     }
                     for _, payload in event_payloads:
+                        event_key = str(payload["event_key"])
                         if payload.get("staging_status") != "correction":
+                            if payload.get("staging_status") == "accepted" and event_key in current:
+                                raise PortfolioImportError(
+                                    f"stale accepted source revision {event_key}"
+                                )
                             continue
                         expected = str(payload.get("predecessor_content_hash") or "")
                         expected_revision = int(
                             float(payload.get("predecessor_revision") or 0)
                         )
-                        actual = current.get(str(payload["event_key"]), ("", 0))
+                        actual = current.get(event_key, ("", 0))
                         if not expected or (expected, expected_revision) != actual:
                             raise PortfolioImportError(
                                 f"stale correction predecessor for {payload['event_key']}"

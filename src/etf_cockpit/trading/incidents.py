@@ -277,8 +277,7 @@ class IncidentJournal:
             if self._head_path.exists():
                 raise IncidentJournalIntegrityError("Incident journal is missing while its durable head anchor exists.")
             return []
-        if not self._head_path.exists():
-            raise IncidentJournalIntegrityError("Incident journal durable head anchor is missing.")
+        head_missing = not self._head_path.exists()
         try:
             rows = self.path.read_bytes().splitlines()
         except OSError as exc:
@@ -305,6 +304,13 @@ class IncidentJournal:
                 raise IncidentJournalIntegrityError(f"Incident journal hash chain breaks at row {sequence}.")
             prior_hash = str(claimed_hash)
             events.append(event)
+        if head_missing:
+            # An interrupted FIRST append leaves exactly one verified row and no anchor yet; any other
+            # shape (empty or longer journal without an anchor) stays fail-closed.
+            if len(events) != 1:
+                raise IncidentJournalIntegrityError("Incident journal durable head anchor is missing.")
+            self._roll_forward_anchor(events)
+            return events
         try:
             anchor = json.loads(self._head_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -313,17 +319,32 @@ class IncidentJournal:
             raise IncidentJournalIntegrityError("Incident journal durable head anchor is invalid.")
         anchor_body = {key: value for key, value in anchor.items() if key != "content_hash"}
         expected_head = str(events[-1]["content_hash"]) if events else _ZERO_HASH
-        if (
-            set(anchor) != {"schema_version", "account_id", "event_count", "head_hash", "content_hash"}
-            or anchor_body.get("schema_version") != INCIDENT_JOURNAL_HEAD_SCHEMA
-            or anchor_body.get("account_id") != self.account_id
-            or type(anchor_body.get("event_count")) is not int
-            or anchor_body.get("event_count") != len(events)
-            or anchor_body.get("head_hash") != expected_head
-            or anchor.get("content_hash") != _digest(anchor_body)
-        ):
-            raise IncidentJournalIntegrityError("Incident journal does not match its durable head anchor.")
-        return events
+        anchor_valid = (
+            set(anchor) == {"schema_version", "account_id", "event_count", "head_hash", "content_hash"}
+            and anchor_body.get("schema_version") == INCIDENT_JOURNAL_HEAD_SCHEMA
+            and anchor_body.get("account_id") == self.account_id
+            and type(anchor_body.get("event_count")) is int
+            and anchor.get("content_hash") == _digest(anchor_body)
+        )
+        if anchor_valid and anchor_body.get("event_count") == len(events) and anchor_body.get("head_hash") == expected_head:
+            return events
+        # Roll forward ONLY an interrupted append: a valid anchor that describes exactly the journal minus its
+        # last (hash-chain verified) row. Truncation, extra rows or any other mismatch stay fail-closed.
+        if anchor_valid and events and anchor_body.get("event_count") == len(events) - 1:
+            previous_head = str(events[-2]["content_hash"]) if len(events) > 1 else _ZERO_HASH
+            if anchor_body.get("head_hash") == previous_head:
+                self._roll_forward_anchor(events)
+                return events
+        raise IncidentJournalIntegrityError("Incident journal does not match its durable head anchor.")
+
+    def _roll_forward_anchor(self, events: list[dict[str, object]]) -> None:
+        """Re-anchor a journal whose last append was durable but whose anchor update was interrupted."""
+
+        try:
+            self._write_head_anchor(sequence=len(events), head_hash=str(events[-1]["content_hash"]))
+        except IncidentJournalError:
+            # The verified chain is still trustworthy for this read; the next successful append re-anchors.
+            pass
 
 
 def run_operational_drill(scenario: str) -> dict[str, object]:

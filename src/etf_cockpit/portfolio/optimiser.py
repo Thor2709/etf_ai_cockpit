@@ -108,6 +108,18 @@ class PortfolioOptimiser:
         current_for_fallback: pd.Series | None = None
         try:
             _validate_constraints(constraints)
+        except (TypeError, ValueError) as exc:
+            warning = f"invalid_constraints:{exc}"
+            return OptimiserSolution(
+                requested,
+                pd.Series(dtype=float),
+                "unavailable",
+                False,
+                None,
+                {"feasible": False, "reason_code": "invalid_constraints", "warnings": [warning]},
+                (warning,),
+            )
+        try:
             self._validate_inputs()
             if requested not in METHODS:
                 raise ValueError(f"unsupported optimiser method: {requested}")
@@ -186,9 +198,12 @@ class PortfolioOptimiser:
         names = list(dict.fromkeys(["equal_weight", *(str(item) for item in methods)]))
         split = max(1, int(len(self.returns) * 0.7))
         validation = self.returns.iloc[split:]
+        # Candidate weights are fitted on the training head only; the validation
+        # tail must never influence the covariance/returns behind the weights.
+        training = PortfolioOptimiser(self.returns.iloc[:split], seed=self.seed)
         rows: list[dict[str, object]] = []
         for name in names:
-            solution = self.solve(name, constraints=constraints, current_weights=current_weights)
+            solution = training.solve(name, constraints=constraints, current_weights=current_weights)
             portfolio = validation.reindex(columns=self.ids).fillna(0.0) @ solution.weights.reindex(self.ids).fillna(0.0)
             rows.append(
                 {

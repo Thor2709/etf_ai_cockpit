@@ -7,7 +7,6 @@ import shutil
 from collections import deque
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from itertools import combinations
 from pathlib import Path
 from typing import Literal
 
@@ -130,8 +129,8 @@ def validate_fx_rates(
     if parsed_ingested_at is not None and parsed_ingested_at.isna().any():
         errors.append("FX rates contain invalid or missing ingested_at values.")
     rates = pd.to_numeric(frame[rate_column], errors="coerce")
-    if rates.isna().any() or (rates <= 0).any():
-        errors.append("FX rates must be numeric and positive.")
+    if not rates.map(math.isfinite).all() or (rates <= 0).any():
+        errors.append("FX rates must be finite numeric values greater than zero.")
     currencies = _parse_currency_pairs(frame)
     errors.extend(currencies.errors)
     warnings.extend(currencies.warnings)
@@ -445,26 +444,36 @@ def _fx_rate_consistency_errors(frame: pd.DataFrame, *, tolerance: float = FX_RA
             if reciprocal is not None and not math.isclose(rate * reciprocal, 1.0, rel_tol=tolerance, abs_tol=tolerance):
                 errors.append(f"FX reciprocal quotes {base}/{quote} and {quote}/{base} are inconsistent on {as_of_date}.")
 
-        currencies = sorted({currency for pair in direct for currency in pair})
-
-        def oriented_rate(base: str, quote: str) -> float | None:
-            if (base, quote) in direct:
-                return direct[(base, quote)]
-            reverse = direct.get((quote, base))
-            return None if reverse is None else 1.0 / reverse
-
-        for first, middle, last in combinations(currencies, 3):
-            first_middle = oriented_rate(first, middle)
-            middle_last = oriented_rate(middle, last)
-            first_last = oriented_rate(first, last)
-            if first_middle is None or middle_last is None or first_last is None:
+        graph: dict[str, list[tuple[str, float]]] = {}
+        for (base, quote), rate in direct.items():
+            if base == quote:
                 continue
-            implied = first_middle * middle_last
-            if not math.isclose(implied, first_last, rel_tol=tolerance, abs_tol=tolerance):
-                errors.append(
-                    f"FX triangular quotes {first}/{middle}, {middle}/{last}, and {first}/{last} "
-                    f"are inconsistent on {as_of_date}."
-                )
+            graph.setdefault(base, []).append((quote, rate))
+            graph.setdefault(quote, []).append((base, 1.0 / rate))
+
+        relative_values: dict[str, float] = {}
+        for currency in sorted(graph):
+            if currency in relative_values:
+                continue
+            relative_values[currency] = 1.0
+            pending = [currency]
+            while pending:
+                current = pending.pop()
+                for neighbour, rate in graph[current]:
+                    implied_value = relative_values[current] * rate
+                    if neighbour in relative_values:
+                        if not math.isclose(
+                            implied_value,
+                            relative_values[neighbour],
+                            rel_tol=tolerance,
+                            abs_tol=tolerance,
+                        ):
+                            errors.append(
+                                f"FX triangular/cycle quotes are inconsistent for {current}/{neighbour} on {as_of_date}."
+                            )
+                    else:
+                        relative_values[neighbour] = implied_value
+                        pending.append(neighbour)
     return errors
 
 

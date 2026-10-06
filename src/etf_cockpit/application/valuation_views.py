@@ -176,7 +176,14 @@ def load_stock_research_context(
     classification record's own decision time so every panel on the page uses one cutoff.
     """
     requested_decision_time = str(decision_time or "").strip() or None
-    classification_projection = load_classification_projection(instrument_id)
+    if requested_decision_time:
+        classification_projection = load_classification_projection(
+            instrument_id,
+            effective_at=requested_decision_time,
+            decision_time=requested_decision_time,
+        )
+    else:
+        classification_projection = load_classification_projection(instrument_id)
     classification_value = classification_projection.get("classification")
     classification = dict(classification_value) if isinstance(classification_value, Mapping) else {}
     classification_status = str(classification_projection.get("status", "unavailable"))

@@ -163,9 +163,16 @@ def store_account_mapping(store: Any, mapping: LedgerAccountMapping) -> LedgerAc
     return mapping
 
 
-def load_account_mappings(store: Any, *, authority: str) -> dict[str, LedgerAccountMapping]:
-    """Load the latest append-only mapping for each source account."""
+def load_account_mappings(
+    store: Any, *, authority: str, known_at: str | None = None
+) -> dict[str, LedgerAccountMapping]:
+    """Load the latest append-only mapping for each source account.
 
+    With ``known_at`` only mappings recorded at or before that knowledge cutoff are
+    eligible, so a historical query never selects a later remapping.
+    """
+
+    knowledge_cutoff = None if known_at is None else _instant(known_at, "known_at")
     latest: dict[str, tuple[tuple[str, str], LedgerAccountMapping]] = {}
     for record in store.list(ACCOUNT_MAPPING_TYPE):
         payload = dict(record.payload)
@@ -173,6 +180,8 @@ def load_account_mappings(store: Any, *, authority: str) -> dict[str, LedgerAcco
         if stored_hash != _digest(payload):
             raise ReconciliationError(f"account mapping integrity failure: {record.entity_id}")
         if payload.get("authority") != authority:
+            continue
+        if knowledge_cutoff is not None and _instant(record.created_at, "mapping created_at") > knowledge_cutoff:
             continue
         mapping = LedgerAccountMapping(mapping_id=record.entity_id, **payload)
         current = latest.get(mapping.source_account_id)
@@ -215,12 +224,7 @@ def reconcile_imports(
     ).fetchall()
     ledger = Ledger(connection)
     for entry_row in entry_rows:
-        try:
-            if _instant(str(entry_row[1]), "effective_at") > effective_cutoff:
-                continue
-            if _instant(str(entry_row[2]), "recorded_at") > knowledge_cutoff:
-                continue
-        except ReconciliationError:
+        if not _entry_visible(entry_row[1], entry_row[2], effective_cutoff, knowledge_cutoff):
             continue
         entry = ledger.get_entry(str(entry_row[0]), authority=authority)
         if entry is not None:
@@ -258,7 +262,9 @@ def reconcile_imports(
     present_ids: set[str] = set()
     matched = 0
     quarantined = 0
-    reversed_ids = _reversed_entry_ids(connection, authority)
+    reversed_ids = _reversed_entry_ids(
+        connection, authority, effective_cutoff=effective_cutoff, knowledge_cutoff=knowledge_cutoff
+    )
     for row in source_rows:
         event_id = str(row.get("event_id") or "") or None
         event_key = str(row.get("event_key") or "") or None
@@ -321,7 +327,13 @@ def reconcile_imports(
                 )
             )
             continue
-        linked_entries = _source_entries(connection, authority, event_id or "")
+        linked_entries = _source_entries(
+            connection,
+            authority,
+            event_id or "",
+            effective_cutoff=effective_cutoff,
+            knowledge_cutoff=knowledge_cutoff,
+        )
         active_entries = [entry for entry in linked_entries if entry.entry_id not in reversed_ids]
         if len(active_entries) > 1:
             discrepancies.append(
@@ -650,13 +662,38 @@ def source_entry_id(event_id: str) -> str:
     return f"{_SOURCE_ENTRY_PREFIX}{_required(event_id, 'event_id')}"
 
 
+def _entry_visible(
+    effective_at: object,
+    recorded_at: object,
+    effective_cutoff: datetime | None,
+    knowledge_cutoff: datetime | None,
+) -> bool:
+    """Whether a journal row is inside both cutoffs; unparsable timing is never visible."""
+
+    try:
+        if effective_cutoff is not None and _instant(str(effective_at), "effective_at") > effective_cutoff:
+            return False
+        if knowledge_cutoff is not None and _instant(str(recorded_at), "recorded_at") > knowledge_cutoff:
+            return False
+    except ReconciliationError:
+        return False
+    return True
+
+
 def _source_entries(
-    connection: sqlite3.Connection, authority: str, event_id: str
+    connection: sqlite3.Connection,
+    authority: str,
+    event_id: str,
+    *,
+    effective_cutoff: datetime | None = None,
+    knowledge_cutoff: datetime | None = None,
 ) -> tuple[LedgerEntry, ...]:
+    """Source-linked entries; with cutoffs, only those effective and recorded by then."""
+
     base = source_entry_id(event_id)
     rows = connection.execute(
         """
-        SELECT entry_id FROM ledger_entries
+        SELECT entry_id, effective_at, recorded_at FROM ledger_entries
         WHERE authority = ? AND status = 'posted'
           AND (entry_id = ? OR entry_id LIKE ?)
         ORDER BY entry_id
@@ -667,18 +704,31 @@ def _source_entries(
     entries = tuple(
         entry
         for row in rows
-        if (entry := ledger.get_entry(str(row[0]), authority=authority)) is not None
+        if _entry_visible(row[1], row[2], effective_cutoff, knowledge_cutoff)
+        and (entry := ledger.get_entry(str(row[0]), authority=authority)) is not None
     )
     return entries
 
 
-def _reversed_entry_ids(connection: sqlite3.Connection, authority: str) -> set[str]:
+def _reversed_entry_ids(
+    connection: sqlite3.Connection,
+    authority: str,
+    *,
+    effective_cutoff: datetime | None = None,
+    knowledge_cutoff: datetime | None = None,
+) -> set[str]:
+    """Reversed entry ids; with cutoffs, only reversals effective and recorded by then."""
+
     return {
         str(row[0])
         for row in connection.execute(
-            "SELECT reversal_of_entry_id FROM ledger_entries WHERE authority = ? AND reversal_of_entry_id IS NOT NULL",
+            """
+            SELECT reversal_of_entry_id, effective_at, recorded_at FROM ledger_entries
+            WHERE authority = ? AND reversal_of_entry_id IS NOT NULL
+            """,
             (authority,),
         )
+        if _entry_visible(row[1], row[2], effective_cutoff, knowledge_cutoff)
     }
 
 

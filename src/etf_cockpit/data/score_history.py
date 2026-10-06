@@ -10,6 +10,7 @@ from typing import Literal
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, wait_for_atomic_group
+from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.data.classification import classification_score_state
 from etf_cockpit.governance.migrations import _snapshot_checksum, validated_portfolio_snapshot
 from etf_cockpit.core.paths import ROOT
@@ -273,31 +274,35 @@ def append_score_run(
     # columns.  Stores written before v2 may omit snapshot_hash and several
     # comparison dimensions; duplicate detection must not make those stores
     # unreadable or raise a KeyError.
-    existing = _normalise_history_frame(_read_history_raw(path))
-    duplicate = (
-        existing.loc[
-            existing["run_id"].astype(str).eq(str(run_id))
-            & existing["snapshot_hash"].astype(str).eq(snapshot_hash)
-        ]
-        if not existing.empty
-        else pd.DataFrame()
-    )
-    if not duplicate.empty:
-        return ScoreHistoryWriteResult(path, 0, run_id, snapshot_hash)
-    # A changed hash replaces the complete run snapshot, preventing stale
-    # instruments from surviving a deterministic retry with a narrower frame.
-    if not existing.empty and "run_id" in existing.columns:
-        existing = existing.loc[~existing["run_id"].astype(str).eq(str(run_id))]
-    combined = (
-        frame.copy().reindex(columns=_COLUMNS)
-        if existing.empty
-        else pd.concat([existing, frame], ignore_index=True, sort=False).reindex(columns=_COLUMNS)
-    )
-    combined = combined.drop_duplicates(subset=["run_id", "instrument_id"], keep="last")
-    # Keep parquet and the legacy CSV mirror within one repository atomic
-    # write-group.  Readers never observe one format from a newer generation
-    # than the other, and injected publication failures roll back both.
-    _write_history_group(combined, path)
+    # Serialize the complete read/merge/publish transaction. The atomic write
+    # group alone protects publication, but cannot prevent lost updates when
+    # two callers read the same prior generation.
+    guard_path = path.with_name(f".{path.name}.append.guard")
+    with persistent_file_guard(guard_path):
+        existing = _normalise_history_frame(_read_history_raw(path))
+        duplicate = (
+            existing.loc[
+                existing["run_id"].astype(str).eq(str(run_id))
+                & existing["snapshot_hash"].astype(str).eq(snapshot_hash)
+            ]
+            if not existing.empty
+            else pd.DataFrame()
+        )
+        if not duplicate.empty:
+            return ScoreHistoryWriteResult(path, 0, run_id, snapshot_hash)
+        # A changed hash replaces the complete run snapshot, preventing stale
+        # instruments from surviving a deterministic retry with a narrower frame.
+        if not existing.empty and "run_id" in existing.columns:
+            existing = existing.loc[~existing["run_id"].astype(str).eq(str(run_id))]
+        combined = (
+            frame.copy().reindex(columns=_COLUMNS)
+            if existing.empty
+            else pd.concat([existing, frame], ignore_index=True, sort=False).reindex(columns=_COLUMNS)
+        )
+        combined = combined.drop_duplicates(subset=["run_id", "instrument_id"], keep="last")
+        # Keep parquet and the legacy CSV mirror within one repository atomic
+        # write-group. Readers never observe one format from a newer generation.
+        _write_history_group(combined, path)
     return ScoreHistoryWriteResult(path, len(frame), run_id, snapshot_hash)
 
 
@@ -421,11 +426,8 @@ def project_classification_score_frame(
 def _read_history_raw(path: Path) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame(columns=_COLUMNS)
-    try:
-        wait_for_atomic_group(path)
-        return pd.read_parquet(path)
-    except Exception:
-        return pd.DataFrame(columns=_COLUMNS)
+    wait_for_atomic_group(path)
+    return pd.read_parquet(path)
 
 
 def _write_history_group(frame: pd.DataFrame, path: Path) -> None:

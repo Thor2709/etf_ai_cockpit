@@ -85,30 +85,15 @@ def write_bond_analytics(path: Path, records: Iterable[BondAnalyticsRecord]) -> 
                 "SELECT payload_json FROM transactional_records WHERE entity_type=? AND deleted_at IS NULL ORDER BY entity_id",
                 ("bond_analytics_v1",),
             ).fetchall()
-            atomic_write_bytes(
-                target,
-                parquet_payload(pd.DataFrame([json.loads(str(row[0])) for row in stored])),
-                validate_parquet_file,
-            )
+    atomic_write_bytes(
+        target,
+        parquet_payload(pd.DataFrame([json.loads(str(row[0])) for row in stored])),
+        validate_parquet_file,
+    )
     return target
 
 
 def read_bond_analytics(path: Path) -> tuple[dict[str, object], ...]:
-    try:
-        frame = pd.read_parquet(path)
-    except (OSError, ValueError, ImportError) as exc:
-        raise FixedIncomeAnalyticsError(f"bond analytics unavailable: {exc}") from exc
-    required = {
-        "schema_version", "record_id", "calculated_at", "instrument_id",
-        "input_hash", "input_json", "result_json", "result_checksum",
-        "execution_allowed",
-    }
-    if set(frame.columns) != required or frame.empty:
-        raise FixedIncomeAnalyticsError("bond analytics schema is invalid")
-    if set(frame["schema_version"]) != {FIXED_INCOME_ANALYTICS_SCHEMA_VERSION}:
-        raise FixedIncomeAnalyticsError("bond analytics schema version is unsupported")
-    if frame["execution_allowed"].astype(bool).any():
-        raise FixedIncomeAnalyticsError("bond analytics execution authority is invalid")
     target = Path(path).resolve()
     database = storage_layout(_root_for(target)).transactional_path
     if not database.is_file():
@@ -128,10 +113,31 @@ def read_bond_analytics(path: Path) -> tuple[dict[str, object], ...]:
     finally:
         if connection is not None:
             connection.close()
-    projected = frame.to_dict("records")
-    if _normalise_rows(projected) != _normalise_rows(committed):
-        raise FixedIncomeAnalyticsError("bond analytics projection diverges from committed records")
-    return tuple(_validate_row(row) for row in projected)
+    if not committed:
+        raise FixedIncomeAnalyticsError("committed analytics store is empty")
+    records = tuple(_validate_row(row) for row in committed)
+    try:
+        frame = pd.read_parquet(target)
+        required = {
+            "schema_version", "record_id", "calculated_at", "instrument_id",
+            "input_hash", "input_json", "result_json", "result_checksum",
+            "execution_allowed",
+        }
+        if set(frame.columns) != required or frame.empty:
+            raise ValueError("bond analytics projection schema is invalid")
+        projected = frame.to_dict("records")
+        current = _normalise_rows(projected)
+        canonical = _normalise_rows(committed)
+    except Exception:
+        current = ()
+        canonical = _normalise_rows(committed)
+    if current != canonical:
+        atomic_write_bytes(
+            target,
+            parquet_payload(pd.DataFrame(committed)),
+            validate_parquet_file,
+        )
+    return records
 
 
 def _record_row(item: BondAnalyticsRecord) -> dict[str, object]:

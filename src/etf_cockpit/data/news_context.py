@@ -514,6 +514,14 @@ def _eligible_contradiction_news(news: pd.DataFrame, cutoff: pd.Timestamp | None
     published = frame["published_at"].map(_contradiction_timestamp)
     ingested = frame["ingested_at"].map(_contradiction_timestamp) if "ingested_at" in frame.columns else pd.Series(pd.NaT, index=frame.index)
     mask = frame["instrument_id"].ne("") & published.notna() & ingested.notna()
+    if "backtest_eligible" in frame.columns:
+        mask &= frame["backtest_eligible"].eq(True).fillna(False)
+    if "available_at_decision_time" in frame.columns:
+        mask &= frame["available_at_decision_time"].eq(True).fillna(False)
+    if "timestamp_status" in frame.columns:
+        mask &= frame["timestamp_status"].astype("string").str.strip().str.casefold().eq("valid_context").fillna(False)
+    if "timestamp_confidence" in frame.columns:
+        mask &= frame["timestamp_confidence"].astype("string").str.strip().str.casefold().eq("exact").fillna(False)
     if cutoff is not None:
         published_before = published.map(lambda value: isinstance(value, pd.Timestamp) and not pd.isna(value) and value <= cutoff)
         ingested_before = ingested.map(lambda value: isinstance(value, pd.Timestamp) and not pd.isna(value) and value <= cutoff)

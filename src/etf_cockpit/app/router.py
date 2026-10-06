@@ -163,6 +163,20 @@ def _available_display(value: object, reason: str) -> tuple[str, str | None]:
     return rendered, None
 
 
+def _shell_controls(state: AppState) -> object | None:
+    """Saved SettingsBundle controls for the shell metadata row, or None when unavailable."""
+
+    root = getattr(state, "settings_root", None)
+    if root is None:
+        return None
+    try:
+        from etf_cockpit.application.settings import SettingsError, load_settings_bundle
+
+        return load_settings_bundle(root).controls
+    except (SettingsError, OSError, ValueError):
+        return None
+
+
 def _safety_rail(state: AppState, data_report: object) -> ft.Container:
     snapshot = getattr(state, "snapshot", None)
     quality_value, quality_reason = _available_display(
@@ -502,6 +516,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         ),
     )
     as_of_date = getattr(data_report, "as_of_date", None)
+    shell_controls = _shell_controls(state)
     global_values = ft.Row(
         [
             value_pill(
@@ -514,20 +529,20 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
             value_pill(
                 "shell.as-of.horizon",
                 "Horizon",
-                getattr(state, "selected_horizon", None),
-                "No selected horizon is available in app state.",
+                getattr(shell_controls, "horizon", None),
+                "No saved horizon is available in Settings.",
             ),
             value_pill(
                 "shell.as-of.currency",
                 "Currency",
-                getattr(state, "selected_currency", None),
-                "No selected currency is available in app state.",
+                getattr(shell_controls, "output_currency", None),
+                "No saved output currency is available in Settings.",
             ),
             value_pill(
                 "shell.as-of.risk-profile",
                 "Risk profile",
-                getattr(state, "risk_profile", None),
-                "No selected risk profile is available in app state.",
+                getattr(shell_controls, "risk_profile", None),
+                "No saved risk profile is available in Settings.",
             ),
             depth_chip,
         ],

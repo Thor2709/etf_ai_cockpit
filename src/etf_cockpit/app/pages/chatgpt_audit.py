@@ -98,7 +98,7 @@ def _thesis_diary_text() -> str:
 def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
     path_field = ft.TextField(label="External audit commentary JSON path", expand=True)
     output = ft.Text(state.last_message, color=theme.MUTED, selectable=True)
-    llm_output = ft.Text("Local LLM audit has not been run in this session.", color=theme.MUTED, selectable=True)
+    llm_output = ft.Text(getattr(state, "local_audit_output", "Local LLM audit has not been run in this session."), color=theme.MUTED, selectable=True)
     diary_output = ft.Text(_thesis_diary_text(), color=theme.MUTED, selectable=True, size=11)
     credibility_output = ft.Text(_manual_note_credibility_text(), color=theme.MUTED, selectable=True, size=11)
     authority_matrix = load_authority_matrix()
@@ -216,6 +216,7 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
             status, commentary = generate_local_audit_commentary(context, settings)
             if commentary is None:
                 llm_output.value = f"{status.status}: {status.message}"
+                state.local_audit_output = llm_output.value
                 state.finish_activity(llm_output.value, expected_action_id=action_id)
             else:
                 if status.context_snapshot is None:
@@ -230,12 +231,14 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
                         generation_time=status.generation_time,
                     )
                 llm_output.value = f"Saved local LLM thesis diary: {saved_path}\n{commentary.summary}"
+                state.local_audit_output = llm_output.value
                 diary_output.value = _thesis_diary_text()
                 state.finish_activity(f"Saved local LLM commentary: {saved_path}", output_path=saved_path, expected_action_id=action_id)
         except Exception as exc:
             if not state.activity_was_cancelled(action_id):
                 state.fail_activity("Generate local LLM commentary", exc, expected_action_id=action_id)
             llm_output.value = state.last_message
+            state.local_audit_output = llm_output.value
         finally:
             state.release_activity(action_id)
             refresh_shell()

@@ -717,14 +717,25 @@ def main(argv: list[str] | None = None) -> int:
         }
         candidates.extend(recon / name for name in generated_recon_names)
         before = {path: path.read_bytes() for path in candidates if path.is_file()}
-        result = generate(root, args.package)
-        after_paths = set(before) | {path for path in candidates if path.is_file()}
-        stale = [path for path in after_paths if before.get(path) != (path.read_bytes() if path.is_file() else None)]
-        for path in stale:
-            if path in before:
-                path.write_bytes(before[path])
-            elif path.exists():
-                path.unlink()
+        stale = []
+        try:
+            result = generate(root, args.package)
+            after_paths = set(before) | {path for path in candidates if path.is_file()}
+            after_paths.update(
+                path for path in (root / PROGRAMME_ROOT / "programme").rglob("*") if path.is_file()
+            )
+            stale = [path for path in after_paths if before.get(path) != (path.read_bytes() if path.is_file() else None)]
+        finally:
+            after_paths = set(before) | {path for path in candidates if path.is_file()}
+            after_paths.update(
+                path for path in (root / PROGRAMME_ROOT / "programme").rglob("*") if path.is_file()
+            )
+            for path in after_paths:
+                if path in before:
+                    if not path.is_file() or path.read_bytes() != before[path]:
+                        path.write_bytes(before[path])
+                elif path.exists():
+                    path.unlink()
         if stale:
             print("STALE: " + ", ".join(sorted(path.relative_to(root).as_posix() for path in stale)))
             return 1

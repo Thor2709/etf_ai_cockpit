@@ -605,6 +605,19 @@ def test_git_snapshot_ignores_only_generated_release_evidence(monkeypatch) -> No
     assert snapshot["dirty_paths"] == [" M configs/release_policy.yaml"]
 
 
+def test_preflight_installs_locked_parser_requirements_like_release_jobs() -> None:
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github" / "workflows" / "release-gate.yml").read_text(encoding="utf-8")
+    preflight = workflow[workflow.index("  preflight:") : workflow.index("  supply-chain:")]
+    install = "python -m pip install --requirement requirements-release-parsers.txt"
+    release_install = "python -m pip install --requirement requirements-release.txt"
+
+    assert preflight.count(install) == 1
+    assert preflight.index(release_install) < preflight.index(install)
+    assert preflight.index(install) < preflight.index("Product and protected preflight")
+    assert "            requirements-release-parsers.txt" in preflight
+
+
 def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github" / "workflows" / "release-gate.yml").read_text(encoding="utf-8")

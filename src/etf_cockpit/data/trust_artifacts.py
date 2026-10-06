@@ -1737,6 +1737,11 @@ def _append_parquet(
     run_id: str | None = None,
 ) -> Path:
     existing = _safe_read_parquet(path, columns)
+    if path.exists() and existing.empty:
+        try:
+            pd.read_parquet(path)
+        except Exception as exc:
+            raise OSError(f"cannot append to unreadable evidence history: {path}") from exc
     if snapshot_hash_column and "run_id" in existing.columns:
         run_ids = (
             {str(run_id)}

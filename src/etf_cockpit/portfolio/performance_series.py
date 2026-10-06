@@ -168,8 +168,15 @@ def build_portfolio_performance_series(
             period_end=range_end,
         )
 
-    rates = _conversion_rates(selected, selected_currency, fx_rates)
-    converted = _convert_snapshots(selected, rates)
+    # The last saved valuation before the range start anchors the first in-range
+    # day's flow-adjusted return and P&L. It is never part of the displayed range,
+    # the rebased TWR index or drawdown baseline.
+    anchor = normalized.loc[normalized["date"].lt(pd.Timestamp(range_start))].tail(1)
+    extended = pd.concat([anchor, selected], ignore_index=True)
+    rates = _conversion_rates(extended, selected_currency, fx_rates)
+    converted_extended = _convert_snapshots(extended, rates)
+    anchor_converted = converted_extended.iloc[: len(anchor)]
+    converted = converted_extended.iloc[len(anchor) :].reset_index(drop=True)
     periods = _periods(range_start, range_end, selected_aggregation, selected["date"])
     points: list[PerformancePoint] = []
     daily_drawdowns: dict[int, tuple[float | None, str | None]] = {}
@@ -184,23 +191,36 @@ def build_portfolio_performance_series(
             daily_drawdowns[row_index] = (index_value / twr_peak - 1.0, None)
 
     for period_start, period_end in periods:
+        previous_source: pd.DataFrame | None = None
         period_rows = selected.loc[
             selected["date"].ge(pd.Timestamp(period_start)) & selected["date"].le(pd.Timestamp(period_end))
         ]
         converted_period = converted.loc[period_rows.index]
         if (
             not period_rows.empty
-            and selected_aggregation in {"quarter", "year"}
-            and selected_metric in {"twr_index", "twr_return", "investment_pnl"}
+            and selected_aggregation in {"week", "month", "quarter", "year"}
+            and selected_metric in {"twr_index", "twr_return", "investment_pnl", "fx"}
         ):
             previous_rows = selected.loc[selected["date"].lt(period_rows.iloc[0]["date"])].tail(1)
             if not previous_rows.empty:
+                previous_source = previous_rows
                 converted_period = pd.concat([converted.loc[previous_rows.index], converted_period])
+            elif not anchor.empty:
+                previous_source = anchor
+                converted_period = pd.concat([anchor_converted, converted_period])
+        elif not period_rows.empty and selected_metric == "fx":
+            previous_rows = selected.loc[selected["date"].lt(period_rows.iloc[0]["date"])].tail(1)
+            if not previous_rows.empty:
+                previous_source = previous_rows
+            elif not anchor.empty:
+                previous_source = anchor
         lineage_rows = (
             selected.loc[selected["date"].le(pd.Timestamp(period_end))]
             if selected_metric in {"twr_index", "drawdown"}
             else period_rows
         )
+        if previous_source is not None and selected_metric in {"twr_return", "investment_pnl", "fx"}:
+            lineage_rows = pd.concat([previous_source, lineage_rows])
         source_identity = _source_identity(lineage_rows, rates)
         partial_reasons = _quality_reasons(period_rows, period_start, period_end, range_start, range_end)
         if period_rows.empty:
@@ -235,6 +255,7 @@ def build_portfolio_performance_series(
                 rates,
                 selected,
                 selected_aggregation,
+                previous_source,
             )
         reason_parts = list(partial_reasons)
         if metric_reason:
@@ -461,6 +482,7 @@ def _metric_value(
     rates: dict[date, tuple[float | None, str | None, str | None]],
     selected: pd.DataFrame,
     aggregation: str,
+    prior_rows: pd.DataFrame | None = None,
 ) -> tuple[float | None, str | None]:
     dates = [value.date() for value in period_rows["date"]]
     for day in dates:
@@ -492,7 +514,8 @@ def _metric_value(
         if aggregation == "day":
             daily_pnl = _finite(converted_period.iloc[-1]["investment_pnl"])
             return (daily_pnl, None) if daily_pnl is not None else (None, "The saved daily investment P&L is unavailable.")
-        if not _complete_period(period_rows):
+        anchored_rows = period_rows if prior_rows is None else pd.concat([prior_rows, period_rows])
+        if not _complete_period(anchored_rows):
             return None, "Missing valuations or flows prevent period investment P&L aggregation."
         return _sum_field(converted_period.iloc[1:], "investment_pnl", "Period investment P&L requires at least two complete snapshots.")
     if metric == "net_contributions":
@@ -517,13 +540,9 @@ def _metric_value(
         value = float(fees.sum() + taxes.sum())
         return (value, None) if math.isfinite(value) else (None, "Fees and tax total is invalid.")
     if metric == "fx":
-        if aggregation == "day":
-            current_date = period_rows.iloc[-1]["date"]
-            location = selected.index[selected["date"].eq(current_date)]
-            if location.empty or location[0] == selected.index[0]:
-                return None, "A prior saved valuation is required for daily FX attribution."
-            return _fx_total(selected.loc[[location[0] - 1, location[0]]], rates)
-        return _fx_total(period_rows, rates)
+        if prior_rows is None:
+            return None, "A prior saved valuation is required for FX attribution."
+        return _fx_total(pd.concat([prior_rows, period_rows]), rates)
     return None, "The selected metric is unavailable in saved daily snapshots."
 
 
@@ -569,6 +588,8 @@ def _fx_total(
     """Attribute FX as prior EUR value times the change in the dated FX rate."""
     if len(period_rows) < 2:
         return None, "Period FX effect requires at least two complete snapshots."
+    if not _complete_period(period_rows):
+        return None, "Missing valuations or flows prevent FX attribution across the period."
     total = 0.0
     for index in range(1, len(period_rows)):
         previous = period_rows.iloc[index - 1]

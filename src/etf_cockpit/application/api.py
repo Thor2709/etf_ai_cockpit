@@ -167,8 +167,22 @@ class LocalApplicationApi:
     def get_instruments(self, page: PageRequest = PageRequest()) -> PageView[InstrumentViewModel]:
         snapshot = self._snapshot()
         available = _frame_ids(getattr(snapshot, "prices", pd.DataFrame()))
-        instruments = self.get_universe(PageRequest(offset=0, limit=500)).items
-        rows = tuple(item.model_copy(update={"status": "available" if item.instrument_id in available else "unavailable"}) for item in instruments)
+        records = []
+        universe = getattr(getattr(snapshot, "config", None), "universe", None)
+        for item in getattr(universe, "etfs", ()):
+            records.append(
+                InstrumentViewModel(
+                    instrument_id=str(item.id),
+                    name=str(item.name),
+                    ticker=str(item.ticker),
+                    asset_class=str(getattr(item, "asset_class", "")),
+                    region=_optional_text(getattr(item, "region", None)),
+                    currency=str(getattr(item, "currency", "EUR")),
+                    status="available" if str(item.id) in available else "unavailable",
+                    as_of=_snapshot_as_of(snapshot),
+                )
+            )
+        rows = tuple(sorted(records, key=lambda item: item.instrument_id))
         return _page(rows, page)
 
     def calculate_fixed_income_analytics(
@@ -612,6 +626,7 @@ class LocalApplicationApi:
             benchmark_return=request.benchmark_return,
             cash_return=request.cash_return,
             horizon_days=request.horizon_days,
+            exit_fx_rate=request.exit_fx_rate,
             source_authority=request.source_authority,
             source_checksum=request.source_checksum,
             occurred_at=request.as_of,
@@ -724,8 +739,9 @@ class LocalApplicationApi:
             self._ledger[command.idempotency_key] = _LedgerEntry(fingerprint, result)
             return result
 
-    def run_next_job(self, runner: Callable[[object], object]) -> object:
-        return self._scheduler.run_once(runner)
+    def run_next_job(self, runner: Callable[[object], object], *, workflow_id: str | None = None) -> object:
+        selected_workflow = workflow_id or getattr(runner, "workflow_id", None)
+        return self._scheduler.run_once(runner, workflow_id=selected_workflow)
 
     def recover_expired_leases(self) -> tuple[object, ...]:
         return self._scheduler.recover_expired_leases()

@@ -1141,7 +1141,8 @@ def run_backtest(
     if missing_observation_rows:
         metadata["data_warning"] = "Incomplete adjusted-price rows were excluded; no forward-fill was applied."
     # The first complete price row is a zero-return warm-up placeholder; it is never traded, and pre-listing rows were excluded above.
-    log_returns = np.log(pivot / pivot.shift(1)).fillna(0.0)
+    # Holdings accounting aggregates SIMPLE returns across instruments (log returns do not add across assets).
+    simple_returns = (pivot / pivot.shift(1) - 1.0).fillna(0.0)
     start_index = 220
     rebalance_indexes = set(range(start_index, len(pivot), rebalance_frequency_days))
     # Signal features are causal, but computing the complete historical frame
@@ -1205,12 +1206,17 @@ def run_backtest(
         weights["equal_weight"] = equal_weights(columns)
     weights["quality_only"] = pd.Series(0.0, index=columns, dtype=float)
     weights["quality_momentum"] = pd.Series(0.0, index=columns, dtype=float)
+    # ``weights`` stays the intended allocation after the last fill (it feeds the
+    # unchanged signal logic).  ``actual_weights`` is the value-weighted holding
+    # mix, which drifts with prices between actual fills.
+    actual_weights = {name: weight.copy() for name, weight in weights.items()}
     equity = {name: [initial_value_eur] for name in strategies}
     index_values = [pivot.index[start_index]]
     turnover = {name: 0.0 for name in strategies}
     cost_drag = {name: 0.0 for name in strategies}
     pending_weights: dict[str, pd.Series] = {}
     pending_costs: dict[str, float] = {}
+    pending_traded: set[str] = set()
     pending_execution_date: pd.Timestamp | None = None
     trade_rows: list[dict[str, object]] = []
     operational_evidence_rows: list[dict[str, object]] = []
@@ -1261,11 +1267,16 @@ def run_backtest(
         if pending_execution_date is not None and dt == pending_execution_date:
             execution_costs = pending_costs
 
-        day_return = log_returns.loc[dt, columns]
+        day_return = simple_returns.loc[dt, columns]
         for name in strategies:
             previous_equity = equity[name][-1]
-            portfolio_return = float((weights[name].reindex(columns).fillna(0) * day_return).sum())
-            new_equity = previous_equity * np.exp(portfolio_return)
+            held_weights = actual_weights[name].reindex(columns).fillna(0)
+            portfolio_return = float((held_weights * day_return).sum())
+            growth = 1.0 + portfolio_return
+            new_equity = previous_equity * growth
+            if growth > 0:
+                # Value-weighted drift: holdings grow with their price, cash stays flat.
+                actual_weights[name] = held_weights * (1.0 + day_return) / growth
             if execution_costs.get(name, 0.0):
                 new_equity = max(new_equity - execution_costs[name], 0.0)
             equity[name].append(max(new_equity, 0.0))
@@ -1277,6 +1288,10 @@ def run_backtest(
         if pending_execution_date is not None and dt == pending_execution_date:
             for name, new_weight in pending_weights.items():
                 weights[name] = new_weight.reindex(columns).fillna(0)
+                if name in pending_traded:
+                    # A strategy that does not trade keeps its drifted holdings.
+                    actual_weights[name] = weights[name].copy()
+            pending_traded = set()
             pending_weights = {}
             pending_costs = {}
             pending_execution_date = None
@@ -1284,7 +1299,8 @@ def run_backtest(
         if i in rebalance_indexes and i + 1 < len(pivot):
             history = pivot.iloc[: i + 1]
             new_weights = {
-                "buy_and_hold": weights["buy_and_hold"],
+                # Buy-and-hold never trades: it keeps the drifted holdings.
+                "buy_and_hold": actual_weights["buy_and_hold"],
                 "equal_weight": equal_weights(columns),
                 "momentum_only": momentum_weights(history, columns),
                 "trend_only": trend_weights(config, history, columns),
@@ -1412,8 +1428,9 @@ def run_backtest(
             pending_execution_date = execution_dt
             pending_weights = {}
             pending_costs = {}
+            pending_traded = set()
             for name, new_weight in new_weights.items():
-                diff = (new_weight.reindex(columns).fillna(0) - weights[name].reindex(columns).fillna(0)).abs()
+                diff = (new_weight.reindex(columns).fillna(0) - actual_weights[name].reindex(columns).fillna(0)).abs()
                 step_turnover = float(diff.sum())
                 if transaction_cost_bps is None:
                     portfolio_cost = estimate_rebalance_cost(config, equity[name][-1], diff.to_dict())
@@ -1434,6 +1451,8 @@ def run_backtest(
                 cost_drag[name] += step_cost
                 pending_weights[name] = new_weight.reindex(columns).fillna(0)
                 pending_costs[name] = step_cost
+                if step_turnover > 0:
+                    pending_traded.add(name)
                 if step_turnover > 0:
                     empty_reference = pd.Series(index=columns, dtype=float)
                     execution_evidence = _execution_evidence(

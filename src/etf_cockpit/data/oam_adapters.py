@@ -459,6 +459,7 @@ class OAMAdapter:
             amendment_of = _first(values, "amendment_of", "amends", "replaces", "previous_filing_id")
             source_url = _first(values, "source_url", "source", "url", "link")
             document_url = _first(values, "document_url", "download_url", "file_url", "url", "link")
+            declared_document_url = document_url
             if not issuer and not isin:
                 continue
             if request.issuer and request.issuer.casefold() not in issuer.casefold():
@@ -496,9 +497,16 @@ class OAMAdapter:
             if published and _timestamp_precision(published) == "unavailable":
                 warnings = (*warnings, "publication_timestamp_unavailable")
             source_prefix = "oam-local:" if local_import else "oam:"
-            source_id = source_prefix + hashlib.sha256(
-                "|".join((self.provider_id, snapshot_sha256 if local_import else source, isin, title, published or "")).encode("utf-8")
-            ).hexdigest()[:24]
+            # Filing identity: issuer, document and amendment links are part of it so distinct filings that
+            # share a title/date (and the endpoint as source) are not merged before the ambiguity check.
+            identity = json.dumps(
+                [
+                    self.provider_id, snapshot_sha256 if local_import else source, isin, title, published or "",
+                    issuer, declared_document_url, document_type, amendment_of,
+                ],
+                separators=(",", ":"),
+            )
+            source_id = source_prefix + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
             if local_import:
                 source_id = _local_oam_source_id(self.provider_id, snapshot_sha256, raw)
                 identity_status = (
@@ -885,6 +893,7 @@ def write_oam_discovery_registry(
             incoming_ids = set(frame["source_id"].dropna().astype(str))
             if "source_id" in existing.columns:
                 existing = existing[~existing["source_id"].fillna("").astype(str).isin(incoming_ids)]
+                existing = _drop_superseded_legacy_official_rows(existing, frame)
             combined = pd.concat([existing, frame], ignore_index=True)
         elif frame.empty:
             # A failed/manual-review result with no records must never replace a
@@ -903,6 +912,53 @@ def write_oam_discovery_registry(
         with publication_scope(publish_guard):
             _write_parquet_atomic(combined, destination)
     return destination
+
+
+def _legacy_official_source_id(row: Mapping[str, object]) -> str:
+    """The pre-S5-04 official ``source_id``: provider|source|isin|title|published only."""
+
+    def text(key: str) -> str:
+        value = row.get(key)
+        return "" if value is None or (not isinstance(value, str) and pd.isna(value)) else str(value)
+
+    return "oam:" + hashlib.sha256(
+        "|".join(
+            (text("provider_id"), text("source_url"), text("isin"), text("title"), text("published_at"))
+        ).encode("utf-8")
+    ).hexdigest()[:24]
+
+
+def _drop_superseded_legacy_official_rows(existing: pd.DataFrame, incoming: pd.DataFrame) -> pd.DataFrame:
+    """Drop rows persisted under the old official id when the same filing is re-observed.
+
+    The official ``source_id`` now also hashes issuer, document link, document type and
+    amendment link. A registry written before that change would otherwise keep the old row
+    next to the re-discovered one. Only an exact match of every identity field is treated as
+    the same filing, so a distinct filing that once collapsed onto the old id is kept.
+    """
+
+    if existing.empty or incoming.empty:
+        return existing
+    identity_fields = ("provider_id", "issuer", "document_url", "document_type", "amendment_of")
+
+    def key(row: Mapping[str, object]) -> tuple[str, ...]:
+        return tuple(
+            "" if row.get(field) is None or (not isinstance(row.get(field), str) and pd.isna(row.get(field))) else str(row.get(field))
+            for field in identity_fields
+        )
+
+    superseded: set[tuple[str, tuple[str, ...]]] = set()
+    for row in incoming.to_dict("records"):
+        source_id = str(row.get("source_id") or "")
+        if source_id.startswith("oam:") and row.get("source_authority") != "local_user_import":
+            superseded.add((_legacy_official_source_id(row), key(row)))
+    if not superseded:
+        return existing
+    keep = [
+        (str(row.get("source_id") or ""), key(row)) not in superseded
+        for row in existing.to_dict("records")
+    ]
+    return existing.loc[keep]
 
 
 def _local_oam_source_id(provider_id: str, snapshot_sha256: str, raw: Mapping[str, object]) -> str:
@@ -1123,12 +1179,18 @@ def _flatten_attributes(raw: Mapping[str, object]) -> dict[str, object]:
         nested = values.get(key)
         if isinstance(nested, Mapping):
             values = {**values, **nested}
-    return {re.sub(r"(?<!^)(?=[A-Z])", "_", str(key).strip()).lower().replace("-", "_"): value for key, value in values.items()}
+    return {_canonical_key(key): value for key, value in values.items()}
+
+
+def _canonical_key(key: object) -> str:
+    """snake_case a header, keeping acronym runs whole: ISIN -> isin, documentURL -> document_url."""
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", "_", str(key).strip())
+    return spaced.lower().replace("-", "_")
 
 
 def _first(values: Mapping[str, object], *keys: str) -> str:
     for key in keys:
-        value = values.get(key.lower().replace("-", "_"))
+        value = values.get(_canonical_key(key))
         if value is not None and str(value).strip():
             return str(value).strip()
     return ""

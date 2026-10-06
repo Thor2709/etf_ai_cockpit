@@ -25,6 +25,7 @@ import tarfile
 import tempfile
 import time
 import tomllib
+import uuid
 import zipfile
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
@@ -1014,7 +1015,9 @@ def build_sbom(
         "$schema": "https://cyclonedx.org/schema/bom-1.5.schema.json",
         "bomFormat": "CycloneDX",
         "specVersion": "1.5",
-        "serialNumber": f"urn:uuid:{str(source_manifest['manifest_sha256'])[:32]}",
+        "serialNumber": uuid.uuid5(
+            uuid.NAMESPACE_URL, str(source_manifest["manifest_sha256"])
+        ).urn,
         "version": 1,
         "metadata": {"component": {"type": "application", "name": "etf-ai-cockpit", "version": _project_version(root)}},
         "components": sorted(components, key=lambda item: str(item["bom-ref"])),
@@ -1306,8 +1309,17 @@ def run_gate(
     key_id = os.getenv(SIGNING_KEY_ID_ENV, "local-release-key")
     signature_path = output / "release-manifest.sig.json"
     signature: dict[str, object]
-    if signing_key_text:
+    signing_key = signing_key_text.encode("utf-8")
+    if signing_key_text and len(signing_key) >= 16:
         state.add(CheckResult("signature", "passed", True, "HMAC-SHA256 detached release-manifest signature"))
+    elif signing_key_text:
+        signature = {
+            "schema_version": SCHEMA_VERSION,
+            "algorithm": "HMAC-SHA256",
+            "status": "invalid",
+            "reason": "release signing key must contain at least 16 bytes",
+        }
+        state.add(CheckResult("signature", "failed", True, failure="release signing key must contain at least 16 bytes"))
     elif allow_unsigned:
         signature = {"schema_version": SCHEMA_VERSION, "algorithm": "HMAC-SHA256", "status": "unsigned", "reason": "no protected signing key supplied"}
         state.add(CheckResult("signature", "skipped", False, "HMAC-SHA256 detached release-manifest signature", failure="no protected signing key supplied"))
@@ -1318,8 +1330,8 @@ def run_gate(
     manifest["checks"] = [asdict(check) for check in state.checks]
     manifest["failures"] = list(state.failures)
     _write_json(manifest_path, manifest)
-    if signing_key_text:
-        signature = sign_manifest(manifest_path.read_bytes(), signing_key_text.encode("utf-8"), key_id=key_id)
+    if signing_key_text and len(signing_key) >= 16:
+        signature = sign_manifest(manifest_path.read_bytes(), signing_key, key_id=key_id)
         signature["status"] = "signed"
     _write_json(signature_path, signature)
     _write_json(output / "release-manifest.final.json", manifest)

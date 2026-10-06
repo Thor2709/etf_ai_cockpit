@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import math
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -864,17 +865,24 @@ def test_score_friction_fields_use_distribution_and_order_size_when_supplied() -
     fields = simple_scores_module._friction_edge_fields(
         8.0,
         [],
-        expected_return_distribution={"q10_return": -0.03, "q50_return": 0.05, "q90_return": 0.12, "horizon_days": 60, "status": "available"},
+        # Forecast quantiles are log returns; friction fields are simple returns.
+        expected_return_distribution={
+            "q10_return": math.log1p(-0.03),
+            "q50_return": math.log1p(0.05),
+            "q90_return": math.log1p(0.12),
+            "horizon_days": 60,
+            "status": "available",
+        },
         order_value_eur=1_000.0,
         cost_estimate={"order_value_eur": 1_000.0, "total_cost_bps": 20.0, "total_cost_eur": 2.0},
     )
 
     assert fields["friction_status"] == "available"
-    assert fields["gross_expected_edge_bps"] == 500.0
-    assert fields["net_expected_edge_bps"] == 480.0
-    assert fields["q10_expected_return"] == -0.03
+    assert fields["gross_expected_edge_bps"] == pytest.approx(500.0)
+    assert fields["net_expected_edge_bps"] == pytest.approx(480.0)
+    assert fields["q10_expected_return"] == pytest.approx(-0.03)
     assert fields["expected_return_horizon_days"] == 60
-    assert fields["net_expected_return"] == 0.048
+    assert fields["net_expected_return"] == pytest.approx(0.048)
     assert fields["expected_return_order_value_eur"] == 1_000.0
     assert fields["expected_return_source_dataset"] == "forecast_return_distribution"
 

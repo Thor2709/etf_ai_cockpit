@@ -169,10 +169,12 @@ def verify_local_api_request(
 ) -> ApiAuthDecision:
     """Verify bearer and CSRF tokens without disclosing which check failed."""
 
-    if not presented_token or not expected_token or not hmac.compare_digest(str(presented_token), str(expected_token)):
+    if not presented_token or not expected_token or not hmac.compare_digest(
+        str(presented_token).encode("utf-8"), str(expected_token).encode("utf-8")
+    ):
         return ApiAuthDecision(False, "authentication required")
     if expected_csrf is not None and (
-        not presented_csrf or not hmac.compare_digest(str(presented_csrf), str(expected_csrf))
+        not presented_csrf or not hmac.compare_digest(str(presented_csrf).encode("utf-8"), str(expected_csrf).encode("utf-8"))
     ):
         return ApiAuthDecision(False, "CSRF validation failed")
     return ApiAuthDecision(True, "authenticated")
@@ -214,8 +216,14 @@ def build_security_report(root: Path = ROOT, *, findings: list[Mapping[str, Any]
     try:
         plugin_payload = yaml.safe_load(plugin_path.read_text(encoding="utf-8"))
         rows = plugin_payload.get("allowlist", []) if isinstance(plugin_payload, dict) else []
+        if rows is None:
+            failures.append("plugin allowlist must be a list")
+            rows = []
         if not isinstance(plugin_payload, dict) or plugin_payload.get("execution_allowed") is not False:
             failures.append("plugin execution policy must remain disabled")
+        if not isinstance(rows, list):
+            failures.append("plugin allowlist must be a list")
+            rows = []
         for row in rows:
             if not isinstance(row, dict) or row.get("network_access") is not False:
                 failures.append("every plugin must declare network_access=false")
@@ -257,7 +265,15 @@ def _load_findings(path: Path) -> list[Mapping[str, Any]]:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return [{"id": "security-findings-file", "severity": "high", "status": "open"}]
-    return [item for item in payload if isinstance(item, Mapping)] if isinstance(payload, list) else []
+    if not isinstance(payload, list):
+        return [{"id": "security-findings-file", "severity": "high", "status": "open"}]
+    findings: list[Mapping[str, Any]] = []
+    for item in payload:
+        if not isinstance(item, Mapping):
+            findings.append({"id": "security-findings-file", "severity": "high", "status": "open"})
+        else:
+            findings.append(item)
+    return findings
 
 
 def _keyring() -> Any:

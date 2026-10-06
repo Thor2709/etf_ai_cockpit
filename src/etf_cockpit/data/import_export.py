@@ -189,6 +189,26 @@ class ImportService:
                 audit_path=destination.with_name("event_calendar_audit.json"),
             )
             committed = pd.read_parquet(destination)
+        elif preview.import_type == "prices":
+            from etf_cockpit.data.import_pipeline import commit_price_import
+            from etf_cockpit.data.providers import ProviderResult
+
+            result = ProviderResult(
+                "manual_local_file",
+                "prices",
+                "ok",
+                f"Loaded {len(frame)} rows from import.",
+                frame,
+            )
+            commit = commit_price_import(
+                result,
+                clean_path=destination,
+                compatibility_path=self.root / "data" / "validated" / "prices" / "prices_daily.parquet",
+                raw_dir=self.root / "data" / "raw" / "prices",
+                snapshots_dir=self.root / "data" / "snapshots" / "prices",
+            )
+            destination = commit.clean_path
+            committed = pd.read_parquet(destination)
         elif preview.import_type == "etf_holdings":
             destination = self.root / "data" / "clean" / "fund_holdings.parquet"
             destination.parent.mkdir(parents=True, exist_ok=True)

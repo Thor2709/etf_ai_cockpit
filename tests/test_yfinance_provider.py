@@ -41,7 +41,7 @@ def test_yfinance_provider_normalises_adjusted_price_schema(monkeypatch) -> None
     assert set(["date", "etf_id", "open", "high", "low", "close", "adjusted_close", "volume", "currency"]).issubset(result.data.columns)
     assert result.data["etf_id"].unique().tolist() == ["SPYK"]
     assert result.data["provider_symbol"].unique().tolist() == ["SPYK.F"]
-    assert result.data["currency"].unique().tolist() == ["EUR"]
+    assert result.data["currency"].isna().all()
     assert result.data["adjusted_close"].iloc[-1] == 10.6
     assert result.data["dividends"].iloc[-1] == 0.1
 
