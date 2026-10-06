@@ -40,6 +40,7 @@ class PriipsKidRecord:
 _CRITICAL_WARNINGS = {
     "identity_mismatch",
     "sri_missing",
+    "sri_invalid",
     "holding_period_missing",
     "cost_table_malformed",
     "document_date_missing",
@@ -80,7 +81,9 @@ def parse_priips_kid(path: Path, expected_isin: str | None = None) -> ParseResul
         warnings.append(ParseWarning("identity_mismatch", f"KID ISIN {isin or 'missing'} does not match expected identity", "error", location))
     product = _first_line_after(text, "Product:") or ""
     manufacturer = _manufacturer(text)
-    sri_match = re.search(r"(?:classified[^\n]*?as\s+)?([1-7])\s+out\s+of\s+7", text, flags=re.IGNORECASE)
+    sri_tokens = re.findall(r"(?<![\w.,/-])(\d[\d.,]*)\s+out\s+of\s+7(?!\d)", text, flags=re.IGNORECASE)
+    sri_invalid = any(re.fullmatch(r"[1-7]", token) is None for token in sri_tokens)
+    sri_match = None if sri_invalid else re.search(r"(?<![\w.,/-])([1-7])\s+out\s+of\s+7(?!\d)", text, flags=re.IGNORECASE)
     holding_match = re.search(r"(?:recommended holding period|keep the Fund for|keep you invested for)\s*:?\s*(\d+)\s*years?", text, flags=re.IGNORECASE)
     date_match = re.search(
         r"(?:dated|date(?:d)?|document date)\s*:?\s*(\d{1,2})[\s/.-](\d{1,2})[\s/.-](\d{4})",
@@ -93,7 +96,9 @@ def parse_priips_kid(path: Path, expected_isin: str | None = None) -> ParseResul
         document_date = None if date_match is None else f"{date_match.group(1)}-{date_match.group(2)}-{date_match.group(3)}"
     else:
         document_date = f"{date_match.group(3)}-{int(date_match.group(2)):02d}-{int(date_match.group(1)):02d}"
-    if sri_match is None:
+    if sri_invalid:
+        warnings.append(_warning("sri_invalid", "Summary risk indicator is not an integer from 1 to 7", text, pages, "risk indicator"))
+    elif sri_match is None:
         warnings.append(_warning("sri_missing", "Summary risk indicator is unavailable", text, pages, "risk indicator"))
     if holding_match is None:
         warnings.append(_warning("holding_period_missing", "Recommended holding period is unavailable", text, pages, "holding period"))

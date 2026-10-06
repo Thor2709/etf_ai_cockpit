@@ -17,6 +17,7 @@ from typing import Mapping
 from etf_cockpit.analysis.fixed_income_analytics import (
     FixedIncomeValuationInput,
     calculate_fixed_income_analytics,
+    cashflow_entitled,
 )
 from etf_cockpit.analysis.fixed_income_risk import (
     CurveShock,
@@ -125,12 +126,16 @@ def calculate_fixed_income_return_decomposition(
     if future.clean_price is None or future.accrued_interest is None:
         raise FixedIncomeReturnError("canonical horizon valuation is incomplete")
 
+    # Coupons the holder is entitled to at settlement and that have been paid or
+    # gone ex-coupon by the horizon (a detached coupon is no longer in the
+    # horizon price, so it must be counted here as received cash).
     coupon_cash = sum(
         (
             flow.amount / valuation.face_value * Decimal("100")
             for flow in valuation.cashflows
             if flow.kind == "coupon"
-            and valuation.settlement_date < flow.payment_date <= horizon
+            and cashflow_entitled(flow, valuation.settlement_date)
+            and (flow.ex_coupon_date or flow.payment_date) <= horizon
         ),
         Decimal("0"),
     )
@@ -191,7 +196,7 @@ def calculate_fixed_income_return_decomposition(
     else:
         rate = Decimal("0") if item.rate_shock_bps == 0 else None
         spread = Decimal("0") if item.spread_shock_bps == 0 else None
-        default = _default_return(item)
+        default = _default_return(item, denominator)
         costs = _cost_return(item)
         if rate is not None and spread is not None:
             assumptions.append("configured_neutral_rate_and_spread_scenario")
@@ -296,10 +301,21 @@ def _unavailable(
     )
 
 
-def _default_return(item: FixedIncomeReturnInput) -> Decimal | None:
+def _default_return(
+    item: FixedIncomeReturnInput, dirty_price: Decimal
+) -> Decimal | None:
+    """Expected default loss (PD x LGD on face value) as a return on dirty value.
+
+    This is the same basis the curve path derives from the canonical risk
+    engine: loss on position face value divided by the starting dirty value.
+    """
+
     if item.default_probability is None or item.recovery_rate is None:
         return None
-    return -item.default_probability * (Decimal("1") - item.recovery_rate)
+    loss_per_100_face = (
+        item.default_probability * (Decimal("1") - item.recovery_rate) * Decimal("100")
+    )
+    return -loss_per_100_face / dirty_price
 
 
 def _cost_return(item: FixedIncomeReturnInput) -> Decimal | None:

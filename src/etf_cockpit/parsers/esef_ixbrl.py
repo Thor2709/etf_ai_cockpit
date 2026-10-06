@@ -15,6 +15,7 @@ import queue
 import re
 import zipfile
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -132,6 +133,9 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
         value = "".join(element.itertext()).strip()
         if not concept or not value:
             continue
+        numeric_problem: str | None = None
+        if local_name == "nonFraction":
+            value, numeric_problem = _decode_numeric_fact(value, element.attrib)
         context_id = _optional_text(element.attrib.get("contextRef"))
         context = contexts.get(context_id or "", {})
         unit = _optional_text(element.attrib.get("unitRef"))
@@ -144,7 +148,10 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
         namespace = namespace_map.get(prefix or "") or _namespace_for_prefix(prefix)
         mapping = map_ifrs_fact(raw_name, namespace)
         is_extension = bool(prefix and prefix.lower() not in _IFRS_PREFIXES)
-        if is_extension:
+        if numeric_problem is not None:
+            mapping_status = "unsupported_numeric"
+            warnings.append(ParseWarning("unsupported_numeric_fact", f"Inline XBRL numeric fact retained for review without canonical mapping ({numeric_problem}): {raw_name}", "warning", xhtml_name))
+        elif is_extension:
             mapping_status = "unmapped_extension"
             if raw_name not in warned_extensions:
                 warnings.append(ParseWarning("unmapped_extension", f"Extension fact retained without canonical mapping: {raw_name}", "warning", xhtml_name))
@@ -196,6 +203,60 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
             if severity.lower() in {"error", "fatal"}:
                 arelle_ok = False
     return ParseResult(tuple(facts), tuple(warnings), "esef_ixbrl", PARSER_VERSION, source_sha, bool(facts) and arelle_ok)
+
+
+_NUMERIC_FORMATS = {
+    "num-dot-decimal": "dot",
+    "numdotdecimal": "dot",
+    "num-comma-decimal": "comma",
+    "numcommadecimal": "comma",
+    "zerodash": "zero",
+    "fixed-zero": "zero",
+    "fixedzero": "zero",
+}
+_NUMERIC_SHAPE = re.compile(r"\d+(?:\.\d*)?|\.\d+")
+
+
+def _decode_numeric_fact(text: str, attributes: dict[str, str]) -> tuple[str, str | None]:
+    """Return the Inline XBRL ``nonFraction`` value after format, scale and sign.
+
+    Facts displayed in thousands/millions carry ``scale``; negatives carry
+    ``sign="-"``.  Anything this parser cannot decode with certainty (unknown
+    transformation, malformed number, invalid scale or sign) is returned
+    unchanged with a reason so the caller keeps it out of canonical mapping.
+    """
+
+    fmt = _optional_text(attributes.get("format"))
+    scale_text = _optional_text(attributes.get("scale"))
+    sign_text = _optional_text(attributes.get("sign"))
+    cleaned = text.strip()
+    if fmt is not None:
+        kind = _NUMERIC_FORMATS.get(fmt.rsplit(":", 1)[-1].casefold())
+        if kind is None:
+            return text, f"unsupported format {fmt}"
+        if kind == "zero":
+            cleaned = "0"
+        elif kind == "dot":
+            cleaned = cleaned.replace(",", "").replace(" ", "")
+        else:
+            cleaned = cleaned.replace(".", "").replace(" ", "").replace(",", ".")
+    if _NUMERIC_SHAPE.fullmatch(cleaned) is None:
+        return text, "value is not a plain decimal number"
+    try:
+        scale = int(scale_text) if scale_text is not None else 0
+    except ValueError:
+        return text, f"invalid scale {scale_text}"
+    if sign_text not in (None, "-"):
+        return text, f"invalid sign {sign_text}"
+    if fmt is None and scale == 0 and sign_text is None:
+        return text, None
+    try:
+        number = Decimal(cleaned).scaleb(scale)
+    except InvalidOperation:
+        return text, "value is not a plain decimal number"
+    if sign_text == "-":
+        number = -number
+    return format(number, "f"), None
 
 
 def map_ifrs_fact(concept: str, namespace: str | None = None) -> str | None:

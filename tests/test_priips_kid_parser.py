@@ -124,3 +124,17 @@ def test_cost_table_with_unbounded_labels_is_ineligible(tmp_path: Path, monkeypa
     assert record.extraction_confidence != "high"
     assert record.score_eligible is False
     assert "cost_table_malformed" in record.warnings
+
+
+def test_out_of_range_risk_indicator_is_invalid_not_eligible(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "kid.pdf"
+    path.write_bytes(b"synthetic-kid")
+    _fake_pdfplumber(monkeypatch, ["Key Information Document\nProduct: Example ETF\nRisk indicator: 8 out of 7\nRecommended holding period: 5 years"])
+
+    result = parse_priips_kid(path)
+
+    assert result.success is False
+    record = result.records[0]
+    assert record.sri is None and record.score_eligible is False
+    assert any(item.code == "sri_invalid" for item in result.warnings)
+    assert not any(item.code == "sri_missing" for item in result.warnings)

@@ -658,6 +658,9 @@ def validate_onboarding(
     return OnboardingValidation(not errors, tuple(errors), unresolved, observed_status)
 
 
+_ONBOARDING_WATCHLIST_GROUP = "Onboarding watchlist"
+
+
 def _onboarding_records(profile: OnboardingProfile, unresolved: tuple[str, ...]) -> tuple[UniverseRecord, ...]:
     scopes = _canonical_scopes(profile.asset_scope)
     scope = scopes[0] if len(scopes) == 1 else "both"
@@ -674,7 +677,7 @@ def _onboarding_records(profile: OnboardingProfile, unresolved: tuple[str, ...])
                 isin_status="needs_verification",
                 asset_type=asset_type,
                 tier="secondary",
-                group="Onboarding watchlist",
+                group=_ONBOARDING_WATCHLIST_GROUP,
                 enabled=ticker not in unresolved,
                 data_policy="daily",
                 currency=profile.base_currency.strip().upper(),
@@ -737,6 +740,20 @@ def _merge_records(
                     "ambiguous onboarding identity replacement: "
                     + ", ".join(sorted({existing.instrument_id for existing in matches}, key=str.casefold))
                 )
+            if (
+                record.group == _ONBOARDING_WATCHLIST_GROUP
+                and record.isin_status.strip().casefold() != "verified"
+            ):
+                verified_same_id = [
+                    existing
+                    for existing in matches
+                    if existing.instrument_id.strip().casefold() == record.instrument_id.strip().casefold()
+                    and existing.isin_status.strip().casefold() == "verified"
+                    and is_valid_isin(existing.isin)
+                ]
+                if verified_same_id:
+                    # Reuse the verified record; the output currency is a user setting, not instrument metadata.
+                    continue
             replacement_ids = {
                 id(existing)
                 for existing in matches

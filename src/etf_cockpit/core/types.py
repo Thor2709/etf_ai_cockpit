@@ -159,7 +159,7 @@ class SignalResult:
             object.__setattr__(self, "research_promotion_allowed", False)
             object.__setattr__(self, "portfolio_review_allowed", False)
         object.__setattr__(self, "execution_allowed", False)
-        if valid_analysis_status and self.analysis_status == "unavailable":
+        if self.authority_decision is None and valid_analysis_status and self.analysis_status == "unavailable":
             derived: AnalysisStatus = "partial" if self.blocked_by or self.warnings else "complete"
             object.__setattr__(self, "analysis_status", derived)
 

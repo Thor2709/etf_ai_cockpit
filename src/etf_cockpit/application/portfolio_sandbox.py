@@ -1866,21 +1866,18 @@ def _descriptor_values(values: Mapping[str, object], configured: object | None, 
         asset_type, security_type, cfi_code = explicit["asset_type"], explicit["security_type"], explicit["cfi_code"]
     elif configured is not None:
         asset_type = str(getattr(configured, "instrument_type", "") or getattr(configured, "asset_class", "")).strip()
-        rule = next((item for item in policy.instrument_rules if asset_type.casefold() in {str(value).casefold() for value in item.match_asset_types}), None)
-        if rule is None or not rule.match_security_types or not rule.match_cfi_prefixes:
+        security_type = _text_value(getattr(configured, "security_type", None))
+        cfi_code = _text_value(getattr(configured, "cfi_code", None))
+        if not (security_type and cfi_code):
+            rule = next((item for item in policy.instrument_rules if asset_type.casefold() in {str(value).casefold() for value in item.match_asset_types}), None)
+            if rule is None or not rule.match_security_types or not rule.match_cfi_prefixes:
+                return None
+            security_type = security_type or str(rule.match_security_types[0])
+            cfi_code = cfi_code or str(rule.match_cfi_prefixes[0])
+        if not asset_type:
             return None
-        security_type = str(rule.match_security_types[0])
-        cfi_code = str(rule.match_cfi_prefixes[0])
     else:
         return None
-    rule = next(
-        (
-            item
-            for item in policy.instrument_rules
-            if str(asset_type).casefold() in {str(value).casefold() for value in item.match_asset_types}
-        ),
-        None,
-    )
     raw_market_cap = values.get("market_cap_usd", getattr(configured, "market_cap_usd", None))
     raw_average_daily_value = values.get(
         "average_daily_value_usd",
@@ -1892,11 +1889,6 @@ def _descriptor_values(values: Mapping[str, object], configured: object | None, 
         _text_value(raw_average_daily_value) and average_daily_value is None
     ):
         return None
-    if configured is not None and rule is not None:
-        if market_cap is None and "minimum_market_cap" in rule.prerequisites.liquidity:
-            market_cap = float(policy.exclusion_policy.minimum_market_cap_usd)
-        if average_daily_value is None and "minimum_average_daily_value" in rule.prerequisites.liquidity:
-            average_daily_value = float(policy.exclusion_policy.minimum_average_daily_value_usd)
     return {
         "asset_type": asset_type,
         "security_type": security_type,

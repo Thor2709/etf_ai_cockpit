@@ -311,7 +311,7 @@ def _exposure_eligible_holdings(holdings: pd.DataFrame, *, reference_date: objec
     if "as_of_date" in eligible.columns:
         as_of = pd.to_datetime(eligible["as_of_date"], errors="coerce", utc=True)
         today = _holdings_reference_day(reference_date)
-        valid_as_of = as_of.notna() & as_of.le(today)
+        valid_as_of = as_of.notna() & as_of.dt.normalize().le(today)
         eligible = eligible[valid_as_of]
     return eligible
 
@@ -864,7 +864,16 @@ def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
     correlation = return_correlation_matrix(state.snapshot.prices, state.snapshot.config.universe.enabled_ids, window=120)
     contribution = drawdown_contribution(allocation, state.snapshot.latest_features)
     imported_holdings = _load_holdings_evidence()
-    eligible_holdings = _exposure_eligible_holdings(imported_holdings)
+    snapshot_date = getattr(getattr(state.snapshot, "data_report", None), "as_of_date", None)
+    if snapshot_date is None or "as_of_date" not in imported_holdings.columns:
+        imported_holdings = imported_holdings.iloc[0:0].copy()
+    else:
+        cutoff = _holdings_reference_day(snapshot_date)
+        holding_dates = pd.to_datetime(imported_holdings["as_of_date"], errors="coerce", utc=True)
+        imported_holdings = imported_holdings.loc[
+            holding_dates.notna() & holding_dates.dt.normalize().le(cutoff)
+        ]
+    eligible_holdings = _exposure_eligible_holdings(imported_holdings, reference_date=snapshot_date)
     overlap = build_direct_overlap_view(
         state.snapshot,
         list(state.snapshot.config.universe.enabled_ids),

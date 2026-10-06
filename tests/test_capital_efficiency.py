@@ -73,3 +73,31 @@ def test_capital_efficiency_rejects_currency_changes_across_periods() -> None:
     assert reported["period_comparability"]["status"] == "unavailable"
     assert reported["period_comparability"]["reason"] == "currency_or_accounting_scope_changes_across_periods"
     assert reported["metrics"]["incremental_roic"]["status"] == "unavailable"
+
+
+def _flow_and_balance_rows(balance_currency: str = "EUR") -> pd.DataFrame:
+    values = dict(revenue=200, operating_income=20, equity=100, debt=30, cash=10)
+    flow = {"revenue", "operating_income"}
+    return pd.DataFrame(
+        [
+            dict(
+                instrument_id="X", concept=k, canonical_metric=k, value=v, unit="EUR",
+                currency="EUR" if k in flow else balance_currency, end="2025-12-31", fiscal_period="FY",
+                start="2025-01-01" if k in flow else None,
+                instant=None if k in flow else "2025-12-31", source_id=k, consolidation_scope="group",
+            )
+            for k, v in values.items()
+        ]
+    )
+
+
+def test_flow_period_takes_balance_facts_at_its_period_end_and_checks_their_currency() -> None:
+    result = capital_efficiency_analysis(_flow_and_balance_rows(), tax_rate=0.25, strict_comparability=True)
+    history = result["reported"]["history"]
+    assert len(history) == 1
+    assert history[0]["invested_capital"] == 120.0
+    assert history[0]["comparability"]["status"] == "available"
+    assert "balance_period_keys" not in history[0]
+    mismatch = capital_efficiency_analysis(_flow_and_balance_rows("USD"), tax_rate=0.25, strict_comparability=True)
+    assert mismatch["reported"]["history"][0]["comparability"]["reason"] == "currency_mismatch_within_period"
+    assert mismatch["reported"]["metrics"]["roic"]["value"] is None

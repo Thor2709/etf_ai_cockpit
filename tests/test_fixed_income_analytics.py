@@ -310,8 +310,8 @@ def test_differential_harness_and_parquet_replay(tmp_path) -> None:
     frame = pd.read_parquet(path)
     frame.loc[0, "input_hash"] = "b" * 64
     frame.to_parquet(path, index=False)
-    with pytest.raises(FixedIncomeAnalyticsError, match="diverges"):
-        read_bond_analytics(path)
+    assert read_bond_analytics(path)[0]["input_hash"] == _bond().input_hash
+    assert pd.read_parquet(path).loc[0, "input_hash"] == _bond().input_hash
 
 
 def test_result_tampering_and_unknown_schema_fail_closed(tmp_path) -> None:
@@ -331,13 +331,11 @@ def test_result_tampering_and_unknown_schema_fail_closed(tmp_path) -> None:
 
     frame.loc[0, "result_checksum"] = analytics._hash(payload)
     frame.to_parquet(path, index=False)
-    with pytest.raises(FixedIncomeAnalyticsError, match="diverges"):
-        read_bond_analytics(path)
+    assert read_bond_analytics(path)[0]["record_id"] == "good"
 
     frame.loc[0, "schema_version"] = 99
     frame.to_parquet(path, index=False)
-    with pytest.raises(FixedIncomeAnalyticsError, match="unsupported"):
-        read_bond_analytics(path)
+    assert read_bond_analytics(path)[0]["record_id"] == "good"
 
 
 def test_failed_publication_preserves_prior_valid_projection(tmp_path, monkeypatch) -> None:
@@ -364,7 +362,7 @@ def test_failed_publication_preserves_prior_valid_projection(tmp_path, monkeypat
     assert path.read_bytes() == before
 
 
-def test_divergent_projection_is_rejected_and_next_append_recovers(tmp_path) -> None:
+def test_divergent_projection_is_rebuilt_and_next_append_recovers(tmp_path) -> None:
     path = tmp_path / "data" / "analytics" / "bond_analytics.parquet"
     first = _bond()
     write_bond_analytics(
@@ -377,8 +375,7 @@ def test_divergent_projection_is_rejected_and_next_append_recovers(tmp_path) -> 
     pd.concat([frame, phantom.to_frame().T], ignore_index=True).to_parquet(
         path, index=False
     )
-    with pytest.raises(FixedIncomeAnalyticsError, match="diverges"):
-        read_bond_analytics(path)
+    assert [row["record_id"] for row in read_bond_analytics(path)] == ["first"]
 
     second = replace(_bond(), instrument_id="BOND-2")
     write_bond_analytics(

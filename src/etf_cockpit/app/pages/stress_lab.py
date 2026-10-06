@@ -79,7 +79,7 @@ def stress_lab_page(page: ft.Page | None, state: AppState) -> ft.Control:
     def save(_event: ft.ControlEvent | None) -> None:
         nonlocal current_scenario, revision
         try:
-            current_scenario = current_scenario or scenario_from_controls()
+            current_scenario = scenario_from_controls()
             saved = facade.save(current_scenario, expected_revision=revision)
             revision = saved.revision
             show(f"Saved local scenario {saved.scenario.scenario_id} revision {saved.revision}; prior revisions remain auditable.", theme.GREEN)
