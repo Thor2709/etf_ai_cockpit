@@ -195,6 +195,10 @@ def _canonical_frame(
         return pd.DataFrame()
     view = "as_known_at" if as_known_at is not None else "latest_restated"
     result = statement_view(frame, view, as_known_at=as_known_at)
+    # Segment/member facts describe a part of the entity; only consolidated (undimensioned)
+    # facts may feed invested capital, NOPAT, ROIC or the reported tax rate.
+    if "dimensions" in result.columns:
+        result = result[~result["dimensions"].map(_is_dimensional)]
     if instrument_id and "instrument_id" in result.columns:
         result = result[result["instrument_id"].astype(str).eq(str(instrument_id))]
     result = result.reset_index(drop=True)
@@ -202,6 +206,14 @@ def _canonical_frame(
     if as_known_at is not None:
         result.attrs["as_known_at"] = pd.Timestamp(as_known_at).date().isoformat()
     return result
+
+
+def _is_dimensional(value: object) -> bool:
+    if isinstance(value, (list, tuple, dict, set)):
+        return bool(value)
+    if value is None or (not isinstance(value, str) and pd.isna(value)):
+        return False
+    return str(value).strip() not in {"", "{}", "[]", "()", "null", "None", "nan"}
 
 
 def _period_records(
