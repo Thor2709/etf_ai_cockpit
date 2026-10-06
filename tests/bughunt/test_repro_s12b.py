@@ -81,11 +81,6 @@ def test_s12_03_refresh_preserves_creation_acceptance() -> None:
     assert github_mutation_gateway.validate_create_acceptance(issue)["accepted"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S12-04: Failed check retains generated changes",
-)
 def test_s12_04_check_restores_outputs_after_generation_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -115,11 +110,6 @@ def test_s12_04_check_restores_outputs_after_generation_failure(
     assert output.read_bytes() == b"original"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S12-05: Convergence manifest always disagrees with normal generation",
-)
 def test_s12_05_convergence_manifest_matches_normal_projection() -> None:
     root = Path.cwd()
     outputs = generate_programme.required_outputs(root)
@@ -146,11 +136,6 @@ def test_s12_05_convergence_manifest_matches_normal_projection() -> None:
         ) == generate_programme.build_manifest(root, outputs)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S12-06: Convergence publishes stale inventory projections",
-)
 def test_s12_06_convergence_renders_fresh_inventory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -201,11 +186,6 @@ def test_s12_06_convergence_renders_fresh_inventory(
     assert rendered["issue_count"] == len(state["issues"])
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S12-07: SBOM passes with an invalid UUID URN",
-)
 def test_s12_07_sbom_serial_number_is_uuid_urn(tmp_path: Path) -> None:
     bom = release_gate.build_sbom(
         tmp_path,
@@ -219,11 +199,6 @@ def test_s12_07_sbom_serial_number_is_uuid_urn(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S12-08: Control writer accepts dates its replay reader rejects",
-)
 def test_s12_08_writer_rejects_noncanonical_review_date() -> None:
     value = {
         "records": {

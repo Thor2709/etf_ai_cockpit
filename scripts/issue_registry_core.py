@@ -1952,7 +1952,7 @@ def validate_control_transition_event(
     ):
         raise ValueError(f"{issue_id}: transition requires non-blank evidence references")
     reviewed_date = event.get("reviewed_date")
-    if not isinstance(reviewed_date, str):
+    if not isinstance(reviewed_date, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", reviewed_date):
         raise ValueError(f"{issue_id}: reviewed_date must be YYYY-MM-DD")
     try:
         date.fromisoformat(reviewed_date)

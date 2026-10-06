@@ -118,11 +118,6 @@ def test_s13_10_export_does_not_invent_model_forecasts(monkeypatch):
     assert captured[0]["status"].eq("unavailable").all()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S13-11: Malformed security findings silently clear release blockers",
-)
 def test_s13_11_malformed_findings_fail_closed(tmp_path):
     from etf_cockpit.core.paths import ROOT
     from etf_cockpit.security.policy import build_security_report

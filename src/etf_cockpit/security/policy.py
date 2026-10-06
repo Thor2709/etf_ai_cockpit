@@ -265,7 +265,15 @@ def _load_findings(path: Path) -> list[Mapping[str, Any]]:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return [{"id": "security-findings-file", "severity": "high", "status": "open"}]
-    return [item for item in payload if isinstance(item, Mapping)] if isinstance(payload, list) else []
+    if not isinstance(payload, list):
+        return [{"id": "security-findings-file", "severity": "high", "status": "open"}]
+    findings: list[Mapping[str, Any]] = []
+    for item in payload:
+        if not isinstance(item, Mapping):
+            findings.append({"id": "security-findings-file", "severity": "high", "status": "open"})
+        else:
+            findings.append(item)
+    return findings
 
 
 def _keyring() -> Any:
