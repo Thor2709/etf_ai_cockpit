@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from math import isfinite
 from pathlib import Path
 import re
@@ -62,6 +62,7 @@ class ResearchStateMigration(BaseModel):
     portfolio_snapshot_provenance: Literal["validated_snapshot", "unavailable"] = "unavailable"
     portfolio_snapshot: dict[str, object] | None = None
     portfolio_snapshot_checksum: str = "unavailable"
+    portfolio_snapshot_cutoff: str | None = None
     execution_allowed: Literal[False] = Field(default=False, frozen=True)
     legacy_action: str | None = None
     migration_semantics: MigrationSemantics = "lossy"
@@ -259,7 +260,7 @@ def _snapshot_mapping(record: Mapping[str, object]) -> Mapping[str, object] | No
 
     for key in ("portfolio_snapshot", "portfolio_context", "holdings_snapshot"):
         candidate = record.get(key)
-        if isinstance(candidate, Mapping) and _snapshot_payload_is_valid(candidate):
+        if isinstance(candidate, Mapping) and _snapshot_payload_is_valid(candidate) and _snapshot_within_record_cutoff(candidate, record):
             return candidate
     # Score-history persistence uses a canonical JSON text column so parquet
     # readers never need to reconstruct arbitrary object values.
@@ -269,9 +270,61 @@ def _snapshot_mapping(record: Mapping[str, object]) -> Mapping[str, object] | No
             candidate = json.loads(encoded)
         except json.JSONDecodeError:
             candidate = None
-        if isinstance(candidate, Mapping) and _snapshot_payload_is_valid(candidate):
+        if isinstance(candidate, Mapping) and _snapshot_payload_is_valid(candidate) and _snapshot_within_record_cutoff(candidate, record):
             return candidate
     return None
+
+
+def _snapshot_within_record_cutoff(snapshot: Mapping[str, object], record: Mapping[str, object]) -> bool:
+    """Require a usable row cutoff and reject snapshots dated after it."""
+
+    snapshot_value = next(
+        (snapshot[key] for key in ("as_of_date", "as_of", "snapshot_at", "snapshot_date", "timestamp", "date") if key in snapshot),
+        None,
+    )
+    snapshot_time = _temporal_value(snapshot_value, end_of_day=isinstance(snapshot_value, date) and not isinstance(snapshot_value, datetime))
+    if snapshot_time is None:
+        return False
+    cutoffs = [
+        _temporal_value(record.get(key), end_of_day=True)
+        for key in ("run_completed_at", "as_of_date", "data_as_of_date", "price_as_of_date", "portfolio_snapshot_cutoff")
+        if record.get(key) is not None
+    ]
+    cutoffs = [cutoff for cutoff in cutoffs if cutoff is not None]
+    return bool(cutoffs) and snapshot_time <= min(cutoffs)
+
+
+def _snapshot_cutoff_string(record: Mapping[str, object]) -> str | None:
+    cutoffs = [
+        cutoff
+        for key in ("run_completed_at", "as_of_date", "data_as_of_date", "price_as_of_date", "portfolio_snapshot_cutoff")
+        if (cutoff := _temporal_value(record.get(key), end_of_day=True)) is not None
+    ]
+    return min(cutoffs).isoformat() if cutoffs else None
+
+
+def _temporal_value(value: object, *, end_of_day: bool = False) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, date):
+        parsed = datetime.combine(value, datetime.max.time() if end_of_day else datetime.min.time())
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            try:
+                parsed_date = date.fromisoformat(text)
+            except ValueError:
+                return None
+            parsed = datetime.combine(parsed_date, datetime.max.time() if end_of_day else datetime.min.time())
+    else:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def validated_portfolio_snapshot(record: Mapping[str, object]) -> Mapping[str, object] | None:
@@ -390,6 +443,7 @@ def migrate_legacy_action(record: Mapping[str, object]) -> ResearchStateMigratio
             "portfolio_snapshot_provenance": "validated_snapshot" if context_allowed else "unavailable",
             "portfolio_snapshot": dict(snapshot) if context_allowed and snapshot is not None else None,
             "portfolio_snapshot_checksum": snapshot_checksum if context_allowed else "unavailable",
+            "portfolio_snapshot_cutoff": _snapshot_cutoff_string(record) if context_allowed else None,
             "execution_allowed": False,
             "legacy_action": legacy_action,
             "migration_semantics": semantics,
@@ -454,6 +508,7 @@ def migrate_legacy_action(record: Mapping[str, object]) -> ResearchStateMigratio
         "portfolio_snapshot_provenance": "validated_snapshot" if snapshot_validated else "unavailable",
         "portfolio_snapshot": dict(snapshot) if snapshot_validated and snapshot is not None else None,
         "portfolio_snapshot_checksum": snapshot_checksum,
+        "portfolio_snapshot_cutoff": _snapshot_cutoff_string(record) if snapshot_validated else None,
         "execution_allowed": False,
         "legacy_action": legacy_action,
         "migration_semantics": semantics,

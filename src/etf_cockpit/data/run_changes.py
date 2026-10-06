@@ -547,7 +547,7 @@ def _portfolio_target_marker(row: Mapping[str, Any]) -> str:
         return "unavailable"
     if not isinstance(snapshot, Mapping):
         return "unavailable"
-    validated = validated_portfolio_snapshot({"portfolio_snapshot": snapshot})
+    validated = validated_portfolio_snapshot({**row, "portfolio_snapshot": snapshot})
     if validated is None:
         return "unavailable"
     if "portfolio_snapshot_validated" in row and not _truthy_marker(row.get("portfolio_snapshot_validated")):

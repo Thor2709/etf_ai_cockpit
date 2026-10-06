@@ -329,15 +329,15 @@ def export_review_pack(
                 "model_version": version,
                 "etf_id": signal.etf_id,
                 "horizon_days": 60,
-                "expected_return": signal.supporting_metrics.get("momentum_60d"),
-                "expected_excess_return": signal.supporting_metrics.get("momentum_60d"),
+                "expected_return": None,
+                "expected_excess_return": None,
                 "q10_return": None,
-                "q50_return": signal.supporting_metrics.get("momentum_60d"),
+                "q50_return": None,
                 "q90_return": None,
-                "forecast_vol": signal.supporting_metrics.get("vol_60d_ann"),
+                "forecast_vol": None,
                 "prob_positive_return": None,
                 "prob_beat_benchmark": None,
-                "status": "ok" if version != "unavailable" else "unavailable",
+                "status": "unavailable",
             }
             for signal in signals
             for model, version in signal.model_versions_used.items()
@@ -658,7 +658,7 @@ def _write_audit_manifest(export_dir: Path, derived_manifest: dict[str, object],
                 # downstream readers while keeping the manifest explicit.
                 marker_name = "candle_context_unavailable.txt"
             else:
-                marker_name = f"{Path(path).stem}_{hashlib.sha256(path.encode()).hexdigest()[:10]}_unavailable.txt"
+                marker_name = _unavailable_marker_name(Path(path).stem)
             marker = f"{Path(path).with_name(marker_name)}".replace("\\", "/")
             marker_path = export_dir / marker
             if not marker_path.is_file():
@@ -910,6 +910,11 @@ def _write_unavailable_marker(marker: Path, source: Path, manifest: dict[str, ob
     return marker
 
 
+def _unavailable_marker_name(identifier: str) -> str:
+    digest = hashlib.sha256(identifier.encode("utf-8")).hexdigest()[:10]
+    return f"{identifier}_{digest}_unavailable.txt"
+
+
 def _export_issue_dossiers(docs_root: Path, manifest: dict[str, object]) -> None:
     """Persist issue files and a deterministic inventory for external review."""
 
@@ -1037,13 +1042,7 @@ def _copy_evidence_file(source_path: Path, evidence_root: Path, manifest: dict[s
             _include_file(target, target.name, manifest)
             return
     if not source_path.exists():
-        relative = source_path.as_posix()
-        try:
-            relative = source_path.resolve().relative_to(ROOT.resolve()).as_posix()
-        except ValueError:
-            pass
-        digest = hashlib.sha256(relative.encode("utf-8")).hexdigest()[:10]
-        marker = evidence_root / f"{source_path.stem}_{digest}_unavailable.txt"
+        marker = evidence_root / _unavailable_marker_name(source_path.stem)
         _write_unavailable_marker(marker, source_path, manifest)
         return
     if source_path.suffix == ".parquet":

@@ -109,6 +109,7 @@ def test_explicit_snapshot_is_the_only_portfolio_review_context() -> None:
         {
             "action": "hold",
             "schema_version": "1.0",
+            "as_of_date": "2026-07-10",
             "portfolio_snapshot": {
                 "as_of_date": "2026-07-10",
                 "portfolio_review_state": "reduce_exposure_review",
@@ -127,6 +128,7 @@ def test_explicit_snapshot_migration_is_byte_equivalent_on_repeat() -> None:
     source = {
         "action": "hold",
         "schema_version": "1.0",
+        "as_of_date": "2026-07-10",
         "portfolio_snapshot": {
             "as_of_date": "2026-07-10",
             "portfolio_review_state": "reduce_exposure_review",

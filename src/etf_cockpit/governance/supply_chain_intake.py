@@ -200,8 +200,10 @@ def supply_chain_intake_report(root: Path, path: Path | None = None) -> dict[str
     hardening = []
     if review_status != "approved":
         hardening.append("upstream repository, maintainer, cadence and licence evidence still require human approval")
+        failures.append("supply-chain registry review status is not approved")
     if any(str(row.get("review_status")) != "approved" for row in components):
         hardening.append("one or more intake records remain hardening_required")
+        failures.append("one or more supply-chain components are not approved")
     if any(str(row.get("licence_class")) == "unknown" for row in components):
         hardening.append("one or more component licence classes remain unclassified")
     copied_components = [str(row.get("component_id")) for row in components if row.get("copied_files")]
@@ -221,8 +223,7 @@ def supply_chain_intake_report(root: Path, path: Path | None = None) -> dict[str
     signature_status = _verify_registry_signature(root, registry, registry_sha256)
     if signature_status != "signed":
         hardening.append(f"detached intake signature status is {signature_status}")
-    if signature_status == "invalid":
-        failures.append("detached intake signature is invalid")
+        failures.append(f"detached intake signature status is {signature_status}")
     return {
         "schema_version": SUPPLY_CHAIN_INTAKE_SCHEMA_VERSION,
         "registry_version": registry.get("registry_version", "unavailable"),
