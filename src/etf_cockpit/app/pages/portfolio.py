@@ -170,7 +170,9 @@ def _portfolio_performance_block(page: ft.Page | None) -> ft.Control:
             export_status.color = theme.RED
         _safe_update(page)
 
-    for control in (metric, date_range, aggregation, currency, custom_start, custom_end):
+    for control in (metric, date_range, aggregation):
+        control.on_select = refresh
+    for control in (currency, custom_start, custom_end):
         control.on_change = refresh
     refresh()
     return panel(

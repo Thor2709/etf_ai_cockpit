@@ -41,11 +41,6 @@ def test_s10_02_invalid_cash_never_becomes_feasible():
     assert not comparison["feasible"].any()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S10-03: Risk analysis admits holdings newer than its snapshot",
-)
 def test_s10_03_risk_excludes_post_snapshot_holdings(monkeypatch):
     monkeypatch.setattr(
         risk,
@@ -92,11 +87,6 @@ def test_s10_03_risk_excludes_post_snapshot_holdings(monkeypatch):
     assert factor.call_args.args[3].empty
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S10-04: Credibility review buttons persist changes to another note",
-)
 def test_s10_04_review_targets_clicked_note(monkeypatch):
     rows = pd.DataFrame(
         [
@@ -124,11 +114,6 @@ def test_s10_04_review_targets_clicked_note(monkeypatch):
     assert save.call_args.args[1] == 0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S10-05: Save ignores edited stress assumptions and scenario identity",
-)
 def test_s10_05_save_uses_current_controls(monkeypatch):
     facade = MagicMock()
     facade.list_saved.return_value = []
@@ -147,11 +132,6 @@ def test_s10_05_save_uses_current_controls(monkeypatch):
     assert saved.shocks["equity"] == -0.3
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S10-06: Expanded dashboard digests exceed the advertised snapshot cutoff",
-)
 def test_s10_06_expanded_run_digest_respects_snapshot(monkeypatch):
     history = pd.DataFrame(
         {
@@ -171,11 +151,6 @@ def test_s10_06_expanded_run_digest_respects_snapshot(monkeypatch):
     assert compare.call_args.args[1:] == ("snapshot", "old")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S10-07: Dropdown selections never trigger their registered refresh callbacks",
-)
 def test_s10_07_metric_dropdown_registers_selection_handler(monkeypatch):
     series = NS(
         metric="twr_index",
@@ -198,11 +173,6 @@ def test_s10_07_metric_dropdown_registers_selection_handler(monkeypatch):
     assert callable(metric.on_select)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S10-08: Strategy toggle retains its old action and enabled badge",
-)
 def test_s10_08_strategy_can_toggle_twice_without_navigation(monkeypatch):
     enabled = {"t": True}
     facade = MagicMock()

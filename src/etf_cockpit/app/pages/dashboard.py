@@ -543,19 +543,29 @@ def _run_changes_digest(_page: ft.Page, _state: AppState) -> ft.Control:
     """Show a deterministic, informational summary of the latest run delta."""
 
     history = score_history_frame()
-    if history.empty or "run_id" not in history.columns:
-        body: ft.Control = ft.Text("Run changes unavailable; complete two score runs to populate the digest.", color=theme.MUTED, selectable=True)
+    if history.empty or "run_id" not in history.columns or "run_completed_at" not in history.columns:
+        body: ft.Control = ft.Text("Run changes unavailable; complete two dated score runs to populate the digest.", color=theme.MUTED, selectable=True)
     else:
-        if "run_completed_at" in history.columns:
+        as_of = getattr(getattr(getattr(_state, "snapshot", None), "data_report", None), "as_of_date", None)
+        cutoff = pd.to_datetime(as_of, errors="coerce", utc=True)
+        if pd.isna(cutoff):
+            history = history.iloc[0:0]
+        else:
+            cutoff = cutoff.normalize() + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+            completed_at = pd.to_datetime(history["run_completed_at"], errors="coerce", utc=True)
+            history = history.loc[completed_at.notna() & completed_at.le(cutoff)].copy()
+        if history.empty:
+            body = ft.Text("Run changes unavailable; no dated score runs exist within the snapshot cutoff.", color=theme.MUTED, selectable=True)
+        else:
             history = history.sort_values(["run_completed_at", "run_id"], kind="stable")
-        runs = list(dict.fromkeys(history["run_id"].astype(str).tolist()))
-        current = runs[-1]
-        previous = runs[-2] if len(runs) > 1 else None
-        report = compare_runs(history, current, previous)
-        lines = [ft.Text(report.summary, color=theme.MUTED, selectable=True)]
-        for change in report.changes[:5]:
-            lines.append(ft.Text(f"{change.instrument_id}: {change.summary}", color=theme.MUTED, selectable=True, size=11))
-        body = ft.Column(lines, spacing=4)
+            runs = list(dict.fromkeys(history["run_id"].astype(str).tolist()))
+            current = runs[-1]
+            previous = runs[-2] if len(runs) > 1 else None
+            report = compare_runs(history, current, previous)
+            lines = [ft.Text(report.summary, color=theme.MUTED, selectable=True)]
+            for change in report.changes[:5]:
+                lines.append(ft.Text(f"{change.instrument_id}: {change.summary}", color=theme.MUTED, selectable=True, size=11))
+            body = ft.Column(lines, spacing=4)
     return panel(
         ft.Column(
             [

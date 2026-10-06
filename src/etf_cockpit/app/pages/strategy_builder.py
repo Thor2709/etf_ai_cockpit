@@ -18,41 +18,49 @@ def strategy_builder_page(page: ft.Page, state: AppState) -> ft.Control:
     match_ids = {template_id: sum(item.template_id == template_id for item in matches) for template_id in facade.enabled}
     status = ft.Text("Local preferences are stored atomically; execution_allowed=false.", color=theme.MUTED, selectable=True)
 
-    def toggle_template(event: ft.ControlEvent) -> None:
-        control = getattr(event, "control", None)
-        data = getattr(control, "data", "")
-        template_id = str(data[0] if isinstance(data, tuple) else data or "").strip()
-        enabled = bool(data[1]) if isinstance(data, tuple) and len(data) > 1 else False
-        if not template_id:
-            status.value = "Template preference was not changed: missing template identity."
-            status.color = theme.AMBER
-        else:
+    rows: list[ft.Control] = []
+    for template in facade.templates:
+        enabled_now = facade.is_enabled(template.template_id)
+        badge = status_tag("Enabled" if enabled_now else "Disabled", "g" if enabled_now else "w", key=f"strategy-builder.status.{template.template_id}")
+        button = ft.Button(
+            "Disable" if enabled_now else "Enable",
+            data=(template.template_id, not enabled_now),
+            key="strategy-builder.template.*",
+        )
+
+        def toggle_template(
+            event: ft.ControlEvent,
+            template_id: str = template.template_id,
+            action_button: ft.Button = button,
+            status_badge: ft.Container = badge,
+        ) -> None:
+            control = getattr(event, "control", action_button)
+            data = getattr(control, "data", action_button.data)
+            enabled = bool(data[1]) if isinstance(data, tuple) and len(data) > 1 else False
             try:
                 facade.set_enabled(template_id, enabled)
+                action_button.data = (template_id, not enabled)
+                action_button.text = "Disable" if not enabled else "Enable"
+                status_badge.content.value = "Enabled" if enabled else "Disabled"
+                status_badge.content.color = theme.GREEN if enabled else theme.AMBER
+                status_badge.bgcolor = "#296fcfa6" if enabled else "#29e6c27a"
                 status.value = f"Saved {template_id} preference locally; no analysis or execution was started."
                 status.color = theme.GREEN
             except (KeyError, OSError, ValueError) as exc:
                 status.value = f"Template preference was not saved: {type(exc).__name__}."
                 status.color = theme.AMBER
-        if callable(getattr(page, "update", None)):
-            page.update()
+            if callable(getattr(page, "update", None)):
+                page.update()
 
-    rows: list[ft.Control] = []
-    for template in facade.templates:
-        enabled_now = facade.is_enabled(template.template_id)
+        button.on_click = toggle_template
         rows.append(
             glass_panel(
                 ft.Column(
                     [
                         ft.Row(
                             [
-                                status_tag("Enabled" if enabled_now else "Disabled", "g" if enabled_now else "w", key=f"strategy-builder.status.{template.template_id}"),
-                                ft.Button(
-                                    "Disable" if facade.is_enabled(template.template_id) else "Enable",
-                                    data=(template.template_id, not facade.is_enabled(template.template_id)),
-                                    key="strategy-builder.template.*",
-                                    on_click=toggle_template,
-                                ),
+                                badge,
+                                button,
                                 ft.Text(template.name, color=theme.TEXT, weight=ft.FontWeight.BOLD),
                                 ft.Text(f"matches: {match_ids.get(template.template_id, 0)}", color=theme.CYAN, size=theme.FONT_SM),
                             ],
