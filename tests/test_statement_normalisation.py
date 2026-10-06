@@ -157,15 +157,16 @@ def test_sec_parser_retains_unit_dimension_and_mapping_review_metadata(tmp_path:
     identity = CanonicalIdentity("MSFT", "Microsoft", None, "needs_verification", "MSFT", "NASDAQ", "USD", "stock", {}, "high", (), "789019")
 
     result = parse_companyfacts(path, identity)
-    revenue = next(record for record in result.records if record.canonical_metric == "revenue")
+    revenue = next(record for record in result.records if record.concept == "Revenue")
     unsupported = next(record for record in result.records if record.concept == "UnsupportedConcept")
 
     assert revenue.currency == "USD"
     assert revenue.period_type == "duration"
     assert revenue.dimensions == '{"segment":"cloud"}'
+    assert revenue.canonical_metric is None
     assert revenue.restatement_kind == "amended"
     assert revenue.available_at == "2025-01-20"
-    assert revenue.manual_review_required is False
+    assert revenue.manual_review_required is True
     assert unsupported.manual_review_required is True
 
 
