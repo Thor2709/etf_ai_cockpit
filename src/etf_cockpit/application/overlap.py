@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import datetime, time, timezone
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -116,6 +116,19 @@ def build_direct_overlap_view(
     known_at: datetime | None = None,
 ) -> DirectOverlapReport:
     evidence = holdings.copy() if isinstance(holdings, pd.DataFrame) else load_direct_holdings(root=root)
+    if known_at is None:
+        raw_as_of = getattr(getattr(snapshot, "data_report", None), "as_of_date", None)
+        if raw_as_of is not None and str(raw_as_of).strip() and not bool(pd.isna(raw_as_of)):
+            parsed = pd.to_datetime(raw_as_of, errors="coerce", utc=True)
+            if pd.isna(parsed):
+                # The snapshot date cannot be established: no holdings may be treated as known.
+                evidence = evidence.iloc[0:0]
+            else:
+                known_at = (
+                    parsed.to_pydatetime()
+                    if str(raw_as_of).strip()[10:].strip()
+                    else datetime.combine(parsed.date(), time.max, tzinfo=timezone.utc)
+                )
     current = dict(current_weights) if current_weights is not None else _snapshot_weights(snapshot)
     return calculate_direct_overlap(
         evidence,

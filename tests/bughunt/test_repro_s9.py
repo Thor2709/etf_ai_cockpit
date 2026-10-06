@@ -29,11 +29,6 @@ from etf_cockpit.data.universe_store import UniverseRecord
 from etf_cockpit.governance.product_scope import load_strategy_scope
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S9-01: Onboarding overwrites verified instrument identity and currency",
-)
 def test_s9_01_onboarding_preserves_verified_identity():
     old = UniverseRecord(
         "MSFT",
@@ -52,11 +47,6 @@ def test_s9_01_onboarding_preserves_verified_identity():
     assert merged[0].tier == "primary"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S9-02: Portfolio eligibility invents missing classification and liquidity evidence",
-)
 def test_s9_02_missing_stock_evidence_stays_unavailable():
     policy = load_strategy_scope().policy
     configured = SimpleNamespace(instrument_type="stock")
@@ -64,11 +54,6 @@ def test_s9_02_missing_stock_evidence_stays_unavailable():
     assert decision is None or decision.state == "unavailable"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S9-03: Bank valuation uses prices unavailable at decision time",
-)
 def test_s9_03_bank_rejects_price_known_after_cutoff(monkeypatch):
     quotes = pd.DataFrame([
         {
@@ -122,11 +107,6 @@ def test_s9_03_bank_rejects_price_known_after_cutoff(monkeypatch):
     assert probe.call_args.kwargs["price"] is None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S9-04: Stock Research classification ignores the requested cutoff",
-)
 def test_s9_04_stock_context_excludes_future_classification():
     values = {
         "instrument_type": "stock",
@@ -169,11 +149,6 @@ def test_s9_04_stock_context_excludes_future_classification():
     assert result["classification_status"] != "available"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S9-05: Historical overlap uses holdings learned after the snapshot",
-)
 def test_s9_05_overlap_uses_snapshot_knowledge_cutoff():
     rows = pd.DataFrame([
         {
