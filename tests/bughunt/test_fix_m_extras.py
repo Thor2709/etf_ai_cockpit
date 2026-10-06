@@ -32,7 +32,7 @@ def test_s6_01_missing_holdings_does_not_rewrite_existing_prices(tmp_path, monke
     assert writes == [portfolios_dir / "current_holdings.csv"]
 
 
-def test_s7_01_linked_data_ancestor_skips_private_deletion(tmp_path, monkeypatch):
+def test_s7_01_linked_data_ancestor_refuses_private_deletion(tmp_path, monkeypatch):
     from etf_cockpit.data.privacy import delete_private_data
 
     root = tmp_path / "app"
@@ -48,7 +48,10 @@ def test_s7_01_linked_data_ancestor_skips_private_deletion(tmp_path, monkeypatch
         return path == data_path or original_is_symlink(path)
 
     monkeypatch.setattr(Path, "is_symlink", report_data_link)
-    assert delete_private_data(root, confirmation="DELETE PRIVATE DATA") == ()
+    from etf_cockpit.data.privacy import PrivacyDeletionError
+
+    with pytest.raises(PrivacyDeletionError):  # C1: refuse loudly, never a silent no-op
+        delete_private_data(root, confirmation="DELETE PRIVATE DATA")
     assert victim.exists()
 
 

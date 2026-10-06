@@ -400,10 +400,21 @@ def _collect_payloads(
     previous_checksums: dict[str, str] | None = None,
 ) -> tuple[dict[str, str], list[str], dict[str, bytes]]:
     files = sorted(_iter_files(paths), key=lambda item: str(item))
+    sqlite_mains = {
+        path.resolve()
+        for path in files
+        if path.is_file() and path.read_bytes().startswith(b"SQLite format 3\x00")
+    }
     checksums: dict[str, str] = {}
     excluded: list[str] = []
     payloads: dict[str, bytes] = {}
     for path in files:
+        if path.name.endswith(("-wal", "-shm", "-journal")) and any(
+            path.resolve() == Path(f"{database}{suffix}").resolve()
+            for database in sqlite_mains
+            for suffix in ("-wal", "-shm", "-journal")
+        ):
+            continue
         relative = _archive_name(path)
         data = path.read_bytes()
         if data.startswith(b"SQLite format 3\x00"):

@@ -25,7 +25,10 @@ def test_s7_01_private_root_link_cannot_delete_external_files(tmp_path, monkeypa
         return original_resolve(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "resolve", resolve_link)
-    delete_private_data(root, confirmation="DELETE PRIVATE DATA")
+    from etf_cockpit.data.privacy import PrivacyDeletionError
+
+    with pytest.raises(PrivacyDeletionError):  # C1: refuse loudly, never a silent no-op
+        delete_private_data(root, confirmation="DELETE PRIVATE DATA")
     assert victim.exists()
 
 
@@ -64,12 +67,13 @@ def test_s7_03_unreadable_history_is_not_replaced(tmp_path, monkeypatch):
     monkeypatch.setattr(artifacts, "wait_for_atomic_group", lambda *args: None)
     writes = []
     monkeypatch.setattr(artifacts, "_write_dual", lambda frame, dest: writes.append(frame.copy()) or dest)
-    artifacts._append_parquet(
-        path,
-        pd.DataFrame([{"run_id": "new", "instrument_id": "X"}]),
-        ["run_id", "instrument_id"],
-        id_columns=["run_id", "instrument_id"],
-    )
+    with pytest.raises(OSError):  # C2: unreadable history aborts the append
+        artifacts._append_parquet(
+            path,
+            pd.DataFrame([{"run_id": "new", "instrument_id": "X"}]),
+            ["run_id", "instrument_id"],
+            id_columns=["run_id", "instrument_id"],
+        )
     assert writes == []
 
 

@@ -194,11 +194,6 @@ def test_s9_05_overlap_uses_snapshot_knowledge_cutoff():
     assert report.pairs[0].observed_overlap_weight is None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S9-06: Timing writes truncate previously persisted evidence on failure",
-)
 def test_s9_06_timing_append_failure_preserves_history(tmp_path, monkeypatch):
     old = AnalysisTimingRecord("old", "quick", "stage", "identity_gate", 1.0, "warm")
     path = append_timing_records(tmp_path, [old])

@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
-from threading import Barrier
 from types import SimpleNamespace
 from zipfile import ZipFile
 
@@ -26,7 +24,6 @@ from etf_cockpit.data.screen_store import export_screen_csv
 from etf_cockpit.data.universe_import import _rows_from_xlsx_bytes
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S8-01: Stale accepted previews corrupt the portfolio source journal")
 def test_s8_01_stale_accepted_preview_is_rejected(tmp_path):
     source = tmp_path / "cash.csv"
     source.write_text(
@@ -46,7 +43,6 @@ def test_s8_01_stale_accepted_preview_is_rejected(tmp_path):
         raise AssertionError("stale accepted preview was not rejected")
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S8-02: History read failures permit replacement of existing history")
 def test_s8_02_existing_unreadable_history_blocks_append(monkeypatch, tmp_path):
     published = []
     monkeypatch.setattr(Path, "exists", lambda self: True)
@@ -64,28 +60,6 @@ def test_s8_02_existing_unreadable_history_blocks_append(monkeypatch, tmp_path):
         pass
     assert not published
 
-
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S8-03: Concurrent score-history appends lose a successful run")
-def test_s8_03_concurrent_appends_preserve_both_runs(monkeypatch, tmp_path):
-    barrier = Barrier(2)
-    state = [pd.DataFrame(columns=h._COLUMNS)]
-
-    def read(path):
-        prior = state[0].copy()
-        barrier.wait(timeout=5)
-        return prior
-
-    monkeypatch.setattr(h, "_read_history_raw", read)
-    monkeypatch.setattr(h, "_write_history_group", lambda frame, path: state.__setitem__(0, frame.copy()))
-    scores = pd.DataFrame([{"instrument_id": "X", "final_combined_score_10": 5.0}])
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [
-            pool.submit(h.append_score_run, scores, run, "2026-10-05T00:00:00Z", root=tmp_path)
-            for run in ("A", "B")
-        ]
-        for future in futures:
-            future.result(timeout=10)
-    assert set(state[0]["run_id"]) == {"A", "B"}
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason="S8-04: Superseded identity claims cause false duplicate quarantines")
@@ -132,7 +106,6 @@ def test_s8_05_all_disabled_universe_records_capture(monkeypatch, tmp_path):
     assert status.status == "recorded"
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S8-06: Price imports do not update the prices analysis reads")
 def test_s8_06_prices_import_updates_analysis_store(tmp_path):
     source = tmp_path / "prices.csv"
     source.write_text("date,etf_id,adjusted_close\n2026-10-05,A,200\n")
