@@ -52,6 +52,7 @@ def test_score_history_accepts_portfolio_review_only_with_validated_snapshot() -
             "instrument_id": "A",
             "final_combined_score_10": 7.0,
             "final_action": "hold",
+            "as_of_date": "2026-07-10",
             "portfolio_snapshot": {
                 "as_of_date": "2026-07-10",
                 "portfolio_review_state": "reduce_exposure_review",

@@ -162,6 +162,23 @@ def write_report(root: Path, output_dir: Path, *, allow_missing_tools: bool = Fa
     if vulnerabilities.get("required") and vulnerabilities.get("status") != "passed":
         failures.append("vulnerability scan failed or was unavailable")
     failures.extend(f"intake: {failure}" for failure in intake.get("failures", []))
+    exit_failures = list(failures)
+    pending_intake_failures = set()
+    if intake.get("review_status") != "approved":
+        pending_intake_failures.add("supply-chain registry review status is not approved")
+    components = intake.get("components", [])
+    if isinstance(components, list) and any(
+        isinstance(component, dict) and str(component.get("review_status")) != "approved"
+        for component in components
+    ):
+        pending_intake_failures.add("one or more supply-chain components are not approved")
+    if intake.get("signature_status") == "missing":
+        pending_intake_failures.add("detached intake signature status is missing")
+    exit_failures = [
+        failure
+        for failure in exit_failures
+        if not any(failure == f"intake: {pending}" for pending in pending_intake_failures)
+    ]
     report: dict[str, Any] = {
         "schema_version": "1.0",
         "policy": policy,
@@ -189,7 +206,7 @@ def write_report(root: Path, output_dir: Path, *, allow_missing_tools: bool = Fa
     markdown.extend(f"- {failure}" for failure in failures) if failures else markdown.append("- None")
     (output_dir / "supply-chain-report.md").write_text("\n".join(markdown) + "\n", encoding="utf-8", newline="\n")
     (output_dir / "sbom.cdx.json").write_bytes(canonical_json(sbom))
-    return report_path, 1 if failures else 0
+    return report_path, 1 if exit_failures else 0
 
 
 def main(argv: list[str] | None = None) -> int:
