@@ -21,15 +21,10 @@ def _shadow(color: str, *, blur: float, x: float = 0, y: float = 0) -> ft.BoxSha
 
 
 def _control_border(*, selected: bool = False) -> ft.Border:
-    return ft.Border(
-        left=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-        top=ft.BorderSide(
-            width=1,
-            color=theme.QUAIL_SELECTED_HIGHLIGHT if selected else theme.HAIRLINE_BORDER,
-        ),
-        right=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-        bottom=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-    )
+    # Flutter paints a non-uniform Border as a square rectangle and ignores border_radius,
+    # which drew a box around every pill; keep all four sides identical.
+    del selected
+    return border_all(1, theme.HAIRLINE_BORDER)
 
 
 def _accessible(control: ft.Control, *, key: str, label: str) -> ft.Control:
