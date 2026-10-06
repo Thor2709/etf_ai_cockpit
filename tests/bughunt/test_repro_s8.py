@@ -62,7 +62,6 @@ def test_s8_02_existing_unreadable_history_blocks_append(monkeypatch, tmp_path):
 
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S8-04: Superseded identity claims cause false duplicate quarantines")
 def test_s8_04_superseded_isin_does_not_quarantine(monkeypatch):
     old = IdentityClaim(
         "A",
@@ -92,7 +91,6 @@ def test_s8_04_superseded_isin_does_not_quarantine(monkeypatch):
     assert not result.requires_manual_review
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S8-05: Disabling every instrument leaves membership intervals open")
 def test_s8_05_all_disabled_universe_records_capture(monkeypatch, tmp_path):
     record = u.UniverseRecord("A", "A", ticker="A", isin_status="needs_verification", enabled=False)
     assert u.validate_universe([record]).valid
