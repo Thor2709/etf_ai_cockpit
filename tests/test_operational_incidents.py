@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from etf_cockpit.application.ui_facade import load_paper_incidents
+from etf_cockpit.application.paper_views import load_paper_incidents
 from etf_cockpit.governance.product_scope import load_gate_policy
 from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError, _digest
 from etf_cockpit.portfolio.proposal_policy import REQUIRED_GATES, current_authority_policy_checksum

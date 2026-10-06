@@ -16,7 +16,7 @@ from etf_cockpit.data.market_adjustments import (
     FXObservation,
     FXObservationStore,
 )
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 def _walk(control: object):

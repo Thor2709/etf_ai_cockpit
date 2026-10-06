@@ -3,7 +3,7 @@ from __future__ import annotations
 from etf_cockpit.app.pages.release_readiness import release_readiness_page
 from etf_cockpit.app.pages import release_readiness
 from etf_cockpit.app.state import AppState
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 def _walk(control):

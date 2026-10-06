@@ -1190,7 +1190,7 @@ def test_sfdr_row_uses_supplied_date_only_when_document_has_none() -> None:
 
 
 def test_instrument_detail_sfdr_panel_ignores_superseded_rows() -> None:
-    from etf_cockpit.app.selectors.instrument_detail import _parsed_panel
+    from etf_cockpit.application.instrument_detail_view import _parsed_panel
 
     frame = pd.DataFrame([
         {"instrument_id": "VWCE", "classification": "article_9", "document_type": "factsheet", "superseded": False, "imported_at": "2026-09-01T00:00:00+00:00"},

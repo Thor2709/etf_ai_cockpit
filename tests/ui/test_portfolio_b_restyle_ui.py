@@ -9,7 +9,7 @@ from etf_cockpit.app.pages.portfolio_optimiser import portfolio_optimiser_page
 from etf_cockpit.app.pages.risk import risk_page
 from etf_cockpit.app.pages.stress_lab import stress_lab_page
 from etf_cockpit.app.state import AppState
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 PAGES = {
     "risk": risk_page,

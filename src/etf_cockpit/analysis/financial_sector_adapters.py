@@ -6,7 +6,6 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
-import math
 from typing import Mapping, Sequence
 
 from etf_cockpit.analysis.peer_cohorts import (
@@ -14,6 +13,7 @@ from etf_cockpit.analysis.peer_cohorts import (
     AdapterRegistry,
     PeerCohortError,
 )
+from etf_cockpit.core.values import is_finite_number as _finite
 from etf_cockpit.data.classification import InstrumentContextV2
 from etf_cockpit.data.contracts import SourceAuthority
 
@@ -668,13 +668,6 @@ def _stress(name: str, value: object) -> FinancialStressResult:
         inputs,
         "DETERMINISTIC_CAPITAL_IMPACT",
     )
-
-
-def _finite(value: object) -> bool:
-    try:
-        return math.isfinite(float(value))  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return False
 
 
 def _time(value: str) -> datetime:

@@ -7,8 +7,8 @@ from etf_cockpit.app.pages.trust_evidence import etf_disclosures_page
 from etf_cockpit.app.pages.instrument_detail import render_etf_disclosure_panel
 from etf_cockpit.app.router import PAGES
 from etf_cockpit.app.state import AppState
-from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.instrument_detail_view import InstrumentDetailViewModel
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 def _walk(control):

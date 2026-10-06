@@ -9,14 +9,15 @@ import numpy as np
 import pandas as pd
 
 from etf_cockpit.core.paths import DERIVED_DIR
+from etf_cockpit.core.pandas_values import bool_like_or_none as _bool_like
 from etf_cockpit.features.benchmark_attribution import build_benchmark_attribution
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     CanonicalBenchmarkRegistry,
     unavailable_reference_projection,
     validate_execution_disabled,
 )
-from etf_cockpit.application.benchmark_reference import validate_benchmark_reference
-from etf_cockpit.application.benchmark_reference import clip_to_decision_window
+from etf_cockpit.portfolio.benchmark_reference import validate_benchmark_reference
+from etf_cockpit.portfolio.benchmark_reference import clip_to_decision_window
 
 
 def build_market_regime(
@@ -491,20 +492,6 @@ def _candidate_chronology(
     return max(parsed_values), True
 
 
-def _candidate_timestamp(row: pd.Series, fields: tuple[str, ...]) -> pd.Timestamp | None:
-    value, valid = _candidate_chronology(row, fields, date_only_end_of_day=True)
-    return value if valid else None
-
-
-def _candidate_observation_timestamp(row: pd.Series) -> pd.Timestamp | None:
-    value, valid = _candidate_chronology(
-        row,
-        ("effective_at", "as_of", "as_of_date", "latest_date", "date"),
-        date_only_end_of_day=True,
-    )
-    return value if valid else None
-
-
 def _candidate_provenance(row: pd.Series) -> str | None:
     for field in ("provenance", "source_dataset", "source_id", "source", "data_policy"):
         if field not in row:
@@ -675,24 +662,6 @@ def _regime_summary(label: str, score: float, pct_above: float, ret60: float | N
         f"{label}: regime {score:.1f}/10. {pct_above:.0%} of the yfinance universe is above SMA200; "
         f"benchmark 60d {_fmt_pct(ret60)}, 120d {_fmt_pct(ret120)}; median drawdown {_fmt_pct(drawdown)}."
     )
-
-
-def _bool_like(value: object) -> bool | None:
-    if value is None or not pd.api.types.is_scalar(value):
-        return None
-    try:
-        if bool(pd.isna(value)):
-            return None
-    except (TypeError, ValueError):
-        return None
-    if isinstance(value, bool):
-        return value
-    text = str(value).strip().lower()
-    if text in {"true", "1", "yes", "y"}:
-        return True
-    if text in {"false", "0", "no", "n"}:
-        return False
-    return None
 
 
 def _fmt_pct(value: float | None) -> str:

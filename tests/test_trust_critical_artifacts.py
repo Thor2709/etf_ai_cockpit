@@ -20,8 +20,14 @@ from etf_cockpit.data.classification import (
     ClassificationStore,
     classification_score_state,
 )
-from etf_cockpit.services import build_snapshot
-from etf_cockpit import services as services_module
+from etf_cockpit.application.snapshot_builder import build_snapshot, _build_snapshot
+import etf_cockpit.application.snapshot_builder as snapshot_builder
+import etf_cockpit.application.signal_service as signal_service
+import etf_cockpit.application.data_service as data_service
+import etf_cockpit.application.backtest_service as backtest_service
+import etf_cockpit.application.feature_service as feature_service
+import etf_cockpit.application.forecast_service as forecast_service
+import etf_cockpit.application.derived_cache as derived_cache
 from etf_cockpit.signals.simple_scores import SimpleScoreComponent, build_simple_instrument_scores, simple_scoreboard_frame
 
 
@@ -130,17 +136,29 @@ def test_snapshot_retains_configured_manual_holdings_for_audit_export(monkeypatc
         def validate_prices(self, prices, holdings=None):
             return SimpleNamespace(as_of_date=None, issues=[])
 
-    monkeypatch.setattr(services_module, "configure_logging", lambda: None)
-    monkeypatch.setattr(services_module, "ensure_project_dirs", lambda: None)
-    monkeypatch.setattr(services_module, "load_config", lambda: config)
-    monkeypatch.setattr(services_module, "DataService", FakeDataService)
-    monkeypatch.setattr(services_module, "load_holdings", lambda: holdings.copy())
-    monkeypatch.setattr(services_module, "_current_universe_revision", lambda: "revision")
-    monkeypatch.setattr(services_module, "model_availability", lambda _config: {"timesfm": False, "toto": False})
-    monkeypatch.setattr(services_module, "model_diagnostics", lambda _config: [])
-    monkeypatch.setattr(services_module, "load_latest_forecasts", lambda **_kwargs: pd.DataFrame())
+    monkeypatch.setattr(snapshot_builder, "configure_logging", lambda: None)
+    monkeypatch.setattr(snapshot_builder, "ensure_project_dirs", lambda: None)
+    monkeypatch.setattr(snapshot_builder, "load_config", lambda: config)
+    monkeypatch.setattr(snapshot_builder, "DataService", FakeDataService)
+    monkeypatch.setattr(signal_service, "DataService", FakeDataService)
+    monkeypatch.setattr(data_service, "DataService", FakeDataService)
+    monkeypatch.setattr(snapshot_builder, "load_holdings", lambda: holdings.copy())
+    monkeypatch.setattr(signal_service, "load_holdings", lambda: holdings.copy())
+    monkeypatch.setattr(data_service, "load_holdings", lambda: holdings.copy())
+    monkeypatch.setattr(snapshot_builder, "_current_universe_revision", lambda: "revision")
+    monkeypatch.setattr(signal_service, "_current_universe_revision", lambda: "revision")
+    monkeypatch.setattr(data_service, "_current_universe_revision", lambda: "revision")
+    monkeypatch.setattr(backtest_service, "_current_universe_revision", lambda: "revision")
+    monkeypatch.setattr(feature_service, "_current_universe_revision", lambda: "revision")
+    monkeypatch.setattr(forecast_service, "_current_universe_revision", lambda: "revision")
+    monkeypatch.setattr(derived_cache, "_current_universe_revision", lambda: "revision")
+    monkeypatch.setattr(snapshot_builder, "model_availability", lambda _config: {"timesfm": False, "toto": False})
+    monkeypatch.setattr(signal_service, "model_availability", lambda _config: {"timesfm": False, "toto": False})
+    monkeypatch.setattr(snapshot_builder, "model_diagnostics", lambda _config: [])
+    monkeypatch.setattr(snapshot_builder, "load_latest_forecasts", lambda **_kwargs: pd.DataFrame())
+    monkeypatch.setattr(signal_service, "load_latest_forecasts", lambda **_kwargs: pd.DataFrame())
 
-    snapshot = services_module._build_snapshot()
+    snapshot = _build_snapshot()
 
     assert snapshot.holdings.to_dict(orient="records") == [{"etf_id": "MANUAL", "current_weight": 0.35}]
 

@@ -12,6 +12,7 @@ import uuid
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group, parquet_payload, validate_parquet_file
+from etf_cockpit.core.pandas_values import stripped_text_or_none as _metadata_optional_text
 
 
 @dataclass(frozen=True)
@@ -114,13 +115,6 @@ def validate_import(import_type: str, path: Path) -> ImportPreview:
     preview = ImportPreview(preview_id, resolved_type, source, not errors, len(frame), tuple(map(str, frame.columns)), tuple(errors), frame.copy(), tuple(warnings), checksum)
     _PREVIEWS[preview_id] = preview
     return preview
-
-
-def commit_import(preview_id: str, *, root: Path | None = None) -> ImportCommitResult:
-    preview = _PREVIEWS.get(str(preview_id))
-    if preview is None or not preview.valid:
-        raise ValueError("A valid import preview is required before commit")
-    return ImportService(root or Path.cwd()).commit(preview.preview_id)
 
 
 class ImportService:
@@ -525,13 +519,6 @@ def _metadata_text(value: object, default: str) -> str:
         return default
     text = str(value).strip()
     return text if text else default
-
-
-def _metadata_optional_text(value: object) -> str | None:
-    if value is None or pd.isna(value):
-        return None
-    text = str(value).strip()
-    return text or None
 
 
 def _parse_boolean(value: object) -> bool | None:

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from etf_cockpit.application import ui_facade
+from etf_cockpit.application import fixed_income_views, ui_facade
 from etf_cockpit.analysis.fixed_income_analytics import (
     ContractualCashFlow,
     CurveNode,
@@ -27,7 +27,7 @@ from etf_cockpit.analysis.fixed_income_screener import (
     build_fixed_income_screener,
     load_fixed_income_screener_config,
 )
-from etf_cockpit.application.ui_facade import _persist_fixed_income_screener_snapshot
+from etf_cockpit.application.fixed_income_views import _persist_fixed_income_screener_snapshot
 from etf_cockpit.app.pages import portfolio as portfolio_page
 from etf_cockpit.app.pages import screener as screener_page
 from etf_cockpit.data.local_storage import TransactionalStore
@@ -168,10 +168,10 @@ def test_rejected_and_unavailable_rows_are_persisted_with_reason_codes(
     assert all(row["execution_allowed"] is False for row in rows.values())
 
     missing_root = tmp_path / "missing-terms"
-    monkeypatch.setattr(ui_facade, "load_fixed_income_screener_config", lambda _path: config)
-    monkeypatch.setattr(ui_facade, "fixed_income_terms_exists", lambda _root: False)
-    monkeypatch.setattr(ui_facade, "_fixed_income_saved_valuation_inputs", lambda *_args: {})
-    monkeypatch.setattr(ui_facade, "_fixed_income_saved_risk_inputs", lambda *_args: {})
+    monkeypatch.setattr(fixed_income_views, "load_fixed_income_screener_config", lambda _path: config)
+    monkeypatch.setattr(fixed_income_views, "fixed_income_terms_exists", lambda _root: False)
+    monkeypatch.setattr(fixed_income_views, "_fixed_income_saved_valuation_inputs", lambda *_args: {})
+    monkeypatch.setattr(fixed_income_views, "_fixed_income_saved_risk_inputs", lambda *_args: {})
     result = ui_facade.load_fixed_income_screener(
         storage_root=missing_root,
         decision_time=NOW,

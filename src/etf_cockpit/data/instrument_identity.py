@@ -156,9 +156,6 @@ class IdentityResolution:
     decision_schema_version: int = 2
 
 
-_SPECIAL_FIELDS = frozenset({"ticker", "isin", "exchange", "mic", "currency", "share_class", "listing"})
-
-
 def resolve_identity(
     claims: Iterable[IdentityClaim],
     *,

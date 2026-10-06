@@ -21,6 +21,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes, atomic_write_json
+from etf_cockpit.core.values import string_dict_or_empty as _headers_dict
 from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority
 from etf_cockpit.parsers.contracts import RawDocument
@@ -500,15 +501,6 @@ def _normalise_response(value: Any) -> _Response:
     raise TypeError("SEC transport must return bytes, response tuple or response object")
 
 
-def _headers_dict(value: object) -> dict[str, str]:
-    if isinstance(value, Mapping):
-        return {str(key): str(item) for key, item in value.items()}
-    try:
-        return {str(key): str(value[key]) for key in value.keys()}  # type: ignore[union-attr]
-    except (AttributeError, KeyError, TypeError):
-        return {}
-
-
 def _parse_json(payload: bytes) -> dict[str, Any]:
     parsed = json.loads(payload.decode("utf-8"))
     if not isinstance(parsed, dict):
@@ -567,15 +559,6 @@ def _retrieved_at(metadata: Mapping[str, Any]) -> datetime:
     # Preserve the persisted aware instant and its original offset; 304 is a
     # revalidation, not a new acquisition timestamp.
     return parsed
-
-
-def _cached_acquisition_status(metadata: Mapping[str, Any]) -> int:
-    """Read only a validated acquisition status from the cache metadata."""
-
-    status = metadata.get("status", 200)
-    if type(status) is not int or status not in {200, 206}:
-        raise ValueError("SEC cached metadata acquisition status is invalid")
-    return status
 
 
 def _sha256(payload: bytes) -> str:

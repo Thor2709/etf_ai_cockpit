@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from etf_cockpit.application.architecture import build_report, find_violations
+from etf_cockpit.application.architecture import build_report
+from etf_cockpit.governance.architecture_boundaries import find_violations
 
 
 ROOT = Path(__file__).resolve().parents[1]

@@ -171,7 +171,7 @@ def test_sec_parser_retains_unit_dimension_and_mapping_review_metadata(tmp_path:
 
 def test_fundamentals_surface_exposes_reported_and_restated_statement_history() -> None:
     from etf_cockpit.app.pages.instrument_detail import _render_evidence_section
-    from etf_cockpit.app.selectors.instrument_detail import _fundamentals_panel
+    from etf_cockpit.application.instrument_detail_view import _fundamentals_panel
 
     assert "statement_history" in inspect.getsource(_fundamentals_panel)
     assert "statement_history" in inspect.getsource(_render_evidence_section)

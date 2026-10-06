@@ -75,7 +75,7 @@ def test_migration_is_idempotent_and_v2_exports_have_no_legacy_action_field() ->
 
 
 def test_public_state_enums_do_not_expose_legacy_action_verbs() -> None:
-    module = importlib.import_module("etf_cockpit.signals.research_states")
+    module = importlib.import_module("etf_cockpit.core.research_states")
     from etf_cockpit.core import types as core_types
 
     assert "buy" not in module.ResearchState._value2member_map_
@@ -210,7 +210,7 @@ def test_v2_public_signal_serialisation_has_typed_authority_fields_only() -> Non
 
 
 def test_resolve_research_state_fails_closed_when_components_are_unavailable() -> None:
-    module = importlib.import_module("etf_cockpit.signals.research_states")
+    module = importlib.import_module("etf_cockpit.core.research_states")
 
     decision = module.AuthorityDecision(
         analysis_status="complete",
@@ -235,7 +235,7 @@ def test_resolve_research_state_fails_closed_when_components_are_unavailable() -
 def test_resolver_requires_complete_allow_listed_non_model_evidence(
     analysis_status: str, source_id: str | None, expected: str
 ) -> None:
-    module = importlib.import_module("etf_cockpit.signals.research_states")
+    module = importlib.import_module("etf_cockpit.core.research_states")
 
     decision = module.AuthorityDecision(
         analysis_status=analysis_status,
@@ -248,7 +248,7 @@ def test_resolver_requires_complete_allow_listed_non_model_evidence(
 
 
 def test_resolver_accepts_complete_allow_listed_evidence_only_when_gate_allows() -> None:
-    module = importlib.import_module("etf_cockpit.signals.research_states")
+    module = importlib.import_module("etf_cockpit.core.research_states")
     component = module.ScoreComponent(key="momentum", status="ok", score=0.8, source_id="yfinance:prices")
 
     allowed = module.AuthorityDecision(
@@ -263,7 +263,7 @@ def test_resolver_accepts_complete_allow_listed_evidence_only_when_gate_allows()
 
 
 def test_model_confirmation_role_is_not_research_evidence() -> None:
-    module = importlib.import_module("etf_cockpit.signals.research_states")
+    module = importlib.import_module("etf_cockpit.core.research_states")
     from types import SimpleNamespace
 
     component = SimpleNamespace(
@@ -362,7 +362,7 @@ def test_chatgpt_bridge_service_preserves_v1_v2_return_type() -> None:
     from typing import get_type_hints
 
     from etf_cockpit.chatgpt_bridge.schemas import ChatGPTAudit, ChatGPTAuditV2
-    from etf_cockpit.services import ChatGPTBridge
+    from etf_cockpit.application.chatgpt_review import ChatGPTBridge
 
     assert get_type_hints(ChatGPTBridge.import_audit_json)["return"] == ChatGPTAudit | ChatGPTAuditV2
 

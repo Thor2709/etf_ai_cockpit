@@ -1,0 +1,2533 @@
+{
+ "notes": "Every file the pinned pipeline persists under data/ (excluding atomic-write guards and the tracked .schema_versions): CSV -> header columns + row count; parquet -> arrow schema + row count; JSON -> key structure (types, list lengths) with the values of schema/version/contract/execution_allowed keys; run manifests -> (artifact_id, kind, version) dependency tuples and run-id pattern; plus the forecast CSV frame digest and the per-model/status counts (baseline ok; TimesFM and Toto unavailable because no weights exist). Excluded fields are listed under excluded_fields (digests masked, timestamps, absolute paths). The score run manifest file name embeds a clock-derived stamp and is normalised to score_<stamp>_<8hex>.json. Defaults chosen: structure-level (not value-level) comparison for JSON sidecars and manifests.",
+ "excluded_fields": {
+  "digests": "every 64-hex sha256 value (payload_sha256, *_checksum, *_hash, content_hash, signatures) is masked: float text feeding them is not bit-stable across platforms",
+  "timestamps": "ingested_at / created_at / signal_timestamp values and any run id derived from the clock",
+  "paths": "absolute paths (isolated root differs per run)",
+  "hashes_in_run_id": "the __s<12 hex> settings suffix of run ids is kept: it is derived from committed config only"
+ },
+ "files": {
+  "data/backtests/backtest_metadata.json": {
+   "kind": "json",
+   "structure": {
+    "benchmark_data_id": "null",
+    "benchmark_reference": {
+     "analysis": {
+      "currency": "str",
+      "decision_time": "str",
+      "end_date": "str",
+      "horizon_years": "float",
+      "instrument_id": "str",
+      "start_date": "str"
+     },
+     "analysis_id": "str",
+     "benchmark": {
+      "content_hash": "null",
+      "display": "str",
+      "id": "null",
+      "reason": "str",
+      "specificity": "null",
+      "status": "str",
+      "version": null
+     },
+     "benchmark_data_id": "null",
+     "blockers": {
+      "list_length": 4,
+      "item": "str"
+     },
+     "cash": {
+      "content_hash": "null",
+      "display": "str",
+      "id": "null",
+      "reason": "str",
+      "specificity": "null",
+      "status": "str",
+      "version": null
+     },
+     "contract": "benchmark-reference-contract.v1",
+     "execution_allowed": false,
+     "peer_set": {
+      "content_hash": "null",
+      "display": "str",
+      "id": "null",
+      "reason": "str",
+      "specificity": "null",
+      "status": "str",
+      "version": null
+     },
+     "provenance": {
+      "registry_hash": "str",
+      "selected_records": {
+       "benchmark": "null",
+       "cash": "null",
+       "peer_set": "null",
+       "references": {
+        "reference:equal_weight@1.0.0": "str",
+        "reference:maximum_diversification@1.0.0": "str"
+       }
+      },
+      "selected_vwce_anchor_digest": "null"
+     },
+     "purpose": "str",
+     "references": {
+      "list_length": 2,
+      "item": {
+       "constituent_instrument_ids": {
+        "list_length": 1,
+        "item": "str"
+       },
+       "content_hash": "str",
+       "current_weights": "null",
+       "effective_at": "str",
+       "id": "str",
+       "known_at": "str",
+       "method": "str",
+       "source_hashes": {
+        "list_length": 0,
+        "item": null
+       },
+       "version": "1.0.0"
+      }
+     },
+     "registry_hash": "str",
+     "selected_records": {
+      "benchmark": "null",
+      "cash": "null",
+      "peer_set": "null",
+      "references": {
+       "reference:equal_weight@1.0.0": "str",
+       "reference:maximum_diversification@1.0.0": "str"
+      }
+     },
+     "status": "str"
+    },
+    "benchmark_reference_hash": "str",
+    "benchmark_strategy": "str",
+    "benchmark_strategy_hash": "str",
+    "benchmark_strategy_identity": {
+     "benchmark_data_id": "null",
+     "reference_identity_hash": "str",
+     "strategy": "str"
+    },
+    "complete_price_rows": "int",
+    "cost_model_execution_allowed": "bool",
+    "cost_model_id": "str",
+    "cost_model_mode": "str",
+    "data_status": "str",
+    "date_range_end": "str",
+    "date_range_start": "str",
+    "execution_delay_sessions": "int",
+    "forward_fill_used": "bool",
+    "input_checksum": "str",
+    "lookahead_protection": "str",
+    "missing_observation_rows": "int",
+    "not_enough_data_policy": "str",
+    "operational_evidence_input_binding": "str",
+    "operational_evidence_rows": {
+     "list_length": 3597,
+     "item": {
+      "arrival_price_assumption": "str",
+      "auction_state": "null",
+      "calendar_closing_auction_minutes": "int",
+      "calendar_id": "str",
+      "calendar_identity_decision_id": "str",
+      "calendar_identity_lineage_hash": "str",
+      "calendar_known_at": "str",
+      "calendar_listing_id": "str",
+      "calendar_mic": "str",
+      "calendar_opening_auction_minutes": "int",
+      "calendar_session_lineage_hash": "str",
+      "calendar_source_checksum": "str",
+      "calendar_source_id": "str",
+      "calendar_source_version": "str",
+      "calendar_timezone": "str",
+      "calendar_valid_from": "str",
+      "close_to_next_open_gap": "float",
+      "cost_spread_assumption_bps": "float",
+      "cost_spread_assumption_source": "str",
+      "decision_price": "float",
+      "decision_price_basis": "str",
+      "decision_price_source_identity": "str",
+      "estimated_cost_bps": "float",
+      "estimated_cost_bps_source": "str",
+      "evidence_reason": "str",
+      "evidence_status": "str",
+      "execution_allowed": false,
+      "execution_date": "str",
+      "execution_delay_sessions": "int",
+      "execution_timestamp": "str",
+      "expiry_state": "null",
+      "fill_source": "str",
+      "instrument_id": "str",
+      "next_open_reference_basis": "str",
+      "next_open_reference_price": "float",
+      "next_open_source_identity": "str",
+      "next_period_reference_basis": "str",
+      "next_period_reference_price": "float",
+      "next_period_source_identity": "str",
+      "observed_range_spread_proxy": "float",
+      "open_gap_warning": "bool",
+      "open_gap_warning_threshold": "float",
+      "order_lifecycle": "null",
+      "paper_fill_source": "null",
+      "price_provenance": "str",
+      "reconciled_fill_source": "null",
+      "same_bar_execution_avoided": "bool",
+      "session_state": "null",
+      "signal_date": "str",
+      "signal_timestamp": "str",
+      "spread_proxy": "float",
+      "strategy": "str"
+     }
+    },
+    "price_field": "str",
+    "quality_momentum_evidence": "str",
+    "quality_momentum_evidence_available_rows": "int",
+    "quality_momentum_evidence_checksum": "str",
+    "quality_momentum_evidence_rows": "int",
+    "quality_momentum_strategy_version": "str",
+    "raw_price_rows": "int",
+    "reference_identity": {
+     "analysis": {
+      "currency": "str",
+      "decision_time": "str",
+      "end_date": "str",
+      "horizon_years": "float",
+      "instrument_id": "str",
+      "start_date": "str"
+     },
+     "benchmark_data_id": "null",
+     "calculation_schema": "canonical-benchmark-cash.v1",
+     "execution_allowed": false,
+     "registry_hash": "str",
+     "schema": "benchmark-reference-cache.v1",
+     "selected_records": {
+      "benchmark": "null",
+      "cash": "null",
+      "peer_set": "null",
+      "references": {
+       "reference:equal_weight@1.0.0": "str",
+       "reference:maximum_diversification@1.0.0": "str"
+      }
+     },
+     "status": "str"
+    },
+    "reference_identity_hash": "str",
+    "same_bar_execution_avoided": "bool",
+    "same_bar_execution_count": "int",
+    "strategies": {
+     "list_length": 7,
+     "item": "str"
+    },
+    "strategy": "str",
+    "walk_forward_periods": "int"
+   }
+  },
+  "data/backtests/backtest_metadata.json.meta.json": {
+   "kind": "json",
+   "structure": {
+    "payload_sha256": "str",
+    "reference_identity": {
+     "analysis": {
+      "currency": "str",
+      "decision_time": "str",
+      "end_date": "str",
+      "horizon_years": "float",
+      "instrument_id": "str",
+      "start_date": "str"
+     },
+     "benchmark_data_id": "null",
+     "calculation_schema": "canonical-benchmark-cash.v1",
+     "execution_allowed": false,
+     "registry_hash": "str",
+     "schema": "benchmark-reference-cache.v1",
+     "selected_records": {
+      "benchmark": "null",
+      "cash": "null",
+      "peer_set": "null",
+      "references": {
+       "reference:equal_weight@1.0.0": "str",
+       "reference:maximum_diversification@1.0.0": "str"
+      }
+     },
+     "status": "str"
+    },
+    "reference_identity_hash": "str",
+    "schema_version": 3,
+    "settings_revision": "str",
+    "universe_revision": "str"
+   }
+  },
+  "data/backtests/backtest_results.csv": {
+   "kind": "csv",
+   "rows": 7,
+   "columns": ["cagr", "volatility", "sharpe", "sortino", "max_drawdown", "calmar", "turnover", "cost_drag", "information_ratio", "return_hit_rate", "average_win_return", "average_loss_return", "payoff_ratio", "expected_value_per_period", "payoff_asymmetry_warning", "skew", "payoff_profile", "losses_dominate_wins", "loss_dominance_warning", "payoff_profile_disclaimer", "diagnostic_method", "diagnostic_status", "execution_allowed", "worst_1d_return", "worst_5d_return", "worst_10d_return", "worst_drawdown_start", "worst_drawdown_end", "worst_drawdown_duration_days", "worst_drawdown_duration_sessions", "observed_session_count", "loss_cluster_max_days", "largest_negative_period_return", "largest_negative_period_date", "largest_negative_contribution_periods", "negative_return_concentration_share", "negative_return_concentration_status", "negative_return_concentration_reason", "negative_return_concentration_method", "few_days_explain_most_performance", "performance_concentration_basis", "performance_concentration_method", "performance_concentration_status", "performance_concentration_share", "gross_log_return", "positive_performance_concentration_share", "positive_performance_concentration_status", "positive_performance_few_sessions_explain_most", "negative_performance_concentration_share", "negative_performance_concentration_status", "negative_performance_few_sessions_explain_most", "losses_during_high_volatility", "high_volatility_loss_status", "high_volatility_loss_reason", "high_volatility_loss_method", "high_volatility_threshold", "high_volatility_loss_sessions", "loss_sessions_observed", "losses_during_regime_stress", "regime_stress_loss_status", "regime_stress_loss_reason", "regime_stress_loss_method", "benchmark_id", "benchmark_status", "n_walk_forward_periods", "train_periods", "validation_periods", "test_periods", "trade_count", "average_trade_eur", "median_holding_period_days", "turnover_annualised", "worst_12m_return", "probabilistic_sharpe", "deflated_sharpe", "pbo_probability_backtest_overfitting", "parameter_sensitivity_status", "overfitting_warning", "data_quality_status", "benchmark_strategy", "backtest_quality", "strategy_name", "start_date", "end_date", "final_value_eur"]
+  },
+  "data/backtests/backtest_results.csv.meta.json": {
+   "kind": "json",
+   "structure": {
+    "payload_sha256": "str",
+    "reference_identity": {
+     "analysis": {
+      "currency": "str",
+      "decision_time": "str",
+      "end_date": "str",
+      "horizon_years": "float",
+      "instrument_id": "str",
+      "start_date": "str"
+     },
+     "benchmark_data_id": "null",
+     "calculation_schema": "canonical-benchmark-cash.v1",
+     "execution_allowed": false,
+     "registry_hash": "str",
+     "schema": "benchmark-reference-cache.v1",
+     "selected_records": {
+      "benchmark": "null",
+      "cash": "null",
+      "peer_set": "null",
+      "references": {
+       "reference:equal_weight@1.0.0": "str",
+       "reference:maximum_diversification@1.0.0": "str"
+      }
+     },
+     "status": "str"
+    },
+    "reference_identity_hash": "str",
+    "schema_version": 3,
+    "settings_revision": "str",
+    "universe_revision": "str"
+   }
+  },
+  "data/backtests/equity_curves.csv": {
+   "kind": "csv",
+   "rows": 680,
+   "columns": ["date", "buy_and_hold", "equal_weight", "momentum_only", "trend_only", "quality_only", "quality_momentum", "signal_strategy"]
+  },
+  "data/backtests/equity_curves.csv.meta.json": {
+   "kind": "json",
+   "structure": {
+    "payload_sha256": "str",
+    "reference_identity": {
+     "analysis": {
+      "currency": "str",
+      "decision_time": "str",
+      "end_date": "str",
+      "horizon_years": "float",
+      "instrument_id": "str",
+      "start_date": "str"
+     },
+     "benchmark_data_id": "null",
+     "calculation_schema": "canonical-benchmark-cash.v1",
+     "execution_allowed": false,
+     "registry_hash": "str",
+     "schema": "benchmark-reference-cache.v1",
+     "selected_records": {
+      "benchmark": "null",
+      "cash": "null",
+      "peer_set": "null",
+      "references": {
+       "reference:equal_weight@1.0.0": "str",
+       "reference:maximum_diversification@1.0.0": "str"
+      }
+     },
+     "status": "str"
+    },
+    "reference_identity_hash": "str",
+    "schema_version": 3,
+    "settings_revision": "str",
+    "universe_revision": "str"
+   }
+  },
+  "data/backtests/quality_momentum_evidence.csv": {
+   "kind": "csv",
+   "rows": 1888,
+   "columns": ["instrument_id", "signal_date", "fundamental_as_of", "fundamental_available_at", "sector", "profitability", "leverage", "growth", "shareholder_return", "quality_score", "momentum_score", "composite_score", "momentum_raw", "status", "reason", "source_id", "source_authority", "strategy_version", "execution_allowed"]
+  },
+  "data/backtests/quality_momentum_evidence.csv.meta.json": {
+   "kind": "json",
+   "structure": {
+    "payload_sha256": "str",
+    "reference_identity": {
+     "analysis": {
+      "currency": "str",
+      "decision_time": "str",
+      "end_date": "str",
+      "horizon_years": "float",
+      "instrument_id": "str",
+      "start_date": "str"
+     },
+     "benchmark_data_id": "null",
+     "calculation_schema": "canonical-benchmark-cash.v1",
+     "execution_allowed": false,
+     "registry_hash": "str",
+     "schema": "benchmark-reference-cache.v1",
+     "selected_records": {
+      "benchmark": "null",
+      "cash": "null",
+      "peer_set": "null",
+      "references": {
+       "reference:equal_weight@1.0.0": "str",
+       "reference:maximum_diversification@1.0.0": "str"
+      }
+     },
+     "status": "str"
+    },
+    "reference_identity_hash": "str",
+    "schema_version": 3,
+    "settings_revision": "str",
+    "universe_revision": "str"
+   }
+  },
+  "data/backtests/signal_log.csv": {
+   "kind": "csv",
+   "rows": 1888,
+   "columns": ["date", "signal_timestamp", "etf_id", "action", "score", "canonical_attractiveness_10", "canonical_expected_return_10", "canonical_risk_implementation_10", "canonical_evidence_confidence_10", "canonical_coverage", "formula_version", "formula_checksum", "source_vintage_hash", "structural_confidence_cap", "structural_provenance_hash"]
+  },
+  "data/backtests/signal_log.csv.meta.json": {
+   "kind": "json",
+   "structure": {
+    "payload_sha256": "str",
+    "reference_identity": {
+     "analysis": {
+      "currency": "str",
+      "decision_time": "str",
+      "end_date": "str",
+      "horizon_years": "float",
+      "instrument_id": "str",
+      "start_date": "str"
+     },
+     "benchmark_data_id": "null",
+     "calculation_schema": "canonical-benchmark-cash.v1",
+     "execution_allowed": false,
+     "registry_hash": "str",
+     "schema": "benchmark-reference-cache.v1",
+     "selected_records": {
+      "benchmark": "null",
+      "cash": "null",
+      "peer_set": "null",
+      "references": {
+       "reference:equal_weight@1.0.0": "str",
+       "reference:maximum_diversification@1.0.0": "str"
+      }
+     },
+     "status": "str"
+    },
+    "reference_identity_hash": "str",
+    "schema_version": 3,
+    "settings_revision": "str",
+    "universe_revision": "str"
+   }
+  },
+  "data/backtests/trade_log.csv": {
+   "kind": "csv",
+   "rows": 96,
+   "columns": ["date", "signal_date", "execution_date", "strategy", "turnover", "cost_eur", "estimated_cost_bps", "cost_model_id", "cost_data_quality", "capacity_eur", "decision_price", "next_open_reference_price", "next_period_reference_price", "decision_price_basis", "next_open_reference_basis", "next_period_reference_basis", "price_provenance", "close_to_next_open_gap", "open_gap_warning", "open_gap_warning_threshold", "arrival_price_assumption", "spread_proxy", "observed_range_spread_proxy", "cost_spread_assumption_bps", "cost_spread_assumption_source", "estimated_cost_bps_source", "execution_delay_sessions", "same_bar_execution_avoided", "signal_timestamp", "execution_timestamp", "fill_source", "session_state", "auction_state", "expiry_state", "order_lifecycle", "execution_allowed"]
+  },
+  "data/backtests/trade_log.csv.meta.json": {
+   "kind": "json",
+   "structure": {
+    "payload_sha256": "str",
+    "reference_identity": {
+     "analysis": {
+      "currency": "str",
+      "decision_time": "str",
+      "end_date": "str",
+      "horizon_years": "float",
+      "instrument_id": "str",
+      "start_date": "str"
+     },
+     "benchmark_data_id": "null",
+     "calculation_schema": "canonical-benchmark-cash.v1",
+     "execution_allowed": false,
+     "registry_hash": "str",
+     "schema": "benchmark-reference-cache.v1",
+     "selected_records": {
+      "benchmark": "null",
+      "cash": "null",
+      "peer_set": "null",
+      "references": {
+       "reference:equal_weight@1.0.0": "str",
+       "reference:maximum_diversification@1.0.0": "str"
+      }
+     },
+     "status": "str"
+    },
+    "reference_identity_hash": "str",
+    "schema_version": 3,
+    "settings_revision": "str",
+    "universe_revision": "str"
+   }
+  },
+  "data/clean/etf_disclosures.csv": {
+   "kind": "csv",
+   "rows": 80,
+   "columns": ["document_id", "source_id", "instrument_id", "document_type", "document_kind", "path", "source_url", "source_authority", "as_of_date", "ingested_at", "checksum", "coverage_status", "extraction_status", "executable_authority"]
+  },
+  "data/clean/etf_disclosures.parquet": {
+   "kind": "parquet",
+   "rows": 80,
+   "schema": [
+    ["document_id", "string"],
+    ["source_id", "string"],
+    ["instrument_id", "string"],
+    ["document_type", "string"],
+    ["document_kind", "null"],
+    ["path", "string"],
+    ["source_url", "string"],
+    ["source_authority", "string"],
+    ["as_of_date", "null"],
+    ["ingested_at", "string"],
+    ["checksum", "string"],
+    ["coverage_status", "string"],
+    ["extraction_status", "null"],
+    ["executable_authority", "bool"]
+   ]
+  },
+  "data/clean/etf_report_conflicts.csv": {
+   "kind": "csv",
+   "rows": 0,
+   "columns": ["conflict_id", "instrument_id", "field_name", "source_id_a", "source_id_b", "source_a", "source_b", "document_kind_a", "document_kind_b", "document_date_a", "document_date_b", "reporting_period_end", "value_a", "value_b", "pages_a", "pages_b", "resolution_status", "requires_manual_review", "canonical_value", "score_eligible", "execution_allowed"]
+  },
+  "data/clean/etf_report_conflicts.parquet": {
+   "kind": "parquet",
+   "rows": 0,
+   "schema": [
+    ["conflict_id", "null"],
+    ["instrument_id", "null"],
+    ["field_name", "null"],
+    ["source_id_a", "null"],
+    ["source_id_b", "null"],
+    ["source_a", "null"],
+    ["source_b", "null"],
+    ["document_kind_a", "null"],
+    ["document_kind_b", "null"],
+    ["document_date_a", "null"],
+    ["document_date_b", "null"],
+    ["reporting_period_end", "null"],
+    ["value_a", "null"],
+    ["value_b", "null"],
+    ["pages_a", "null"],
+    ["pages_b", "null"],
+    ["resolution_status", "null"],
+    ["requires_manual_review", "null"],
+    ["canonical_value", "null"],
+    ["score_eligible", "null"],
+    ["execution_allowed", "null"]
+   ]
+  },
+  "data/clean/etf_report_records.csv": {
+   "kind": "csv",
+   "rows": 0,
+   "columns": ["schema_version", "source_id", "instrument_id", "document_type", "document_kind", "parser_name", "parser_version", "language_plugin", "template_plugin", "source_sha256", "source_authority", "source_url", "source_pages", "known_at", "fund_name", "isin", "document_date", "reporting_period_end", "legal_structure", "legal_form", "domicile", "replication_method", "derivatives", "counterparties", "collateral_terms", "concentration_limits", "securities_lending", "lending_policy", "lending_revenue_split", "collateral_policy", "ongoing_costs", "holdings_count", "operational_risks", "exposure", "collateral_fraction", "haircut_fraction", "concentration_limit_fraction", "structured_fields", "field_evidence", "warnings", "extraction_status", "parse_success", "extraction_sha256", "stored_extraction_sha256", "verification_status", "verified_by", "verified_at", "review_note", "review_history", "manual_review", "evidence_eligible", "score_eligible", "execution_allowed", "imported_at", "registry_path"]
+  },
+  "data/clean/etf_report_records.parquet": {
+   "kind": "parquet",
+   "rows": 0,
+   "schema": [
+    ["schema_version", "null"],
+    ["source_id", "null"],
+    ["instrument_id", "null"],
+    ["document_type", "null"],
+    ["document_kind", "null"],
+    ["parser_name", "null"],
+    ["parser_version", "null"],
+    ["language_plugin", "null"],
+    ["template_plugin", "null"],
+    ["source_sha256", "null"],
+    ["source_authority", "null"],
+    ["source_url", "null"],
+    ["source_pages", "null"],
+    ["known_at", "null"],
+    ["fund_name", "null"],
+    ["isin", "null"],
+    ["document_date", "null"],
+    ["reporting_period_end", "null"],
+    ["legal_structure", "null"],
+    ["legal_form", "null"],
+    ["domicile", "null"],
+    ["replication_method", "null"],
+    ["derivatives", "null"],
+    ["counterparties", "null"],
+    ["collateral_terms", "null"],
+    ["concentration_limits", "null"],
+    ["securities_lending", "null"],
+    ["lending_policy", "null"],
+    ["lending_revenue_split", "null"],
+    ["collateral_policy", "null"],
+    ["ongoing_costs", "null"],
+    ["holdings_count", "null"],
+    ["operational_risks", "null"],
+    ["exposure", "null"],
+    ["collateral_fraction", "null"],
+    ["haircut_fraction", "null"],
+    ["concentration_limit_fraction", "null"],
+    ["structured_fields", "null"],
+    ["field_evidence", "null"],
+    ["warnings", "null"],
+    ["extraction_status", "null"],
+    ["parse_success", "null"],
+    ["extraction_sha256", "null"],
+    ["stored_extraction_sha256", "null"],
+    ["verification_status", "null"],
+    ["verified_by", "null"],
+    ["verified_at", "null"],
+    ["review_note", "null"],
+    ["review_history", "null"],
+    ["manual_review", "null"],
+    ["evidence_eligible", "null"],
+    ["score_eligible", "null"],
+    ["execution_allowed", "null"],
+    ["imported_at", "null"],
+    ["registry_path", "null"]
+   ]
+  },
+  "data/clean/filings_statements.csv": {
+   "kind": "csv",
+   "rows": 0,
+   "columns": ["document_id", "instrument_id", "document_type", "path", "source_authority", "as_of_date", "ingested_at", "checksum", "coverage_status", "executable_authority"]
+  },
+  "data/clean/filings_statements.parquet": {
+   "kind": "parquet",
+   "rows": 0,
+   "schema": [
+    ["document_id", "null"],
+    ["instrument_id", "null"],
+    ["document_type", "null"],
+    ["path", "null"],
+    ["source_authority", "null"],
+    ["as_of_date", "null"],
+    ["ingested_at", "null"],
+    ["checksum", "null"],
+    ["coverage_status", "null"],
+    ["executable_authority", "null"]
+   ]
+  },
+  "data/clean/filings_statements.parquet.guard": {
+   "kind": "other"
+  },
+  "data/clean/index_methodology_records.csv": {
+   "kind": "csv",
+   "rows": 0,
+   "columns": ["schema_version", "source_id", "instrument_id", "parser_name", "parser_version", "source_sha256", "source_authority", "freshness_status", "source_pages", "provider", "index_series", "version", "document_date", "eligibility_rules", "weighting_rules", "review_frequency", "caps", "confidence", "warnings", "manual_review", "score_eligible", "success", "imported_at"]
+  },
+  "data/clean/index_methodology_records.parquet": {
+   "kind": "parquet",
+   "rows": 0,
+   "schema": [
+    ["schema_version", "null"],
+    ["source_id", "null"],
+    ["instrument_id", "null"],
+    ["parser_name", "null"],
+    ["parser_version", "null"],
+    ["source_sha256", "null"],
+    ["source_authority", "null"],
+    ["freshness_status", "null"],
+    ["source_pages", "null"],
+    ["provider", "null"],
+    ["index_series", "null"],
+    ["version", "null"],
+    ["document_date", "null"],
+    ["eligibility_rules", "null"],
+    ["weighting_rules", "null"],
+    ["review_frequency", "null"],
+    ["caps", "null"],
+    ["confidence", "null"],
+    ["warnings", "null"],
+    ["manual_review", "null"],
+    ["score_eligible", "null"],
+    ["success", "null"],
+    ["imported_at", "null"]
+   ]
+  },
+  "data/clean/instrument_identity.csv": {
+   "kind": "csv",
+   "rows": 59,
+   "columns": ["instrument_id", "display_name", "analysis_tier", "data_policy", "instrument_type", "asset_class", "isin", "isin_status", "yahoo_symbol", "provider_symbol", "source_group", "exchange", "currency", "region", "sector", "theme", "source", "identity_confidence", "warnings", "provider_symbol_map", "mic", "share_class", "listing", "issuer", "cik", "identity_source_id", "identity_status", "identity_decision_id", "identity_conflict_ids", "identity_resolution_state", "identity_effective_at", "identity_decision_time", "identity_objects", "identity_history", "executable_authority"]
+  },
+  "data/clean/instrument_identity.parquet": {
+   "kind": "parquet",
+   "rows": 59,
+   "schema": [
+    ["instrument_id", "string"],
+    ["display_name", "string"],
+    ["analysis_tier", "string"],
+    ["data_policy", "string"],
+    ["instrument_type", "string"],
+    ["asset_class", "string"],
+    ["isin", "string"],
+    ["isin_status", "string"],
+    ["yahoo_symbol", "string"],
+    ["provider_symbol", "string"],
+    ["source_group", "string"],
+    ["exchange", "string"],
+    ["currency", "string"],
+    ["region", "string"],
+    ["sector", "string"],
+    ["theme", "string"],
+    ["source", "string"],
+    ["identity_confidence", "string"],
+    ["warnings", "string"],
+    ["provider_symbol_map", "string"],
+    ["mic", "string"],
+    ["share_class", "string"],
+    ["listing", "string"],
+    ["issuer", "string"],
+    ["cik", "string"],
+    ["identity_source_id", "string"],
+    ["identity_status", "string"],
+    ["identity_decision_id", "string"],
+    ["identity_conflict_ids", "string"],
+    ["identity_resolution_state", "string"],
+    ["identity_effective_at", "string"],
+    ["identity_decision_time", "string"],
+    ["identity_objects", "string"],
+    ["identity_history", "string"],
+    ["executable_authority", "bool"]
+   ]
+  },
+  "data/clean/news_context.csv": {
+   "kind": "csv",
+   "rows": 0,
+   "columns": ["news_id", "instrument_id", "source_url", "provider_name", "published_at", "ingested_at", "timestamp_confidence", "available_at_decision_time", "source_authority", "context_only", "executable_authority", "path", "checksum"]
+  },
+  "data/clean/news_context.parquet": {
+   "kind": "parquet",
+   "rows": 0,
+   "schema": [
+    ["news_id", "null"],
+    ["instrument_id", "null"],
+    ["source_url", "null"],
+    ["provider_name", "null"],
+    ["published_at", "null"],
+    ["ingested_at", "null"],
+    ["timestamp_confidence", "null"],
+    ["available_at_decision_time", "null"],
+    ["source_authority", "null"],
+    ["context_only", "null"],
+    ["executable_authority", "null"],
+    ["path", "null"],
+    ["checksum", "null"]
+   ]
+  },
+  "data/clean/news_timestamp_validation.csv": {
+   "kind": "csv",
+   "rows": 0,
+   "columns": ["news_id", "timestamp_status", "backtest_eligible", "reason", "available_at_decision_time", "instrument_mapping_method"]
+  },
+  "data/clean/news_timestamp_validation.parquet": {
+   "kind": "parquet",
+   "rows": 0,
+   "schema": [
+    ["news_id", "null"],
+    ["timestamp_status", "null"],
+    ["backtest_eligible", "null"],
+    ["reason", "null"],
+    ["available_at_decision_time", "null"],
+    ["instrument_mapping_method", "null"]
+   ]
+  },
+  "data/clean/priips_kid_records.csv": {
+   "kind": "csv",
+   "rows": 0,
+   "columns": ["schema_version", "source_id", "instrument_id", "parser_name", "parser_version", "source_sha256", "source_authority", "freshness_status", "source_pages", "product", "isin", "manufacturer", "sri", "cost_fields", "holding_period_years", "scenarios", "document_date", "document_version", "extraction_confidence", "warnings", "manual_review", "score_eligible", "success", "imported_at"]
+  },
+  "data/clean/priips_kid_records.parquet": {
+   "kind": "parquet",
+   "rows": 0,
+   "schema": [
+    ["schema_version", "null"],
+    ["source_id", "null"],
+    ["instrument_id", "null"],
+    ["parser_name", "null"],
+    ["parser_version", "null"],
+    ["source_sha256", "null"],
+    ["source_authority", "null"],
+    ["freshness_status", "null"],
+    ["source_pages", "null"],
+    ["product", "null"],
+    ["isin", "null"],
+    ["manufacturer", "null"],
+    ["sri", "null"],
+    ["cost_fields", "null"],
+    ["holding_period_years", "null"],
+    ["scenarios", "null"],
+    ["document_date", "null"],
+    ["document_version", "null"],
+    ["extraction_confidence", "null"],
+    ["warnings", "null"],
+    ["manual_review", "null"],
+    ["score_eligible", "null"],
+    ["success", "null"],
+    ["imported_at", "null"]
+   ]
+  },
+  "data/clean/provider_probe_results.csv": {
+   "kind": "csv",
+   "rows": 18,
+   "columns": ["schema_version", "provider_id", "dataset_type", "status", "authority", "authority_rank", "configured", "entitlement", "rate_limit_note", "last_success_at", "error_fingerprint", "score_eligible", "message", "provider_name", "active_provider", "enabled", "source_authority", "requires_api_key", "has_api_key", "base_url_configured", "capabilities", "last_probe_at", "executable_authority"]
+  },
+  "data/clean/provider_probe_results.parquet": {
+   "kind": "parquet",
+   "rows": 18,
+   "schema": [
+    ["schema_version", "string"],
+    ["provider_id", "string"],
+    ["dataset_type", "string"],
+    ["status", "string"],
+    ["authority", "string"],
+    ["authority_rank", "int64"],
+    ["configured", "bool"],
+    ["entitlement", "string"],
+    ["rate_limit_note", "string"],
+    ["last_success_at", "null"],
+    ["error_fingerprint", "null"],
+    ["score_eligible", "bool"],
+    ["message", "string"],
+    ["provider_name", "string"],
+    ["active_provider", "string"],
+    ["enabled", "bool"],
+    ["source_authority", "string"],
+    ["requires_api_key", "bool"],
+    ["has_api_key", "bool"],
+    ["base_url_configured", "bool"],
+    ["capabilities", "string"],
+    ["last_probe_at", "string"],
+    ["executable_authority", "bool"]
+   ]
+  },
+  "data/clean/source_conflicts.csv": {
+   "kind": "csv",
+   "rows": 0,
+   "columns": ["conflict_id", "instrument_id", "field_name", "source_a", "source_b", "value_a", "value_b", "authority_a", "authority_b", "canonical_value", "resolution_status", "requires_manual_review", "reason", "selected_source_id", "period", "unit", "currency", "as_of", "valid_from", "valid_to", "restatement_ids", "reason_code", "conflict_state", "policy_id", "policy_sha256", "decision_id", "review_decision_id", "candidate_count", "execution_allowed", "detected_at"]
+  },
+  "data/clean/source_conflicts.parquet": {
+   "kind": "parquet",
+   "rows": 0,
+   "schema": [
+    ["conflict_id", "null"],
+    ["instrument_id", "null"],
+    ["field_name", "null"],
+    ["source_a", "null"],
+    ["source_b", "null"],
+    ["value_a", "null"],
+    ["value_b", "null"],
+    ["authority_a", "null"],
+    ["authority_b", "null"],
+    ["canonical_value", "null"],
+    ["resolution_status", "null"],
+    ["requires_manual_review", "null"],
+    ["reason", "null"],
+    ["selected_source_id", "null"],
+    ["period", "null"],
+    ["unit", "null"],
+    ["currency", "null"],
+    ["as_of", "null"],
+    ["valid_from", "null"],
+    ["valid_to", "null"],
+    ["restatement_ids", "null"],
+    ["reason_code", "null"],
+    ["conflict_state", "null"],
+    ["policy_id", "null"],
+    ["policy_sha256", "null"],
+    ["decision_id", "null"],
+    ["review_decision_id", "null"],
+    ["candidate_count", "null"],
+    ["execution_allowed", "null"],
+    ["detected_at", "null"]
+   ]
+  },
+  "data/derived/benchmark_attribution.csv": {
+   "kind": "csv",
+   "rows": 59,
+   "columns": ["instrument_id", "instrument_currency", "benchmark_id", "benchmark_period_days", "benchmark_return", "instrument_period_return", "benchmark_beta", "benchmark_correlation", "alpha_proxy", "alpha_t_stat", "sector_theme_warning", "source_dataset", "as_of_date", "sector_return", "sector_relative_return", "sector_beta", "sector_correlation", "sector_alpha_proxy", "sector_attribution_status", "attribution_sample_size", "attribution_source_dataset", "theme_return", "theme_relative_return", "theme_beta", "theme_correlation", "theme_alpha_proxy", "theme_attribution_status", "theme_sample_size", "gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio", "cost_stress_scenario", "friction_status", "friction_reason", "cash_instrument_return", "cash_return", "excess_over_cash", "cash_instrument_id", "cash_currency", "cash_unit", "cash_dataset_kind", "cash_start_date", "cash_end_date", "cash_horizon_years", "cash_rate", "cash_vintage", "cash_comparison_status", "cash_comparison_reason", "cash_source_id", "cash_source_authority", "cash_source_checksum", "cash_source_terms", "cash_methodology", "cash_mapping_methodology", "cash_day_count", "cash_compounding", "cash_reinvestment", "cash_effective_at", "cash_published_at", "cash_available_at", "cash_curve_id", "cash_curve_version", "cash_curve_revision", "cash_curve_type", "cash_extrapolation_allowed", "cash_fallback", "cash_fallback_from", "cash_interpolation", "cash_freshness", "cash_freshness_status", "cash_decision_time", "cash_knowledge_cutoff", "inflation_context", "status", "execution_allowed"]
+  },
+  "data/derived/benchmark_attribution.parquet": {
+   "kind": "parquet",
+   "rows": 59,
+   "schema": [
+    ["instrument_id", "string"],
+    ["instrument_currency", "string"],
+    ["benchmark_id", "null"],
+    ["benchmark_period_days", "double"],
+    ["benchmark_return", "null"],
+    ["instrument_period_return", "null"],
+    ["benchmark_beta", "null"],
+    ["benchmark_correlation", "null"],
+    ["alpha_proxy", "null"],
+    ["alpha_t_stat", "null"],
+    ["sector_theme_warning", "string"],
+    ["source_dataset", "string"],
+    ["as_of_date", "string"],
+    ["sector_return", "null"],
+    ["sector_relative_return", "null"],
+    ["sector_beta", "null"],
+    ["sector_correlation", "null"],
+    ["sector_alpha_proxy", "null"],
+    ["sector_attribution_status", "string"],
+    ["attribution_sample_size", "double"],
+    ["attribution_source_dataset", "string"],
+    ["theme_return", "null"],
+    ["theme_relative_return", "null"],
+    ["theme_beta", "null"],
+    ["theme_correlation", "null"],
+    ["theme_alpha_proxy", "null"],
+    ["theme_attribution_status", "string"],
+    ["theme_sample_size", "double"],
+    ["gross_expected_edge_bps", "null"],
+    ["estimated_total_cost_bps", "null"],
+    ["net_expected_edge_bps", "null"],
+    ["edge_to_cost_ratio", "null"],
+    ["cost_stress_scenario", "string"],
+    ["friction_status", "string"],
+    ["friction_reason", "string"],
+    ["cash_instrument_return", "null"],
+    ["cash_return", "null"],
+    ["excess_over_cash", "null"],
+    ["cash_instrument_id", "null"],
+    ["cash_currency", "null"],
+    ["cash_unit", "null"],
+    ["cash_dataset_kind", "null"],
+    ["cash_start_date", "null"],
+    ["cash_end_date", "null"],
+    ["cash_horizon_years", "null"],
+    ["cash_rate", "null"],
+    ["cash_vintage", "null"],
+    ["cash_comparison_status", "string"],
+    ["cash_comparison_reason", "string"],
+    ["cash_source_id", "null"],
+    ["cash_source_authority", "null"],
+    ["cash_source_checksum", "null"],
+    ["cash_source_terms", "null"],
+    ["cash_methodology", "null"],
+    ["cash_mapping_methodology", "null"],
+    ["cash_day_count", "null"],
+    ["cash_compounding", "null"],
+    ["cash_reinvestment", "null"],
+    ["cash_effective_at", "null"],
+    ["cash_published_at", "null"],
+    ["cash_available_at", "null"],
+    ["cash_curve_id", "null"],
+    ["cash_curve_version", "null"],
+    ["cash_curve_revision", "int64"],
+    ["cash_curve_type", "null"],
+    ["cash_extrapolation_allowed", "null"],
+    ["cash_fallback", "null"],
+    ["cash_fallback_from", "null"],
+    ["cash_interpolation", "null"],
+    ["cash_freshness", "null"],
+    ["cash_freshness_status", "null"],
+    ["cash_decision_time", "null"],
+    ["cash_knowledge_cutoff", "null"],
+    ["inflation_context", "null"],
+    ["status", "string"],
+    ["execution_allowed", "bool"]
+   ]
+  },
+  "data/derived/correlation_clusters.csv": {
+   "kind": "csv",
+   "rows": 59,
+   "columns": ["instrument_id", "cluster_id", "cluster_label", "benchmark_id", "correlation_to_benchmark", "average_peer_correlation", "crowding_warning", "calculation_window_days", "as_of_date", "sector", "theme", "theme_warning", "sample_size", "pair_sample_size", "ranking_weight", "cluster_weight", "cluster_risk_contribution", "ranking_coverage", "top_ranked_concentration", "top_ranked_theme_concentration", "top_ranked_theme_warning", "source_dataset", "status", "execution_allowed"]
+  },
+  "data/derived/correlation_clusters.parquet": {
+   "kind": "parquet",
+   "rows": 59,
+   "schema": [
+    ["instrument_id", "string"],
+    ["cluster_id", "string"],
+    ["cluster_label", "string"],
+    ["benchmark_id", "string"],
+    ["correlation_to_benchmark", "null"],
+    ["average_peer_correlation", "double"],
+    ["crowding_warning", "string"],
+    ["calculation_window_days", "int64"],
+    ["as_of_date", "string"],
+    ["sector", "string"],
+    ["theme", "string"],
+    ["theme_warning", "string"],
+    ["sample_size", "int64"],
+    ["pair_sample_size", "int64"],
+    ["ranking_weight", "double"],
+    ["cluster_weight", "double"],
+    ["cluster_risk_contribution", "double"],
+    ["ranking_coverage", "double"],
+    ["top_ranked_concentration", "double"],
+    ["top_ranked_theme_concentration", "double"],
+    ["top_ranked_theme_warning", "string"],
+    ["source_dataset", "string"],
+    ["status", "string"],
+    ["execution_allowed", "bool"]
+   ]
+  },
+  "data/derived/evidence_ledger.csv": {
+   "kind": "csv",
+   "rows": 430,
+   "columns": ["evidence_id", "run_id", "instrument_id", "component", "source_id", "source_dataset", "source_name", "source_authority", "authority_rank", "as_of_date", "freshness_status", "conflict_status", "conflict_id", "confidence", "evidence_quality", "provider_id", "calculation_method", "score_eligible", "executable_authority", "evidence_value", "reason", "created_at"]
+  },
+  "data/derived/evidence_ledger.parquet": {
+   "kind": "parquet",
+   "rows": 430,
+   "schema": [
+    ["evidence_id", "string"],
+    ["run_id", "string"],
+    ["instrument_id", "string"],
+    ["component", "string"],
+    ["source_id", "string"],
+    ["source_dataset", "string"],
+    ["source_name", "string"],
+    ["source_authority", "string"],
+    ["authority_rank", "int64"],
+    ["as_of_date", "string"],
+    ["freshness_status", "string"],
+    ["conflict_status", "string"],
+    ["conflict_id", "null"],
+    ["confidence", "null"],
+    ["evidence_quality", "null"],
+    ["provider_id", "string"],
+    ["calculation_method", "string"],
+    ["score_eligible", "bool"],
+    ["executable_authority", "bool"],
+    ["evidence_value", "double"],
+    ["reason", "string"],
+    ["created_at", "string"]
+   ]
+  },
+  "data/derived/feature_drivers.csv": {
+   "kind": "csv",
+   "rows": 430,
+   "columns": ["instrument", "instrument_id", "component", "source_id", "raw_metric", "normalised_score", "peer_group", "peer_percentile", "historical_contribution", "coverage", "uncertainty", "interaction", "counterfactual_sensitivity", "direction", "authority", "source_authority", "driver_text", "source_dataset", "source_span", "source_vintage_hash", "claim_hash", "as_of_date", "freshness_status", "missingness", "conflict", "conflict_id", "contribution", "classification", "authority_classification", "freshness_classification", "flags", "execution_allowed"]
+  },
+  "data/derived/feature_drivers.parquet": {
+   "kind": "parquet",
+   "rows": 430,
+   "schema": [
+    ["instrument", "string"],
+    ["instrument_id", "string"],
+    ["component", "string"],
+    ["source_id", "string"],
+    ["raw_metric", "double"],
+    ["normalised_score", "double"],
+    ["peer_group", "string"],
+    ["peer_percentile", "double"],
+    ["historical_contribution", "double"],
+    ["coverage", "double"],
+    ["uncertainty", "string"],
+    ["interaction", "string"],
+    ["counterfactual_sensitivity", "double"],
+    ["direction", "string"],
+    ["authority", "string"],
+    ["source_authority", "string"],
+    ["driver_text", "string"],
+    ["source_dataset", "string"],
+    ["source_span", "string"],
+    ["source_vintage_hash", "string"],
+    ["claim_hash", "string"],
+    ["as_of_date", "string"],
+    ["freshness_status", "string"],
+    ["missingness", "string"],
+    ["conflict", "string"],
+    ["conflict_id", "string"],
+    ["contribution", "double"],
+    ["classification", "string"],
+    ["authority_classification", "string"],
+    ["freshness_classification", "string"],
+    ["flags", "string"],
+    ["execution_allowed", "bool"]
+   ]
+  },
+  "data/derived/market_regime.csv": {
+   "kind": "csv",
+   "rows": 1,
+   "columns": ["regime_score_10", "regime_label", "benchmark_id", "benchmark_above_sma200", "benchmark_return_60d", "benchmark_return_120d", "configured_pct_above_sma200", "candidate_pct_above_sma200", "combined_pct_above_sma200", "median_volatility_60d_ann", "median_current_drawdown", "average_correlation_60d", "benchmark_reference", "execution_allowed", "summary"]
+  },
+  "data/derived/market_regime.json": {
+   "kind": "json",
+   "structure": {
+    "average_correlation_60d": "null",
+    "benchmark_above_sma200": "null",
+    "benchmark_id": "null",
+    "benchmark_reference": {
+     "analysis": {
+      "currency": "str",
+      "decision_time": "str",
+      "end_date": "str",
+      "horizon_years": "float",
+      "instrument_id": "str",
+      "start_date": "str"
+     },
+     "analysis_id": "str",
+     "benchmark": {
+      "content_hash": "null",
+      "display": "str",
+      "id": "null",
+      "reason": "str",
+      "specificity": "null",
+      "status": "str",
+      "version": null
+     },
+     "benchmark_data_id": "null",
+     "blockers": {
+      "list_length": 4,
+      "item": "str"
+     },
+     "cash": {
+      "content_hash": "null",
+      "display": "str",
+      "id": "null",
+      "reason": "str",
+      "specificity": "null",
+      "status": "str",
+      "version": null
+     },
+     "contract": "benchmark-reference-contract.v1",
+     "execution_allowed": false,
+     "peer_set": {
+      "content_hash": "null",
+      "display": "str",
+      "id": "null",
+      "reason": "str",
+      "specificity": "null",
+      "status": "str",
+      "version": null
+     },
+     "provenance": {
+      "registry_hash": "str",
+      "selected_records": {
+       "benchmark": "null",
+       "cash": "null",
+       "peer_set": "null",
+       "references": {
+        "reference:equal_weight@1.0.0": "str",
+        "reference:maximum_diversification@1.0.0": "str"
+       }
+      },
+      "selected_vwce_anchor_digest": "null"
+     },
+     "purpose": "str",
+     "references": {
+      "list_length": 2,
+      "item": {
+       "constituent_instrument_ids": {
+        "list_length": 1,
+        "item": "str"
+       },
+       "content_hash": "str",
+       "current_weights": "null",
+       "effective_at": "str",
+       "id": "str",
+       "known_at": "str",
+       "method": "str",
+       "source_hashes": {
+        "list_length": 0,
+        "item": null
+       },
+       "version": "1.0.0"
+      }
+     },
+     "registry_hash": "str",
+     "selected_records": {
+      "benchmark": "null",
+      "cash": "null",
+      "peer_set": "null",
+      "references": {
+       "reference:equal_weight@1.0.0": "str",
+       "reference:maximum_diversification@1.0.0": "str"
+      }
+     },
+     "status": "str"
+    },
+    "benchmark_return_120d": "null",
+    "benchmark_return_60d": "null",
+    "candidate_pct_above_sma200": "null",
+    "combined_pct_above_sma200": "null",
+    "configured_pct_above_sma200": "null",
+    "execution_allowed": false,
+    "median_current_drawdown": "null",
+    "median_volatility_60d_ann": "null",
+    "regime_label": "str",
+    "regime_score_10": "null",
+    "summary": "str"
+   }
+  },
+  "data/derived/model_calibration.csv": {
+   "kind": "csv",
+   "rows": 59,
+   "columns": ["instrument_id", "model_name", "evaluated_forecasts", "matured_forecasts", "oos_mase", "oos_directional_accuracy", "q10_q90_coverage", "calibration_score_10", "calibration_status", "calibration_label"]
+  },
+  "data/derived/model_calibration.parquet": {
+   "kind": "parquet",
+   "rows": 59,
+   "schema": [
+    ["instrument_id", "string"],
+    ["model_name", "string"],
+    ["evaluated_forecasts", "int64"],
+    ["matured_forecasts", "int64"],
+    ["oos_mase", "null"],
+    ["oos_directional_accuracy", "null"],
+    ["q10_q90_coverage", "null"],
+    ["calibration_score_10", "null"],
+    ["calibration_status", "string"],
+    ["calibration_label", "string"]
+   ]
+  },
+  "data/derived/run_manifests/backtest__s54eb00f2a924.json": {
+   "kind": "json",
+   "structure": {
+    "dependencies": {
+     "list_length": 7,
+     "item": {
+      "artifact_id": "dataset:prices",
+      "content_hash": "str",
+      "kind": "dataset",
+      "registry_signature": "str",
+      "version": "1.0.0"
+     }
+    },
+    "dependency_graph_hash": "str",
+    "execution_allowed": false,
+    "immutable_after_run": true,
+    "manifest_signature": "str",
+    "manifest_version": "1.1.0",
+    "registry_signature": "str",
+    "repository_revision": "str",
+    "run_id": "str",
+    "schema_version": "1.1",
+    "settings": {
+     "analysis_depth": "str",
+     "asset_scopes": {
+      "list_length": 2,
+      "item": "str"
+     },
+     "currency_effect_status": "str",
+     "depth_effect_status": "str",
+     "execution_allowed": false,
+     "horizon": "str",
+     "output_currency": "str",
+     "risk_effect_status": "str",
+     "risk_profile": "str",
+     "settings_revision": "str",
+     "settings_schema_version": "settings_bundle.v1",
+     "settings_semantic_version": "1.0.0",
+     "settings_snapshot_id": "str",
+     "settings_version": "int"
+    }
+   },
+   "dataset_tuples": [
+    ["dataset:prices", "dataset", "1.0.0"],
+    ["formula:score-engine-v3", "formula", "3.0.0"],
+    ["model:baseline", "model", "1.0.0"],
+    ["policy:costs", "policy", "1.0.0"],
+    ["policy:portfolio-targets", "policy", "1.0.0"],
+    ["policy:risk-limits", "policy", "1.0.0"],
+    ["schema:local-storage", "schema", "4.0.0"]
+   ],
+   "run_id_pattern": "backtest__s<12hex>"
+  },
+  "data/derived/run_manifests/features_2026-09-30__s54eb00f2a924.json": {
+   "kind": "json",
+   "structure": {
+    "dependencies": {
+     "list_length": 3,
+     "item": {
+      "artifact_id": "dataset:prices",
+      "content_hash": "str",
+      "kind": "dataset",
+      "registry_signature": "str",
+      "version": "1.0.0"
+     }
+    },
+    "dependency_graph_hash": "str",
+    "execution_allowed": false,
+    "immutable_after_run": true,
+    "manifest_signature": "str",
+    "manifest_version": "1.1.0",
+    "registry_signature": "str",
+    "repository_revision": "str",
+    "run_id": "str",
+    "schema_version": "1.1",
+    "settings": {
+     "analysis_depth": "str",
+     "asset_scopes": {
+      "list_length": 2,
+      "item": "str"
+     },
+     "currency_effect_status": "str",
+     "depth_effect_status": "str",
+     "execution_allowed": false,
+     "horizon": "str",
+     "output_currency": "str",
+     "risk_effect_status": "str",
+     "risk_profile": "str",
+     "settings_revision": "str",
+     "settings_schema_version": "settings_bundle.v1",
+     "settings_semantic_version": "1.0.0",
+     "settings_snapshot_id": "str",
+     "settings_version": "int"
+    }
+   },
+   "dataset_tuples": [
+    ["dataset:prices", "dataset", "1.0.0"],
+    ["dataset:universe", "dataset", "1.0.0"],
+    ["schema:local-storage", "schema", "4.0.0"]
+   ],
+   "run_id_pattern": "features_2026-09-30__s<12hex>"
+  },
+  "data/derived/run_manifests/forecast_20260930__s54eb00f2a924.json": {
+   "kind": "json",
+   "structure": {
+    "dependencies": {
+     "list_length": 7,
+     "item": {
+      "artifact_id": "dataset:prices",
+      "content_hash": "str",
+      "kind": "dataset",
+      "registry_signature": "str",
+      "version": "1.0.0"
+     }
+    },
+    "dependency_graph_hash": "str",
+    "execution_allowed": false,
+    "immutable_after_run": true,
+    "manifest_signature": "str",
+    "manifest_version": "1.1.0",
+    "registry_signature": "str",
+    "repository_revision": "str",
+    "run_id": "str",
+    "schema_version": "1.1",
+    "settings": {
+     "analysis_depth": "str",
+     "asset_scopes": {
+      "list_length": 2,
+      "item": "str"
+     },
+     "currency_effect_status": "str",
+     "depth_effect_status": "str",
+     "execution_allowed": false,
+     "horizon": "str",
+     "output_currency": "str",
+     "risk_effect_status": "str",
+     "risk_profile": "str",
+     "settings_revision": "str",
+     "settings_schema_version": "settings_bundle.v1",
+     "settings_semantic_version": "1.0.0",
+     "settings_snapshot_id": "str",
+     "settings_version": "int"
+    }
+   },
+   "dataset_tuples": [
+    ["dataset:prices", "dataset", "1.0.0"],
+    ["formula:score-engine-v3", "formula", "3.0.0"],
+    ["model:baseline", "model", "1.0.0"],
+    ["model:timesfm", "model", "1.0.0"],
+    ["model:toto", "model", "1.0.0"],
+    ["policy:model-settings", "policy", "1.0.0"],
+    ["schema:local-storage", "schema", "4.0.0"]
+   ],
+   "run_id_pattern": "forecast_20260930__s<12hex>"
+  },
+  "data/derived/run_manifests/score_<stamp>_<8hex>.json": {
+   "kind": "json",
+   "structure": {
+    "dependencies": {
+     "list_length": 11,
+     "item": {
+      "artifact_id": "dataset:universe",
+      "content_hash": "str",
+      "kind": "dataset",
+      "registry_signature": "str",
+      "version": "1.0.0"
+     }
+    },
+    "dependency_graph_hash": "str",
+    "execution_allowed": false,
+    "immutable_after_run": true,
+    "manifest_signature": "str",
+    "manifest_version": "1.1.0",
+    "registry_signature": "str",
+    "repository_revision": "str",
+    "run_id": "str",
+    "schema_version": "1.1",
+    "settings": {
+     "analysis_depth": "str",
+     "asset_scopes": {
+      "list_length": 2,
+      "item": "str"
+     },
+     "currency_effect_status": "str",
+     "depth_effect_status": "str",
+     "execution_allowed": false,
+     "horizon": "str",
+     "output_currency": "str",
+     "risk_effect_status": "str",
+     "risk_profile": "str",
+     "settings_revision": "str",
+     "settings_schema_version": "settings_bundle.v1",
+     "settings_semantic_version": "1.0.0",
+     "settings_snapshot_id": "str",
+     "settings_version": "int"
+    }
+   },
+   "dataset_tuples": [
+    ["dataset:universe", "dataset", "1.0.0"],
+    ["feature:feature-registry", "feature", "1.0.0"],
+    ["formula:score-engine-v3", "formula", "3.0.0"],
+    ["model:baseline", "model", "1.0.0"],
+    ["policy:costs", "policy", "1.0.0"],
+    ["policy:gate-policy", "policy", "1.0.0"],
+    ["policy:model-settings", "policy", "1.0.0"],
+    ["policy:portfolio-targets", "policy", "1.0.0"],
+    ["policy:risk-limits", "policy", "1.0.0"],
+    ["policy:strategy-scope", "policy", "2.0.0"],
+    ["schema:local-storage", "schema", "4.0.0"]
+   ],
+   "run_id_pattern": "score_<stamp>_<8hex>"
+  },
+  "data/derived/score_components.csv": {
+   "kind": "csv",
+   "rows": 430,
+   "columns": ["run_id", "instrument_id", "component", "source_id", "raw_metric", "normalised_score_10", "status", "authority", "source_dataset", "as_of_date", "freshness_status", "conflict_status", "conflict_id", "source_authority", "authority_rank", "evidence_quality", "confidence", "calculation_method", "score_eligible", "driver_text", "canonical_score_role", "canonical_contribution_raw", "peer_group", "uncertainty", "formula_version", "formula_checksum", "source_vintage_hash", "executable_authority"]
+  },
+  "data/derived/score_components.parquet": {
+   "kind": "parquet",
+   "rows": 430,
+   "schema": [
+    ["run_id", "string"],
+    ["instrument_id", "string"],
+    ["component", "string"],
+    ["source_id", "string"],
+    ["raw_metric", "double"],
+    ["normalised_score_10", "double"],
+    ["status", "string"],
+    ["authority", "string"],
+    ["source_dataset", "string"],
+    ["as_of_date", "string"],
+    ["freshness_status", "string"],
+    ["conflict_status", "string"],
+    ["conflict_id", "null"],
+    ["source_authority", "string"],
+    ["authority_rank", "int64"],
+    ["evidence_quality", "null"],
+    ["confidence", "null"],
+    ["calculation_method", "string"],
+    ["score_eligible", "bool"],
+    ["driver_text", "string"],
+    ["canonical_score_role", "string"],
+    ["canonical_contribution_raw", "double"],
+    ["peer_group", "string"],
+    ["uncertainty", "string"],
+    ["formula_version", "string"],
+    ["formula_checksum", "string"],
+    ["source_vintage_hash", "string"],
+    ["executable_authority", "bool"]
+   ]
+  },
+  "data/derived/score_formula_registry.json": {
+   "kind": "json",
+   "structure": {
+    "execution_allowed": false,
+    "formula_version": "score-engine-v3.0.0",
+    "immutable_after_run": true,
+    "policies": {
+     "ETF": {
+      "asset_type": "str",
+      "execution_allowed": false,
+      "formula_checksum": "str",
+      "formula_version": "score-engine-v3.0.0",
+      "groups": {
+       "attractiveness": {
+        "etf_exposure": "float",
+        "momentum": "float",
+        "relative_strength": "float",
+        "trend": "float"
+       },
+       "expected_return": {
+        "baseline": "float",
+        "timesfm": "float",
+        "toto": "float"
+       },
+       "risk_implementation": {
+        "concentration": "float",
+        "liquidity_cost": "float",
+        "rebalance": "float",
+        "risk": "float"
+       }
+      },
+      "horizon": "str",
+      "schema_version": 1
+     },
+     "STOCK": {
+      "asset_type": "str",
+      "execution_allowed": false,
+      "formula_checksum": "str",
+      "formula_version": "score-engine-v3.0.0",
+      "groups": {
+       "attractiveness": {
+        "momentum": "float",
+        "relative_strength": "float",
+        "stock_quality": "float",
+        "stock_value": "float",
+        "trend": "float"
+       },
+       "expected_return": {
+        "baseline": "float",
+        "timesfm": "float",
+        "toto": "float"
+       },
+       "risk_implementation": {
+        "concentration": "float",
+        "liquidity_cost": "float",
+        "rebalance": "float",
+        "risk": "float"
+       }
+      },
+      "horizon": "str",
+      "schema_version": 1
+     }
+    },
+    "registry_signature": "str",
+    "schema_version": 1,
+    "signature_algorithm": "str"
+   }
+  },
+  "data/derived/score_history.csv": {
+   "kind": "csv",
+   "rows": 59,
+   "columns": ["run_id", "run_started_at", "run_completed_at", "instrument_id", "display_name", "yahoo_ticker", "asset_type", "analysis_tier", "source_group", "data_as_of_date", "price_as_of_date", "evidence_score_10", "evidence_quality_10", "risk_friction_10", "final_combined_score_10", "rank", "score_rank", "warnings", "freshness_status", "model_available", "model_availability", "forecast_status", "news_inventory", "backtest_trust", "portfolio_risk", "gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio", "cost_stress_scenario", "friction_status", "friction_reason", "gross_expected_return", "q10_expected_return", "q50_expected_return", "q90_expected_return", "expected_return_horizon_days", "net_q10_expected_return", "net_expected_return", "net_q90_expected_return", "expected_return_order_value_eur", "expected_return_cost_bps", "expected_return_cost_eur", "expected_return_cost_ratio", "expected_return_distribution_version", "expected_return_source_dataset", "final_label", "final_action", "reason_short", "reason_full", "blocked_by", "source_snapshot_hash", "score_schema_version", "canonical_attractiveness_10", "canonical_expected_return_10", "canonical_risk_implementation_10", "canonical_evidence_confidence_10", "canonical_coverage", "formula_version", "formula_checksum", "source_vintage_hash", "classification_version_id", "classification_invalidation_hash", "classification_dependency_status", "version_registry_signature", "dependency_graph_hash", "snapshot_hash", "execution_allowed"]
+  },
+  "data/derived/score_history.parquet": {
+   "kind": "parquet",
+   "rows": 59,
+   "schema": [
+    ["run_id", "string"],
+    ["run_started_at", "string"],
+    ["run_completed_at", "string"],
+    ["instrument_id", "string"],
+    ["display_name", "string"],
+    ["yahoo_ticker", "string"],
+    ["asset_type", "string"],
+    ["analysis_tier", "string"],
+    ["source_group", "string"],
+    ["data_as_of_date", "string"],
+    ["price_as_of_date", "string"],
+    ["evidence_score_10", "double"],
+    ["evidence_quality_10", "double"],
+    ["risk_friction_10", "double"],
+    ["final_combined_score_10", "double"],
+    ["rank", "int64"],
+    ["score_rank", "int64"],
+    ["warnings", "string"],
+    ["freshness_status", "string"],
+    ["model_available", "bool"],
+    ["model_availability", "string"],
+    ["forecast_status", "string"],
+    ["news_inventory", "string"],
+    ["backtest_trust", "string"],
+    ["portfolio_risk", "string"],
+    ["gross_expected_edge_bps", "null"],
+    ["estimated_total_cost_bps", "null"],
+    ["net_expected_edge_bps", "null"],
+    ["edge_to_cost_ratio", "null"],
+    ["cost_stress_scenario", "string"],
+    ["friction_status", "string"],
+    ["friction_reason", "string"],
+    ["gross_expected_return", "null"],
+    ["q10_expected_return", "null"],
+    ["q50_expected_return", "null"],
+    ["q90_expected_return", "null"],
+    ["expected_return_horizon_days", "null"],
+    ["net_q10_expected_return", "null"],
+    ["net_expected_return", "null"],
+    ["net_q90_expected_return", "null"],
+    ["expected_return_order_value_eur", "null"],
+    ["expected_return_cost_bps", "null"],
+    ["expected_return_cost_eur", "null"],
+    ["expected_return_cost_ratio", "null"],
+    ["expected_return_distribution_version", "string"],
+    ["expected_return_source_dataset", "string"],
+    ["final_label", "string"],
+    ["final_action", "string"],
+    ["reason_short", "string"],
+    ["reason_full", "string"],
+    ["blocked_by", "string"],
+    ["source_snapshot_hash", "string"],
+    ["score_schema_version", "string"],
+    ["canonical_attractiveness_10", "double"],
+    ["canonical_expected_return_10", "null"],
+    ["canonical_risk_implementation_10", "double"],
+    ["canonical_evidence_confidence_10", "double"],
+    ["canonical_coverage", "double"],
+    ["formula_version", "string"],
+    ["formula_checksum", "string"],
+    ["source_vintage_hash", "string"],
+    ["classification_version_id", "string"],
+    ["classification_invalidation_hash", "string"],
+    ["classification_dependency_status", "string"],
+    ["version_registry_signature", "string"],
+    ["dependency_graph_hash", "string"],
+    ["snapshot_hash", "string"],
+    ["execution_allowed", "bool"]
+   ]
+  },
+  "data/derived/score_metric_history.csv": {
+   "kind": "csv",
+   "rows": 430,
+   "columns": ["run_id", "instrument_id", "component_group", "component_name", "source_id", "raw_metric_value", "normalised_score_10", "score_available", "na_reason", "source_dataset", "as_of_date", "freshness_status", "authority_label", "formula_version", "formula_checksum", "source_vintage_hash", "execution_allowed"]
+  },
+  "data/derived/score_metric_history.parquet": {
+   "kind": "parquet",
+   "rows": 430,
+   "schema": [
+    ["run_id", "string"],
+    ["instrument_id", "string"],
+    ["component_group", "string"],
+    ["component_name", "string"],
+    ["source_id", "string"],
+    ["raw_metric_value", "double"],
+    ["normalised_score_10", "double"],
+    ["score_available", "bool"],
+    ["na_reason", "string"],
+    ["source_dataset", "string"],
+    ["as_of_date", "string"],
+    ["freshness_status", "string"],
+    ["authority_label", "string"],
+    ["formula_version", "string"],
+    ["formula_checksum", "string"],
+    ["source_vintage_hash", "string"],
+    ["execution_allowed", "bool"]
+   ]
+  },
+  "data/derived/scoreboard.csv": {
+   "kind": "csv",
+   "rows": 59,
+   "columns": ["instrument_id", "symbol", "name", "instrument_currency", "isin", "isin_status", "asset_type", "analysis_tier", "data_policy", "source_group", "current_price", "latest_price_date", "evidence_score_10", "evidence_quality_10", "risk_friction_10", "final_label", "research_state", "portfolio_review_state", "analysis_status", "research_promotion_allowed", "portfolio_review_allowed", "execution_allowed", "legacy_action", "migration_version", "gate_policy_version", "gate_policy_checksum", "schema_version", "decision", "blocked_by", "reason_short", "model_authority_label", "backtest_trust_label", "backtest_trust_score_10", "model_calibration_label", "model_calibration_score_10", "market_regime_label", "market_regime_score_10", "portfolio_fit_label", "portfolio_fit_score_10", "strategy_template_label", "strategy_template_descriptions", "evidence_sample_days", "evidence_maturity_state", "evidence_maturity_label", "too_good_to_be_true_warning", "evidence_sanity_warnings", "evidence_warning_count", "benchmark_id", "benchmark_period_days", "benchmark_return", "instrument_period_return", "benchmark_beta", "benchmark_correlation", "alpha_proxy", "alpha_t_stat", "benchmark_attribution_label", "cash_instrument_return", "cash_return", "excess_over_cash", "cash_instrument_id", "cash_currency", "cash_unit", "cash_dataset_kind", "cash_start_date", "cash_end_date", "cash_horizon_years", "cash_rate", "cash_vintage", "cash_comparison_status", "cash_comparison_reason", "cash_source_id", "cash_source_authority", "cash_source_checksum", "cash_source_terms", "cash_methodology", "cash_mapping_methodology", "cash_day_count", "cash_compounding", "cash_reinvestment", "cash_effective_at", "cash_published_at", "cash_available_at", "cash_curve_id", "cash_curve_version", "cash_curve_revision", "cash_curve_type", "cash_extrapolation_allowed", "cash_fallback", "cash_fallback_from", "cash_interpolation", "cash_freshness", "cash_freshness_status", "cash_decision_time", "cash_knowledge_cutoff", "inflation_context", "sector_theme_warning", "backtest_validity", "model_contamination_risk", "model_authority_reason", "calibration_required", "gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio", "cost_stress_scenario", "gross_expected_return", "q10_expected_return", "q50_expected_return", "q90_expected_return", "expected_return_horizon_days", "net_q10_expected_return", "net_expected_return", "net_q90_expected_return", "expected_return_order_value_eur", "expected_return_cost_bps", "expected_return_cost_eur", "expected_return_cost_ratio", "expected_return_distribution_version", "expected_return_source_dataset", "crowding_cluster_id", "crowding_cluster_label", "crowding_warning", "crowding_average_peer_correlation", "crowding_sample_size", "crowding_as_of", "crowding_source_dataset", "crowding_pair_sample_size", "crowding_cluster_weight", "crowding_cluster_risk_contribution", "crowding_ranking_coverage", "crowding_top_ranked_concentration", "crowding_top_ranked_theme_concentration", "crowding_top_ranked_theme_warning", "sector_return", "sector_relative_return", "sector_beta", "sector_correlation", "sector_alpha_proxy", "sector_attribution_status", "attribution_sample_size", "attribution_as_of", "attribution_source_dataset", "theme_return", "theme_relative_return", "theme_beta", "theme_correlation", "theme_alpha_proxy", "theme_attribution_status", "theme_sample_size", "friction_status", "friction_reason", "formula_version", "formula_checksum", "source_vintage_hash", "classification_version_id", "classification_invalidation_hash", "classification_dependency_status", "canonical_attractiveness_10", "canonical_expected_return_10", "canonical_risk_implementation_10", "canonical_evidence_confidence_10", "canonical_coverage", "canonical_warnings", "valid_components", "total_components", "source_quality", "data_quality_score_10", "data_quality_status", "data_quality_authority", "momentum_score_10", "momentum_status", "momentum_authority", "trend_score_10", "trend_status", "trend_authority", "risk_score_10", "risk_status", "risk_authority", "relative_strength_score_10", "relative_strength_status", "relative_strength_authority", "liquidity_cost_score_10", "liquidity_cost_status", "liquidity_cost_authority", "etf_exposure_score_10", "etf_exposure_status", "etf_exposure_authority", "baseline_score_10", "baseline_status", "baseline_authority", "timesfm_score_10", "timesfm_status", "timesfm_authority", "toto_score_10", "toto_status", "toto_authority"]
+  },
+  "data/derived/scoreboard.json": {
+   "kind": "json",
+   "structure": {
+    "list_length": 59,
+    "item": {
+     "alpha_proxy": "null",
+     "alpha_t_stat": "null",
+     "analysis_status": "str",
+     "analysis_tier": "str",
+     "asset_type": "str",
+     "attribution_as_of": "null",
+     "attribution_sample_size": "float",
+     "attribution_source_dataset": "str",
+     "backtest_trust_label": "str",
+     "backtest_trust_score_10": "float",
+     "backtest_validity": "str",
+     "baseline_authority": "str",
+     "baseline_score_10": "null",
+     "baseline_status": "str",
+     "benchmark_attribution_label": "str",
+     "benchmark_beta": "null",
+     "benchmark_correlation": "null",
+     "benchmark_id": "null",
+     "benchmark_period_days": "float",
+     "benchmark_return": "null",
+     "blocked_by": "str",
+     "calibration_required": "bool",
+     "canonical_attractiveness_10": "float",
+     "canonical_coverage": "float",
+     "canonical_evidence_confidence_10": "float",
+     "canonical_expected_return_10": "null",
+     "canonical_risk_implementation_10": "float",
+     "canonical_warnings": "str",
+     "cash_available_at": "null",
+     "cash_comparison_reason": "str",
+     "cash_comparison_status": "str",
+     "cash_compounding": "null",
+     "cash_currency": "null",
+     "cash_curve_id": "null",
+     "cash_curve_revision": "null",
+     "cash_curve_type": "null",
+     "cash_curve_version": "null",
+     "cash_dataset_kind": "null",
+     "cash_day_count": "null",
+     "cash_decision_time": "null",
+     "cash_effective_at": "null",
+     "cash_end_date": "null",
+     "cash_extrapolation_allowed": "null",
+     "cash_fallback": "null",
+     "cash_fallback_from": "null",
+     "cash_freshness": "null",
+     "cash_freshness_status": "null",
+     "cash_horizon_years": "null",
+     "cash_instrument_id": "null",
+     "cash_instrument_return": "null",
+     "cash_interpolation": "null",
+     "cash_knowledge_cutoff": "null",
+     "cash_mapping_methodology": "null",
+     "cash_methodology": "null",
+     "cash_published_at": "null",
+     "cash_rate": "null",
+     "cash_reinvestment": "null",
+     "cash_return": "null",
+     "cash_source_authority": "null",
+     "cash_source_checksum": "null",
+     "cash_source_id": "null",
+     "cash_source_terms": "null",
+     "cash_start_date": "null",
+     "cash_unit": "null",
+     "cash_vintage": "null",
+     "classification_dependency_status": "str",
+     "classification_invalidation_hash": "str",
+     "classification_version_id": "str",
+     "cost_stress_scenario": "str",
+     "crowding_as_of": "str",
+     "crowding_average_peer_correlation": "float",
+     "crowding_cluster_id": "str",
+     "crowding_cluster_label": "str",
+     "crowding_cluster_risk_contribution": "float",
+     "crowding_cluster_weight": "float",
+     "crowding_pair_sample_size": "int",
+     "crowding_ranking_coverage": "float",
+     "crowding_sample_size": "int",
+     "crowding_source_dataset": "str",
+     "crowding_top_ranked_concentration": "float",
+     "crowding_top_ranked_theme_concentration": "float",
+     "crowding_top_ranked_theme_warning": "str",
+     "crowding_warning": "str",
+     "current_price": "float",
+     "data_policy": "str",
+     "data_quality_authority": "str",
+     "data_quality_score_10": "float",
+     "data_quality_status": "str",
+     "decision": "str",
+     "edge_to_cost_ratio": "null",
+     "estimated_total_cost_bps": "null",
+     "etf_exposure_authority": "str",
+     "etf_exposure_score_10": "null",
+     "etf_exposure_status": "str",
+     "evidence_maturity_label": "str",
+     "evidence_maturity_state": "str",
+     "evidence_quality_10": "float",
+     "evidence_sample_days": "float",
+     "evidence_sanity_warnings": "str",
+     "evidence_score_10": "float",
+     "evidence_warning_count": "int",
+     "excess_over_cash": "null",
+     "execution_allowed": false,
+     "expected_return_cost_bps": "null",
+     "expected_return_cost_eur": "null",
+     "expected_return_cost_ratio": "null",
+     "expected_return_distribution_version": "str",
+     "expected_return_horizon_days": "null",
+     "expected_return_order_value_eur": "null",
+     "expected_return_source_dataset": "str",
+     "final_label": "str",
+     "formula_checksum": "str",
+     "formula_version": "score-engine-v3.0.0",
+     "friction_reason": "str",
+     "friction_status": "str",
+     "gate_policy_checksum": "str",
+     "gate_policy_version": "str",
+     "gross_expected_edge_bps": "null",
+     "gross_expected_return": "null",
+     "inflation_context": "null",
+     "instrument_currency": "str",
+     "instrument_id": "str",
+     "instrument_period_return": "null",
+     "isin": "str",
+     "isin_status": "str",
+     "latest_price_date": "str",
+     "legacy_action": "str",
+     "liquidity_cost_authority": "str",
+     "liquidity_cost_score_10": "float",
+     "liquidity_cost_status": "str",
+     "market_regime_label": "str",
+     "market_regime_score_10": "null",
+     "migration_version": "str",
+     "model_authority_label": "str",
+     "model_authority_reason": "str",
+     "model_calibration_label": "str",
+     "model_calibration_score_10": "null",
+     "model_contamination_risk": "str",
+     "momentum_authority": "str",
+     "momentum_score_10": "float",
+     "momentum_status": "str",
+     "name": "str",
+     "net_expected_edge_bps": "null",
+     "net_expected_return": "null",
+     "net_q10_expected_return": "null",
+     "net_q90_expected_return": "null",
+     "portfolio_fit_label": "str",
+     "portfolio_fit_score_10": "null",
+     "portfolio_review_allowed": "bool",
+     "portfolio_review_state": "str",
+     "q10_expected_return": "null",
+     "q50_expected_return": "null",
+     "q90_expected_return": "null",
+     "reason_short": "str",
+     "relative_strength_authority": "str",
+     "relative_strength_score_10": "null",
+     "relative_strength_status": "str",
+     "research_promotion_allowed": "bool",
+     "research_state": "str",
+     "risk_authority": "str",
+     "risk_friction_10": "float",
+     "risk_score_10": "float",
+     "risk_status": "str",
+     "schema_version": "2.0",
+     "sector_alpha_proxy": "null",
+     "sector_attribution_status": "str",
+     "sector_beta": "null",
+     "sector_correlation": "null",
+     "sector_relative_return": "null",
+     "sector_return": "null",
+     "sector_theme_warning": "str",
+     "source_group": "str",
+     "source_quality": "str",
+     "source_vintage_hash": "str",
+     "strategy_template_descriptions": "str",
+     "strategy_template_label": "str",
+     "symbol": "str",
+     "theme_alpha_proxy": "null",
+     "theme_attribution_status": "str",
+     "theme_beta": "null",
+     "theme_correlation": "null",
+     "theme_relative_return": "null",
+     "theme_return": "null",
+     "theme_sample_size": "float",
+     "timesfm_authority": "str",
+     "timesfm_score_10": "null",
+     "timesfm_status": "str",
+     "too_good_to_be_true_warning": "str",
+     "total_components": "int",
+     "toto_authority": "str",
+     "toto_score_10": "null",
+     "toto_status": "str",
+     "trend_authority": "str",
+     "trend_score_10": "float",
+     "trend_status": "str",
+     "valid_components": "int"
+    }
+   }
+  },
+  "data/derived/scoreboard.parquet": {
+   "kind": "parquet",
+   "rows": 59,
+   "schema": [
+    ["instrument_id", "string"],
+    ["symbol", "string"],
+    ["name", "string"],
+    ["instrument_currency", "string"],
+    ["isin", "string"],
+    ["isin_status", "string"],
+    ["asset_type", "string"],
+    ["analysis_tier", "string"],
+    ["data_policy", "string"],
+    ["source_group", "string"],
+    ["current_price", "double"],
+    ["latest_price_date", "string"],
+    ["evidence_score_10", "double"],
+    ["evidence_quality_10", "double"],
+    ["risk_friction_10", "double"],
+    ["final_label", "string"],
+    ["research_state", "string"],
+    ["portfolio_review_state", "string"],
+    ["analysis_status", "string"],
+    ["research_promotion_allowed", "bool"],
+    ["portfolio_review_allowed", "bool"],
+    ["execution_allowed", "bool"],
+    ["legacy_action", "string"],
+    ["migration_version", "string"],
+    ["gate_policy_version", "string"],
+    ["gate_policy_checksum", "string"],
+    ["schema_version", "string"],
+    ["decision", "string"],
+    ["blocked_by", "string"],
+    ["reason_short", "string"],
+    ["model_authority_label", "string"],
+    ["backtest_trust_label", "string"],
+    ["backtest_trust_score_10", "double"],
+    ["model_calibration_label", "string"],
+    ["model_calibration_score_10", "null"],
+    ["market_regime_label", "string"],
+    ["market_regime_score_10", "null"],
+    ["portfolio_fit_label", "string"],
+    ["portfolio_fit_score_10", "null"],
+    ["strategy_template_label", "string"],
+    ["strategy_template_descriptions", "string"],
+    ["evidence_sample_days", "double"],
+    ["evidence_maturity_state", "string"],
+    ["evidence_maturity_label", "string"],
+    ["too_good_to_be_true_warning", "string"],
+    ["evidence_sanity_warnings", "string"],
+    ["evidence_warning_count", "int64"],
+    ["benchmark_id", "null"],
+    ["benchmark_period_days", "double"],
+    ["benchmark_return", "null"],
+    ["instrument_period_return", "null"],
+    ["benchmark_beta", "null"],
+    ["benchmark_correlation", "null"],
+    ["alpha_proxy", "null"],
+    ["alpha_t_stat", "null"],
+    ["benchmark_attribution_label", "string"],
+    ["cash_instrument_return", "null"],
+    ["cash_return", "null"],
+    ["excess_over_cash", "null"],
+    ["cash_instrument_id", "null"],
+    ["cash_currency", "null"],
+    ["cash_unit", "null"],
+    ["cash_dataset_kind", "null"],
+    ["cash_start_date", "null"],
+    ["cash_end_date", "null"],
+    ["cash_horizon_years", "null"],
+    ["cash_rate", "null"],
+    ["cash_vintage", "null"],
+    ["cash_comparison_status", "string"],
+    ["cash_comparison_reason", "string"],
+    ["cash_source_id", "null"],
+    ["cash_source_authority", "null"],
+    ["cash_source_checksum", "null"],
+    ["cash_source_terms", "null"],
+    ["cash_methodology", "null"],
+    ["cash_mapping_methodology", "null"],
+    ["cash_day_count", "null"],
+    ["cash_compounding", "null"],
+    ["cash_reinvestment", "null"],
+    ["cash_effective_at", "null"],
+    ["cash_published_at", "null"],
+    ["cash_available_at", "null"],
+    ["cash_curve_id", "null"],
+    ["cash_curve_version", "null"],
+    ["cash_curve_revision", "int64"],
+    ["cash_curve_type", "null"],
+    ["cash_extrapolation_allowed", "null"],
+    ["cash_fallback", "null"],
+    ["cash_fallback_from", "null"],
+    ["cash_interpolation", "null"],
+    ["cash_freshness", "null"],
+    ["cash_freshness_status", "null"],
+    ["cash_decision_time", "null"],
+    ["cash_knowledge_cutoff", "null"],
+    ["inflation_context", "null"],
+    ["sector_theme_warning", "string"],
+    ["backtest_validity", "string"],
+    ["model_contamination_risk", "string"],
+    ["model_authority_reason", "string"],
+    ["calibration_required", "bool"],
+    ["gross_expected_edge_bps", "null"],
+    ["estimated_total_cost_bps", "null"],
+    ["net_expected_edge_bps", "null"],
+    ["edge_to_cost_ratio", "null"],
+    ["cost_stress_scenario", "string"],
+    ["gross_expected_return", "null"],
+    ["q10_expected_return", "null"],
+    ["q50_expected_return", "null"],
+    ["q90_expected_return", "null"],
+    ["expected_return_horizon_days", "null"],
+    ["net_q10_expected_return", "null"],
+    ["net_expected_return", "null"],
+    ["net_q90_expected_return", "null"],
+    ["expected_return_order_value_eur", "null"],
+    ["expected_return_cost_bps", "null"],
+    ["expected_return_cost_eur", "null"],
+    ["expected_return_cost_ratio", "null"],
+    ["expected_return_distribution_version", "string"],
+    ["expected_return_source_dataset", "string"],
+    ["crowding_cluster_id", "string"],
+    ["crowding_cluster_label", "string"],
+    ["crowding_warning", "string"],
+    ["crowding_average_peer_correlation", "double"],
+    ["crowding_sample_size", "int64"],
+    ["crowding_as_of", "string"],
+    ["crowding_source_dataset", "string"],
+    ["crowding_pair_sample_size", "int64"],
+    ["crowding_cluster_weight", "double"],
+    ["crowding_cluster_risk_contribution", "double"],
+    ["crowding_ranking_coverage", "double"],
+    ["crowding_top_ranked_concentration", "double"],
+    ["crowding_top_ranked_theme_concentration", "double"],
+    ["crowding_top_ranked_theme_warning", "string"],
+    ["sector_return", "null"],
+    ["sector_relative_return", "null"],
+    ["sector_beta", "null"],
+    ["sector_correlation", "null"],
+    ["sector_alpha_proxy", "null"],
+    ["sector_attribution_status", "string"],
+    ["attribution_sample_size", "double"],
+    ["attribution_as_of", "null"],
+    ["attribution_source_dataset", "string"],
+    ["theme_return", "null"],
+    ["theme_relative_return", "null"],
+    ["theme_beta", "null"],
+    ["theme_correlation", "null"],
+    ["theme_alpha_proxy", "null"],
+    ["theme_attribution_status", "string"],
+    ["theme_sample_size", "double"],
+    ["friction_status", "string"],
+    ["friction_reason", "string"],
+    ["formula_version", "string"],
+    ["formula_checksum", "string"],
+    ["source_vintage_hash", "string"],
+    ["classification_version_id", "string"],
+    ["classification_invalidation_hash", "string"],
+    ["classification_dependency_status", "string"],
+    ["canonical_attractiveness_10", "double"],
+    ["canonical_expected_return_10", "null"],
+    ["canonical_risk_implementation_10", "double"],
+    ["canonical_evidence_confidence_10", "double"],
+    ["canonical_coverage", "double"],
+    ["canonical_warnings", "string"],
+    ["valid_components", "int64"],
+    ["total_components", "int64"],
+    ["source_quality", "string"],
+    ["data_quality_score_10", "double"],
+    ["data_quality_status", "string"],
+    ["data_quality_authority", "string"],
+    ["momentum_score_10", "double"],
+    ["momentum_status", "string"],
+    ["momentum_authority", "string"],
+    ["trend_score_10", "double"],
+    ["trend_status", "string"],
+    ["trend_authority", "string"],
+    ["risk_score_10", "double"],
+    ["risk_status", "string"],
+    ["risk_authority", "string"],
+    ["relative_strength_score_10", "double"],
+    ["relative_strength_status", "string"],
+    ["relative_strength_authority", "string"],
+    ["liquidity_cost_score_10", "double"],
+    ["liquidity_cost_status", "string"],
+    ["liquidity_cost_authority", "string"],
+    ["etf_exposure_score_10", "double"],
+    ["etf_exposure_status", "string"],
+    ["etf_exposure_authority", "string"],
+    ["baseline_score_10", "double"],
+    ["baseline_status", "string"],
+    ["baseline_authority", "string"],
+    ["timesfm_score_10", "double"],
+    ["timesfm_status", "string"],
+    ["timesfm_authority", "string"],
+    ["toto_score_10", "double"],
+    ["toto_status", "string"],
+    ["toto_authority", "string"]
+   ]
+  },
+  "data/derived/strategy_templates.csv": {
+   "kind": "csv",
+   "rows": 59,
+   "columns": ["instrument_id", "symbol", "asset_type", "evidence_score_10", "risk_friction_10", "strategy_template_label", "strategy_template_descriptions", "market_regime_label", "benchmark_id", "benchmark_period_days", "benchmark_return", "instrument_period_return", "cash_return", "excess_over_cash", "cash_comparison_status", "gross_expected_return", "q10_expected_return", "q50_expected_return", "q90_expected_return", "net_q10_expected_return", "net_expected_return", "net_q90_expected_return", "expected_return_horizon_days", "expected_return_order_value_eur", "expected_return_cost_bps", "expected_return_cost_eur", "expected_return_cost_ratio", "expected_return_distribution_version", "expected_return_source_dataset", "sector_theme_warning", "crowding_top_ranked_concentration", "crowding_top_ranked_theme_concentration", "crowding_top_ranked_theme_warning", "evidence_maturity_state", "evidence_sample_days", "backtest_validity", "execution_allowed"]
+  },
+  "data/derived/version_registry.json": {
+   "kind": "json",
+   "structure": {
+    "compatibility": {
+     "forward_only_migrations": "bool",
+     "historical_versions_readable": "bool",
+     "mutable_latest_is_not_historical_authority": "bool"
+    },
+    "dependency_graph": {
+     "edges": {
+      "list_length": 17,
+      "item": {
+       "from": "str",
+       "to": "str"
+      }
+     },
+     "nodes": {
+      "list_length": 21,
+      "item": "str"
+     }
+    },
+    "execution_allowed": false,
+    "immutable_after_run": true,
+    "records": {
+     "list_length": 21,
+     "item": {
+      "artifact_id": "schema:local-storage",
+      "available": "bool",
+      "compatibility": "str",
+      "content_hash": "str",
+      "dependencies": {
+       "list_length": 0,
+       "item": null
+      },
+      "deprecated": "bool",
+      "kind": "schema",
+      "metadata": {
+       "source_version": "str"
+      },
+      "requires_rebuild": "bool",
+      "source": "str",
+      "version": "4.0.0"
+     }
+    },
+    "registry_signature": "str",
+    "registry_version": "str",
+    "repository_revision": "str",
+    "schema_version": "1.0"
+   }
+  },
+  "data/features/features_daily.parquet": {
+   "kind": "parquet",
+   "rows": 15458,
+   "schema": [
+    ["date", "timestamp[ns]"],
+    ["etf_id", "string"],
+    ["return_1d_log", "double"],
+    ["return_5d_log", "double"],
+    ["return_20d_log", "double"],
+    ["return_60d_log", "double"],
+    ["momentum_20d", "double"],
+    ["momentum_60d", "double"],
+    ["momentum_120d", "double"],
+    ["momentum_180d", "double"],
+    ["sma_50", "double"],
+    ["sma_100", "double"],
+    ["sma_200", "double"],
+    ["trend_100", "double"],
+    ["trend_200", "double"],
+    ["trend_slope", "double"],
+    ["vol_20d_ann", "double"],
+    ["vol_60d_ann", "double"],
+    ["vol_120d_ann", "double"],
+    ["ewma_vol_ann", "double"],
+    ["drawdown_current", "double"],
+    ["drawdown_60d_max", "double"],
+    ["drawdown_120d_max", "double"],
+    ["liquidity_score", "double"],
+    ["last_price", "double"],
+    ["relative_strength_60d", "double"],
+    ["relative_strength_120d", "double"]
+   ]
+  },
+  "data/features/features_daily.parquet.meta.json": {
+   "kind": "json",
+   "structure": {
+    "calculation_window": {
+     "decision_time": "str",
+     "end_date": "str",
+     "start_date": "str"
+    },
+    "effective_cutoff": "str",
+    "payload_sha256": "str",
+    "price_snapshot_checksum": "str",
+    "price_snapshot_revision": "str",
+    "reference_identity": {
+     "analysis": {
+      "currency": "str",
+      "decision_time": "str",
+      "end_date": "str",
+      "horizon_years": "float",
+      "instrument_id": "str",
+      "start_date": "str"
+     },
+     "benchmark_data_id": "null",
+     "calculation_schema": "canonical-benchmark-cash.v1",
+     "execution_allowed": false,
+     "registry_hash": "str",
+     "schema": "benchmark-reference-cache.v1",
+     "selected_records": {
+      "benchmark": "null",
+      "cash": "null",
+      "peer_set": "null",
+      "references": {
+       "reference:equal_weight@1.0.0": "str",
+       "reference:maximum_diversification@1.0.0": "str"
+      }
+     },
+     "status": "str"
+    },
+    "reference_identity_hash": "str",
+    "schema_version": 3,
+    "settings_revision": "str",
+    "universe_revision": "str"
+   }
+  },
+  "data/forecasts/forecast_results_yfinance_20260930.csv": {
+   "kind": "csv",
+   "rows": 885,
+   "columns": ["run_id", "model_name", "model_version", "etf_id", "forecast_date", "horizon_days", "expected_return", "expected_excess_return", "q10_return", "q50_return", "q90_return", "forecast_vol", "prob_positive_return", "prob_beat_benchmark", "forecast_drawdown_prob", "status", "error_message", "model_allowed_in_score", "is_fallback", "fallback_model", "reason_unavailable", "oos_mase", "oos_directional_accuracy", "calibration_status"]
+  },
+  "data/forecasts/forecast_results_yfinance_20260930.csv.meta.json": {
+   "kind": "json",
+   "structure": {
+    "calculation_window": {
+     "decision_time": "str",
+     "end_date": "str",
+     "start_date": "str"
+    },
+    "effective_cutoff": "str",
+    "forecast_request_identity": {
+     "live_optional_models": "bool",
+     "requested_horizons": {
+      "list_length": 5,
+      "item": "int"
+     },
+     "schema": "forecast-cache-request.v1"
+    },
+    "forecast_request_identity_hash": "str",
+    "payload_sha256": "str",
+    "price_snapshot_checksum": "str",
+    "price_snapshot_revision": "str",
+    "reference_identity": {
+     "analysis": {
+      "currency": "str",
+      "decision_time": "str",
+      "end_date": "str",
+      "horizon_years": "float",
+      "instrument_id": "str",
+      "start_date": "str"
+     },
+     "benchmark_data_id": "null",
+     "calculation_schema": "canonical-benchmark-cash.v1",
+     "execution_allowed": false,
+     "registry_hash": "str",
+     "schema": "benchmark-reference-cache.v1",
+     "selected_records": {
+      "benchmark": "null",
+      "cash": "null",
+      "peer_set": "null",
+      "references": {
+       "reference:equal_weight@1.0.0": "str",
+       "reference:maximum_diversification@1.0.0": "str"
+      }
+     },
+     "status": "str"
+    },
+    "reference_identity_hash": "str",
+    "schema_version": 3,
+    "settings_revision": "str",
+    "universe_revision": "str"
+   }
+  },
+  "data/portfolios/current_holdings.csv": {
+   "kind": "csv",
+   "rows": 16,
+   "columns": ["as_of_date", "etf_id", "units", "market_price", "market_value_eur", "current_weight", "average_cost_eur", "unrealised_gain_eur", "unrealised_gain_pct", "source"]
+  },
+  "data/raw/prices/sample_prices.csv": {
+   "kind": "csv",
+   "rows": 53100,
+   "columns": ["date", "etf_id", "provider_symbol", "open", "high", "low", "close", "adjusted_close", "volume", "currency", "source", "is_adjusted", "ingested_at", "calendar_identity"]
+  },
+  "data/validated/prices/prices_daily.parquet": {
+   "kind": "parquet",
+   "rows": 53100,
+   "schema": [
+    ["date", "timestamp[ns]"],
+    ["etf_id", "string"],
+    ["provider_symbol", "string"],
+    ["open", "double"],
+    ["high", "double"],
+    ["low", "double"],
+    ["close", "double"],
+    ["adjusted_close", "double"],
+    ["volume", "double"],
+    ["currency", "string"],
+    ["source", "string"],
+    ["is_adjusted", "bool"],
+    ["ingested_at", "string"],
+    ["calendar_identity", "string"]
+   ]
+  }
+ },
+ "forecast_file": {
+  "present": true,
+  "file": "forecast_results_yfinance_20260930.csv",
+  "frame": {
+   "excluded_columns": [],
+   "shape": [885, 24],
+   "columns": ["run_id", "model_name", "model_version", "etf_id", "forecast_date", "horizon_days", "expected_return", "expected_excess_return", "q10_return", "q50_return", "q90_return", "forecast_vol", "prob_positive_return", "prob_beat_benchmark", "forecast_drawdown_prob", "status", "error_message", "model_allowed_in_score", "is_fallback", "fallback_model", "reason_unavailable", "oos_mase", "oos_directional_accuracy", "calibration_status"],
+   "dtypes": {
+    "run_id": "object",
+    "model_name": "object",
+    "model_version": "object",
+    "etf_id": "object",
+    "forecast_date": "object",
+    "horizon_days": "int64",
+    "expected_return": "float64",
+    "expected_excess_return": "float64",
+    "q10_return": "float64",
+    "q50_return": "float64",
+    "q90_return": "float64",
+    "forecast_vol": "float64",
+    "prob_positive_return": "float64",
+    "prob_beat_benchmark": "float64",
+    "forecast_drawdown_prob": "float64",
+    "status": "object",
+    "error_message": "object",
+    "model_allowed_in_score": "bool",
+    "is_fallback": "bool",
+    "fallback_model": "object",
+    "reason_unavailable": "object",
+    "oos_mase": "float64",
+    "oos_directional_accuracy": "float64",
+    "calibration_status": "object"
+   },
+   "numeric_columns": {
+    "horizon_days": {
+     "nan_count": 0,
+     "count": 885,
+     "sum": 68145.0,
+     "mean": 77.0,
+     "min": 5.0,
+     "max": 180.0
+    },
+    "expected_return": {
+     "nan_count": 590,
+     "count": 295,
+     "sum": 0.5879154247674752,
+     "mean": 0.001992933643279577,
+     "min": -0.0996017460730509,
+     "max": 0.1056209035783334
+    },
+    "expected_excess_return": {
+     "nan_count": 885,
+     "count": 0,
+     "sum": null,
+     "mean": null,
+     "min": null,
+     "max": null
+    },
+    "q10_return": {
+     "nan_count": 590,
+     "count": 295,
+     "sum": -32.64403842869774,
+     "mean": -0.11065775738541607,
+     "min": -0.3032213723267831,
+     "max": -0.024998508309107
+    },
+    "q50_return": {
+     "nan_count": 590,
+     "count": 295,
+     "sum": 0.5879154247674752,
+     "mean": 0.001992933643279577,
+     "min": -0.0996017460730509,
+     "max": 0.1056209035783334
+    },
+    "q90_return": {
+     "nan_count": 590,
+     "count": 295,
+     "sum": 33.819869278232694,
+     "mean": 0.11464362467197524,
+     "min": 0.0240819433646433,
+     "max": 0.293466331696073
+    },
+    "forecast_vol": {
+     "nan_count": 590,
+     "count": 295,
+     "sum": 25.962463948019696,
+     "mean": 0.08800835236616845,
+     "min": 0.0191986877305187,
+     "max": 0.1874858495742374
+    },
+    "prob_positive_return": {
+     "nan_count": 590,
+     "count": 295,
+     "sum": 148.90235558382406,
+     "mean": 0.5047537477417765,
+     "min": 0.3483909309896892,
+     "max": 0.6725437676536453
+    },
+    "prob_beat_benchmark": {
+     "nan_count": 885,
+     "count": 0,
+     "sum": null,
+     "mean": null,
+     "min": null,
+     "max": null
+    },
+    "forecast_drawdown_prob": {
+     "nan_count": 885,
+     "count": 0,
+     "sum": null,
+     "mean": null,
+     "min": null,
+     "max": null
+    },
+    "oos_mase": {
+     "nan_count": 885,
+     "count": 0,
+     "sum": null,
+     "mean": null,
+     "min": null,
+     "max": null
+    },
+    "oos_directional_accuracy": {
+     "nan_count": 885,
+     "count": 0,
+     "sum": null,
+     "mean": null,
+     "min": null,
+     "max": null
+    }
+   },
+   "non_float_digest": "3b2ed6e0ed2b913dd33546af58c1b2bdf966f6d672e3d8ac3c373d293bd36c53",
+   "first_rows": [
+    {
+     "run_id": "forecast_20260930__s54eb00f2a924",
+     "model_name": "baseline",
+     "model_version": "momentum_shrunk_v1",
+     "etf_id": "VWCE",
+     "forecast_date": "2026-09-30",
+     "horizon_days": 5,
+     "expected_return": 0.0023377536476501,
+     "expected_excess_return": "<NaN>",
+     "q10_return": -0.0303583401214803,
+     "q50_return": 0.0023377536476501,
+     "q90_return": 0.0350338474167805,
+     "forecast_vol": 0.0255438232571331,
+     "prob_positive_return": 0.522863876707912,
+     "prob_beat_benchmark": "<NaN>",
+     "forecast_drawdown_prob": "<NaN>",
+     "status": "ok",
+     "error_message": "<NaN>",
+     "model_allowed_in_score": true,
+     "is_fallback": false,
+     "fallback_model": "<NaN>",
+     "reason_unavailable": "<NaN>",
+     "oos_mase": "<NaN>",
+     "oos_directional_accuracy": "<NaN>",
+     "calibration_status": "not_evaluated"
+    },
+    {
+     "run_id": "forecast_20260930__s54eb00f2a924",
+     "model_name": "baseline",
+     "model_version": "momentum_shrunk_v1",
+     "etf_id": "VWCE",
+     "forecast_date": "2026-09-30",
+     "horizon_days": 20,
+     "expected_return": 0.0093510145906004,
+     "expected_excess_return": "<NaN>",
+     "q10_return": -0.0560411729476605,
+     "q50_return": 0.0093510145906004,
+     "q90_return": 0.0747432021288614,
+     "forecast_vol": 0.0510876465142663,
+     "prob_positive_return": 0.545632334951633,
+     "prob_beat_benchmark": "<NaN>",
+     "forecast_drawdown_prob": "<NaN>",
+     "status": "ok",
+     "error_message": "<NaN>",
+     "model_allowed_in_score": true,
+     "is_fallback": false,
+     "fallback_model": "<NaN>",
+     "reason_unavailable": "<NaN>",
+     "oos_mase": "<NaN>",
+     "oos_directional_accuracy": "<NaN>",
+     "calibration_status": "not_evaluated"
+    },
+    {
+     "run_id": "forecast_20260930__s54eb00f2a924",
+     "model_name": "baseline",
+     "model_version": "momentum_shrunk_v1",
+     "etf_id": "VWCE",
+     "forecast_date": "2026-09-30",
+     "horizon_days": 60,
+     "expected_return": 0.0280530437718013,
+     "expected_excess_return": "<NaN>",
+     "q10_return": -0.0852095474625389,
+     "q50_return": 0.0280530437718013,
+     "q90_return": 0.1413156350061417,
+     "forecast_vol": 0.0884863994018284,
+     "prob_positive_return": 0.5786008230205282,
+     "prob_beat_benchmark": "<NaN>",
+     "forecast_drawdown_prob": "<NaN>",
+     "status": "ok",
+     "error_message": "<NaN>",
+     "model_allowed_in_score": true,
+     "is_fallback": false,
+     "fallback_model": "<NaN>",
+     "reason_unavailable": "<NaN>",
+     "oos_mase": "<NaN>",
+     "oos_directional_accuracy": "<NaN>",
+     "calibration_status": "not_evaluated"
+    }
+   ],
+   "last_rows": [
+    {
+     "run_id": "forecast_20260930__s54eb00f2a924",
+     "model_name": "toto",
+     "model_version": "toto_2_0_optional",
+     "etf_id": "SPOG",
+     "forecast_date": "2026-09-30",
+     "horizon_days": 60,
+     "expected_return": "<NaN>",
+     "expected_excess_return": "<NaN>",
+     "q10_return": "<NaN>",
+     "q50_return": "<NaN>",
+     "q90_return": "<NaN>",
+     "forecast_vol": "<NaN>",
+     "prob_positive_return": "<NaN>",
+     "prob_beat_benchmark": "<NaN>",
+     "forecast_drawdown_prob": "<NaN>",
+     "status": "unavailable",
+     "error_message": "Toto disabled or compatible package/checkpoint missing.",
+     "model_allowed_in_score": false,
+     "is_fallback": false,
+     "fallback_model": "baseline",
+     "reason_unavailable": "Toto disabled or compatible package/checkpoint missing.",
+     "oos_mase": "<NaN>",
+     "oos_directional_accuracy": "<NaN>",
+     "calibration_status": "unavailable"
+    },
+    {
+     "run_id": "forecast_20260930__s54eb00f2a924",
+     "model_name": "toto",
+     "model_version": "toto_2_0_optional",
+     "etf_id": "SPOG",
+     "forecast_date": "2026-09-30",
+     "horizon_days": 120,
+     "expected_return": "<NaN>",
+     "expected_excess_return": "<NaN>",
+     "q10_return": "<NaN>",
+     "q50_return": "<NaN>",
+     "q90_return": "<NaN>",
+     "forecast_vol": "<NaN>",
+     "prob_positive_return": "<NaN>",
+     "prob_beat_benchmark": "<NaN>",
+     "forecast_drawdown_prob": "<NaN>",
+     "status": "unavailable",
+     "error_message": "Toto disabled or compatible package/checkpoint missing.",
+     "model_allowed_in_score": false,
+     "is_fallback": false,
+     "fallback_model": "baseline",
+     "reason_unavailable": "Toto disabled or compatible package/checkpoint missing.",
+     "oos_mase": "<NaN>",
+     "oos_directional_accuracy": "<NaN>",
+     "calibration_status": "unavailable"
+    },
+    {
+     "run_id": "forecast_20260930__s54eb00f2a924",
+     "model_name": "toto",
+     "model_version": "toto_2_0_optional",
+     "etf_id": "SPOG",
+     "forecast_date": "2026-09-30",
+     "horizon_days": 180,
+     "expected_return": "<NaN>",
+     "expected_excess_return": "<NaN>",
+     "q10_return": "<NaN>",
+     "q50_return": "<NaN>",
+     "q90_return": "<NaN>",
+     "forecast_vol": "<NaN>",
+     "prob_positive_return": "<NaN>",
+     "prob_beat_benchmark": "<NaN>",
+     "forecast_drawdown_prob": "<NaN>",
+     "status": "unavailable",
+     "error_message": "Toto disabled or compatible package/checkpoint missing.",
+     "model_allowed_in_score": false,
+     "is_fallback": false,
+     "fallback_model": "baseline",
+     "reason_unavailable": "Toto disabled or compatible package/checkpoint missing.",
+     "oos_mase": "<NaN>",
+     "oos_directional_accuracy": "<NaN>",
+     "calibration_status": "unavailable"
+    }
+   ]
+  },
+  "by_model_status": {
+   "model_name": ["baseline", "timesfm", "toto"],
+   "status": ["ok", "unavailable", "unavailable"],
+   "rows": [295, 295, 295],
+   "instruments": [59, 59, 59],
+   "horizons": [
+    [5, 20, 60, 120, 180],
+    [5, 20, 60, 120, 180],
+    [5, 20, 60, 120, 180]
+   ]
+  }
+ }
+}

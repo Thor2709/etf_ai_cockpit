@@ -27,12 +27,12 @@ from etf_cockpit.application.settings import (
     save_settings,
 )
 from etf_cockpit.application.release_metadata import read_changelog_excerpt, read_rebuild_timestamp
-from etf_cockpit.core.config import load_config
+from etf_cockpit.application.settings import load_config
 from etf_cockpit.core.constants import APP_VERSION
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, ROOT
-from etf_cockpit.core.secure_update import describe_release_evidence
-from etf_cockpit.governance.product_scope import load_authority_matrix, load_product_governance
-from etf_cockpit.security.credentials import (
+from etf_cockpit.application.release_metadata import describe_release_evidence
+from etf_cockpit.application.scope_facade import load_authority_matrix, load_product_governance
+from etf_cockpit.application.settings import (
     CredentialVault,
     CredentialVaultError,
     canonical_provider_account,

@@ -24,6 +24,7 @@ from etf_cockpit.analysis.decision.contracts import OpportunityResult
 from etf_cockpit.analysis.decision.opportunity import opportunity_result_payload
 from etf_cockpit.core.atomic_io import atomic_write_json
 from etf_cockpit.core.paths import project_root
+from etf_cockpit.core.values import finite_real_or_none as _finite_number
 
 
 _CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "analysis_parity_v1.yaml"
@@ -875,13 +876,6 @@ def _redact_sensitive(value: object, *, field_name: str = "") -> object:
 def _redact_text(value: str) -> str:
     value = _SECRET_VALUE.sub("[REDACTED]", value)
     return _CREDENTIAL_ASSIGNMENT.sub(lambda match: f"{match.group(1)}=[REDACTED]", value)
-
-
-def _finite_number(value: object) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, Real):
-        return None
-    number = float(value)
-    return number if math.isfinite(number) else None
 
 
 def _unavailable_lane(reason: str) -> dict[str, object]:

@@ -8,12 +8,12 @@ from types import SimpleNamespace
 import flet as ft
 import pytest
 
-from etf_cockpit.app.operations import build_operation_preview, load_operation_records, save_operation_record
+from etf_cockpit.application.operation_records import build_operation_preview, load_operation_records, save_operation_record
 from etf_cockpit.app.pages.operations import operations_page
 from etf_cockpit.app.router import PAGES
 from etf_cockpit.app.state import AppState
 from etf_cockpit.portfolio.proposal_policy import load_proposal_records
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 def _walk(control: object):
@@ -136,7 +136,7 @@ def test_new_operation_cannot_fall_back_to_legacy_or_change_authority(tmp_path, 
 def test_verified_original_operation_identity_remains_readable(tmp_path, original_quantity):
     import hashlib
     import json
-    from etf_cockpit.app.operations import validate_operation_record
+    from etf_cockpit.application.operation_records import validate_operation_record
 
     identity = {"action": "proposal_preview", "environment": "paper", "instrument_id": "VWCE",
         "quantity": original_quantity, "currency": "EUR"}

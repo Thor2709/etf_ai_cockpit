@@ -234,7 +234,7 @@ def test_paper_timeline_fails_closed_on_truncated_or_contradictory_event(tmp_pat
 
 
 def test_instrument_detail_missing_timeline_does_not_fallback_to_locking_reader(tmp_path: Path, monkeypatch) -> None:
-    from etf_cockpit.app.selectors import instrument_detail
+    from etf_cockpit.application import instrument_detail_view as instrument_detail
 
     instrument_detail_path = tmp_path / "data" / "derived" / "paper_trades.parquet"
     monkeypatch.setattr(instrument_detail, "PAPER_TRADES_PATH", instrument_detail_path)
@@ -278,7 +278,7 @@ def test_paper_requires_gate_approved_proposal_and_open_account(tmp_path: Path) 
 
 
 def test_instrument_detail_reads_the_local_paper_ledger(tmp_path: Path, monkeypatch) -> None:
-    from etf_cockpit.app.selectors import instrument_detail
+    from etf_cockpit.application import instrument_detail_view as instrument_detail
 
     ledger = PaperLedger(tmp_path)
     ledger.open_account(initial_cash=100)

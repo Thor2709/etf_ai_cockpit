@@ -1,0 +1,362 @@
+"""Financial-institution (bank) evidence read model for Instrument Detail (application; ADR-0002)."""
+
+from collections.abc import Mapping
+import math
+from numbers import Real
+from pathlib import Path
+import pandas as pd
+
+from etf_cockpit.data.classification import read_instrument_context
+from etf_cockpit.analysis.financial_sector_adapters import (
+    FinancialAdapterError,
+    FinancialInstitutionProjection,
+    build_financial_institution_projection,
+    financial_adapter_definition,
+    unavailable_financial_projection,
+    verify_financial_projection,
+)
+from etf_cockpit.analysis.peer_cohorts import AdapterRegistry
+from etf_cockpit.signals.feature_drivers import _source_vintage_hash
+from etf_cockpit.analysis.bank_metric_facts import (
+    _financial_metric_facts,
+)
+
+
+def load_financial_institution_projection(
+    instrument_id: str,
+    *,
+    projection: FinancialInstitutionProjection | Mapping[str, object] | None = None,
+    storage_root: Path | None = None,
+    decision_time: str | None = None,
+    effective_at: str | None = None,
+    context: object | None = None,
+    tactical_evidence: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Load a verified projection, or build one from local point-in-time evidence."""
+
+    if projection is None:
+        try:
+            return _build_financial_projection_from_evidence(
+                instrument_id,
+                storage_root=storage_root,
+                decision_time=decision_time,
+                effective_at=effective_at,
+                context=context,
+                tactical_evidence=tactical_evidence,
+            )
+        except (FinancialAdapterError, OSError, TypeError, ValueError, KeyError):
+            return unavailable_financial_projection(
+                instrument_id, "financial_evidence_invalid"
+            )
+    try:
+        payload = verify_financial_projection(projection)
+        if payload.get("instrument_id") != str(instrument_id):
+            raise FinancialAdapterError("financial projection identity mismatch")
+        return payload
+    except (FinancialAdapterError, TypeError, ValueError):
+        return unavailable_financial_projection(
+            instrument_id, "financial_evidence_invalid"
+        )
+
+
+def _build_financial_projection_from_evidence(
+    instrument_id: str,
+    *,
+    storage_root: Path | None,
+    decision_time: str | None,
+    effective_at: str | None,
+    context: object | None,
+    tactical_evidence: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Adapt #699's persisted statement/EC artifacts to the domain adapter."""
+    from datetime import datetime, timezone
+    from etf_cockpit.core.paths import ROOT
+
+    root = Path(storage_root or ROOT).resolve()
+    identity = _read_json_artifact(root, "identity.json", instrument_id=instrument_id) or {}
+    cutoff = str(decision_time or identity.get("known_at") or "").strip()
+    if not cutoff:
+        return unavailable_financial_projection(instrument_id, "financial_decision_time_unavailable")
+    decision = datetime.fromisoformat(cutoff.replace("Z", "+00:00"))
+    cutoff = decision.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    effective = str(effective_at or identity.get("effective_at") or cutoff).strip()
+    requested_period = str(effective_at or identity.get("effective_at") or "").strip() or None
+    if len(effective) == 10:
+        effective = f"{effective}T00:00:00Z"
+
+    if context is None:
+        context = read_instrument_context(
+            root,
+            instrument_id,
+            effective_at=effective,
+            decision_time=cutoff,
+        )
+    if str(getattr(context, "sector", "") or "").casefold() != "financials":
+        return unavailable_financial_projection(instrument_id, "financial_classification_unavailable")
+
+    frame = _read_financial_statement_frame(root, instrument_id=instrument_id)
+    rows = _financial_rows_for_instrument(frame, instrument_id, decision)
+    facts = _financial_metric_facts(rows, context, cutoff, target_period=requested_period)
+    if not facts:
+        return unavailable_financial_projection(instrument_id, "financial_statement_evidence_unavailable")
+
+    registry = AdapterRegistry([financial_adapter_definition()])
+    result = build_financial_institution_projection(
+        context,
+        tuple(facts),
+        registry=registry,
+        decision_time=cutoff,
+        shocks={},
+    )
+    ec_payload = _read_json_artifact(root, "ec_facts.json", instrument_id=instrument_id) or {}
+    ec_revision = _select_ec_revision(ec_payload, instrument_id, decision)
+    ec_facts = ec_revision.get("facts", {}) if isinstance(ec_revision, Mapping) else {}
+    from etf_cockpit.analysis.sparebank import analyse_sparebank_ec
+    route_evidence = {
+        "facts": ec_facts,
+        "instrument_id": instrument_id,
+        "jurisdiction": getattr(context, "operating_country", None)
+        or getattr(context, "regulatory_country", None)
+        or getattr(context, "legal_domicile", None),
+        "legal_form": getattr(context, "issuer_type", None) or ec_revision.get("legal_form"),
+        "instrument_subtype": getattr(context, "instrument_subtype", None) or ec_revision.get("instrument_subtype"),
+        "capital_class": getattr(context, "share_class_id", None) or ec_revision.get("capital_class"),
+        "known_at": ec_revision.get("known_at") or next(
+            (value.get("known_at") for value in ec_facts.values() if isinstance(value, Mapping) and value.get("known_at")),
+            ec_payload.get("known_at"),
+        ),
+        "effective_at": ec_revision.get("effective_at") or next(
+            (value.get("effective_at") for value in ec_facts.values() if isinstance(value, Mapping) and value.get("effective_at")),
+            ec_payload.get("effective_at"),
+        ),
+        "source_url": ec_revision.get("source_url") or ec_revision.get("source") or ec_payload.get("source_url"),
+        "source_id": ec_revision.get("source_id") or ec_payload.get("source_id"),
+        "sha256": ec_revision.get("sha256") or ec_payload.get("sha256"),
+        "filing_version": ec_revision.get("filing_version") or ec_payload.get("filing_version"),
+        "revision_id": ec_revision.get("revision_id") or ec_payload.get("revision_id"),
+    }
+    valuation_assumptions = ec_revision.get("valuation_assumptions")
+    valuation_assumptions = valuation_assumptions if isinstance(valuation_assumptions, Mapping) else None
+    valuation_currency = str(
+        (valuation_assumptions or {}).get("currency")
+        or (valuation_assumptions or {}).get("output_currency")
+        or ""
+    ).strip().upper()
+    price_path = root / "data" / "clean" / "prices.parquet"
+    decision_price = None
+    decision_price_projection: dict[str, object] = {
+        "status": "unavailable",
+        "reason_code": "decision_price_store_missing",
+        "execution_allowed": False,
+    }
+    if price_path.is_file():
+        try:
+            from etf_cockpit.data.duckdb_store import load_prices
+
+            prices = load_prices(price_path)
+            if not {"instrument_id", "date", "close", "currency"}.issubset(prices.columns):
+                decision_price_projection["reason_code"] = "decision_price_store_invalid"
+            else:
+                eligible = prices.loc[prices["instrument_id"].astype(str).eq(str(instrument_id))].copy()
+                eligible["_price_date"] = pd.to_datetime(eligible["date"], errors="coerce", utc=True)
+                eligible = eligible.loc[eligible["_price_date"].notna() & eligible["_price_date"].le(pd.Timestamp(decision))]
+                if eligible.empty:
+                    decision_price_projection["reason_code"] = "decision_price_unavailable_as_of_decision"
+                else:
+                    price_row = eligible.sort_values("_price_date", kind="stable").iloc[-1]
+                    close = pd.to_numeric(pd.Series([price_row["close"]]), errors="coerce").iloc[0]
+                    currency_value = price_row["currency"]
+                    price_currency = "" if pd.isna(currency_value) else str(currency_value).strip().upper()
+                    if pd.isna(close) or not math.isfinite(float(close)) or float(close) <= 0:
+                        decision_price_projection["reason_code"] = "decision_price_invalid"
+                    elif not valuation_currency or not price_currency:
+                        decision_price_projection["reason_code"] = "decision_price_currency_unavailable"
+                    elif price_currency != valuation_currency:
+                        decision_price_projection.update(
+                            reason_code="decision_price_currency_mismatch",
+                            date=price_row["_price_date"].date().isoformat(),
+                            currency=price_currency,
+                            valuation_currency=valuation_currency,
+                        )
+                    else:
+                        decision_price = float(close)
+                        decision_price_projection = {
+                            "status": "available",
+                            "price": decision_price,
+                            "date": price_row["_price_date"].date().isoformat(),
+                            "currency": price_currency,
+                            "valuation_currency": valuation_currency,
+                            "execution_allowed": False,
+                        }
+        except Exception:
+            decision_price_projection["reason_code"] = "decision_price_store_invalid"
+    sparebank_analysis = analyse_sparebank_ec(
+        route_evidence,
+        decision_time=cutoff,
+        price=decision_price,
+        bank_metrics=result.metrics,
+        bank_economics_evidence=(ec_revision.get("bank_economics_evidence") if isinstance(ec_revision, Mapping) else None),
+        events=(ec_revision.get("events", ()) if isinstance(ec_revision, Mapping) else ()),
+        valuation_assumptions=valuation_assumptions,
+        tactical_evidence=tactical_evidence,
+    )
+    if sparebank_analysis.routing.applies or (isinstance(ec_facts, Mapping) and ec_facts):
+        from dataclasses import asdict, replace
+        identity_payload = dict(result.share_class_identity) if isinstance(result.share_class_identity, Mapping) else {}
+        identity_payload["facts"] = {
+            name: {
+                "available": bool(value.get("available")) if isinstance(value, Mapping) else False,
+                "value": value.get("value") if isinstance(value, Mapping) else None,
+                "unit": value.get("unit") if isinstance(value, Mapping) else None,
+                "period": value.get("period") if isinstance(value, Mapping) else None,
+                "known_at": value.get("known_at") if isinstance(value, Mapping) else None,
+                "source": value.get("source_url") if isinstance(value, Mapping) else None,
+            }
+            for name, value in ec_facts.items()
+            if isinstance(ec_facts, Mapping)
+        }
+        sparebank_payload = asdict(sparebank_analysis)
+        sparebank_payload["decision_price"] = decision_price_projection
+        source_vintage_hash = _source_vintage_hash(route_evidence.get("sha256")) or "unavailable"
+        sparebank_payload["source_vintage_hash"] = source_vintage_hash
+        scorecard = sparebank_analysis.scorecard
+        composite = getattr(scorecard, "composite_10", None)
+        if isinstance(composite, Real) and not isinstance(composite, bool) and math.isfinite(float(composite)):
+            try:
+                from etf_cockpit.data.score_history import append_score_run
+
+                append_score_run(
+                    pd.DataFrame(
+                        [
+                            {
+                                "instrument_id": str(instrument_id),
+                                "final_combined_score_10": float(composite),
+                                "price_as_of_date": decision_price_projection.get("date", ""),
+                                "data_as_of_date": decision.date().isoformat(),
+                                "formula_version": getattr(scorecard, "formula_version", "unavailable"),
+                                "formula_checksum": getattr(scorecard, "formula_checksum", "unavailable"),
+                                "source_vintage_hash": source_vintage_hash,
+                            }
+                        ]
+                    ),
+                    f"sparebank:{instrument_id}:{cutoff}",
+                    cutoff,
+                    root=root,
+                )
+                history_status = {"status": "written", "reason": None}
+            except Exception:
+                history_status = {"status": "not_written", "reason": "score_history_write_failed"}
+        else:
+            reason = decision_price_projection.get("reason_code")
+            if not reason:
+                reason = "scorecard_blocked" if getattr(scorecard, "status", None) == "BLOCKED" else "scorecard_composite_unavailable"
+            history_status = {"status": "not_written", "reason": reason}
+        sparebank_payload["history_status"] = history_status
+        identity_payload["sparebank_analysis"] = sparebank_payload
+        identity_payload["native_suite"] = sparebank_analysis.contract if sparebank_analysis.routing.applies else None
+        identity_payload["claim_status"] = sparebank_analysis.claim_state.claim_status
+        identity_payload["generic_valuation_status"] = sparebank_analysis.generic_valuation_status
+        identity_payload["generic_valuation_reason"] = sparebank_analysis.generic_valuation_reason
+        if sparebank_analysis.generic_valuation_status == "inapplicable":
+            result = replace(
+                result,
+                limitations=tuple(sorted({*result.limitations, "generic_bank_valuation:inapplicable_sparebank_claim"})),
+            )
+        result = replace(result, share_class_identity=identity_payload)
+        from etf_cockpit.analysis.financial_sector_adapters import _hash as _financial_hash
+        payload = result.__dict__.copy()
+        payload.pop("result_hash", None)
+        result = replace(result, result_hash=_financial_hash(payload))
+    return verify_financial_projection(result)
+
+
+def _evidence_roots(root: Path, instrument_id: str = "") -> tuple[Path, ...]:
+    canonical = root / "evidence" / "norway"
+    roots: list[Path] = [root]
+    if instrument_id:
+        prefix = f"{str(instrument_id).strip().upper()}-"
+        try:
+            roots.extend(sorted((item for item in canonical.iterdir() if item.is_dir() and item.name.upper().startswith(prefix)), key=lambda item: item.name))
+        except OSError:
+            pass
+    roots.extend((canonical, root / "evidence"))
+    return tuple(dict.fromkeys(roots))
+
+
+def _select_ec_revision(payload: Mapping[str, object], instrument_id: str, decision: object) -> Mapping[str, object]:
+    """Return the complete identity-bound EC revision envelope at the cutoff."""
+
+    cutoff = pd.Timestamp(decision)
+    revisions = payload.get("revisions")
+    eligible: list[Mapping[str, object]] = []
+    if isinstance(revisions, list):
+        for revision in revisions:
+            if not isinstance(revision, Mapping) or str(revision.get("instrument_id") or "") != str(instrument_id):
+                continue
+            known = pd.to_datetime(revision.get("known_at"), errors="coerce", utc=True)
+            if pd.isna(known) or known > cutoff:
+                continue
+            facts = revision.get("facts")
+            if isinstance(facts, Mapping):
+                eligible.append(revision)
+    if eligible:
+        selected = max(eligible, key=lambda item: pd.Timestamp(item.get("known_at")))
+        return selected
+    # Backward-compatible read of a single pre-revision artifact, still bound
+    # to the requested instrument and point-in-time cutoff.
+    if str(payload.get("instrument_id") or instrument_id) != str(instrument_id):
+        return {}
+    known = pd.to_datetime(payload.get("known_at"), errors="coerce", utc=True)
+    facts = payload.get("facts")
+    return payload if isinstance(facts, Mapping) and not pd.isna(known) and known <= cutoff else {}
+
+
+def _read_json_artifact(root: Path, name: str, *, instrument_id: str = "") -> dict[str, object] | None:
+    import json
+
+    candidates = tuple(item / name for item in _evidence_roots(root, instrument_id))
+    for candidate in candidates:
+        try:
+            value = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def _read_financial_statement_frame(root: Path, *, instrument_id: str = "") -> pd.DataFrame:
+    candidates = tuple(item / "statement_facts.parquet" for item in _evidence_roots(root, instrument_id)) + (
+        root / "data" / "clean" / "statement_facts.parquet",
+        root / "normalised_statements.parquet",
+    )
+    for candidate in candidates:
+        try:
+            if candidate.exists():
+                frame = pd.read_parquet(candidate)
+                if isinstance(frame, pd.DataFrame) and not frame.empty:
+                    return frame
+        except (OSError, ValueError, ImportError):
+            continue
+    return pd.DataFrame()
+
+
+def _financial_rows_for_instrument(
+    frame: pd.DataFrame, instrument_id: str, decision: object
+) -> list[dict[str, object]]:
+    if frame.empty or "instrument_id" not in frame.columns:
+        return []
+    scoped = frame.loc[frame["instrument_id"].astype(str).eq(str(instrument_id))]
+    cutoff = pd.Timestamp(decision)
+    rows: list[dict[str, object]] = []
+    for row in scoped.to_dict("records"):
+        known_raw = row.get("known_at") or row.get("available_at") or row.get("filed")
+        effective_raw = row.get("effective_at") or row.get("end") or row.get("instant")
+        known = pd.to_datetime(known_raw, errors="coerce", utc=True)
+        effective = pd.to_datetime(effective_raw, errors="coerce", utc=True)
+        if pd.isna(known) or known > cutoff or pd.isna(effective) or effective > cutoff:
+            continue
+        row["_known"] = known
+        row["_effective"] = effective
+        rows.append(row)
+    return rows

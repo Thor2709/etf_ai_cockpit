@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from etf_cockpit.application.screening import ScreenFilter, ScreenQuery, bind_query, run_screen
+from etf_cockpit.analysis.screening import ScreenFilter, ScreenQuery, bind_query, run_screen
 from etf_cockpit.data import screen_store
 from etf_cockpit.data.screen_store import export_screen_csv, list_saved_screens, load_screen, save_screen
 

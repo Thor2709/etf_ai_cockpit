@@ -11,8 +11,8 @@ import pytest
 import etf_cockpit.audit.thesis_diary as thesis_diary
 from etf_cockpit.audit.local_llm import LocalAuditCommentary, save_local_audit_commentary
 from etf_cockpit.app.pages.chatgpt_audit import _thesis_diary_text
-from etf_cockpit.app.selectors.instrument_detail import _backtest_panel, _thesis_diary_panel
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.instrument_detail_view import _backtest_panel, _thesis_diary_panel
+from etf_cockpit.application.snapshot_builder import build_snapshot
 from etf_cockpit.audit.thesis_diary import (
     ThesisDiaryConflictError,
     ThesisDiaryIntegrityError,

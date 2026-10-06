@@ -6,7 +6,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.pages._lab_style import lab_page, metric_card, panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.features.feature_store import LocalFeatureStore
+from etf_cockpit.application.feature_service import LocalFeatureStore
 
 
 @lab_page("feature_catalogue")

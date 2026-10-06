@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isclose, isfinite
+from math import isclose
 from typing import Mapping
+
+from etf_cockpit.core.values import finite_float_or_none as _finite
 
 
 @dataclass(frozen=True)
@@ -149,14 +151,6 @@ def estimate_friction_edge(
         status="available",
         reason="Gross/net edge proxy computed from deterministic score, volatility and configured costs.",
     )
-
-
-def _finite(value: object) -> float | None:
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    return result if isfinite(result) else None
 
 
 def _unavailable(scenario: str, reason: str) -> FrictionEdgeResult:

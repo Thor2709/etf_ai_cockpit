@@ -28,9 +28,9 @@ delivery workflow: `python scripts/classify_validation.py --help` and
 
 | Path | Role |
 | --- | --- |
-| `src/etf_cockpit/app/` | Flet presentation: `router.py` (pages, workspaces, shell), `pages/`, `components/`, `theme.py`. Pages render view models and never calculate. |
-| `src/etf_cockpit/application/` | Typed local application API, contracts and UI facade between pages and services. |
-| `src/etf_cockpit/core/`, `data/`, `parsers/` | Configuration, atomic I/O, jobs, stores, providers, backups and parsers. |
+| `src/etf_cockpit/app/` | Flet presentation: `router.py` (binds the `core/navigation.py` routes to page renderers; shell), `pages/`, `components/`, `theme.py`. Pages render view models and never calculate. |
+| `src/etf_cockpit/application/` | Typed local application API and contracts, orchestration services (`snapshot_builder.py`, `*_service.py`), `*_views.py` read models and the `ui_facade.py` presentation facade between pages and domain code. |
+| `src/etf_cockpit/core/`, `data/`, `parsers/` | Configuration, route registry (`core/navigation.py`), atomic I/O, jobs, stores, providers, backups and parsers. |
 | `src/etf_cockpit/features/`, `signals/`, `analysis/`, `portfolio/`, `backtest/`, `validation/` | Domain calculations: one canonical path per financial calculation. |
 | `src/etf_cockpit/models/`, `audit/`, `chatgpt_bridge/` | Optional forecast adapters and advisory audit tooling. |
 | `src/etf_cockpit/governance/`, `security/`, `operations/`, `trading/` | Authority, policy gates, credentials, paper ledger and disabled broker contracts. |
@@ -43,13 +43,16 @@ delivery workflow: `python scripts/classify_validation.py --help` and
 ## Add or change a page
 
 1. Add the page module under `src/etf_cockpit/app/pages/` and register its
-   route in `PAGES` and its workspace in `WORKSPACE_GROUPS` in `router.py`.
+   route title in `ROUTE_TITLES` and its workspace in `WORKSPACE_GROUPS` in
+   `core/navigation.py`, and its renderer in `_PAGE_RENDERERS` in `app/router.py`
+   (`PAGES` is built from them and the router refuses a mismatch).
 2. Add a short help sentence for the route to `PAGE_HELP` in
    `pages/help_glossary.py`; the command palette and navigation read the same
    registries.
 3. Read data through the application API or UI facade, not from stores or
-   domain modules directly; `tests/test_architecture_boundaries.py` guards the
-   boundary. Show missing data as `Unavailable` or `N/A`, never zero.
+   domain modules directly; `tests/test_architecture_boundaries.py` and
+   `tests/test_import_layering.py` guard the boundary. Show missing data as
+   `Unavailable` or `N/A`, never zero.
 4. Update [Workspaces and navigation](../user/WORKSPACES.md); the documentation
    test fails when a registered route is missing there.
 5. Run the UI sweep from the delivery workflow: `tests/test_button_contracts.py`,

@@ -12,7 +12,7 @@ from etf_cockpit.app.state import AppState
 from etf_cockpit.application.scope_facade import capability_scope_view
 from etf_cockpit.application.ui_facade import supply_chain_intake_report
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.governance.product_scope import load_authority_matrix, load_feature_registry, load_product_governance
+from etf_cockpit.application.scope_facade import load_authority_matrix, load_feature_registry, load_product_governance
 
 
 panel = page_panel("system-map")

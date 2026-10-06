@@ -15,12 +15,12 @@ import tempfile
 import zipfile
 from urllib.parse import urlparse
 
-from etf_cockpit.core.atomic_io import atomic_write_json
+from etf_cockpit.core.atomic_io import atomic_write_json, sha256_file as _sha256_file
 from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowTransitionError, publication_scope
 from etf_cockpit.data.bulk_cache import BulkCacheError, ContentAddressedCache
 from etf_cockpit.data.instrument_identity import CanonicalIdentity
-from etf_cockpit.data.sec_edgar_bulk import SecEdgarBulkError, _open_zipfile, _validate_zip_container
+from etf_cockpit.data.sec_edgar_bulk import SecEdgarBulkError, _open_zipfile, _validate_zip_container, _is_reparse
 from etf_cockpit.parsers.contracts import ParseWarning, RawDocument
 from etf_cockpit.parsers.sec_submissions import PARSER_NAME, PARSER_VERSION, SubmissionRecord, parse_submissions
 
@@ -984,33 +984,6 @@ def _validated_filing_provenance(document: RawDocument, path: Path, digest: str,
     return _local_document(path, "sec_filing")
 
 
-def _validated_aux_provenance(document: RawDocument | None, path: Path, digest: str, name: str, cik: str, *, source_is_bulk: bool = False) -> RawDocument:
-    if document is None:
-        return _local_document(path, "sec_submissions")
-    if not isinstance(document.path, Path) or document.path.absolute() != path.absolute() or document.sha256 != digest:
-        raise ValueError("submissions history provenance path/checksum does not match supplied bytes")
-    if not isinstance(document.retrieved_at, datetime) or document.retrieved_at.tzinfo is None or document.retrieved_at.utcoffset() is None:
-        raise ValueError("submissions history provenance timestamp must be timezone-aware")
-    if type(document.http_status) is not int or document.http_status not in {200, 206, 304}:
-        raise ValueError("submissions history provenance HTTP status is invalid")
-    parsed = urlparse(document.source_url)
-    if document.provider_id == "sec_edgar":
-        if document.document_type != "sec_submissions" or document.media_type != "application/json":
-            raise ValueError("submissions history provenance document type or media type is invalid")
-        expected_url = SUBMISSIONS_BULK_URL if source_is_bulk else f"https://data.sec.gov/submissions/{name}"
-        if document.source_url != expected_url:
-            raise ValueError("submissions history provenance URL is not the advertised SEC source")
-        # A detached RawDocument is never an archive-bound provider proof.
-        return _local_document(path, "sec_submissions")
-    elif document.provider_id != "sec_local_import":
-        raise ValueError("submissions history provenance provider is invalid")
-    elif document.document_type != "sec_submissions" or document.media_type != "application/json" or parsed.scheme != "file":
-        raise ValueError("local submissions history provenance type or media is invalid")
-    if parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise ValueError("submissions history provenance URL contains unexpected components")
-    return document
-
-
 def _document_from_metadata(path: Path, item: dict[str, object]) -> RawDocument:
     """Re-bind a local input to its previously admitted acquisition lineage."""
 
@@ -1024,19 +997,6 @@ def _document_from_metadata(path: Path, item: dict[str, object]) -> RawDocument:
         str(item["document_type"]),
         str(item["media_type"]),
         int(item["http_status"]),
-    )
-
-
-def _rebind_document_path(document: RawDocument, path: Path) -> RawDocument:
-    return RawDocument(
-        path,
-        document.source_url,
-        document.retrieved_at,
-        document.sha256,
-        document.provider_id,
-        document.document_type,
-        document.media_type,
-        document.http_status,
     )
 
 
@@ -1085,13 +1045,6 @@ def _validate_namespace(path: Path, root: Path) -> None:
         current = current.parent
 
 
-def _is_reparse(path: Path) -> bool:
-    try:
-        return bool(int(getattr(path.lstat(), "st_file_attributes", 0)) & 0x400)
-    except OSError:
-        return False
-
-
 def _validate_cache_targets(cache: ContentAddressedCache, source_id: str | None) -> None:
     targets = [
         cache.root, cache.base, cache.objects, cache.manifests, cache.staging,
@@ -1109,14 +1062,6 @@ def _validate_cache_targets(cache: ContentAddressedCache, source_id: str | None)
         _validate_namespace(target, cache.root)
         if target.exists() and (target.is_symlink() or _is_reparse(target)):
             raise BulkCacheError("SEC submissions cache target is a link")
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _capture_input(source: Path, destination: Path, *, max_bytes: int) -> str:

@@ -381,9 +381,9 @@ def _contract_error(model_class: type[PolicyClassT], payload: Mapping[str, Any],
             if any(not entry.get(key) for key in ("name", "category", "routes", "data_dependencies", "issue_ids", "tests", "export_contracts", "package_gate")):
                 return f"feature registry entry {index} has empty required governance metadata"
         try:
-            from etf_cockpit.app.router import PAGES
+            from etf_cockpit.core.navigation import ROUTE_TITLES
 
-            expected_routes = set(PAGES)
+            expected_routes = {route for route, _title in ROUTE_TITLES}
             actual_routes = {route for item in policy.entries for route in item.canonical_routes}
             if actual_routes != expected_routes:
                 return "feature registry routes must exactly match production routes"
@@ -605,9 +605,9 @@ def authority_matrix_coverage_errors(policy: AuthorityMatrixPolicy | None = None
         return ("authority matrix is unavailable",)
     expected: set[str] = set()
     try:
-        from etf_cockpit.app.router import PAGES
+        from etf_cockpit.core.navigation import ROUTE_TITLES
 
-        expected.update(f"route:{route}" for route in PAGES)
+        expected.update(f"route:{route}" for route, _title in ROUTE_TITLES)
         feature_payload = yaml.safe_load(FEATURE_REGISTRY_PATH.read_text(encoding="utf-8")) or {}
         expected.update(
             f"dataset:{dependency}"

@@ -26,7 +26,6 @@ from etf_cockpit.models.ensemble import effective_ensemble_weights
 
 
 FORMULA_PATH = CONFIG_DIR / "score_engine_v3.yaml"
-FORMULA_VERSION = "score-engine-v3.0.0"
 _BLOCKED_FRESHNESS = {"stale", "stale_block", "unavailable", "missing", "unknown", "not_checked"}
 _MODEL_AUTHORITIES = {"model", "model_advisory"}
 

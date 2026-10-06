@@ -8,7 +8,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 from etf_cockpit.app.pages import portfolio as portfolio_page
-from etf_cockpit.application import ui_facade
+from etf_cockpit.application import portfolio_views, ui_facade
 from etf_cockpit.data.event_calendar import (
     EVENT_COLUMNS,
     CalendarEvent,
@@ -309,18 +309,18 @@ def test_calendar_ui_currency_selection_reloads_projection(monkeypatch) -> None:
 
 def test_facade_calendar_loader_uses_snapshot_cutoff_without_creating_missing_store(tmp_path, monkeypatch) -> None:
     database = tmp_path / "missing.sqlite"
-    monkeypatch.setattr(ui_facade, "select_holdings_view", lambda holdings, _view: holdings)
+    monkeypatch.setattr(portfolio_views, "select_holdings_view", lambda holdings, _view: holdings)
     monkeypatch.setattr(
-        ui_facade,
+        portfolio_views,
         "load_calendar_events",
         lambda: pd.DataFrame(columns=EVENT_COLUMNS),
     )
     monkeypatch.setattr(
-        ui_facade,
+        portfolio_views,
         "storage_layout",
         lambda _root: SimpleNamespace(transactional_path=database),
     )
-    monkeypatch.setattr(ui_facade, "load_fx_rates", lambda: pd.DataFrame())
+    monkeypatch.setattr(portfolio_views, "load_fx_rates", lambda: pd.DataFrame())
 
     snapshot = SimpleNamespace(
         holdings=pd.DataFrame([{"instrument_id": "STOCK", "quantity": "10", "asset_type": "stock"}])

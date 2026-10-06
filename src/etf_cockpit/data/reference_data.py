@@ -12,6 +12,7 @@ import pandas as pd
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR, SNAPSHOTS_DIR
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.types import DatasetMetadata
+from etf_cockpit.data.import_pipeline import _snapshot_existing_clean, _source_path
 from etf_cockpit.data.provenance import calendar_staleness_status, metadata_from_frame, sha256_dataframe
 from etf_cockpit.data.providers import ProviderResult
 
@@ -480,23 +481,6 @@ def _store_raw_reference_import(result: ProviderResult, frame: pd.DataFrame, raw
     raw_path = raw_dir / f"{timestamp}_{checksum[:12]}_{dataset_type}.parquet"
     frame.to_parquet(raw_path, index=False)
     return raw_path
-
-
-def _snapshot_existing_clean(clean_path: Path, snapshots_dir: Path, timestamp: str) -> Path | None:
-    if not clean_path.exists():
-        return None
-    snapshot_path = snapshots_dir / f"{timestamp}_previous_{clean_path.name}"
-    shutil.copy2(clean_path, snapshot_path)
-    return snapshot_path
-
-
-def _source_path(metadata: DatasetMetadata | None) -> Path | None:
-    if metadata is None:
-        return None
-    try:
-        return Path(metadata.provider_or_manual_source)
-    except Exception:
-        return None
 
 
 def _metadata_to_json(metadata: DatasetMetadata) -> dict[str, object]:

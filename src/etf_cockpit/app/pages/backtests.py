@@ -10,7 +10,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.pages._lab_style import lab_page, metric_card, panel, section_header
 from etf_cockpit.app.components.charts import equity_drawdown_chart, history_chart
 from etf_cockpit.app.components.tables import accessible_table
-from etf_cockpit.app.selectors.instrument_detail import (
+from etf_cockpit.application.instrument_detail_view import (
     _latest_operational_row,
     _operational_evidence_panel,
 )

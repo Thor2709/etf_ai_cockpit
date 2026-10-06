@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -18,11 +17,10 @@ from etf_cockpit.app.components import kit
 from etf_cockpit.app.components.cards import evidence_chip, section_header
 from etf_cockpit.app.pages._glass import glass
 from etf_cockpit.app.state import ActivityUnavailableError, AppState
-from etf_cockpit.app.selectors.instrument_detail import normalise_feature_driver_frame
+from etf_cockpit.application.instrument_detail_view import normalise_feature_driver_frame
 from etf_cockpit.application.digest import contradiction_digest_records
-from etf_cockpit.core.atomic_io import atomic_write_bytes
-from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR, STATEMENT_FACTS_PATH
-from etf_cockpit.core.workflow import PublicationScopeFactory, WorkflowTransitionError, publication_scope
+from etf_cockpit.core.paths import CLEAN_DIR, STATEMENT_FACTS_PATH
+from etf_cockpit.core.workflow import WorkflowTransitionError
 from etf_cockpit.application.ui_facade import (
     BENCHMARK_ATTRIBUTION_PATH,
     CORRELATION_CLUSTERS_PATH,
@@ -71,7 +69,8 @@ from etf_cockpit.application.ui_facade import (
     sort_news_items,
     source_policy_rows,
 )
-from etf_cockpit.plugins.builtins import plugin_status_rows
+from etf_cockpit.application.diagnostics_views import plugin_status_rows
+from etf_cockpit.application.evidence_documents import _retain_picker_source
 
 SFDR_RECORDS_PATH = CLEAN_DIR / "sfdr_records.parquet"
 
@@ -136,29 +135,6 @@ def _materialise_picker_file(selected: object, suffix: str) -> Iterator[Path | N
         temporary_path.unlink(missing_ok=True)
 
 
-def _retain_picker_source(
-    path: Path | None,
-    subdirectory: str,
-    *,
-    publish_guard: PublicationScopeFactory | None = None,
-) -> Path | None:
-    """Retain uploaded bytes under the raw evidence directory before parsing."""
-
-    if path is None or not path.is_file():
-        return None
-    payload = path.read_bytes()
-    digest = hashlib.sha256(payload).hexdigest()
-    suffix = path.suffix.lower() or ".pdf"
-    destination = RAW_DIR / subdirectory / f"{digest}{suffix}"
-    with publication_scope(publish_guard):
-        atomic_write_bytes(
-            destination,
-            payload,
-            validator=lambda candidate: hashlib.sha256(candidate.read_bytes()).hexdigest() == digest,
-        )
-    return destination
-
-
 def _latest_document_row(registry: pd.DataFrame, document_type: str) -> pd.Series | None:
     """Return the newest registered version for a document type."""
 
@@ -173,19 +149,6 @@ def _document_checksum(row: pd.Series | None) -> str:
         return ""
     value = row.get("sha256")
     return "" if value is None or pd.isna(value) else str(value)
-
-
-def _start_disclosure_import(state: AppState, result: ft.Control, label: str) -> str | None:
-    """Expose a durable running state before a disclosure parser begins."""
-
-    try:
-        action_id = state.begin_activity(label, "Reading selected document").action_id
-    except WorkflowTransitionError:
-        owner = state.current_activity.label if state.current_activity is not None else "Another action"
-        result.value = f"{label} blocked: {owner} is already running."
-        return None
-    result.value = f"{label} in progress: reading selected document..."
-    return action_id
 
 
 def _refresh_activity_shell(page: ft.Page, state: AppState) -> None:
@@ -1108,7 +1071,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         )
 
     async def import_kid(_event: ft.ControlEvent) -> None:
-        from etf_cockpit.parsers.priips_kid import parse_priips_kid
+        from etf_cockpit.application.document_parsers import parse_priips_kid
 
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["pdf"], with_data=True)
         if not files:
@@ -1150,7 +1113,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         _run_picker_activity(page, state, result, "Import PRIIPs KID", "Parsing PRIIPs KID", files[0], ".pdf", action)
 
     async def import_methodology(_event: ft.ControlEvent) -> None:
-        from etf_cockpit.parsers.index_methodology import parse_index_methodology
+        from etf_cockpit.application.document_parsers import parse_index_methodology
 
         files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["pdf"], with_data=True)
         if not files:
@@ -1159,7 +1122,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
             return
 
         def action(path: Path, action_id: str) -> str:
-            from etf_cockpit.parsers.index_methodology import apply_methodology_holdings_assessment
+            from etf_cockpit.application.document_parsers import apply_methodology_holdings_assessment
 
             state.update_activity("Parsing index methodology", "Parsing the selected methodology PDF.", completed_units=1, total_units=3, expected_action_id=action_id)
             retained_path = _retain_picker_source(
@@ -1205,7 +1168,7 @@ def _disclosure_import_controls(page: ft.Page, state: AppState) -> ft.Control:
         )
 
     async def import_sfdr(_event: ft.ControlEvent) -> None:
-        from etf_cockpit.parsers.sfdr import parse_sfdr
+        from etf_cockpit.application.document_parsers import parse_sfdr
         import importlib
         persist_sfdr_with_document = importlib.import_module("etf_cockpit.data.parsed_disclosures").persist_sfdr_with_document
 

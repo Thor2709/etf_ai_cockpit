@@ -17,7 +17,7 @@ from etf_cockpit.audit.local_llm import (
 import etf_cockpit.audit.thesis_diary as thesis_diary
 from etf_cockpit.audit.thesis_diary import ThesisDiaryStore, build_thesis_entry, reproduce_thesis_from_packet
 from etf_cockpit.core.atomic_io import atomic_write_group as real_atomic_write_group
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 class _Response:

@@ -6,14 +6,15 @@ from datetime import date, datetime
 import hashlib
 import json
 from math import isfinite, tanh
-from numbers import Integral
 from pathlib import Path
 import re
 from typing import Iterable, Literal
 
 import pandas as pd
 
-from etf_cockpit.application.benchmark_reference import (
+from etf_cockpit.data.trust_artifacts import _strict_nullable_revision_array
+from etf_cockpit.core.pandas_values import bool_like_or_none as _bool_like, stripped_text_or_none as _noneable_str
+from etf_cockpit.portfolio.benchmark_reference import (
     adjusted_price_binding_for_reference,
     validate_benchmark_reference,
 )
@@ -52,7 +53,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     BenchmarkReferenceError,
     CanonicalBenchmarkRegistry,
 )
-from etf_cockpit.signals.research_states import (
+from etf_cockpit.core.research_states import (
     ALLOWED_EVIDENCE_SOURCE_IDS,
     AnalysisStatus,
     AuthorityDecision,
@@ -1213,18 +1214,6 @@ def simple_scoreboard_frame(
     return frame
 
 
-def _strict_nullable_revision_array(values: list[object]) -> pd.arrays.IntegerArray:
-    normalised: list[int | None] = []
-    for value in values:
-        if value is None or pd.isna(value):
-            normalised.append(None)
-            continue
-        if isinstance(value, bool) or not isinstance(value, Integral):
-            raise ValueError("cash_curve_revision must be a nullable integer")
-        normalised.append(int(value))
-    return pd.array(normalised, dtype="Int64")
-
-
 def write_simple_scoreboard(scores: list[SimpleInstrumentScore], path: Path | None = None) -> Path:
     output_path = path or DERIVED_DIR / "scoreboard.parquet"
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1404,35 +1393,26 @@ def build_universe_simple_scores(
                 isin=identity.isin,
                 analysis_tier=str(_config_extra(identity, "analysis_tier", "primary")),
                 data_policy=str(_config_extra(identity, "data_policy", "yfinance_now_multi_provider_later")),
-                final_score_10=evidence_score,
-                decision=decision,
+                **_shared_score_fields(
+                    components=components,
+                    evidence_score=evidence_score,
+                    quality_score=quality_score,
+                    risk_friction=risk_friction,
+                    decision=decision,
+                    final_label=final_label,
+                    final_action=final_action,
+                    trust_info=trust_info,
+                    calibration_info=calibration_info,
+                    regime=regime,
+                    maturity=maturity,
+                    validity=validity,
+                    template_labels=template_labels,
+                ),
                 one_line_reason=_summary_reason(decision, evidence_score, components, quality_score=quality_score, risk_friction_score=risk_friction),
-                components=components,
                 warnings=[*signal.blocked_by, *signal.warnings],
-                evidence_score_10=evidence_score,
-                evidence_quality_10=quality_score,
-                risk_friction_10=risk_friction,
-                final_label=final_label,
-                final_action=final_action,
-                model_authority_label=_model_authority_label(components),
                 model_versions_used=dict(getattr(signal, "model_versions_used", {}) or {}),
-                backtest_trust_label=str(trust_info["label"]),
-                backtest_trust_score_10=_safe_float(trust_info.get("score")),
-                model_calibration_label=str(calibration_info["label"]),
-                model_calibration_score_10=_safe_float(calibration_info.get("score")),
-                market_regime_label=str(regime.get("regime_label") or "Regime unavailable"),
-                market_regime_score_10=_safe_float(regime.get("regime_score_10")),
                 portfolio_fit_label=str(fit_info["label"]),
                 portfolio_fit_score_10=_safe_float(fit_info.get("score")),
-                strategy_templates=template_labels,
-                strategy_template_label=", ".join(template_labels),
-                strategy_template_descriptions=template_description(template_labels),
-                evidence_sample_days=maturity["sample_days"],
-                evidence_maturity_state=str(maturity["state"]),
-                evidence_maturity_label=str(maturity["label"]),
-                too_good_to_be_true_warning=str(maturity["too_good_to_be_true_warning"]),
-                evidence_sanity_warnings=list(maturity["warnings"]),
-                evidence_warning_count=int(maturity["warning_count"]),
                 benchmark_id=_noneable_str(attribution_info.get("benchmark_id")),
                 benchmark_period_days=_safe_int(attribution_info.get("period_days")),
                 benchmark_return=_safe_float(attribution_info.get("benchmark_return")),
@@ -1474,11 +1454,6 @@ def build_universe_simple_scores(
                 theme_attribution_status=str(attribution_info.get("theme_attribution_status", "N/A")),
                 theme_sample_size=_safe_int(attribution_info.get("theme_sample_size")),
                 sector_theme_warning=_sector_theme_warning(identity),
-                backtest_validity=str(validity["backtest_validity"]),
-                model_contamination_risk=str(validity["model_contamination_risk"]),
-                model_authority_reason=str(validity["model_authority_reason"]),
-                calibration_required=bool(validity["calibration_required"]),
-                forecast_status=_forecast_status_for_components(components),
                 **_friction_edge_fields(
                     evidence_score,
                     components,
@@ -1676,42 +1651,28 @@ def build_candidate_simple_scores(
                 isin=_noneable_str(row.get("isin")),
                 analysis_tier=str(row.get("analysis_tier") or "secondary"),
                 data_policy=str(row.get("data_policy") or "yfinance_only"),
-                final_score_10=evidence_score,
-                decision=decision,
+                **_shared_score_fields(
+                    components=components,
+                    evidence_score=evidence_score,
+                    quality_score=quality_score,
+                    risk_friction=risk_friction,
+                    decision=decision,
+                    final_label=final_label,
+                    final_action=final_action,
+                    trust_info=trust_info,
+                    calibration_info=calibration_info,
+                    regime=regime,
+                    maturity=maturity,
+                    validity=validity,
+                    template_labels=template_labels,
+                ),
                 one_line_reason=_summary_reason(decision, evidence_score, components, flags=blocked, quality_score=quality_score, risk_friction_score=risk_friction),
-                components=components,
                 warnings=blocked,
-                evidence_score_10=evidence_score,
-                evidence_quality_10=quality_score,
-                risk_friction_10=risk_friction,
-                final_label=final_label,
-                final_action=final_action,
-                model_authority_label=_model_authority_label(components),
                 model_versions_used=_forecast_versions_for_instrument(forecasts, instrument_id),
-                backtest_trust_label=str(trust_info["label"]),
-                backtest_trust_score_10=_safe_float(trust_info.get("score")),
-                model_calibration_label=str(calibration_info["label"]),
-                model_calibration_score_10=_safe_float(calibration_info.get("score")),
-                market_regime_label=str(regime.get("regime_label") or "Regime unavailable"),
-                market_regime_score_10=_safe_float(regime.get("regime_score_10")),
                 portfolio_fit_label="Candidate portfolio fit pending: not in clean portfolio price panel.",
                 portfolio_fit_score_10=None,
-                strategy_templates=template_labels,
-                strategy_template_label=", ".join(template_labels),
-                strategy_template_descriptions=template_description(template_labels),
-                evidence_sample_days=maturity["sample_days"],
-                evidence_maturity_state=str(maturity["state"]),
-                evidence_maturity_label=str(maturity["label"]),
-                too_good_to_be_true_warning=str(maturity["too_good_to_be_true_warning"]),
-                evidence_sanity_warnings=list(maturity["warnings"]),
-                evidence_warning_count=int(maturity["warning_count"]),
                 benchmark_attribution_label="Benchmark attribution pending: candidate price history is not yet in the clean yfinance price panel.",
                 sector_theme_warning="Sector/theme concentration pending: candidate metadata is not yet normalised into the configured universe.",
-                backtest_validity=str(validity["backtest_validity"]),
-                model_contamination_risk=str(validity["model_contamination_risk"]),
-                model_authority_reason=str(validity["model_authority_reason"]),
-                calibration_required=bool(validity["calibration_required"]),
-                forecast_status=_forecast_status_for_components(components),
                 **_friction_edge_fields(
                     evidence_score,
                     components,
@@ -1725,11 +1686,10 @@ def build_candidate_simple_scores(
     return [_with_canonical_score(score) for score in output]
 
 
-def load_latest_candidate_report(directory: Path | None = None) -> tuple[pd.DataFrame, Path | None]:
-    directory = REPORTS_DIR if directory is None else directory
+def _read_latest_csv(directory: Path, pattern: str) -> tuple[pd.DataFrame, Path | None]:
     try:
         files = sorted(
-            directory.glob("yfinance_trade_candidate_analysis_*.csv"),
+            directory.glob(pattern),
             key=lambda path: path.stat().st_mtime,
             reverse=True,
         )
@@ -1750,28 +1710,14 @@ def load_latest_candidate_report(directory: Path | None = None) -> tuple[pd.Data
         return pd.DataFrame(), None
 
 
+def load_latest_candidate_report(directory: Path | None = None) -> tuple[pd.DataFrame, Path | None]:
+    directory = REPORTS_DIR if directory is None else directory
+    return _read_latest_csv(directory, "yfinance_trade_candidate_analysis_*.csv")
+
+
 def _latest_candidate_input_frame(directory: Path | None = None) -> pd.DataFrame:
     directory = RAW_DIR / "trade_candidates" if directory is None else directory
-    try:
-        files = sorted(
-            directory.glob("yahoo_trade_candidates_*.csv"),
-            key=lambda path: path.stat().st_mtime,
-            reverse=True,
-        )
-    except OSError:
-        return pd.DataFrame()
-    if not files:
-        return pd.DataFrame()
-    try:
-        frame = pd.read_csv(files[0])
-    except (
-        OSError,
-        UnicodeError,
-        ValueError,
-        pd.errors.EmptyDataError,
-        pd.errors.ParserError,
-    ):
-        return pd.DataFrame()
+    frame, _path = _read_latest_csv(directory, "yahoo_trade_candidates_*.csv")
     if "instrument_id" not in frame or "yahoo_symbol" not in frame:
         return pd.DataFrame()
     return frame
@@ -2256,11 +2202,6 @@ def build_priips_kid_cost_evidence(record: object, *, as_of_date: date | None = 
     )
 
 
-# Compatibility-friendly aliases for evidence-ledger/import callers.
-build_kid_cost_evidence = build_priips_kid_cost_evidence
-priips_kid_cost_component = build_priips_kid_cost_evidence
-
-
 def _candidate_liquidity_component(row: pd.Series) -> SimpleScoreComponent:
     avg_turnover = _safe_float(row.get("median_turnover_60d_eur"))
     spread_proxy = _safe_float(row.get("high_low_spread_proxy_20"))
@@ -2506,12 +2447,57 @@ def _model_backtest_validity(
     }
 
 
-def _backtest_trust_label() -> str:
-    return "Backtest trust pending"
-
-
 def _component_score_map(components: list[SimpleScoreComponent]) -> dict[str, float | None]:
     return {component.key: component.score_10 for component in components}
+
+
+def _shared_score_fields(
+    *,
+    components: list[SimpleScoreComponent],
+    evidence_score: float | None,
+    quality_score: float | None,
+    risk_friction: float | None,
+    decision: str,
+    final_label: str,
+    final_action: str,
+    trust_info: dict[str, object],
+    calibration_info: dict[str, object],
+    regime: dict[str, object],
+    maturity: dict[str, object],
+    validity: dict[str, object],
+    template_labels: list[str],
+) -> dict[str, object]:
+    return {
+        "final_score_10": evidence_score,
+        "decision": decision,
+        "components": components,
+        "evidence_score_10": evidence_score,
+        "evidence_quality_10": quality_score,
+        "risk_friction_10": risk_friction,
+        "final_label": final_label,
+        "final_action": final_action,
+        "model_authority_label": _model_authority_label(components),
+        "backtest_trust_label": str(trust_info["label"]),
+        "backtest_trust_score_10": _safe_float(trust_info.get("score")),
+        "model_calibration_label": str(calibration_info["label"]),
+        "model_calibration_score_10": _safe_float(calibration_info.get("score")),
+        "market_regime_label": str(regime.get("regime_label") or "Regime unavailable"),
+        "market_regime_score_10": _safe_float(regime.get("regime_score_10")),
+        "strategy_templates": template_labels,
+        "strategy_template_label": ", ".join(template_labels),
+        "strategy_template_descriptions": template_description(template_labels),
+        "evidence_sample_days": maturity["sample_days"],
+        "evidence_maturity_state": str(maturity["state"]),
+        "evidence_maturity_label": str(maturity["label"]),
+        "too_good_to_be_true_warning": str(maturity["too_good_to_be_true_warning"]),
+        "evidence_sanity_warnings": list(maturity["warnings"]),
+        "evidence_warning_count": int(maturity["warning_count"]),
+        "backtest_validity": str(validity["backtest_validity"]),
+        "model_contamination_risk": str(validity["model_contamination_risk"]),
+        "model_authority_reason": str(validity["model_authority_reason"]),
+        "calibration_required": bool(validity["calibration_required"]),
+        "forecast_status": _forecast_status_for_components(components),
+    }
 
 
 def _friction_edge_fields(
@@ -3537,13 +3523,6 @@ def _safe_int(value: object) -> int | None:
     return None if number is None else int(number)
 
 
-def _noneable_str(value: object) -> str | None:
-    if value is None or pd.isna(value):
-        return None
-    text = str(value).strip()
-    return text or None
-
-
 def _clamp(value: float) -> float:
     return max(-1.0, min(1.0, float(value)))
 
@@ -3590,24 +3569,6 @@ def _fmt_bool(value: object) -> str:
 def _fmt_number(value: object) -> str:
     number = _safe_float(value)
     return "n/a" if number is None else f"{number:.2f}"
-
-
-def _bool_like(value: object) -> bool | None:
-    if value is None or not pd.api.types.is_scalar(value):
-        return None
-    try:
-        if bool(pd.isna(value)):
-            return None
-    except (TypeError, ValueError):
-        return None
-    if isinstance(value, bool):
-        return value
-    text = str(value).strip().lower()
-    if text in {"true", "1", "yes", "y"}:
-        return True
-    if text in {"false", "0", "no", "n"}:
-        return False
-    return None
 
 
 def _split_flags(value: object) -> list[str]:

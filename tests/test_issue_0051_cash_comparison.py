@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.app.pages.comparison import _comparison_table
-from etf_cockpit.app.selectors import instrument_detail as instrument_detail_selector
+from etf_cockpit.application import instrument_detail_view as instrument_detail_selector
 from etf_cockpit.data import trust_artifacts
 from etf_cockpit.data import macro_warehouse as macro_warehouse_module
 from etf_cockpit.data.macro_warehouse import (
@@ -31,7 +31,7 @@ from etf_cockpit.features.cash_comparison import (
     validate_cash_comparison_result,
     year_fraction,
 )
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 from etf_cockpit.signals.simple_scores import (
     build_simple_instrument_scores,
     simple_scoreboard_frame,
@@ -44,7 +44,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     PeerSetDefinition,
     declare_reference_portfolios,
 )
-from etf_cockpit.application.benchmark_reference import resolve_canonical_reference
+from etf_cockpit.portfolio.benchmark_reference import resolve_canonical_reference
 
 
 _SNAPSHOT_TEMPLATE = None

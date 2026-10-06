@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict
 
-from etf_cockpit.application.contracts import EventBlockPolicy
+from etf_cockpit.core.event_policy import EventBlockPolicy
 
 from etf_cockpit.data.event_calendar import (
     EVENT_CLEAN_PATH, events_available_as_of,

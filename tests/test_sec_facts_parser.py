@@ -154,14 +154,15 @@ def test_statement_fact_and_inventory_writes_merge_prior_ciks_without_duplicates
 
 def test_sec_import_does_not_attribute_unresolved_cik_to_selected_etf(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion_workflows as filing_ingestion_workflows
 
     payload_path = tmp_path / "facts.json"
     payload_path.write_text(
         json.dumps({"cik": 3, "facts": {"us-gaap": {"Assets": {"units": {"USD": [{"val": 3, "end": "2024-12-31"}]}}}}}),
         encoding="utf-8",
     )
-    monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")
-    monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "filings_statements.parquet")
+    monkeypatch.setattr(filing_ingestion_workflows, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")
+    monkeypatch.setattr(filing_ingestion_workflows, "FILINGS_STATEMENTS_PATH", tmp_path / "filings_statements.parquet")
     state = state_module.AppState.__new__(state_module.AppState)
     state.selected_etf = "SELECTED_ETF"
     state.snapshot = SimpleNamespace(config=SimpleNamespace(universe=SimpleNamespace(etfs=[])))
@@ -180,15 +181,17 @@ def test_sec_import_does_not_attribute_unresolved_cik_to_selected_etf(tmp_path: 
 
 def test_sec_import_resolves_known_cik_from_identity_store(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion_workflows as filing_ingestion_workflows
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
     import pandas as pd
 
     payload_path = tmp_path / "facts.json"
     payload_path.write_text(json.dumps({"cik": 789019, "facts": {"us-gaap": {"Assets": {"units": {"USD": [{"val": 3, "end": "2024-12-31"}]}}}}}), encoding="utf-8")
     identity_path = tmp_path / "instrument_identity.parquet"
     pd.DataFrame([{"instrument_id": "MSFT", "cik": "789019"}]).to_parquet(identity_path, index=False)
-    monkeypatch.setattr(state_module, "IDENTITY_PATH", identity_path)
-    monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")
-    monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "filings_statements.parquet")
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(filing_ingestion_workflows, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")
+    monkeypatch.setattr(filing_ingestion_workflows, "FILINGS_STATEMENTS_PATH", tmp_path / "filings_statements.parquet")
     state = state_module.AppState.__new__(state_module.AppState)
     state.selected_etf = "SELECTED_ETF"
     state.last_message = "Ready"
@@ -199,6 +202,8 @@ def test_sec_import_resolves_known_cik_from_identity_store(tmp_path: Path, monke
 
 def test_sec_import_rejects_mismatched_supplied_instrument_id(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion_workflows as filing_ingestion_workflows
+    import etf_cockpit.application.filing_ingestion as filing_ingestion
     import pandas as pd
 
     payload_path = tmp_path / "facts.json"
@@ -207,9 +212,9 @@ def test_sec_import_rejects_mismatched_supplied_instrument_id(tmp_path: Path, mo
     pd.DataFrame([{"instrument_id": "MSFT", "cik": "789019"}]).to_parquet(identity_path, index=False)
     facts_path = tmp_path / "statement_facts.parquet"
     inventory_path = tmp_path / "filings_statements.parquet"
-    monkeypatch.setattr(state_module, "IDENTITY_PATH", identity_path)
-    monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", facts_path)
-    monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", inventory_path)
+    monkeypatch.setattr(filing_ingestion, "IDENTITY_PATH", identity_path)
+    monkeypatch.setattr(filing_ingestion_workflows, "STATEMENT_FACTS_PATH", facts_path)
+    monkeypatch.setattr(filing_ingestion_workflows, "FILINGS_STATEMENTS_PATH", inventory_path)
     state = state_module.AppState.__new__(state_module.AppState)
     state.last_message = "Ready"
 
@@ -312,12 +317,13 @@ def test_statement_store_migrates_legacy_rows_to_schema_version(tmp_path: Path) 
 
 def test_sec_import_rolls_back_when_atomic_evidence_publish_fails(tmp_path: Path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
+    import etf_cockpit.application.filing_ingestion_workflows as filing_ingestion_workflows
 
     payload_path = tmp_path / "facts.json"
     payload_path.write_text(json.dumps({"cik": 4, "facts": {"us-gaap": {"Assets": {"units": {"USD": [{"val": 4}]}}}}}), encoding="utf-8")
-    monkeypatch.setattr(state_module, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")
-    monkeypatch.setattr(state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "filings_statements.parquet")
-    monkeypatch.setattr(state_module, "write_statement_evidence", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("injected atomic evidence failure")))
+    monkeypatch.setattr(filing_ingestion_workflows, "STATEMENT_FACTS_PATH", tmp_path / "statement_facts.parquet")
+    monkeypatch.setattr(filing_ingestion_workflows, "FILINGS_STATEMENTS_PATH", tmp_path / "filings_statements.parquet")
+    monkeypatch.setattr(filing_ingestion_workflows, "write_statement_evidence", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("injected atomic evidence failure")))
     state = state_module.AppState.__new__(state_module.AppState)
     state.last_message = "Ready"
 

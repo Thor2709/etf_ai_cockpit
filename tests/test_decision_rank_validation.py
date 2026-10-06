@@ -17,12 +17,12 @@ from etf_cockpit.analysis.decision.rank_validation import (
     route_consumer_rank,
     select_challenger,
 )
-import etf_cockpit.application.ui_facade as ui_facade
+import etf_cockpit.application.decision_views as decision_views
 from etf_cockpit.application.ui_facade import (
     load_opportunity_assessment,
     load_score_metric_history_projection,
-    route_decision_rank_rows,
 )
+from etf_cockpit.application.decision_views import route_decision_rank_rows
 from etf_cockpit.portfolio.costs import COST_MODEL_ID
 
 
@@ -530,7 +530,7 @@ def test_cutover_routes_facade_consumers_and_preserves_v3_replay(tmp_path, monke
     history["instrument_id"] = "ACME"
     history["raw_metric_value"] = 1.0
     history["normalised_score_10"] = 8.0
-    monkeypatch.setattr(ui_facade, "LOG_DIR", tmp_path)
+    monkeypatch.setattr(decision_views, "LOG_DIR", tmp_path)
     missing_rank_evidence = load_score_metric_history_projection(
         "ACME",
         frame=history,

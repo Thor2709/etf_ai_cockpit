@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+from etf_cockpit.core.values import positive_int_or_none as _positive_int
 from etf_cockpit.portfolio.top_n_selection import SelectionRun
 
 
@@ -192,12 +193,6 @@ def _utility_eligible(row: dict[str, object]) -> bool:
         and not row.get("constraint_reasons")
         and row.get("asset_family") != "unavailable"
     )
-
-
-def _positive_int(value: object) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        return None
-    return value
 
 
 def _positive_number(value: object) -> float | None:

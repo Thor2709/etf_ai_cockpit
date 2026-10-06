@@ -8,10 +8,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from etf_cockpit.app import state as app_state_module
+import etf_cockpit.application.scoreboard_publication as scoreboard_publication
 from etf_cockpit.app.components.simple_scores import _score_history_panel
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core import session_log
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 SECRET = "sk-" + "live-should-never-surface"  # split to avoid tripping the secret scan
 
@@ -42,9 +43,9 @@ def _isolate_scoreboard_write(monkeypatch, tmp_path: Path, *, trust_writer) -> t
     monkeypatch.setattr(session_log, "SESSION_LOG_PATH", log_path)
     scoreboard_path = tmp_path / "simple_scores.parquet"
     scores = [SimpleNamespace(display_id="AAA", final_action="HOLD", execution_allowed=False)]
-    monkeypatch.setattr(app_state_module, "load_latest_candidate_report", lambda: (None, None))
+    monkeypatch.setattr(scoreboard_publication, "load_latest_candidate_report", lambda: (None, None))
     monkeypatch.setattr(
-        app_state_module,
+        scoreboard_publication,
         "context_from_snapshot",
         lambda *_args, **_kwargs: SimpleNamespace(
             benchmark_data_id="BENCH",
@@ -54,15 +55,15 @@ def _isolate_scoreboard_write(monkeypatch, tmp_path: Path, *, trust_writer) -> t
             peer_member_ids=(),
         ),
     )
-    monkeypatch.setattr(app_state_module, "build_market_regime", lambda *_args, **_kwargs: object())
-    monkeypatch.setattr(app_state_module, "write_market_regime", lambda _regime: None)
-    monkeypatch.setattr(app_state_module, "load_forecast_history", lambda: None)
-    monkeypatch.setattr(app_state_module, "evaluate_forecast_calibration", lambda *_args: object())
-    monkeypatch.setattr(app_state_module, "write_forecast_calibration", lambda _calibration: None)
-    monkeypatch.setattr(app_state_module, "build_simple_instrument_scores", lambda *_args, **_kwargs: scores)
-    monkeypatch.setattr(app_state_module, "write_simple_scoreboard", lambda _scores: scoreboard_path)
-    monkeypatch.setattr(app_state_module, "simple_scoreboard_frame", lambda _scores: None)
-    monkeypatch.setattr(app_state_module, "write_trust_artifacts_for_scores", trust_writer)
+    monkeypatch.setattr(scoreboard_publication, "build_market_regime", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(scoreboard_publication, "write_market_regime", lambda _regime: None)
+    monkeypatch.setattr(scoreboard_publication, "load_forecast_history", lambda: None)
+    monkeypatch.setattr(scoreboard_publication, "evaluate_forecast_calibration", lambda *_args: object())
+    monkeypatch.setattr(scoreboard_publication, "write_forecast_calibration", lambda _calibration: None)
+    monkeypatch.setattr(scoreboard_publication, "build_simple_instrument_scores", lambda *_args, **_kwargs: scores)
+    monkeypatch.setattr(scoreboard_publication, "write_simple_scoreboard", lambda _scores: scoreboard_path)
+    monkeypatch.setattr(scoreboard_publication, "simple_scoreboard_frame", lambda _scores: None)
+    monkeypatch.setattr(scoreboard_publication, "write_trust_artifacts_for_scores", trust_writer)
     snapshot = _snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     return state, scoreboard_path, scores, log_path

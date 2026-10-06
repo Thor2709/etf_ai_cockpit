@@ -90,7 +90,7 @@ def test_health_exposes_hybrid_storage_versions_sizes_integrity_and_compaction(t
 
 def test_data_health_ui_names_cache_provenance_and_failure_columns() -> None:
     from etf_cockpit.app.pages.data_health import data_health_page
-    from etf_cockpit.services import build_snapshot
+    from etf_cockpit.application.snapshot_builder import build_snapshot
     from etf_cockpit.app.state import AppState
 
     snapshot = build_snapshot()
@@ -112,7 +112,7 @@ def test_data_health_export_failure_is_visible_and_refreshes_page(monkeypatch) -
     from etf_cockpit.app import theme
     from etf_cockpit.app.pages import data_health
     from etf_cockpit.app.state import AppState
-    from etf_cockpit.services import build_snapshot
+    from etf_cockpit.application.snapshot_builder import build_snapshot
 
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)

@@ -619,7 +619,7 @@ def test_release_workflow_is_matrixed_isolated_and_read_only() -> None:
     assert "ubuntu-latest" in workflow
     assert "fail-fast: false" in workflow
     assert "timeout-minutes: 50" in workflow
-    assert "timeout-minutes: 30" in preflight
+    assert "timeout-minutes: 55" in preflight
     assert "Configure isolated user profile" in workflow
     assert "Pin reviewed canonical generation base" in workflow
     assert "PR_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}" in workflow
@@ -690,6 +690,22 @@ def test_failure_digest_reports_failed_gate_checks_and_passes_cleanly(tmp_path: 
     assert "CHECK FAILED pinned_environment: missing locked packages: pdfplumber" in digest
     assert "Schema" not in digest
     assert failure_digest.render([tmp_path / "junit-parallel.xml"], tmp_path).endswith("OK: no failing tests or checks")
+
+
+def test_print_failure_digest_renders_a_digest_for_a_failing_junit_file(tmp_path: Path, capsys) -> None:
+    (tmp_path / "junit.xml").write_text(
+        '<testsuites><testsuite name="pytest"><testcase classname="tests.test_x" name="test_a" time="0.1">'
+        '<failure message="AssertionError">E   AssertionError: boom\n</failure></testcase></testsuite></testsuites>',
+        encoding="utf-8",
+    )
+
+    release_gate._print_failure_digest(tmp_path, tmp_path)
+
+    captured = capsys.readouterr()
+    assert "unavailable" not in captured.err
+    assert "--- failure digest ---" in captured.out
+    assert "TESTS 1 | failed 1" in captured.out
+    assert "AssertionError: boom" in captured.out
 
 
 def test_shard_phase_without_tests_is_recorded_empty_but_an_empty_full_collection_fails(tmp_path: Path, monkeypatch) -> None:

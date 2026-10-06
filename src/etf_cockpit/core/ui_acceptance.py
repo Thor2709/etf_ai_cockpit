@@ -224,10 +224,6 @@ def load_ui_acceptance_contracts(path: Path | None = None) -> tuple[UIAcceptance
     return tuple(contracts)
 
 
-def declared_keys(contracts: Iterable[UIAcceptance] | None = None) -> set[str]:
-    return {item.key for item in contracts or load_ui_acceptance_contracts()}
-
-
 def validate_ui_acceptance_inventory(
     contracts: Iterable[UIAcceptance],
     registered_routes: Iterable[str],
@@ -299,12 +295,13 @@ def build_main_ui_action_inventory(
     metadata in isolation without importing the Flet application shell.
     """
 
-    from etf_cockpit.app.command_palette import all_commands
-    from etf_cockpit.app.router import PAGES, WORKSPACE_GROUPS
+    from etf_cockpit.core.navigation import ROUTE_TITLES, WORKSPACE_GROUPS, all_commands
+
+    pages = {route: (title, None) for route, title in ROUTE_TITLES}
 
     controls = tuple(contracts or load_ui_acceptance_contracts())
     source_root = Path(__file__).resolve().parents[1] / "app"
-    validate_ui_acceptance_inventory(controls, PAGES, source_root=source_root)
+    validate_ui_acceptance_inventory(controls, pages, source_root=source_root)
     discovered = discover_actionable_controls(source_root)
     actionable_controls = tuple(
         item
@@ -313,8 +310,8 @@ def build_main_ui_action_inventory(
     )
     return generate_ui_action_inventory(
         actionable_controls,
-        PAGES,
-        all_commands(PAGES, WORKSPACE_GROUPS),
+        pages,
+        all_commands(pages, WORKSPACE_GROUPS),
     )
 
 
@@ -518,9 +515,6 @@ def serialise_ui_action_inventory(inventory: Iterable[UIAction]) -> str:
     )
 
 
-serialize_ui_action_inventory = serialise_ui_action_inventory
-
-
 def _route_slug(route: str) -> str:
     return route.strip("/").replace("/", "-") or "home"
 
@@ -675,12 +669,6 @@ def discover_actionable_controls(source_root: Path) -> dict[str, DiscoveredContr
         )
         for key, values in found.items()
     }
-
-
-def discover_actionable_control_keys(source_root: Path) -> dict[str, tuple[str, ...]]:
-    """Compatibility projection of actionable keys to source locations."""
-
-    return {key: item.locations for key, item in discover_actionable_controls(source_root).items()}
 
 
 def _record_discovered(

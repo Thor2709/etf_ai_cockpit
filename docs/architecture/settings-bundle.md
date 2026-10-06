@@ -1,7 +1,9 @@
 # Versioned settings bundle
 
 `src/etf_cockpit/application/settings.py` is the sole application boundary for
-the ISSUE-0037 settings centre. Presentation code stages a complete
+the ISSUE-0037 settings centre; it re-exports the shared implementation in
+`src/etf_cockpit/core/settings_bundle.py`, which lower layers (versioning,
+backup/restore, audit export) import directly. Presentation code stages a complete
 `settings_bundle.v1`, requests a before/after preview, and saves only the exact
 previewed revision. It does not calculate policy effects or write individual
 configuration files.

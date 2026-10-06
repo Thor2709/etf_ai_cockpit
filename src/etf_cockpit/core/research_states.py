@@ -1,4 +1,4 @@
-"""Typed public research state and internal analytical-intent contracts.
+"""Typed public research state and internal analytical-intent contracts (shared vocabulary).
 
 The historical signal pipeline still has callers that pass the v1 ``action``
 strings.  Those strings are deliberately kept at compatibility boundaries;

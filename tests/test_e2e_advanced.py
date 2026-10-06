@@ -70,8 +70,9 @@ def test_source_dashboard_refresh_analyse_score_and_export_journey(tmp_path: Pat
     from etf_cockpit.core.config import ProviderSection
     from etf_cockpit.data import import_pipeline, trade_candidate_analysis
     from etf_cockpit.data.providers import ProviderResult
-    from etf_cockpit.services import build_snapshot
-    import etf_cockpit.services as services_module
+    from etf_cockpit.application.data_service import DataService
+    from etf_cockpit.application.snapshot_builder import build_snapshot
+    import etf_cockpit.application.data_service as data_service
 
     events: list[str] = []
     snapshot = build_snapshot()
@@ -128,13 +129,13 @@ def test_source_dashboard_refresh_analyse_score_and_export_journey(tmp_path: Pat
         def fetch_etf_holdings(self, _isins):
             return ProviderResult("yfinance", "etf_holdings", "unavailable", "No synthetic holdings fixture.")
 
-    monkeypatch.setattr(services_module, "YFinanceProvider", OfflineYFinance)
+    monkeypatch.setattr(data_service, "YFinanceProvider", OfflineYFinance)
     monkeypatch.setattr(trade_candidate_analysis, "YFinanceProvider", OfflineYFinance)
-    monkeypatch.setattr(services_module.DataService, "_reference_context", lambda _self: {
+    monkeypatch.setattr(DataService, "_reference_context", lambda _self: {
         "known_etfs": [], "isin_to_etf_id": {}, "ticker_to_etf_id": {}
     })
     monkeypatch.setattr(
-        services_module,
+        data_service,
         "commit_price_import",
         lambda result: import_pipeline.commit_price_import(
             result,

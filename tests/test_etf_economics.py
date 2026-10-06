@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.app.pages.instrument_detail import _render_evidence_section, instrument_detail_page
-from etf_cockpit.app.selectors.instrument_detail import build_etf_economics_panel, build_instrument_detail
+from etf_cockpit.application.instrument_detail_view import build_etf_economics_panel, build_instrument_detail
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.config import load_config
 from etf_cockpit.data.etf_economics import (
@@ -32,8 +32,9 @@ from etf_cockpit.data.market_adjustments import (
     apply_total_return_adjustments,
 )
 from etf_cockpit.features.etf_economics import calculate_etf_liquidity
-import etf_cockpit.services as services
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
+from etf_cockpit.core.paths import ETF_FUND_TOTAL_RETURN_PATH
+import etf_cockpit.application.economics_inputs as economics_inputs
 
 
 def _trusted_artifact_digest(path: Path) -> str:
@@ -664,15 +665,15 @@ def test_build_snapshot_loader_outputs_reach_available_instrument_economics(monk
     benchmark = _total_return_series(
         [100.0 + index * 0.08 for index in range(253)], instrument_id="FTSE-ALL-WORLD", start="2020-01-01"
     )
-    monkeypatch.setattr(services, "_trusted_etf_economics_records", lambda: tuple(replace(item, artifact_known_at=effective) for item in EtfEconomicsStore(records).records))
+    monkeypatch.setattr(economics_inputs, "_trusted_etf_economics_records", lambda: tuple(replace(item, artifact_known_at=effective) for item in EtfEconomicsStore(records).records))
     monkeypatch.setattr(
-        services,
+        economics_inputs,
         "load_total_return_evidence",
-        lambda path: fund if path == services.ETF_FUND_TOTAL_RETURN_PATH else benchmark,
+        lambda path: fund if path == ETF_FUND_TOTAL_RETURN_PATH else benchmark,
     )
-    monkeypatch.setattr(services, "load_closure_proxy_policy", _closure_policy)
+    monkeypatch.setattr(economics_inputs, "load_closure_proxy_policy", _closure_policy)
 
-    snapshot = services.build_snapshot()
+    snapshot = build_snapshot()
     model = build_instrument_detail(
         snapshot,
         "VWCE",

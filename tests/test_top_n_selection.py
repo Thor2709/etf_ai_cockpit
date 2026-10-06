@@ -325,7 +325,7 @@ def test_country_sector_slice_with_missing_classification_is_unavailable() -> No
 
 def test_loader_builds_persists_frozen_evidence_and_rejects_stale_context_reuse(tmp_path, monkeypatch) -> None:
     import etf_cockpit.application.bulk_run as bulk_run
-    import etf_cockpit.application.ui_facade as ui_facade
+    import etf_cockpit.application.selection_views as selection_views
 
     instrument_ids = tuple(f"asset-{index}" for index in range(5))
     opportunities = {
@@ -388,17 +388,17 @@ def test_loader_builds_persists_frozen_evidence_and_rejects_stale_context_reuse(
 
     monkeypatch.setattr(bulk_run, "BulkAnalysisService", FakeBulkService)
     monkeypatch.setattr(
-        ui_facade,
+        selection_views,
         "load_fixed_income_screener",
         lambda **_kwargs: fixed_screen,
     )
     monkeypatch.setattr(
-        ui_facade,
+        selection_views,
         "load_opportunity_assessment",
         lambda instrument_id, **_kwargs: asdict(opportunities[instrument_id]),
     )
     monkeypatch.setattr(
-        ui_facade,
+        selection_views,
         "load_classification_projection",
         lambda instrument_id, **_kwargs: {
             "status": "available",
@@ -453,7 +453,7 @@ def test_loader_builds_persists_frozen_evidence_and_rejects_stale_context_reuse(
     assert next(item for item in stored_runs if item.entity_id == earlier["run_id"]).payload["input_hash"] == earlier["input_hash"]
 
     monkeypatch.setattr(
-        ui_facade,
+        selection_views,
         "load_opportunity_assessment",
         lambda instrument_id, **_kwargs: {
             "status": "unavailable",

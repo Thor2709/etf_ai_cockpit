@@ -13,6 +13,8 @@ from typing import Literal, Mapping, Sequence
 
 import pandas as pd
 
+from etf_cockpit.core.pandas_values import clean_text_or_empty as _text
+
 
 _ISIN = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
 _TOLERANCE = 1e-9
@@ -117,10 +119,6 @@ class DirectOverlapReport:
     mapped_weight: float = 0.0
     unknown_weight: float = 0.0
     report_hash: str = ""
-
-
-def overlap_warning() -> str:
-    return "Direct overlap is evidence-only; unresolved holdings are never renormalised away."
 
 
 def calculate_direct_overlap(
@@ -788,12 +786,6 @@ def _consistent_dimension(rows: list[pd.Series], column: str, warnings: list[str
         warnings.append(f"Conflicting {column} values were omitted for {identity}.")
         return None
     return values[0] if values else None
-
-
-def _text(value: object) -> str:
-    if value is None or (not isinstance(value, (str, bytes)) and pd.isna(value)):
-        return ""
-    return str(value).strip()
 
 
 def _missing(

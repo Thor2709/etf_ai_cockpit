@@ -36,7 +36,7 @@ from etf_cockpit.data.peer_cohort_store import (
     build_point_in_time_peer_projection,
     read_peer_cohort_projection,
 )
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 AS_OF = "2024-06-30T00:00:00Z"
@@ -746,7 +746,7 @@ def test_concurrent_distinct_writers_do_not_lose_records(tmp_path: Path) -> None
 def test_facade_and_selector_replay_stored_peer_evidence_read_only(
     tmp_path: Path, monkeypatch
 ) -> None:
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]

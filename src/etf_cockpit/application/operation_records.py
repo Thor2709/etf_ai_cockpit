@@ -1,3 +1,5 @@
+"""Local operation-preview records: build, validate and persist (application; ADR-0002)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, replace

@@ -19,12 +19,12 @@ from etf_cockpit.analysis.cyclical_sector_adapters import (
 )
 from etf_cockpit.analysis.peer_cohorts import AdapterRegistry
 from etf_cockpit.app.pages.instrument_detail import instrument_detail_page
-from etf_cockpit.app.selectors.instrument_detail import build_instrument_detail
+from etf_cockpit.application.instrument_detail_view import build_instrument_detail
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import load_cyclical_projection
 from etf_cockpit.data.classification import ClassificationEvidence, resolve_instrument_context
 from etf_cockpit.data.contracts import SourceAuthority
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 DECISION = "2025-03-01T00:00:00Z"

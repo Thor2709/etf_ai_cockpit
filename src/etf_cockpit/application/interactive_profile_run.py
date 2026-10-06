@@ -25,9 +25,10 @@ from etf_cockpit.application.analysis_depth import (
     ProfileRunUnavailable,
     StageRunner,
 )
+from etf_cockpit.core.values import finite_float_or_none as _finite
 
 if TYPE_CHECKING:
-    from etf_cockpit.services import CockpitSnapshot
+    from etf_cockpit.application.snapshot_builder import CockpitSnapshot
 
 INTERACTIVE_ANALYZER_ID = "interactive-snapshot-stages.v1"
 # Optional stages that read evidence already held by the snapshot. Every other optional stage
@@ -38,14 +39,6 @@ LOCAL_OPTIONAL_STAGES = ("core_asset_facts", "core_costs", "forecast_baseline")
 
 class InteractiveStageError(RuntimeError):
     """A mandatory gate cannot pass; the message is the reason shown for the failed run."""
-
-
-def _finite(value: object) -> float | None:
-    try:
-        number = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _text(value: object) -> str | None:

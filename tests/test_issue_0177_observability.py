@@ -29,6 +29,7 @@ def test_changed_validation_pytest_uses_supplied_report_root(tmp_path: Path, mon
     source_root = tmp_path / "source"
     report_dir = tmp_path / "isolated-evidence" / "latest"
     monkeypatch.setattr(validate_app, "_changed_test_paths", lambda _root: ["tests/test_sample.py"])
+    monkeypatch.setattr(release_gate, "resolve_xdist_workers", lambda: 0)
 
     check = next(
         item

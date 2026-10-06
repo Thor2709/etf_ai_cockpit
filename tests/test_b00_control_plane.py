@@ -923,6 +923,7 @@ def test_validator_modes_compose_existing_release_gate_without_reimplementation(
     packaged = validate_app._checks_for_mode(ROOT, "packaged", {})
     offline = validate_app._checks_for_mode(ROOT, "offline", {})
     monkeypatch.setattr(validate_app, "_changed_test_paths", lambda _root: ["tests/test_sample.py"])
+    monkeypatch.setattr(release_gate, "resolve_xdist_workers", lambda: 0)
     changed = validate_app._checks_for_mode(ROOT, "changed", {})
 
     assert full[0].name == "protected_release_gate"
@@ -932,7 +933,83 @@ def test_validator_modes_compose_existing_release_gate_without_reimplementation(
     smoke = next(check for check in offline if check.name == "source_smoke")
     assert dict(smoke.environment) == {"ETF_COCKPIT_OFFLINE": "1"}
     changed_tests = next(check for check in changed if check.name == "changed_tests")
-    assert changed_tests.timeout_seconds == validate_app.CHANGED_TEST_TIMEOUT_SECONDS == 1200
+    assert changed_tests.timeout_seconds == validate_app.CHANGED_TEST_TIMEOUT_SECONDS == 2700
+
+
+def test_changed_mode_with_xdist_runs_the_release_gate_two_phase_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = ["tests/test_a.py", "tests/test_b.py"]
+    monkeypatch.setattr(validate_app, "_changed_test_paths", lambda _root: paths)
+    monkeypatch.setattr(release_gate, "resolve_xdist_workers", lambda: 3)
+    report_dir = tmp_path / "latest"
+
+    checks = validate_app._checks_for_mode(ROOT, "changed", {}, report_dir=report_dir)
+    names = [check.name for check in checks]
+    parallel = next(check for check in checks if check.name == "changed_tests_parallel")
+    serial = next(check for check in checks if check.name == "changed_tests_serial")
+
+    assert "changed_tests" not in names
+    common = ("-q", "--durations=100", "--durations-min=0.25")
+    assert parallel.command == (
+        sys.executable, "-m", "pytest", "-m", "not serial", "-n", "3", "--dist", "worksteal", *common,
+        f"--junitxml={report_dir / 'junit-affected-parallel.xml'}", *paths,
+    )
+    assert serial.command == (
+        sys.executable, "-m", "pytest", "-m", "serial", *common,
+        f"--junitxml={report_dir / 'junit-affected-serial.xml'}", *paths,
+    )
+    for check in (parallel, serial):
+        assert check.timeout_seconds == validate_app.CHANGED_TEST_TIMEOUT_SECONDS == 2700
+        assert check.no_tests_ok is True
+    # Composed from the release gate's builder, not a copy of its argument lists.
+    gate_parallel, gate_serial = release_gate._full_test_commands(ROOT, report_dir, 3)
+    assert parallel.command[:12] == gate_parallel[:12] and serial.command[:6] == gate_serial[:6]
+
+
+def test_changed_mode_without_xdist_keeps_the_single_serial_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(validate_app, "_changed_test_paths", lambda _root: ["tests/test_a.py"])
+    monkeypatch.setattr(release_gate.importlib.metadata, "version", _raise_not_found)
+    report_dir = tmp_path / "latest"
+
+    assert release_gate.xdist_available() is False
+    assert release_gate.resolve_xdist_workers() == 0
+    checks = validate_app._checks_for_mode(ROOT, "changed", {}, report_dir=report_dir)
+    changed = [check for check in checks if check.name.startswith("changed_tests")]
+
+    assert [check.name for check in changed] == ["changed_tests"]
+    assert changed[0].command == (
+        sys.executable, "-m", "pytest", "-q", "--durations=100", "--durations-min=0.25",
+        f"--junitxml={report_dir / 'junit-affected.xml'}", "tests/test_a.py",
+    )
+    assert changed[0].no_tests_ok is False
+
+
+def _raise_not_found(_name: str) -> str:
+    import importlib.metadata
+
+    raise importlib.metadata.PackageNotFoundError(_name)
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "no_tests_ok", "status"),
+    [(5, True, "passed"), (1, True, "failed"), (5, False, "failed"), (0, True, "passed")],
+)
+def test_exit_code_5_passes_only_for_two_phase_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, exit_code: int, no_tests_ok: bool, status: str
+) -> None:
+    def fake_run(command, **_kwargs):  # type: ignore[no-untyped-def]
+        return subprocess.CompletedProcess(command, exit_code, stdout="out", stderr="")
+
+    monkeypatch.setattr(validate_app.subprocess, "run", fake_run)
+    result = validate_app._run_check(
+        tmp_path, validate_app._Check("changed_tests_serial", ("pytest",), no_tests_ok=no_tests_ok)
+    )
+
+    assert result.status == status
+    assert (result.exit_code == 0) == (status == "passed")
 
 
 def test_package_parity_detects_mismatch(tmp_path: Path) -> None:

@@ -458,16 +458,6 @@ def _evidence_values(values: Mapping[str, object], *names: str) -> list[object]:
     return result
 
 
-def _matching_label(values: Mapping[str, object], wanted: str) -> object | None:
-    for key in ("special_structures", "business_model_tags", "capital_classes"):
-        candidates = values.get(key)
-        if isinstance(candidates, (tuple, list, set)):
-            for candidate in candidates:
-                if _normal(candidate) == _normal(wanted):
-                    return candidate
-    return None
-
-
 def _fact_value(values: Mapping[str, object], name: str) -> object | None:
     item = values.get(name)
     if isinstance(item, Mapping):

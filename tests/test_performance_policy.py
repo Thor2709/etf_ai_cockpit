@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.app.state import AppState
-import etf_cockpit.app.state as state_module
+import etf_cockpit.application.scoreboard_publication as scoreboard_publication
 from etf_cockpit.backtest.engine import BacktestReport
 from etf_cockpit.core.config import (
     AppConfig,
@@ -32,7 +32,7 @@ STARTUP_MODULES = (
     "etf_cockpit.main",
     "etf_cockpit.app.flet_app",
     "etf_cockpit.app.router",
-    "etf_cockpit.services",
+    "etf_cockpit.application.snapshot_builder",
     "etf_cockpit.app.state",
 )
 _STARTUP_IMPORT_ATTEMPTS = 3
@@ -112,6 +112,20 @@ def test_optional_model_imports_remain_lazy_in_startup_and_adapters() -> None:
 
 # Wall-clock budget (startup_cold): CPU contention from parallel workers would distort it.
 @pytest.mark.serial
+def test_shared_value_helpers_do_not_import_pandas() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    result = _run_python(
+        """
+        import sys
+        import etf_cockpit.core.values
+        print(sorted(name for name in ("pandas", "numpy") if name in sys.modules))
+        """,
+        repo_root,
+    )
+    _assert_subprocess_ok(result)
+    assert result.stdout.strip() == "[]"
+
+
 def test_startup_import_timing_stays_within_versioned_budget(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     timing_path = tmp_path / "startup-timings.jsonl"
@@ -233,7 +247,7 @@ def test_classification_invalidation_removes_stale_signals_and_selected_score(mo
             }
         return {"status": "available", "invalidation_token": "same-token", "invalidated_score_keys": ()}
 
-    monkeypatch.setattr(state_module, "classification_score_state", fake_score_state)
+    monkeypatch.setattr(scoreboard_publication, "classification_score_state", fake_score_state)
     stale = SimpleNamespace(etf_id="A", supporting_metrics={"classification_invalidation_hash": "old-token"})
     unrelated = SimpleNamespace(etf_id="B", supporting_metrics={"classification_invalidation_hash": "same-token"})
     state = AppState(

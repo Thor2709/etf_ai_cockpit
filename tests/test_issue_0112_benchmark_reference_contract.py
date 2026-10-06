@@ -28,7 +28,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     resolve_vwce_anchor,
 )
 import etf_cockpit.portfolio.benchmark_reference_contract as contract
-from etf_cockpit.application.benchmark_reference import resolve_canonical_reference
+from etf_cockpit.portfolio.benchmark_reference import resolve_canonical_reference
 from etf_cockpit.application.validation import build_validation_preview
 from etf_cockpit.portfolio.attribution import build_performance_attribution
 

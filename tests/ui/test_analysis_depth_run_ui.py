@@ -22,7 +22,7 @@ from etf_cockpit.application.analysis_depth import (
     certify_and_record_benchmark,
     load_analysis_depth_profiles,
 )
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 def _walk(control):

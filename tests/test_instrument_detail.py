@@ -11,7 +11,7 @@ import pytest
 
 from etf_cockpit.app.pages.etf_detail import etf_detail_page
 from etf_cockpit.app.pages.instrument_detail import render_news_context_panel
-from etf_cockpit.app.selectors.instrument_detail import build_instrument_detail
+from etf_cockpit.application.instrument_detail_view import build_instrument_detail
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import (
     load_classification_projection,
@@ -30,7 +30,7 @@ from etf_cockpit.data.instrument_identity import IdentityClaim
 from etf_cockpit.backtest.engine import _canonical_calendar_contract
 from etf_cockpit.backtest.engine import _instrument_operational_evidence
 from etf_cockpit.data.market_calendar import ClockContext, MarketCalendarService
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 from etf_cockpit.signals.feature_drivers import claim_binding_hash, deterministic_driver_claim
 from etf_cockpit.signals.simple_scores import load_simple_scoreboard
 
@@ -227,7 +227,7 @@ def test_instrument_detail_scoreboard_reader_hides_classification_invalidated_sc
     tmp_path,
     monkeypatch,
 ) -> None:
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     before = classification_score_state(tmp_path, "A")
     scoreboard_path = tmp_path / "scoreboard.parquet"
@@ -271,7 +271,7 @@ def test_instrument_detail_scoreboard_reader_hides_classification_invalidated_sc
         lambda path: load_simple_scoreboard(path, root=tmp_path),
     )
 
-    row = selector._scoreboard_row("A")
+    row = selector._scoreboard_lookup("A")[0]
     panel = selector._score_panel(
         None,
         row,
@@ -288,7 +288,7 @@ def test_instrument_detail_scoreboard_reader_hides_classification_invalidated_sc
 
 
 def test_instrument_detail_exposes_identity_lineage_from_application_facade(monkeypatch, snapshot) -> None:
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     instrument_id = snapshot.config.universe.enabled_ids[0]
     monkeypatch.setattr(
@@ -477,7 +477,7 @@ def test_classification_projection_loader_and_instrument_selector_expose_context
     assert projection["sector_adapter_route"]["allowed"] is True
     assert projection["execution_allowed"] is False
 
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     instrument_id = snapshot.config.universe.enabled_ids[0]
     monkeypatch.setattr(
@@ -494,7 +494,7 @@ def test_classification_projection_loader_and_instrument_selector_expose_context
 
 def test_instrument_detail_driver_groups_are_ordered_structured_rows(tmp_path, monkeypatch, snapshot) -> None:
     from etf_cockpit.app.pages.instrument_detail import instrument_detail_page
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     instrument_id = snapshot.config.universe.enabled_ids[0]
     monkeypatch.setattr(selector, "FEATURE_DRIVERS_PATH", tmp_path / "feature_drivers.parquet")
@@ -557,7 +557,7 @@ def test_factor_risk_nested_groups_render_as_ordered_labelled_rows() -> None:
 
 
 def test_instrument_detail_driver_panel_normalises_legacy_store_columns(tmp_path, monkeypatch, snapshot) -> None:
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     instrument_id = snapshot.config.universe.enabled_ids[0]
     monkeypatch.setattr(selector, "FEATURE_DRIVERS_PATH", tmp_path / "feature_drivers.parquet")
@@ -589,7 +589,7 @@ def test_instrument_detail_has_required_sections_for_primary_and_sparebanken(sna
 
 
 def test_operational_evidence_rejects_aggregate_and_contradictory_identity_rows() -> None:
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     valid = {
         "instrument_id": "VWCE",
@@ -643,7 +643,7 @@ def test_operational_evidence_rejects_aggregate_and_contradictory_identity_rows(
 
 
 def test_operational_evidence_malformed_available_rows_fail_closed() -> None:
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     valid = {
         "instrument_id": "VWCE",
@@ -786,7 +786,7 @@ def test_operational_evidence_malformed_available_rows_fail_closed() -> None:
 def test_operational_evidence_roundtrips_point_in_time_calendar_closure(
     tmp_path, monkeypatch
 ) -> None:
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
     from etf_cockpit.application import market_clock
 
     ledger = tmp_path / "market_calendar_corrections.yaml"
@@ -865,7 +865,7 @@ corrections:
 
 
 def test_paper_trade_source_is_not_conflated_with_simulated_fill() -> None:
-    from etf_cockpit.app.selectors import instrument_detail as selector
+    from etf_cockpit.application import instrument_detail_view as selector
 
     panel = selector._paper_trade_panel(
         "VWCE",
@@ -939,7 +939,7 @@ def test_missing_optional_stores_are_unavailable_not_crash(snapshot) -> None:
 
 
 def test_instrument_detail_etf_disclosure_panel_shows_inventory_and_holdings_quality(snapshot) -> None:
-    from etf_cockpit.app.selectors.instrument_detail import build_etf_disclosure_panel
+    from etf_cockpit.application.instrument_detail_view import build_etf_disclosure_panel
 
     model = build_instrument_detail(
         snapshot,
@@ -972,7 +972,7 @@ def test_instrument_detail_etf_disclosure_panel_shows_inventory_and_holdings_qua
 
 
 def test_instrument_detail_disclosure_panel_is_honest_when_inventory_is_missing(snapshot) -> None:
-    from etf_cockpit.app.selectors.instrument_detail import build_etf_disclosure_panel
+    from etf_cockpit.application.instrument_detail_view import build_etf_disclosure_panel
 
     model = build_instrument_detail(snapshot, snapshot.config.universe.enabled_ids[0], document_registry=pd.DataFrame(), holdings=pd.DataFrame())
     panel = build_etf_disclosure_panel(model)
@@ -982,7 +982,7 @@ def test_instrument_detail_disclosure_panel_is_honest_when_inventory_is_missing(
 
 
 def test_instrument_detail_disclosure_panel_surfaces_parsed_kid_and_methodology_provenance(snapshot) -> None:
-    from etf_cockpit.app.selectors.instrument_detail import build_etf_disclosure_panel
+    from etf_cockpit.application.instrument_detail_view import build_etf_disclosure_panel
 
     instrument_id = snapshot.config.universe.enabled_ids[0]
     model = build_instrument_detail(
@@ -1167,7 +1167,7 @@ def test_instrument_detail_news_is_sorted_by_published_then_ingested_time(snapsh
 
 
 def test_instrument_detail_surfaces_cost_edge_fields_and_unavailable_state(tmp_path, monkeypatch, snapshot) -> None:
-    import etf_cockpit.app.selectors.instrument_detail as selector
+    import etf_cockpit.application.instrument_detail_view as selector
 
     instrument_id = snapshot.config.universe.enabled_ids[0]
     scoreboard_path = tmp_path / "scoreboard.parquet"
@@ -1202,7 +1202,7 @@ def test_detail_summary_stays_outside_research_scroll(monkeypatch):
     from types import SimpleNamespace
     import flet as ft
     from etf_cockpit.app.pages import instrument_detail as detail
-    from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel
+    from etf_cockpit.application.instrument_detail_view import InstrumentDetailViewModel
 
     model = InstrumentDetailViewModel("ACME", "Acme", "available", {"instrument_id": "ACME", "asset_type": "stock"}, {})
     monkeypatch.setattr(detail, "build_instrument_detail", lambda *args, **kwargs: model)
@@ -1221,7 +1221,7 @@ def test_detail_summary_stays_outside_research_scroll(monkeypatch):
 
 
 def test_unavailable_score_rows_carry_an_explicit_reason_code(tmp_path, monkeypatch) -> None:
-    import etf_cockpit.app.selectors.instrument_detail as selector
+    import etf_cockpit.application.instrument_detail_view as selector
 
     unavailable_friction = {"status": "unavailable", "execution_allowed": False}
 
@@ -1243,7 +1243,6 @@ def test_unavailable_score_rows_carry_an_explicit_reason_code(tmp_path, monkeypa
     assert lookup() == ({}, "scoreboard_store_empty")
     monkeypatch.setattr(selector, "load_simple_scoreboard", lambda path: pd.DataFrame([{"instrument_id": "OTHER"}]))
     assert lookup() == ({}, "scoreboard_row_missing_for_instrument")
-    assert selector._scoreboard_row("VWCE") == {}  # the row contract is unchanged
 
     for expected in ("scoreboard_store_unreadable", "scoreboard_row_missing_for_instrument"):
         panel = selector._score_panel(None, {}, {"crowding": {}}, unavailable_friction, scoreboard_reason_code=expected)

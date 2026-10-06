@@ -11,13 +11,14 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import date
-import hashlib
 import math
 from pathlib import Path
 
 import pandas as pd
 
+from etf_cockpit.core.atomic_io import sha256_file as _file_sha256
 from etf_cockpit.core.paths import RAW_DIR
+from etf_cockpit.core.values import finite_float_or_none as _float, mapping_or_attribute as _projection_member
 from etf_cockpit.data.capital_efficiency import capital_efficiency_analysis
 from etf_cockpit.data.statement_normalisation import statement_coverage, statement_view
 
@@ -819,14 +820,6 @@ def _empty_optional_import(path: object, status: str, reason: str) -> pd.DataFra
     frame = pd.DataFrame()
     frame.attrs.update({"import_path": str(path), "import_status": status, "import_reason": reason})
     return frame
-
-
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _statement_frame(frame: pd.DataFrame, instrument_id: str | None, *, as_known_at: str | date | None = None) -> pd.DataFrame:
@@ -2180,14 +2173,6 @@ def _sum_if_present(*values: float | None) -> float | None:
     return float(sum(value for value in values if value is not None))
 
 
-def _float(value: object) -> float | None:
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    return result if math.isfinite(result) else None
-
-
 def _peer_percentile(metric: str, value: object, peer_frame: pd.DataFrame | None) -> float | None:
     observed = _float(value)
     if observed is None or not isinstance(peer_frame, pd.DataFrame) or peer_frame.empty:
@@ -2883,12 +2868,6 @@ def _residual_income_sensitivity(values: Mapping[str, float], assumptions: Mappi
 
 def _not_applicable_valuation(reason: str) -> dict[str, object]:
     return {"status": "not_applicable", "confidence": "low", "reason": reason, "execution_allowed": False}
-
-
-def _projection_member(value: object, name: str, default: object = None) -> object:
-    if isinstance(value, Mapping):
-        return value.get(name, default)
-    return getattr(value, name, default)
 
 
 def _financial_projection_payload(projection: object | None) -> dict[str, object]:

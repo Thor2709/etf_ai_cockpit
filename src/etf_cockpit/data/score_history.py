@@ -13,7 +13,7 @@ from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, w
 from etf_cockpit.data.classification import classification_score_state
 from etf_cockpit.governance.migrations import _snapshot_checksum, validated_portfolio_snapshot
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.signals.research_states import (
+from etf_cockpit.core.research_states import (
     PortfolioReviewState,
     ResearchState,
     research_state_for_legacy_action,
@@ -89,7 +89,6 @@ _COLUMNS = [
     "dependency_graph_hash",
     "snapshot_hash",
 ]
-LEGACY_COLUMNS = ["run_id", "run_completed_at", "instrument_id", "final_combined_score_10", "final_action", "blocked_by", "snapshot_hash"]
 
 
 def _clean_optional_text(value: object) -> str | None:
@@ -482,12 +481,6 @@ def score_history_v2_payload(row: object) -> dict[str, object]:
         "gate_policy_checksum": str(values.get("gate_policy_checksum") or "unavailable"),
         "schema_version": "2.0",
     }
-
-
-def append_score_run_v2(scores: pd.DataFrame, run_id: str, created_at: str, *, root: Path) -> ScoreHistoryWriteResult:
-    """Explicit v2 name for callers migrating away from the legacy API."""
-
-    return append_score_run(scores, run_id, created_at, root=root)
 
 
 def _state_for_row(row: object) -> str:

@@ -6,7 +6,6 @@ import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, section_header
-from etf_cockpit.app.components.research_surface import panel
 from etf_cockpit.app.components.flet_compat import border_all
 from etf_cockpit.application.ui_facade import SCORE_LEGEND, SimpleInstrumentScore, SimpleScoreComponent, group_simple_scores, load_score_history_summary
 
@@ -27,32 +26,6 @@ def simple_score_legend() -> ft.Control:
         [evidence_chip(label.split(":", 1)[0], label.split(":", 1)[1].strip(), _legend_colour(label)) for label in SCORE_LEGEND],
         spacing=8,
         wrap=True,
-    )
-
-
-def simple_score_tiles(scores: list[SimpleInstrumentScore], *, max_items: int | None = None) -> ft.Control:
-    if not scores:
-        return panel(
-            ft.Column(
-                [
-                    section_header("Scores", "No instruments are available yet."),
-                    ft.Text("Refresh yfinance data, then run algorithms and forecasting models.", color=theme.MUTED),
-                ],
-                spacing=8,
-            )
-        )
-    visible_scores = scores if max_items is None else scores[:max_items]
-    history = load_score_history_summary()
-    return ft.Column(
-        [
-            ft.Text(
-                "Maturity | Sanity | Benchmark | Alpha proxy | Sector/theme | Backtest validity | Model contamination",
-                color=theme.MUTED,
-                size=11,
-            ),
-            *[_score_tile(score, history.get(score.display_id, [])) for score in visible_scores],
-        ],
-        spacing=8,
     )
 
 

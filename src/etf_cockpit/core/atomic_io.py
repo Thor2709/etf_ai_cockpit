@@ -95,14 +95,6 @@ class DestinationAuthority:
     sha256: str
 
 
-@dataclass(frozen=True)
-class WriterEvidence:
-    authority: DestinationAuthority
-    state: str
-    entries_complete: bool
-    markers_complete: bool
-
-
 class QuarantineError(OSError):
     """Evidence cannot authorise a mutation; callers must leave it untouched."""
 
@@ -373,15 +365,6 @@ def _fsync_directory(path: Path) -> None:
             raise ctypes.WinError(ctypes.get_last_error())
     finally:
         close(handle)
-
-
-def _fsync_file(path: Path) -> None:
-    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
-    descriptor = os.open(path, flags)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
 
 
 def _replace_single_destination_with_retry(source: Path, destination: Path) -> None:
@@ -960,35 +943,6 @@ def _preflight_group_guards(
             except BaseException:
                 raise
             raise
-
-
-def _validate_sealed_publication(
-    payload: dict[str, object], lock_parents: Iterable[Path]
-) -> bool:
-    canonical_parents = _canonical_paths(lock_parents)
-    expected_paths = tuple(
-        (parent / ".atomic-write-group.lock").resolve()
-        for parent in canonical_parents
-    )
-    if payload.get("guard_protocol") != _GROUP_GUARD_PROTOCOL:
-        return False
-    payload_parents = _expected_group_guard_parents_from_payload(payload)
-    if payload_parents != canonical_parents:
-        return False
-    if _declared_lock_paths(payload) != expected_paths:
-        return False
-    values = payload.get("lock_tokens")
-    if not isinstance(values, dict):
-        return False
-    normalized: dict[str, str] = {}
-    for key, token in values.items():
-        if not isinstance(key, str) or not isinstance(token, str) or not token:
-            return False
-        resolved = str(Path(key).resolve())
-        if resolved in normalized or token in normalized.values():
-            return False
-        normalized[resolved] = token
-    return set(normalized) == {str(path) for path in expected_paths}
 
 
 def _is_writer_lock_path(lock_path: Path, destinations: Iterable[Path]) -> bool:

@@ -9,7 +9,8 @@ for candidate in (ROOT / "src", ROOT / "app" / "src"):
         sys.path.insert(0, str(candidate))
 
 from etf_cockpit.core.config import load_config  # noqa: E402 - imports follow the sys.path bootstrap above
-from etf_cockpit.services import BacktestService, DataService  # noqa: E402 - imports follow the sys.path bootstrap above
+from etf_cockpit.application.backtest_service import BacktestService  # noqa: E402 - imports follow the sys.path bootstrap above
+from etf_cockpit.application.data_service import DataService  # noqa: E402 - imports follow the sys.path bootstrap above
 
 
 def main() -> None:

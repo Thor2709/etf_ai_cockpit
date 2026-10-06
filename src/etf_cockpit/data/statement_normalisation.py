@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
+from etf_cockpit.core.pandas_values import float_nan_text_or_empty as _text
 
 
 STATEMENT_VIEW_SCHEMA_VERSION = "canonical_statements.v1"
@@ -321,12 +322,6 @@ def _history_rows(frame: pd.DataFrame, view: str) -> list[dict[str, object]]:
     for item in result.to_dict("records"):
         rows.append({"view": view, **{column: item.get(column) for column in _HISTORY_COLUMNS if column != "view"}})
     return rows
-
-
-def _text(value: object) -> str:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return ""
-    return str(value).strip()
 
 
 def _date_text(value: str | date | None) -> str:

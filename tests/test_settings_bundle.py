@@ -12,13 +12,15 @@ from etf_cockpit.application.settings import (
     ASSET_SCOPES,
     HORIZONS,
     RISK_PROFILES,
-    SettingsBundle,
     SettingsError,
     load_settings_bundle,
     load_settings_bundle_with_issues,
-    migrate_legacy_settings,
     preview_settings,
     save_settings,
+)
+from etf_cockpit.core.settings_bundle import (
+    SettingsBundle,
+    migrate_legacy_settings,
     settings_export,
     settings_run_identity,
 )

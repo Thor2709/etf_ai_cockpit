@@ -31,6 +31,7 @@ from etf_cockpit.analysis.peer_cohorts import (
     PeerObservation,
     construct_cohort,
 )
+from etf_cockpit.core.values import finite_non_bool_float_or_none as _finite, mapping_or_attribute as _member
 from etf_cockpit.data.classification import InstrumentContextV2
 
 
@@ -1015,22 +1016,6 @@ def _combined_hash(first: str, second: str | None) -> str:
 
 def _mapping(value: object) -> Mapping[str, object]:
     return value if isinstance(value, Mapping) else {}
-
-
-def _member(value: object, name: str, default: object = None) -> object:
-    if isinstance(value, Mapping):
-        return value.get(name, default)
-    return getattr(value, name, default)
-
-
-def _finite(value: object) -> float | None:
-    if isinstance(value, bool):
-        return None
-    try:
-        result = float(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    return result if math.isfinite(result) else None
 
 
 def _fraction(value: object) -> float | None:

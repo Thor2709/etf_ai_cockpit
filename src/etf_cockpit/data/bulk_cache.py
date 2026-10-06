@@ -24,7 +24,7 @@ import urllib.error
 import urllib.request
 import zipfile
 
-from etf_cockpit.core.atomic_io import atomic_write_bytes
+from etf_cockpit.core.atomic_io import atomic_write_bytes, sha256_file as _sha256_file
 
 
 BULK_CACHE_SCHEMA_VERSION = "bulk-cache.v1"
@@ -117,14 +117,6 @@ def _safe_name(value: str, label: str) -> str:
 
 def _json_bytes(value: Mapping[str, object]) -> bytes:
     return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _validate_sha256(value: str | None) -> str | None:

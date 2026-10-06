@@ -36,6 +36,7 @@ from etf_cockpit.application.ui_facade import (
 from etf_cockpit.core.paths import DERIVED_DIR, ROOT
 from etf_cockpit.core.paths import EXPORTS_DIR
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
+from etf_cockpit.core.values import finite_float_or_none as _finite_float
 
 SCOREBOARD_PATH = DERIVED_DIR / "scoreboard.parquet"
 
@@ -48,14 +49,6 @@ def _pct(value: object) -> str:
 def _number(value: object) -> str:
     number = _finite_float(value)
     return "n/a" if number is None else f"{number:.2f}"
-
-
-def _finite_float(value: object) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _status_colour(status: str) -> str:

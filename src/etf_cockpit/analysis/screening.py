@@ -1,4 +1,4 @@
-"""Deterministic local screening contracts and query evaluation."""
+"""Deterministic local screening contracts and query evaluation (domain; ADR-0002)."""
 
 from __future__ import annotations
 

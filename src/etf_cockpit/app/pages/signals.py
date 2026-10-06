@@ -13,7 +13,7 @@ from etf_cockpit.app.components.governance_badges import build_gate_summary
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.application.ui_facade import build_simple_instrument_scores
-from etf_cockpit.app.selectors.instrument_detail import (
+from etf_cockpit.application.instrument_detail_view import (
     _latest_operational_row,
     _operational_evidence_panel,
 )

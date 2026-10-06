@@ -33,7 +33,7 @@ from etf_cockpit.features.feature_pipeline import compute_features, latest_featu
 from etf_cockpit.models.forecast_scores import forecast_component_maps
 from etf_cockpit.models.registry import model_availability
 from etf_cockpit.portfolio.risk import target_policy_issues
-from etf_cockpit.services import ForecastService
+from etf_cockpit.application.forecast_service import ForecastService
 from etf_cockpit.signals.signal_pipeline import generate_signals
 from etf_cockpit.data.duckdb_store import load_holdings, write_features
 

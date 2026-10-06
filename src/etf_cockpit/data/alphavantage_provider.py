@@ -29,31 +29,6 @@ from etf_cockpit.data.providers import DataProvider, PriceProvider, ProviderResu
 
 Transport = Callable[..., Any]
 
-# The root integration pass can paste this block into the shared provider and
-# source-policy registries.  Credentials remain local environment values.
-ALPHA_VANTAGE_CONFIG_BLOCK = {
-    "data_providers": {
-        "alphavantage": {
-            "active_provider": "none",
-            "api_key": "",
-            "base_url": "https://www.alphavantage.co/query",
-            "symbols_map": {},
-        }
-    },
-    "source_policy": {
-        "quota_failure": "non_blocking",
-        "provider_id": "alphavantage",
-        "dataset_type": "prices",
-        "source_tier": "optional_commercial",
-        "mandatory_allowed": False,
-        "optional_provider": True,
-        "cache_path": "data/raw/prices/alpha_vantage",
-        "licence": "provider-terms",
-        "network_required": True,
-        "fair_use_note": "Selected-ticker verification only; daily quota failures are non-blocking and cached responses are replayable.",
-    },
-}
-
 _TIME_SERIES_PREFIX = "Time Series"
 
 

@@ -12,7 +12,7 @@ from etf_cockpit.core.config import ModelRuntimeConfig
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.core.types import ForecastResult
 from etf_cockpit.models.base import ModelInput
-from etf_cockpit.models.timesfm_adapter import _has_weight_files
+from etf_cockpit.models.timesfm_adapter import _has_weight_files, _quantile_vol_proxy
 
 
 class TotoAdapter:
@@ -369,10 +369,3 @@ def _to_numpy(value: Any) -> np.ndarray:
     if hasattr(value, "numpy"):
         return value.numpy()
     return np.asarray(value)
-
-
-def _quantile_vol_proxy(q10: float | None, q90: float | None, horizon: int) -> float | None:
-    if q10 is None or q90 is None or horizon <= 0:
-        return None
-    horizon_vol = max((q90 - q10) / 2.563, 0.0)
-    return float(horizon_vol / np.sqrt(horizon / 252))

@@ -6,8 +6,9 @@ from types import SimpleNamespace
 import pandas as pd
 
 import etf_cockpit.app.pages.trust_evidence as trust_evidence
+import etf_cockpit.application.evidence_documents as evidence_documents
 from etf_cockpit.app.state import AppState
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 def test_web_file_picker_bytes_are_materialised_and_removed_after_import() -> None:
@@ -26,7 +27,7 @@ def test_web_file_picker_bytes_are_materialised_and_removed_after_import() -> No
 
 def test_web_file_picker_source_is_retained_at_durable_raw_path(tmp_path, monkeypatch) -> None:
     selected = SimpleNamespace(path=None, bytes=b"%PDF-1.7 uploaded fixture")
-    monkeypatch.setattr(trust_evidence, "RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr(evidence_documents, "RAW_DIR", tmp_path / "raw")
 
     with trust_evidence._materialise_picker_file(selected, suffix=".pdf") as path:
         retained = trust_evidence._retain_picker_source(path, "priips_kids")
@@ -56,10 +57,22 @@ def test_import_progress_is_visible_and_durable_on_activity_state(tmp_path, monk
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     result = SimpleNamespace(value="")
+    page = SimpleNamespace(update=lambda: None)
+    observed: dict[str, object] = {}
 
-    trust_evidence._start_disclosure_import(state, result, "Import PRIIPs KID")
+    def action(_action_id: str) -> str:
+        activity = state.current_activity
+        observed["status"] = None if activity is None else activity.status
+        observed["step"] = None if activity is None else activity.step
+        observed["message"] = result.value
+        return "Done."
 
-    assert state.current_activity is not None
-    assert state.current_activity.status == "running"
-    assert state.current_activity.step == "Reading selected document"
-    assert "in progress" in result.value.lower()
+    worker = trust_evidence._run_official_filing_action(
+        page, state, result, "Import PRIIPs KID", "Reading selected document", action
+    )
+    assert worker is not None
+    worker.join(timeout=30)
+
+    assert observed["status"] == "running"
+    assert observed["step"] == "Reading selected document"
+    assert "in progress" in str(observed["message"]).lower()

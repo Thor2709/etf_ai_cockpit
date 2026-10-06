@@ -2,23 +2,14 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
+
+from etf_cockpit.core.values import finite_non_bool_float_or_none as _finite_number
 
 
 CANDLE_SCORE_CAP = 0.25
 _OHLC_FIELDS = ("open", "high", "low", "close")
 _ADJUSTED_OHLC_FIELDS = tuple(f"adjusted_{field}" for field in _OHLC_FIELDS)
-
-
-def _finite_number(value: object) -> float | None:
-    if isinstance(value, bool):
-        return None
-    try:
-        result = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError, OverflowError):
-        return None
-    return result if math.isfinite(result) else None
 
 
 def prepare_adjusted_ohlcv(candle: Mapping[str, object]) -> dict[str, object]:

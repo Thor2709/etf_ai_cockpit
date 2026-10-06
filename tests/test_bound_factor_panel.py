@@ -5,9 +5,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from etf_cockpit.application import ui_facade
+from etf_cockpit.application import factor_risk_views, ui_facade
 from etf_cockpit.application.benchmark_reference import adjusted_price_snapshot_binding
-from etf_cockpit.app.selectors.instrument_detail import _factor_risk_panel
+from etf_cockpit.application.instrument_detail_view import _factor_risk_panel
 from etf_cockpit.portfolio.benchmark_reference_contract import CanonicalBenchmarkRegistry, ReferencePortfolioDefinition
 from etf_cockpit.portfolio.sandbox import holdings_checksum
 from etf_cockpit.features.feature_pipeline import compute_features
@@ -50,7 +50,7 @@ def test_bound_factor_panel_has_actual_canonical_numeric_coverage(identity, monk
         assert not {"sector", "region", "currency"} & set(allocation)
         return producer(prices, allocation, features, holdings)
 
-    monkeypatch.setattr(ui_facade, "build_factor_risk_report", capture)
+    monkeypatch.setattr(factor_risk_views, "build_factor_risk_report", capture)
     panel = _factor_risk_panel(snapshot, identity)
     assert panel["status"] in {"available", "partial"}
     assert panel["selected_instrument_status"] == "available"
@@ -89,7 +89,7 @@ def test_bound_factor_panel_rejects_unverified_inputs_before_producer(damage, mo
         fields = {"known_at": "2099-01-01T00:00:00+00:00"} if damage == "late_known" else {"current_weights": {"ETF0": 0.9, "cash:EUR": 0.1}}
         reference = replace(reference, **fields, content_hash="")
         snapshot.benchmark_reference_registry = CanonicalBenchmarkRegistry(reference_portfolios=(reference,))
-    monkeypatch.setattr(ui_facade, "build_factor_risk_report", lambda *a, **kw: pytest.fail("invalid inputs reached producer"))
+    monkeypatch.setattr(factor_risk_views, "build_factor_risk_report", lambda *a, **kw: pytest.fail("invalid inputs reached producer"))
     panel = ui_facade.load_bound_factor_risk_panel(snapshot, "ETF0")
     assert panel["status"] == "unavailable"
     assert panel["historical_binding_status"] == "unavailable"
@@ -125,7 +125,7 @@ def test_bound_factor_panel_rejects_descriptor_tampering_with_unchanged_price_bi
     snapshot = _snapshot()
     binding = dict(snapshot.features.attrs["price_binding"])
     snapshot.features[column] = 999.0
-    monkeypatch.setattr(ui_facade, "build_factor_risk_report", lambda *a, **kw: pytest.fail("tampered descriptors reached producer"))
+    monkeypatch.setattr(factor_risk_views, "build_factor_risk_report", lambda *a, **kw: pytest.fail("tampered descriptors reached producer"))
     panel = ui_facade.load_bound_factor_risk_panel(snapshot, "ETF0")
     assert snapshot.features.attrs["price_binding"] == binding
     assert panel["status"] == "unavailable"
@@ -135,7 +135,11 @@ def test_bound_factor_panel_rejects_descriptor_tampering_with_unchanged_price_bi
 
 
 def test_bound_factor_panel_accepts_real_snapshot_with_feature_service_binding(monkeypatch):
-    from etf_cockpit import services
+    from etf_cockpit.application.feature_service import FeatureService
+    from etf_cockpit.application.snapshot_builder import CockpitSnapshot
+    import etf_cockpit.application.backtest_service as backtest_service
+    import etf_cockpit.application.feature_service as feature_service
+    import etf_cockpit.application.forecast_service as forecast_service
     from etf_cockpit.core.config import load_config
     from etf_cockpit.core.types import DataQualityReport
     from etf_cockpit.backtest.engine import BacktestReport
@@ -144,12 +148,18 @@ def test_bound_factor_panel_accepts_real_snapshot_with_feature_service_binding(m
     config = load_config()
     # Keep storage publication private while executing the real feature service,
     # canonical feature calculation and binding construction without substitutions.
-    monkeypatch.setattr(services, "current_settings_identity", lambda: {"settings_revision": "a" * 64})
-    monkeypatch.setattr(services, "settings_bound_run_id", lambda run_id, **kw: run_id)
-    monkeypatch.setattr(services, "ensure_run_manifest", lambda *a, **kw: None)
-    monkeypatch.setattr(services, "write_features", lambda *a, **kw: None)
-    features = services.FeatureService(config).compute_features(prices=fixture.prices, as_of_date=fixture.data_report.as_of_date)
-    snapshot = services.CockpitSnapshot(
+    monkeypatch.setattr(backtest_service, "current_settings_identity", lambda: {"settings_revision": "a" * 64})
+    monkeypatch.setattr(feature_service, "current_settings_identity", lambda: {"settings_revision": "a" * 64})
+    monkeypatch.setattr(forecast_service, "current_settings_identity", lambda: {"settings_revision": "a" * 64})
+    monkeypatch.setattr(backtest_service, "settings_bound_run_id", lambda run_id, **kw: run_id)
+    monkeypatch.setattr(feature_service, "settings_bound_run_id", lambda run_id, **kw: run_id)
+    monkeypatch.setattr(forecast_service, "settings_bound_run_id", lambda run_id, **kw: run_id)
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", lambda *a, **kw: None)
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda *a, **kw: None)
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *a, **kw: None)
+    monkeypatch.setattr(feature_service, "write_features", lambda *a, **kw: None)
+    features = FeatureService(config).compute_features(prices=fixture.prices, as_of_date=fixture.data_report.as_of_date)
+    snapshot = CockpitSnapshot(
         config=config, prices=fixture.prices, holdings=fixture.holdings, features=features,
         latest_features=features.groupby("etf_id").tail(1),
         data_report=DataQualityReport(fixture.data_report.as_of_date, []), signals=[], forecasts=pd.DataFrame(),
@@ -175,7 +185,7 @@ def test_bound_factor_panel_rejects_future_source_knowledge_reproduction(source,
         snapshot.benchmark_reference_registry = CanonicalBenchmarkRegistry(reference_portfolios=(
             replace(reference, source_hashes=(holdings_checksum(frame),), content_hash=""),
         ))
-    monkeypatch.setattr(ui_facade, "build_factor_risk_report", lambda *a, **kw: pytest.fail("future knowledge reached producer"))
+    monkeypatch.setattr(factor_risk_views, "build_factor_risk_report", lambda *a, **kw: pytest.fail("future knowledge reached producer"))
     panel = ui_facade.load_bound_factor_risk_panel(snapshot, "ETF0")
     assert panel["status"] == "unavailable"
     assert panel["historical_binding_status"] == "unavailable"
@@ -202,7 +212,7 @@ def test_bound_factor_panel_rejects_invalid_source_knowledge(source, damage, mon
         snapshot.benchmark_reference_registry = CanonicalBenchmarkRegistry(reference_portfolios=(
             replace(reference, source_hashes=(holdings_checksum(frame),), content_hash=""),
         ))
-    monkeypatch.setattr(ui_facade, "build_factor_risk_report", lambda *a, **kw: pytest.fail("invalid knowledge reached producer"))
+    monkeypatch.setattr(factor_risk_views, "build_factor_risk_report", lambda *a, **kw: pytest.fail("invalid knowledge reached producer"))
     panel = ui_facade.load_bound_factor_risk_panel(snapshot, "ETF0")
     assert panel["status"] == "unavailable"
     assert panel["historical_binding_status"] == "unavailable"
@@ -216,7 +226,7 @@ def test_bound_factor_panel_requires_reference_to_replay_latest_holdings_knowled
     snapshot.benchmark_reference_registry = CanonicalBenchmarkRegistry(reference_portfolios=(
         replace(reference, source_hashes=(holdings_checksum(snapshot.holdings),), content_hash=""),
     ))
-    monkeypatch.setattr(ui_facade, "build_factor_risk_report", lambda *a, **kw: pytest.fail("mismatched reference knowledge reached producer"))
+    monkeypatch.setattr(factor_risk_views, "build_factor_risk_report", lambda *a, **kw: pytest.fail("mismatched reference knowledge reached producer"))
     panel = ui_facade.load_bound_factor_risk_panel(snapshot, "ETF0")
     assert panel["status"] == "unavailable"
     assert "source row maximum" in panel["message"]

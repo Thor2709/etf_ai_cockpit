@@ -23,7 +23,7 @@ from etf_cockpit.signals.canonical_scoring import canonical_score_from_signal_ro
 from etf_cockpit.signals.explanations import explain_signal
 from etf_cockpit.signals.gates import evaluate_risk_gates
 from etf_cockpit.signals.scoring import component_scores, row_components
-from etf_cockpit.signals.research_states import GateResult, research_state_for_legacy_action
+from etf_cockpit.core.research_states import GateResult, research_state_for_legacy_action
 from etf_cockpit.models.uncertainty import (
     decompose_forecast_uncertainty,
     generate_scenarios,

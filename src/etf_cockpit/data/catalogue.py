@@ -17,7 +17,7 @@ from pathlib import Path
 import re
 from typing import Iterable, Mapping
 
-from etf_cockpit.core.atomic_io import atomic_write_json
+from etf_cockpit.core.atomic_io import atomic_write_json, sha256_file as _hash_file
 
 
 CATALOGUE_SCHEMA_VERSION = "1.0"
@@ -925,14 +925,6 @@ def _canonical_json(payload: object) -> str:
 
 def _hash_payload(payload: object) -> str:
     return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
-
-
-def _hash_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _utc_now() -> str:

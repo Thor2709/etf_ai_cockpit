@@ -126,7 +126,7 @@ def test_partial_claim_suppresses_owner_valuation_figures() -> None:
 
 
 def test_revision_envelope_known_at_binds_claim_before_fact_timestamps() -> None:
-    from etf_cockpit.application.ui_facade import _select_ec_revision
+    from etf_cockpit.application.financial_institution_views import _select_ec_revision
 
     facts = _fixture("teaching_bank.json")["facts"]
     payload = {

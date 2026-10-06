@@ -7,8 +7,8 @@ import pandas as pd
 from etf_cockpit.app.pages.data_models import data_models_page
 from etf_cockpit.app.pages.instrument_detail import render_news_context_panel
 from etf_cockpit.app.pages import chatgpt_audit, trust_evidence
-from etf_cockpit.app.selectors import instrument_detail
-from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel
+from etf_cockpit.application import instrument_detail_view as instrument_detail
+from etf_cockpit.application.instrument_detail_view import InstrumentDetailViewModel
 from etf_cockpit.data.manual_notes import (
     CREDIBILITY_FLAG_CODES,
     CREDIBILITY_FLAG_COLUMNS,

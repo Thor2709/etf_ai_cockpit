@@ -14,7 +14,7 @@ from etf_cockpit.analysis.candles import (
     validate_ohlcv,
 )
 from etf_cockpit.app.pages import instrument_detail as instrument_detail_page_module
-from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel, _candle_evidence_panel
+from etf_cockpit.application.instrument_detail_view import InstrumentDetailViewModel, _candle_evidence_panel
 
 
 def _candle(day: str, *, open_: float, high: float, low: float, close: float, volume: float = 100.0) -> dict[str, object]:

@@ -58,7 +58,7 @@ def _route_probe() -> dict[str, object]:
     from etf_cockpit.app.flet_app import initialise_page
     from etf_cockpit.app.router import PAGES, navigate_to
     from etf_cockpit.app.state import AppState
-    from etf_cockpit.services import build_snapshot
+    from etf_cockpit.application.snapshot_builder import build_snapshot
 
     routes = tuple(PAGES)
     snapshot = build_snapshot(force_sample=True)
@@ -142,9 +142,9 @@ def _main_workflow_probe() -> dict[str, object]:
     from etf_cockpit.governance.product_scope import load_gate_policy
     import etf_cockpit.data.yfinance_provider as yfinance_provider
     import etf_cockpit.data.trade_candidate_analysis as trade_candidate_analysis
-    import etf_cockpit.services as services
+    import etf_cockpit.application.data_service as data_service
 
-    services.date = _FixedDate
+    data_service.date = _FixedDate
     trade_candidate_analysis.date = _FixedDate
     yfinance_provider.date = _FixedDate
     config = load_config()

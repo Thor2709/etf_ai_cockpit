@@ -7,7 +7,7 @@ from typing import Any
 
 import pandas as pd
 
-from etf_cockpit.application.screening import ScreenQuery, records_checksum
+from etf_cockpit.analysis.screening import ScreenQuery, records_checksum
 from etf_cockpit.data.fundamentals import assess_fundamental_row, latest_fundamental_rows
 
 

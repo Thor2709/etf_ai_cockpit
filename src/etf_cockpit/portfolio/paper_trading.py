@@ -35,7 +35,6 @@ from etf_cockpit.trading.pre_trade_controls import PreTradeControlError, PreTrad
 PAPER_SCHEMA_VERSION = "paper_ledger.v1"
 EXECUTION_ALLOWED = False
 NETWORK_ACCESS_ALLOWED = False
-PriceBasis = Literal["execution_quote", "adjusted_close"]
 
 
 class PaperLedgerError(ValueError):

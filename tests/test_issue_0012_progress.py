@@ -10,10 +10,13 @@ import threading
 import time
 from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 import yaml
 
 from etf_cockpit.app import state as app_state_module
+import etf_cockpit.application.filing_ingestion_workflows as filing_ingestion_workflows
+import etf_cockpit.application.filing_ingestion as filing_ingestion
 from etf_cockpit.app.pages.dashboard import _activity_panel
 from etf_cockpit.app.pages.dashboard import _export_pack, _run_action, _run_dialog_action
 from etf_cockpit.app.pages import dashboard as dashboard_page_module
@@ -22,6 +25,7 @@ from etf_cockpit.app.pages import jobs as jobs_page_module
 from etf_cockpit.app.pages import chatgpt_audit as chatgpt_audit_module
 from etf_cockpit.app.pages import import_export as import_export_page_module
 from etf_cockpit.app.pages import trust_evidence as trust_evidence_module
+import etf_cockpit.application.evidence_documents as evidence_documents
 from etf_cockpit.app.pages import errors_recovery as errors_recovery_module
 from etf_cockpit.app import router as router_module
 from etf_cockpit.app.state import ActivityEntry, ActivityUnavailableError, AppState, _read_recent_activity
@@ -36,7 +40,16 @@ from etf_cockpit.core.workflow import (
     WorkflowStep,
     WorkflowTransitionError,
 )
-from etf_cockpit import services as services_module
+from etf_cockpit.application.data_service import DataService
+from etf_cockpit.application.feature_service import FeatureService
+from etf_cockpit.application.forecast_service import ForecastService
+from etf_cockpit.application.snapshot_builder import build_snapshot
+from etf_cockpit.data.duckdb_store import initialise_store
+from etf_cockpit.data.yfinance_provider import YFinanceProvider
+import etf_cockpit.application.data_service as data_service
+import etf_cockpit.application.backtest_service as backtest_service
+import etf_cockpit.application.feature_service as feature_service
+import etf_cockpit.application.forecast_service as forecast_service
 from etf_cockpit.data import duckdb_store as duckdb_store_module
 from etf_cockpit.data import fund_holdings as fund_holdings_module
 from etf_cockpit.data import import_pipeline as import_pipeline_module
@@ -51,8 +64,6 @@ from etf_cockpit.data.oam_adapters import (
 from etf_cockpit.data.sec_edgar_provider import SecEdgarProvider
 from etf_cockpit.parsers.contracts import ParseResult, ParseWarning
 from etf_cockpit.operations.event_store import load_events_with_tail_recovery
-from etf_cockpit.services import ForecastService
-from etf_cockpit.services import build_snapshot
 
 # Generous upper bound for background-thread handshakes: loops exit as soon as their condition holds,
 # so this only matters on a loaded machine (2 s flaked under parallel gate load, 2026-09-30).
@@ -1118,16 +1129,18 @@ def test_jobs_refresh_does_not_render_secret_bearing_exception(tmp_path, monkeyp
 def test_forecast_service_emits_model_steps_at_execution_boundaries(monkeypatch) -> None:
     snapshot = _snapshot()
     prices = snapshot.prices.copy()
-    prices["date"] = services_module.pd.to_datetime(prices["date"])
+    prices["date"] = pd.to_datetime(prices["date"])
     as_of = prices["date"].max().date()
     etf_id = str(prices.iloc[0]["etf_id"])
     observed: list[str] = []
     service = ForecastService(snapshot.config)
 
-    monkeypatch.setattr(services_module, "baseline_forecast", lambda *_args, **_kwargs: observed.append("baseline-call") or [])
+    monkeypatch.setattr(forecast_service, "baseline_forecast", lambda *_args, **_kwargs: observed.append("baseline-call") or [])
     monkeypatch.setattr(service, "_run_timesfm_forecasts", lambda *_args: observed.append("timesfm-call") or [])
     monkeypatch.setattr(service, "_run_toto_forecasts", lambda *_args: observed.append("toto-call") or [])
-    monkeypatch.setattr(services_module, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(backtest_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(service, "_write_forecasts", lambda *_args, **_kwargs: None)
 
     service.run_forecasts(
@@ -1150,18 +1163,18 @@ def test_forecast_service_emits_model_steps_at_execution_boundaries(monkeypatch)
 
 def test_cancel_guard_blocks_real_price_and_forecast_write_boundaries(tmp_path, monkeypatch) -> None:
     snapshot = _snapshot()
-    service = services_module.DataService(snapshot.config)
+    service = DataService(snapshot.config)
     provider_result = SimpleNamespace(ok=True, data=snapshot.prices.copy(), message="prices fetched")
     provider = SimpleNamespace(fetch_prices=lambda *_args: provider_result)
-    monkeypatch.setattr(services_module.YFinanceProvider, "from_config", staticmethod(lambda _config: provider))
-    monkeypatch.setattr(services_module, "validate_prices", lambda *_args, **_kwargs: SimpleNamespace(issues=[]))
+    monkeypatch.setattr(YFinanceProvider, "from_config", staticmethod(lambda _config: provider))
+    monkeypatch.setattr(data_service, "validate_prices", lambda *_args, **_kwargs: SimpleNamespace(issues=[]))
     price_commit_called = False
 
     def commit_prices(_result):
         nonlocal price_commit_called
         price_commit_called = True
 
-    monkeypatch.setattr(services_module, "commit_price_import", commit_prices)
+    monkeypatch.setattr(data_service, "commit_price_import", commit_prices)
 
     def cancelled() -> None:
         raise WorkflowTransitionError("cancelled before publication")
@@ -1194,9 +1207,11 @@ def test_cancellation_after_service_commit_blocks_snapshot_derived_write(tmp_pat
             return "Prices committed before cancellation."
 
     def guarded_snapshot(*, force_sample=False, publish_guard=None):
-        monkeypatch.setattr(services_module, "ensure_run_manifest", lambda *_args, **_kwargs: None)
-        monkeypatch.setattr(services_module, "write_features", lambda _features: derived_writes.append(1))
-        services_module.FeatureService(snapshot.config).compute_features(
+        monkeypatch.setattr(backtest_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(feature_service, "write_features", lambda _features: derived_writes.append(1))
+        FeatureService(snapshot.config).compute_features(
             snapshot.data_report.as_of_date,
             snapshot.prices,
             publish_guard=publish_guard,
@@ -1215,12 +1230,12 @@ def test_cancellation_after_service_commit_blocks_snapshot_derived_write(tmp_pat
 
 def test_cancel_guard_blocks_real_candidate_report_and_holdings_atomic_group(tmp_path, monkeypatch) -> None:
     snapshot = _snapshot()
-    candidates = services_module.pd.DataFrame({"instrument_id": ["VWCE"], "yahoo_symbol": ["VWCE.DE"]})
-    prices = services_module.pd.DataFrame({"date": ["2026-08-08"], "etf_id": ["VWCE"], "adjusted_close": [100.0]})
+    candidates = pd.DataFrame({"instrument_id": ["VWCE"], "yahoo_symbol": ["VWCE.DE"]})
+    prices = pd.DataFrame({"date": ["2026-08-08"], "etf_id": ["VWCE"], "adjusted_close": [100.0]})
     candidate_data = candidate_analysis_module.CandidatePriceData(candidates, prices, date(2026, 8, 8), "fixture")
     monkeypatch.setattr(candidate_analysis_module, "fetch_candidate_prices", lambda *_args, **_kwargs: candidate_data)
-    monkeypatch.setattr(candidate_analysis_module, "fetch_candidate_fundamentals", lambda *_args: services_module.pd.DataFrame())
-    monkeypatch.setattr(candidate_analysis_module, "analyse_candidate_prices", lambda *_args, **_kwargs: services_module.pd.DataFrame({"instrument_id": ["VWCE"]}))
+    monkeypatch.setattr(candidate_analysis_module, "fetch_candidate_fundamentals", lambda *_args: pd.DataFrame())
+    monkeypatch.setattr(candidate_analysis_module, "analyse_candidate_prices", lambda *_args, **_kwargs: pd.DataFrame({"instrument_id": ["VWCE"]}))
     monkeypatch.setattr(candidate_analysis_module, "REPORTS_DIR", tmp_path / "reports")
 
     def cancelled() -> None:
@@ -1231,7 +1246,7 @@ def test_cancel_guard_blocks_real_candidate_report_and_holdings_atomic_group(tmp
     assert not (tmp_path / "reports").exists()
 
     source = tmp_path / "holdings.csv"
-    services_module.pd.DataFrame({"security": ["Issuer"], "ticker": ["ISS"], "weight": [1.0]}).to_csv(source, index=False)
+    pd.DataFrame({"security": ["Issuer"], "ticker": ["ISS"], "weight": [1.0]}).to_csv(source, index=False)
     holdings_destination = tmp_path / "holdings.parquet"
     registry_destination = tmp_path / "documents.parquet"
     with pytest.raises(WorkflowTransitionError, match="cancelled"):
@@ -1249,7 +1264,7 @@ def test_cancel_guard_blocks_real_candidate_report_and_holdings_atomic_group(tmp
 
     disclosure_source = tmp_path / "factsheet.pdf"
     disclosure_source.write_bytes(b"issuer disclosure")
-    monkeypatch.setattr(trust_evidence_module, "RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr(evidence_documents, "RAW_DIR", tmp_path / "raw")
     with pytest.raises(WorkflowTransitionError, match="cancelled"):
         trust_evidence_module._retain_picker_source(disclosure_source, "factsheets", publish_guard=cancelled)
     assert not (tmp_path / "raw").exists()
@@ -1260,7 +1275,7 @@ def test_holdings_publication_scope_serialises_cancellation_and_rejects_later_wr
     state = _state()
     action_id = state.begin_activity("Import ETF holdings", "Publishing holdings").action_id
     source = tmp_path / "holdings.csv"
-    services_module.pd.DataFrame({"security": ["Issuer"], "ticker": ["ISS"], "weight": [1.0]}).to_csv(source, index=False)
+    pd.DataFrame({"security": ["Issuer"], "ticker": ["ISS"], "weight": [1.0]}).to_csv(source, index=False)
     write_entered = threading.Event()
     release_write = threading.Event()
     cancellation_returned = threading.Event()
@@ -1319,8 +1334,10 @@ def test_esef_normal_unavailable_result_is_failed_terminal(tmp_path, monkeypatch
     source = tmp_path / "report.zip"
     source.write_bytes(b"not an ESEF package")
     monkeypatch.setattr(app_state_module, "RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr(filing_ingestion_workflows, "RAW_DIR", app_state_module.RAW_DIR)
+    monkeypatch.setattr(filing_ingestion, "RAW_DIR", app_state_module.RAW_DIR)
     monkeypatch.setattr(
-        app_state_module,
+        filing_ingestion_workflows,
         "parse_esef_package",
         lambda _path: ParseResult((), (ParseWarning("invalid_package", "invalid", "error"),), "esef", "1", "unused", False),
     )
@@ -1358,19 +1375,19 @@ def test_disclosure_unavailable_results_raise_before_success_terminal(label, res
 def test_yfinance_reference_failure_redacts_secret_and_cancellation_is_not_swallowed(monkeypatch) -> None:
     snapshot = _snapshot()
     price_result = SimpleNamespace(ok=True, data=snapshot.prices.copy(), message="prices fetched")
-    reference_result = SimpleNamespace(ok=True, data=services_module.pd.DataFrame({"instrument_id": ["VWCE"]}), message="reference fetched")
+    reference_result = SimpleNamespace(ok=True, data=pd.DataFrame({"instrument_id": ["VWCE"]}), message="reference fetched")
     provider = SimpleNamespace(
         fetch_prices=lambda *_args: price_result,
         fetch_etf_metadata=lambda *_args: reference_result,
         fetch_etf_holdings=lambda *_args: SimpleNamespace(ok=False, data=None, message="api_key=raw-reference-secret"),
     )
-    monkeypatch.setattr(services_module.YFinanceProvider, "from_config", staticmethod(lambda _config: provider))
-    monkeypatch.setattr(services_module, "validate_prices", lambda *_args, **_kwargs: SimpleNamespace(issues=[]))
-    monkeypatch.setattr(services_module, "commit_price_import", lambda _result: SimpleNamespace(rows=1, clean_path="prices", previous_snapshot_path=None))
-    monkeypatch.setattr(services_module.DataService, "_reference_context", lambda _self: {"known_etfs": [], "isin_to_etf_id": {}, "ticker_to_etf_id": {}})
-    monkeypatch.setattr(services_module, "commit_reference_import", lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("token=raw-provider-secret")))
+    monkeypatch.setattr(YFinanceProvider, "from_config", staticmethod(lambda _config: provider))
+    monkeypatch.setattr(data_service, "validate_prices", lambda *_args, **_kwargs: SimpleNamespace(issues=[]))
+    monkeypatch.setattr(data_service, "commit_price_import", lambda _result: SimpleNamespace(rows=1, clean_path="prices", previous_snapshot_path=None))
+    monkeypatch.setattr(DataService, "_reference_context", lambda _self: {"known_etfs": [], "isin_to_etf_id": {}, "ticker_to_etf_id": {}})
+    monkeypatch.setattr(data_service, "commit_reference_import", lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("token=raw-provider-secret")))
 
-    message = services_module.DataService(snapshot.config).refresh_yfinance_data()
+    message = DataService(snapshot.config).refresh_yfinance_data()
     assert "raw-provider-secret" not in message
     assert "raw-reference-secret" not in message
     assert "***redacted***" in message
@@ -1386,7 +1403,7 @@ def test_yfinance_reference_failure_redacts_secret_and_cancellation_is_not_swall
         raise WorkflowTransitionError("cancelled")
 
     with pytest.raises(WorkflowTransitionError, match="cancelled"):
-        services_module.DataService(snapshot.config).refresh_yfinance_data(publish_guard=cancelled_scope)
+        DataService(snapshot.config).refresh_yfinance_data(publish_guard=cancelled_scope)
 
 
 @pytest.mark.parametrize("page_kind", ["import_export", "chatgpt_audit"])
@@ -1507,8 +1524,8 @@ def test_sample_publication_scope_serialises_cancel_and_rejects_clean_store_writ
     cancelled = threading.Event()
     worker_errors: list[Exception] = []
     writes: list[str] = []
-    original_to_csv = services_module.pd.DataFrame.to_csv
-    original_initialise = services_module.initialise_store
+    original_to_csv = pd.DataFrame.to_csv
+    original_initialise = initialise_store
 
     def blocking_to_csv(frame, path, *args, **kwargs):
         writes.append(Path(path).name)
@@ -1521,12 +1538,12 @@ def test_sample_publication_scope_serialises_cancel_and_rejects_clean_store_writ
         assert cancelled.wait(_WAIT_S)
         return original_initialise(*args, **kwargs)
 
-    monkeypatch.setattr(services_module.pd.DataFrame, "to_csv", blocking_to_csv)
-    monkeypatch.setattr(services_module, "initialise_store", initialise_after_cancel)
+    monkeypatch.setattr(pd.DataFrame, "to_csv", blocking_to_csv)
+    monkeypatch.setattr(data_service, "initialise_store", initialise_after_cancel)
 
     def run_update() -> None:
         try:
-            services_module.DataService(state.snapshot.config).update_prices(
+            DataService(state.snapshot.config).update_prices(
                 force_sample=True,
                 publish_guard=lambda: state.activity_publication(action_id),
             )
@@ -1557,7 +1574,7 @@ def test_rollback_publication_scope_serialises_cancel_and_rejects_later_restore(
     action_id = state.begin_activity("Rollback prices", "Restoring prices").action_id
     snapshots = tmp_path / "snapshots"
     snapshots.mkdir()
-    frame = services_module.pd.DataFrame({"date": ["2026-08-08"], "etf_id": ["VWCE"], "adjusted_close": [100.0]})
+    frame = pd.DataFrame({"date": ["2026-08-08"], "etf_id": ["VWCE"], "adjusted_close": [100.0]})
     snapshot_path = snapshots / "001_previous_prices.parquet"
     frame.to_parquet(snapshot_path, index=False)
     entered = threading.Event()
@@ -1623,8 +1640,8 @@ def test_api_status_publication_scope_serialises_cancel_and_redacts_unavailable(
         fetch_etf_metadata=fetch_reference_after_cancel,
         fetch_etf_holdings=lambda *_args: unavailable,
     )
-    monkeypatch.setattr(services_module.YFinanceProvider, "from_config", staticmethod(lambda _config: provider))
-    monkeypatch.setattr(services_module, "validate_prices", lambda *_args, **_kwargs: SimpleNamespace(issues=[]))
+    monkeypatch.setattr(YFinanceProvider, "from_config", staticmethod(lambda _config: provider))
+    monkeypatch.setattr(data_service, "validate_prices", lambda *_args, **_kwargs: SimpleNamespace(issues=[]))
 
     def guarded_snapshot(*, force_sample=False, publish_guard=None):
         with publish_guard():
@@ -1637,7 +1654,7 @@ def test_api_status_publication_scope_serialises_cancel_and_redacts_unavailable(
         assert release.wait(_WAIT_S)
         return SimpleNamespace(rows=1, clean_path="prices", previous_snapshot_path=None)
 
-    monkeypatch.setattr(services_module, "commit_price_import", blocking_commit)
+    monkeypatch.setattr(data_service, "commit_price_import", blocking_commit)
 
     def run_status() -> None:
         try:
@@ -1668,7 +1685,7 @@ def test_api_status_publication_scope_serialises_cancel_and_redacts_unavailable(
             message="Yahoo unavailable: api_key=raw-api-status-secret",
         )
     )
-    monkeypatch.setattr(services_module.YFinanceProvider, "from_config", staticmethod(lambda _config: failed_provider))
+    monkeypatch.setattr(YFinanceProvider, "from_config", staticmethod(lambda _config: failed_provider))
     with pytest.raises(ActivityUnavailableError):
         state.renew_data_api_status()
     assert state.recent_activity[-1].status == "failed"
@@ -1852,7 +1869,7 @@ def test_disclosure_browser_picker_bytes_retain_registry_source_after_worker(
 
     monkeypatch.setattr(trust_evidence_module, "_attach_picker", lambda *_args: Picker())
     monkeypatch.setattr(trust_evidence_module, "_refresh_activity_shell", lambda *_args: None)
-    monkeypatch.setattr(trust_evidence_module, "RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr(evidence_documents, "RAW_DIR", tmp_path / "raw")
     registry_path = tmp_path / "fund_documents.parquet"
     holdings_path = tmp_path / "fund_holdings.parquet"
     entered = threading.Event()
@@ -1928,7 +1945,7 @@ def test_disclosure_browser_picker_bytes_retain_registry_source_after_worker(
     assert source_path.read_bytes() == payload
 
     if document_type == "holdings":
-        stored = services_module.pd.read_parquet(holdings_path)
+        stored = pd.read_parquet(holdings_path)
         bound = stored.loc[stored["document_source_id"].astype(str).eq(str(registered.iloc[0]["source_id"]))]
         assert not bound.empty
         assert stored["source"].eq("manual_unverified").all()
@@ -2069,7 +2086,7 @@ def test_esef_discovery_cancel_does_not_publish_in_memory_success(tmp_path, monk
             assert release.wait(_WAIT_S)
             return SimpleNamespace(status="ok", message="ok", data=("new-filing",))
 
-    monkeypatch.setattr(app_state_module, "FilingsXbrlOrgProvider", Provider)
+    monkeypatch.setattr(filing_ingestion_workflows, "FilingsXbrlOrgProvider", Provider)
     action_id = state.begin_activity("Discover ESEF filings", "Fetching").action_id
     errors: list[Exception] = []
 
@@ -2101,11 +2118,22 @@ def test_disclosure_import_concurrent_loser_is_readably_blocked(label) -> None:
     state = _state()
     barrier = threading.Barrier(2)
     results = [SimpleNamespace(value=""), SimpleNamespace(value="")]
-    action_ids: list[str | None] = []
+    page = SimpleNamespace(update=lambda: None)
+    hold = threading.Event()
+    background: list[threading.Thread | None] = []
 
     def start(result) -> None:
         barrier.wait()
-        action_ids.append(trust_evidence_module._start_disclosure_import(state, result, label))
+        background.append(
+            trust_evidence_module._run_official_filing_action(
+                page,
+                state,
+                result,
+                label,
+                "Parsing selected document",
+                lambda _action_id: (hold.wait(_WAIT_S), "Done.")[1],
+            )
+        )
 
     workers = [threading.Thread(target=start, args=(result,)) for result in results]
     for worker in workers:
@@ -2113,10 +2141,12 @@ def test_disclosure_import_concurrent_loser_is_readably_blocked(label) -> None:
     for worker in workers:
         worker.join(timeout=2)
 
-    assert sum(action_id is not None for action_id in action_ids) == 1
+    assert sum(thread is not None for thread in background) == 1
     assert any("blocked:" in result.value and "already running" in result.value for result in results)
-    state.cancel_activity(expected_action_id=state.current_activity.action_id)
-    state.release_activity(state.current_activity.action_id)
+    hold.set()
+    for thread in background:
+        if thread is not None:
+            thread.join(timeout=_WAIT_S)
 
 
 def test_tracked_retry_reenters_canonical_wrapper(tmp_path, monkeypatch) -> None:
@@ -2176,7 +2206,7 @@ def test_official_filing_normal_unavailable_result_is_failed_and_redacted(
                     data=None,
                 )
 
-        monkeypatch.setattr(app_state_module, "FilingsXbrlOrgProvider", UnavailableProvider)
+        monkeypatch.setattr(filing_ingestion_workflows, "FilingsXbrlOrgProvider", UnavailableProvider)
 
         def action(_action_id):
             return state.discover_esef_filings("NL")
@@ -2200,9 +2230,9 @@ def test_official_filing_normal_unavailable_result_is_failed_and_redacted(
                 )
 
         observed_guards: list[object] = []
-        monkeypatch.setattr(app_state_module, "oam_adapter_for_country", lambda _country: UnavailableAdapter)
+        monkeypatch.setattr(filing_ingestion_workflows, "oam_adapter_for_country", lambda _country: UnavailableAdapter)
         monkeypatch.setattr(
-            app_state_module,
+            filing_ingestion_workflows,
             "write_filing_coverage",
             lambda *_args, **kwargs: (
                 observed_guards.append(kwargs.get("publish_guard"))
@@ -2238,8 +2268,8 @@ def test_official_filing_normal_unavailable_result_is_failed_and_redacted(
 
 def test_sec_companyfacts_publication_scope_serialises_cancellation(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(app_state_module, "ACTIVITY_LOG_PATH", tmp_path / "session.jsonl")
-    monkeypatch.setattr(app_state_module, "STATEMENT_FACTS_PATH", tmp_path / "facts.parquet")
-    monkeypatch.setattr(app_state_module, "FILINGS_STATEMENTS_PATH", tmp_path / "inventory.parquet")
+    monkeypatch.setattr(filing_ingestion_workflows, "STATEMENT_FACTS_PATH", tmp_path / "facts.parquet")
+    monkeypatch.setattr(filing_ingestion_workflows, "FILINGS_STATEMENTS_PATH", tmp_path / "inventory.parquet")
     payload = tmp_path / "facts.json"
     payload.write_text(
         json.dumps({"cik": 1, "facts": {"us-gaap": {"Assets": {"units": {"USD": [{"val": 1}]}}}}}),
@@ -2259,7 +2289,7 @@ def test_sec_companyfacts_publication_scope_serialises_cancellation(tmp_path, mo
         entered.set()
         assert release.wait(_WAIT_S)
 
-    monkeypatch.setattr(app_state_module, "write_statement_evidence", blocking_write)
+    monkeypatch.setattr(filing_ingestion_workflows, "write_statement_evidence", blocking_write)
     original_record_output = state._record_activity_output
 
     def record_after_cancel(step, path):

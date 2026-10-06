@@ -11,7 +11,8 @@ from pathlib import Path
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig, ProviderSection
-from etf_cockpit.application.benchmark_reference import adjusted_price_snapshot_binding
+from etf_cockpit.core.values import dict_or_empty as _safe_dict
+from etf_cockpit.portfolio.benchmark_reference import adjusted_price_snapshot_binding
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, read_atomic_group
 from etf_cockpit.core.paths import FORECASTS_DIR, RAW_DIR, REPORTS_DIR
 from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
@@ -651,17 +652,6 @@ def _high_low_spread_proxy(frame: pd.DataFrame) -> float | None:
     close = pd.to_numeric(frame["close"], errors="coerce")
     proxy = ((high - low) / close).replace([float("inf"), float("-inf")], pd.NA).dropna()
     return _safe_float(proxy.mean()) if not proxy.empty else None
-
-
-def _safe_dict(value: object) -> dict[str, object]:
-    try:
-        if value is None:
-            return {}
-        if hasattr(value, "items"):
-            return dict(value.items())
-        return dict(value)  # type: ignore[arg-type]
-    except Exception:
-        return {}
 
 
 def _horizon_return(series: pd.Series, horizon: int) -> float | None:

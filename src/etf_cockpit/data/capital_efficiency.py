@@ -12,6 +12,8 @@ import math
 
 import pandas as pd
 
+from etf_cockpit.core.values import finite_float_or_none as _float
+from etf_cockpit.core.pandas_values import source_text_or_empty as _metadata_text
 from etf_cockpit.data.statement_normalisation import statement_coverage, statement_view
 
 
@@ -91,24 +93,10 @@ def capital_efficiency_analysis(
         for item in period_comparability["periods"]
     }
     for item in reported["history"]:
-        period = comparability_by_period.get((item.get("period_key"), item.get("period_end")), {})
-        item["comparability"] = {
-            "status": period.get("status", "unavailable"),
-            "reason": period.get("reason", "period_facts_missing"),
-            "currency": period.get("currency"),
-            "accounting_scope": period.get("accounting_scope"),
-            "source_ids": period.get("source_ids", ()),
-        }
+        _attach_comparability(item, comparability_by_period)
     breakdown = reported["invested_capital_breakdown"]
     for item in breakdown["history"]:
-        period = comparability_by_period.get((item.get("period_key"), item.get("period_end")), {})
-        item["comparability"] = {
-            "status": period.get("status", "unavailable"),
-            "reason": period.get("reason", "period_facts_missing"),
-            "currency": period.get("currency"),
-            "accounting_scope": period.get("accounting_scope"),
-            "source_ids": period.get("source_ids", ()),
-        }
+        period = _attach_comparability(item, comparability_by_period)
         if strict_comparability and period.get("status") != "available":
             for name in (
                 "reported_invested_capital",
@@ -184,6 +172,20 @@ def capital_efficiency_analysis(
         "source_lineage": _lineage(frame),
         "execution_allowed": False,
     }
+
+
+def _attach_comparability(
+    item: dict[str, object], comparability_by_period: Mapping[object, Mapping[str, object]]
+) -> Mapping[str, object]:
+    period = comparability_by_period.get((item.get("period_key"), item.get("period_end")), {})
+    item["comparability"] = {
+        "status": period.get("status", "unavailable"),
+        "reason": period.get("reason", "period_facts_missing"),
+        "currency": period.get("currency"),
+        "accounting_scope": period.get("accounting_scope"),
+        "source_ids": period.get("source_ids", ()),
+    }
+    return period
 
 
 def _canonical_frame(
@@ -399,17 +401,6 @@ def _period_comparability(
         "periods": periods,
         "execution_allowed": False,
     }
-
-
-def _metadata_text(value: object) -> str:
-    if value is None:
-        return ""
-    try:
-        if pd.isna(value):
-            return ""
-    except (TypeError, ValueError):
-        return ""
-    return str(value).strip()
 
 
 def _mark_current_metrics_unavailable(section: dict[str, object], reason: str) -> None:
@@ -1186,14 +1177,6 @@ def _alias_value(
         ),
         None,
     )
-
-
-def _float(value: object) -> float | None:
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    return result if math.isfinite(result) else None
 
 
 def _rate(value: object) -> float | None:

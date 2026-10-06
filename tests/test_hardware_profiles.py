@@ -72,7 +72,6 @@ def test_minimum_profile_runs_without_foundation_models(monkeypatch: pytest.Monk
         return original_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", import_without_foundation_models)
-    from etf_cockpit.application.ui_facade import build_profiled_forecast_lab_workspace
     from etf_cockpit.features import forecast_lab
 
     original_policy = forecast_lab.ResourcePolicy
@@ -89,7 +88,7 @@ def test_minimum_profile_runs_without_foundation_models(monkeypatch: pytest.Monk
         requested_profile="minimum",
         snapshot=HardwareSnapshot("test", 1, 2_048, 1_536, 5_000, False, "cpu-only"),
     )
-    report = build_profiled_forecast_lab_workspace(
+    report = forecast_lab.build_forecast_lab_workspace(
         config, _forecasts(), _prices(), profile_id="minimum"
     )
 
@@ -174,7 +173,6 @@ def test_scheduler_runner_rechecks_resources_before_handler(
 
 
 def test_cross_profile_numerical_parity(monkeypatch: pytest.MonkeyPatch) -> None:
-    from etf_cockpit.application.ui_facade import build_profiled_forecast_lab_workspace
     from etf_cockpit.features import forecast_lab
 
     original_policy = forecast_lab.ResourcePolicy
@@ -192,7 +190,7 @@ def test_cross_profile_numerical_parity(monkeypatch: pytest.MonkeyPatch) -> None
     metrics: dict[str, tuple[float, float, float]] = {}
 
     for profile_id in ("minimum", "recommended", "high"):
-        report = build_profiled_forecast_lab_workspace(
+        report = forecast_lab.build_forecast_lab_workspace(
             config, forecasts, prices, profile_id=profile_id
         )
         estimate = report["resource_profile"]
@@ -212,7 +210,7 @@ def test_cross_profile_numerical_parity(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_hardware_specific_limitations_are_visible_through_facade_diagnostics() -> None:
-    from etf_cockpit.application.ui_facade import build_resource_profile_diagnostics
+    from etf_cockpit.application.diagnostics_views import build_resource_profile_diagnostics
 
     diagnostics = build_resource_profile_diagnostics(
         snapshot=HardwareSnapshot("test", 1, 512, None, 1_024, False, "cpu-only")

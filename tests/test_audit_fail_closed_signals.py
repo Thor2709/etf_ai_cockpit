@@ -6,12 +6,14 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from etf_cockpit.application import ui_facade
+from etf_cockpit.application import market_views, ui_facade
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.types import ComponentScores, DataQualityReport, ForecastResult, SignalResult
 from etf_cockpit.features import macro, regime, volatility
 from etf_cockpit.parsers.priips_kid import PriipsKidRecord
-from etf_cockpit.services import BacktestService, _load_structure_caps, _postprocess_forecast_benchmark_fields
+from etf_cockpit.application.backtest_service import BacktestService
+from etf_cockpit.application.forecast_service import _postprocess_forecast_benchmark_fields
+from etf_cockpit.application.structural_evidence import _load_structure_caps
 from etf_cockpit.signals import simple_scores
 from etf_cockpit.signals.gates import evaluate_risk_gates
 from etf_cockpit.signals.scoring import component_scores
@@ -261,12 +263,14 @@ def test_missing_forecast_volatility_leaves_benchmark_probability_unavailable_wi
 
 
 def test_structural_load_failure_has_zero_confidence_cap_and_explicit_provenance(monkeypatch: pytest.MonkeyPatch) -> None:
-    from etf_cockpit import services
+    import etf_cockpit.application.structural_evidence as structural_evidence
+    import etf_cockpit.application.backtest_service as backtest_service
 
     def fail_load() -> None:
         raise ValueError("corrupt structural evidence")
 
-    monkeypatch.setattr(services, "_load_local_structural_evidence", fail_load)
+    monkeypatch.setattr(backtest_service, "_load_local_structural_evidence", fail_load)
+    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", fail_load)
 
     caps = _load_structure_caps(["AAA"], date(2025, 1, 2))
 
@@ -277,25 +281,41 @@ def test_structural_load_failure_has_zero_confidence_cap_and_explicit_provenance
 
 
 def test_unexpected_structural_load_failure_propagates(monkeypatch: pytest.MonkeyPatch) -> None:
-    from etf_cockpit import services
+    import etf_cockpit.application.structural_evidence as structural_evidence
+    import etf_cockpit.application.backtest_service as backtest_service
 
     def fail_load() -> None:
         raise RuntimeError("unexpected loader failure")
 
-    monkeypatch.setattr(services, "_load_local_structural_evidence", fail_load)
+    monkeypatch.setattr(backtest_service, "_load_local_structural_evidence", fail_load)
+    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", fail_load)
 
     with pytest.raises(RuntimeError, match="unexpected loader failure"):
         _load_structure_caps(["AAA"], date(2025, 1, 2))
 
 
 def test_backtest_does_not_run_after_structural_evidence_load_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    from etf_cockpit import services
+    import etf_cockpit.application.signal_service as signal_service
+    import etf_cockpit.application.data_service as data_service
+    import etf_cockpit.application.backtest_service as backtest_service
+    import etf_cockpit.application.feature_service as feature_service
+    import etf_cockpit.application.forecast_service as forecast_service
+    import etf_cockpit.application.reference_context as reference_context
+    import etf_cockpit.application.structural_evidence as structural_evidence
 
-    monkeypatch.setattr(services, "current_settings_identity", lambda: "settings")
-    monkeypatch.setattr(services, "load_prices", pd.DataFrame)
-    monkeypatch.setattr(services, "_backtest_calculation_context", lambda *_args: None)
-    monkeypatch.setattr(services, "load_fundamental_evidence", pd.DataFrame)
-    monkeypatch.setattr(services, "_load_local_structural_evidence", lambda: (_ for _ in ()).throw(ValueError("corrupt")))
+    monkeypatch.setattr(backtest_service, "current_settings_identity", lambda: "settings")
+    monkeypatch.setattr(feature_service, "current_settings_identity", lambda: "settings")
+    monkeypatch.setattr(forecast_service, "current_settings_identity", lambda: "settings")
+    monkeypatch.setattr(signal_service, "load_prices", pd.DataFrame)
+    monkeypatch.setattr(data_service, "load_prices", pd.DataFrame)
+    monkeypatch.setattr(backtest_service, "load_prices", pd.DataFrame)
+    monkeypatch.setattr(feature_service, "load_prices", pd.DataFrame)
+    monkeypatch.setattr(forecast_service, "load_prices", pd.DataFrame)
+    monkeypatch.setattr(backtest_service, "_backtest_calculation_context", lambda *_args: None)
+    monkeypatch.setattr(reference_context, "_backtest_calculation_context", lambda *_args: None)
+    monkeypatch.setattr(backtest_service, "load_fundamental_evidence", pd.DataFrame)
+    monkeypatch.setattr(backtest_service, "_load_local_structural_evidence", lambda: (_ for _ in ()).throw(ValueError("corrupt")))
+    monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", lambda: (_ for _ in ()).throw(ValueError("corrupt")))
 
     report = BacktestService(load_config(), universe_revision="audit-test").run_backtest()
 
@@ -676,7 +696,7 @@ def test_total_return_chart_seeds_only_the_first_undefined_fx_return(monkeypatch
         ]
     )
 
-    result = ui_facade._load_market_series_projection(
+    result = market_views._load_market_series_projection(
         prices,
         "AAA",
         basis="raw",
@@ -710,7 +730,7 @@ def test_total_return_chart_rejects_a_later_fx_return_gap(monkeypatch: pytest.Mo
         ]
     )
 
-    result = ui_facade._load_market_series_projection(
+    result = market_views._load_market_series_projection(
         prices,
         "AAA",
         basis="raw",
@@ -725,7 +745,7 @@ def test_total_return_chart_rejects_a_later_fx_return_gap(monkeypatch: pytest.Mo
 
 
 def test_dependent_callers_report_corrupt_scoreboard_as_unavailable(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import etf_cockpit.app.selectors.instrument_detail as selector
+    import etf_cockpit.application.instrument_detail_view as selector
 
     corrupt = tmp_path / "scoreboard.parquet"
     corrupt.write_bytes(b"not parquet")
@@ -736,7 +756,7 @@ def test_dependent_callers_report_corrupt_scoreboard_as_unavailable(tmp_path, mo
     assert friction["reason_code"] == "scoreboard_store_unreadable"
     assert "unavailable" in friction["friction_reason"]
     assert friction["execution_allowed"] is False
-    assert selector._scoreboard_row("VWCE") == {}
+    assert selector._scoreboard_lookup("VWCE")[0] == {}
     # The loader itself must keep raising: no empty-frame conversion.
     with pytest.raises(ValueError):
         simple_scores.load_simple_scoreboard(corrupt)

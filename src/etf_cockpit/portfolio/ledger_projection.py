@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation, localcontext
+from decimal import Decimal, InvalidOperation
 import re
 import sqlite3
 
 from etf_cockpit.data.market_adjustments import FXObservationStore, derive_fx_cross
+from etf_cockpit.portfolio.ledger import _decimal_add as _add_exact, _decimal_product as _multiply_exact
 
 
 _CURRENCY_PATTERN = re.compile(r"[A-Z]{3}\Z")
@@ -334,25 +335,6 @@ def _convert_cash(
 def _trial_balance_row(account_id: str, currency: str, debits: Decimal, credits: Decimal) -> TrialBalanceRow:
     net = _add_exact(debits, -credits)
     return TrialBalanceRow(account_id, currency, max(net, Decimal("0")), max(-net, Decimal("0")))
-
-
-def _add_exact(left: Decimal, right: Decimal) -> Decimal:
-    nonzero = tuple(value for value in (left, right) if value)
-    if not nonzero:
-        return Decimal("0")
-    min_exponent = min(int(value.as_tuple().exponent) for value in nonzero)
-    max_adjusted = max(value.adjusted() for value in nonzero)
-    precision = max(28, max_adjusted - min_exponent + 4)
-    with localcontext() as context:
-        context.prec = precision
-        return left + right
-
-
-def _multiply_exact(left: Decimal, right: Decimal) -> Decimal:
-    precision = max(28, len(left.as_tuple().digits) + len(right.as_tuple().digits) + 2)
-    with localcontext() as context:
-        context.prec = precision
-        return left * right
 
 
 def _instant(value: str, field: str) -> datetime:

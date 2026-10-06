@@ -7,7 +7,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.pages._lab_style import lab_page, metric_card, model_status_row, panel, section_header
 from etf_cockpit.app.pages.dashboard import _run_action
 from etf_cockpit.app.state import AppState
-from etf_cockpit.features.forecast_lab import build_forecast_lab_workspace
+from etf_cockpit.application.forecast_service import build_forecast_lab_workspace
 
 
 @lab_page("forecast_lab")

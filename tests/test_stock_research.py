@@ -7,7 +7,7 @@ import pandas as pd
 
 from etf_cockpit.app.pages import stock_research as stock_research_page
 from etf_cockpit.app.components import valuation_lab
-from etf_cockpit.application import ui_facade
+from etf_cockpit.application import ui_facade, valuation_views
 from etf_cockpit.data import stock_research as stock_research_data
 from etf_cockpit.data.stock_research import (
     balance_sheet_analysis,
@@ -439,8 +439,8 @@ def test_profitability_production_wiring_injects_sector_and_peers(monkeypatch) -
         "cohort": {"members": ["PEER-1"]},
         "execution_allowed": False,
     }
-    monkeypatch.setattr(ui_facade, "load_classification_projection", lambda instrument_id: classification)
-    monkeypatch.setattr(ui_facade, "load_peer_cohort_projection", lambda instrument_id, decision_time=None: peer_projection)
+    monkeypatch.setattr(valuation_views, "load_classification_projection", lambda instrument_id: classification)
+    monkeypatch.setattr(valuation_views, "load_peer_cohort_projection", lambda instrument_id, decision_time=None: peer_projection)
     monkeypatch.setattr(stock_research_data, "load_stock_research_frame", lambda path, instrument_id=None, as_known_at=None: facts.copy())
     monkeypatch.setattr(stock_research_page, "load_optional_research_import", lambda path, instrument_id=None: pd.DataFrame())
 
@@ -478,10 +478,10 @@ def test_profitability_bank_delegation_suppresses_industrial_metrics(monkeypatch
     facts = _statements().assign(instrument_id="MING")
     adapter_calls = []
     adapter_result = {"status": "available", "business_model": "bank", "metrics": {}, "execution_allowed": False}
-    monkeypatch.setattr(ui_facade, "load_classification_projection", lambda instrument_id: classification)
-    monkeypatch.setattr(ui_facade, "load_peer_cohort_projection", lambda instrument_id, decision_time=None: peer_projection)
+    monkeypatch.setattr(valuation_views, "load_classification_projection", lambda instrument_id: classification)
+    monkeypatch.setattr(valuation_views, "load_peer_cohort_projection", lambda instrument_id, decision_time=None: peer_projection)
     monkeypatch.setattr(stock_research_data, "load_stock_research_frame", lambda path, instrument_id=None, as_known_at=None: facts.copy())
-    monkeypatch.setattr(ui_facade, "load_financial_institution_projection", lambda instrument_id, **kwargs: adapter_calls.append((instrument_id, kwargs)) or adapter_result)
+    monkeypatch.setattr(valuation_views, "load_financial_institution_projection", lambda instrument_id, **kwargs: adapter_calls.append((instrument_id, kwargs)) or adapter_result)
 
     context = ui_facade.load_stock_research_context("MING", statements_path=ui_facade.STATEMENT_FACTS_PATH)
     report = build_stock_research_report(

@@ -13,6 +13,8 @@ import math
 import numpy as np
 import pandas as pd
 
+from etf_cockpit.core.pandas_values import float_nan_text_or_empty as _clean_label
+
 
 FACTOR_MODEL_VERSION = "factor_risk.v1"
 ANNUALISATION_FACTOR = 252.0
@@ -329,12 +331,6 @@ def _numeric_or_nan(value: object) -> float:
     except (TypeError, ValueError):
         return float("nan")
     return number if math.isfinite(number) else float("nan")
-
-
-def _clean_label(value: object) -> str:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return ""
-    return str(value).strip()
 
 
 def _robust_standardise(values: pd.Series) -> pd.Series:

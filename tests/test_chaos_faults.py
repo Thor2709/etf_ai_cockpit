@@ -5,7 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from etf_cockpit import services
+from etf_cockpit.application.data_service import DataService
+from etf_cockpit.data.yfinance_provider import YFinanceProvider
+import etf_cockpit.application.data_service as data_service
 from etf_cockpit.core.config import load_config
 
 
@@ -19,14 +21,14 @@ def test_provider_failure_preserves_last_valid_price_state(monkeypatch, tmp_path
         def fetch_prices(self, *_args):
             return SimpleNamespace(ok=False, data=None, message="offline provider failure")
 
-    monkeypatch.setattr(services.YFinanceProvider, "from_config", staticmethod(lambda _config: FailedProvider()))
+    monkeypatch.setattr(YFinanceProvider, "from_config", staticmethod(lambda _config: FailedProvider()))
 
     def record_commit(result):
         committed.append(result)
         last_valid.write_bytes(b"invalid replacement")
 
-    monkeypatch.setattr(services, "commit_price_import", record_commit)
-    service = services.DataService(load_config())
+    monkeypatch.setattr(data_service, "commit_price_import", record_commit)
+    service = DataService(load_config())
 
     message = service.refresh_yfinance_data(include_reference_data=False)
 

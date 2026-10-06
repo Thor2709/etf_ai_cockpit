@@ -22,9 +22,6 @@ from zipfile import ZipFile
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, atomic_write_json
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data.universe_store import UniverseRecord, is_valid_isin, support_decision
-
-
-IMPORT_SCHEMA_VERSION = 1
 MANIFEST_SCHEMA_VERSION = 1
 RESUME_SCHEMA_VERSION = 2
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -699,10 +696,6 @@ def dry_run_universe_import(
     )
 
 
-def validate_universe_import(*args: object, **kwargs: object) -> UniverseImportReport:
-    return dry_run_universe_import(*args, **kwargs)
-
-
 def _validate_options(
     requested_horizons: Mapping[str, int] | None,
     per_asset_quotas: Mapping[str, int] | None,
@@ -1203,23 +1196,4 @@ def load_import_resume_state(path: Path) -> ImportResumeState:
     return state
 
 
-def import_csv(source: object, **kwargs: object) -> UniverseImportReport:
-    return dry_run_universe_import(source, source_kind="csv", **kwargs)
-
-
-def import_xlsx(source: object, **kwargs: object) -> UniverseImportReport:
-    return dry_run_universe_import(source, source_kind="xlsx", **kwargs)
-
-
-def import_paste(source: object, **kwargs: object) -> UniverseImportReport:
-    return dry_run_universe_import(source, source_kind="paste", **kwargs)
-
-
-def import_provider_universe(source: object, **kwargs: object) -> UniverseImportReport:
-    return dry_run_universe_import(source, source_kind="provider", **kwargs)
-
-
 build_manifest = build_universe_manifest
-save_manifest = save_universe_manifest
-load_manifest = load_universe_manifest
-create_resume_state = create_import_resume_state

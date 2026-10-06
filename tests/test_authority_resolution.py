@@ -8,7 +8,7 @@ from etf_cockpit.core.types import DataQualityIssue, DataQualityReport
 from etf_cockpit.governance.gate_policy import PortfolioContext, resolve_authority
 from etf_cockpit.signals.signal_pipeline import _attach_authority
 from etf_cockpit.signals.simple_scores import SimpleInstrumentScore, SimpleScoreComponent, _attach_authority as _attach_score_authority
-from etf_cockpit.signals.research_states import GateResult, GateSeverity, PortfolioReviewState, ResearchState
+from etf_cockpit.core.research_states import GateResult, GateSeverity, PortfolioReviewState, ResearchState
 from etf_cockpit.core.types import ComponentScores, SignalResult
 
 

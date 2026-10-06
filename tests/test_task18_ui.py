@@ -42,8 +42,8 @@ def _chip_colour(control, label: str) -> str | None:
 
 def test_instrument_detail_renders_cost_edge_fields(tmp_path, monkeypatch) -> None:
     from etf_cockpit.app.pages import instrument_detail as page_module
-    from etf_cockpit.app.selectors import instrument_detail as selector
-    from etf_cockpit.services import build_snapshot
+    from etf_cockpit.application import instrument_detail_view as selector
+    from etf_cockpit.application.snapshot_builder import build_snapshot
 
     snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]
@@ -267,8 +267,8 @@ def test_scores_friction_helpers_hide_non_finite_values() -> None:
 
 def test_instrument_detail_friction_non_finite_values_are_unavailable(tmp_path, monkeypatch) -> None:
     from etf_cockpit.app.pages import instrument_detail as page_module
-    from etf_cockpit.app.selectors import instrument_detail as selector
-    from etf_cockpit.services import build_snapshot
+    from etf_cockpit.application import instrument_detail_view as selector
+    from etf_cockpit.application.snapshot_builder import build_snapshot
 
     snapshot = build_snapshot()
     instrument_id = snapshot.config.universe.enabled_ids[0]

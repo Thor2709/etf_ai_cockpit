@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import fields, replace
 from datetime import datetime, timezone
-import hashlib
 import json
 from pathlib import Path
 import sqlite3
@@ -24,6 +23,7 @@ from etf_cockpit.analysis.peer_cohorts import (
     canonical_peer_result_payload,
     peer_result_hash,
     projection_payload,
+    _hash,
 )
 from etf_cockpit.data.classification import InstrumentContextV2, read_instrument_context
 from etf_cockpit.data.local_storage import (
@@ -459,13 +459,6 @@ def _unavailable(instrument_id: str, reason: str) -> dict[str, object]:
         "reason_code": reason,
         "execution_allowed": False,
     }
-
-
-def _hash(value: object) -> str:
-    encoded = json.dumps(
-        value, sort_keys=True, separators=(",", ":"), default=str, allow_nan=False
-    )
-    return hashlib.sha256(encoded.encode()).hexdigest()
 
 
 def _timestamp(value: object) -> datetime:

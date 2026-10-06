@@ -4,10 +4,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from math import isfinite
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 import warnings
 
-from etf_cockpit.signals.research_states import (
+from etf_cockpit.core.research_states import (
     AnalysisStatus,
     AuthorityDecision,
     InternalSignalIntent,
@@ -18,7 +18,9 @@ from etf_cockpit.signals.research_states import (
     public_authority_payload,
     research_state_for_legacy_action,
 )
-from etf_cockpit.signals.canonical_scoring import CanonicalScore
+
+if TYPE_CHECKING:
+    from etf_cockpit.signals.canonical_scoring import CanonicalScore
 
 SignalStatus = Literal["ok", "blocked", "warning", "failed"]
 ModelStatus = Literal["ok", "failed", "skipped", "unavailable"]
@@ -38,20 +40,6 @@ class DatasetMetadata:
     staleness_status: StalenessStatus
     age_days: int | None = None
     notes: str | None = None
-
-
-@dataclass(frozen=True)
-class ETFIdentity:
-    etf_id: str
-    name: str
-    isin: str | None
-    ticker: str
-    exchange: str | None
-    currency: str
-    role: str
-    region: str | None = None
-    sector: str | None = None
-    theme: str | None = None
 
 
 @dataclass(frozen=True)

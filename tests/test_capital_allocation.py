@@ -4,7 +4,7 @@ from datetime import date
 
 import pandas as pd
 
-from etf_cockpit.application import ui_facade
+from etf_cockpit.application import ui_facade, valuation_views
 from etf_cockpit.data.capital_allocation import capital_allocation_analysis
 from etf_cockpit.data.market_adjustments import CorporateAction, CorporateActionCoverage
 
@@ -269,7 +269,7 @@ def test_financial_institution_is_not_run_through_industrial_fcf_and_uses_existi
         calls.append(instrument_id)
         return {"status": "available", "instrument_id": instrument_id, "metrics": ()}
 
-    monkeypatch.setattr(ui_facade, "load_financial_institution_projection", financial_projection)
+    monkeypatch.setattr(valuation_views, "load_financial_institution_projection", financial_projection)
     result = ui_facade.load_capital_allocation_analysis(
         _statements(),
         instrument_id="ACME",

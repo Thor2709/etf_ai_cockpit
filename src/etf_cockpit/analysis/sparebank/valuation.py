@@ -10,17 +10,10 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Mapping
 
+from etf_cockpit.core.values import finite_float_or_none as _num
 from etf_cockpit.portfolio.costs import COST_MODEL_ID
 
 from .models import ECClaimState, UNAVAILABLE
-
-
-def _num(value: object) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _state(value: ECClaimState | Mapping[str, object]) -> Mapping[str, object]:

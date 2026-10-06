@@ -6,9 +6,9 @@ import pandas as pd
 
 from etf_cockpit.app.components.overlap import overlap_evidence_panel
 from etf_cockpit.app.pages import risk
-from etf_cockpit.app.selectors.instrument_detail import build_instrument_detail
+from etf_cockpit.application.instrument_detail_view import build_instrument_detail
 from etf_cockpit.app.state import AppState
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 from etf_cockpit.features.overlap import calculate_direct_overlap
 
 

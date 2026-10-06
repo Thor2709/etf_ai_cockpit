@@ -9,8 +9,9 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.app.pages.instrument_detail import _render_sparebank_workspace
-from etf_cockpit.app.selectors.instrument_detail import _sparebank_workspace
-from etf_cockpit.application.ui_facade import _select_ec_revision, load_financial_institution_projection
+from etf_cockpit.application.instrument_detail_view import _sparebank_workspace
+from etf_cockpit.application.ui_facade import load_financial_institution_projection
+from etf_cockpit.application.financial_institution_views import _select_ec_revision
 from etf_cockpit.analysis.sparebank.events import merger_bridge, merger_ratios
 from etf_cockpit.data.classification import ClassificationEvidence, resolve_instrument_context
 from etf_cockpit.data.contracts import SourceAuthority

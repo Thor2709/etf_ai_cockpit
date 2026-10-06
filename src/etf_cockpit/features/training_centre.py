@@ -19,6 +19,7 @@ import re
 from typing import Any, Literal
 from uuid import uuid4
 
+from etf_cockpit.core.atomic_io import sha256_file as _sha256_file
 from etf_cockpit.core.job_scheduler import DurableJobScheduler, JobSpec, WorkflowRecord
 from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.data.local_storage import StoredRecord, StorageRevisionConflict, TransactionalStore
@@ -30,10 +31,10 @@ from etf_cockpit.models.monitoring import (
     assess_drift,
     compare_net_performance,
 )
+from etf_cockpit.validation.optimisation import _identifier
 
 
 RunStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
-PromotionState = Literal["unpromoted", "approved", "challenger", "champion", "retired"]
 
 _ENTITY_EXPERIMENT = "training.experiment"
 _ENTITY_RUN = "training.run"
@@ -857,24 +858,9 @@ def _hash_payload(value: object) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False, default=str).encode("utf-8")).hexdigest()
 
 
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _require_hash(value: str, label: str) -> None:
     if not isinstance(value, str) or not _SAFE_HASH.fullmatch(value):
         raise ValueError(f"{label} must be a lowercase SHA-256 hash")
-
-
-def _identifier(value: str, label: str) -> str:
-    value = str(value).strip()
-    if not value or len(value) > 160 or not re.fullmatch(r"[A-Za-z0-9_.:-]+", value):
-        raise ValueError(f"{label} must be a bounded identifier")
-    return value
 
 
 def _bounded_text(value: str, label: str, *, limit: int = 160) -> str:

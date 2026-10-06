@@ -328,8 +328,8 @@ def test_application_api_and_ui_facade_projections_are_identical(tmp_path: Path)
 
 def test_selector_and_page_expose_non_executable_market_data(monkeypatch) -> None:
     from etf_cockpit.app.pages import instrument_detail as page_module
-    from etf_cockpit.app.selectors import instrument_detail as selector
-    from etf_cockpit.services import build_snapshot
+    from etf_cockpit.application import instrument_detail_view as selector
+    from etf_cockpit.application.snapshot_builder import build_snapshot
 
     projection = {
         "status": "available",

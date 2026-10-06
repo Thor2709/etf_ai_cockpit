@@ -13,7 +13,7 @@ from etf_cockpit.app.components.states import STATE_NAMES, state_panel
 from etf_cockpit.app.router import PAGES, WORKSPACE_GROUPS, build_shell, uses_narrow_layout, workspace_for_route
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.ui_acceptance import build_main_ui_action_inventory, ui_command_contracts
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 _SNAPSHOT_TEMPLATE = None

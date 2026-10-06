@@ -9,7 +9,7 @@ from etf_cockpit.app.components.depth_selector import DETAIL_KEY, SELECTOR_KEY, 
 from etf_cockpit.app.router import build_shell
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.analysis_depth import AnalysisTimingRecord
-from etf_cockpit.services import build_snapshot
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 def _walk(control):

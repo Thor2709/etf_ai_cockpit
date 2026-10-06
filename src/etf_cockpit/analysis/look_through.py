@@ -5,11 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 import math
-from numbers import Real
 from typing import Mapping
 
 import pandas as pd
 
+from etf_cockpit.core.values import finite_real_or_none as _finite_number
+from etf_cockpit.core.pandas_values import clean_text_or_empty as _clean_text
 from etf_cockpit.data.event_calendar import normalise_event_decision_time
 from etf_cockpit.data.fund_holdings import normalise_holdings
 from etf_cockpit.features.overlap import (
@@ -754,13 +755,6 @@ def _as_date(value: object) -> date | None:
     return None
 
 
-def _finite_number(value: object) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, Real):
-        return None
-    number = float(value)
-    return number if math.isfinite(number) else None
-
-
 def _single_value(values: list[object]) -> str | None:
     unique = sorted({_clean_text(value) for value in values if _clean_text(value)})
     return unique[0] if len(unique) == 1 else None
@@ -770,9 +764,3 @@ def _unique_text(values: object) -> tuple[str, ...]:
     if not isinstance(values, pd.Series):
         return ()
     return tuple(sorted({_clean_text(value) for value in values if _clean_text(value)}))
-
-
-def _clean_text(value: object) -> str:
-    if value is None or (not isinstance(value, (str, bytes)) and pd.isna(value)):
-        return ""
-    return str(value).strip()

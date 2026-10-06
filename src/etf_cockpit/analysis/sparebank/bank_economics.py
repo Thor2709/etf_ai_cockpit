@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import math
 from typing import Iterable, Mapping
 
 from .models import BankEconomics, UNAVAILABLE
+
+from etf_cockpit.core.values import finite_float_or_none as _number
 
 
 @dataclass(frozen=True)
@@ -88,14 +89,6 @@ class FundingEvidence:
     lcr: float | None = None
     nsfr: float | None = None
     unavailable_fields: tuple[str, ...] = ()
-
-
-def _number(value: object) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _adjustment(value: object) -> NormalisationAdjustment | None:

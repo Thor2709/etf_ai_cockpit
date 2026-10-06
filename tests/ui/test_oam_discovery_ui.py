@@ -5,8 +5,8 @@ from pathlib import Path
 
 from etf_cockpit.app.pages.trust_evidence import filings_page
 from etf_cockpit.app.state import AppState
-import etf_cockpit.app.state as app_state_module
-from etf_cockpit.services import build_snapshot
+import etf_cockpit.application.filing_ingestion_workflows as filing_ingestion_workflows
+from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 def _walk(control):
@@ -48,12 +48,12 @@ def test_app_state_imports_local_oam_without_network_and_publishes_manual_eviden
     observed: dict[str, object] = {}
 
     monkeypatch.setattr(
-        app_state_module,
+        filing_ingestion_workflows,
         "write_oam_discovery_registry",
         lambda result, **_kwargs: (observed.update(registry_result=result) or registry),
     )
     monkeypatch.setattr(
-        app_state_module,
+        filing_ingestion_workflows,
         "write_filing_coverage",
         lambda result, **_kwargs: (observed.update(coverage_result=result) or coverage),
     )

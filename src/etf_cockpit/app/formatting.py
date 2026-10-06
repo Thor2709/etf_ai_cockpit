@@ -1,15 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-import math
-
-
-def _number(value: object) -> float | None:
-    try:
-        number = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
+from etf_cockpit.core.values import finite_float_or_none as _number
 
 
 def format_number(value: object, *, decimals: int = 2, unavailable: str = "N/A") -> str:

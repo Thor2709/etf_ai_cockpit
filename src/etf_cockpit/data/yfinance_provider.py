@@ -11,6 +11,7 @@ import pandas as pd
 from etf_cockpit.core.config import AppConfig, ETFConfig, ProviderSection
 from etf_cockpit.core.paths import RAW_DIR as RAW_DIR
 from etf_cockpit.core.session_log import redact_text
+from etf_cockpit.core.values import dict_or_empty as _safe_dict
 from etf_cockpit.data.providers import DataProvider, PriceProvider, ProviderResult
 from etf_cockpit.data.provenance import metadata_from_frame
 from etf_cockpit.data.retrieval_batch import BatchRetriever, provider_rate_limiter
@@ -467,10 +468,6 @@ def validate_yahoo_symbols(symbols: dict[str, str]) -> dict[str, YahooSymbolVali
     return result
 
 
-def _looks_like_yahoo_symbol(value: str) -> bool:
-    return looks_like_yahoo_symbol(value)
-
-
 def _normalise_fx_pair(pair: str) -> tuple[str, str, str]:
     compact = "".join(ch for ch in pair.upper() if ch.isalpha())
     if len(compact) != 6:
@@ -487,17 +484,6 @@ def _safe_getattr(obj: object, name: str, default: object) -> object:
         return value() if callable(value) and name == "quote_type" else value
     except Exception:
         return default
-
-
-def _safe_dict(value: object) -> dict[str, object]:
-    try:
-        if value is None:
-            return {}
-        if hasattr(value, "items"):
-            return dict(value.items())
-        return dict(value)  # type: ignore[arg-type]
-    except Exception:
-        return {}
 
 
 def _safe_dataframe(value: object) -> pd.DataFrame:

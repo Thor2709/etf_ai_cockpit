@@ -14,7 +14,7 @@ from etf_cockpit.app.components.fixed_income_views import (
     fixed_income_bond_panel,
 )
 from etf_cockpit.app.components.states import state_panel
-from etf_cockpit.app.selectors.instrument_detail import InstrumentDetailViewModel, _valuation_panel, build_etf_disclosure_panel, build_etf_structure_panel, build_etf_liquidity_panel, build_instrument_detail
+from etf_cockpit.application.instrument_detail_view import InstrumentDetailViewModel, _valuation_panel, build_etf_disclosure_panel, build_etf_structure_panel, build_etf_liquidity_panel, build_instrument_detail
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.alerts import AlertReadback, read_local_alerts
 from etf_cockpit.application.ui_facade import bitemporal_history_summary

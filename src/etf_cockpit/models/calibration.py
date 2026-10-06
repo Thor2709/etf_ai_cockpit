@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
 from math import ceil, isfinite, sqrt
 from numbers import Real
 from pathlib import Path
@@ -26,20 +25,6 @@ CALIBRATION_COLUMNS = [
 ]
 _CONFORMAL_NOMINAL_COVERAGE = 0.80
 _CONFORMAL_QUANTILES = (5, 10, 25, 50, 75, 90, 95)
-
-
-@dataclass(frozen=True)
-class CalibrationSummary:
-    instrument_id: str
-    model_name: str
-    evaluated_forecasts: int
-    matured_forecasts: int
-    oos_mase: float | None
-    oos_directional_accuracy: float | None
-    q10_q90_coverage: float | None
-    calibration_score_10: float | None
-    calibration_status: str
-    calibration_label: str
 
 
 def conformal_quantile_adjustment(

@@ -5,7 +5,7 @@ import threading
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import requests
 import yaml
@@ -13,7 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from etf_cockpit.audit.thesis_diary import ThesisDiaryStore, _normalise_time, build_thesis_entry, canonical_json, sha256_value
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, REPORTS_DIR
-from etf_cockpit.services import CockpitSnapshot
+if TYPE_CHECKING:
+    from etf_cockpit.application.snapshot_builder import CockpitSnapshot
 
 
 LOCAL_LLM_CONFIG_PATH = CONFIG_DIR / "local_llm.yaml"

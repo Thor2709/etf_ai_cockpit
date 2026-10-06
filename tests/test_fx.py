@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from etf_cockpit.data.fx_data import build_fx_rate_snapshot, fx_cross_rate, validate_fx_rates
-from etf_cockpit.application.ui_facade import project_portfolio_currency as facade_project_portfolio_currency
+from etf_cockpit.application.portfolio_views import project_portfolio_currency as facade_project_portfolio_currency
 from etf_cockpit.portfolio.currency import project_portfolio_currency
 from etf_cockpit.portfolio.costs import CostEstimate, PortfolioCostEstimate
 from etf_cockpit.portfolio.sandbox import (

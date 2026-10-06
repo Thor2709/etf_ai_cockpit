@@ -853,18 +853,6 @@ def _validate_zip_container(path: Path, dataset: str) -> None:
         raise SecEdgarBulkUnavailable("SEC ZIP central directory count is inconsistent")
 
 
-def _has_zip64_extensible_data(path: Path) -> bool:
-    try:
-        eocd_offset, _ = _find_eocd(path)
-        locator_offset = eocd_offset - 20
-        if locator_offset < 0 or _read_at(path, locator_offset, 4) != b"PK\x06\x07":
-            return False
-        record = _read_zip64_record(path, locator_offset)
-        return record is not None and record[4] + 56 < locator_offset
-    except (OSError, ValueError, SecEdgarBulkUnavailable):
-        return False
-
-
 @contextmanager
 def _open_zipfile(path: Path) -> Iterator[zipfile.ZipFile]:
     """Open ordinary ZIPs or a ZIP64 archive with bounded extensible data."""
@@ -1063,11 +1051,6 @@ def _headers(value: object) -> dict[str, str]:
 
 def _header(headers: dict[str, str], name: str) -> str:
     return str(headers.get(name.lower(), "")).strip()
-
-
-def _header_int(headers: dict[str, str], name: str) -> int | None:
-    value = _header(headers, name)
-    return int(value) if value.isdigit() else None
 
 
 def _validated_content_length(headers: dict[str, str]) -> int | None:

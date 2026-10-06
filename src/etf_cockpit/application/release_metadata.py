@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from etf_cockpit.core.secure_update import describe_release_evidence
+
 
 _DEFAULT_REBUILD_MESSAGE = "unavailable (source checkout; no packaged build metadata)"
 
@@ -56,4 +58,4 @@ def read_rebuild_timestamp(root: Path) -> str:
     return _DEFAULT_REBUILD_MESSAGE
 
 
-__all__ = ["read_changelog_excerpt", "read_rebuild_timestamp"]
+__all__ = ["describe_release_evidence", "read_changelog_excerpt", "read_rebuild_timestamp"]

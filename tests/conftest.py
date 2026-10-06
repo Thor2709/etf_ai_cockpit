@@ -225,7 +225,7 @@ def _build_data_seed(seed: Path) -> None:
         environment = {**os.environ, "ETF_COCKPIT_ROOT": str(builder), "ETF_COCKPIT_OFFLINE": "1"}
         environment["PYTHONPATH"] = os.pathsep.join(filter(None, [str(ROOT / "src"), environment.get("PYTHONPATH")]))
         completed = subprocess.run(
-            [sys.executable, "-c", "from etf_cockpit.services import build_snapshot; build_snapshot()"],
+            [sys.executable, "-c", "from etf_cockpit.application.snapshot_builder import build_snapshot; build_snapshot()"],
             cwd=ROOT,
             env=environment,
             capture_output=True,

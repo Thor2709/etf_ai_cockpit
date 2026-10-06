@@ -8,7 +8,22 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from etf_cockpit import services
+from etf_cockpit.application.reference_context import (
+    _benchmark_reference_snapshot_inputs,
+    _reference_context_from_inputs,
+)
+from etf_cockpit.application.snapshot_builder import _build_snapshot
+from etf_cockpit.portfolio.benchmark_reference_contract import resolve_vwce_anchor
+import etf_cockpit.application.snapshot_builder as snapshot_builder
+import etf_cockpit.application.signal_service as signal_service
+import etf_cockpit.application.data_service as data_service
+import etf_cockpit.application.backtest_service as backtest_service
+import etf_cockpit.application.feature_service as feature_service
+import etf_cockpit.application.forecast_service as forecast_service
+import etf_cockpit.application.economics_inputs as economics_inputs
+import etf_cockpit.application.reference_context as reference_context
+import etf_cockpit.application.structural_evidence as structural_evidence
+import etf_cockpit.application.derived_cache as derived_cache
 from etf_cockpit.application.portfolio_sandbox import (
     PORTFOLIO_SANDBOX_ENTITY,
     PORTFOLIO_SANDBOX_RESULT_ENTITY,
@@ -481,28 +496,45 @@ def test_build_snapshot_wires_available_reference_evidence_through_restart_and_s
         def validate_prices(self, prices, *, holdings=None):
             return SimpleNamespace(as_of_date="2026-07-18")
 
-    monkeypatch.setattr(services, "configure_logging", lambda: None)
-    monkeypatch.setattr(services, "ensure_project_dirs", lambda: None)
-    monkeypatch.setattr(services, "load_config", load_config)
-    monkeypatch.setattr(services, "_current_universe_revision", lambda: "production-reference-1")
-    monkeypatch.setattr(services, "DataService", FakeDataService)
-    monkeypatch.setattr(services, "load_holdings", lambda: pd.DataFrame([
-        {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
-    ]))
-    monkeypatch.setattr(services, "model_availability", lambda config: {"timesfm": False, "toto": False})
-    monkeypatch.setattr(services, "model_diagnostics", lambda config: [])
-    monkeypatch.setattr(services, "load_latest_forecasts", lambda **kwargs: pd.DataFrame())
-    monkeypatch.setattr(services, "_load_structure_caps", lambda *args: {})
-    monkeypatch.setattr(services, "load_etf_economics_records", lambda: ())
-    monkeypatch.setattr(services, "load_total_return_evidence", lambda path: None)
-    monkeypatch.setattr(services, "load_closure_proxy_policy", lambda: None)
+    monkeypatch.setattr(snapshot_builder, "configure_logging", lambda: None)
+    monkeypatch.setattr(snapshot_builder, "ensure_project_dirs", lambda: None)
+    monkeypatch.setattr(snapshot_builder, "load_config", load_config)
+    monkeypatch.setattr(snapshot_builder, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(signal_service, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(data_service, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(backtest_service, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(feature_service, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(forecast_service, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(derived_cache, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(snapshot_builder, "DataService", FakeDataService)
+    monkeypatch.setattr(signal_service, "DataService", FakeDataService)
+    monkeypatch.setattr(data_service, "DataService", FakeDataService)
+    for module in (snapshot_builder, signal_service, data_service):
+        monkeypatch.setattr(
+            module,
+            "load_holdings",
+            lambda: pd.DataFrame([
+            {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
+        ]),
+        )
+    monkeypatch.setattr(snapshot_builder, "model_availability", lambda config: {"timesfm": False, "toto": False})
+    monkeypatch.setattr(signal_service, "model_availability", lambda config: {"timesfm": False, "toto": False})
+    monkeypatch.setattr(snapshot_builder, "model_diagnostics", lambda config: [])
+    monkeypatch.setattr(snapshot_builder, "load_latest_forecasts", lambda **kwargs: pd.DataFrame())
+    monkeypatch.setattr(signal_service, "load_latest_forecasts", lambda **kwargs: pd.DataFrame())
+    monkeypatch.setattr(snapshot_builder, "_load_structure_caps", lambda *args: {})
+    monkeypatch.setattr(signal_service, "_load_structure_caps", lambda *args: {})
+    monkeypatch.setattr(structural_evidence, "_load_structure_caps", lambda *args: {})
+    monkeypatch.setattr(economics_inputs, "load_etf_economics_records", lambda: ())
+    monkeypatch.setattr(economics_inputs, "load_total_return_evidence", lambda path: None)
+    monkeypatch.setattr(economics_inputs, "load_closure_proxy_policy", lambda: None)
     source_backed_anchor = _vwce_anchor()
     source_backed_registry = _canonical_reference_registry(source_backed_anchor)
     monkeypatch.setattr(
-        services, "load_canonical_benchmark_registry", lambda path: source_backed_registry,
+        reference_context, "load_canonical_benchmark_registry", lambda path: source_backed_registry,
     )
 
-    snapshot = services._build_snapshot(force_sample=True)
+    snapshot = _build_snapshot(force_sample=True)
     assert isinstance(snapshot.benchmark_reference_registry, CanonicalBenchmarkRegistry)
     assert snapshot.benchmark_reference_registry.as_payload()["registry_hash"]
     assert snapshot.vwce_anchor_evidence is not None
@@ -534,7 +566,7 @@ def test_build_snapshot_wires_available_reference_evidence_through_restart_and_s
         expected_revision=0,
         root=tmp_path,
     )
-    rebuilt = services._build_snapshot(force_sample=True)
+    rebuilt = _build_snapshot(force_sample=True)
     loaded = load_portfolio_candidate(rebuilt, "Production reference restart", root=tmp_path)
     assert loaded.result_payload == saved.result_payload
     assert loaded.result_payload["service_evidence"]["benchmark_reference"]["status"] == "available"
@@ -570,22 +602,39 @@ def test_build_snapshot_no_trade_rejects_excluded_holdings_in_source_frame(monke
         def validate_prices(self, prices, *, holdings=None):
             return SimpleNamespace(as_of_date="2026-07-18")
 
-    monkeypatch.setattr(services, "configure_logging", lambda: None)
-    monkeypatch.setattr(services, "ensure_project_dirs", lambda: None)
-    monkeypatch.setattr(services, "load_config", load_config)
-    monkeypatch.setattr(services, "_current_universe_revision", lambda: "production-reference-1")
-    monkeypatch.setattr(services, "DataService", FakeDataService)
-    monkeypatch.setattr(services, "load_holdings", lambda: pd.DataFrame([
-        {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
-        {"etf_id": "OUTSIDE", "current_weight": 0.3, "market_value_eur": 30_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
-    ]))
-    monkeypatch.setattr(services, "model_availability", lambda config: {"timesfm": False, "toto": False})
-    monkeypatch.setattr(services, "model_diagnostics", lambda config: [])
-    monkeypatch.setattr(services, "load_latest_forecasts", lambda **kwargs: pd.DataFrame())
-    monkeypatch.setattr(services, "_load_structure_caps", lambda *args: {})
-    monkeypatch.setattr(services, "load_etf_economics_records", lambda: ())
-    monkeypatch.setattr(services, "load_total_return_evidence", lambda path: None)
-    monkeypatch.setattr(services, "load_closure_proxy_policy", lambda: None)
+    monkeypatch.setattr(snapshot_builder, "configure_logging", lambda: None)
+    monkeypatch.setattr(snapshot_builder, "ensure_project_dirs", lambda: None)
+    monkeypatch.setattr(snapshot_builder, "load_config", load_config)
+    monkeypatch.setattr(snapshot_builder, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(signal_service, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(data_service, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(backtest_service, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(feature_service, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(forecast_service, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(derived_cache, "_current_universe_revision", lambda: "production-reference-1")
+    monkeypatch.setattr(snapshot_builder, "DataService", FakeDataService)
+    monkeypatch.setattr(signal_service, "DataService", FakeDataService)
+    monkeypatch.setattr(data_service, "DataService", FakeDataService)
+    for module in (snapshot_builder, signal_service, data_service):
+        monkeypatch.setattr(
+            module,
+            "load_holdings",
+            lambda: pd.DataFrame([
+            {"etf_id": "VWCE", "current_weight": 0.4, "market_value_eur": 40_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
+            {"etf_id": "OUTSIDE", "current_weight": 0.3, "market_value_eur": 30_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
+        ]),
+        )
+    monkeypatch.setattr(snapshot_builder, "model_availability", lambda config: {"timesfm": False, "toto": False})
+    monkeypatch.setattr(signal_service, "model_availability", lambda config: {"timesfm": False, "toto": False})
+    monkeypatch.setattr(snapshot_builder, "model_diagnostics", lambda config: [])
+    monkeypatch.setattr(snapshot_builder, "load_latest_forecasts", lambda **kwargs: pd.DataFrame())
+    monkeypatch.setattr(signal_service, "load_latest_forecasts", lambda **kwargs: pd.DataFrame())
+    monkeypatch.setattr(snapshot_builder, "_load_structure_caps", lambda *args: {})
+    monkeypatch.setattr(signal_service, "_load_structure_caps", lambda *args: {})
+    monkeypatch.setattr(structural_evidence, "_load_structure_caps", lambda *args: {})
+    monkeypatch.setattr(economics_inputs, "load_etf_economics_records", lambda: ())
+    monkeypatch.setattr(economics_inputs, "load_total_return_evidence", lambda path: None)
+    monkeypatch.setattr(economics_inputs, "load_closure_proxy_policy", lambda: None)
     source_backed_anchor = _vwce_anchor()
     source_backed_registry = _canonical_reference_registry(source_backed_anchor)
     source_backed_registry = CanonicalBenchmarkRegistry(
@@ -600,12 +649,12 @@ def test_build_snapshot_no_trade_rejects_excluded_holdings_in_source_frame(monke
         vwce_anchors=source_backed_registry.vwce_anchors,
     )
     monkeypatch.setattr(
-        services,
+        reference_context,
         "load_canonical_benchmark_registry",
         lambda path: source_backed_registry,
     )
 
-    snapshot = services._build_snapshot(force_sample=True)
+    snapshot = _build_snapshot(force_sample=True)
 
     assert snapshot.holdings["etf_id"].tolist() == ["VWCE"]
     assert all(
@@ -619,9 +668,9 @@ def test_snapshot_reference_inputs_fail_closed_when_local_registry_is_missing(
     tmp_path,
 ) -> None:
     monkeypatch.setattr(
-        services, "BENCHMARK_REFERENCE_REGISTRY_PATH", tmp_path / "missing-registry.json",
+        reference_context, "BENCHMARK_REFERENCE_REGISTRY_PATH", tmp_path / "missing-registry.json",
     )
-    evidence = services._benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
+    evidence = _benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
     assert evidence["registry"].as_payload()["records"] == []
     assert evidence["instrument"] is None
     assert evidence["anchor"] is None
@@ -660,7 +709,7 @@ def test_snapshot_no_trade_reference_fails_closed_for_invalid_current_holdings(m
             {"etf_id": "LYP6", "current_weight": 0.2, "market_value_eur": 20_000.0, "as_of_date": "2026-07-18", "known_at": "2026-07-18T12:00:00Z"},
         ]
     )
-    evidence = services._benchmark_reference_snapshot_inputs(
+    evidence = _benchmark_reference_snapshot_inputs(
         load_config(), "2026-07-18", mutate(holdings),
     )
     assert "reference:no_trade" in evidence["reference_ids"]
@@ -669,9 +718,9 @@ def test_snapshot_no_trade_reference_fails_closed_for_invalid_current_holdings(m
 
 def test_snapshot_no_trade_strips_stale_registry_record_when_holdings_are_missing(monkeypatch) -> None:
     registry = _canonical_reference_registry(_vwce_anchor())
-    monkeypatch.setattr(services, "load_canonical_benchmark_registry", lambda path: registry)
+    monkeypatch.setattr(reference_context, "load_canonical_benchmark_registry", lambda path: registry)
 
-    evidence = services._benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
+    evidence = _benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
 
     assert "reference:no_trade" in evidence["reference_ids"]
     assert all(item.portfolio_id != "reference:no_trade" for item in evidence["registry"].reference_portfolios)
@@ -689,7 +738,7 @@ def test_holdings_checksum_binds_source_knowledge_provenance() -> None:
 
 
 def test_packaged_identity_only_registry_remains_explicitly_unavailable() -> None:
-    evidence = services._benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
+    evidence = _benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
     snapshot = _snapshot()
     snapshot.benchmark_reference_registry = evidence["registry"]
     snapshot.benchmark_reference_instrument = evidence["instrument"]
@@ -737,13 +786,13 @@ def test_snapshot_inputs_select_newest_pit_anchor_and_replay_listing_history(mon
         reference_portfolios=base.reference_portfolios,
         vwce_anchors=(historical, revised),
     )
-    monkeypatch.setattr(services, "load_canonical_benchmark_registry", lambda path: registry)
+    monkeypatch.setattr(reference_context, "load_canonical_benchmark_registry", lambda path: registry)
 
-    old = services._benchmark_reference_snapshot_inputs(load_config(), "2024-07-18")
-    current = services._benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
+    old = _benchmark_reference_snapshot_inputs(load_config(), "2024-07-18")
+    current = _benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
     assert old["anchor"].digest() == historical.digest()
     assert current["anchor"].digest() == revised.digest()
-    replay = services.resolve_vwce_anchor(
+    replay = resolve_vwce_anchor(
         current["anchor"],
         listing_id=current["listing_id"],
         effective_date=current["start_date"],
@@ -758,16 +807,16 @@ def test_snapshot_inputs_select_newest_pit_anchor_and_replay_listing_history(mon
 def test_snapshot_cash_chronology_is_accepted_by_score_readback(monkeypatch) -> None:
     registry = _canonical_reference_registry(_vwce_anchor())
     monkeypatch.setattr(
-        services,
+        reference_context,
         "load_canonical_benchmark_registry",
         lambda path: registry,
     )
 
-    inputs = services._benchmark_reference_snapshot_inputs(
+    inputs = _benchmark_reference_snapshot_inputs(
         load_config(),
         "2026-07-18",
     )
-    context = services._reference_context_from_inputs(
+    context = _reference_context_from_inputs(
         inputs,
         purpose="comparison",
         analysis_id="snapshot-cash-chronology",
@@ -817,9 +866,9 @@ def test_snapshot_inputs_fail_closed_only_on_true_latest_anchor_tie(monkeypatch)
     registry = _canonical_reference_registry(anchor)
     tied = replace(anchor, benchmark_name="Different source-backed revision")
     object.__setattr__(registry, "vwce_anchors", (anchor, tied))
-    monkeypatch.setattr(services, "load_canonical_benchmark_registry", lambda path: registry)
+    monkeypatch.setattr(reference_context, "load_canonical_benchmark_registry", lambda path: registry)
 
-    evidence = services._benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
+    evidence = _benchmark_reference_snapshot_inputs(load_config(), "2026-07-18")
     assert evidence["anchor"] is None
     assert evidence["listing_id"] is None
     assert all(
