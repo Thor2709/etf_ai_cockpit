@@ -75,4 +75,3 @@ def test_c3_sqlite_backup_excludes_database_sidecars(monkeypatch, tmp_path):
         names = set(archive.namelist())
     assert "store.sqlite" in names
     assert not any(name.startswith("store.sqlite-") for name in names)
-
