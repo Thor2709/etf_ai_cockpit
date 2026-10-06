@@ -47,25 +47,24 @@ def main(argv: list[str] | None = None) -> int:
     verify_expected_title()
 
     requested_port = launcher_core.normalise_port(args.port)
-    decision = launcher_core.choose_launch_port("127.0.0.1", requested_port, allow_reuse=True)
+    decision = launcher_core.choose_launch_port("127.0.0.1", requested_port, allow_reuse=False)
     port = decision.port
     print(f"smoke_port requested={decision.requested_port} selected={decision.port} reason={decision.reason}")
     process: subprocess.Popen | None = None
     try:
-        if args.mode in {"source", "offline"}:
-            process = _ensure_source_ready(
-                port,
-                args.timeout,
-                already_ready=decision.reuse_existing,
-                offline=args.mode == "offline",
-            )
-        elif args.mode == "first-run":
-            _verify_first_run_setup()
-            process = _ensure_source_ready(port, args.timeout, already_ready=decision.reuse_existing)
-        elif args.mode == "launcher":
-            process = _ensure_mode_ready("source", port, args.timeout, already_ready=decision.reuse_existing)
-        else:
-            process = _ensure_mode_ready(args.mode, port, args.timeout, already_ready=decision.reuse_existing)
+        try:
+            if args.mode in {"source", "offline"}:
+                process = _ensure_source_ready(port, args.timeout, offline=args.mode == "offline")
+            elif args.mode == "first-run":
+                _verify_first_run_setup()
+                process = _ensure_source_ready(port, args.timeout)
+            elif args.mode == "launcher":
+                process = _ensure_mode_ready("source", port, args.timeout)
+            else:
+                process = _ensure_mode_ready(args.mode, port, args.timeout)
+        except RuntimeError as exc:
+            print(f"ERROR: requested smoke mode could not start: {exc}", file=sys.stderr)
+            return 1
         ready = launcher_core.wait_for_ready("127.0.0.1", port, min(args.timeout, 10))
         if not ready.ready:
             print(f"ERROR: HTTP readiness failed for {ready.url}: {ready.message}", file=sys.stderr)
@@ -86,8 +85,6 @@ def _ensure_source_ready(
     already_ready: bool = False,
     offline: bool = False,
 ) -> subprocess.Popen | None:
-    if already_ready or launcher_core.probe_http_ready("127.0.0.1", port):
-        return None
     python = launcher_core.resolve_python(ROOT)
     env = os.environ.copy()
     env["ETF_COCKPIT_ROOT"] = str(ROOT)
@@ -107,8 +104,6 @@ def _ensure_source_ready(
 
 
 def _ensure_mode_ready(mode: str, port: int, timeout: int, *, already_ready: bool = False) -> subprocess.Popen | None:
-    if already_ready or launcher_core.probe_http_ready("127.0.0.1", port):
-        return None
     command, cwd = launcher_core._launch_command(ROOT, mode, exe_path=None)
     env = os.environ.copy()
     env["ETF_COCKPIT_ROOT"] = str(ROOT)

@@ -12,11 +12,6 @@ import pytest
 from etf_cockpit.audit.thesis_diary import ThesisDiaryIntegrityError
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S13-08: Local LLM sends private evidence to remote hosts",
-)
 def test_s13_08_local_audit_refuses_remote_endpoint(monkeypatch):
     import etf_cockpit.audit.local_llm as llm
 
@@ -44,11 +39,6 @@ def test_s13_08_local_audit_refuses_remote_endpoint(monkeypatch):
     assert not post.called
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S13-09: Future portfolio snapshots grant historical review authority",
-)
 def test_s13_09_future_snapshot_cannot_grant_historical_authority():
     from etf_cockpit.data.score_history import score_history_v2_payload
     from etf_cockpit.governance.migrations import migrate_legacy_action
@@ -71,11 +61,6 @@ def test_s13_09_future_snapshot_cannot_grant_historical_authority():
     assert not score_history_v2_payload(row)["portfolio_review_allowed"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S13-10: Audit export fabricates forecasts from historical momentum",
-)
 def test_s13_10_export_does_not_invent_model_forecasts(monkeypatch):
     import etf_cockpit.chatgpt_bridge.export_pack as ep
     from etf_cockpit.core.types import ComponentScores, SignalResult
@@ -156,11 +141,6 @@ def test_s13_11_malformed_findings_fail_closed(tmp_path):
     assert build_security_report(tmp_path)["status"] == "failed"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S13-12: From-imported broker SDKs bypass execution boundary scanning",
-)
 def test_s13_12_from_imported_broker_sdk_is_rejected(tmp_path):
     from etf_cockpit.governance.static_checks import run_static_execution_boundary_check
 
@@ -173,11 +153,6 @@ def test_s13_12_from_imported_broker_sdk_is_rejected(tmp_path):
     assert any(v.code == "PROHIBITED_BROKER_DEPENDENCY" for v in report.violations)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S13-13: Unapproved components and missing intake signatures pass",
-)
 def test_s13_13_unapproved_unsigned_intake_blocks(monkeypatch, tmp_path):
     from copy import deepcopy
 
@@ -207,11 +182,6 @@ def test_s13_13_unapproved_unsigned_intake_blocks(monkeypatch, tmp_path):
     assert cli.main(["--root", str(ROOT)]) != 0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S13-14: Unrelated HTTP servers satisfy native smoke checks",
-)
 def test_s13_14_native_smoke_checks_requested_executable(monkeypatch):
     from scripts import smoke_app as smoke
 
@@ -240,11 +210,6 @@ def test_s13_14_native_smoke_checks_requested_executable(monkeypatch):
     assert smoke.main(["--mode", "native", "--port", "8550", "--timeout", "1"]) != 0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=ThesisDiaryIntegrityError,
-    reason="S13-15: Redacted forward-only thesis packets cannot be replayed",
-)
 def test_s13_15_redacted_forward_only_packet_replays(tmp_path):
     from etf_cockpit.audit.thesis_diary import (
         ThesisDiaryStore,

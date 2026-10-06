@@ -442,7 +442,11 @@ def _is_safe_local_order_node(relative_path: str, node: ast.AST, parents: Mappin
     """Allow only the known local replay/paper declarations and references."""
 
     if relative_path == "src/etf_cockpit/portfolio/paper_trading.py":
-        return isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "cancel_order"
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "cancel_order":
+            return True
+        if isinstance(node, ast.Attribute) and node.attr == "cancel_order":
+            return isinstance(node.value, ast.Name) and node.value.id in {"self", "cls"}
+        return False
     if relative_path == "src/etf_cockpit/backtest/event_engine.py":
         if isinstance(node, ast.ClassDef):
             return node.name == "OrderRequest"
@@ -548,20 +552,25 @@ def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
                 )
 
         if isinstance(node, (ast.Import, ast.ImportFrom)):
-            aliases = node.names
-            for alias in aliases:
-                module = alias.name.split(".", 1)[0].lower()
+            imported_modules = (
+                [(node.module or "").split(".", 1)[0].lower()]
+                if isinstance(node, ast.ImportFrom)
+                else [alias.name.split(".", 1)[0].lower() for alias in node.names]
+            )
+            for module in imported_modules:
                 if module in _PROHIBITED_IMPORTS:
                     violations.append(
                         _violation(
                             root,
                             path,
                             "PROHIBITED_BROKER_DEPENDENCY",
-                            f"Broker SDK import {alias.name!r} is not permitted.",
+                            f"Broker SDK import {module!r} is not permitted.",
                             node=node,
-                            evidence=alias.name,
+                            evidence=module,
                         )
                     )
+            aliases = node.names
+            for alias in aliases:
                 if isinstance(node, ast.ImportFrom) and _normalise_symbol(alias.name) in _PROHIBITED_ORDER_SYMBOLS and (
                     _normalise_symbol(alias.name) not in safe_local_symbols
                     or not _is_safe_local_order_node(relative_path, alias, parents)

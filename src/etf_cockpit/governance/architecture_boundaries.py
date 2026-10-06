@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import asdict, dataclass
+from importlib.util import resolve_name
 from pathlib import Path
 
 
@@ -36,8 +37,13 @@ def _imports(path: Path) -> list[tuple[int, str, str]]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             result.extend((node.lineno, alias.name, alias.asname or alias.name) for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            result.extend((node.lineno, node.module, alias.name) for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            module = "." * node.level + (node.module or "")
+            for alias in node.names:
+                imported_module = module
+                if node.level and not node.module:
+                    imported_module += alias.name
+                result.append((node.lineno, imported_module, alias.name))
     return result
 
 
@@ -47,9 +53,19 @@ def find_violations(root: Path) -> tuple[BoundaryViolation, ...]:
         directory = root / relative_dir
         for path in sorted(directory.glob("*.py")):
             for line, module, imported_name in _imports(path):
+                if module.startswith("."):
+                    package_parts = path.relative_to(root).with_suffix("").parts[:-1]
+                    try:
+                        package_start = package_parts.index("etf_cockpit")
+                        package = ".".join(package_parts[package_start:])
+                        module = resolve_name(module, package)
+                    except (ValueError, ImportError):
+                        module = ""
+                if module == "etf_cockpit" and imported_name != "*":
+                    module = f"{module}.{imported_name}"
                 if module in ALLOWED_IMPLEMENTATION_MODULES:
                     continue
-                if module.startswith(FORBIDDEN_PREFIXES):
+                if any(module == prefix or module.startswith(f"{prefix}.") for prefix in FORBIDDEN_PREFIXES):
                     violations.append(BoundaryViolation(str(path.relative_to(root)), line, module, imported_name))
     return tuple(violations)
 

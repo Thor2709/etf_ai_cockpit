@@ -7,11 +7,6 @@ from types import SimpleNamespace
 import pytest
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=ValueError,
-    reason="HUNT-S13C-2: Unsanitized NaN in backtest metrics aborts canonical_json serialization",
-)
 def test_hunt_s13c_2_nan_backtest_metric_is_normalised():
     from etf_cockpit.audit.local_llm import _normalise_context_snapshot
 
@@ -20,11 +15,6 @@ def test_hunt_s13c_2_nan_backtest_metric_is_normalised():
     assert snapshot["backtest"]["deflated_sharpe"] is None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="HUNT-S13C-3: Presentation boundary check bypassed by relative or top-level package imports",
-)
 def test_hunt_s13c_3_relative_forbidden_import_is_reported(tmp_path):
     from etf_cockpit.governance.architecture_boundaries import find_violations
 
@@ -35,11 +25,6 @@ def test_hunt_s13c_3_relative_forbidden_import_is_reported(tmp_path):
     assert any(violation.file.endswith("boundary_probe.py") for violation in violations)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="HUNT-S13C-4: Hash digest mismatch causes duplicate unavailable markers in evidence export",
-)
 def test_hunt_s13c_4_missing_evidence_has_one_unavailable_marker(tmp_path, monkeypatch):
     from etf_cockpit.chatgpt_bridge import export_pack
 
@@ -70,11 +55,6 @@ def test_hunt_s13c_4_missing_evidence_has_one_unavailable_marker(tmp_path, monke
     assert len(markers) == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="HUNT-S13C-5: Internal cancel_order invocations in paper_trading.py flagged as prohibited boundary",
-)
 def test_hunt_s13c_5_internal_cancel_order_call_is_safe(tmp_path):
     from etf_cockpit.governance.static_checks import _scan_python
 

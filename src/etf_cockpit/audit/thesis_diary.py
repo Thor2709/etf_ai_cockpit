@@ -473,6 +473,7 @@ def disclosure_safe_entry(entry: ThesisDiaryEntry) -> ThesisDiaryEntry:
             "contradiction_summary": "[REDACTED]",
             "redaction_state": "redacted",
             "content_redacted": True,
+            "backtest_validity": "unknown",
             "checksum": None,
         }
     )
