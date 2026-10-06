@@ -234,8 +234,26 @@ def _period_records(
         for item in grouped
         if str(item[0][0]).casefold() in {"annual", "fy", "year"}
     ]
+    selected = annual or grouped
+    # Canonical normalisation keys balance-sheet instants and flow durations differently, but a
+    # flow period and the balance facts at its period end form one period: ROIC needs both.
+    instants_at_end: dict[str, list[tuple[str, pd.DataFrame]]] = {}
+    for (_, key, end), rows in grouped:
+        if str(key).startswith("instant:"):
+            instants_at_end.setdefault(str(end), []).append((str(key), rows))
+    duration_ends = {
+        str(end) for (_, key, end), _ in selected if str(key).startswith("duration:")
+    }
     records: list[dict[str, object]] = []
-    for (period_type, period_key, period_end), rows in annual or grouped:
+    for (period_type, period_key, period_end), rows in selected:
+        balance_keys: tuple[str, ...] = ()
+        if str(period_key).startswith("duration:"):
+            balances = instants_at_end.get(str(period_end), [])
+            if balances:
+                balance_keys = tuple(sorted({key for key, _ in balances}))
+                rows = pd.concat([rows, *(item for _, item in balances)])
+        elif str(period_key).startswith("instant:") and str(period_end) in duration_ends:
+            continue  # merged into the flow period ending on the same date
         raw: dict[str, float] = {}
         sources: dict[str, tuple[str, ...]] = {}
         for metric, metric_rows in rows.groupby(
@@ -275,6 +293,7 @@ def _period_records(
                 "period_type": str(period_type),
                 "period_key": str(period_key),
                 "period_end": str(period_end),
+                "balance_period_keys": balance_keys,
                 **values,
                 "raw": raw,
                 "raw_sources": sources,
@@ -352,6 +371,13 @@ def _period_comparability(
         for column, key in (("period_type", "period_type"), ("period_key", "period_key"), ("period_end", "period_end")):
             if column in rows and item.get(key) is not None:
                 rows = rows[rows[column].astype(str).eq(str(item[key]))]
+        balance_keys = item.get("balance_period_keys") or ()
+        if balance_keys and {"period_key", "period_end"} <= set(frame.columns):
+            balance_rows = frame[
+                frame["period_key"].astype(str).isin(balance_keys)
+                & frame["period_end"].astype(str).eq(str(item.get("period_end")))
+            ]
+            rows = frame.loc[rows.index.union(balance_rows.index)]
         currencies = {
             str(value).strip().upper()
             for value in rows.get("currency", pd.Series(dtype="object")).tolist()
@@ -605,7 +631,7 @@ def _section(
             {
                 key: value
                 for key, value in item.items()
-                if key not in {"raw", "raw_sources"}
+                if key not in {"raw", "raw_sources", "balance_period_keys"}
             }
             for item in history
         ]

@@ -127,11 +127,16 @@ def deficit_coverage(deficit: float, *, owner_nominal: float, owner_premium_fund
     amount, nominal, fund, own = map(_number, (deficit, owner_nominal, owner_premium_fund, self_owned_capital))
     if amount is None or amount <= 0 or _number(positive_result_charge) not in (None, 0.0):
         return {"status": "not_triggered", "statute_version": statute_version, "waterfall": (), "uncovered_deficit": 0.0}
-    first_base = (fund or 0.0) + (own or 0.0)
-    self_share = amount * own / first_base if first_base else 0.0
-    owner_fund_share = amount * (fund or 0.0) / first_base if first_base else 0.0
-    remaining = max(0.0, amount - self_share - owner_fund_share)
-    return {"status": "resolved", "statute_version": statute_version, "reform_sensitive": True, "waterfall": (("self_owned_capital", self_share), ("owner_side_above_nominal", owner_fund_share), ("premium_funds", 0.0), ("nominal_ec_capital", remaining)), "self_owned_reduction": self_share, "owner_fund_reduction": owner_fund_share, "owner_book_after": (nominal or 0.0) + (fund or 0.0) - owner_fund_share, "owner_share_of_deficit": owner_fund_share / amount if amount else None}
+    own_pool, fund_pool, nominal_pool = max(own or 0.0, 0.0), max(fund or 0.0, 0.0), max(nominal or 0.0, 0.0)
+    first_base = fund_pool + own_pool
+    # Each tier absorbs at most its pool; the remainder carries to the next tier (decision D10).
+    first_absorbed = min(amount, first_base)
+    self_share = first_absorbed * own_pool / first_base if first_base else 0.0
+    owner_fund_share = first_absorbed * fund_pool / first_base if first_base else 0.0
+    carried = max(0.0, amount - first_absorbed)
+    nominal_share = min(carried, nominal_pool)
+    uncovered = max(0.0, carried - nominal_share)
+    return {"status": "partial" if uncovered > 0 else "resolved", "unknown_fields": ("uncovered_deficit",) if uncovered > 0 else (), "statute_version": statute_version, "reform_sensitive": True, "waterfall": (("self_owned_capital", self_share), ("owner_side_above_nominal", owner_fund_share), ("premium_funds", 0.0), ("nominal_ec_capital", nominal_share)), "self_owned_reduction": self_share, "owner_fund_reduction": owner_fund_share, "nominal_reduction": nominal_share, "uncovered_deficit": uncovered, "owner_book_after": nominal_pool + fund_pool - owner_fund_share - nominal_share, "owner_share_of_deficit": owner_fund_share / amount if amount else None}
 
 
 def merger_ratios(*, bank_value_split: float | None = None, target_ec_exchange_ratio: float | None = None, post_merger_ec_class_ownership: float | None = None, post_merger_eierbrok: float | None = None) -> Mapping[str, float | None]:

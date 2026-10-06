@@ -103,6 +103,10 @@ def validate_ohlcv(candle: Mapping[str, object]) -> dict[str, object]:
         if values["close"] < low or values["close"] > high:
             reasons.append("close_outside_low_high")
 
+    if volume is not None and not reasons:
+        # Validated volume is part of the returned observation (S4-08).
+        values["volume"] = volume
+
     return {
         "status": "valid" if not reasons else "invalid",
         "valid": not reasons,

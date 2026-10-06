@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from math import isclose
 from typing import Mapping
 
@@ -52,8 +53,12 @@ def estimate_friction_adjusted_return(
 ) -> FrictionAdjustedReturnResult:
     """Subtract a size-specific cost estimate from a return distribution.
 
-    ``distribution`` contains horizon returns as decimal fractions, not score
-    values.  The cost estimate is expected to come from the shared local cost
+    ``distribution`` contains horizon LOG returns as decimal fractions, not
+    score values (forecast unit contract, see ``models.base``).  They are
+    converted with ``expm1`` to simple returns here, at the monetary boundary,
+    before the simple cost fraction is subtracted and before any euro or
+    basis-point figure is derived.  The reported quantiles are simple returns.
+    The cost estimate is expected to come from the shared local cost
     model and must describe the same order size.  Every malformed or missing
     input fails closed to explicit unavailable values.
     """
@@ -87,6 +92,10 @@ def estimate_friction_adjusted_return(
     if not isclose(cost_eur, expected_cost_eur, rel_tol=1e-9, abs_tol=1e-7):
         return _return_unavailable("Order-size cost estimate has inconsistent basis-point and euro totals.")
     cost_fraction = cost_bps / 10_000.0
+    try:
+        q10, q50, q90 = (math.expm1(value) for value in (q10, q50, q90))
+    except OverflowError:
+        return _return_unavailable("Expected-return quantiles are outside the representable log-return range.")
     net_q10 = q10 - cost_fraction
     net_q50 = q50 - cost_fraction
     net_q90 = q90 - cost_fraction

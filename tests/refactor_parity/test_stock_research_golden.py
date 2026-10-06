@@ -185,7 +185,7 @@ def _scenario_facade_context(monkeypatch: pytest.MonkeyPatch) -> dict[str, objec
     # load_stock_research_context looks the two projection loaders up in ITS OWN module globals: ui_facade before the
     # refactor, the module that now defines the function after it.  Patch there (a patch on a re-export is a no-op).
     context_module = importlib.import_module(ui_facade.load_stock_research_context.__module__)
-    monkeypatch.setattr(context_module, "load_classification_projection", lambda instrument_id: classification)
+    monkeypatch.setattr(context_module, "load_classification_projection", lambda instrument_id, **_cutoffs: classification)
     monkeypatch.setattr(context_module, "load_peer_cohort_projection", lambda instrument_id, decision_time=None: peers)
     monkeypatch.setattr(stock_research_data, "load_stock_research_frame", lambda path, instrument_id=None, as_known_at=None: facts.copy())
     context = ui_facade.load_stock_research_context("ACME", statements_path=ui_facade.STATEMENT_FACTS_PATH, decision_time=DECISION_TIME)

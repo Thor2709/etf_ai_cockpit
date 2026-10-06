@@ -124,7 +124,7 @@
     "not_enough_data_policy": "str",
     "operational_evidence_input_binding": "str",
     "operational_evidence_rows": {
-     "list_length": 3597,
+     "list_length": 6215,
      "item": {
       "arrival_price_assumption": "str",
       "auction_state": "null",
@@ -420,7 +420,7 @@
   },
   "data/backtests/trade_log.csv": {
    "kind": "csv",
-   "rows": 96,
+   "rows": 128,
    "columns": ["date", "signal_date", "execution_date", "strategy", "turnover", "cost_eur", "estimated_cost_bps", "cost_model_id", "cost_data_quality", "capacity_eur", "decision_price", "next_open_reference_price", "next_period_reference_price", "decision_price_basis", "next_open_reference_basis", "next_period_reference_basis", "price_provenance", "close_to_next_open_gap", "open_gap_warning", "open_gap_warning_threshold", "arrival_price_assumption", "spread_proxy", "observed_range_spread_proxy", "cost_spread_assumption_bps", "cost_spread_assumption_source", "estimated_cost_bps_source", "execution_delay_sessions", "same_bar_execution_avoided", "signal_timestamp", "execution_timestamp", "fill_source", "session_state", "auction_state", "expiry_state", "order_lifecycle", "execution_allowed"]
   },
   "data/backtests/trade_log.csv.meta.json": {
@@ -960,12 +960,12 @@
   },
   "data/derived/evidence_ledger.csv": {
    "kind": "csv",
-   "rows": 430,
+   "rows": 484,
    "columns": ["evidence_id", "run_id", "instrument_id", "component", "source_id", "source_dataset", "source_name", "source_authority", "authority_rank", "as_of_date", "freshness_status", "conflict_status", "conflict_id", "confidence", "evidence_quality", "provider_id", "calculation_method", "score_eligible", "executable_authority", "evidence_value", "reason", "created_at"]
   },
   "data/derived/evidence_ledger.parquet": {
    "kind": "parquet",
-   "rows": 430,
+   "rows": 484,
    "schema": [
     ["evidence_id", "string"],
     ["run_id", "string"],
@@ -993,12 +993,12 @@
   },
   "data/derived/feature_drivers.csv": {
    "kind": "csv",
-   "rows": 430,
+   "rows": 484,
    "columns": ["instrument", "instrument_id", "component", "source_id", "raw_metric", "normalised_score", "peer_group", "peer_percentile", "historical_contribution", "coverage", "uncertainty", "interaction", "counterfactual_sensitivity", "direction", "authority", "source_authority", "driver_text", "source_dataset", "source_span", "source_vintage_hash", "claim_hash", "as_of_date", "freshness_status", "missingness", "conflict", "conflict_id", "contribution", "classification", "authority_classification", "freshness_classification", "flags", "execution_allowed"]
   },
   "data/derived/feature_drivers.parquet": {
    "kind": "parquet",
-   "rows": 430,
+   "rows": 484,
    "schema": [
     ["instrument", "string"],
     ["instrument_id", "string"],
@@ -1383,12 +1383,12 @@
   },
   "data/derived/score_components.csv": {
    "kind": "csv",
-   "rows": 430,
+   "rows": 484,
    "columns": ["run_id", "instrument_id", "component", "source_id", "raw_metric", "normalised_score_10", "status", "authority", "source_dataset", "as_of_date", "freshness_status", "conflict_status", "conflict_id", "source_authority", "authority_rank", "evidence_quality", "confidence", "calculation_method", "score_eligible", "driver_text", "canonical_score_role", "canonical_contribution_raw", "peer_group", "uncertainty", "formula_version", "formula_checksum", "source_vintage_hash", "executable_authority"]
   },
   "data/derived/score_components.parquet": {
    "kind": "parquet",
-   "rows": 430,
+   "rows": 484,
    "schema": [
     ["run_id", "string"],
     ["instrument_id", "string"],
@@ -1569,12 +1569,12 @@
   },
   "data/derived/score_metric_history.csv": {
    "kind": "csv",
-   "rows": 430,
+   "rows": 484,
    "columns": ["run_id", "instrument_id", "component_group", "component_name", "source_id", "raw_metric_value", "normalised_score_10", "score_available", "na_reason", "source_dataset", "as_of_date", "freshness_status", "authority_label", "formula_version", "formula_checksum", "source_vintage_hash", "execution_allowed"]
   },
   "data/derived/score_metric_history.parquet": {
    "kind": "parquet",
-   "rows": 430,
+   "rows": 484,
    "schema": [
     ["run_id", "string"],
     ["instrument_id", "string"],
@@ -1598,7 +1598,7 @@
   "data/derived/scoreboard.csv": {
    "kind": "csv",
    "rows": 59,
-   "columns": ["instrument_id", "symbol", "name", "instrument_currency", "isin", "isin_status", "asset_type", "analysis_tier", "data_policy", "source_group", "current_price", "latest_price_date", "evidence_score_10", "evidence_quality_10", "risk_friction_10", "final_label", "research_state", "portfolio_review_state", "analysis_status", "research_promotion_allowed", "portfolio_review_allowed", "execution_allowed", "legacy_action", "migration_version", "gate_policy_version", "gate_policy_checksum", "schema_version", "decision", "blocked_by", "reason_short", "model_authority_label", "backtest_trust_label", "backtest_trust_score_10", "model_calibration_label", "model_calibration_score_10", "market_regime_label", "market_regime_score_10", "portfolio_fit_label", "portfolio_fit_score_10", "strategy_template_label", "strategy_template_descriptions", "evidence_sample_days", "evidence_maturity_state", "evidence_maturity_label", "too_good_to_be_true_warning", "evidence_sanity_warnings", "evidence_warning_count", "benchmark_id", "benchmark_period_days", "benchmark_return", "instrument_period_return", "benchmark_beta", "benchmark_correlation", "alpha_proxy", "alpha_t_stat", "benchmark_attribution_label", "cash_instrument_return", "cash_return", "excess_over_cash", "cash_instrument_id", "cash_currency", "cash_unit", "cash_dataset_kind", "cash_start_date", "cash_end_date", "cash_horizon_years", "cash_rate", "cash_vintage", "cash_comparison_status", "cash_comparison_reason", "cash_source_id", "cash_source_authority", "cash_source_checksum", "cash_source_terms", "cash_methodology", "cash_mapping_methodology", "cash_day_count", "cash_compounding", "cash_reinvestment", "cash_effective_at", "cash_published_at", "cash_available_at", "cash_curve_id", "cash_curve_version", "cash_curve_revision", "cash_curve_type", "cash_extrapolation_allowed", "cash_fallback", "cash_fallback_from", "cash_interpolation", "cash_freshness", "cash_freshness_status", "cash_decision_time", "cash_knowledge_cutoff", "inflation_context", "sector_theme_warning", "backtest_validity", "model_contamination_risk", "model_authority_reason", "calibration_required", "gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio", "cost_stress_scenario", "gross_expected_return", "q10_expected_return", "q50_expected_return", "q90_expected_return", "expected_return_horizon_days", "net_q10_expected_return", "net_expected_return", "net_q90_expected_return", "expected_return_order_value_eur", "expected_return_cost_bps", "expected_return_cost_eur", "expected_return_cost_ratio", "expected_return_distribution_version", "expected_return_source_dataset", "crowding_cluster_id", "crowding_cluster_label", "crowding_warning", "crowding_average_peer_correlation", "crowding_sample_size", "crowding_as_of", "crowding_source_dataset", "crowding_pair_sample_size", "crowding_cluster_weight", "crowding_cluster_risk_contribution", "crowding_ranking_coverage", "crowding_top_ranked_concentration", "crowding_top_ranked_theme_concentration", "crowding_top_ranked_theme_warning", "sector_return", "sector_relative_return", "sector_beta", "sector_correlation", "sector_alpha_proxy", "sector_attribution_status", "attribution_sample_size", "attribution_as_of", "attribution_source_dataset", "theme_return", "theme_relative_return", "theme_beta", "theme_correlation", "theme_alpha_proxy", "theme_attribution_status", "theme_sample_size", "friction_status", "friction_reason", "formula_version", "formula_checksum", "source_vintage_hash", "classification_version_id", "classification_invalidation_hash", "classification_dependency_status", "canonical_attractiveness_10", "canonical_expected_return_10", "canonical_risk_implementation_10", "canonical_evidence_confidence_10", "canonical_coverage", "canonical_warnings", "valid_components", "total_components", "source_quality", "data_quality_score_10", "data_quality_status", "data_quality_authority", "momentum_score_10", "momentum_status", "momentum_authority", "trend_score_10", "trend_status", "trend_authority", "risk_score_10", "risk_status", "risk_authority", "relative_strength_score_10", "relative_strength_status", "relative_strength_authority", "liquidity_cost_score_10", "liquidity_cost_status", "liquidity_cost_authority", "etf_exposure_score_10", "etf_exposure_status", "etf_exposure_authority", "baseline_score_10", "baseline_status", "baseline_authority", "timesfm_score_10", "timesfm_status", "timesfm_authority", "toto_score_10", "toto_status", "toto_authority"]
+   "columns": ["instrument_id", "symbol", "name", "instrument_currency", "isin", "isin_status", "asset_type", "analysis_tier", "data_policy", "source_group", "current_price", "latest_price_date", "evidence_score_10", "evidence_quality_10", "risk_friction_10", "final_label", "research_state", "portfolio_review_state", "analysis_status", "research_promotion_allowed", "portfolio_review_allowed", "execution_allowed", "legacy_action", "migration_version", "gate_policy_version", "gate_policy_checksum", "schema_version", "decision", "blocked_by", "reason_short", "model_authority_label", "backtest_trust_label", "backtest_trust_score_10", "model_calibration_label", "model_calibration_score_10", "market_regime_label", "market_regime_score_10", "portfolio_fit_label", "portfolio_fit_score_10", "strategy_template_label", "strategy_template_descriptions", "evidence_sample_days", "evidence_maturity_state", "evidence_maturity_label", "too_good_to_be_true_warning", "evidence_sanity_warnings", "evidence_warning_count", "benchmark_id", "benchmark_period_days", "benchmark_return", "instrument_period_return", "benchmark_beta", "benchmark_correlation", "alpha_proxy", "alpha_t_stat", "benchmark_attribution_label", "cash_instrument_return", "cash_return", "excess_over_cash", "cash_instrument_id", "cash_currency", "cash_unit", "cash_dataset_kind", "cash_start_date", "cash_end_date", "cash_horizon_years", "cash_rate", "cash_vintage", "cash_comparison_status", "cash_comparison_reason", "cash_source_id", "cash_source_authority", "cash_source_checksum", "cash_source_terms", "cash_methodology", "cash_mapping_methodology", "cash_day_count", "cash_compounding", "cash_reinvestment", "cash_effective_at", "cash_published_at", "cash_available_at", "cash_curve_id", "cash_curve_version", "cash_curve_revision", "cash_curve_type", "cash_extrapolation_allowed", "cash_fallback", "cash_fallback_from", "cash_interpolation", "cash_freshness", "cash_freshness_status", "cash_decision_time", "cash_knowledge_cutoff", "inflation_context", "sector_theme_warning", "backtest_validity", "model_contamination_risk", "model_authority_reason", "calibration_required", "gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio", "cost_stress_scenario", "gross_expected_return", "q10_expected_return", "q50_expected_return", "q90_expected_return", "expected_return_horizon_days", "net_q10_expected_return", "net_expected_return", "net_q90_expected_return", "expected_return_order_value_eur", "expected_return_cost_bps", "expected_return_cost_eur", "expected_return_cost_ratio", "expected_return_distribution_version", "expected_return_source_dataset", "crowding_cluster_id", "crowding_cluster_label", "crowding_warning", "crowding_average_peer_correlation", "crowding_sample_size", "crowding_as_of", "crowding_source_dataset", "crowding_pair_sample_size", "crowding_cluster_weight", "crowding_cluster_risk_contribution", "crowding_ranking_coverage", "crowding_top_ranked_concentration", "crowding_top_ranked_theme_concentration", "crowding_top_ranked_theme_warning", "sector_return", "sector_relative_return", "sector_beta", "sector_correlation", "sector_alpha_proxy", "sector_attribution_status", "attribution_sample_size", "attribution_as_of", "attribution_source_dataset", "theme_return", "theme_relative_return", "theme_beta", "theme_correlation", "theme_alpha_proxy", "theme_attribution_status", "theme_sample_size", "friction_status", "friction_reason", "formula_version", "formula_checksum", "source_vintage_hash", "classification_version_id", "classification_invalidation_hash", "classification_dependency_status", "canonical_attractiveness_10", "canonical_expected_return_10", "canonical_risk_implementation_10", "canonical_evidence_confidence_10", "canonical_coverage", "canonical_warnings", "valid_components", "total_components", "source_quality", "data_quality_score_10", "data_quality_status", "data_quality_authority", "momentum_score_10", "momentum_status", "momentum_authority", "trend_score_10", "trend_status", "trend_authority", "risk_score_10", "risk_status", "risk_authority", "relative_strength_score_10", "relative_strength_status", "relative_strength_authority", "liquidity_cost_score_10", "liquidity_cost_status", "liquidity_cost_authority", "etf_exposure_score_10", "etf_exposure_status", "etf_exposure_authority", "baseline_score_10", "baseline_status", "baseline_authority", "timesfm_score_10", "timesfm_status", "timesfm_authority", "toto_score_10", "toto_status", "toto_authority", "stock_value_score_10", "stock_value_status", "stock_value_authority", "stock_quality_score_10", "stock_quality_status", "stock_quality_authority", "analyst_revision_score_10", "analyst_revision_status", "analyst_revision_authority"]
   },
   "data/derived/scoreboard.json": {
    "kind": "json",
@@ -1609,6 +1609,9 @@
      "alpha_t_stat": "null",
      "analysis_status": "str",
      "analysis_tier": "str",
+     "analyst_revision_authority": "null",
+     "analyst_revision_score_10": "null",
+     "analyst_revision_status": "null",
      "asset_type": "str",
      "attribution_as_of": "null",
      "attribution_sample_size": "float",
@@ -1728,7 +1731,7 @@
      "instrument_currency": "str",
      "instrument_id": "str",
      "instrument_period_return": "null",
-     "isin": "str",
+     "isin": "null",
      "isin_status": "str",
      "latest_price_date": "str",
      "legacy_action": "str",
@@ -1779,6 +1782,12 @@
      "source_group": "str",
      "source_quality": "str",
      "source_vintage_hash": "str",
+     "stock_quality_authority": "null",
+     "stock_quality_score_10": "null",
+     "stock_quality_status": "null",
+     "stock_value_authority": "null",
+     "stock_value_score_10": "null",
+     "stock_value_status": "null",
      "strategy_template_descriptions": "str",
      "strategy_template_label": "str",
      "symbol": "str",
@@ -2003,7 +2012,16 @@
     ["timesfm_authority", "string"],
     ["toto_score_10", "double"],
     ["toto_status", "string"],
-    ["toto_authority", "string"]
+    ["toto_authority", "string"],
+    ["stock_value_score_10", "double"],
+    ["stock_value_status", "string"],
+    ["stock_value_authority", "string"],
+    ["stock_quality_score_10", "double"],
+    ["stock_quality_status", "string"],
+    ["stock_quality_authority", "string"],
+    ["analyst_revision_score_10", "double"],
+    ["analyst_revision_status", "string"],
+    ["analyst_revision_authority", "string"]
    ]
   },
   "data/derived/strategy_templates.csv": {

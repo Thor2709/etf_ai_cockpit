@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import math
+
 import pandas as pd
+import pytest
 
 from etf_cockpit.models.forecast_scores import forecast_return_distributions
 from etf_cockpit.signals.friction_edge import estimate_friction_edge
@@ -41,17 +44,18 @@ def test_friction_edge_rejects_missing_non_finite_and_unsupported_inputs() -> No
 
 def test_friction_adjusted_return_uses_order_size_and_preserves_quantile_order() -> None:
     result = estimate_friction_adjusted_return(
-        {"q10_return": -0.04, "q50_return": 0.06, "q90_return": 0.14, "horizon_days": 60},
+        # Forecast quantiles are log returns; the result is in simple returns.
+        {"q10_return": math.log1p(-0.04), "q50_return": math.log1p(0.06), "q90_return": math.log1p(0.14), "horizon_days": 60},
         order_value_eur=2_000.0,
         cost_estimate={"order_value_eur": 2_000.0, "total_cost_bps": 25.0, "total_cost_eur": 5.0},
     )
 
     assert result.status == "available"
-    assert result.q50_return == 0.06
-    assert result.net_expected_return == 0.0575
+    assert result.q50_return == pytest.approx(0.06)
+    assert result.net_expected_return == pytest.approx(0.0575)
     assert result.net_q10_return < result.net_expected_return < result.net_q90_return
     assert result.order_value_eur == 2_000.0
-    assert result.return_to_cost_ratio == 23.0
+    assert result.return_to_cost_ratio == pytest.approx(23.0)
     assert result.execution_allowed is False
 
 
@@ -74,13 +78,13 @@ def test_friction_adjusted_return_fails_closed_without_positive_order_or_cost() 
 
 def test_friction_adjusted_return_reports_no_ratio_when_cost_is_zero() -> None:
     result = estimate_friction_adjusted_return(
-        {"q10_return": 0.0, "q50_return": 0.01, "q90_return": 0.02, "horizon_days": 60},
+        {"q10_return": 0.0, "q50_return": math.log1p(0.01), "q90_return": 0.02, "horizon_days": 60},
         order_value_eur=1_000.0,
         cost_estimate={"order_value_eur": 1_000.0, "total_cost_bps": 0.0, "total_cost_eur": 0.0},
     )
 
     assert result.status == "available"
-    assert result.net_expected_return == 0.01
+    assert result.net_expected_return == pytest.approx(0.01)
     assert result.return_to_cost_ratio is None
 
 

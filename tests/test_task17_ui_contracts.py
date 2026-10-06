@@ -88,7 +88,8 @@ def test_dashboard_digest_surfaces_deterministic_run_changes(monkeypatch) -> Non
         {"run_id": "old", "run_completed_at": "2026-07-09T12:00:00+00:00", "instrument_id": "A", "final_combined_score_10": 5.0, "final_action": "watchlist"},
         {"run_id": "new", "run_completed_at": "2026-07-10T12:00:00+00:00", "instrument_id": "A", "final_combined_score_10": 7.0, "final_action": "watchlist"},
     ]))
-    rendered = module._run_changes_digest(None, SimpleNamespace())
+    state = SimpleNamespace(snapshot=SimpleNamespace(data_report=SimpleNamespace(as_of_date="2026-07-10")))
+    rendered = module._run_changes_digest(None, state)
     texts = [str(getattr(item, "value", "")) for item in _walk(rendered) if hasattr(item, "value")]
     assert any("Compared run new with old" in value for value in texts)
     assert any("A" in value for value in texts)

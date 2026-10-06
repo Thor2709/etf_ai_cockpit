@@ -13,6 +13,7 @@ from hashlib import sha256
 import io
 import json
 import os
+import posixpath
 from pathlib import Path
 import re
 from typing import Iterable, Mapping
@@ -365,7 +366,12 @@ def _rows_from_xlsx_bytes(payload: bytes) -> tuple[Mapping[str, str], ...]:
             return ()
         relation_id = sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id", "")
         target = relations.get(relation_id, "worksheets/sheet1.xml")
-        sheet_path = target if target.startswith("xl/") else f"xl/{target.lstrip('/')}"
+        if target.startswith("/"):
+            sheet_path = posixpath.normpath(target.lstrip("/"))
+        elif target.startswith("xl/"):
+            sheet_path = posixpath.normpath(target)
+        else:
+            sheet_path = posixpath.normpath(posixpath.join("xl", target))
         root = ElementTree.fromstring(_read_xlsx_member(archive, sheet_path))
         _validate_xlsx_sheet_limits(root)
         matrix: dict[int, dict[int, str]] = {}

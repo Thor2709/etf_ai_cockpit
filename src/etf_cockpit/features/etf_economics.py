@@ -54,6 +54,20 @@ def _as_of_timestamp(value: object, fallback: object) -> pd.Timestamp | None:
     return parsed
 
 
+def _native_currency(config: AppConfig, frame: pd.DataFrame, instrument_id: str) -> str | None:
+    """Return the instrument's native quote currency, or None if unknown or conflicting."""
+
+    currencies: set[str] = set()
+    configured = config.universe.by_id().get(instrument_id)
+    if configured is not None and _text(configured.currency):
+        currencies.add(str(configured.currency).strip().upper())
+    if "currency" in frame.columns:
+        observed = frame["currency"].dropna().map(_text).dropna()
+        if not observed.empty:
+            currencies.add(str(observed.iloc[-1]).upper())
+    return next(iter(currencies)) if len(currencies) == 1 else None
+
+
 def _empty_report(instrument_id: str, message: str) -> "EtfLiquidityReport":
     return EtfLiquidityReport(
         instrument_id=instrument_id,
@@ -249,12 +263,17 @@ def calculate_etf_liquidity(
     if frame.empty:
         return _empty_report(instrument, "No positive dated close values are available for ETF economics.")
     turnover = close * volume
+    # close * volume is in the instrument's native currency.  It is euro
+    # turnover only for an EUR-quoted instrument; without dated FX evidence any
+    # other (or unknown) currency leaves every euro capacity figure unavailable.
+    native_currency = _native_currency(config, frame, instrument)
+    turnover_is_eur = native_currency == "EUR"
     recent = frame.tail(60).copy()
     recent_close = close.loc[recent.index]
     recent_volume = volume.loc[recent.index]
     recent_turnover = turnover.loc[recent.index]
-    turnover_20 = _finite(recent_turnover.tail(20).median())
-    turnover_60 = _finite(recent_turnover.median())
+    turnover_20 = _finite(recent_turnover.tail(20).median()) if turnover_is_eur else None
+    turnover_60 = _finite(recent_turnover.median()) if turnover_is_eur else None
     high = pd.to_numeric(recent.get("high"), errors="coerce") if "high" in recent.columns else pd.Series(dtype=float)
     low = pd.to_numeric(recent.get("low"), errors="coerce") if "low" in recent.columns else pd.Series(dtype=float)
     spread = ((high - low) / recent_close).where(recent_close.gt(0)).dropna()
@@ -310,11 +329,18 @@ def calculate_etf_liquidity(
     missing = set(quote.get("missing_evidence", set()))
     if turnover_20 is None:
         missing.add("turnover")
+    if not turnover_is_eur:
+        missing.add("fx_rate_to_eur")
     if spread_bps is None:
         missing.add("spread_proxy")
     if gap_risk is None:
         missing.add("gap_risk")
     warnings: list[str] = []
+    if not turnover_is_eur:
+        warnings.append(
+            f"Turnover is quoted in {native_currency or 'an unknown currency'} and no dated FX rate is supplied, "
+            "so euro turnover and exchange capacity are unavailable."
+        )
     if zero_rate and zero_rate > 0:
         warnings.append(f"{zero_days} of {len(recent_volume)} recent rows have zero or missing volume.")
     if quote.get("stale_quote"):

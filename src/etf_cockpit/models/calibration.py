@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from math import ceil, isfinite, sqrt
+from math import ceil, isfinite, log, sqrt
 from numbers import Real
 from pathlib import Path
 
@@ -239,7 +239,9 @@ def calibrate_forecast_distribution(
             or target_close <= 0
         ):
             continue
-        actual = target_close / origin_close - 1.0
+        # Forecast returns are log returns (see models.base), so the realised
+        # outcome is a log return too.
+        actual = log(target_close / origin_close)
         if not isfinite(actual):
             continue
         prediction_id = str(row["prediction_id"])
@@ -664,14 +666,16 @@ def _actual_horizon_return(series: pd.Series, forecast_date: pd.Timestamp, horiz
     target_price = float(clean.iloc[target_pos])
     if start_price <= 0 or target_price <= 0:
         return None
-    return (target_price / start_price) - 1.0
+    # Forecasts are log returns (see models.base): keep the outcome in log units.
+    return float(np.log(target_price / start_price))
 
 
 def _mase_scale(series: pd.Series, horizon_days: int) -> float:
     clean = series.dropna().sort_index().astype(float)
-    returns = clean.pct_change(max(1, int(horizon_days))).replace([np.inf, -np.inf], np.nan).dropna().abs()
+    log_prices = np.log(clean.where(clean > 0))
+    returns = log_prices.diff(max(1, int(horizon_days))).replace([np.inf, -np.inf], np.nan).dropna().abs()
     if returns.empty:
-        returns = clean.pct_change().replace([np.inf, -np.inf], np.nan).dropna().abs()
+        returns = log_prices.diff().replace([np.inf, -np.inf], np.nan).dropna().abs()
     if returns.empty:
         return 1.0
     return max(float(returns.mean()), 1e-9)

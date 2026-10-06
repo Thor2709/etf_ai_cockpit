@@ -213,7 +213,7 @@ def calculate_fixed_income_analytics(
     """Calculate one deterministic, non-executable bond analysis."""
 
     item = _validate_input(valuation)
-    future = tuple(flow for flow in item.cashflows if flow.payment_date > item.settlement_date)
+    future = tuple(flow for flow in item.cashflows if cashflow_entitled(flow, item.settlement_date))
     if not future:
         raise FixedIncomeAnalyticsError("no contractual cash flows remain after settlement")
     accrued = accrued_interest(item)
@@ -434,6 +434,18 @@ def _validate_certified_schedules(
         raise FixedIncomeAnalyticsError("redemption schedule certification is invalid")
 
 
+def cashflow_entitled(flow: ContractualCashFlow, settlement_date: date) -> bool:
+    """Return whether a buyer settling on the date still receives the flow.
+
+    A flow is unpaid when its payment date is after settlement, and a coupon
+    whose ex-coupon date is on or before settlement has detached from the bond.
+    """
+
+    if flow.payment_date <= settlement_date:
+        return False
+    return flow.ex_coupon_date is None or settlement_date < flow.ex_coupon_date
+
+
 def accrued_interest(valuation: FixedIncomeValuationInput) -> Decimal:
     """Return accrued interest per 100 face, including ex-coupon convention."""
 
@@ -575,7 +587,7 @@ def _yield_to_call(
 def _risk_measures(
     item: FixedIncomeValuationInput, ytm: Decimal, dirty_price: Decimal
 ) -> tuple[Decimal, Decimal, Decimal, Decimal]:
-    flows = tuple(flow for flow in item.cashflows if flow.payment_date > item.settlement_date)
+    flows = tuple(flow for flow in item.cashflows if cashflow_entitled(flow, item.settlement_date))
     frequency = max(item.coupon_frequency, 1)
     base = Decimal("1") + ytm / Decimal(frequency)
     if base <= 0:
@@ -611,7 +623,7 @@ def _present_value_from_yield(
             flow.amount
             / (base ** (Decimal(frequency) * Decimal(str(_time(item, flow.payment_date)))))
             for flow in item.cashflows
-            if flow.payment_date > item.settlement_date
+            if cashflow_entitled(flow, item.settlement_date)
         ),
         Decimal("0"),
     )
@@ -627,7 +639,7 @@ def _curve_value(
     curve = _validate_curve(curve, item)
     total = Decimal("0")
     for flow in item.cashflows:
-        if flow.payment_date <= item.settlement_date:
+        if not cashflow_entitled(flow, item.settlement_date):
             continue
         tenor = Decimal(
             str(

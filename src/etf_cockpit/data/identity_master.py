@@ -30,6 +30,7 @@ from etf_cockpit.data.instrument_identity import (
     IdentityResolution,
     IdentityResolutionError,
     IdentityReviewDecision,
+    _eligible_claims,
     resolve_identity,
 )
 from etf_cockpit.data.local_storage import (
@@ -225,8 +226,6 @@ class IdentityMasterStore:
         persisted_rows = tuple(resolved_by_id.get(row.row_id, row) for row in incoming)
         new_claims = tuple(claim for row in resolved_rows for claim in self._claims_for_row(row))
         all_claims = existing_claims + new_claims
-        duplicate_groups = _duplicate_identifier_groups(all_claims)
-
         quarantined_ids = set(ambiguous_ids)
         conflict_ids: set[str] = {
             _hash(
@@ -241,6 +240,20 @@ class IdentityMasterStore:
         for row in persisted_rows:
             if not row.instrument_id:
                 continue
+            if row.available_at is not None:
+                try:
+                    classification_claims = _eligible_claims(
+                        all_claims,
+                        effective_at=row.valid_from or row.available_at,
+                        decision_time=row.available_at,
+                    )
+                except IdentityResolutionError:
+                    # Missing or ambiguous point-in-time evidence must not
+                    # make a duplicate claim disappear from the import gate.
+                    classification_claims = all_claims
+            else:
+                classification_claims = all_claims
+            duplicate_groups = _duplicate_identifier_groups(classification_claims)
             for field, raw_value in row.identifiers.items():
                 key = (_field(field), _identifier_value(field, raw_value))
                 instruments = duplicate_groups.get(key, ())
@@ -573,14 +586,10 @@ class IdentityMasterStore:
                 and _identifier_value(canonical_field, claim.value) == normalised
             )
             try:
-                eligible = tuple(
-                    claim
-                    for claim in matching
-                    if _claim_is_eligible(
-                        claim,
-                        effective_at=effective_at,
-                        decision_time=row.available_at,
-                    )
+                eligible = _eligible_claims(
+                    matching,
+                    effective_at=effective_at,
+                    decision_time=row.available_at,
                 )
             except IdentityResolutionError:
                 # Ambiguous availability is not permission to choose the other
@@ -611,10 +620,10 @@ class IdentityMasterStore:
         effective_at: str | datetime | None,
         decision_time: str | datetime | None,
     ) -> tuple[IdentityConflict, ...]:
-        eligible = tuple(
-            claim
-            for claim in claims
-            if _claim_is_eligible(claim, effective_at=effective_at, decision_time=decision_time)
+        eligible = _eligible_claims(
+            claims,
+            effective_at=effective_at,
+            decision_time=decision_time,
         )
         groups = _duplicate_identifier_groups(eligible)
         conflicts: list[IdentityConflict] = []

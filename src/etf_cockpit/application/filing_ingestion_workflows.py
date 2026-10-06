@@ -488,13 +488,15 @@ def import_esef_package(
         if not resolved_instrument_id:
             raise ValueError("ESEF import requires a non-empty instrument ID when supplied")
         provider_id, source_url = _esef_source_provenance(package_path)
+        acquired_at = datetime.now(timezone.utc)
         records = statement_facts_from_esef(
             parsed.records,
             instrument_id=resolved_instrument_id,
             source_sha256=parsed.source_sha256,
             source_provider=provider_id,
+            known_at=acquired_at.isoformat(),
         )
-        source = RawDocument(raw_path, source_url, datetime.now(timezone.utc), parsed.source_sha256, provider_id, "esef_report_package", "application/octet-stream", 200)
+        source = RawDocument(raw_path, source_url, acquired_at, parsed.source_sha256, provider_id, "esef_report_package", "application/octet-stream", 200)
         with publication_scope(publish_guard):
             write_statement_evidence(
                 source,

@@ -4,6 +4,7 @@ from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -178,3 +179,50 @@ def test_operational_drills_have_deterministic_results(
     assert first["status"] == "passed"
     assert all(first["checks"].values())
     assert first["execution_allowed"] is False
+
+
+def _two_event_journal(root: Path) -> IncidentJournal:
+    journal = IncidentJournal(root)
+    journal.record("baseline", message="Baseline", occurred_at=datetime(2026, 7, 20, tzinfo=timezone.utc))
+    journal.record("second", message="Second", occurred_at=datetime(2026, 7, 21, tzinfo=timezone.utc))
+    return journal
+
+
+def test_interrupted_anchor_update_after_append_rolls_forward_and_reanchors(isolated_runtime_root: Path) -> None:
+    journal = IncidentJournal(isolated_runtime_root)
+    journal.record("baseline", message="Baseline", occurred_at=datetime(2026, 7, 20, tzinfo=timezone.utc))
+    with patch.object(incident_module.os, "replace", side_effect=OSError("disk full")):
+        with pytest.raises(ValueError):
+            journal.record("freeze", message="Freeze", requires_freeze=True, occurred_at=datetime(2026, 7, 21, tzinfo=timezone.utc))
+    assert journal.is_frozen is True
+    assert len(journal.events()) == 2
+    anchor = json.loads(journal._head_path.read_text(encoding="utf-8"))
+    assert anchor["event_count"] == 2
+    journal.record("third", message="Third", occurred_at=datetime(2026, 7, 22, tzinfo=timezone.utc))
+    assert len(journal.events()) == 3
+
+
+def test_interrupted_first_append_rolls_forward(isolated_runtime_root: Path) -> None:
+    journal = IncidentJournal(isolated_runtime_root)
+    with patch.object(incident_module.os, "replace", side_effect=OSError("disk full")):
+        with pytest.raises(ValueError):
+            journal.record("baseline", message="Baseline", occurred_at=datetime(2026, 7, 20, tzinfo=timezone.utc))
+    assert len(journal.events()) == 1
+    assert json.loads(journal._head_path.read_text(encoding="utf-8"))["event_count"] == 1
+
+
+def test_anchor_two_events_behind_or_stale_hash_stays_fail_closed(isolated_runtime_root: Path) -> None:
+    journal = _two_event_journal(isolated_runtime_root)
+    anchor = json.loads(journal._head_path.read_text(encoding="utf-8"))
+    stale_body = {key: anchor[key] for key in ("schema_version", "account_id")} | {"event_count": 0, "head_hash": "0" * 64}
+    journal._head_path.write_text(
+        json.dumps(stale_body | {"content_hash": incident_module._digest(stale_body)}, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8"
+    )
+    with pytest.raises(IncidentJournalIntegrityError, match="anchor"):
+        journal.events()
+    wrong_head = {key: anchor[key] for key in ("schema_version", "account_id")} | {"event_count": 1, "head_hash": "f" * 64}
+    journal._head_path.write_text(
+        json.dumps(wrong_head | {"content_hash": incident_module._digest(wrong_head)}, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8"
+    )
+    with pytest.raises(IncidentJournalIntegrityError, match="anchor"):
+        journal.events()

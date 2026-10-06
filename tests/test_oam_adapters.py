@@ -992,3 +992,13 @@ def _assert_app_rejects_without_publication(source, country, tmp_path, monkeypat
     state = state_module.AppState.__new__(state_module.AppState)
     with pytest.raises(state_module.ActivityUnavailableError, match="rejected"):
         state.import_local_oam(source, country, cache_dir=tmp_path / "app-cache", **query)
+
+
+def test_acronym_headers_are_canonicalised_and_exact_duplicates_still_collapse(tmp_path: Path) -> None:
+    adapter = NetherlandsAfmOamAdapter(endpoint="https://www.afm.nl/export", enabled=True, cache_dir=tmp_path)
+    row = {"issuer": "Acme", "ISIN": "IE00B4L5Y983", "title": "Annual Report", "documentURL": "https://www.afm.nl/a.pdf"}
+    records = adapter._normalise_records([row, dict(row)], OAMDiscoveryRequest(isin="IE00B4L5Y983"))
+    assert len(records) == 1
+    assert records[0].document_url == "https://www.afm.nl/a.pdf"
+    other = {**row, "documentURL": "https://www.afm.nl/b.pdf"}
+    assert len(adapter._normalise_records([row, other], OAMDiscoveryRequest(isin="IE00B4L5Y983"))) == 2

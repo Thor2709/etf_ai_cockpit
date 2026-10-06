@@ -15,6 +15,7 @@ import json
 import math
 from pathlib import Path
 import threading
+import tempfile
 import time
 import tracemalloc
 import uuid
@@ -22,6 +23,7 @@ from collections.abc import Callable, Mapping, Sequence
 
 import yaml
 
+from etf_cockpit.core.atomic_io import atomic_write_bytes, validate_parquet_file
 from etf_cockpit.core.resource_profiles import estimate_workflow_resources
 
 
@@ -1114,7 +1116,7 @@ def _append_timing_records(root: Path, records: Sequence[AnalysisTimingRecord]) 
         elif list(previous.columns) != expected:
             raise AnalysisDepthError("analysis_timings.parquet has an unsupported schema")
         frame = pd.concat((previous, frame), ignore_index=True)
-    frame.to_parquet(path, index=False)
+    _write_parquet_atomically(frame, path)
     return path
 
 
@@ -1512,8 +1514,24 @@ def certify_and_record_benchmark(
             if list(previous.columns) != list(_CERTIFICATION_COLUMNS):
                 raise AnalysisDepthError("analysis_certifications.parquet has an unsupported schema")
             frame = pd.concat((previous, frame), ignore_index=True)
-        frame.to_parquet(path, index=False)
+        _write_parquet_atomically(frame, path)
     return row
+
+
+def _write_parquet_atomically(frame, path: Path) -> None:
+    """Serialize beside the destination, then atomically replace it."""
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=path.parent, prefix=f".{path.name}.", suffix=".parquet", delete=False
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+        frame.to_parquet(temporary_path, index=False)
+        payload = temporary_path.read_bytes()
+        atomic_write_bytes(path, payload, validate_parquet_file)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def read_certification(root: Path, profile_id: str, *, manifest_hash: str | None = None) -> dict[str, object] | None:
