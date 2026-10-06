@@ -739,8 +739,9 @@ class LocalApplicationApi:
             self._ledger[command.idempotency_key] = _LedgerEntry(fingerprint, result)
             return result
 
-    def run_next_job(self, runner: Callable[[object], object]) -> object:
-        return self._scheduler.run_once(runner)
+    def run_next_job(self, runner: Callable[[object], object], *, workflow_id: str | None = None) -> object:
+        selected_workflow = workflow_id or getattr(runner, "workflow_id", None)
+        return self._scheduler.run_once(runner, workflow_id=selected_workflow)
 
     def recover_expired_leases(self) -> tuple[object, ...]:
         return self._scheduler.recover_expired_leases()

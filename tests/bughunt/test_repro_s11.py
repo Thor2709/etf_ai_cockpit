@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import flet as ft
 import pandas as pd
-import pytest
 
 import etf_cockpit.app.components.tables as tables
 import etf_cockpit.app.pages.chatgpt_audit as chatgpt_audit
@@ -22,7 +21,6 @@ from etf_cockpit.core.job_scheduler import DurableJobScheduler
 from etf_cockpit.data.import_export import validate_import
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S11-01: Page workers complete unrelated queued jobs")
 def test_s11_01_operation_worker_is_scoped_to_its_workflow():
     scheduler = DurableJobScheduler.__new__(DurableJobScheduler)
     older_job = N(job_id="old", workflow_id="other", resources={}, cancel_requested=False)
@@ -50,7 +48,6 @@ def test_s11_01_operation_worker_is_scoped_to_its_workflow():
         scheduler.complete.assert_not_called()
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S11-02: Failed jobs are persisted as completed")
 def test_s11_02_failed_job_is_not_recorded_completed():
     api = Mock()
     api.get_paper.return_value = N(items=[])
@@ -68,7 +65,6 @@ def test_s11_02_failed_job_is_not_recorded_completed():
         assert saved.call_args.args[0].status == "failed"
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S11-03: Portfolio context omits holdings after row fifty")
 def test_s11_03_portfolio_context_includes_all_holdings():
     holdings = pd.DataFrame({"etf_id": [f"A{i}" for i in range(51)], "market_value_eur": [100.0] * 51})
     api = LocalApplicationApi(lambda: N(holdings=holdings), scheduler=Mock())
@@ -82,7 +78,6 @@ def test_s11_03_portfolio_context_includes_all_holdings():
         assert cards.call_args_list[0].args[1] == operations.format_currency(5100.0)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S11-04: Cancelled worker replaces a newer operation preview")
 def test_s11_04_cancelled_worker_preserves_new_preview():
     api = Mock()
     api.get_paper.return_value = N(items=[])
@@ -117,7 +112,6 @@ def test_s11_04_cancelled_worker_preserves_new_preview():
         assert getclosurevars(buttons[2].on_click).nonlocals["active_record"].operation_id == expected[0]
 
 
-@pytest.mark.xfail(strict=True, raises=TypeError, reason="S11-05: Comparison workspace save crashes on snapshot dates")
 def test_s11_05_comparison_workspace_save_accepts_snapshot_date():
     snapshot = N(
         config=N(),
@@ -143,11 +137,10 @@ def test_s11_05_comparison_workspace_save_accepts_snapshot_date():
         assert '"2026-10-06"' in write.call_args.args[0]
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S11-06: Browser imports ignore uploaded file contents")
 def test_s11_06_browser_import_uses_selected_bytes():
     page = N(services=[], overlay=[], update=Mock())
     state = N(last_message="Ready", snapshot=N(config=N(ui=N(default_page="/import-export"))))
-    data = b"published_at,headline\n2026-10-06T12:00:00Z,Selected browser news\n"
+    data = b"published_at,headline,url\n2026-10-06T12:00:00Z,Selected browser news,https://example.com/news/1\n"
     file = ft.FilePickerFile(id=1, name="__hunt_s11_no_server_file__.csv", size=len(data), path=None, bytes=data)
     health = dict(status="available", object_count=0, manifest_count=0, staged_file_count=0, promoted_generation_count=0)
     with (
@@ -162,7 +155,6 @@ def test_s11_06_browser_import_uses_selected_bytes():
         assert "Preview valid" in centre.controls[5].value
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S11-07: Completed local LLM audit is shown as unrun")
 def test_s11_07_completed_llm_audit_is_not_shown_as_unrun(monkeypatch):
     page = N(views=[], route="/chatgpt", update=Mock())
     state = N(last_message="Ready", last_export_path=None, current_activity=None, snapshot=N())
@@ -195,7 +187,6 @@ def test_s11_07_completed_llm_audit_is_not_shown_as_unrun(monkeypatch):
     assert "has not been run" not in page.views[0].controls[0].controls[4].content.controls[2].value
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S11-08: Sorting discards the active table search")
 def test_s11_08_sort_preserves_active_search():
     table = tables.accessible_table(
         pd.DataFrame({"strategy": ["alpha", "beta"], "return": [0.1, 0.2]}),

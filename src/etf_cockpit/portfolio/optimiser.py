@@ -108,6 +108,18 @@ class PortfolioOptimiser:
         current_for_fallback: pd.Series | None = None
         try:
             _validate_constraints(constraints)
+        except (TypeError, ValueError) as exc:
+            warning = f"invalid_constraints:{exc}"
+            return OptimiserSolution(
+                requested,
+                pd.Series(dtype=float),
+                "unavailable",
+                False,
+                None,
+                {"feasible": False, "reason_code": "invalid_constraints", "warnings": [warning]},
+                (warning,),
+            )
+        try:
             self._validate_inputs()
             if requested not in METHODS:
                 raise ValueError(f"unsupported optimiser method: {requested}")
