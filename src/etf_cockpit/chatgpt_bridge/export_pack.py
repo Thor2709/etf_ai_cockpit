@@ -658,7 +658,13 @@ def _write_audit_manifest(export_dir: Path, derived_manifest: dict[str, object],
                 # downstream readers while keeping the manifest explicit.
                 marker_name = "candle_context_unavailable.txt"
             else:
-                marker_name = _unavailable_marker_name(Path(path).stem)
+                source_candidates = [
+                    Path(source)
+                    for source in evidence_manifest.get("missing", [])
+                    if Path(str(source)).stem == Path(path).stem
+                ]
+                marker_identifier = source_candidates[0].name if len(source_candidates) == 1 else Path(path).name
+                marker_name = _unavailable_marker_name(marker_identifier)
             marker = f"{Path(path).with_name(marker_name)}".replace("\\", "/")
             marker_path = export_dir / marker
             if not marker_path.is_file():
@@ -912,7 +918,7 @@ def _write_unavailable_marker(marker: Path, source: Path, manifest: dict[str, ob
 
 def _unavailable_marker_name(identifier: str) -> str:
     digest = hashlib.sha256(identifier.encode("utf-8")).hexdigest()[:10]
-    return f"{identifier}_{digest}_unavailable.txt"
+    return f"{Path(identifier).stem}_{digest}_unavailable.txt"
 
 
 def _export_issue_dossiers(docs_root: Path, manifest: dict[str, object]) -> None:
@@ -1042,7 +1048,7 @@ def _copy_evidence_file(source_path: Path, evidence_root: Path, manifest: dict[s
             _include_file(target, target.name, manifest)
             return
     if not source_path.exists():
-        marker = evidence_root / _unavailable_marker_name(source_path.stem)
+        marker = evidence_root / _unavailable_marker_name(source_path.name)
         _write_unavailable_marker(marker, source_path, manifest)
         return
     if source_path.suffix == ".parquet":
