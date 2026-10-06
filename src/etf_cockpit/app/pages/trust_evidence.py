@@ -487,7 +487,12 @@ def _news_context_extra(state: AppState, page: ft.Page | None = None) -> ft.Cont
                 key=f"manual-note.review-badge.{row_index}",
             )
 
-            def save_review(decision: str, selected_index: object = row_index) -> None:
+            def save_review(
+                decision: str,
+                selected_index: object = row_index,
+                badge: ft.Text = review_badge,
+                text: ft.Text = review_text,
+            ) -> None:
                 try:
                     updated = save_manual_note_credibility_review(
                         MANUAL_NEWS_CLEAN_PATH,
@@ -497,9 +502,9 @@ def _news_context_extra(state: AppState, page: ft.Page | None = None) -> ft.Cont
                         note=str(review_note_field.value or ""),
                     )
                     reviewed_row = updated.loc[selected_index]
-                    review_badge.value = f"Reviewed badge: {reviewed_row['credibility_review_status']} ({reviewed_row['credibility_review_override']})"
-                    review_badge.color = theme.GREEN
-                    review_text.value = (
+                    badge.value = f"Reviewed badge: {reviewed_row['credibility_review_status']} ({reviewed_row['credibility_review_override']})"
+                    badge.color = theme.GREEN
+                    text.value = (
                         f"{reviewed_row.get('as_of_date', 'unavailable')} | {reviewed_row.get('etf_id') or 'portfolio'} | "
                         f"{reviewed_row.get('title') or 'Untitled note'} | credibility_flag_status={reviewed_row.get('credibility_flag_status', 'unavailable')} | "
                         f"credibility_flags={reviewed_row.get('credibility_flags', 'unknown')} | "
@@ -509,8 +514,8 @@ def _news_context_extra(state: AppState, page: ft.Page | None = None) -> ft.Cont
                         f"reviewed_by={reviewed_row.get('credibility_reviewed_by', '')} | review_note={reviewed_row.get('credibility_review_note', '')} | executable_authority=false"
                     )
                 except Exception as exc:
-                    review_badge.value = f"Review save failed safely: {type(exc).__name__}"
-                    review_badge.color = theme.AMBER
+                    badge.value = f"Review save failed safely: {type(exc).__name__}"
+                    badge.color = theme.AMBER
                 if page is not None:
                     page.update()
 
@@ -520,8 +525,8 @@ def _news_context_extra(state: AppState, page: ft.Page | None = None) -> ft.Cont
                 row_controls.append(
                     ft.Row(
                         [
-                            ft.OutlinedButton("Confirm flags", key=f"manual-note.confirm.{row_key}", on_click=lambda _event, decision="confirm_flags": save_review(decision)),
-                            ft.OutlinedButton("Clear flags", key=f"manual-note.clear.{row_key}", on_click=lambda _event, decision="clear_flags": save_review(decision)),
+                            ft.OutlinedButton("Confirm flags", key=f"manual-note.confirm.{row_key}", on_click=lambda _event, decision="confirm_flags", save_review=save_review: save_review(decision)),
+                            ft.OutlinedButton("Clear flags", key=f"manual-note.clear.{row_key}", on_click=lambda _event, decision="clear_flags", save_review=save_review: save_review(decision)),
                         ],
                         wrap=True,
                     )
