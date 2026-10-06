@@ -329,7 +329,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
                 "close": pd.to_numeric(frame["Close"], errors="coerce"),
                 "adjusted_close": pd.to_numeric(frame.get("Adj Close", frame["Close"]), errors="coerce"),
                 "volume": _numeric_frame_column(frame, "Volume", default=0.0),
-                "currency": self.default_currency,
+                "currency": self._quote_currency(symbol, etf_id),
                 "provider_symbol": symbol,
                 "source": self.name,
                 "is_adjusted": "Adj Close" in frame.columns,
@@ -340,6 +340,21 @@ class YFinanceProvider(DataProvider, PriceProvider):
         )
         out = out.dropna(subset=["open", "high", "low", "close", "adjusted_close"])
         return out
+
+    def _quote_currency(self, symbol: str, etf_id: str) -> str | None:
+        metadata = self.instrument_metadata.get(etf_id, {})
+        currency = metadata.get("currency")
+        if currency is None:
+            configured_symbols = self._symbol_map(list(self.section.symbols_map))
+            matches = [key for key, value in configured_symbols.items() if value == symbol]
+            currencies = {
+                str(self.instrument_metadata[key]["currency"])
+                for key in matches
+                if key in self.instrument_metadata and self.instrument_metadata[key].get("currency")
+            }
+            if len(currencies) == 1:
+                currency = currencies.pop()
+        return str(currency) if currency is not None and str(currency).strip() else None
 
     def _ticker(self, symbol: str) -> Any:
         return _import_yfinance().Ticker(symbol)

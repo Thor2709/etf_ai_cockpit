@@ -62,6 +62,14 @@ def validate_prices(
         )
 
     frame = prices.copy()
+    price_numeric_columns = ["open", "high", "low", "close", "adjusted_close", "volume"]
+    for column in price_numeric_columns:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    nonfinite_prices = ~np.isfinite(frame[price_numeric_columns].to_numpy(dtype=float, na_value=np.nan))
+    if nonfinite_prices.any():
+        affected = frame.loc[nonfinite_prices.any(axis=1), "etf_id"].astype(str).unique()
+        for etf_id in affected:
+            issues.append(DataQualityIssue(etf_id, "block", "invalid_price_values", "Required price values must be finite numbers."))
     parsed_dates = pd.to_datetime(frame["date"])
     missing_date = parsed_dates.isna()
     if missing_date.any():
@@ -215,8 +223,8 @@ def validate_holdings(
     numeric_columns = ["units", "market_price", "market_value_eur", "current_weight"]
     for column in numeric_columns:
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
-        if frame[column].isna().any():
-            issues.append(DataQualityIssue("ALL", "block", f"invalid_{column}", f"Holdings column {column} contains non-numeric values."))
+        if not np.isfinite(frame[column].to_numpy(dtype=float, na_value=np.nan)).all():
+            issues.append(DataQualityIssue("ALL", "block", f"invalid_{column}", f"Holdings column {column} contains missing, non-numeric or nonfinite values."))
 
     duplicate_etfs = frame[frame["etf_id"].duplicated()]["etf_id"].astype(str).unique()
     for etf_id in duplicate_etfs:
@@ -401,7 +409,7 @@ def _fx_lookup(fx_rates: pd.DataFrame | None, effective_as_of: date) -> dict[tup
     frame["base_currency"] = frame["base_currency"].fillna("").astype(str).str.upper().str.strip()
     frame["quote_currency"] = frame["quote_currency"].fillna("").astype(str).str.upper().str.strip()
     frame = frame.dropna(subset=["as_of_date", "rate"])
-    frame = frame[(frame["rate"] > 0) & (frame["as_of_date"] <= effective_as_of)]
+    frame = frame[np.isfinite(frame["rate"]) & (frame["rate"] > 0) & (frame["as_of_date"] <= effective_as_of)]
     if frame.empty:
         return {}
     lookup: dict[tuple[str, str], tuple[float, date]] = {}
