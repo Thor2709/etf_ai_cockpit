@@ -83,20 +83,20 @@ def delete_private_data(root: Path, *, confirmation: str) -> tuple[Path, ...]:
     application_root = Path(root).absolute()
     is_root_junction = getattr(application_root, "is_junction", lambda: False)
     if application_root.is_symlink() or is_root_junction():
-        return ()
+        raise PrivacyDeletionError("private data root is linked or outside the application root")
     private_path = application_root / "data" / "private"
     current = application_root
     for part in (Path("data"), Path("private")):
         current = current / part
         is_junction = getattr(current, "is_junction", lambda: False)
         if current.is_symlink() or is_junction():
-            return ()
+            raise PrivacyDeletionError("private data root is linked or outside the application root")
     resolved_application_root = application_root.resolve()
     private_root = private_path.resolve()
     try:
         private_root.relative_to(resolved_application_root)
     except ValueError:
-        return ()
+        raise PrivacyDeletionError("private data root is linked or outside the application root")
     if not private_root.exists():
         return ()
     deleted: list[Path] = []
