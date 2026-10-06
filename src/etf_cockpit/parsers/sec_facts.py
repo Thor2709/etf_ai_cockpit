@@ -257,6 +257,8 @@ def parse_companyfacts(path: Path, identity: CanonicalIdentity) -> ParseResult[S
                 end_value = _string(entry.get("end"))
                 instant_value = _string(entry.get("instant")) or (end_value if start_value is None else None)
                 dimensions = _dimensions(entry)
+                fact_canonical_metric = canonical_metric if not dimensions else None
+                fact_mapping_status = mapping_status if fact_canonical_metric else ("custom_unmapped" if is_custom else "unmapped")
                 period_type = "duration" if start_value else "instant"
                 restatement_kind = "amended" if str(entry.get("form") or "").upper().endswith("/A") else "reported"
                 source_id = _source_id(cik, taxonomy, concept, str(unit), accession, period, entry)
@@ -277,14 +279,14 @@ def parse_companyfacts(path: Path, identity: CanonicalIdentity) -> ParseResult[S
                         fiscal_year=_int(entry.get("fy")),
                         fiscal_period=_string(entry.get("fp")),
                         source_id=source_id,
-                        canonical_metric=canonical_metric,
-                        mapping_status=mapping_status,
+                        canonical_metric=fact_canonical_metric,
+                        mapping_status=fact_mapping_status,
                         is_custom=is_custom,
                         dimensions=dimensions,
                         currency=_currency_from_unit(unit),
                         period_type=period_type,
-                        mapping_confidence="high" if canonical_metric else "manual_review",
-                        manual_review_required=canonical_metric is None,
+                        mapping_confidence="high" if fact_canonical_metric else "manual_review",
+                        manual_review_required=fact_canonical_metric is None,
                         restatement_kind=restatement_kind,
                         available_at=_string(entry.get("filed")),
                     )
