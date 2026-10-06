@@ -3,7 +3,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0\.."
 
 set APPNAME=ETF_AI_Cockpit
-set OUTDIR=build\ETF_AI_Cockpit_Portable_v0.1.0rc1
+set OUTDIR=build\ETF_AI_Cockpit_Portable_v1.1.0b1
 set NATIVE_OUT_ROOT=build\flet_dist_rc1
 set NATIVE_OUT_ROOT_FILE=build\native_outdir.txt
 set NATIVE_DIST=%NATIVE_OUT_ROOT%\%APPNAME%

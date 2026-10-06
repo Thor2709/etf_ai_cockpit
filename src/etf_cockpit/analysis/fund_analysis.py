@@ -25,6 +25,7 @@ from etf_cockpit.data.fund_identity import (
     FundTerm,
 )
 from etf_cockpit.data.fx_data import build_fx_rate_snapshot, fx_cross_rate
+from etf_cockpit.core.paths import CONFIG_DIR
 
 if TYPE_CHECKING:
     from etf_cockpit.analysis.fund_screener import FundScreenerConfig
@@ -32,7 +33,7 @@ if TYPE_CHECKING:
 
 FUND_ANALYSIS_CONTRACT = "fund-analysis.v1"
 FUND_RETURN_CONTRACT = "fund-return-decomposition.v1"
-FUND_ANALYSIS_CONFIG = Path(__file__).resolve().parents[3] / "configs" / "fund_analysis_v1.yaml"
+FUND_ANALYSIS_CONFIG = CONFIG_DIR / "fund_analysis_v1.yaml"
 _CURRENCY = re.compile(r"^[A-Z]{3}$")
 _TIME = re.compile(r"^\d{2}:\d{2}$")
 # Fee accrual is date-based, so intraday fee coverage boundaries are unsupported.

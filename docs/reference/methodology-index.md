@@ -1,6 +1,6 @@
 # Methodology and contract index
 
-Release version: `0.1.0rc1`.
+Release version: `1.1.0b1` (display: `1.1.0-beta.1`).
 
 One entry point to every architecture, methodology and contract page. Start with
 the [architecture README](../architecture/README.md) for reading order and

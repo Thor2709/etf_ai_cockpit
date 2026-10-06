@@ -12,6 +12,8 @@ from typing import Mapping, Sequence
 
 import yaml
 
+from etf_cockpit.core.paths import CONFIG_DIR
+
 from etf_cockpit.analysis.decision.contracts import (
     DecisionDriver,
     OpportunityBenchmarkRank,
@@ -19,9 +21,7 @@ from etf_cockpit.analysis.decision.contracts import (
 )
 
 
-_DEFAULT_CONFIG = (
-    Path(__file__).resolve().parents[4] / "configs" / "decision_opportunity_v1.yaml"
-)
+_DEFAULT_CONFIG = CONFIG_DIR / "decision_opportunity_v1.yaml"
 _RANKER_NAMES = ("v3", "Q", "V", "M", "R", "QV", "QVM", "five_factor")
 
 

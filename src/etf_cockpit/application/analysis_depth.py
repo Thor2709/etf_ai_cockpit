@@ -24,6 +24,7 @@ from collections.abc import Callable, Mapping, Sequence
 import yaml
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes, validate_parquet_file
+from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.core.resource_profiles import estimate_workflow_resources
 
 
@@ -33,7 +34,7 @@ ANALYSIS_RESOURCE_PLAN_SCHEMA_VERSION = "analysis-resource-plan.v1"
 ANALYSIS_TIMING_SCHEMA_VERSION = "analysis-timing.v2"
 ANALYSIS_UPGRADE_LINK_SCHEMA_VERSION = "analysis-upgrade-link.v1"
 ANALYSIS_DEPTH_PROFILES_PATH = (
-    Path(__file__).resolve().parents[3] / "configs" / "analysis_depth_profiles.yaml"
+    CONFIG_DIR / "analysis_depth_profiles.yaml"
 )
 ANALYSIS_TIMINGS_RELATIVE_PATH = Path("data") / "analysis_timings.parquet"
 REFERENCE_FIXTURE_ID = "reference_3000_supported_instruments"

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0b1 - 2026-10-07
+
+- Refactor (#907).
+- Bug-fix programme (#908).
+- Fixed frozen-build packaging by bundling package data and resolving configs.
+
 ## Unreleased
 
 - Replaced the obsolete ETF-only architecture authority with a code-verified

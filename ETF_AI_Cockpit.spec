@@ -2,6 +2,8 @@
 
 from importlib.util import find_spec
 from pathlib import Path
+import sys
+from PyInstaller.utils.hooks import collect_data_files
 
 
 def package_directory(name):
@@ -17,6 +19,7 @@ flet_directory = package_directory('flet')
 # current Python/PyInstaller combinations.  SPECPATH is supplied by the
 # builder; the cwd fallback keeps direct spec evaluation deterministic.
 spec_root = Path(globals().get('SPECPATH', Path.cwd())).resolve()
+sys.path.insert(0, str(spec_root / 'src'))
 version_file = spec_root / 'packaging' / 'windows_version_info.txt'
 runtime_binaries = []
 for package_name in ('numpy', 'scipy', 'pandas', 'pyarrow'):
@@ -28,7 +31,7 @@ a = Analysis(
     ['src\\etf_cockpit\\main.py'],
     pathex=['src', str(flet_web_directory.parent)],
     binaries=runtime_binaries,
-    datas=[('configs', 'configs'), ('models/lightgbm', 'models/lightgbm'), ('models/cached', 'models/cached'), (str(flet_web_directory), 'flet_web'), (str(flet_directory / 'controls' / 'material' / 'icons.json'), 'flet/controls/material')],
+    datas=[('configs', 'configs'), ('models/lightgbm', 'models/lightgbm'), ('models/cached', 'models/cached'), (str(flet_web_directory), 'flet_web'), (str(flet_directory / 'controls' / 'material' / 'icons.json'), 'flet/controls/material')] + collect_data_files('etf_cockpit', include_py_files=False),
     hiddenimports=['flet_web', 'flet_web.patch_index', 'flet_web.uploads', 'flet_web.fastapi', 'flet_web.fastapi.app', 'flet_web.fastapi.flet_app', 'flet_web.fastapi.flet_app_manager', 'flet_web.fastapi.flet_fastapi', 'flet_web.fastapi.flet_oauth', 'flet_web.fastapi.oauth_state', 'flet_web.fastapi.serve_fastapi_web_app', 'fastapi', 'fastapi.staticfiles', 'starlette', 'starlette.middleware.base', 'uvicorn', 'uvicorn.loops.auto', 'uvicorn.lifespan.on', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.websockets.websockets_sansio_impl', 'yfinance', 'curl_cffi', 'bs4', 'peewee', 'multitasking', 'platformdirs', 'pandas._libs._cyutility'],
     hookspath=[],
     hooksconfig={},

@@ -22,6 +22,8 @@ from typing import Any
 import pandas as pd
 import yaml
 
+from etf_cockpit.core.paths import CONFIG_DIR
+
 from etf_cockpit.features.forecast_lab import build_walk_forward_splits
 from etf_cockpit.models.monitoring import (
     DatedReturn,
@@ -33,10 +35,9 @@ from etf_cockpit.portfolio.costs import COST_MODEL_ID
 from etf_cockpit.portfolio.factor_risk import build_factor_risk_report
 
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[4]
-_DEFAULT_POLICY_PATH = _PROJECT_ROOT / "configs" / "decision_cutover_v1.yaml"
-_DEFAULT_DOMAIN_PATH = _PROJECT_ROOT / "configs" / "decision_domains_v1.yaml"
-_DEFAULT_OPPORTUNITY_PATH = _PROJECT_ROOT / "configs" / "decision_opportunity_v1.yaml"
+_DEFAULT_POLICY_PATH = CONFIG_DIR / "decision_cutover_v1.yaml"
+_DEFAULT_DOMAIN_PATH = CONFIG_DIR / "decision_domains_v1.yaml"
+_DEFAULT_OPPORTUNITY_PATH = CONFIG_DIR / "decision_opportunity_v1.yaml"
 _FEATURE_COLUMNS = {
     "quality": "quality_score",
     "value": "value_score",
