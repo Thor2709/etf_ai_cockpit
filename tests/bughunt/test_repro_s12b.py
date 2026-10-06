@@ -19,11 +19,6 @@ from scripts import (
 )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S12-03: Metadata refresh invalidates durable creation authority",
-)
 def test_s12_03_refresh_preserves_creation_acceptance() -> None:
     record = {
         "canonical_id": "ISSUE-0001",

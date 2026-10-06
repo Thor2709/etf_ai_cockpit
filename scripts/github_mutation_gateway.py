@@ -1890,10 +1890,16 @@ def validate_create_acceptance(issue: dict[str, Any]) -> dict[str, Any]:
         or receipt["stable_id"] != stable[0]
         or receipt["issue_id"] != snapshot["id"]
         or receipt["issue_node_id"] != snapshot["node_id"]
-        or receipt["title_sha256"] != _sha256(snapshot["title"])
-        or receipt["body_sha256"] != _sha256(snapshot["body"])
-        or receipt["verified_snapshot_sha256"]
-        != _acceptance_snapshot_sha256(snapshot, snapshot["comments"][:index])
+        or receipt["receipt_mutation_id"]
+        != _sha256(
+            _json_bytes(
+                {
+                    key: value
+                    for key, value in receipt.items()
+                    if key not in {"schema_version", "receipt_mutation_id"}
+                }
+            )
+        )
         or comment["author"] != "github-actions[bot]"
         or comment["author_id"] != GITHUB_ACTIONS_BOT_USER_ID
         or comment["author_type"] != "Bot"
