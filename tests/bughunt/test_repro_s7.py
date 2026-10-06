@@ -7,7 +7,6 @@ import pytest
 from etf_cockpit.core.settings_bundle import SettingsError
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S7-01: Private deletion follows links outside the application root")
 def test_s7_01_private_root_link_cannot_delete_external_files(tmp_path, monkeypatch):
     from etf_cockpit.data.privacy import delete_private_data
 
@@ -30,7 +29,6 @@ def test_s7_01_private_root_link_cannot_delete_external_files(tmp_path, monkeypa
     assert victim.exists()
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S7-02: SQLite backups can omit committed WAL data")
 def test_s7_02_backup_keeps_committed_wal_rows(tmp_path):
     import sqlite3
 
@@ -55,7 +53,6 @@ def test_s7_02_backup_keeps_committed_wal_rows(tmp_path):
         assert restored.store.get("journal", "new") is not None
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S7-03: Unreadable history is replaced with only the new run")
 def test_s7_03_unreadable_history_is_not_replaced(tmp_path, monkeypatch):
     import pandas as pd
 

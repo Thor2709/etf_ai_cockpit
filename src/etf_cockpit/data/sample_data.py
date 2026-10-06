@@ -181,15 +181,19 @@ def ensure_sample_files(
     price_path = RAW_DIR / "prices" / "sample_prices.csv"
     holdings_path = PORTFOLIOS_DIR / "current_holdings.csv"
     if force or not price_path.exists() or not holdings_path.exists():
-        prices = generate_sample_prices(config)
-        holdings = generate_sample_holdings(config, prices)
+        prices = generate_sample_prices(config) if force or not price_path.exists() else pd.read_csv(price_path)
+        write_prices = force or not price_path.exists()
+        write_holdings = force or not holdings_path.exists()
+        holdings = generate_sample_holdings(config, prices) if write_holdings else None
         with publication_scope(publish_guard):
             ensure_project_dirs()
-            csv_prices = prices.copy()
-            if "calendar_identity" in csv_prices.columns:
-                csv_prices["calendar_identity"] = csv_prices["calendar_identity"].map(
-                    _sample_calendar_identity_json
-                )
-            csv_prices.to_csv(price_path, index=False)
-            holdings.to_csv(holdings_path, index=False)
+            if write_prices:
+                csv_prices = prices.copy()
+                if "calendar_identity" in csv_prices.columns:
+                    csv_prices["calendar_identity"] = csv_prices["calendar_identity"].map(
+                        _sample_calendar_identity_json
+                    )
+                csv_prices.to_csv(price_path, index=False)
+            if holdings is not None:
+                holdings.to_csv(holdings_path, index=False)
     return price_path, holdings_path

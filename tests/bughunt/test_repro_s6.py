@@ -11,7 +11,6 @@ import pytest
 
 from etf_cockpit.analysis.fixed_income_analytics import (
     ContractualCashFlow,
-    FixedIncomeAnalyticsError,
     FixedIncomeValuationInput,
     calculate_fixed_income_analytics,
 )
@@ -40,7 +39,6 @@ from etf_cockpit.data.news_context import (
 from etf_cockpit.data.trade_candidate_analysis import analyse_candidate_prices
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S6-01: Missing sample prices overwrites existing portfolio")
 def test_s6_01_missing_prices_preserves_holdings(monkeypatch):
     writes = []
     monkeypatch.setattr(Path, "exists", lambda path: path.name != "sample_prices.csv")
@@ -76,7 +74,6 @@ def test_s6_03_yahoo_preserves_quote_currency(monkeypatch):
     assert output.iloc[0]["currency"] == "USD"
 
 
-@pytest.mark.xfail(strict=True, raises=FixedIncomeAnalyticsError, reason="S6-04: Failed database commit invalidates persisted analytics")
 def test_s6_04_failed_commit_preserves_previous_projection(tmp_path, monkeypatch):
     calculated_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
     valuation = FixedIncomeValuationInput(

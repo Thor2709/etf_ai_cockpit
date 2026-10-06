@@ -6,6 +6,7 @@ import os
 import re
 import stat
 import shutil
+import sqlite3
 import tempfile
 import zipfile
 from dataclasses import dataclass
@@ -405,6 +406,8 @@ def _collect_payloads(
     for path in files:
         relative = _archive_name(path)
         data = path.read_bytes()
+        if data.startswith(b"SQLite format 3\x00"):
+            data = _sqlite_snapshot(path)
         if _secret_path(path) or _secret_content(data, path) or (not include_transient and _transient_path(path)):
             excluded.append(relative)
             continue
@@ -414,6 +417,17 @@ def _collect_payloads(
         checksums[relative] = checksum
         payloads[relative] = data
     return checksums, excluded, payloads
+
+
+def _sqlite_snapshot(path: Path) -> bytes:
+    source = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True)
+    snapshot = sqlite3.connect(":memory:")
+    try:
+        source.backup(snapshot)
+        return snapshot.serialize()
+    finally:
+        snapshot.close()
+        source.close()
 
 
 def _zip_payload(payloads: dict[str, bytes], manifest_payload: bytes) -> bytes:
