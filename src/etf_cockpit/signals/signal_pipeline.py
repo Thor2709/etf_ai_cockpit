@@ -1,0 +1,550 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from datetime import date, datetime, timezone
+from math import isfinite
+from collections.abc import Mapping
+
+import pandas as pd
+
+from etf_cockpit.core.config import AppConfig
+from etf_cockpit.core.logging import append_jsonl
+from etf_cockpit.core.paths import ROOT
+from etf_cockpit.core.scheduler import current_run_id
+from etf_cockpit.core.types import DataQualityReport, SignalResult
+from etf_cockpit.data.classification import classification_score_state
+from etf_cockpit.governance.gate_policy import resolve_authority
+from etf_cockpit.portfolio.allocation import allocation_frame
+from etf_cockpit.portfolio.costs import estimate_execution_cost, estimated_cost_bps
+from etf_cockpit.portfolio.holdings import portfolio_value
+from etf_cockpit.portfolio.rebalancing import proposed_new_weight, suggested_trade_value
+from etf_cockpit.signals.actions import advisory_action, apply_gate_result, preliminary_action
+from etf_cockpit.signals.canonical_scoring import canonical_score_from_signal_row
+from etf_cockpit.signals.explanations import explain_signal
+from etf_cockpit.signals.gates import evaluate_risk_gates
+from etf_cockpit.signals.scoring import component_scores, row_components
+from etf_cockpit.core.research_states import GateResult, research_state_for_legacy_action
+from etf_cockpit.models.uncertainty import (
+    decompose_forecast_uncertainty,
+    generate_scenarios,
+    uncertainty_gate_reasons,
+    unavailable_decomposition,
+)
+from etf_cockpit.models.calibration import calibrate_forecast_distribution
+
+
+def generate_signals(
+    config: AppConfig,
+    latest_features: pd.DataFrame,
+    holdings: pd.DataFrame,
+    data_report: DataQualityReport,
+    *,
+    as_of_date: date | None = None,
+    run_id: str | None = None,
+    decision_timestamp: datetime | pd.Timestamp | None = None,
+    publish: bool = True,
+    toto_available: bool = False,
+    timesfm_available: bool = False,
+    forecast_scores: dict[str, dict[str, float]] | None = None,
+    forecast_distributions: dict[str, dict[str, object]] | None = None,
+    structure_confidence_caps: dict[str, float] | None = None,
+    historical_forecasts: pd.DataFrame | None = None,
+    calibration_prices: pd.DataFrame | None = None,
+    decision_time: object = None,
+) -> list[SignalResult]:
+    run_id = run_id or current_run_id("signals")
+    signal_date = as_of_date or data_report.as_of_date
+    allocation = allocation_frame(config, holdings)
+    scored = component_scores(
+        latest_features,
+        allocation,
+        config,
+        toto_available=toto_available,
+        timesfm_available=timesfm_available,
+        forecast_scores=forecast_scores,
+    )
+    scored = scored.merge(allocation[["etf_id", "drift", "role", "name"]], on="etf_id", how="left")
+    scored["cost_bps"] = scored["etf_id"].map(lambda etf_id: estimated_cost_bps(config, str(etf_id)))
+    # A missing optional forecast distribution must not suppress the
+    # deterministic baseline signal path.  The fallback is an action-policy
+    # input only; the published return-distribution fields remain N/A.
+    fallback_edge = _technical_expected_edge(scored)
+    if forecast_distributions is None:
+        scored["expected_edge_60d"] = fallback_edge
+    else:
+        scored["expected_edge_60d"] = scored["etf_id"].map(
+            lambda etf_id: _primary_horizon_distribution_value(forecast_distributions.get(str(etf_id)), "q50_return")
+        )
+        scored["expected_edge_60d"] = pd.to_numeric(scored["expected_edge_60d"], errors="coerce").fillna(fallback_edge)
+
+    total_value = portfolio_value(holdings)
+    cash_weight = max(0.0, 1.0 - float(holdings["current_weight"].sum()))
+    signals: list[SignalResult] = []
+    for _, row in scored.sort_values("total_score", ascending=False).iterrows():
+        structure_cap = _structure_cap_for_row(structure_confidence_caps, str(row["etf_id"]))
+        structure_provenance = (
+            getattr(structure_confidence_caps, "provenance", {}).get(str(row["etf_id"]))
+            if isinstance(getattr(structure_confidence_caps, "provenance", {}), Mapping)
+            else None
+        )
+        canonical_score = canonical_score_from_signal_row(
+            row,
+            config,
+            signal_date,
+            toto_available=toto_available,
+            timesfm_available=timesfm_available,
+            structure_confidence_cap=structure_cap,
+            structure_provenance=structure_provenance,
+        )
+        canonical_total_score = canonical_score.legacy_composite_raw
+        total_score = float(canonical_total_score if canonical_total_score is not None else row["total_score"])
+        current_weight = float(row.get("current_weight") or 0.0)
+        target_weight = float(row.get("target_weight") or 0.0)
+        hard_band = float(row.get("hard_band") or 0.05)
+        raw_distribution = (
+            forecast_distributions.get(str(row["etf_id"]))
+            if forecast_distributions is not None
+            else None
+        )
+        distribution = dict(raw_distribution) if isinstance(raw_distribution, Mapping) else None
+        if forecast_distributions is not None:
+            distribution = calibrate_forecast_distribution(
+                historical_forecasts if historical_forecasts is not None else pd.DataFrame(),
+                calibration_prices if calibration_prices is not None else pd.DataFrame(),
+                distribution,
+                instrument_id=str(row["etf_id"]),
+                decision_time=decision_time,
+                settings=config.models.calibration,
+            )
+        calibration = (
+            distribution.get("conformal_calibration")
+            if isinstance(distribution, Mapping)
+            else None
+        )
+        base_confidence = float(row["confidence"])
+        if forecast_distributions is not None:
+            uncertainty = decompose_forecast_uncertainty(
+                distribution,
+                config.models.forecast_uncertainty,
+                base_confidence=base_confidence,
+            )
+            scenario_record = generate_scenarios(distribution, config.models.forecast_uncertainty)
+            if distribution is not None:
+                distribution["uncertainty_decomposition"] = uncertainty
+        else:
+            uncertainty = unavailable_decomposition(
+                "No return distribution was requested; the deterministic baseline path is active."
+            )
+            scenario_record = {"status": "unavailable", "reason": "No return distribution was requested."}
+        adjusted_confidence = uncertainty.get("adjusted_confidence")
+        action_confidence = (
+            float(adjusted_confidence)
+            if isinstance(adjusted_confidence, (int, float)) and isfinite(float(adjusted_confidence))
+            else base_confidence
+        )
+        candidate = preliminary_action(
+            config,
+            total_score=total_score,
+            score_distribution=canonical_score.decision_distribution,
+            confidence=action_confidence,
+            current_weight=current_weight,
+            drift=float(row.get("drift") or 0.0),
+            hard_band=hard_band,
+            trend_200=float(row.get("trend_200") or 0.0),
+        )
+        forecast_vol = float(row.get("ewma_vol_ann") or 0.0)
+        projected_weight = proposed_new_weight(
+            current_weight,
+            target_weight,
+            candidate,
+            config.risks.portfolio_limits.max_trade_fraction_of_portfolio,
+            forecast_vol=forecast_vol if forecast_vol > 0 else None,
+        )
+        blocked_by, warnings = evaluate_risk_gates(
+            config,
+            row,
+            data_report,
+            candidate_action=candidate,
+            projected_weight=projected_weight,
+            cash_weight=cash_weight,
+            model_disagreement=0.0,
+        )
+        if forecast_distributions is not None:
+            uncertainty_reasons = uncertainty_gate_reasons(
+                uncertainty,
+                config.models.forecast_uncertainty,
+                effective_confidence=action_confidence * structure_cap,
+            )
+            blocked_by = sorted(set([*blocked_by, *uncertainty_reasons]))
+        calibration_reason = None
+        if isinstance(calibration, Mapping) and calibration.get("poor_calibration") is True:
+            calibration_reason = str(calibration.get("reason") or "Forecast calibration is outside its tolerance.")
+            warnings = sorted(set([*warnings, "forecast_calibration_poor"]))
+        preliminary_trade_value = suggested_trade_value(total_value, current_weight, projected_weight)
+        if candidate in {"buy", "add", "trim", "sell"} and preliminary_trade_value is not None:
+            if abs(preliminary_trade_value) < config.risks.portfolio_limits.min_trade_value_eur:
+                blocked_by = sorted(set([*blocked_by, "minimum_trade_size"]))
+        final_internal_action = apply_gate_result(candidate, blocked_by)
+        if final_internal_action != candidate:
+            projected_weight = None
+        trade_value = suggested_trade_value(total_value, current_weight, projected_weight)
+        final_action = advisory_action(final_internal_action)
+        if final_action == "no_trade" and not blocked_by:
+            if abs(float(row.get("drift") or 0.0)) <= hard_band:
+                blocked_by = ["inside_deadband"]
+            else:
+                blocked_by = ["no_trade_conservative"]
+        reason_short, reason_long = explain_signal(row, final_action, blocked_by)
+        if calibration_reason is not None:
+            reason_short = f"{reason_short}; forecast calibration reduced authority"
+            reason_long = (
+                f"{reason_long} {calibration_reason} The forecast return band was widened by the conformal adjustment, "
+                "and the signal authority is reduced pending review."
+            )
+        status = "blocked" if blocked_by else ("warning" if warnings else "ok")
+        try:
+            expected_edge = float(row.get("expected_edge_60d"))
+        except (TypeError, ValueError):
+            expected_edge = None
+        if expected_edge is not None and not isfinite(expected_edge):
+            expected_edge = None
+        cost_estimate = estimate_execution_cost(config, str(row["etf_id"]), abs(float(trade_value or 0.0)))
+        if trade_value is not None and abs(float(trade_value)) > 0:
+            estimated_cost = cost_estimate.total_cost_bps
+        else:
+            try:
+                estimated_cost = float(row.get("cost_bps"))
+            except (TypeError, ValueError):
+                estimated_cost = None
+            if estimated_cost is not None and not isfinite(estimated_cost):
+                estimated_cost = None
+        expected_edge_bps = expected_edge * 10_000 if expected_edge is not None else None
+        edge_to_cost_ratio = abs(expected_edge_bps) / estimated_cost if expected_edge_bps is not None and estimated_cost is not None and estimated_cost > 0 else None
+        drift_percent = float(row.get("drift") or 0.0)
+        drift_eur = drift_percent * total_value
+        cost_stress = _cost_stress_metrics(
+            config,
+            etf_id=str(row["etf_id"]),
+            expected_edge_bps=expected_edge_bps,
+            base_cost_bps=estimated_cost,
+            trade_value_eur=trade_value,
+        )
+        distribution_status = _distribution_value(distribution, "status")
+        distribution_reason = _distribution_value(distribution, "reason")
+        classification_state = classification_score_state(ROOT, str(row["etf_id"]))
+        signal = SignalResult(
+            run_id=run_id,
+            signal_date=signal_date,
+            etf_id=str(row["etf_id"]),
+            action=final_action,
+            confidence=round(action_confidence * structure_cap, 4),
+            total_score=round(total_score, 4),
+            components=row_components(row),
+            blocked_by=blocked_by,
+            warnings=warnings,
+            reason_short=reason_short,
+            reason_long=reason_long,
+            horizon_primary="1-3 months",
+            supporting_metrics={
+                "raw_signal_score": float(row["total_score"]),
+                "canonical_attractiveness_10": canonical_score.attractiveness_10,
+                "canonical_expected_return_10": canonical_score.expected_return_10,
+                "canonical_risk_implementation_10": canonical_score.risk_implementation_10,
+                "canonical_evidence_confidence_10": canonical_score.evidence_confidence_10,
+                "structure_confidence_cap": structure_cap,
+                "structure_projection_version": (structure_provenance or {}).get("structure_projection_version", "unavailable"),
+                "structure_provenance_hash": (structure_provenance or {}).get("structure_provenance_hash", "unavailable"),
+                "structure_evidence_status": (structure_provenance or {}).get("status", "not_supplied"),
+                "structure_evidence_reason_code": (structure_provenance or {}).get("reason_code"),
+                "structure_evidence_reason": (structure_provenance or {}).get("reason"),
+                "canonical_coverage": canonical_score.coverage,
+                "score_unavailable_reason_codes": str(row.get("score_unavailable_reason_codes") or ""),
+                "formula_version": canonical_score.formula_version,
+                "formula_checksum": canonical_score.formula_checksum,
+                "source_vintage_hash": canonical_score.source_vintage_hash,
+                "classification_status": str(classification_state["status"]),
+                "classification_version_id": str(classification_state["version_id"]),
+                "classification_invalidation_hash": str(classification_state["invalidation_token"]),
+                "short_term_alert_score": float(row.get("momentum_20d") or 0.0),
+                "medium_term_signal_score": float(
+                    0.50 * float(row.get("momentum_60d") or 0.0)
+                    + 0.50 * float(row.get("momentum_120d") or 0.0)
+                ),
+                "rebalance_signal": float(row.get("score_rebalance") or 0.0),
+                "risk_signal": float(row.get("score_risk") or 0.0),
+                "toto_score": float(row.get("score_toto") or 0.0),
+                "timesfm_score": float(row.get("score_timesfm") or 0.0),
+                "baseline_score": float(row.get("score_baseline_ml") or 0.0),
+                "momentum_60d": float(row.get("momentum_60d") or 0.0),
+                "momentum_120d": float(row.get("momentum_120d") or 0.0),
+                "trend_200": float(row.get("trend_200") or 0.0),
+                "vol_60d_ann": float(row.get("vol_60d_ann") or 0.0),
+                "drawdown_current": float(row.get("drawdown_current") or 0.0),
+                "current_weight": current_weight,
+                "target_weight": target_weight,
+                "drift_eur": drift_eur,
+                "drift_percent": drift_percent,
+                "expected_edge_bps": expected_edge_bps,
+                "gross_expected_return": _distribution_value(distribution, "q50_return"),
+                "q10_expected_return": _distribution_value(distribution, "q10_return"),
+                "q50_expected_return": _distribution_value(distribution, "q50_return"),
+                "q90_expected_return": _distribution_value(distribution, "q90_return"),
+                "expected_return_horizon_days": _distribution_value(distribution, "horizon_days"),
+                "expected_return_distribution_status": distribution_status or ("legacy_compatibility" if forecast_distributions is None else "unavailable"),
+                "expected_return_distribution_reason": distribution_reason or ("Legacy diagnostic path without a loaded return distribution." if forecast_distributions is None else "No valid forecast return distribution is available."),
+                "return_uncertainty_decomposition": uncertainty,
+                "forecast_calibration": calibration,
+                "scenario_status": scenario_record.get("status"),
+                "scenario_seed": scenario_record.get("scenario_seed"),
+                "scenario_inputs": scenario_record.get("scenario_inputs"),
+                "estimated_cost_bps": estimated_cost,
+                "cost_model_id": cost_estimate.model_id,
+                "cost_data_quality": cost_estimate.data_quality,
+                "capacity_eur": cost_estimate.capacity_eur,
+                "edge_to_cost_ratio": edge_to_cost_ratio,
+                **cost_stress,
+                "min_edge_to_cost_ratio": config.risks.portfolio_limits.min_edge_to_cost_ratio,
+                "trade_value_eur": trade_value,
+                "min_trade_value_eur": config.risks.portfolio_limits.min_trade_value_eur,
+                "blocked_by": "|".join(blocked_by),
+                "final_action": final_action,
+                "reason_full": reason_long,
+                "cost_bps": estimated_cost,
+            },
+            suggested_trade_value_eur=round(trade_value, 2) if trade_value is not None else None,
+            suggested_new_weight=round(projected_weight, 4) if projected_weight is not None else None,
+            status=status,
+            model_versions_used={
+                "baseline": "momentum_shrunk_v1",
+                "timesfm": "unavailable" if not timesfm_available else "timesfm_2_5_optional",
+                "toto": "unavailable" if not toto_available else "toto_2_0_optional",
+            },
+            timestamp=_signal_timestamp(decision_timestamp),
+            canonical_score=canonical_score,
+        )
+        signals.append(_attach_authority(signal, data_report))
+
+    if publish:
+        append_jsonl(
+            "signal_log.jsonl",
+            "signals_generated",
+            {"signals": [_signal_to_json(signal) for signal in signals]},
+            run_id=run_id,
+        )
+    return signals
+
+
+def _signal_timestamp(decision_timestamp: datetime | pd.Timestamp | None) -> datetime:
+    if decision_timestamp is None:
+        return datetime.now(timezone.utc)
+    timestamp = pd.Timestamp(decision_timestamp)
+    if pd.isna(timestamp):
+        raise ValueError("decision_timestamp must be a valid timestamp")
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        timestamp = timestamp.tz_localize(timezone.utc)
+    else:
+        timestamp = timestamp.tz_convert(timezone.utc)
+    return timestamp.to_pydatetime()
+
+
+def _signal_to_json(signal: SignalResult) -> dict[str, object]:
+    # Operational signal traces use the v2 authority seam.  The legacy
+    # ``action``/``final_action`` values remain available on the in-memory
+    # object for compatibility callers but are not published here.
+    data = signal.to_v2_dict()
+    data.update(
+        {
+            "run_id": signal.run_id,
+            "signal_date": signal.signal_date.isoformat(),
+            "etf_id": signal.etf_id,
+            "confidence": signal.confidence,
+            "total_score": signal.total_score,
+            "blocked_by": signal.blocked_by,
+            "warnings": signal.warnings,
+            "reason_short": signal.reason_short,
+            "reason_long": signal.reason_long,
+            "timestamp": signal.timestamp.isoformat() if signal.timestamp else None,
+        }
+    )
+    return data
+
+
+def _attach_authority(signal: SignalResult, data_report: DataQualityReport) -> SignalResult:
+    """Resolve and attach the typed gate decision before release serialisation.
+
+    Signal generation does not have a portfolio-review snapshot, so that
+    dimension remains explicitly not applicable. Missing evidence is recorded
+    as a failed gate rather than being treated as a pass.
+    """
+
+    etf_issues = [issue for issue in data_report.issues if issue.etf_id in {signal.etf_id, "ALL"}]
+    blocked_codes = set(signal.blocked_by)
+    warning_codes = set(signal.warnings)
+    has_dataset_evidence = any(
+        bool(metadata.checksum and metadata.provider_or_manual_source)
+        for metadata in data_report.dataset_metadata
+    )
+    risk_blocks = {
+        "portfolio_validation_block",
+        "expected_drawdown_gate",
+        "cash_minimum_breached",
+        "model_disagreement",
+        "edge_below_cost_threshold",
+        "edge_inputs_unavailable",
+    }
+    cost_failure_codes = blocked_codes & {"edge_below_cost_threshold", "edge_inputs_unavailable"}
+    cost_messages = {
+        "edge_below_cost_threshold": "Edge is below configured cost threshold",
+        "edge_inputs_unavailable": "Edge/cost inputs are unavailable",
+    }
+    cost_message = (
+        "Edge clears configured cost threshold"
+        if not cost_failure_codes
+        else "; ".join(f"{cost_messages[code]} ({code})" for code in sorted(cost_failure_codes))
+    )
+    gates = [
+        GateResult(
+            gate_id="identity",
+            passed=bool(signal.etf_id.strip()),
+            message="ETF identity is present" if signal.etf_id.strip() else "ETF identity is missing",
+        ),
+        GateResult(
+            gate_id="data_quality",
+            passed=not any(issue.severity == "block" for issue in etf_issues),
+            message="No blocking data-quality issue" if not any(issue.severity == "block" for issue in etf_issues) else "Blocking data-quality issue",
+        ),
+        GateResult(
+            gate_id="evidence",
+            passed=has_dataset_evidence,
+            message="Dated provider evidence is available" if has_dataset_evidence else "Dated provider evidence is unavailable",
+        ),
+        GateResult(
+            gate_id="model_validity",
+            passed=isfinite(float(signal.total_score)) and signal.model_versions_used.get("baseline") not in {None, "unavailable"},
+            message="Baseline score and model version are present",
+        ),
+        GateResult(
+            gate_id="risk",
+            passed=not bool(blocked_codes & risk_blocks),
+            message="No blocking risk gate" if not blocked_codes & risk_blocks else "Risk gate blocked",
+        ),
+        GateResult(
+            gate_id="valuation",
+            passed=False,
+            message="Valuation context is unavailable to signal generation",
+        ),
+        GateResult(
+            gate_id="signal",
+            passed=not warning_codes,
+            message="No signal warnings" if not warning_codes else "Signal warnings remain visible",
+        ),
+        GateResult(
+            gate_id="portfolio_fit",
+            passed="portfolio_validation_block" not in blocked_codes,
+            message="Portfolio constraints are available" if "portfolio_validation_block" not in blocked_codes else "Portfolio validation blocked",
+        ),
+        GateResult(
+            gate_id="cost",
+            passed=not cost_failure_codes,
+            message=cost_message,
+        ),
+    ]
+    decision = resolve_authority(research_state_for_legacy_action(signal.action), gates, None)
+    return replace(signal, authority_decision=decision)
+
+
+def _cost_stress_metrics(
+    config: AppConfig,
+    *,
+    etf_id: str,
+    expected_edge_bps: float | None,
+    base_cost_bps: float | None,
+    trade_value_eur: float | None,
+) -> dict[str, object]:
+    if trade_value_eur is not None and abs(trade_value_eur) > 0:
+        low_cost = estimate_execution_cost(config, etf_id, abs(trade_value_eur), stress_multiplier=0.75).total_cost_bps
+        base_cost = estimate_execution_cost(config, etf_id, abs(trade_value_eur)).total_cost_bps
+        high_cost = estimate_execution_cost(config, etf_id, abs(trade_value_eur), stress_multiplier=1.75).total_cost_bps
+    elif base_cost_bps is None or not isfinite(base_cost_bps) or base_cost_bps < 0:
+        return {
+            "cost_low_bps": None,
+            "cost_base_bps": None,
+            "cost_high_bps": None,
+            "edge_to_cost_low": None,
+            "edge_to_cost_base": None,
+            "edge_to_cost_high": None,
+            "cost_stress_warning": "insufficient_edge_or_cost",
+            "cost_stress_assumptions": f"Configured transaction cost evidence is unavailable for {etf_id}.",
+        }
+    else:
+        low_cost = max(0.0, base_cost_bps * 0.75)
+        base_cost = max(0.0, base_cost_bps)
+        high_cost = max(0.0, base_cost_bps * 1.75)
+    min_ratio = config.risks.portfolio_limits.min_edge_to_cost_ratio
+    low_ratio = _edge_to_cost(expected_edge_bps, low_cost) if expected_edge_bps is not None else None
+    base_ratio = _edge_to_cost(expected_edge_bps, base_cost) if expected_edge_bps is not None else None
+    high_ratio = _edge_to_cost(expected_edge_bps, high_cost) if expected_edge_bps is not None else None
+    if high_ratio is not None and high_ratio >= min_ratio:
+        warning = "edge_survives_high_cost_stress"
+    elif base_ratio is not None and base_ratio >= min_ratio:
+        warning = "edge_fails_high_cost_stress"
+    elif base_ratio is not None:
+        warning = "edge_fails_base_cost"
+    else:
+        warning = "insufficient_edge_or_cost"
+    return {
+        "cost_low_bps": round(low_cost, 4),
+        "cost_base_bps": round(base_cost, 4),
+        "cost_high_bps": round(high_cost, 4),
+        "edge_to_cost_low": None if low_ratio is None else round(low_ratio, 4),
+        "edge_to_cost_base": None if base_ratio is None else round(base_ratio, 4),
+        "edge_to_cost_high": None if high_ratio is None else round(high_ratio, 4),
+        "cost_stress_warning": warning,
+        "cost_stress_assumptions": (
+            f"Low/base/high scenarios use 0.75x/1.00x/1.75x configured spread+slippage+FX for {etf_id}; "
+            "commission is converted to bps only when a trade value exists."
+        ),
+    }
+
+
+def _edge_to_cost(expected_edge_bps: float, cost_bps: float) -> float | None:
+    if cost_bps <= 0:
+        return None
+    return abs(expected_edge_bps) / cost_bps
+
+
+def _technical_expected_edge(scored: pd.DataFrame) -> pd.Series:
+    """Keep the deterministic action baseline separate from return estimates."""
+
+    return (
+        0.50 * scored["momentum_60d"]
+        + 0.25 * scored["momentum_120d"]
+        + 0.25 * scored["relative_strength_60d"]
+    ).clip(-0.30, 0.30)
+
+
+def _distribution_value(distribution: dict[str, object] | None, key: str) -> object | None:
+    if not isinstance(distribution, dict):
+        return None
+    value = distribution.get(key)
+    if isinstance(value, (int, float)):
+        return float(value) if isfinite(float(value)) else None
+    return value if isinstance(value, str) else None
+
+
+def _primary_horizon_distribution_value(distribution: dict[str, object] | None, key: str) -> object | None:
+    if _distribution_value(distribution, "horizon_days") != 60:
+        return None
+    return _distribution_value(distribution, key)
+
+
+def _structure_cap_for_row(caps: dict[str, float] | None, etf_id: str) -> float:
+    """Return a bounded, fail-closed evidence cap for a signal row."""
+
+    if not isinstance(caps, dict):
+        return 0.0
+    try:
+        value = float(caps.get(etf_id, 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+    return min(1.0, max(0.0, value)) if isfinite(value) else 0.0
