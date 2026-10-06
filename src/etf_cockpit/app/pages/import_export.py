@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import tempfile
+from tempfile import TemporaryDirectory
 import threading
 
 import flet as ft
@@ -190,35 +192,51 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             show("Local import cancelled; no data changed.")
             return
         selected = files[0]
-        source = Path(selected.path or selected.name)
-        path_field.value = str(source)
-        if import_type.value == "portfolio_history":
-            selected_preview = portfolio_imports.preview(source, source_format="broker_csv", numeric_locale=portfolio_locale.value or "en_US", source_system=portfolio_source_system.value or None, provider_id=portfolio_provider.value or None)
-            if not selected_preview.frame.empty:
-                staged = selected_preview.frame
-                accounts = tuple(sorted(str(value) for value in staged["account_id"].dropna().unique()))
-                if len(accounts) == 1:
-                    source_account_id.value = accounts[0]
-                counts = staged["staging_status"].value_counts().to_dict()
-                exceptions = staged.loc[
-                    staged["staging_status"].isin(["quarantined", "correction"]),
-                    [
-                        "source_id",
-                        "raw_instrument_id",
-                        "instrument_id",
-                        "identity_candidates",
-                        "identity_review_decisions",
-                        "staging_status",
-                        "quarantine_reason",
-                    ],
-                ].head(8)
-                staging_report.value = f"Staging counts={counts}; reconciliation exceptions={exceptions.to_dict(orient='records') or 'none'}. Identity ambiguities remain quarantined."
-                staging_report.color = theme.AMBER if counts.get("quarantined", 0) else theme.GREEN
-        else:
-            selected_preview = validate_import(import_type.value or "broker", source)
+        display_source = str(selected.path or selected.name)
+        path_field.value = display_source
+        source = Path(selected.path) if selected.path else None
+        upload_directory = None
+        if source is None:
+            content = getattr(selected, "bytes", None)
+            if not isinstance(content, (bytes, bytearray)):
+                selected_preview = None
+                commit_button.disabled = True
+                show("Import rejected: the selected browser file did not include readable bytes.", colour=theme.RED)
+                return
+            upload_directory = TemporaryDirectory(prefix="etf-import-", dir=tempfile.gettempdir())
+            source = Path(upload_directory.name) / Path(selected.name).name
+            source.write_bytes(content)
+        try:
+            if import_type.value == "portfolio_history":
+                selected_preview = portfolio_imports.preview(source, source_format="broker_csv", numeric_locale=portfolio_locale.value or "en_US", source_system=portfolio_source_system.value or None, provider_id=portfolio_provider.value or None)
+                if not selected_preview.frame.empty:
+                    staged = selected_preview.frame
+                    accounts = tuple(sorted(str(value) for value in staged["account_id"].dropna().unique()))
+                    if len(accounts) == 1:
+                        source_account_id.value = accounts[0]
+                    counts = staged["staging_status"].value_counts().to_dict()
+                    exceptions = staged.loc[
+                        staged["staging_status"].isin(["quarantined", "correction"]),
+                        [
+                            "source_id",
+                            "raw_instrument_id",
+                            "instrument_id",
+                            "identity_candidates",
+                            "identity_review_decisions",
+                            "staging_status",
+                            "quarantine_reason",
+                        ],
+                    ].head(8)
+                    staging_report.value = f"Staging counts={counts}; reconciliation exceptions={exceptions.to_dict(orient='records') or 'none'}. Identity ambiguities remain quarantined."
+                    staging_report.color = theme.AMBER if counts.get("quarantined", 0) else theme.GREEN
+            else:
+                selected_preview = validate_import(import_type.value or "broker", source)
+        finally:
+            if upload_directory is not None:
+                upload_directory.cleanup()
         commit_button.disabled = not selected_preview.valid
         colour = theme.GREEN if selected_preview.valid else theme.RED
-        show(f"Preview {'valid' if selected_preview.valid else 'rejected'}: {selected_preview.rows} rows; source {source}; errors={'; '.join(selected_preview.errors) or 'none'}.", colour=colour)
+        show(f"Preview {'valid' if selected_preview.valid else 'rejected'}: {selected_preview.rows} rows; source {display_source}; errors={'; '.join(selected_preview.errors) or 'none'}.", colour=colour)
 
     def commit(_event: ft.ControlEvent) -> None:
         if selected_preview is None or not selected_preview.valid:
@@ -420,9 +438,23 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             bulk_status.color = theme.MUTED
             page.update()
             return
-        source = Path(files[0].path or files[0].name)
+        selected = files[0]
+        source = Path(selected.path) if selected.path else None
+        upload_directory = None
+        if source is None:
+            content = getattr(selected, "bytes", None)
+            if not isinstance(content, (bytes, bytearray)):
+                bulk_status.value = "Bulk cache rejected: the selected browser file did not include readable bytes."
+                bulk_status.color = theme.RED
+                page.update()
+                return
+            upload_directory = TemporaryDirectory(prefix="etf-bulk-import-", dir=tempfile.gettempdir())
+            source = Path(upload_directory.name) / Path(selected.name).name
+            source.write_bytes(content)
         label = "Rebuild local source cache"
         if state.current_activity is not None:
+            if upload_directory is not None:
+                upload_directory.cleanup()
             bulk_status.value = f"Cache rebuild blocked: {state.current_activity.label} is already running."
             bulk_status.color = theme.RED
             page.update()
@@ -453,6 +485,8 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             bulk_status.value = state.last_message
             bulk_status.color = theme.RED
         finally:
+            if upload_directory is not None:
+                upload_directory.cleanup()
             cancelled_message = state.restore_cancelled_activity_message(action_id)
             if cancelled_message is not None:
                 bulk_status.value = cancelled_message

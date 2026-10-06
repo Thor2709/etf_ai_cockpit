@@ -31,6 +31,7 @@ from etf_cockpit.application.contracts import (
     PaperProposalRejectRequest,
     ProposalReviewRequest,
     SubmitWorkflowCommand,
+    PageRequest,
 )
 
 
@@ -42,8 +43,13 @@ def _safe_update(page: ft.Page | None) -> None:
 def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
     api = state.application_api
     paper = api.get_paper()
-    portfolios = api.get_portfolios()
-    total_value = sum(item.market_value or 0.0 for item in portfolios.items)
+    portfolio_page = api.get_portfolios(PageRequest())
+    total_value = sum(item.market_value or 0.0 for item in portfolio_page.items)
+    next_offset = getattr(portfolio_page, "next_offset", None)
+    while next_offset is not None:
+        portfolio_page = api.get_portfolios(PageRequest(offset=next_offset, limit=portfolio_page.limit))
+        total_value += sum(item.market_value or 0.0 for item in portfolio_page.items)
+        next_offset = getattr(portfolio_page, "next_offset", None)
     paper_status = paper.items[0].status if paper.items else "unavailable"
     message = ft.Text("No operation has been submitted.", color=theme.MUTED, selectable=True)
     operation_state = ft.Text("State: idle", color=theme.TEXT, weight=ft.FontWeight.BOLD, selectable=True)
@@ -160,6 +166,9 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
             audit={**record.audit, "workflow_id": workflow_id or record.audit.get("workflow_id")},
         )
         save_operation_record(updated)
+        if active_record is None or active_record.operation_id != record.operation_id:
+            refresh_records()
+            return
         set_record(updated)
         busy = False
         preview_button.disabled = False
@@ -170,13 +179,23 @@ def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
 
     def run_workflow(record: OperationRecord, workflow_id: str) -> None:
         try:
-            result = api.run_next_job(lambda _context: {"operation_id": record.operation_id, "execution_allowed": False})
+            def runner(_context: object) -> dict[str, object]:
+                return {"operation_id": record.operation_id, "execution_allowed": False}
+
+            runner.workflow_id = workflow_id
+            result = api.run_next_job(runner)
             if result is None:
                 finish(record, "failed", "The paper preview workflow did not claim a job.", workflow_id=workflow_id)
-            elif any(item.workflow_id == workflow_id and item.status == "cancelled" for item in api.get_jobs().items):
-                finish(record, "cancelled", "Cancellation recorded; no order was transmitted.", workflow_id=workflow_id)
+            elif getattr(result, "workflow_id", None) != workflow_id:
+                finish(record, "failed", "The paper preview worker claimed an unexpected workflow.", workflow_id=workflow_id)
             else:
-                finish(record, "completed", "Paper proposal preview completed; no order was transmitted.", workflow_id=workflow_id)
+                status = str(getattr(result, "status", ""))
+                if status == "succeeded":
+                    finish(record, "completed", "Paper proposal preview completed; no order was transmitted.", workflow_id=workflow_id)
+                elif status == "cancelled":
+                    finish(record, "cancelled", "Cancellation recorded; no order was transmitted.", workflow_id=workflow_id)
+                else:
+                    finish(record, status if status in {"failed", "queued", "running", "blocked"} else "failed", f"Paper preview workflow ended with status {status or 'unknown'}; no order was transmitted.", workflow_id=workflow_id)
         except Exception as exc:
             finish(record, "failed", f"Paper preview failed safely: {type(exc).__name__}: {exc}", workflow_id=workflow_id)
 

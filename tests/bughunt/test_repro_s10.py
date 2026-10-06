@@ -27,11 +27,6 @@ def _walk_controls(control):
         yield from _walk_controls(child)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S10-02: Invalid cash constraints produce feasible leveraged fallbacks",
-)
 def test_s10_02_invalid_cash_never_becomes_feasible():
     returns = pd.DataFrame({"A": [0.01, -0.01] * 10, "B": [0.02, -0.02] * 10})
     comparison = PortfolioOptimiser(returns).compare(

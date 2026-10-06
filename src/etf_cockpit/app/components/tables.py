@@ -47,6 +47,8 @@ def accessible_table(
         for column in columns
         if sortable and not data[column].map(_is_structured_cell).any()
     )
+    active_query = ""
+    active_sort: tuple[str, bool] | None = None
 
     def _cell_text(value: object) -> str:
         if _is_structured_cell(value):
@@ -61,19 +63,29 @@ def accessible_table(
         ]
 
     def search_callback(query: str) -> pd.DataFrame:
-        text = str(query or "").strip().casefold()
-        if not text:
-            return data.copy()
-        # Search text is user input, not a regular expression.  Treating it
-        # literally keeps punctuation such as ``[`` and ``(`` safe and
-        # predictable while still matching case-insensitively.
-        mask = data.astype("string").apply(lambda column: column.str.casefold().str.contains(text, na=False, regex=False)).any(axis=1)
-        return data.loc[mask].copy()
+        nonlocal active_query
+        active_query = str(query or "").strip().casefold()
+        return _current_view()
+
+    def _current_view() -> pd.DataFrame:
+        view = data
+        if active_query:
+            # Search text is user input, not a regular expression.  Treating it
+            # literally keeps punctuation such as ``[`` and ``(`` safe and
+            # predictable while still matching case-insensitively.
+            mask = data.astype("string").apply(lambda column: column.str.casefold().str.contains(active_query, na=False, regex=False)).any(axis=1)
+            view = data.loc[mask]
+        if active_sort is not None and active_sort[0] in sortable_columns:
+            column, ascending = active_sort
+            view = view.sort_values(column, ascending=ascending, kind="stable", na_position="last")
+        return view.reset_index(drop=True).copy()
 
     def sort_callback(column: str, ascending: bool = True) -> pd.DataFrame:
+        nonlocal active_sort
         if column not in sortable_columns:
             return data.copy()
-        return data.sort_values(column, ascending=bool(ascending), kind="stable", na_position="last").reset_index(drop=True)
+        active_sort = (column, bool(ascending))
+        return _current_view()
 
     status_control = ft.Text(f"{len(data)} rows; status is shown as text", selectable=True)
 
