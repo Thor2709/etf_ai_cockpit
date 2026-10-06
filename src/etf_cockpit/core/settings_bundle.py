@@ -11,7 +11,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
-from typing import Mapping
+from typing import Callable, Mapping
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -542,6 +542,63 @@ def _validate_json(path: Path) -> None:
     if not isinstance(value, dict):
         raise ValueError("settings snapshot must contain an object")
     SettingsBundle.from_mapping(value)
+
+
+def _universe_settings_update(
+    root: Path,
+    universe_payload: bytes,
+) -> tuple[tuple[AtomicWriteRequest, ...], Callable[[], None]]:
+    """Prepare the settings revision bound to a pending canonical universe."""
+
+    root = Path(root).resolve()
+    current = load_settings_bundle(root)
+    universe_path = root / "configs" / "universe_store.json"
+    text = universe_payload.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    raw = json.loads(text)
+    records = raw.get("records") if isinstance(raw, dict) else None
+    ids = sorted(
+        str(row.get("instrument_id") or row.get("id"))
+        for row in (records if isinstance(records, list) else [])
+        if isinstance(row, dict)
+        if row.get("instrument_id") or row.get("id")
+    )
+    summary = {
+        "source": universe_path.relative_to(root).as_posix(),
+        "revision": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "instrument_ids": ids,
+        "count": len(ids),
+    }
+    proposed = current.model_copy(
+        update={"universe": summary, "settings_version": current.settings_version + 1, "revision": ""}
+    )
+    proposed = proposed.model_copy(update={"revision": _revision_for(proposed)})
+    _validate_bundle(proposed)
+    snapshot = root / "data" / "derived" / "settings_versions" / f"{proposed.settings_version}-{proposed.revision[:16]}.json"
+    settings_document = {
+        "schema_version": proposed.schema_version,
+        "semantic_version": proposed.semantic_version,
+        "settings_version": proposed.settings_version,
+        "revision": proposed.revision,
+        "controls": proposed.controls.model_dump(mode="json"),
+        "execution_allowed": False,
+    }
+    requests = (
+        AtomicWriteRequest(
+            root / "configs" / "settings.yaml",
+            _yaml_bytes(settings_document),
+            _validate_settings_yaml,
+        ),
+        AtomicWriteRequest(snapshot, _canonical_bytes(proposed.model_dump(mode="json")), _validate_json),
+    )
+
+    def precondition() -> None:
+        actual = load_settings_bundle(root)
+        if actual.revision != current.revision:
+            raise SettingsError("SETTINGS_REVISION_CONFLICT", "settings changed before the universe commit")
+        if snapshot.exists():
+            raise SettingsError("SETTINGS_PERSISTENCE_FAILED", f"immutable settings snapshot already exists: {snapshot}")
+
+    return requests, precondition
 
 
 def save_settings(

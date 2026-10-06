@@ -185,11 +185,6 @@ def test_s9_06_timing_append_failure_preserves_history(tmp_path, monkeypatch):
     assert path.read_bytes() == before
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S9-07: Instrument queries silently truncate universes at 500 entries",
-)
 def test_s9_07_instruments_page_after_first_500():
     items = tuple(SimpleNamespace(id=f"I{i:04}", name=str(i), ticker=str(i)) for i in range(501))
     snapshot = SimpleNamespace(config=SimpleNamespace(universe=SimpleNamespace(etfs=items)))

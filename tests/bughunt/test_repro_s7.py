@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from etf_cockpit.core.settings_bundle import SettingsError
 
 
 def test_s7_01_private_root_link_cannot_delete_external_files(tmp_path, monkeypatch):
@@ -77,7 +76,6 @@ def test_s7_03_unreadable_history_is_not_replaced(tmp_path, monkeypatch):
     assert writes == []
 
 
-@pytest.mark.xfail(strict=True, raises=SettingsError, reason="S7-04: Universe saves invalidate otherwise valid saved settings")
 def test_s7_04_universe_save_preserves_loadable_settings(tmp_path):
     from dataclasses import replace
 
