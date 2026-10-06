@@ -52,7 +52,6 @@ def test_s6_01_missing_prices_preserves_holdings(monkeypatch):
     assert "current_holdings.csv" not in writes
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S6-02: FX consistency accepts contradictory four-currency cycles")
 def test_s6_02_inconsistent_four_currency_cycle_is_rejected():
     rates = pd.DataFrame({
         "as_of_date": ["2026-10-05"] * 4,
@@ -64,7 +63,6 @@ def test_s6_02_inconsistent_four_currency_cycle_is_rejected():
     assert not build_fx_rate_snapshot(rates, decision_time="2026-10-05T12:00:00Z").available
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S6-03: YFinance assigns portfolio currency to native quotes")
 def test_s6_03_yahoo_preserves_quote_currency(monkeypatch):
     frame = pd.DataFrame(
         {"Open": [100.0], "High": [101.0], "Low": [99.0], "Close": [100.0], "Adj Close": [100.0], "Volume": [10.0]},
@@ -151,7 +149,6 @@ def test_s6_06_rejected_news_cannot_flag_cutoff_contradiction():
     assert result["status"] != "flagged"
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S6-07: Foreign-currency candidate amounts are labelled EUR")
 def test_s6_07_foreign_candidate_requires_fx_for_eur_amounts():
     candidates = pd.DataFrame([{"instrument_id": "US", "currency": "USD", "shares": 10, "yahoo_symbol": "AAPL"}])
     prices = pd.DataFrame({

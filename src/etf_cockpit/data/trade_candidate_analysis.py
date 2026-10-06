@@ -239,7 +239,15 @@ def _analyse_one_candidate(instrument_id: str, meta: dict[str, object], group: p
     returns = _log_returns(adjusted)
     latest_price = _safe_float(close.iloc[-1]) if not close.empty else None
     shares = _safe_float(meta.get("shares")) or 0.0
+    currency_values = (
+        group["currency"].dropna().astype(str).str.strip()
+        if "currency" in group.columns
+        else pd.Series(dtype=str)
+    )
+    currencies = {value for value in currency_values if value}
+    currency = next(iter(currencies)) if len(currencies) == 1 else ""
     trade_value = latest_price * shares if latest_price is not None else None
+    trade_value_eur = trade_value if currency.upper() == "EUR" else None
     ret_1w = _horizon_return(adjusted, 5)
     ret_1m = _horizon_return(adjusted, 21)
     ret_3m = _horizon_return(adjusted, 63)
@@ -258,6 +266,7 @@ def _analyse_one_candidate(instrument_id: str, meta: dict[str, object], group: p
     distance_52w = _safe_float(adjusted.iloc[-1] / high_52w - 1.0) if high_52w and high_52w > 0 else None
     median_volume = _safe_float(volume.tail(60).median()) if len(volume) else None
     median_turnover = median_volume * latest_price if median_volume is not None and latest_price is not None else None
+    median_turnover_eur = median_turnover if currency.upper() == "EUR" else None
     score, flags = _technical_score(
         rows=rows,
         latest_price=latest_price,
@@ -282,12 +291,13 @@ def _analyse_one_candidate(instrument_id: str, meta: dict[str, object], group: p
         "instrument_type": str(meta.get("instrument_type", "")),
         "asset_type": asset_type,
         "shares": shares,
-        "currency": str(meta.get("currency", "EUR")),
+        "currency": currency,
         "latest_date": str(pd.to_datetime(group["date"]).max().date()) if rows else "unknown",
         "source_dataset": "yfinance_adjusted_close",
         "provenance": "local candidate adjusted-close history",
         "latest_price": latest_price,
-        "trade_value_eur": _safe_float(trade_value),
+        "trade_value_native": _safe_float(trade_value),
+        "trade_value_eur": _safe_float(trade_value_eur),
         "rows": rows,
         "return_1w": ret_1w,
         "return_1m": ret_1m,
@@ -302,7 +312,8 @@ def _analyse_one_candidate(instrument_id: str, meta: dict[str, object], group: p
         "sma50_signal": sma50_signal,
         "sma200_signal": sma200_signal,
         "median_volume_60d": median_volume,
-        "median_turnover_60d_eur": _safe_float(median_turnover),
+        "median_turnover_60d_native": _safe_float(median_turnover),
+        "median_turnover_60d_eur": _safe_float(median_turnover_eur),
         "high_low_spread_proxy_20": _high_low_spread_proxy(group.tail(20)),
         "market_cap": _safe_float(meta.get("market_cap")),
         "quote_type": str(meta.get("quote_type", "")),
@@ -391,11 +402,12 @@ def _missing_candidate_row(instrument_id: str, meta: dict[str, object], reason: 
         "instrument_type": str(meta.get("instrument_type", "")),
         "asset_type": _candidate_asset_type(meta),
         "shares": _safe_float(meta.get("shares")) or 0.0,
-        "currency": str(meta.get("currency", "EUR")),
+        "currency": str(meta["currency"]).strip() if pd.notna(meta.get("currency")) else "",
         "latest_date": "unknown",
         "source_dataset": "yfinance_adjusted_close",
         "provenance": "local candidate adjusted-close history",
         "latest_price": None,
+        "trade_value_native": None,
         "trade_value_eur": None,
         "rows": 0,
         "return_1w": None,
@@ -411,6 +423,7 @@ def _missing_candidate_row(instrument_id: str, meta: dict[str, object], reason: 
         "sma50_signal": None,
         "sma200_signal": None,
         "median_volume_60d": None,
+        "median_turnover_60d_native": None,
         "median_turnover_60d_eur": None,
         "high_low_spread_proxy_20": None,
         "market_cap": _safe_float(meta.get("market_cap")),
@@ -477,13 +490,13 @@ def _render_candidate_markdown(report: pd.DataFrame, source_message: str) -> str
         "",
         "This is deterministic price-only evidence. It is not broker execution advice and cannot override risk gates.",
         "",
-        "| Instrument | Yahoo | Latest | Value EUR | Score | Status | Flags |",
-        "| --- | --- | ---: | ---: | ---: | --- | --- |",
+        "| Instrument | Yahoo | Currency | Latest | Value EUR (FX required for foreign currencies) | Score | Status | Flags |",
+        "| --- | --- | --- | ---: | ---: | ---: | --- | --- |",
     ]
     for _, row in report.iterrows():
         lines.append(
             (
-                f"| {row['instrument_id']} | {row['yahoo_symbol']} | "
+                f"| {row['instrument_id']} | {row['yahoo_symbol']} | {row['currency'] or 'unknown'} | "
                 f"{_fmt_number(row['latest_price'])} | {_fmt_number(row['trade_value_eur'])} | "
                 f"{row['technical_score']} | {row['advisory_status']} | {row['blocked_by'] or '-'} |"
             )

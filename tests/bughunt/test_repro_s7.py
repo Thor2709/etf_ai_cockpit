@@ -92,7 +92,6 @@ def test_s7_04_universe_save_preserves_loadable_settings(tmp_path):
     assert load_settings_bundle(tmp_path).universe["count"] == 1
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S7-05: Nonfinite financial inputs pass data-quality validation")
 def test_s7_05_missing_close_blocks_prices():
     from datetime import date
 
