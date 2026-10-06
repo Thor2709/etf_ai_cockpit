@@ -115,7 +115,6 @@ def test_s7_05_missing_close_blocks_prices():
     assert not report.analysis_allowed
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="S7-08: Unavailable authority decisions become complete analysis")
 def test_s7_08_unavailable_decision_stays_unavailable():
     from dataclasses import replace
     from datetime import date
