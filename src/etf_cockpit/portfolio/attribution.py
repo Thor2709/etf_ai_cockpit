@@ -120,7 +120,7 @@ def build_performance_attribution(
     net_return = (
         None
         if total_return is None or cost_evidence_status == "invalid" or cost_total is None or tax_total is None
-        else float(total_return - cost_total - tax_total)
+        else float(total_return - cost_total)
     )
 
     return {
@@ -472,6 +472,7 @@ def _costs_in_declared_window(
     effective_fields = ("effective_at", "date", "as_of", "as_of_date", "trade_date", "transaction_date")
     knowledge_fields = ("known_at", "available_at", "retrieved_at", "imported_at", "published_at")
     selected: list[object] = []
+    excluded = False
     for index, row in costs.iterrows():
         effective, effective_valid = _cost_chronology(row, effective_fields, aliases_must_match=True)
         known_at, knowledge_valid = _cost_chronology(
@@ -482,13 +483,13 @@ def _costs_in_declared_window(
         if effective is None or not effective_valid or not knowledge_valid:
             return None, "invalid"
         if effective < start or effective > end or effective > decision:
+            excluded = True
             continue
         if known_at is not None and known_at > decision:
+            excluded = True
             continue
         selected.append(index)
-    if not selected:
-        return costs.iloc[0:0].copy(), "excluded_outside_window"
-    return costs.loc[selected].copy(), "available"
+    return costs.loc[selected].copy(), "excluded_outside_window" if excluded else "available"
 
 
 def _cashflows_in_declared_window(
