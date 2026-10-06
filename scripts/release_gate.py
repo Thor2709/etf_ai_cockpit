@@ -25,6 +25,7 @@ import tarfile
 import tempfile
 import time
 import tomllib
+import uuid
 import zipfile
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
@@ -1014,7 +1015,9 @@ def build_sbom(
         "$schema": "https://cyclonedx.org/schema/bom-1.5.schema.json",
         "bomFormat": "CycloneDX",
         "specVersion": "1.5",
-        "serialNumber": f"urn:uuid:{str(source_manifest['manifest_sha256'])[:32]}",
+        "serialNumber": uuid.uuid5(
+            uuid.NAMESPACE_URL, str(source_manifest["manifest_sha256"])
+        ).urn,
         "version": 1,
         "metadata": {"component": {"type": "application", "name": "etf-ai-cockpit", "version": _project_version(root)}},
         "components": sorted(components, key=lambda item: str(item["bom-ref"])),

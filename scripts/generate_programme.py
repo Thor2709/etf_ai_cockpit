@@ -92,7 +92,10 @@ def _sha256(path: Path) -> str:
 
 
 def build_manifest(root: Path, outputs: frozenset[str]) -> bytes:
-    missing = sorted(path for path in outputs if not (root / path).is_file())
+    manifest_outputs = frozenset(
+        path for path in outputs if not path.endswith("/github-sync-plan.json")
+    )
+    missing = sorted(path for path in manifest_outputs if not (root / path).is_file())
     if missing:
         raise ValueError("mandatory programme outputs are absent: " + ", ".join(missing))
     payload = {
@@ -100,7 +103,7 @@ def build_manifest(root: Path, outputs: frozenset[str]) -> bytes:
         "execution_allowed": False,
         "outputs": [
             {"path": path, "sha256": _sha256(root / path)}
-            for path in sorted(outputs)
+            for path in sorted(manifest_outputs)
         ],
     }
     return (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
@@ -233,13 +236,19 @@ def run_convergence(
         cwd=stage,
         check=True,
     )
+    outputs = stage_generation(
+        root,
+        stage,
+        validate_convergence=False,
+        preserve_staged=True,
+    )
     convergence_outputs = outputs | {plan.relative_to(stage).as_posix()}
     _validate_and_emit_convergence_evidence(stage, convergence_outputs)
     _accept_reviewed_or_fresh_noop_sidecar(
         reviewed_sidecar,
         evidence.with_suffix(".json.sha256"),
     )
-    (stage / MANIFEST_PATH).write_bytes(build_manifest(stage, convergence_outputs))
+    (stage / MANIFEST_PATH).write_bytes(build_manifest(stage, outputs))
     return convergence_outputs
 
 
@@ -306,9 +315,11 @@ def stage_generation(
     *,
     control_candidate: Path | None = None,
     validate_convergence: bool = True,
+    preserve_staged: bool = False,
 ) -> frozenset[str]:
-    _copy_tracked_tree(root, stage)
-    if control_candidate is not None:
+    if not preserve_staged:
+        _copy_tracked_tree(root, stage)
+    if control_candidate is not None and not preserve_staged:
         candidate = json.loads(control_candidate.read_text(encoding="utf-8"))
         if '"execution_allowed": true' in json.dumps(candidate).lower():
             raise ValueError("reviewed control candidate must preserve execution_allowed=false")
