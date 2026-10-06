@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from contextlib import contextmanager
 import csv
+from decimal import Decimal, InvalidOperation
 import hashlib
 from io import StringIO
 import json
@@ -406,7 +407,11 @@ def _validate_csv(path: Path) -> None:
         for row in reader:
             for cell in row:
                 stripped = cell.lstrip()
-                if stripped.startswith(_FORMULA_PREFIXES):
+                try:
+                    is_numeric = Decimal(stripped).is_finite()
+                except InvalidOperation:
+                    is_numeric = False
+                if stripped.startswith(_FORMULA_PREFIXES) and not is_numeric:
                     raise ValueError("unsafe spreadsheet formula cell in screen export")
 
 

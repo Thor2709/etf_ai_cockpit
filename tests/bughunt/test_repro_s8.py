@@ -117,7 +117,6 @@ def test_s8_06_prices_import_updates_analysis_store(tmp_path):
     assert pd.read_parquet(analysis_path)["adjusted_close"].iloc[0] == 200
 
 
-@pytest.mark.xfail(strict=True, raises=KeyError, reason="S8-07: Absolute XLSX worksheet targets resolve to duplicated paths")
 def test_s8_07_absolute_xlsx_sheet_target():
     buffer = BytesIO()
     with ZipFile(buffer, "w") as archive:
@@ -138,7 +137,6 @@ def test_s8_07_absolute_xlsx_sheet_target():
     assert _rows_from_xlsx_bytes(buffer.getvalue()) == ({"ticker": "ABC"},)
 
 
-@pytest.mark.xfail(strict=True, raises=ValueError, reason="S8-08: Negative numeric values block screener CSV export")
 def test_s8_08_negative_numeric_screen_exports(tmp_path):
     rows = [{"instrument_id": "A", "drawdown": -0.05}]
     query = ScreenQuery(input_checksum=records_checksum(rows))

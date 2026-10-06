@@ -9,17 +9,13 @@ from types import SimpleNamespace
 import pytest
 
 
+
 def _release_dir(tmp_path):
     release = tmp_path / "artifacts" / "release" / "issue-0152"
     release.mkdir(parents=True)
     return release
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S13-01: Manifest commit check skipped when git is unavailable; signature never verified",
-)
 def test_s13_01_unavailable_git_not_passed(tmp_path):
     from etf_cockpit.governance.release_certification import _signed_manifest_status
 
@@ -30,11 +26,6 @@ def test_s13_01_unavailable_git_not_passed(tmp_path):
     assert status == "blocked"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S13-02: Non-object manifest/signature JSON raises AttributeError",
-)
 def test_s13_02_list_signature_is_blocked(tmp_path):
     from etf_cockpit.governance.release_certification import _signed_manifest_status
 
@@ -48,11 +39,6 @@ def test_s13_02_list_signature_is_blocked(tmp_path):
     assert status == "blocked"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S13-03: Non-dict audit_manifest.json crashes validator",
-)
 def test_s13_03_list_audit_manifest_is_invalid(tmp_path):
     from etf_cockpit.chatgpt_bridge.audit_packet import validate_audit_archive
 
@@ -66,11 +52,6 @@ def test_s13_03_list_audit_manifest_is_invalid(tmp_path):
     assert report.valid is False
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S13-04: Non-object JSON and schema errors escape as raw exceptions",
-)
 def test_s13_04_list_payload_raises_audit_import_error():
     from etf_cockpit.chatgpt_bridge.validation import validate_audit_text
     from etf_cockpit.core.exceptions import AuditImportError
@@ -84,11 +65,6 @@ def test_s13_04_list_payload_raises_audit_import_error():
     raise AssertionError("no AuditImportError raised for non-object audit JSON")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=FileNotFoundError,
-    reason="S13-05: Unvalidated review_date used in filename; same-day imports overwrite",
-)
 def test_s13_05_slash_review_date_rejected(tmp_path, monkeypatch):
     import etf_cockpit.chatgpt_bridge.import_audit as import_audit
     from etf_cockpit.core.exceptions import AuditImportError
@@ -114,11 +90,6 @@ def test_s13_05_slash_review_date_rejected(tmp_path, monkeypatch):
         import_audit.import_audit_json(source, config)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=TypeError,
-    reason="S13-06: Non-ASCII presented token raises TypeError instead of denying",
-)
 def test_s13_06_non_ascii_token_denied():
     from etf_cockpit.security.policy import verify_local_api_request
 
@@ -126,11 +97,6 @@ def test_s13_06_non_ascii_token_denied():
     assert decision.ok is False
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=TypeError,
-    reason="S13-07: Null plugin allowlist raises uncaught TypeError in release gate",
-)
 def test_s13_07_null_allowlist_reports_failure(tmp_path):
     from etf_cockpit.security.policy import POLICY_PATH, build_security_report
 

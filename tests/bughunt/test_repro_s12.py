@@ -11,11 +11,6 @@ from scripts import generate_completion_documents, release_gate
 from scripts.issue_registry_core import PROGRAMME_ROOT
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S12-01: Short signing key passes signature check then crashes release gate with unhandled ValueError",
-)
 def test_s12_01_short_signing_key_fails_gate_gracefully(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / "configs").mkdir()
     (tmp_path / "configs" / "release_policy.yaml").write_text(
@@ -65,11 +60,6 @@ def test_s12_01_short_signing_key_fails_gate_gracefully(tmp_path: Path, monkeypa
     assert any(check.name == "signature" and check.status == "failed" for check in result.checks)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="S12-02: --check stale detection misses newly generated files because candidate paths are evaluated before generation",
-)
 def test_s12_02_check_detects_missing_file_as_stale(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[2]
     shutil.copytree(repo_root / "issues", tmp_path / "issues")
