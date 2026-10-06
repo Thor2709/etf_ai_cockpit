@@ -1,6 +1,6 @@
 # Tutorials
 
-Release version: `0.1.0rc1`.
+Release version: `1.1.0b1` (display: `1.1.0-beta.1`).
 
 Step-by-step tasks for the offline core workflow. Each step names a control as it
 appears on screen (in bold) and the workspace that holds it; see

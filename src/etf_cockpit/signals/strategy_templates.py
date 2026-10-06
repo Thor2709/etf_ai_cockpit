@@ -12,6 +12,7 @@ import pandas as pd
 import yaml
 
 from etf_cockpit.backtest.benchmarks import momentum_weights, trend_weights
+from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     BenchmarkReferenceError,
     load_canonical_benchmark_registry,
@@ -76,7 +77,7 @@ class TemplateMatch:
 def load_strategy_templates(path: Path | None = None) -> tuple[StrategyTemplate, ...]:
     """Load and validate the shipped template definitions."""
 
-    source = path or Path(__file__).resolve().parents[3] / "configs" / "strategy_templates_v1.yaml"
+    source = path or CONFIG_DIR / "strategy_templates_v1.yaml"
     payload = yaml.safe_load(source.read_text(encoding="utf-8"))
     if not isinstance(payload, Mapping) or payload.get("execution_allowed") is not False:
         raise ValueError("strategy template registry must be execution_allowed=false")
@@ -140,7 +141,7 @@ def _canonical_benchmark_ids() -> set[str]:
 
 
 def _load_strategy_scope() -> Mapping[str, Any]:
-    source = Path(__file__).resolve().parents[3] / "configs" / "strategy_scope.yaml"
+    source = CONFIG_DIR / "strategy_scope.yaml"
     try:
         payload = yaml.safe_load(source.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, yaml.YAMLError) as exc:

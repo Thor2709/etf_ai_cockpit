@@ -22,11 +22,11 @@ import pandas as pd
 import yaml
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes
-from etf_cockpit.core.paths import ROOT
+from etf_cockpit.core.paths import CONFIG_DIR, ROOT
 from etf_cockpit.data.catalogue import DataCatalogue, DatasetDefinition, DatasetSnapshot
 
 
-_CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "universe_membership_v1.yaml"
+_CONFIG_PATH = CONFIG_DIR / "universe_membership_v1.yaml"
 _DB_RELATIVE_PATH = Path("data") / "derived" / "universe_membership" / "membership.sqlite"
 _RAW_RELATIVE_PATH = Path("data") / "raw" / "universe_membership"
 _RAW_DATASET_ID = "universe_membership_raw"

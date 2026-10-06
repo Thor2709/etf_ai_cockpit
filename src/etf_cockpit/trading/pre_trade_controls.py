@@ -84,7 +84,7 @@ class PreTradeControls:
         else:
             local_config = self.root / "configs" / PRE_TRADE_LIMITS_FILE
             packaged_config = CONFIG_DIR / PRE_TRADE_LIMITS_FILE
-            source_config = Path(__file__).resolve().parents[3] / "configs" / PRE_TRADE_LIMITS_FILE
+            source_config = CONFIG_DIR / PRE_TRADE_LIMITS_FILE
             self.limits_path = next(
                 (candidate for candidate in (local_config, packaged_config, source_config) if candidate.is_file()),
                 local_config,

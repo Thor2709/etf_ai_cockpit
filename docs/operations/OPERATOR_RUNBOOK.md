@@ -1,6 +1,6 @@
 # Operator runbook and troubleshooting
 
-Release version: `0.1.0rc1`.
+Release version: `1.1.0b1` (display: `1.1.0-beta.1`).
 
 For the person running a local installation. The application is local-first and
 `execution_allowed=false`; nothing here involves a broker or live orders. Paper

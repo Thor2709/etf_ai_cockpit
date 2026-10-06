@@ -16,7 +16,7 @@ from urllib.request import Request, urlopen
 import pandas as pd
 import yaml
 
-from etf_cockpit.core.paths import ROOT
+from etf_cockpit.core.paths import CONFIG_DIR, ROOT
 from etf_cockpit.data.universe_membership import (
     CaptureStatus,
     MembershipCaptureError,
@@ -27,7 +27,7 @@ from etf_cockpit.data.universe_membership import (
 )
 
 
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "euronext_listing_v1.yaml"
+DEFAULT_CONFIG_PATH = CONFIG_DIR / "euronext_listing_v1.yaml"
 SCOPE = "listing:euronext_oslo:all"
 ENDPOINT = "https://live.euronext.com/en/pd_es/data/stocks/download?mics=XOSL%2CMERK%2CXOAS"
 FORM_BODY = b"args[fe_type]=csv&args[fe_decimal_separator]=.&args[fe_date_format]=d/m/Y"

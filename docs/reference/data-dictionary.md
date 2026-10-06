@@ -1,6 +1,6 @@
 # Data dictionary
 
-Release version: `0.1.0rc1`.
+Release version: `1.1.0b1` (display: `1.1.0-beta.1`).
 
 Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a contract change; use `python scripts/generate_data_dictionary.py --check` to detect drift.
 
