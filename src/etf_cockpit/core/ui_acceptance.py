@@ -156,9 +156,10 @@ _ACTION_CONTROL_CALLS = frozenset({
     "SegmentedButton",
     "TextButton",
     "TextField",
-    # Final UI kit action buttons (components/kit Button.primary/secondary); Segmented/Toggle only change the view.
+    # Final UI kit action buttons (components/kit Button.primary/secondary); Toggle may carry a contract key; Segmented only changes the view.
     "primary",
     "secondary",
+    "Toggle",
 })
 _LIVE_STAGE_KEYS = frozenset({
     "operations.environment",
