@@ -6,145 +6,174 @@ import json
 
 import flet as ft
 
-from etf_cockpit.app import theme
-from etf_cockpit.app.components.glass_pages import page_panel
-from etf_cockpit.app.components.cards import section_header
-from etf_cockpit.app.components.governance_badges import status_badge
-from etf_cockpit.app.formatting import format_count
+from etf_cockpit.app.components import kit
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.quality_programme import load_quality_programme_report
 from etf_cockpit.application.ui_facade import legal_terms_report, release_certification_report
 from etf_cockpit.core.paths import ROOT
 
 
-panel = page_panel("release-readiness")
-
-
-def release_readiness_page(_page: ft.Page | None, _state: AppState) -> ft.Control:
-    try:
-        programme_status = json.loads(
-            (ROOT / "docs" / "product-completion" / "CURRENT_STATUS.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        if not isinstance(programme_status, dict):
-            raise TypeError("CURRENT_STATUS.json root must be an object")
-        readiness = programme_status.get("readiness", [])
-        if not isinstance(readiness, list):
-            raise TypeError("CURRENT_STATUS.json readiness must be a list")
-        implementation_ready = sum(
-            decision.get("ready") is True for decision in readiness if isinstance(decision, dict)
-        )
-        activation_ready = sum(
-            decision.get("activation_ready") is True
-            for decision in readiness
-            if isinstance(decision, dict)
-        )
-        readiness_summary = (
-            f"Implementation ready: {implementation_ready}/{len(readiness)} · "
-            f"Activation ready: {activation_ready}/{len(readiness)}"
-        )
-    except (OSError, json.JSONDecodeError, TypeError):
-        readiness_summary = "Readiness projection unavailable; activation remains blocked."
+def release_readiness_page(page: ft.Page | None, state: AppState) -> PageView:
     try:
         certification = release_certification_report(ROOT)
-    except Exception as exc:  # presentation remains fail-closed if local evidence is malformed
+    except Exception as exc:
         certification = {
             "status": "blocked",
-            "issue_id": "ISSUE-0152",
             "network_calls": False,
             "execution_allowed": False,
-            "registry_sha256": "unavailable",
-            "release_commit": "unavailable",
-            "blockers": [f"certification evidence unavailable: {type(exc).__name__}: {exc}"],
+            "registry_sha256": None,
+            "release_commit": None,
+            "blockers": [f"Certification evidence unavailable: {type(exc).__name__}"],
             "accepted_limitations": [],
             "checks": [],
         }
     try:
         legal = legal_terms_report(ROOT)
-        legal_status = f"{legal.get('status', 'failed')} ({legal.get('review_status', 'unavailable')})"
-        legal_checksum = str(legal.get("registry_sha256", "unavailable"))
     except Exception as exc:
-        legal_status = f"blocked ({type(exc).__name__})"
-        legal_checksum = "unavailable"
+        legal = {"status": "unavailable", "review_status": "unavailable", "registry_sha256": None, "unavailable_reason": f"Legal terms evidence unavailable: {type(exc).__name__}"}
     quality = load_quality_programme_report(ROOT)
-    quality_status = str(quality.get("status", "not_run"))
-    quality_colour = theme.GREEN if quality_status == "passed" else theme.AMBER
-    quality_suites = quality.get("suites", []) or []
-    quality_suite_lines = [
-        ft.Text(
-            f"{suite.get('suite_id', 'unknown')}: {suite.get('status', 'unknown')} ({format_count(suite.get('duration_ms'), unavailable='duration unavailable')} ms)",
-            color=theme.TEXT if suite.get("status") == "passed" else theme.AMBER,
-            size=11,
-            selectable=True,
-        )
-        for suite in quality_suites
-        if isinstance(suite, dict)
-    ]
-    quality_failures = [str(item) for item in quality.get("failures", [])]
+    try:
+        projection = json.loads((ROOT / "docs" / "product-completion" / "CURRENT_STATUS.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        projection = None
 
-    status = str(certification.get("status", "blocked"))
-    status_colour = theme.GREEN if status == "passed" else theme.RED
-    blockers = [str(item) for item in certification.get("blockers", [])]
-    if len(blockers) > 10:
-        blockers = blockers[:10] + [f"{len(certification.get('blockers', [])) - 10} additional blockers are recorded in the local JSON report."]
-    limitations = [str(item) for item in certification.get("accepted_limitations", [])]
-    checks = certification.get("checks", []) or []
-    check_lines = [
-        ft.Text(
-            f"{check.get('check_id', 'unknown')}: {check.get('status', 'blocked')} - {check.get('evidence', '')}",
-            color=theme.TEXT if check.get("status") == "passed" else theme.AMBER,
-            size=11,
-            selectable=True,
-        )
-        for check in checks
-    ]
-    blocker_lines = [ft.Text(f"- {item}", color=theme.AMBER, size=11, selectable=True) for item in blockers] or [ft.Text("- None", color=theme.GREEN)]
-    limitation_lines = [ft.Text(f"- {item}", color=theme.MUTED, size=11, selectable=True) for item in limitations] or [ft.Text("- None recorded", color=theme.MUTED)]
-    return ft.Column(
+    status = str(certification.get("status") or "unavailable")
+    headline = "Certification: " + status.replace("_", " ").title()
+    quality_status = str(quality.get("status") or "unavailable")
+    quality_display = quality_status.replace("_", " ").title()
+    legal_status = str(legal.get("status") or "unavailable")
+    legal_display = legal_status.replace("_", " ").title()
+    network_calls = certification.get("network_calls")
+    strip = kit.KpiStrip(
+        "Certification",
+        headline,
+        "Evidence-only certification status for the completion programme.",
         [
-            section_header("Release Readiness", "Evidence-only certification status for the finite completion programme."),
-            panel(
-                ft.Column(
-                    [
-                        ft.Row([status_badge("Certification", status, colour=status_colour), status_badge("Execution", "disabled", colour=theme.AMBER)], wrap=True),
-                        ft.Text("ISSUE-0152 remains blocked until the closure matrix, mandatory gates and signed release evidence pass.", color=theme.AMBER, selectable=True),
-                        ft.Text(f"Release commit: {certification.get('release_commit', 'unavailable')}", color=theme.MUTED, size=11, selectable=True),
-                        ft.Text(f"Issue registry SHA-256: {certification.get('registry_sha256', 'unavailable')}", color=theme.MUTED, size=11, selectable=True),
-                        ft.Text("Network calls: false · execution_allowed=false", color=theme.MUTED, size=11, selectable=True),
-                        ft.Text(readiness_summary, color=theme.MUTED, size=11, selectable=True),
-                        ft.Text("Programme status cannot resolve blocking edges. Activation dependencies are reported separately and never enable execution.", color=theme.AMBER, size=11, selectable=True),
-                    ],
-                    spacing=8,
-                )
-            ),
-            ft.ResponsiveRow(
-                [
-                    ft.Container(content=panel(ft.Column([ft.Text("Mandatory checks", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD), *check_lines], spacing=7)), col={"xs": 12, "md": 6}),
-                    ft.Container(content=panel(ft.Column([ft.Text("Legal terms", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD), ft.Text(f"Status: {legal_status}", color=theme.AMBER, selectable=True), ft.Text(f"Registry checksum: {legal_checksum}", color=theme.MUTED, size=11, selectable=True), ft.Text("Professional review remains required where recorded by the legal registry.", color=theme.MUTED, size=11, selectable=True)], spacing=7)), col={"xs": 12, "md": 6}),
-                ],
-                spacing=12,
-            ),
-            panel(
-                ft.Column(
-                    [
-                        ft.Row([status_badge("Quality programme", quality_status, colour=quality_colour)], wrap=True),
-                        ft.Text("ISSUE-0143 bounded local evidence; this surface never starts tests or network calls.", color=theme.MUTED, size=11, selectable=True),
-                        ft.Text(f"JSON: {quality.get('report_path', 'unavailable')}", color=theme.MUTED, size=11, selectable=True),
-                        ft.Text(f"Markdown: {quality.get('report_paths', {}).get('markdown', 'unavailable') if isinstance(quality.get('report_paths'), dict) else 'unavailable'}", color=theme.MUTED, size=11, selectable=True),
-                        *quality_suite_lines,
-                        *(ft.Text(f"- {failure}", color=theme.AMBER, size=11, selectable=True) for failure in quality_failures),
-                    ],
-                    spacing=7,
-                )
-            ),
-            panel(ft.Column([ft.Text("Blockers", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD), *blocker_lines], spacing=7)),
-            panel(ft.Column([ft.Text("Accepted limitations", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD), *limitation_lines], spacing=7)),
+            ("Execution", "disabled" if certification.get("execution_allowed") is False else "Unavailable", "Execution remains disabled by policy.", "neg"),
+            ("Quality programme", quality_display, str(quality.get("unavailable_reason") or ("Quality programme status is unavailable from local evidence." if quality_status == "unavailable" else "Local quality evidence.")), None),
+            ("Legal terms", legal_display, str(legal.get("review_status") or ("Legal terms status is unavailable from local evidence." if legal_status == "unavailable" else "Legal terms evidence.")), None),
+            ("Network calls", "false" if network_calls is False else "true" if network_calls is True else "Unavailable", "Unavailable: network-call status is not recorded." if network_calls is None else "Reported by local certification evidence.", None),
         ],
+    )
+
+    checks = []
+    for check in certification.get("checks", []) or []:
+        check_status = str(check.get("status") or "unavailable").casefold()
+        passed = True if check_status in {"passed", "pass", "ok"} else False if check_status in {"failed", "blocked", "fail"} else None
+        title = str(check.get("check_id") or "Check")
+        checks.append(kit.GateCheck(passed, title.replace("_", " ").title(), "See local check evidence details."))
+    checks_card = kit.GlassCard(
+        "Mandatory checks",
+        note="Local certification gates",
+        body=ft.Column(
+            checks or [kit.EmptyState("Checks unavailable", "No mandatory check results are available from the local certification report.")],
+            kit.Disclosure(
+                "Mandatory check evidence",
+                "\n".join(
+                    f"{check.get('check_id') or 'Unavailable'} · status={check.get('status') or 'Unavailable'} · evidence={check.get('evidence') or check.get('reason') or 'Unavailable'}"
+                    for check in certification.get("checks", []) or []
+                    if isinstance(check, dict)
+                ) or "No mandatory check details are available.",
+            ),
+            spacing=8,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
+
+    readiness_rows = [
+        kit.ListRow("info", "Release commit", "Available" if certification.get("release_commit") else "Unavailable", tag=("Reference" if certification.get("release_commit") else "Unavailable", "mute" if certification.get("release_commit") else "bad")),
+        kit.ListRow("info", "Issue registry SHA-256", "Recorded" if certification.get("registry_sha256") else "Unavailable", tag=("Reference" if certification.get("registry_sha256") else "Unavailable", "mute" if certification.get("registry_sha256") else "bad")),
+        kit.ListRow("info", "Readiness projection", "Available" if isinstance(projection, dict) else "Unavailable", tag=("Local" if isinstance(projection, dict) else "Unavailable", "mute" if isinstance(projection, dict) else "bad")),
+    ]
+    evidence_card = kit.GlassCard(
+        "Release evidence",
+        body=ft.Column(
+            [
+                *readiness_rows,
+                kit.Disclosure(
+                    "Evidence references",
+                    f"release_commit={certification.get('release_commit') or 'Unavailable'}\nregistry_sha256={certification.get('registry_sha256') or 'Unavailable'}\nreadiness_projection={ROOT / 'docs' / 'product-completion' / 'CURRENT_STATUS.json'}\n"
+                    + ("Readiness projection unavailable; activation remains blocked.\n" if not isinstance(projection, dict) else "")
+                    + f"certification_issue={certification.get('issue_id') or 'Unavailable'}\nexecution_allowed=false",
+                ),
+            ],
+            spacing=8,
+        ),
+        expand=True,
+    )
+
+    blockers = list(certification.get("blockers", []) or [])
+    blocker_rows = [kit.ListRow("bad", "Certification blocker", "See blocker details in Disclosure.", tag=("Blocked", "bad")) for _item in blockers]
+    blocker_card = kit.GlassCard(
+        "Blockers",
+        body=ft.Column(
+            [
+                *(blocker_rows or [kit.EmptyState("No blockers recorded", "No blocker details are available from the local report.")]),
+                kit.Disclosure("Blocker details", "\n".join(str(item) for item in blockers) or "No blocker details are available from the local report."),
+            ],
+            spacing=8,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
+    limitation_copy = [
+        "Execution remains disabled; this evidence surface cannot authorise order transmission.",
+        "Certification reads local evidence only and makes no network calls.",
+        "Optional providers and model weights are not mandatory for the local-first path.",
+    ]
+    limitation_rows = [kit.ListRow("info", item, tag=("Accepted", "mute")) for item in limitation_copy]
+    limitation_rows.extend(kit.ListRow("info", str(item), tag=("Accepted", "mute")) for item in certification.get("accepted_limitations", []) or [])
+    limitations_card = kit.GlassCard("Accepted limitations", body=ft.Column(limitation_rows, spacing=4, scroll=ft.ScrollMode.AUTO), expand=True)
+
+    quality_card = kit.GlassCard(
+        "Quality programme",
+        body=ft.Column(
+            [
+                kit.Tag(quality_display, "ok" if quality_status == "passed" else "warn"),
+                kit.Note("ISSUE-0143 bounded local evidence; this surface never starts tests or network calls."),
+                kit.Disclosure(
+                    "Quality evidence details",
+                    "\n".join(
+                        [
+                            f"json_report={quality.get('report_path') or 'Unavailable'}",
+                            f"Markdown: {quality.get('report_paths', {}).get('markdown') if isinstance(quality.get('report_paths'), dict) else 'Unavailable'}",
+                            *(f"{suite.get('suite_id', 'Unavailable')}: {suite.get('status', 'Unavailable')}" for suite in quality.get("suites", []) or [] if isinstance(suite, dict)),
+                            *(str(item) for item in quality.get("failures", []) or []),
+                        ]
+                    ),
+                ),
+            ],
+            spacing=8,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
+    legal_card = kit.GlassCard(
+        "Legal terms",
+        body=ft.Column(
+            [
+                kit.Tag(f"{legal_display} · {str(legal.get('review_status') or 'Unavailable').replace('_', ' ').title()}", "ok" if legal_status == "passed" else "warn"),
+                kit.Note("Professional review remains required where recorded by the legal registry."),
+                kit.Disclosure("Legal evidence details", f"registry_sha256={legal.get('registry_sha256') or 'Unavailable'}\n{legal.get('unavailable_reason') or ''}"),
+            ],
+            spacing=8,
+        ),
+        expand=True,
+    )
+    body = ft.Column(
+        [
+            strip,
+            ft.ResponsiveRow([ft.Container(content=checks_card, col={"xs": 12, "md": 8}), ft.Container(content=evidence_card, col={"xs": 12, "md": 4})], spacing=12, run_spacing=12),
+            ft.ResponsiveRow([ft.Container(content=blocker_card, col={"xs": 12, "md": 6}), ft.Container(content=limitations_card, col={"xs": 12, "md": 6})], spacing=12, run_spacing=12),
+            ft.ResponsiveRow([ft.Container(content=quality_card, col={"xs": 12, "md": 6}), ft.Container(content=legal_card, col={"xs": 12, "md": 6})], spacing=12, run_spacing=12),
+        ],
+        spacing=12,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
-        spacing=14,
     )
+    return PageView(PageChrome("Release Readiness", "Evidence-only certification status for the completion programme"), body)
 
 
 __all__ = ["release_readiness_page"]

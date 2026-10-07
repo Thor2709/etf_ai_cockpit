@@ -2,112 +2,136 @@ from __future__ import annotations
 
 import flet as ft
 
-from etf_cockpit.app import theme
-from etf_cockpit.app.components.glass_pages import page_panel
-from etf_cockpit.app.components.cards import evidence_chip, section_header
+from etf_cockpit.app.components import kit
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView
 from etf_cockpit.app.formatting import format_timestamp
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.recovery_centre import RECOVERY_POLICIES, build_recovery_read_model, developer_mode_enabled
+from etf_cockpit.application.recovery_centre import (
+    RECOVERY_POLICIES,
+    build_recovery_read_model,
+    developer_mode_enabled,
+)
+
+TextButton = kit.Button.secondary
 
 
-panel = page_panel("errors-recovery")
-
-
-def errors_recovery_page(page: ft.Page, state: AppState) -> ft.Control:
+def errors_recovery_page(page: ft.Page, state: AppState) -> PageView:
     records = state.error_store.recent(limit=30)
-    rows: list[ft.Control] = []
-    if not records:
-        rows.append(ft.Text("No controlled errors recorded in this session.", color=theme.MUTED))
-    for record in records:
-        colour = theme.AMBER if record.retryable else theme.RED
-        controls: list[ft.Control] = [
-            ft.Text(
-                f"{format_timestamp(record.created_at)} | {record.category.value} | action={record.action_id or 'n/a'}",
-                color=colour,
-                size=12,
-                weight=ft.FontWeight.BOLD,
-            ),
-            ft.Text(record.user_message, color=theme.TEXT, selectable=True),
-            ft.Text(f"Error ID: {record.error_id} | fingerprint: {record.fingerprint}", color=theme.MUTED, size=11),
-            evidence_chip("Retry", "enabled" if record.retryable else "manual review", theme.GREEN if record.retryable else theme.AMBER),
-        ]
-        if record.retryable:
-            controls.append(
-                ft.OutlinedButton(
-                    "Retry",
-                    key=f"errors.retry.{record.error_id}",
-                    icon=ft.Icons.REFRESH,
-                    on_click=lambda _event, error_id=record.error_id: _retry(page, state, error_id),
-                )
-            )
-        rows.append(ft.Container(bgcolor=theme.SURFACE_2, border_radius=6, padding=10, content=ft.Column(controls, spacing=5)))
     model = build_recovery_read_model(state)
-    return ft.Column([
-        panel(ft.Column([section_header("Errors and recovery", "Review controlled failures and the safe recovery policy."), section_header("Recent errors"), *rows], spacing=10)),
-        panel(_developer_detail(records)),
-        panel(_activity_log(state)),
-        panel(_recovery_status(model)),
-        panel(_recovery_policy()),
-    ], expand=True, scroll=ft.ScrollMode.AUTO)
+    errors = []
+    for record in records:
+        severity = "warn" if record.retryable else "bad"
+        retry = TextButton(
+            "Retry",
+            key=f"errors.retry.{record.error_id}",
+            on_click=lambda _event, error_id=record.error_id: _retry(page, state, error_id),
+        ) if record.retryable else None
+        details = f"error_id={record.error_id}\nfingerprint={record.fingerprint}\naction_id={record.action_id or '—'}\ncategory={record.category.value}"
+        content = [
+            kit.ListRow(
+                "bad",
+                record.user_message,
+                format_timestamp(record.created_at, unavailable="Unavailable"),
+                tag=(record.category.value, severity),
+            )
+        ]
+        if retry is not None:
+            content.append(retry)
+        if developer_mode_enabled():
+            content.append(kit.Disclosure("Developer detail", f"{details}\n{record.detail or 'No technical detail is available.'}"))
+        errors.extend(content)
+    recent_errors = kit.GlassCard(
+        "Recent errors",
+        note=f"{len(records)} controlled errors" if records else "Current session",
+        body=ft.Column(
+            errors or [kit.EmptyState("No controlled errors", "No controlled errors recorded in this session.")],
+            spacing=8,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
 
+    jobs_unavailable = any("job" in reason.lower() for reason in model.unavailable_reasons)
+    forecast_date = model.forecasts_last_known_good
+    data_date = model.data_last_known_good
+    if str(forecast_date or "").casefold() in {"unavailable", "n/a", "none"}:
+        forecast_date = None
+    if str(data_date or "").casefold() in {"unavailable", "n/a", "none"}:
+        data_date = None
+    recovery = kit.GlassCard(
+        "Recovery status",
+        note="Read-only local status",
+        body=ft.Column(
+            [
+                kit.KpiTile("Latest published forecast date", forecast_date, "Unavailable: no published forecast date is available." if not forecast_date else ""),
+                kit.KpiTile("Loaded data as-of date", data_date, "Unavailable: no loaded data date is available." if not data_date else ""),
+                kit.KpiTile("Resumable/expired jobs", None if jobs_unavailable else "Available" if model.jobs else "None reported", "Unavailable: job status is not available from the local read API." if jobs_unavailable else "No resumable or expired jobs are reported." if not model.jobs else ""),
+                kit.Note("Read-only status from trustworthy local read APIs; previous clean data remains unchanged after failed publication."),
+                kit.Disclosure("Recovery read details", "\n".join(model.unavailable_reasons) or "No additional recovery details are available."),
+                kit.Disclosure("Resumable and expired job details", "\n".join(model.jobs) or "No job details are available."),
+            ],
+            spacing=8,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
 
-def _developer_detail(records: list[object]) -> ft.Control:
-    controls: list[ft.Control] = [section_header("Developer detail")]
-    if not developer_mode_enabled():
-        controls.append(ft.Text("Technical detail is hidden outside developer mode.", color=theme.MUTED))
-        return ft.Column(controls, spacing=8)
-    details = [record for record in records if getattr(record, "detail", "")]
-    if not details:
-        controls.append(ft.Text("No technical detail is available.", color=theme.MUTED))
-    for record in details:
-        controls.append(ft.ExpansionTile(title=ft.Text(f"{getattr(record, 'error_id', 'error')} detail"), controls=[ft.Text(getattr(record, "detail", ""), selectable=True, font_family="monospace")]))
-    return ft.Column(controls, spacing=8)
+    policy_rows = [
+        kit.ListRow(
+            "info",
+            policy.title,
+            f"Symptom: {policy.symptom} · Guarantee: {policy.guarantee} · Steps: {policy.steps}",
+            tag=("Policy", "mute"),
+        )
+        for policy in RECOVERY_POLICIES
+    ]
+    policy = kit.GlassCard(
+        "Recovery policy",
+        note="Declarative guidance",
+        body=ft.Column(policy_rows or [kit.EmptyState("Unavailable", "Recovery policy is not available.")], spacing=8, scroll=ft.ScrollMode.AUTO),
+        expand=True,
+    )
 
-
-def _activity_log(state: AppState) -> ft.Control:
-    controls: list[ft.Control] = [section_header("Activity Log", "Current workflow progress and recent activity.")]
     current = getattr(state, "current_activity", None)
+    activity_rows = []
     if current is not None:
         progress = f"{current.completed_units}/{current.total_units}" if current.total_units is not None else str(current.completed_units)
-        controls.append(ft.Text(f"Current: {current.label} | {current.step} | progress {progress} | {current.message}", color=theme.TEXT))
-    else:
-        controls.append(ft.Text("No activity is currently running.", color=theme.MUTED))
-    entries = list(getattr(state, "recent_activity", ()) or ())
-    if not entries:
-        controls.append(ft.Text("No recent activity recorded.", color=theme.MUTED))
-    for entry in entries:
-        controls.append(ft.Text(f"{format_timestamp(entry.started_at)} | action={getattr(entry, 'action_id', '') or entry.label} | {entry.status} | {entry.message or entry.step}", color=theme.TEXT, selectable=True))
-    return ft.Column(controls, spacing=8)
-
-
-def _recovery_status(model) -> ft.Control:
-    controls: list[ft.Control] = [section_header("Recovery status", "Read-only status from trustworthy local read APIs; previous clean data remains unchanged after failed publication.")]
-    jobs_unavailable = any("job" in reason.lower() for reason in model.unavailable_reasons)
-    job_text = "unavailable" if jobs_unavailable else "; ".join(model.jobs) if model.jobs else "none reported"
-    controls.extend([ft.Text(f"Latest published forecast date in the loaded snapshot: {model.forecasts_last_known_good}"), ft.Text(f"Loaded data as-of date: {model.data_last_known_good}"), ft.Text(f"Resumable/expired jobs: {job_text}")])
-    controls.extend(ft.Text(reason, color=theme.MUTED, size=11) for reason in model.unavailable_reasons)
-    return ft.Column(controls, spacing=8)
-
-
-def _recovery_policy() -> ft.Control:
-    cards = [
-        ft.Container(
-            bgcolor=theme.SURFACE_2,
-            border_radius=6,
-            padding=10,
-            content=ft.Column(
-                [
-                    ft.Text(card.title, weight=ft.FontWeight.BOLD),
-                    ft.Text(f"Symptom: {card.symptom}"),
-                    ft.Text(f"Guarantee: {card.guarantee}"),
-                    ft.Text(f"Steps: {card.steps}"),
-                ],
-                spacing=4,
-            ),
+        activity_rows.append(kit.ListRow("info", current.label, f"{current.step} · {progress} · {current.message}"))
+        activity_rows.append(kit.Disclosure("Activity details", f"status=running\nprogress={progress}"))
+    for entry in list(getattr(state, "recent_activity", ()) or ()):
+        activity_rows.append(
+            kit.ListRow(
+                "warn" if str(entry.status).lower() not in {"passed", "complete", "completed"} else "ok",
+                getattr(entry, "label", "Activity"),
+                getattr(entry, "message", "") or getattr(entry, "step", ""),
+            )
         )
-        for card in RECOVERY_POLICIES
-    ]
-    return ft.Column([section_header("Recovery policy", "Declarative guidance only; no automatic recovery actions."), *cards], spacing=8)
+        activity_rows.append(
+            kit.Disclosure(
+                "Activity details",
+                f"started_at={format_timestamp(entry.started_at, unavailable='Unavailable')}\naction_id={getattr(entry, 'action_id', '') or '—'}\nstatus={entry.status}\nstep={entry.step}",
+            )
+        )
+    activity = kit.GlassCard(
+        "Activity log",
+        note="Workflow progress and recent activity",
+        body=ft.Column(activity_rows or [kit.EmptyState("No activity", "No activity is currently running.")], spacing=8, scroll=ft.ScrollMode.AUTO),
+        expand=True,
+    )
+    if not developer_mode_enabled():
+        recent_errors.content.controls.append(kit.Note("Technical detail is hidden outside developer mode."))
+    body = ft.ResponsiveRow(
+        [
+            ft.Container(content=recent_errors, col={"xs": 12, "md": 7}),
+            ft.Container(content=recovery, col={"xs": 12, "md": 5}),
+            ft.Container(content=policy, col={"xs": 12, "md": 7}),
+            ft.Container(content=activity, col={"xs": 12, "md": 5}),
+        ],
+        spacing=12,
+        run_spacing=12,
+        expand=True,
+    )
+    return PageView(PageChrome("Errors & Recovery", "Controlled failures and the safe recovery policy"), body)
 
 
 def _retry(page: ft.Page, state: AppState, error_id: str) -> None:

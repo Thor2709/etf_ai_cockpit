@@ -14,6 +14,8 @@ import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components import kit
+from etf_cockpit.app.components import chartkit as ck
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView
 from etf_cockpit.app.components.cards import evidence_chip, section_header
 from etf_cockpit.app.pages._glass import glass
 from etf_cockpit.app.state import ActivityUnavailableError, AppState
@@ -332,20 +334,119 @@ def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
     )
 
 
-def evidence_ledger_page(_page: ft.Page, _state) -> ft.Control:
-    return _status_page(
-        "Evidence Ledger",
-        "Score components, evidence provenance and source conflicts. Evidence rows are advisory inputs only.",
-        [
-            ("Evidence ledger", EVIDENCE_LEDGER_PATH, ["instrument_id", "component", "source_id", "source_authority", "authority_rank", "as_of_date", "freshness_status", "conflict_id", "score_eligible", "reason"]),
-            ("Score components", SCORE_COMPONENTS_PATH, ["instrument_id", "component", "source_id", "source_authority", "normalised_score_10", "status", "authority", "freshness_status", "conflict_id", "driver_text"]),
-            ("Feature drivers", FEATURE_DRIVERS_PATH, FEATURE_DRIVER_EVIDENCE_COLUMNS, normalise_feature_driver_frame),
-            ("Score history", SCORE_HISTORY_PATH, ["instrument_id", "run_completed_at", "final_combined_score_10", "final_label", "blocked_by"]),
-            ("Score metric history", SCORE_METRIC_HISTORY_PATH, ["instrument_id", "component_name", "normalised_score_10", "score_available", "na_reason"]),
-            ("Correlation clusters", CORRELATION_CLUSTERS_PATH, ["instrument_id", "cluster_label", "average_peer_correlation", "crowding_warning", "cluster_risk_contribution", "ranking_coverage", "pair_sample_size", "sector", "theme", "theme_warning", "top_ranked_theme_concentration", "top_ranked_theme_warning", "sample_size", "status", "execution_allowed"]),
-            ("Benchmark attribution", BENCHMARK_ATTRIBUTION_PATH, ["instrument_id", "benchmark_id", "benchmark_beta", "benchmark_correlation", "alpha_proxy", "sector_relative_return", "sector_alpha_proxy", "sector_attribution_status", "theme_relative_return", "theme_alpha_proxy", "theme_attribution_status", "net_expected_edge_bps", "friction_status", "status", "execution_allowed"]),
-        ],
+def evidence_ledger_page(page: ft.Page, state) -> PageView:
+    sources = [
+        ("Evidence ledger", EVIDENCE_LEDGER_PATH, ["instrument_id", "component", "source_id", "source_authority", "authority_rank", "as_of_date", "freshness_status", "conflict_id", "score_eligible", "reason"], None),
+        ("Score components", SCORE_COMPONENTS_PATH, ["instrument_id", "component", "source_id", "source_authority", "normalised_score_10", "status", "authority", "freshness_status", "conflict_id", "driver_text"], None),
+        ("Feature drivers", FEATURE_DRIVERS_PATH, FEATURE_DRIVER_EVIDENCE_COLUMNS, normalise_feature_driver_frame),
+        ("Score history", SCORE_HISTORY_PATH, ["instrument_id", "run_completed_at", "final_combined_score_10", "final_label", "blocked_by"], None),
+        ("Score metric history", SCORE_METRIC_HISTORY_PATH, ["instrument_id", "component_name", "normalised_score_10", "score_available", "na_reason"], None),
+        ("Correlation clusters", CORRELATION_CLUSTERS_PATH, ["instrument_id", "cluster_label", "average_peer_correlation", "crowding_warning", "cluster_risk_contribution", "ranking_coverage", "pair_sample_size", "sector", "theme", "theme_warning", "top_ranked_theme_concentration", "top_ranked_theme_warning", "sample_size", "status", "execution_allowed"], None),
+        ("Benchmark attribution", BENCHMARK_ATTRIBUTION_PATH, ["instrument_id", "benchmark_id", "benchmark_beta", "benchmark_correlation", "alpha_proxy", "sector_relative_return", "sector_alpha_proxy", "sector_attribution_status", "theme_relative_return", "theme_alpha_proxy", "theme_attribution_status", "net_expected_edge_bps", "friction_status", "status", "execution_allowed"], None),
+    ]
+    frames: list[tuple[str, Path, list[str], pd.DataFrame]] = []
+    switcher_tables = []
+    counts: list[int] = []
+    for label, path, columns, normaliser in sources:
+        frame = _read_frame(path)
+        if normaliser is not None:
+            try:
+                frame = normaliser(frame)
+            except Exception:
+                frame = pd.DataFrame()
+        frames.append((label, path, columns, frame))
+        counts.append(len(frame.index))
+        actual_columns = [column for column in columns if column in frame.columns]
+        visible_columns = [
+            column
+            for column in actual_columns
+            if "hash" not in column.casefold()
+            and "path" not in column.casefold()
+            and "span" not in column.casefold()
+            and column not in {"status", "blocked_by", "freshness_status", "missingness", "conflict", "flags", "reason", "na_reason", "execution_allowed"}
+        ]
+        rows = []
+        table_columns = [kit.TableColumn(key=column, label=column.replace("_", " ").title()) for column in visible_columns]
+        for row in frame[visible_columns].to_dict(orient="records") if visible_columns else []:
+            rows.append({key: ("—" if pd.isna(value) else _short(value)) for key, value in row.items()})
+        switcher_tables.append(kit.EvidenceTable(label, table_columns, rows, path.name, str(path)))
+
+    evidence_tables = kit.GlassCard(
+        "Evidence tables",
+        note="Local evidence · select a table",
+        body=ft.Column(
+            [
+                kit.EvidenceTableSwitcher(switcher_tables, title="Evidence tables"),
+                kit.Disclosure(
+                    "Technical evidence details",
+                    "\n\n".join(
+                        f"{label}\n{json.dumps(frame[actual_columns].to_dict(orient='records'), default=str, ensure_ascii=False)}"
+                        for label, _path, actual_columns, frame in frames
+                        if not frame.empty
+                    ) or "No technical evidence rows are available.",
+                ),
+            ],
+            spacing=8,
+            expand=True,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
     )
+    nonempty = [(label, count) for (label, _, _, _), count in zip(sources, counts, strict=True) if count]
+    zero_rows = [f"{label}: 0 · unavailable" for (label, _, _, _), count in zip(sources, counts, strict=True) if not count]
+    rows_chart = ck.bar_chart(
+        [label for label, _ in nonempty],
+        [count for _, count in nonempty],
+        x_name="Evidence table",
+        y_name="Rows (count)",
+        unit="rows",
+        decimals=0,
+        signed_labels=False,
+        insight="Row counts describe local evidence files.",
+        unavailable_reason="No evidence table has rows available." if not nonempty else None,
+    )
+    rows_by_table = kit.GlassCard(
+        "Rows by evidence table",
+        note="Rows (count)",
+        body=ft.Column([kit.Well(rows_chart), *(kit.Note(note) for note in zero_rows)], spacing=8, scroll=ft.ScrollMode.AUTO),
+        expand=True,
+    )
+    boundaries = kit.GlassCard(
+        "Boundaries",
+        body=ft.Column(
+            [
+                kit.ListRow("info", "Authority", "Advisory/context only", tag=("Advisory", "mute")),
+                kit.ListRow("warn", "Missing data", "Unavailable, not invented", tag=("Unavailable", "warn")),
+                kit.ListRow("bad", "Broker execution", "Disabled", tag=("Disabled", "bad")),
+            ],
+            spacing=8,
+        ),
+    )
+    total = sum(counts)
+    strip = kit.KpiStrip(
+        "Local evidence",
+        f"{total} evidence rows" if total else "Unavailable",
+        "Local derived evidence" if total else "No evidence ledger rows are available.",
+        [(label, str(count) if count else "Unavailable", "rows" if count else "No rows available.", None) for label, count in zip(("Evidence ledger", "Score components", "Feature drivers", "Score history"), counts[:4], strict=True)],
+    )
+    body = ft.Column(
+        [
+            strip,
+            ft.ResponsiveRow(
+                [
+                    ft.Container(content=evidence_tables, col={"xs": 12, "md": 8}),
+                    ft.Container(content=ft.Column([rows_by_table, boundaries], spacing=12, expand=True), col={"xs": 12, "md": 4}),
+                ],
+                spacing=12,
+                run_spacing=12,
+                expand=True,
+            ),
+        ],
+        spacing=12,
+        expand=True,
+        scroll=ft.ScrollMode.AUTO,
+    )
+    return PageView(PageChrome("Evidence Ledger", "Score components, provenance and source conflicts · advisory inputs only"), body)
 
 
 def filings_page(page: ft.Page, state: AppState) -> ft.Control:

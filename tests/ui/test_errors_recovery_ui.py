@@ -11,7 +11,7 @@ from etf_cockpit.core.errors import ErrorCategory, ErrorStore
 
 def test_errors_recovery_page_contains_required_sections_and_safe_copy() -> None:
     source = inspect.getsource(errors_recovery)
-    for label in ("Errors and recovery", "Developer detail", "Activity Log", "Recovery status", "Recovery policy", "Retry"):
+    for label in ("Recent errors", "Developer detail", "Activity log", "Recovery status", "Recovery policy", "Retry"):
         assert label in source
     assert "Technical detail is hidden outside developer mode." in source
     assert "previous clean data remains unchanged" in source or "previous clean data" in source
@@ -21,7 +21,7 @@ def test_errors_recovery_page_supports_activity_and_developer_detail() -> None:
     source = inspect.getsource(errors_recovery)
     assert "current_activity" in source
     assert "recent_activity" in source
-    assert "ExpansionTile" in source
+    assert "Disclosure" in source
     assert "developer_mode_enabled" in source
 
 
@@ -32,6 +32,9 @@ def _text_values(control: object) -> list[str]:
         values.append(value)
     for child in getattr(control, "controls", ()) or ():
         values.extend(_text_values(child))
+    body = getattr(control, "body", None)
+    if body is not None:
+        values.extend(_text_values(body))
     content = getattr(control, "content", None)
     if content is not None:
         values.extend(_text_values(content))
@@ -41,7 +44,8 @@ def _text_values(control: object) -> list[str]:
     return values
 
 
-def test_errors_recovery_page_renders_failure_activity_and_recovery_sections(tmp_path) -> None:
+def test_errors_recovery_page_renders_failure_activity_and_recovery_sections(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("ETF_COCKPIT_DEVELOPER_MODE", "1")
     store = ErrorStore(tmp_path / "errors.jsonl")
     retryable = store.append(action_id="refresh", category=ErrorCategory.NETWORK, user_message="Provider timed out", retryable=True)
     store.append(action_id="import", category=ErrorCategory.INVALID_INPUT, user_message="Malformed input", retryable=False)
@@ -56,7 +60,7 @@ def test_errors_recovery_page_renders_failure_activity_and_recovery_sections(tmp
     rendered = errors_recovery_page(SimpleNamespace(), state)
     text = "\n".join(_text_values(rendered))
     assert retryable.error_id in text
-    assert all(label in text for label in ("Recent errors", "Developer detail", "Activity Log", "Recovery status", "Recovery policy", "Provider outage"))
+    assert all(label in text for label in ("Recent errors", "Developer detail", "Activity log", "Recovery status", "Recovery policy", "Provider outage"))
     assert "Malformed input" in text
 
 
