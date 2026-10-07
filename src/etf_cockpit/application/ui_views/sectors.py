@@ -41,6 +41,7 @@ _BUBBLE_COLUMNS = {
     "P/B": ("price_to_book", "pb_ratio", "pb"),
     "ROE": ("return_on_equity", "roe"),
 }
+_DISPLAY_NAMES = {"USA": "USA", "GBR": "UK"}
 _CAP_COLUMNS = ("market_cap", "market_cap_eur", "market_capitalisation")
 
 
@@ -105,6 +106,13 @@ def _geo() -> dict[str, dict[str, str]]:
 def iso3_of(label: str) -> str | None:
     key = str(label or "").strip().casefold()
     return _COUNTRY_ALIASES.get(key) if key in _COUNTRY_ALIASES else _geo()["by_key"].get(key)
+
+
+def display_name(code: str | None, fallback: str) -> str:
+    """Short on-screen country name ("USA", "UK"); other countries keep their Natural Earth name."""
+    if code in _DISPLAY_NAMES:
+        return _DISPLAY_NAMES[code]
+    return _geo()["name"].get(code or "", fallback)
 
 
 def country_short(code: str | None, fallback: str) -> str:
@@ -257,7 +265,7 @@ def _look_through(rows: Sequence[Mapping[str, object]], *, countries: bool) -> l
     for row in rows:
         name = str(row["name"])
         code = iso3_of(name) if countries else None
-        label = _geo()["name"].get(code, name) if code else name
+        label = display_name(code, name) if code else name
         items.append(Weight(label, float(row["percentage"]), None, code, country_short(code, name) if countries else short_name(name), _parts(row)))
     return sorted(items, key=lambda item: -item.weight)
 

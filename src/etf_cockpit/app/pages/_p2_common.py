@@ -61,3 +61,24 @@ def show_dialog(page: object, dialog: ft.AlertDialog) -> None:
 def close_dialog(page: object, dialog: ft.AlertDialog) -> None:
     dialog.open = False
     page.update()
+
+
+def title_first(card: ft.Control, title: str) -> ft.Control:
+    """Split a card's header row between title and note in proportion to their text lengths (the kit gives
+    the title a fixed 1/3, which truncates long titles beside short notes)."""
+    stack = [card]
+    while stack:
+        control = stack.pop()
+        children = list(getattr(control, "controls", None) or [])
+        content = getattr(control, "content", None)
+        if isinstance(content, ft.Control):
+            children.append(content)
+        if isinstance(control, ft.Row) and len(children) > 1 and isinstance(children[0], ft.Text) and children[0].value == title:
+            note = getattr(children[1], "content", None)
+            note_length = len(str(getattr(note, "value", "") or ""))
+            share = round(10 * len(title) / max(len(title) + note_length, 1))
+            children[0].expand = min(max(share, 2), 8)
+            children[1].expand = 10 - children[0].expand
+            return card
+        stack.extend(children)
+    return card
