@@ -182,3 +182,72 @@ class ViewHost:
 
 def unavailable_card_text(reason: str) -> str:
     return f"Unavailable: {reason}"
+
+
+def dropdown(*, key: str, options: Sequence[str | tuple[str, str]], value: str | None, on_select: Callable[[object], object] | None = None, width: float | None = None, disabled: bool = False) -> ft.Dropdown:
+    """Borderless dropdown for a kit ``Field(control=...)``; options are ``value`` or ``(value, label)``."""
+    items = [ft.dropdown.Option(key=item[0], text=item[1]) if isinstance(item, tuple) else ft.dropdown.Option(item) for item in options]
+    return ft.Dropdown(
+        key=key,
+        value=value,
+        options=items,
+        on_select=on_select,
+        disabled=disabled,
+        width=width,
+        dense=True,
+        border=ft.InputBorder.NONE,
+        text_size=14,
+        color=theme.INK,
+        content_padding=ft.Padding(left=0, top=0, right=0, bottom=0),
+        text_style=ft.TextStyle(size=14, color=theme.INK, font_family=theme.FONT_FAMILY),
+    )
+
+
+def text_input(*, key: str, value: str = "", hint: str = "", on_change: Callable[[object], object] | None = None, multiline: bool = False, mono: bool = False, tooltip: str | None = None, max_lines: int | None = None) -> ft.TextField:
+    """Borderless TextField for a kit ``Field(control=...)``."""
+    from etf_cockpit.app.components.kit import field_input_style
+
+    style = field_input_style(multiline=multiline, placeholder=hint)
+    if mono:
+        style["text_style"] = ft.TextStyle(size=12.5, color=theme.INK, font_family=theme.FONT_MONO)
+    field = ft.TextField(key=key, value=value, on_change=on_change, tooltip=tooltip, **style)
+    if max_lines is not None:
+        field.max_lines = max_lines
+    return field
+
+
+class Popover:
+    """A glass panel over a card, opened by a small text button (never navigates, never starts a workflow)."""
+
+    def __init__(self, heading: str, content: ft.Control, *, width: float = 320, top: float = 52, right: float = 24) -> None:
+        from etf_cockpit.app.components.kit import FloatingPanel
+
+        panel = ft.Container(
+            content=FloatingPanel(heading, content, width=width),
+            bgcolor=theme.rgba(14, 24, 48, 0.96),
+            border_radius=16,
+            width=width,
+        )
+        self.control = ft.Container(content=panel, top=top, right=right, visible=False)
+
+    def toggle(self, _event: object = None) -> None:
+        self.control.visible = not self.control.visible
+        refresh(self.control)
+
+
+def menu_button(label: str, on_click: Callable[[object], object], *, key: str | None = None) -> ft.Container:
+    """Small text button with a caret, used in a card's note slot to open a popover."""
+    return ft.Container(
+        content=text(f"{label} ▾", 12, 600, theme.ACC, trunc=True),
+        on_click=on_click,
+        ink=True,
+        ink_color=theme.HOVER_OVERLAY,
+        border_radius=theme.RADIUS_SM,
+        padding=ft.Padding(left=8, top=4, right=8, bottom=4),
+        key=key,
+    )
+
+
+def with_popovers(card: ft.Control, width: float, height: float | None, *popovers: Popover) -> ft.Control:
+    """Stack the popover panels over a fixed-size card."""
+    return ft.Stack([card, *[p.control for p in popovers]], width=width, height=height)

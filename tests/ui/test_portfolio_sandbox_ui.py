@@ -123,7 +123,8 @@ def _available_registry() -> CanonicalBenchmarkRegistry:
 
 
 def test_portfolio_sandbox_exposes_non_executable_controls_and_results() -> None:
-    root = portfolio.portfolio_page(None, _state())
+    view = portfolio.portfolio_page(None, _state())
+    root = view.body
     keys = {str(control.key) for control in _walk(root) if getattr(control, "key", None)}
     assert {
         "portfolio.workspace-name",
@@ -135,7 +136,7 @@ def test_portfolio_sandbox_exposes_non_executable_controls_and_results() -> None
         "portfolio.reset-current",
     } <= keys
     text = _text(root)
-    assert "Portfolio Sandbox" in text
+    assert view.chrome.title == "Portfolio Sandbox"
     assert "Execution" in text and "disabled" in text
     assert "ETF direct overlap" in text
     assert "coverage_status=missing" in text
@@ -144,7 +145,7 @@ def test_portfolio_sandbox_exposes_non_executable_controls_and_results() -> None
 
 
 def test_portfolio_sandbox_validation_and_analysis_are_readable() -> None:
-    root = portfolio.portfolio_page(None, _state())
+    root = portfolio.portfolio_page(None, _state()).body
     _by_key(root, "portfolio.cash-weight").value = "90"
     _by_key(root, "portfolio.analyse").on_click(None)
     assert "must equal 100%" in str(_by_key(root, "portfolio.status").value)
@@ -190,7 +191,7 @@ def test_portfolio_ui_renders_available_canonical_identities_versions_and_digest
     state.snapshot.vwce_listing_id = evidence["listing_id"]
     state.snapshot.vwce_conversion_evidence = None
 
-    root = portfolio.portfolio_page(None, state)
+    root = portfolio.portfolio_page(None, state).body
     _set_candidate(root)
     _by_key(root, "portfolio.analyse").on_click(None)
     result_text = _text(_by_key(root, "portfolio.results"))
@@ -212,7 +213,7 @@ def test_snapshot_selector_cannot_relabel_the_supplied_snapshot() -> None:
     state = _state()
     state.snapshot.account_id = "account-A"
     state.snapshot.account_ids = ("account-A", "account-B")
-    root = portfolio.portfolio_page(None, state)
+    root = portfolio.portfolio_page(None, state).body
 
     account = _by_key(root, "portfolio.account")
     assert [option.key for option in account.options] == ["account-A"]
@@ -233,7 +234,7 @@ def test_portfolio_sandbox_save_load_and_stale_states(monkeypatch, tmp_path) -> 
 
     monkeypatch.setattr(portfolio, "save_portfolio_candidate", save)
     monkeypatch.setattr(portfolio, "load_portfolio_candidate", load)
-    root = portfolio.portfolio_page(None, state)
+    root = portfolio.portfolio_page(None, state).body
     _by_key(root, "portfolio.workspace-name").value = "UI candidate"
     _set_candidate(root)
     _by_key(root, "portfolio.save").on_click(None)
@@ -257,7 +258,7 @@ def test_portfolio_sandbox_new_name_starts_an_independent_revision(monkeypatch, 
         return portfolio_sandbox.save_portfolio_candidate(*args, **kwargs, root=tmp_path)
 
     monkeypatch.setattr(portfolio, "save_portfolio_candidate", save)
-    root = portfolio.portfolio_page(None, state)
+    root = portfolio.portfolio_page(None, state).body
     _set_candidate(root)
     _by_key(root, "portfolio.workspace-name").value = "Candidate A"
     _by_key(root, "portfolio.save").on_click(None)
@@ -274,7 +275,7 @@ def test_portfolio_sandbox_stale_save_conflict_is_readable(monkeypatch, tmp_path
         return portfolio_sandbox.save_portfolio_candidate(*args, **kwargs, root=tmp_path)
 
     monkeypatch.setattr(portfolio, "save_portfolio_candidate", save)
-    root = portfolio.portfolio_page(None, state)
+    root = portfolio.portfolio_page(None, state).body
     _set_candidate(root)
     _by_key(root, "portfolio.workspace-name").value = "Conflict candidate"
     _by_key(root, "portfolio.save").on_click(None)
@@ -294,14 +295,14 @@ def test_portfolio_sandbox_stale_save_conflict_is_readable(monkeypatch, tmp_path
 def test_portfolio_sandbox_empty_holdings_state_is_explicit() -> None:
     state = _state()
     state.snapshot.holdings = pd.DataFrame(columns=["etf_id", "current_weight", "market_value_eur"])
-    root = portfolio.portfolio_page(None, state)
+    root = portfolio.portfolio_page(None, state).body
     assert "No current holdings are available" in str(_by_key(root, "portfolio.status").value)
     assert "zero current exposure" in _text(_by_key(root, "portfolio.results"))
     assert "factor_coverage=unavailable" in portfolio._portfolio_service_coverage(SimpleNamespace(service_evidence={}))
 
 
 def test_portfolio_reset_uses_current_weights() -> None:
-    root = portfolio.portfolio_page(None, _state())
+    root = portfolio.portfolio_page(None, _state()).body
     _set_candidate(root)
     _by_key(root, "portfolio.reset-current").on_click(None)
     assert _by_key(root, "portfolio.target-weight.VWCE").value == "40.0000"
@@ -320,9 +321,9 @@ def test_portfolio_controls_and_reset_cover_selected_mixed_assets() -> None:
             {"instrument_id": "ETF-LOOK", "asset_type": "etf", "current_weight": 0.05, "market_value_eur": 5_000, "holding_view": "look_through"},
         ]
     )
-    root = portfolio.portfolio_page(None, state)
-    assert "current stock" in str(_by_key(root, "portfolio.target-weight.AAPL").label)
-    assert "current fixed_rate_bond" in str(_by_key(root, "portfolio.target-weight.BOND-1").label)
+    root = portfolio.portfolio_page(None, state).body
+    assert "current stock" in str(_by_key(root, "portfolio.target-weight.AAPL").tooltip)
+    assert "current fixed_rate_bond" in str(_by_key(root, "portfolio.target-weight.BOND-1").tooltip)
     assert _by_key(root, "portfolio.target-weight.ETF-LOOK") is not None
 
     _by_key(root, "portfolio.holdings-view").value = "direct"
@@ -338,7 +339,7 @@ def test_portfolio_storage_failure_is_reported_without_crashing(monkeypatch) -> 
         raise portfolio_sandbox.PortfolioSandboxPersistenceError("local store is read-only")
 
     monkeypatch.setattr(portfolio, "load_portfolio_candidate", unavailable)
-    root = portfolio.portfolio_page(None, _state())
+    root = portfolio.portfolio_page(None, _state()).body
     _by_key(root, "portfolio.load").on_click(None)
     assert "Candidate not loaded: local store is read-only" in str(_by_key(root, "portfolio.status").value)
 
@@ -352,7 +353,7 @@ def test_portfolio_sandbox_shows_snapshot_lineage_capability_and_draft_boundary(
             {"instrument_id": "COIN", "asset_type": "crypto", "current_weight": 0.1, "market_value_eur": 10_000.0, "holding_view": "direct"},
         ]
     )
-    root = portfolio.portfolio_page(None, state)
+    root = portfolio.portfolio_page(None, state).body
     keys = {str(control.key) for control in _walk(root) if getattr(control, "key", None)}
     assert {"portfolio.account", "portfolio.portfolio", "portfolio.snapshot", "portfolio.holdings-view", "portfolio.export", "portfolio.draft-proposal"} <= keys
     text = _text(root)
@@ -362,7 +363,7 @@ def test_portfolio_sandbox_shows_snapshot_lineage_capability_and_draft_boundary(
     assert "execution_allowed=false" in text
 
 def test_portfolio_rebalance_preview_exposes_alternatives_and_assumptions() -> None:
-    root = portfolio.portfolio_page(None, _state())
+    root = portfolio.portfolio_page(None, _state()).body
     _set_candidate(root)
     _by_key(root, "portfolio.rebalance-preview").on_click(None)
     result_text = _text(_by_key(root, "portfolio.rebalance-results"))
@@ -382,7 +383,7 @@ def test_rebalance_preview_uses_selected_view_and_cites_snapshot() -> None:
             {"instrument_id": "LYP6", "current_weight": 0.2, "market_value_eur": 20_000.0, "holding_view": "look_through"},
         ]
     )
-    root = portfolio.portfolio_page(None, state)
+    root = portfolio.portfolio_page(None, state).body
     _by_key(root, "portfolio.holdings-view").value = "direct"
     for control in _walk(root):
         if str(getattr(control, "key", "")).startswith("portfolio.target-weight."):
@@ -410,7 +411,7 @@ def test_rebalance_preview_reports_mixed_asset_inapplicable_without_dropping_it(
             {"instrument_id": "AAPL", "asset_type": "stock", "current_weight": 0.3, "market_value_eur": 30_000.0, "holding_view": "direct"},
         ]
     )
-    root = portfolio.portfolio_page(None, state)
+    root = portfolio.portfolio_page(None, state).body
     for control in _walk(root):
         if str(getattr(control, "key", "")).startswith("portfolio.target-weight."):
             control.value = "0"
@@ -434,7 +435,7 @@ def test_rebalance_preview_blocks_zero_target_exit_for_held_mixed_asset() -> Non
             {"instrument_id": "AAPL", "asset_type": "stock", "current_weight": 0.3, "market_value_eur": 30_000.0, "holding_view": "direct"},
         ]
     )
-    root = portfolio.portfolio_page(None, state)
+    root = portfolio.portfolio_page(None, state).body
     for control in _walk(root):
         if str(getattr(control, "key", "")).startswith("portfolio.target-weight."):
             control.value = "0"
@@ -459,7 +460,7 @@ def test_rebalance_preview_blocks_zero_target_exit_for_configured_stock() -> Non
             {"instrument_id": "UCG", "current_weight": 0.3, "market_value_eur": 30_000.0, "holding_view": "direct"},
         ]
     )
-    root = portfolio.portfolio_page(None, state)
+    root = portfolio.portfolio_page(None, state).body
     for control in _walk(root):
         if str(getattr(control, "key", "")).startswith("portfolio.target-weight."):
             control.value = "0"
