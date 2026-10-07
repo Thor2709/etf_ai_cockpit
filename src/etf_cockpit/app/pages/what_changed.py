@@ -95,7 +95,7 @@ def what_changed_page(_page: ft.Page, _state: AppState) -> PageView:
     stacked = layout.narrow or layout.medium  # under 1300px: the table gets a full-width row, lineage moves below
     top_span = 12 if stacked else 8
     if stacked:
-        layout = layout.with_row(300)
+        layout = layout.with_row(460)
     state = {"segment": "All dimensions", "selected": view.rows[0].instrument_id if view.rows else None}
 
     search_field = ft.TextField(key="what-changed.filter.instrument", **field_input_style(placeholder="ID or name"))
@@ -294,7 +294,7 @@ def _lineage_card(view: ChangesView, layout: GridLayout, span: int) -> ft.Contro
 
 
 def _path_card(layout: GridLayout, row: ChangeRow | None) -> ft.Control:
-    width, height = layout.card_body(6, 1, insight=False)
+    width, height = layout.card_body(6, 1, insight=True)
     if row is None:
         return GlassCard(
             "Causal path",
@@ -309,6 +309,7 @@ def _path_card(layout: GridLayout, row: ChangeRow | None) -> ft.Control:
     sink_colour = _RISING if (delta or 0) >= 0 else _FALLING
     nodes: list[ck.SankeyNode] = []
     links: list[ck.SankeyLink] = []
+    sources: list[str] = []
     reason = None
     if row.causal_status == "available" and row.causal_paths:
         seen: dict[str, str] = {}
@@ -317,15 +318,21 @@ def _path_card(layout: GridLayout, row: ChangeRow | None) -> ft.Control:
             for position, step in enumerate(steps):
                 seen.setdefault(step, sink_colour if position == len(steps) - 1 else theme.CHART_PRIMARY)
             links.extend(ck.SankeyLink(source, target, 1.0) for source, target in zip(steps, steps[1:]))
+            if steps and steps[0] not in sources:
+                sources.append(steps[0])
         nodes = [ck.SankeyNode(name, colour) for name, colour in seen.items()]
     elif row.changed_inputs:
         nodes = [ck.SankeyNode(label, theme.CHART_MODEL) for label, _key in row.changed_inputs]
         nodes.append(ck.SankeyNode(sink, sink_colour))
         links = [ck.SankeyLink(label, sink, 1.0) for label, _key in row.changed_inputs]
+        sources = [label for label, _key in row.changed_inputs]
     else:
         reason = f"No changed input is recorded for {row.instrument_id}."
         if row.causal_reason:
             reason += f" ({row.causal_reason})"
+    insight = None
+    if sources and delta:  # only from recorded inputs; never invented when links are missing
+        insight = f"Score {direction} {abs(delta):.1f} through {', '.join(sources[:3])}" + (" and more." if len(sources) > 3 else ".")
     chart = ck.sankey(
         nodes,
         links,
@@ -338,6 +345,7 @@ def _path_card(layout: GridLayout, row: ChangeRow | None) -> ft.Control:
     return GlassCard(
         f"Causal path: {row.instrument_id}",
         layout.card_note(6, note),
+        insight=insight,
         body=ft.Column(
             [Well(chart, width=width, height=height - 24), Note("Links show which inputs changed, not how much")],
             spacing=8,
