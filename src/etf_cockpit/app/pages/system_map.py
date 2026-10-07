@@ -4,232 +4,231 @@ from __future__ import annotations
 
 import flet as ft
 
-from etf_cockpit.app import theme
-from etf_cockpit.app.components.glass_pages import page_panel
-from etf_cockpit.app.components.cards import section_header
-from etf_cockpit.app.components.governance_badges import status_badge
+from etf_cockpit.app.components import kit
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.scope_facade import capability_scope_view
+from etf_cockpit.application.scope_facade import (
+    capability_scope_view,
+    load_authority_matrix,
+    load_feature_registry,
+)
 from etf_cockpit.application.ui_facade import supply_chain_intake_report
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.application.scope_facade import load_authority_matrix, load_feature_registry, load_product_governance
+
+TextButton = kit.Button.secondary
 
 
-panel = page_panel("system-map")
-
-
-def _feature_card(page: ft.Page | None, state: AppState, entry: object) -> ft.Container:
-    lifecycle = str(getattr(entry, "lifecycle", "unavailable"))
-    authority = str(getattr(entry, "authority", "none"))
-    routes = tuple(getattr(entry, "canonical_routes", ()) or ())
-    limitations = tuple(getattr(entry, "limitations", ()) or ())
-    limitation = "; ".join(str(item) for item in limitations) or "No explicit limitation recorded in the feature registry."
-    route = routes[0] if routes else None
-
-    def open_route(_event: ft.ControlEvent) -> None:
-        if page is not None and route:
-            from etf_cockpit.app.router import navigate_to
-
-            navigate_to(page, state, route)
-
-    required_data = getattr(entry, "required_data", ()) or ()
-    data_report = state.snapshot.data_report
-    dependency_states: list[str] = []
-    for dependency in required_data:
-        if dependency == "prices":
-            frame = getattr(state.snapshot, "prices", None)
-            dependency_states.append(f"prices={'available' if frame is not None and not frame.empty else 'unavailable'}")
-        elif dependency == "evidence":
-            dependency_states.append(f"evidence={'available' if data_report.dataset_metadata else 'unavailable'}")
-        elif dependency in {"feature_registry", "policy", "glossary"}:
-            dependency_states.append(f"{dependency}=loaded")
-        elif dependency == "local_storage":
-            dependency_states.append("local_storage=available")
-        else:
-            dependency_states.append(f"{dependency}=not_measured")
-    data_readiness = "; ".join(dependency_states) or "local evidence=not_measured"
-    validation = f"Validation: data-health={data_report.status}; {len(data_report.issues)} issue(s); execution_allowed=false."
-    controls: list[ft.Control] = [
-        ft.Text(str(getattr(entry, "name", getattr(entry, "feature_id", "Governance feature"))), color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD),
-        ft.Row(
-            [status_badge("Lifecycle", lifecycle, colour=theme.CYAN), status_badge("Authority", authority, colour=theme.AMBER)],
-            wrap=True,
-        ),
-        ft.Text(f"Data/validation: {', '.join(str(item) for item in required_data) or 'local evidence'}", color=theme.MUTED, size=11),
-        ft.Text(f"Readiness: {data_readiness}", color=theme.MUTED, size=11, selectable=True),
-        ft.Text(validation, color=theme.AMBER, size=11, selectable=True),
-        ft.Text(f"Limitation: {limitation}", color=theme.MUTED, size=11, selectable=True),
-    ]
-    if route:
-        controls.append(ft.TextButton(f"Open {route}", key=f"system-map.route.{route.strip('/').replace('/', '-')}", tooltip=f"Open {route}", on_click=open_route))
-    return panel(ft.Column(controls, spacing=8), expand=True)
-
-
-def system_map_page(page: ft.Page | None, state: AppState) -> ft.Control:
+def system_map_page(page: ft.Page | None, state: AppState) -> PageView:
     loaded = load_feature_registry()
-    product = load_product_governance()
     matrix = load_authority_matrix()
-    capability_scope = capability_scope_view()
+    scope = capability_scope_view()
     supply_chain = supply_chain_intake_report(ROOT)
-    cards: list[ft.Control] = []
-    if capability_scope.status == "available":
-        strategy_lines = [
-            ft.Text(
-                f"{row.strategy_id} · {row.lifecycle} · authority={row.authority} · ui={row.ui_visibility} · data={','.join(row.required_data)} · tests={','.join(row.tests)} · score_authority={str(row.score_authority).lower()} · paper_authority={str(row.paper_authority).lower()} · live_authority=false · {'; '.join(row.stage_summary)}",
-                color=theme.MUTED,
-                size=11,
-                selectable=True,
-            )
-            for row in capability_scope.strategies
-        ]
-        instrument_lines = [
-            ft.Text(
-                f"{row.asset_family} · {row.state} · {row.reason_code} · horizons={','.join(row.horizons)} · {row.prerequisite_summary} · {'; '.join(row.stage_summary)}",
-                color=theme.MUTED,
-                size=11,
-                selectable=True,
-            )
-            for row in capability_scope.instruments
-        ]
-        cards.append(
-            panel(
-                ft.Column(
-                    [
-                        ft.Text("Strategy and instrument capabilities", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD),
-                        status_badge("Matrix", capability_scope.matrix_version, colour=theme.CYAN),
-                        ft.Text(" · ".join(capability_scope.stages), color=theme.TEXT, selectable=True),
-                        ft.Text(
-                            f"Strategies: {capability_scope.strategy_count}; rejected: {', '.join(capability_scope.rejected_strategy_ids)}",
-                            color=theme.AMBER,
-                            selectable=True,
-                        ),
-                        ft.Text(f"checksum={capability_scope.checksum}; execution_allowed=false", color=theme.AMBER, selectable=True),
-                        *strategy_lines,
-                        *instrument_lines,
-                    ],
-                    spacing=7,
-                ),
-                expand=True,
-            )
-        )
-    else:
-        cards.append(
-            panel(
-                ft.Column(
-                    [
-                        ft.Text("Strategy and instrument capabilities", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD),
-                        ft.Text("Matrix unavailable; manual review required; execution_allowed=false.", color=theme.AMBER, selectable=True),
-                        ft.Text("; ".join(capability_scope.diagnostics), color=theme.MUTED, selectable=True),
-                    ],
-                    spacing=7,
-                ),
-                expand=True,
-            )
-        )
-    if loaded.policy is not None and not loaded.diagnostic_mode:
-        cards.extend(_feature_card(page, state, entry) for entry in loaded.policy.entries)
-    else:
-        cards.append(panel(ft.Column([ft.Text("Feature registry unavailable", color=theme.TEXT, weight=ft.FontWeight.BOLD), ft.Text("Manual review required; no registry authority is inferred.", color=theme.AMBER)])))
-    cards.append(
-        panel(
-            ft.Column(
-                [
-                    ft.Text("Future execution", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD),
-                    ft.Row(
-                        [
-                            status_badge("Availability", "Not installed", colour=theme.AMBER),
-                            status_badge("Stages", "research · shadow_proposal · paper · broker_read_only · draft_order · capped_automatic · disabled", colour=theme.CYAN),
-                        ],
-                        wrap=True,
+
+    policy = getattr(loaded, "policy", None)
+    entries = list(getattr(policy, "entries", ()) or ()) if policy is not None and not loaded.diagnostic_mode else []
+    capability_rows = []
+    for entry in entries:
+        routes = tuple(getattr(entry, "canonical_routes", ()) or ())
+        route = routes[0] if routes else None
+
+        def open_route(_event: ft.ControlEvent, route: str | None = route) -> None:
+            if page is not None and route:
+                from etf_cockpit.app.router import navigate_to
+
+                navigate_to(page, state, route)
+
+        dependencies = tuple(getattr(entry, "required_data", ()) or ())
+        data_tags = [kit.Tag(str(dependency).replace("_", " "), "mute") for dependency in dependencies] or [kit.Tag("Unavailable", "bad")]
+        lifecycle = str(getattr(entry, "lifecycle", None) or "Unavailable").replace("_", " ").title()
+        authority = str(getattr(entry, "authority", None) or "Unavailable").replace("_", " ").title()
+        capability_rows.append(
+            {
+                "capability": str(getattr(entry, "name", getattr(entry, "feature_id", "Unavailable"))),
+                "lifecycle": kit.Tag(lifecycle, "mute"),
+                "authority": kit.Tag(authority, "warn"),
+                "data": ft.Row(data_tags, wrap=True, spacing=4),
+                "validation": "Data health evidence is local and read-only.",
+                "limitation": "; ".join(str(item) for item in (getattr(entry, "limitations", ()) or ())) or "No explicit limitation recorded.",
+                "open": TextButton(
+                    f"Open {route}",
+                    key=(
+                        f"system-map.route.{route.strip('/').replace('/', '-')}"
                     ),
-                    ft.Text("No broker execution. This cockpit presents local evidence and research context only.", color=theme.MUTED, selectable=True),
-                    ft.Text(
-                        "Future-only architecture: paper mode first, then broker_read_only observations and human-reviewed order previews; capped_automatic remains separately gated and disabled.",
-                        color=theme.MUTED,
-                        size=11,
-                        selectable=True,
-                    ),
-                    ft.Text(
-                        "Controls required before any future transition: max order value · position size · daily turnover · daily loss · drawdown kill switch · cooldowns · market-hours checks · stale-data block · news/event block.",
-                        color=theme.MUTED,
-                        size=11,
-                        selectable=True,
-                    ),
-                    ft.Text(
-                        "Future governance also requires an explicit human confirmation of an order preview, an immutable audit log, and an independent emergency disable. LLM or model-only authority is prohibited.",
-                        color=theme.MUTED,
-                        size=11,
-                        selectable=True,
-                    ),
-                    ft.Text(
-                        "execution_allowed=false · executable_authority=false · order_submission=disabled · see docs/architecture/future/",
-                        color=theme.AMBER,
-                        size=11,
-                        selectable=True,
-                    ),
-                ],
-                spacing=8,
-            ),
-            expand=True,
+                    on_click=open_route,
+                    disabled=route is None,
+                    disabled_reason="No canonical route is registered." if route is None else None,
+                ) if route else "—",
+            }
         )
-    )
-    component_lines = [
-        ft.Text(
-            f"{row.get('component_id', 'component')} · {row.get('integration_boundary', 'unavailable')} · {row.get('exact_ref', 'unavailable')}",
-            color=theme.MUTED,
-            size=11,
-            selectable=True,
-        )
-        for row in supply_chain.get("components", [])
-    ]
-    cards.append(
-        panel(
-            ft.Column(
-                [
-                    ft.Text("External components", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD),
-                    status_badge("Intake", str(supply_chain.get("review_status", "unavailable")), colour=theme.AMBER),
-                    ft.Text(
-                        f"Registry: {supply_chain.get('registry_sha256', 'unavailable')} · notices: {supply_chain.get('third_party_notices', 'unavailable')}",
-                        color=theme.MUTED,
-                        size=11,
-                        selectable=True,
-                    ),
-                    ft.Text("No copied third-party core is permitted without an approved intake record.", color=theme.AMBER, size=11, selectable=True),
-                    *component_lines,
-                ],
-                spacing=8,
-            ),
-            expand=True,
-        )
-    )
-    if product.policy is not None and matrix.policy is not None:
-        active_stage = next((stage for stage in matrix.policy.authority_stages if stage.enabled_by_default), None)
-        cards.insert(
-            0,
-            panel(
-                ft.Column(
-                    [
-                        ft.Text("Product contract", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD),
-                        ft.Text(f"{product.policy.product.canonical_name} · ADR {matrix.policy.adr_id}", color=theme.TEXT, selectable=True),
-                        status_badge("Active authority", active_stage.label if active_stage else "Manual review", colour=theme.CYAN),
-                        ft.Text("Execution: disabled by policy; every route, dataset, model, strategy and broker capability is declared.", color=theme.AMBER, selectable=True),
-                        ft.Text(f"Capabilities: {len(matrix.policy.capabilities)} · matrix checksum: {matrix.checksum}", color=theme.MUTED, size=11, selectable=True),
-                    ],
-                    spacing=8,
-                ),
-                expand=True,
-            ),
-        )
-    else:
-        cards.insert(0, panel(ft.Text("Product contract unavailable; authority remains fail-closed and requires manual review.", color=theme.AMBER, selectable=True), expand=True))
-    return ft.Column(
+
+    capability_table = kit.DataTable(
         [
-            section_header("System Map", "Lifecycle, authority, data readiness and direct routes for the evidence cockpit."),
-            ft.ResponsiveRow([ft.Container(content=card, col={"xs": 12, "md": 6, "lg": 4}) for card in cards], spacing=12),
+            kit.TableColumn("capability", "Capability"),
+            kit.TableColumn("lifecycle", "Lifecycle"),
+            kit.TableColumn("authority", "Authority"),
+            kit.TableColumn("data", "Data readiness"),
+            kit.TableColumn("validation", "Validation"),
+            kit.TableColumn("limitation", "Limitation"),
+            kit.TableColumn("open", "Open"),
         ],
+        capability_rows,
         expand=True,
-        scroll=ft.ScrollMode.AUTO,
-        spacing=14,
+        empty_title="Capability map unavailable",
+        empty_reason="The local feature registry is unavailable or requires manual review.",
+    )
+    data_report = getattr(getattr(state, "snapshot", None), "data_report", None)
+    data_health = getattr(data_report, "status", "Unavailable")
+    data_issues = len(getattr(data_report, "issues", ()) or ()) if data_report is not None else "Unavailable"
+    feature_details = [
+        f"{getattr(entry, 'name', getattr(entry, 'feature_id', 'Unavailable'))} · lifecycle={getattr(entry, 'lifecycle', 'Unavailable')} · authority={getattr(entry, 'authority', 'Unavailable')} · routes={','.join(getattr(entry, 'canonical_routes', ()) or ())} · data={','.join(getattr(entry, 'required_data', ()) or ())} · limitations={'; '.join(getattr(entry, 'limitations', ()) or ())}"
+        for entry in entries
+    ]
+    capability_card = kit.GlassCard(
+        "Capability map",
+        note="Lifecycle, authority, data readiness, validation and limitations",
+        body=ft.Column(
+            [
+                capability_table,
+                kit.Disclosure(
+                    "Capability validation details",
+                    f"Readiness: feature_registry={'loaded' if entries else 'unavailable'}\nValidation: data-health={data_health}; {data_issues} issue(s); execution_allowed=false.\n"
+                    + "\n".join(feature_details),
+                ),
+            ],
+            spacing=8,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
+
+    active_stage = next(
+        (stage.label for stage in getattr(getattr(matrix, "policy", None), "authority_stages", ()) if stage.enabled_by_default),
+        None,
+    )
+    matrix_policy = getattr(matrix, "policy", None)
+    matrix_version = getattr(scope, "matrix_version", None) if getattr(scope, "status", None) == "available" else None
+    matrix_capabilities = tuple(getattr(matrix_policy, "capabilities", ()) or ()) if matrix_policy is not None else ()
+    product_card = kit.GlassCard(
+        "Product contract",
+        body=ft.Column(
+            [
+                kit.Headline(active_stage or "Unavailable"),
+                kit.KpiTile(
+                    "Capabilities",
+                    str(len(matrix_capabilities)) if matrix_capabilities else None,
+                    "Declared in the local matrix." if matrix_capabilities else "Unavailable: capability entries are not available in the local matrix.",
+                ),
+                kit.KpiTile("Execution", "disabled", "Execution remains disabled by policy.", tone="neg"),
+                kit.KpiTile("Matrix", matrix_version, "Unavailable: capability matrix is not available." if matrix_version is None else ""),
+                kit.Note("Execution: disabled by policy; every route, dataset, model, strategy and broker capability is declared."),
+                kit.Disclosure(
+                    "Authority details",
+                    f"active_stage={active_stage or 'Unavailable'}\nADR {getattr(matrix_policy, 'adr_id', 'Unavailable')}\nchecksum={getattr(matrix, 'checksum', 'Unavailable')}\nexecution_allowed=false",
+                ),
+                kit.Disclosure(
+                    "External components and future execution",
+                    "Availability: Not installed. No broker execution. This cockpit presents local evidence and research context only.\n"
+                    "Future-only architecture: paper mode first, then broker_read_only observations and human-reviewed order previews; capped_automatic remains separately gated and disabled.\n"
+                    "Controls required before any future transition: max order value, position size, daily turnover, daily loss, drawdown kill switch, cooldowns, market-hours checks, stale-data block and news/event block.\n"
+                    "Future governance requires explicit human confirmation of order previews, an immutable audit log and an independent emergency disable. LLM or model-only authority is prohibited.\n"
+                    + "\n".join(
+                        f"{row.get('component_id', 'Unavailable')} · {row.get('integration_boundary', 'Unavailable')} · {row.get('exact_ref', 'Unavailable')}"
+                        for row in supply_chain.get("components", [])
+                    )
+                    + f"\nregistry_sha256={supply_chain.get('registry_sha256', 'Unavailable')}\nthird_party_notices={supply_chain.get('third_party_notices', 'Unavailable')}\nexecution_allowed=false"
+                ),
+            ],
+            spacing=8,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
+
+    stages = tuple(getattr(scope, "stages", ()) or ()) if getattr(scope, "status", None) == "available" else ()
+    strategy_rows = []
+    for row in getattr(scope, "strategies", ()) if stages else ():
+        stage_values = {}
+        summaries = tuple(getattr(row, "stage_summary", ()) or ())
+        for stage in stages:
+            status = next((value.split(":", 1)[-1].strip() for value in summaries if value.casefold().startswith(f"{stage}".casefold())), None)
+            display_status = status.replace("_", " ").title() if status else None
+            stage_values[str(stage)] = kit.Tag(display_status, "ok" if status and status.casefold() in {"available", "allowed", "supported"} else "mute") if display_status else "—"
+        strategy_rows.append({"strategy": row.strategy_id, **stage_values})
+    strategy_columns = [kit.TableColumn("strategy", "Strategy")] + [kit.TableColumn(str(stage), str(stage).replace("_", " ").title()) for stage in stages]
+    stage_grid = kit.DataTable(
+        strategy_columns,
+        strategy_rows,
+        expand=True,
+        empty_title="Strategy stage coverage unavailable",
+        empty_reason="The local capability matrix is unavailable; stage coverage is not inferred.",
+    )
+    instrument_lines = [
+        f"{row.asset_family} · {row.state} · {row.reason_code} · horizons={','.join(row.horizons)} · {row.prerequisite_summary} · {'; '.join(row.stage_summary)}"
+        for row in getattr(scope, "instruments", ())
+    ]
+    rejected_rows = [
+        kit.ListRow("bad", str(strategy), "Rejected strategy capability", tag=("rejected", "bad"))
+        for strategy in getattr(scope, "rejected_strategy_ids", ())
+    ]
+    if not rejected_rows:
+        rejected_rows = [kit.EmptyState("Unavailable", "Rejected strategies are not available from the local capability matrix.")]
+    strategy_card = kit.GlassCard(
+        "Strategy and instrument capabilities",
+        note="Stage coverage from the local matrix",
+        body=ft.Column(
+            [
+                stage_grid,
+                kit.Disclosure("Instrument capabilities", "\n".join(instrument_lines) or "Unavailable: instrument capabilities are not in the local matrix."),
+                kit.Disclosure(
+                    "Matrix details",
+                    f"stages={' · '.join(str(stage) for stage in stages)}\nrejected={'; '.join(getattr(scope, 'rejected_strategy_ids', ()))}\nchecksum={getattr(scope, 'checksum', 'Unavailable')}\nexecution_allowed=false\n"
+                    + "\n".join(
+                        f"{row.strategy_id} · {row.lifecycle} · authority={row.authority} · ui={row.ui_visibility} · data={','.join(row.required_data)} · tests={','.join(row.tests)} · score_authority={str(row.score_authority).lower()} · paper_authority={str(row.paper_authority).lower()} · live_authority=false · {'; '.join(row.stage_summary)}"
+                        for row in getattr(scope, "strategies", ())
+                    ),
+                ),
+            ],
+            spacing=8,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
+    rejected_card = kit.GlassCard("Rejected strategies", body=ft.Column(rejected_rows, spacing=4, scroll=ft.ScrollMode.AUTO), expand=True)
+
+    capabilities_view = ft.ResponsiveRow(
+        [
+            ft.Container(content=product_card, col={"xs": 12, "md": 4}),
+            ft.Container(content=capability_card, col={"xs": 12, "md": 8}),
+        ],
+        spacing=12,
+        run_spacing=12,
+        expand=True,
+    )
+    strategies_view = ft.ResponsiveRow(
+        [
+            ft.Container(content=strategy_card, col={"xs": 12, "md": 8}),
+            ft.Container(content=rejected_card, col={"xs": 12, "md": 4}),
+        ],
+        spacing=12,
+        run_spacing=12,
+        expand=True,
+        visible=False,
+    )
+    body = ft.Column([capabilities_view, strategies_view], expand=True, scroll=ft.ScrollMode.AUTO, spacing=12)
+
+    def show_segment(name: str) -> None:
+        capabilities_view.visible = name == "Capabilities"
+        strategies_view.visible = name == "Strategies"
+        if page is not None and hasattr(page, "update"):
+            page.update()
+
+    return PageView(
+        PageChrome(
+            "System Map",
+            "Lifecycle, authority, data readiness and routes for every capability",
+            (SegmentGroup("system_map_view", ("Capabilities", "Strategies"), "Capabilities", show_segment),),
+        ),
+        body,
     )
 
 
