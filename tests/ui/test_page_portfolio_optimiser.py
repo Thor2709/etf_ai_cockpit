@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import flet as ft
 import pandas as pd
 
+from etf_cockpit.app.components.shell.page_view import PageView
 from etf_cockpit.app.pages.portfolio_optimiser import portfolio_optimiser_page
 from etf_cockpit.core.config import load_config
 
@@ -35,14 +36,30 @@ def _state(with_prices: bool = True):
 
 
 def _text(view) -> str:
-    return "\n".join(str(item.value) for item in _walk(view.body) if isinstance(item, ft.Text))
+    values = []
+    for item in _walk(view.body):
+        if isinstance(item, ft.Text):
+            values.append(str(item.value))
+        if isinstance(item, ft.Dropdown):
+            values.append(str(item.value))
+            values.extend(str(option.text) for option in item.options)
+    return "\n".join(values)
 
 
 def test_renders_with_sample_data() -> None:
     view = portfolio_optimiser_page(None, _state())
     content = _text(view)
-    assert view.__class__.__name__ == "PageView"
-    assert all(title in content for title in ("Constraints and method", "Risk-return frontier and baseline comparison", "Method comparison", "Weights by method", "Audit and limitations"))
+    assert isinstance(view, PageView)
+    assert all(
+        title in content
+        for title in (
+            "Constraints and method",
+            "Risk-return frontier and baseline comparison",
+            "Method comparison",
+            "Weights by method",
+            "Audit and limitations",
+        )
+    )
     assert "Equal weight" in content
     assert "Traceback" not in content
 
@@ -50,5 +67,9 @@ def test_renders_with_sample_data() -> None:
 def test_empty_data_shows_unavailable() -> None:
     view = portfolio_optimiser_page(None, _state(with_prices=False))
     content = _text(view)
+    assert isinstance(view, PageView)
     assert "Unavailable" in content or "unavailable" in content
-    assert all(line != "0" for line in content.splitlines())
+    for control in _walk(view.body):
+        data = getattr(control, "data", None)
+        if isinstance(data, dict) and data.get("kit") == "DataTable":
+            assert all(str(value) != "0" for row in data.get("rows", ()) for value in row.values())

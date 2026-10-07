@@ -9,12 +9,48 @@ import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components import chartkit as ck
-from etf_cockpit.app.components.kit import Button, Disclosure, GlassCard, KpiTile, ListRow, Note, Segmented
+from etf_cockpit.app.components.kit import (
+    Button,
+    Disclosure,
+    EmptyState,
+    Field,
+    GlassCard,
+    KpiTile,
+    ListRow,
+    Note,
+    Segmented,
+    Well,
+)
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
+from etf_cockpit.app.formatting import format_count, format_timestamp
 from etf_cockpit.app.pages._l4a_common import input_of, page_body, text_field
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import ForwardEvidenceDiary, ForwardEvidenceObservation, ForwardInputManifest
 from etf_cockpit.core.paths import DATA_DIR
+
+
+_PROPOSAL_OUTCOMES = {
+    "Not proposed": "not_proposed",
+    "Observation only": "observation_only",
+    "Paper proposed": "paper_proposed",
+    "Paper accepted": "paper_accepted",
+    "Paper rejected": "paper_rejected",
+    "Cancelled": "cancelled",
+    "Expired": "expired",
+}
+_OUTCOME_STATUSES = {
+    "Available": "available",
+    "Unavailable": "unavailable",
+    "Stale": "stale",
+    "Conflicted": "conflicted",
+}
+_STATUS_LABELS = {
+    "pending": ("Pending", "mute"),
+    "available": ("Available", "ok"),
+    "unavailable": ("Unavailable", "bad"),
+    "stale": ("Stale", "warn"),
+    "conflicted": ("Conflicted", "warn"),
+}
 
 
 def _split(value: str | None) -> tuple[str, ...]:
@@ -58,8 +94,8 @@ def forward_evidence_page(page: ft.Page | None, state: AppState) -> PageView:
     }
     proposal_outcome = {"value": "observation_only"}
     outcome_status = {"value": "available"}
-    state_segment = {"value": "Record"}
-    status = ft.Text("No external or broker action is available; execution_allowed=false.")
+    selected_view = {"value": "Record"}
+    status_note = Note("No external or broker action is available; execution_allowed=false.")
     entries: list[object] = []
 
     def refresh() -> None:
@@ -69,7 +105,7 @@ def forward_evidence_page(page: ft.Page | None, state: AppState) -> PageView:
             entries.clear()
 
     def show(message: str) -> None:
-        status.value = message
+        status_note.value = message
         if page is not None:
             page.update()
 
@@ -125,89 +161,156 @@ def forward_evidence_page(page: ft.Page | None, state: AppState) -> PageView:
         except Exception:
             show("Outcome unavailable: check required fields and local storage.")
 
+    proposal_field = Field(
+        "Proposal outcome",
+        options=list(_PROPOSAL_OUTCOMES),
+        value="Observation only",
+        on_change=lambda label: proposal_outcome.update(value=_PROPOSAL_OUTCOMES[label]),
+    )
+    outcome_segment = Segmented(
+        list(_OUTCOME_STATUSES),
+        "Available",
+        on_change=lambda label: outcome_status.update(value=_OUTCOME_STATUSES[label]),
+    )
+    record_form = ft.Column(
+        [
+            fields["observation_id"],
+            fields["instrument_ids"],
+            fields["decision_as_of"],
+            fields["decision"],
+            proposal_field,
+            fields["proposal_id"],
+            fields["paper_order_ids"],
+            fields["rationale"],
+            Disclosure(
+                "hashes and sources",
+                ft.Column(
+                    [
+                        fields[name]
+                        for name in (
+                            "data_hash",
+                            "formula_hash",
+                            "model_hash",
+                            "portfolio_hash",
+                            "policy_hash",
+                            "proposal_hash",
+                            "source_authority",
+                            "source_checksum",
+                        )
+                    ],
+                    spacing=theme.SPACE_2,
+                ),
+            ),
+            Button.primary("Record observation", key="forward-evidence.record", on_click=record_observation),
+            status_note,
+        ],
+        spacing=theme.SPACE_2,
+    )
+    mature_form = ft.Column(
+        [
+            fields["update_id"],
+            ft.Column([Note("Outcome status"), outcome_segment], spacing=theme.SPACE_1),
+            fields["outcome_as_of"],
+            Disclosure(
+                "outcome sources",
+                ft.Column(
+                    [fields["outcome_authority"], fields["outcome_checksum"], fields["metrics"]],
+                    spacing=theme.SPACE_2,
+                ),
+            ),
+            fields["outcome_notes"],
+            Button.primary("Update outcome", key="forward-evidence.update", on_click=update_outcome),
+            status_note,
+            Note("No external or broker action is available; execution_allowed=false."),
+        ],
+        spacing=theme.SPACE_2,
+    )
+    form_host = ft.Container(content=record_form)
+    manifest_card = GlassCard("Decision-time manifest / Mature outcome", body=form_host)
+
+    def show_view(value: str) -> None:
+        selected_view["value"] = value
+        form_host.content = record_form if value == "Record" else mature_form
+        if page is not None:
+            page.update()
+
     refresh()
-    recent = [
-        ListRow(
-            "info",
-            row.observation.observation_id,
-            f"{row.observation.manifest.as_of.isoformat()} · {row.outcome.status}",
-            tag=(str(row.outcome.status), "mute"),
-        )
-        for row in entries[-12:]
-    ] or [ListRow("info", "No observations yet.")]
     backtest = getattr(state.snapshot, "backtest", None)
     evidence = getattr(backtest, "quality_momentum_evidence", None)
     metadata = getattr(backtest, "metadata", {}) or {}
-    count = metadata.get("quality_momentum_evidence_rows")
-    count = count if count else None
+    observations = metadata.get("quality_momentum_evidence_rows") if hasattr(metadata, "get") else None
     available = None
-    if evidence is not None and hasattr(evidence, "get") and "status" in evidence and not evidence.empty:
-        available = int((evidence["status"].astype(str) == "available").sum())
-        available = available or None
-    record_card = GlassCard(
-        "Decision-time manifest",
-        body=ft.Column(
-            [
-                fields["observation_id"],
-                fields["instrument_ids"],
-                fields["decision_as_of"],
-                fields["decision"],
-                Segmented(
-                    ["not_proposed", "observation_only", "paper_proposed", "paper_accepted", "paper_rejected", "cancelled", "expired"],
-                    "observation_only",
-                    on_change=lambda value: proposal_outcome.update(value=value),
-                ),
-                fields["proposal_id"],
-                fields["paper_order_ids"],
-                fields["rationale"],
-                Disclosure("hashes and sources", ft.Column([fields[name] for name in ("data_hash", "formula_hash", "model_hash", "portfolio_hash", "policy_hash", "proposal_hash", "source_authority", "source_checksum")])),
-                Button.primary("Record observation", key="forward-evidence.record", on_click=record_observation),
-            ],
-            spacing=theme.SPACE_2,
-        ),
-    )
-    mature_card = GlassCard(
-        "Mature outcome",
-        body=ft.Column(
-            [
-                fields["update_id"],
-                Segmented(["available", "unavailable", "stale", "conflicted"], "available", on_change=lambda value: outcome_status.update(value=value)),
-                fields["outcome_as_of"],
-                Disclosure("outcome sources", ft.Column([fields["outcome_authority"], fields["outcome_checksum"], fields["metrics"]])),
-                fields["outcome_notes"],
-                Button.primary("Update outcome", key="forward-evidence.update", on_click=update_outcome),
-                status,
-                Note("No external or broker action is available; execution_allowed=false."),
-            ],
-            spacing=theme.SPACE_2,
-        ),
-    )
-    summary = GlassCard(
+    if evidence is not None and hasattr(evidence, "get") and "status" in evidence and not getattr(evidence, "empty", True):
+        available = int((evidence["status"].astype(str).str.casefold() == "available").sum())
+    backtest_status = getattr(backtest, "status", None)
+    status_label = {"available": "Available", "partial": "Partial", "unavailable": "Unavailable"}.get(
+        str(backtest_status).casefold(),
+    ) if backtest_status is not None else None
+    summary_card = GlassCard(
         "Quality-momentum forward paper evidence",
         body=ft.Column(
             [
-                KpiTile("Backtest observations", count, sub="Unavailable in the current backtest result"),
-                KpiTile("Available", available, sub="Unavailable in the current backtest result"),
-                KpiTile("Status", "Unavailable"),
-                KpiTile("Fills", "next adjusted close"),
+                KpiTile(
+                    "Backtest observations",
+                    format_count(observations, unavailable="—") if observations is not None else None,
+                    sub="Quality-momentum backtest observations" if observations is not None else "Backtest observations are unavailable",
+                ),
+                KpiTile(
+                    "Available",
+                    format_count(available, unavailable="—") if available is not None else None,
+                    sub="Available outcome observations" if available is not None else "Availability evidence is unavailable",
+                ),
+                KpiTile(
+                    "Status",
+                    status_label,
+                    sub="Backtest result status" if status_label is not None else "Backtest result status is unavailable",
+                ),
+                KpiTile("Fills", "next adjusted close", sub="Forward paper evidence method"),
                 Note("Use the decision-time hashes below to record a local paper observation; no broker or external action is created."),
             ],
             spacing=theme.SPACE_2,
         ),
     )
-    cards = [
-        GlassCard("Decision-time manifest / Mature outcome", body=ft.Column([record_card, mature_card], spacing=theme.SPACE_2)),
-        summary,
-        GlassCard("Outcomes over time", body=ck.scatter_bubble([], x_name="Decision date", y_name="Matured excess return (%)", y_unit="%", insight="Matured excess returns by outcome status.", unavailable_reason="No observations yet.")),
-        GlassCard("Recent local diary entries", body=ft.Column(recent, spacing=theme.SPACE_2)),
-    ]
+
+    outcomes = ck.scatter_bubble(
+        [],
+        x_name="Decision date",
+        y_name="Matured excess return (%)",
+        y_unit="%",
+        insight="Matured excess returns by outcome status.",
+        unavailable_reason="No canonical matured excess-return series is provided by the local diary records.",
+    )
+    outcomes_card = GlassCard("Outcomes over time", body=Well(outcomes))
+    recent_rows = []
+    for row in entries[-12:]:
+        status_key = str(row.outcome.status).casefold()
+        label, kind = _STATUS_LABELS.get(status_key, ("Unavailable", "bad"))
+        recent_rows.append(
+            ListRow(
+                "info" if status_key in {"pending", "available"} else "warn" if status_key == "stale" else "bad",
+                row.observation.observation_id,
+                f"{format_timestamp(row.observation.manifest.as_of, unavailable='—')} · {label}",
+                tag=(label, kind),
+            )
+        )
+    recent_host = ft.Column(
+        recent_rows or [Well(EmptyState("No observations yet", "Record a local observation opportunity to begin."))],
+        spacing=theme.SPACE_2,
+    )
     return PageView(
         chrome=PageChrome(
             "Forward Evidence Diary",
             "Frozen decisions checked against outcomes after their horizons mature",
-            [SegmentGroup("forward-evidence", ["Record", "Mature"], state_segment["value"], on_change=lambda value: state_segment.update(value=value))],
+            [SegmentGroup("forward-evidence", ["Record", "Mature"], selected_view["value"], show_view)],
         ),
-        body=page_body(cards),
+        body=page_body(
+            [
+                manifest_card,
+                summary_card,
+                outcomes_card,
+                GlassCard("Recent local diary entries", body=recent_host),
+            ]
+        ),
     )
 
 
