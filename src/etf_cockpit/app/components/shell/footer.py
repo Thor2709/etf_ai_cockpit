@@ -155,7 +155,7 @@ def build_footer(
 
     def set_width(window_width: float | None) -> None:
         """Drop the lowest-priority items whole when the rail would not fit (never cut an item mid-word)."""
-        if window_width is None:
+        if not window_width or window_width <= 0:  # unknown width: default to WIDE (show everything)
             for _p, _w, controls in groups:
                 for item in controls:
                     item.visible = True
@@ -165,13 +165,13 @@ def build_footer(
         used = 0.0
         shown: set[int] = set()
         for priority, estimate, _controls in sorted(groups, key=lambda group: group[0]):
-            if used + estimate + 16 <= available or priority == 0:
+            if used + estimate + 16 <= available or priority in (0, 1):  # lock + authority label never drop
                 used += estimate + 16
                 shown.add(priority)
         for priority, _w, controls in groups:
             for item in controls:
                 item.visible = priority in shown
-        spacer.visible = (not state["compact"]) and 1 in shown
+        spacer.visible = not state["compact"]
 
     def set_compact(value: bool) -> None:
         state["compact"] = value
