@@ -292,9 +292,11 @@ def y_axis(
         else:
             nx = name_x if name_x is not None else min(plot.width - 11.0, plot.x1 + 46)
         # Rotated name: keep its whole length inside the canvas (truncate with an ellipsis, shift the centre).
+        # The estimate only centres the name; the ellipsis limit is the widest span centred on the name inside the canvas (the font runs wider
+        # than the estimate, so using it as the limit cut names such as "Drawdown (%)" far too early).
         length = min(text_width(name, 13) * 1.08, plot.height - 8)
         cy = min(max((plot.y0 + plot.y1) / 2, 4 + length / 2), plot.height - 4 - length / 2)
-        scene.add(txt(nx, cy, name, size=13, weight=500, color=pal.T2, max_width=length,
+        scene.add(txt(nx, cy, name, size=13, weight=500, color=pal.T2, max_width=max(length, 2 * min(cy - 4, plot.height - 4 - cy)),
                       rotate=-math.pi / 2 if side == "left" else math.pi / 2))
     return scale
 
@@ -304,7 +306,8 @@ def x_axis_line(scene: Scene, plot: Plot, name: str | None = None, *, name_gap: 
     if name:
         length = min(text_width(name, 13) * 1.08, plot.width - 8)
         cx = min(max((plot.x0 + plot.x1) / 2, 4 + length / 2), plot.width - 4 - length / 2)
-        scene.add(txt(cx, min(plot.y1 + name_gap, plot.height - 12), name, size=13, weight=500, color=pal.T2, max_width=length))
+        scene.add(txt(cx, min(plot.y1 + name_gap, plot.height - 12), name, size=13, weight=500, color=pal.T2,
+                      max_width=max(length, 2 * min(cx - 4, plot.width - 4 - cx))))
 
 
 def category_labels(

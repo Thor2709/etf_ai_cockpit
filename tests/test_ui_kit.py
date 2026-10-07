@@ -159,3 +159,11 @@ def test_backdrop_uses_and_softens_local_image(tmp_path: Path) -> None:
     assert isinstance(rendered.controls[0], ft.Image)
     assert rendered.controls[0].src == str(image_path)
     assert rendered.controls[1].blur == 4
+
+
+def test_glass_card_header_gives_the_title_width_priority_over_the_note() -> None:
+    card = kit.GlassCard("Rolling 12-month return vs. benchmark", "percent per month-end", body=ft.Text("x"))
+    row = next(c for c in _walk(card) if isinstance(c, ft.Row) and len(c.controls) == 2)
+    title, note = row.controls
+    assert title.expand > 4 * note.expand  # the note shrinks (ellipsis + tooltip) before the title does
+    assert note.tooltip == "percent per month-end"

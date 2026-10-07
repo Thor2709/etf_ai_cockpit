@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from flet import canvas as cv
 
 from etf_cockpit.app.components import chartkit as ck
+from etf_cockpit.app.components.chartkit.core import text_width
 
 
 def _scene(control):
@@ -109,3 +110,11 @@ def test_axis_names_stay_inside_small_frame():
         w, h = (13, length) if rotated else (length, 13)
         assert t.x - w / 2 >= 0 and t.x + w / 2 <= width, name
         assert t.y - h / 2 >= 0 and t.y + h / 2 <= height, name
+
+
+def test_axis_names_truncate_only_at_the_plot_extent():
+    chart = ck.histogram(["<3", "3", "4", "5"], [1, 3, 10, 20], x_name="Component score band", y_name="Drawdown (%)",
+                         width=600, height=400)
+    texts = {t.value: t for t in _scene(chart).shapes if isinstance(t, cv.Text)}
+    assert texts["Component score band"].max_width >= 3 * text_width("Component score band", 13)
+    assert texts["Drawdown (%)"].max_width >= 3 * text_width("Drawdown (%)", 13)
