@@ -379,6 +379,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
             on_depth=lambda: open_depth_dialog(page, state, on_changed=refresh_footer),
             on_settings=lambda: go("/settings"),
             compact=mode["width"] < 1500,
+            width=mode["width"],
         )
 
     footer = make_footer()
@@ -470,6 +471,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         new_narrow = uses_narrow_layout(page, state, width)
         before = (mode["narrow"], mode["width"] < 1500, mode["width"] < 1300, mode["height"] < 900)
         mode.update(narrow=new_narrow, width=new_width, height=new_height)
+        footer.set_width(new_width)
         after = (new_narrow, new_width < 1500, new_width < 1300, new_height < 900)
         if before == after:
             return False

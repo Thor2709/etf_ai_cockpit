@@ -117,19 +117,23 @@ def build_topbar(
     compact = width < COMPACT_BELOW
     title_width = TITLE_WIDTH_COMPACT if compact else TITLE_WIDTH
 
+    # The text column always fills the title block (expand) so a long subtitle ellipsizes (with tooltip) instead of clipping.
     title_row: list[ft.Control] = [
-        ft.Column(
-            [
-                txt(chrome.title, 27, 720, theme.INK, tracking=-0.022, line_height=30, trunc=True),
-                txt(chrome.subtitle, 12.5, 600, theme.INK2, line_height=16, trunc=True),
-            ],
-            spacing=2,
-            tight=True,
-            alignment=ft.MainAxisAlignment.CENTER,
+        ft.Container(
+            content=ft.Column(
+                [
+                    txt(chrome.title, 27, 720, theme.INK, tracking=-0.022, line_height=30, trunc=True),
+                    txt(chrome.subtitle, 12.5, 600, theme.INK2, line_height=16, trunc=True),
+                ],
+                spacing=2,
+                tight=True,
+                alignment=ft.MainAxisAlignment.CENTER,
+            ),
+            expand=True,
         )
     ]
     if has_menu:
-        title_row = [ft.Container(content=title_row[0], expand=True), ft.Icon(ft.Icons.KEYBOARD_ARROW_DOWN, size=16, color=theme.INK2)]
+        title_row.append(ft.Icon(ft.Icons.KEYBOARD_ARROW_DOWN, size=16, color=theme.INK2))
     title_block = ft.Container(
         content=ft.Row(title_row, spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         width=title_width,

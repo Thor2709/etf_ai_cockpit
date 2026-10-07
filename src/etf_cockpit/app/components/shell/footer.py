@@ -25,6 +25,7 @@ _DOT_GLOW = {"ok": theme.rgba(111, 207, 166, 0.6), "warn": theme.rgba(230, 194, 
 class Footer:
     control: ft.Container
     set_compact: Callable[[bool], None]
+    set_width: Callable[[float | None], None] = lambda _width: None
 
 
 def _pair(label: str, value: str, *, key: str, tooltip: str | None = None, unavailable: bool = False,
@@ -58,6 +59,7 @@ def build_footer(
     on_depth: Callable[[], None],
     on_settings: Callable[[], None],
     compact: bool,
+    width: float | None = None,
 ) -> Footer:
     lock = ft.Container(
         key="shell.safety.execution",
@@ -122,24 +124,24 @@ def build_footer(
     )
     authority_text = "execution_allowed=false" + (" · sample data" if values.sample_data else "")
     spacer = ft.Container(expand=True, visible=not compact)
-    items: list[ft.Control] = [
-        lock,
-        quality,
-        divider(),
-        _pair("As of", values.as_of, key="shell.safety.as-of-time", tooltip=values.as_of_reason,
-              unavailable=values.as_of_reason is not None and values.as_of == UNAVAILABLE),
-        divider(),
-        _pair("Prices:", "adjusted", key="shell.safety.price-basis", tooltip="Adjusted, corporate-action-aware prices"),
-        divider(),
-        _pair("Forecast:", values.forecast, key="shell.safety.forecast-source", tooltip=values.forecast_reason,
-              unavailable=values.forecast == UNAVAILABLE),
-        divider(),
-        depth,
-        divider(),
-        profile,
-        spacer,
-        _pair("", authority_text, key="shell.safety.execution-authority", tooltip=LOCK_TOOLTIP),
+    forecast_pair = _pair("Forecast:", values.forecast, key="shell.safety.forecast-source", tooltip=values.forecast_reason,
+                          unavailable=values.forecast == UNAVAILABLE)
+    as_of_pair = _pair("As of", values.as_of, key="shell.safety.as-of-time", tooltip=values.as_of_reason,
+                       unavailable=values.as_of_reason is not None and values.as_of == UNAVAILABLE)
+    prices_pair = _pair("Prices:", "adjusted", key="shell.safety.price-basis", tooltip="Adjusted, corporate-action-aware prices")
+    authority = _pair("", authority_text, key="shell.safety.execution-authority", tooltip=LOCK_TOOLTIP)
+    # (priority, estimated width, controls). Lower priority numbers survive narrow windows; items hide whole.
+    groups: list[tuple[int, float, list[ft.Control]]] = [
+        (0, 150.0, [lock]),
+        (2, 150.0, [quality]),
+        (3, 130.0, [divider(), as_of_pair]),
+        (7, 130.0, [divider(), prices_pair]),
+        (5, 120.0 + 6.8 * len(values.forecast), [divider(), forecast_pair]),
+        (4, 110.0 + 6.8 * len(depth_value), [divider(), depth]),
+        (6, 40.0 + 6.8 * len(profile_text or UNAVAILABLE), [divider(), profile]),
+        (1, 40.0 + 6.8 * len(authority_text), [spacer, authority]),
     ]
+    items: list[ft.Control] = [control for _p, _w, controls in groups for control in controls]
     row = ft.Row(items, spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER)
     # Overflow scrolls inside the rail; a right-edge fade shows that more content follows (rulebook V9).
     fade = ft.ShaderMask(
@@ -149,11 +151,35 @@ def build_footer(
     )
     control = glass(fade, radius=theme.RADIUS_FOOTER, padding=sym(20, 0), height=FOOTER_HEIGHT, key="shell.safety-rail")
 
+    state = {"compact": compact}
+
+    def set_width(window_width: float | None) -> None:
+        """Drop the lowest-priority items whole when the rail would not fit (never cut an item mid-word)."""
+        if window_width is None:
+            for _p, _w, controls in groups:
+                for item in controls:
+                    item.visible = True
+            spacer.visible = not state["compact"]
+            return
+        available = window_width - 84 - 24 * 3 - 40  # dock, page margins, rail padding
+        used = 0.0
+        shown: set[int] = set()
+        for priority, estimate, _controls in sorted(groups, key=lambda group: group[0]):
+            if used + estimate + 16 <= available or priority == 0:
+                used += estimate + 16
+                shown.add(priority)
+        for priority, _w, controls in groups:
+            for item in controls:
+                item.visible = priority in shown
+        spacer.visible = (not state["compact"]) and 1 in shown
+
     def set_compact(value: bool) -> None:
+        state["compact"] = value
         row.scroll = ft.ScrollMode.AUTO if value else None
         spacer.visible = not value
         fade.shader.colors = list(_FADE_ON if value else _FADE_OFF)
 
     set_compact(compact)
+    set_width(width)
 
-    return Footer(control, set_compact)
+    return Footer(control, set_compact, set_width)
