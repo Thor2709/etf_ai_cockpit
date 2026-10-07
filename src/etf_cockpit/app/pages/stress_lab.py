@@ -339,6 +339,7 @@ def stress_lab_page(page: ft.Page | None, state: AppState) -> PageView:
                 reverse_host,
                 Button.primary("Run reverse stress", key="stress-lab.reverse", on_click=reverse),
                 reverse_details,
+                ft.Row([Tag("Probability: not estimated", "warn")]),
                 Note("No probability or execution authority is created; execution_allowed=false."),
             ],
             spacing=theme.SPACE_2,
