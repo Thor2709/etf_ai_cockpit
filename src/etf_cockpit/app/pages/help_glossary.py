@@ -11,6 +11,7 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.glass_pages import page_panel
 from etf_cockpit.app.components.kit import (
     Button,
+    Disclosure,
     EmptyState,
     Field,
     GlassCard,
@@ -312,7 +313,8 @@ def _terms_card(page, legal_report, *, extended: bool) -> ft.Control:
             )
         )
     column += [
-        ft.Row([Button.primary("Open user guide", open_guide), Button.secondary(guide, copy_path)], spacing=12),
+        ft.Row([Button.primary("Open user guide", open_guide), Button.secondary("Copy guide path", copy_path)], spacing=12),
+        Disclosure("user guide path", guide),
         ft.Row(
             [
                 KpiTile("Execution", "locked", "execution_allowed=false", tone="neg", expand=True),

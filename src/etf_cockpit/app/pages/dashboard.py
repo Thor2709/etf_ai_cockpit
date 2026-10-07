@@ -533,14 +533,13 @@ def _open_workflow_sheet(page: ft.Page, state: AppState) -> None:
         if hasattr(page, "pop_dialog"):
             page.pop_dialog()
 
-    dialog = ft.AlertDialog(
-        modal=True,
-        bgcolor=theme.GLASS_FILL_SOLID,
-        shape=ft.RoundedRectangleBorder(radius=theme.CARD_RADIUS),
-        title=text("Daily workflow", 15, 600, shadow=True),
-        content=ft.Container(width=560, content=_workflow_stepper(page, state)),
-        actions=[Button.secondary("Close", close)],
+    sheet = GlassCard(
+        "Daily workflow",
+        "",
+        body=ft.Column([_workflow_stepper(page, state), ft.Row([Button.secondary("Close", close)])], spacing=theme.SPACE_3),
+        width=560,
     )
+    dialog = ft.AlertDialog(modal=True, bgcolor=ft.Colors.TRANSPARENT, content_padding=0, content=sheet)
     if hasattr(page, "show_dialog"):
         page.show_dialog(dialog)
 
@@ -1251,10 +1250,12 @@ def _activity_panel(state: AppState, *, page: ft.Page | None = None) -> ft.Contr
                     spacing=theme.SPACE_3,
                     wrap=True,
                 ),
-                ft.ProgressBar(
-                    value=(current.completed_units / current.total_units if current.total_units else None),
-                    color=theme.CYAN,
-                    bgcolor=theme.WELL_FILL,
+                Well(
+                    ft.ProgressBar(
+                        value=(current.completed_units / current.total_units if current.total_units else None),
+                        color=theme.CYAN,
+                        bgcolor=ft.Colors.TRANSPARENT,
+                    )
                 ),
                 ft.Text(f"Current step: {current.step}", color=theme.MUTED),
                 ft.Text(f"Started: {current.started_at}", color=theme.MUTED, size=theme.FONT_XS),
