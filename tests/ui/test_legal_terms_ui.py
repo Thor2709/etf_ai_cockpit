@@ -40,4 +40,6 @@ def test_user_facing_surfaces_show_disclaimer_and_terms_acknowledgement() -> Non
     assert disclaimer in _text(onboarding_page(None, state))
     assert "Terms acknowledgement" in _text(onboarding_page(None, state))
     assert disclaimer in _text(settings_page(None, state))
-    assert "restricted sources are not redistributed" in _text(help_glossary_page(None, state))
+    help_view = help_glossary_page(None, state)
+    help_view.chrome.segment_groups[0].on_change("Boundaries")  # legal status lives in the Boundaries segment
+    assert "restricted sources are not redistributed" in _text(help_view.body)

@@ -9,10 +9,36 @@ import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.glass_pages import page_panel
-from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.components.kit import (
+    Button,
+    Disclosure,
+    EmptyState,
+    Field,
+    GlassCard,
+    GlossaryItem,
+    Headline,
+    KpiTile,
+    ListRow,
+    Note,
+    Tag,
+    field_input_style,
+)
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
+from etf_cockpit.app.pages._p1_common import go, grid, make_layout, refresh, text, with_edge_fade
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.ui_facade import legal_terms_report
 from etf_cockpit.application.scope_facade import load_glossary
+from etf_cockpit.application.ui_facade import legal_terms_report
+from etf_cockpit.application.ui_views.help import (
+    SEGMENTS,
+    GlossaryTerm,
+    build_terms,
+    filter_terms,
+    find_term,
+    related_terms_for,
+    sentences,
+    slugify,
+)
+from etf_cockpit.core.navigation import ROUTE_TITLES
 
 
 panel = page_panel("help")
@@ -75,8 +101,8 @@ def page_help_panel(
     controls: list[ft.Control] = [
         ft.Column(
             [
-                ft.Text(f"About {title}", color=theme.CYAN, size=11, weight=ft.FontWeight.BOLD),
-                ft.Text(description, color=theme.MUTED, size=11, selectable=True),
+                ft.Text(f"About {title}", color=theme.CYAN, size=theme.FONT_XS, weight=ft.FontWeight.BOLD),
+                ft.Text(description, color=theme.MUTED, size=theme.FONT_XS, selectable=True),
             ],
             spacing=4,
             expand=True,
@@ -100,59 +126,268 @@ def page_help_panel(
     )
 
 
-def help_glossary_page(page: ft.Page | None, state: AppState) -> ft.Control:
+def _fit_size(word: str, size: float = 54, comfortable: int = 18) -> float:
+    """Scale a headline word down so long terms still fit their card (text protection)."""
+    return size if len(word) <= comfortable else max(28.0, round(size * comfortable / len(word), 1))
+
+
+def help_glossary_page(page: ft.Page | None, state: AppState) -> PageView:
     route = str(getattr(page, "route", "") or "") if page is not None else ""
     target = route.split("#", 1)[1].casefold() if "#" in route else ""
-
-    def _slug(term: str) -> str:
-        return term.casefold().replace(" ", "-").replace("/", "-")
-
-    def open_help(term: str) -> None:
-        if page is None:
-            return
-        suffix = f"#{_slug(term)}" if term else ""
-        go = getattr(page, "go", None)
-        if callable(go):
-            go(f"/help{suffix}")
-        else:
-            page.route = f"/help{suffix}"
     loaded = load_glossary()
     legal_report = legal_terms_report(Path.cwd())
-    if loaded.policy is not None and not loaded.diagnostic_mode:
-        rows: list[ft.Control] = [
-            panel(
-                ft.Column(
-                    [
-                        ft.TextButton(
-                            entry.term,
-                            key=f"help.glossary-term.{_slug(entry.term)}",
-                            tooltip=f"Open glossary definition for {entry.term}",
-                            on_click=lambda _event, term=entry.term: open_help(term),
-                        ),
-                        ft.Text("Selected definition", color=theme.CYAN, size=10) if target == _slug(entry.term) else ft.Container(height=0),
-                        ft.Text(entry.definition, color=theme.MUTED, selectable=True),
-                        ft.Text(entry.authority_note or "Authority remains bounded by evidence and policy.", color=theme.AMBER, size=11, selectable=True),
-                    ],
-                    spacing=6,
-                ),
-                expand=True,
+    titles = dict(ROUTE_TITLES)
+    available = loaded.policy is not None and not loaded.diagnostic_mode
+    terms = build_terms(loaded.policy.entries if available else (), PAGE_HELP, titles)
+    layout = make_layout(page)
+    came_from = str(getattr(state, "previous_route", "") or "/")
+    selection = {
+        "view": "Glossary",
+        "slug": target if find_term(terms, target) else (terms[0].slug if terms else ""),
+        "query": "",
+    }
+    holder = ft.Container(expand=True)
+    list_holder = ft.Container(expand=True)
+    definition_holder = ft.Container(expand=True)
+    search = ft.TextField(key="help.glossary-term.search", on_change=None, **field_input_style(placeholder="Type a term…"))
+    glossary_note: dict[str, ft.Text] = {}
+
+    def go_to(route_name: str) -> None:
+        go(page, state, route_name)
+
+    def open_help(term: str) -> None:
+        selection["slug"] = slugify(term)
+        paint_glossary()
+
+    def paint_glossary() -> None:
+        shown = filter_terms(terms, selection["query"])
+        items = []
+        for entry in shown:
+            item = GlossaryItem(
+                entry.term,
+                entry.gloss,
+                entry.slug == selection["slug"],
+                key=f"help.glossary-term.{entry.slug}",
             )
-            for entry in loaded.policy.entries
-        ]
-    else:
-        rows = [panel(ft.Text("Unavailable: glossary policy could not be loaded. Manual review is required.", color=theme.AMBER, selectable=True))]
-    return ft.Column(
-        [
-            section_header("Help and glossary", "Definitions are explanatory and do not grant authority."),
-            ft.Text("Authority is evidence-bounded. Manual review is required whenever evidence is incomplete or stale. Unavailable states are explicit and never imply a positive decision.", color=theme.MUTED, selectable=True),
-            ft.Text("User guide: docs/user/USER_GUIDE.md", color=theme.CYAN, selectable=True),
-            panel(ft.Column([section_header("Terms and use boundaries", "The registry records source and model permissions for local replay and audit export."), ft.Text("Research and education only. Not financial or tax advice. No broker execution or order transmission.", color=theme.AMBER, selectable=True), ft.Text(f"Legal terms status: {legal_report['status']} ({legal_report['review_status']}); restricted sources are not redistributed.", color=theme.MUTED, selectable=True)], spacing=6)),
-            ft.ResponsiveRow([ft.Container(content=row, col={"xs": 12, "md": 6}) for row in rows], spacing=12),
-        ],
-        expand=True,
-        scroll=ft.ScrollMode.AUTO,
-        spacing=14,
+            item.content.alignment = ft.MainAxisAlignment.SPACE_BETWEEN  # kit row is loose-fit: push the gloss right
+            item.on_click = lambda _event, name=entry.term: open_help(name)
+            items.append(item)
+        list_holder.content = (
+            with_edge_fade(ft.ListView(items, spacing=4, expand=True))
+            if items
+            else EmptyState("No matching term", "Try a shorter search, or clear the search field.")
+        )
+        if "note" in glossary_note:
+            glossary_note["note"].value = f"{len(shown)} of {len(terms)} terms"
+        definition_holder.content = _definition_card(find_term(terms, selection["slug"]), terms, open_help, available)
+        refresh(list_holder)
+        refresh(definition_holder)
+        if "note" in glossary_note:
+            refresh(glossary_note["note"])
+
+    def search_changed(event: object | None = None) -> None:
+        selection["query"] = search.value or ""
+        paint_glossary()
+
+    search.on_change = search_changed
+
+    def paint_view() -> None:
+        holder.content = _view_body(
+            selection["view"], layout, page, state, list_holder, definition_holder, search, glossary_note,
+            terms, came_from, legal_report, len(terms), go_to,
+        )
+        refresh(holder)
+
+    def choose_view(value: str) -> None:
+        selection["view"] = value
+        paint_view()
+
+    paint_glossary()
+    paint_view()
+    return PageView(
+        chrome=PageChrome(
+            "Help & Glossary",
+            "Score, data and authority definitions",
+            (SegmentGroup("view", SEGMENTS, "Glossary", choose_view),),
+        ),
+        body=holder,
     )
+
+
+def _definition_card(term: GlossaryTerm | None, terms, open_help, available: bool) -> ft.Control:
+    if term is None:
+        reason = (
+            "The glossary policy has no entries."
+            if available
+            else "Unavailable: glossary policy could not be loaded. Manual review is required."
+        )
+        return GlassCard("Selected definition", "", body=EmptyState("No term selected", reason), expand=True)
+    used = term.where_used
+    related = [
+        ft.Container(
+            content=text(name, 14, 600, theme.ACC),
+            on_click=lambda _event, name=name: open_help(name),
+            ink=True,
+            padding=ft.Padding(left=4, top=4, right=4, bottom=4),
+            border_radius=theme.RADIUS_SM,
+        )
+        for name in term.related
+    ]
+    related_row = ft.Row(
+        [text("Related", 14.5, 650), *(related or [text("—", 14, 400, theme.INK3)])],
+        spacing=16,
+        wrap=True,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    )
+    body = ft.Column(
+        [
+            Headline(term.term, _fit_size(term.term)),
+            ft.Container(
+                content=text(term.definition, 15, 400, theme.INK2, line_height=22),
+                width=760,
+            ),
+            *([Note(f"Authority: {term.authority_note}")] if term.authority_note else []),
+            ft.Row(
+                [
+                    KpiTile("Where used", used[0] if used else None,
+                            ", ".join(used[1:]) if len(used) > 1 else ("" if used else "Not named in any page help"),
+                            expand=True),
+                    KpiTile("Source", "local registry", "no zero-fill", expand=True),
+                    KpiTile("Authority", "none", "advisory only", tone="neg", expand=True),
+                ],
+                spacing=12,
+            ),
+            related_row,
+        ],
+        spacing=16,
+        scroll=ft.ScrollMode.AUTO,
+        expand=True,
+    )
+    return GlassCard("Selected definition", term.term, body=body, expand=True)
+
+
+def _about_card(title: str = "About this page") -> ft.Control:
+    rows = [
+        ("Read the verdict first", "Each page leads with one answer and the reasons behind it."),
+        ("Every chart is labelled", "Axis names and units are always shown."),
+        ("Switch views in place", "Pills change the metric or range without leaving the page."),
+    ]
+    return GlassCard(
+        title,
+        "route-specific help",
+        body=ft.Column(
+            [ListRow("info", head, sub, last=index == len(rows) - 1) for index, (head, sub) in enumerate(rows)],
+            spacing=0,
+        ),
+        expand=True,
+    )
+
+
+def _terms_card(page, legal_report, *, extended: bool) -> ft.Control:
+    guide = "docs/user/USER_GUIDE.md"
+
+    def open_guide(_event: object | None = None) -> None:
+        try:
+            page.run_task(page.launch_url, Path(guide).resolve().as_uri())
+        except Exception:
+            _toast(page, "The user guide could not be opened here.")
+
+    def copy_path(_event: object | None = None) -> None:
+        try:
+            page.run_task(page.clipboard.set, guide)
+            _toast(page, "Path copied")
+        except Exception:
+            _toast(page, "The path could not be copied here.")
+
+    column: list[ft.Control] = [
+        text(
+            "Research and education only. Not financial or tax advice. No broker execution or order transmission. "
+            "The registry records source and model permissions for local replay and audit export.",
+            14, 400, theme.INK2, line_height=21,
+        ),
+    ]
+    if extended:
+        column.append(
+            Note(
+                f"Legal terms status: {legal_report['status']} ({legal_report['review_status']}); "
+                "restricted sources are not redistributed."
+            )
+        )
+    column += [
+        ft.Row([Button.primary("Open user guide", open_guide), Button.secondary("Copy guide path", copy_path)], spacing=12),
+        Disclosure("user guide path", guide),
+        ft.Row(
+            [
+                KpiTile("Execution", "locked", "execution_allowed=false", tone="neg", expand=True),
+                KpiTile("Data", "local-first", "nothing uploaded", expand=True),
+                KpiTile("Models", "optional", "baseline always on", expand=True),
+            ],
+            spacing=12,
+        ),
+    ]
+    return GlassCard("Terms and use boundaries", "", body=ft.Column(column, spacing=16, scroll=ft.ScrollMode.AUTO, expand=True),
+                     expand=True)
+
+
+def _toast(page: object, message: str) -> None:
+    try:
+        page.show_dialog(ft.SnackBar(content=text(message, 13.5, 500), duration=4000))
+    except Exception:
+        pass
+
+
+def _view_body(view, layout, page, state, list_holder, definition_holder, search, glossary_note, terms, came_from,
+               legal_report, total, go_to) -> ft.Control:
+    row_b = [(_about_card(), 6), (_terms_card(page, legal_report, extended=False), 6)]
+    if view == "Glossary":
+        card = GlassCard(
+            "Glossary",
+            f"{total} of {total} terms",
+            body=ft.Column([Field("Search terms", search), ft.Container(content=list_holder, expand=True)],
+                           spacing=12, expand=True),
+            expand=True,
+        )
+        glossary_note["note"] = card.data["note_control"]
+        return grid(layout, [[(card, 4), (definition_holder, 8)], row_b])
+    if view == "This page":
+        title = dict(ROUTE_TITLES).get(came_from, "Simple Scores")
+        about = PAGE_HELP.get(came_from, PAGE_HELP["/"])
+        parts = sentences(about)
+        rows = [ListRow("info", part, "", last=index == len(parts) - 1) for index, part in enumerate(parts)]
+        chips = related_terms_for(about, terms)
+        body = ft.Column(
+            [
+                ft.Container(content=text(about, 15, 400, theme.INK2, line_height=22), width=900),
+                text("How to read it", 14.5, 650),
+                ft.Column(rows, spacing=0),
+                ft.Row(
+                    [text("Related terms", 14.5, 650), *(Tag(name, "mute") for name in chips)] if chips
+                    else [text("Related terms", 14.5, 650), text("—", 14, 400, theme.INK3)],
+                    spacing=12, wrap=True, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                Button.primary(f"Back to {title}", lambda _event: go_to(came_from)),
+            ],
+            spacing=16,
+            scroll=ft.ScrollMode.AUTO,
+            expand=True,
+        )
+        return grid(layout, [[(GlassCard(f"About {title}", "", body=body, expand=True), 12)], row_b])
+    boundaries = [
+        ("Authority is evidence-bounded", "No score, forecast or model output creates an order."),
+        ("Manual review when evidence is incomplete or stale", "Gaps lower authority; they are never filled in."),
+        ("Unavailable is explicit, never zero", "A missing value is shown as unavailable with its reason."),
+        ("Definitions do not grant authority", "The glossary explains terms; it cannot change a gate."),
+    ]
+    authority = GlassCard(
+        "Authority boundaries",
+        "",
+        body=ft.Column(
+            [ListRow("ok", head, sub, last=index == len(boundaries) - 1) for index, (head, sub) in enumerate(boundaries)],
+            spacing=0,
+        ),
+        expand=True,
+    )
+    return grid(layout, [[(_terms_card(page, legal_report, extended=True), 6), (authority, 6)], row_b])
 
 
 __all__ = ["PAGE_HELP", "help_glossary_page", "page_help_panel"]
