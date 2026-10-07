@@ -62,7 +62,7 @@ def _walk(control: ft.Control):
     if not isinstance(control, ft.Control):
         return
     yield control
-    for attr in ("controls", "rows", "cells", "actions"):
+    for attr in ("controls", "rows", "cells", "actions", "items"):
         values = getattr(control, attr, None)
         if values:
             for child in values:
@@ -70,6 +70,21 @@ def _walk(control: ft.Control):
     content = getattr(control, "content", None)
     if content is not None:
         yield from _walk(content)
+
+
+def _keyed(root: ft.Control) -> dict[str, ft.Control]:
+    """Every keyed control below ``root`` (kit buttons are containers, so no type filter)."""
+    return {str(control.key): control for control in _walk(root) if control.key}
+
+
+def _texts(root: ft.Control) -> str:
+    return "\n".join(str(control.value) for control in _walk(root) if isinstance(control, ft.Text) and control.value)
+
+
+def _fill(root: ft.Control, **values: str) -> None:
+    keyed = _keyed(root)
+    for name, value in values.items():
+        keyed[name].value = value
 
 
 def test_selected_universe_overlay_retains_non_default_risk_and_cost_config() -> None:
@@ -98,69 +113,56 @@ def test_real_crud_controls_stage_changes_and_save_captured_revision(monkeypatch
 
     monkeypatch.setattr(manager, "save_universe", fake_save)
     page = _Page()
-    root = universe_manager_page(page, _state())
-    controls = {str(control.key): control for control in _walk(root) if control.key}
-    buttons = {key: control for key, control in controls.items() if isinstance(control, ft.Button)}
+    root = universe_manager_page(page, _state()).body
+    controls = _keyed(root)
     assert {
         "universe.add",
         "universe.save",
         "universe.edit.A",
         "universe.identity.A",
         "universe.classification.A",
-        "universe.disable.A",
+        "universe.enabled.A",
         "universe.remove.A",
-    } <= set(buttons)
+    } <= set(controls)
     assert "universe.allow-cross-tier-duplicates" in controls
-    override = controls["universe.allow-cross-tier-duplicates"]
-    assert "ticker" in str(override.label).lower()
-    assert "verified isin" in str(override.label).lower()
-    assert "instrument ids stay globally unique" in str(override.label).lower()
+    label = next(control for control in _walk(root) if isinstance(control, ft.Text) and "cross-tier duplicate" in str(control.value))
+    assert "ticker" in str(label.value).lower() and "verified isin" in str(label.value).lower()
+    assert "instrument ids stay globally unique" in str(label.tooltip).lower()
 
-    # Disable and add use the real callbacks, and neither callback invokes a
-    # workflow service. The newly added record proves full add control wiring.
-    buttons["universe.disable.A"].on_click(None)
-    buttons = {str(control.key): control for control in _walk(root) if isinstance(control, ft.Button) and control.key}
-    assert "universe.enable.A" in buttons
-    buttons["universe.enable.A"].on_click(None)
-    buttons = {str(control.key): control for control in _walk(root) if isinstance(control, ft.Button) and control.key}
-    assert "universe.disable.A" in buttons
-    buttons["universe.add"].on_click(None)
+    # The Enabled toggle and the add dialog use the real callbacks, and neither invokes a workflow service.
+    assert controls["universe.enabled.A"].data["on"] is True
+    controls["universe.enabled.A"].on_click(None)
+    assert _keyed(root)["universe.enabled.A"].data["on"] is False
+    _keyed(root)["universe.enabled.A"].on_click(None)
+    assert _keyed(root)["universe.enabled.A"].data["on"] is True
+    _keyed(root)["universe.add"].on_click(None)
     assert page.overlay
     dialog = page.overlay[-1]
-    fields = {str(control.label): control for control in _walk(dialog) if isinstance(control, ft.TextField) and control.label}
-    fields["ID"].value = "B"
-    fields["Name"].value = "Beta"
-    fields["Yahoo ticker"].value = "B"
-    fields["ISIN"].value = "NO0000000002"
-    fields["ISIN status"].value = "verified"
-    enabled_checkbox = next(control for control in _walk(dialog) if isinstance(control, ft.Checkbox) and control.label == "Enabled for normal workflows")
-    enabled_checkbox.value = False
-    next(control for control in _walk(dialog) if isinstance(control, ft.Button) and control.key == "universe.add-save").on_click(None)
+    _fill(dialog, **{"universe.field.instrument_id": "B", "universe.field.name": "Beta", "universe.field.ticker": "B", "universe.field.isin": "NO0000000002", "universe.field.isin_status": "verified"})
+    _keyed(dialog)["universe.field.enabled"].on_click(None)  # on -> off
+    _keyed(dialog)["universe.add-save"].on_click(None)
 
-    buttons = {str(control.key): control for control in _walk(root) if isinstance(control, ft.Button) and control.key}
-    buttons["universe.save"].on_click(None)
-    buttons = {str(control.key): control for control in _walk(root) if isinstance(control, ft.Button) and control.key}
-    buttons["universe.save"].on_click(None)
+    _keyed(root)["universe.save"].on_click(None)
+    _keyed(root)["universe.save"].on_click(None)
     assert [revision for _rows, revision in saved] == ["captured-revision", "revision-1"]
     assert {row.instrument_id for row in saved[-1][0]} == {"A", "B"}
     assert next(row for row in saved[-1][0] if row.instrument_id == "B").enabled is False
 
-    # Search and tier selection rebuild the one visible, horizontally scrollable table.
-    query = next(control for control in _walk(root) if isinstance(control, ft.TextField) and control.label == "Search universe")
-    assert not query.expand
-    assert query.width == 520
+    # Search and tier selection rebuild the one visible table.
+    query = _keyed(root)["universe.search"]
+    assert isinstance(query, ft.TextField)
     query.value = "Beta"
     query.on_change(None)
-    tier = next(control for control in _walk(root) if isinstance(control, ft.Dropdown) and control.key == "universe.tier")
+    tier = _keyed(root)["universe.tier"]
     assert [(option.key, option.text) for option in tier.options] == [
+        ("all", "All tiers"),
         ("primary", "Primary"),
         ("secondary", "Secondary"),
         ("sparebanken", "Sparebanken"),
     ]
     tier.value = "secondary"
     tier.on_select(None)
-    buttons = {str(control.key): control for control in _walk(root) if isinstance(control, ft.Button) and control.key}
-    assert "universe.identity.B" in buttons
+    assert "universe.identity.B" in _keyed(root)
 
 
 def test_import_wizard_dry_run_and_stage_are_local_only(monkeypatch) -> None:
@@ -173,23 +175,19 @@ def test_import_wizard_dry_run_and_stage_are_local_only(monkeypatch) -> None:
     state.workflow_calls = 0
     state.provider_calls = 0
     state.broker_calls = 0
-    root = universe_manager_page(page, state)
+    root = universe_manager_page(page, state).body
 
-    import_button = next(control for control in _walk(root) if isinstance(control, ft.Button) and control.key == "universe.import")
-    import_button.on_click(None)
+    _fill(root, **{"universe.import-paste": "ticker,name\nB,Beta\n", "universe.import-overlays": '{"1":{"canonical_id":"B"}}', "universe.import-chunk": "1"})
+    _keyed(root)["universe.import"].on_click(None)  # Preview import: dry-run, then the preview dialog
     dialog = page.overlay[-1]
-    fields = {str(control.label): control for control in _walk(dialog) if isinstance(control, ft.TextField) and control.label}
-    fields["CSV, TSV, JSON rows, or local path"].value = "ticker,name\nB,Beta\n"
-    fields["Reviewed correction overlays (JSON by source row)"].value = '{"1":{"canonical_id":"B"}}'
-    fields["Chunk size"].value = "1"
-    next(control for control in _walk(dialog) if isinstance(control, ft.Button) and control.key == "universe.import-dry-run").on_click(None)
 
-    rendered = "\n".join(str(control.value) for control in _walk(dialog) if isinstance(control, ft.Text) and control.value)
+    rendered = _texts(dialog)
     assert "Dry-run: 1 source rows, 1 resolved" in rendered
     assert "execution_allowed=False" in rendered
+    assert "Added" in rendered
     assert manifests == []
-    next(control for control in _walk(dialog) if isinstance(control, ft.Button) and control.key == "universe.import-resume").on_click(None)
-    next(control for control in _walk(dialog) if isinstance(control, ft.Button) and control.key == "universe.import-stage").on_click(None)
+    _keyed(dialog)["universe.import-resume"].on_click(None)
+    _keyed(dialog)["universe.import-stage"].on_click(None)
 
     assert len(manifests) == 1
     assert manifests[0].source_rows == ({"ticker": "B", "name": "Beta"},)
@@ -205,21 +203,16 @@ def test_import_stage_does_not_mutate_live_records_when_manifest_save_fails(monk
     monkeypatch.setattr(manager, "load_universe", lambda *_args: UniverseStoreSnapshot((record,), "revision", Path("store.json")))
     monkeypatch.setattr(manager, "save_universe_manifest", lambda _manifest: (_ for _ in ()).throw(ValueError("manifest save failed")))
     page = _Page()
-    root = universe_manager_page(page, _state())
-    next(control for control in _walk(root) if isinstance(control, ft.Button) and control.key == "universe.import").on_click(None)
+    root = universe_manager_page(page, _state()).body
+    _fill(root, **{"universe.import-paste": "canonical_id,name,ticker\nB,Beta,B\n", "universe.import-chunk": "1"})
+    _keyed(root)["universe.import"].on_click(None)
     dialog = page.overlay[-1]
-    fields = {str(control.label): control for control in _walk(dialog) if isinstance(control, ft.TextField) and control.label}
-    fields["CSV, TSV, JSON rows, or local path"].value = "canonical_id,name,ticker\nB,Beta,B\n"
-    fields["Chunk size"].value = "1"
-    buttons = {str(control.key): control for control in _walk(dialog) if isinstance(control, ft.Button) and control.key}
-    buttons["universe.import-dry-run"].on_click(None)
+    buttons = _keyed(dialog)
     buttons["universe.import-resume"].on_click(None)
     buttons["universe.import-stage"].on_click(None)
 
-    assert not any(control.key == "universe.edit.B" for control in _walk(root) if isinstance(control, ft.Button))
-    assert "manifest save failed" in "\n".join(
-        str(control.value) for control in _walk(dialog) if isinstance(control, ft.Text) and control.value
-    )
+    assert "universe.edit.B" not in _keyed(root)
+    assert "manifest save failed" in _texts(dialog)
 
 
 def test_import_wizard_pauses_resumes_and_cancel_never_stages_partial_rows(monkeypatch) -> None:
@@ -232,19 +225,13 @@ def test_import_wizard_pauses_resumes_and_cancel_never_stages_partial_rows(monke
     state.workflow_calls = 0
     state.provider_calls = 0
     state.broker_calls = 0
-    root = universe_manager_page(page, state)
-    next(control for control in _walk(root) if isinstance(control, ft.Button) and control.key == "universe.import").on_click(None)
+    root = universe_manager_page(page, state).body
+    _fill(root, **{"universe.import-paste": "canonical_id,name,ticker\n" + "".join(f"B{index},Beta {index},B{index}\n" for index in range(5)), "universe.import-chunk": "2"})
+    _keyed(root)["universe.import"].on_click(None)
     dialog = page.overlay[-1]
-    fields = {str(control.label): control for control in _walk(dialog) if isinstance(control, ft.TextField) and control.label}
-    fields["CSV, TSV, JSON rows, or local path"].value = (
-        "canonical_id,name,ticker\n"
-        + "".join(f"B{index},Beta {index},B{index}\n" for index in range(5))
-    )
-    fields["Chunk size"].value = "2"
-    buttons = {str(control.key): control for control in _walk(dialog) if isinstance(control, ft.Button) and control.key}
-    buttons["universe.import-dry-run"].on_click(None)
+    buttons = _keyed(dialog)
     buttons["universe.import-resume"].on_click(None)
-    progress = next(control for control in _walk(dialog) if isinstance(control, ft.Text) and control.key == "universe.import-progress")
+    progress = buttons["universe.import-progress"]
     assert progress.value == "Progress: 2/5 (paused)"
     buttons["universe.import-resume"].on_click(None)
     assert progress.value == "Progress: 4/5 (paused)"
@@ -253,7 +240,7 @@ def test_import_wizard_pauses_resumes_and_cancel_never_stages_partial_rows(monke
     buttons["universe.import-resume"].on_click(None)
     buttons["universe.import-stage"].on_click(None)
 
-    rendered = "\n".join(str(control.value) for control in _walk(dialog) if isinstance(control, ft.Text) and control.value)
+    rendered = _texts(dialog)
     assert "Complete all import chunks before staging" in rendered
     assert manifests == []
     assert state.workflow_calls == 0
@@ -269,9 +256,9 @@ def test_override_checkbox_rehydrates_from_store_snapshot(monkeypatch) -> None:
         lambda *_args: UniverseStoreSnapshot((record,), "revision", Path("store.json"), True),
     )
     page = _Page()
-    root = universe_manager_page(page, _state())
-    checkbox = next(control for control in _walk(root) if isinstance(control, ft.Checkbox) and control.key == "universe.allow-cross-tier-duplicates")
-    assert checkbox.value is True
+    root = universe_manager_page(page, _state()).body
+    toggle = _keyed(root)["universe.allow-cross-tier-duplicates"]
+    assert toggle.data["on"] is True
 
 
 def test_universe_table_distinguishes_policy_evidence_states(monkeypatch) -> None:
@@ -309,18 +296,19 @@ def test_universe_table_distinguishes_policy_evidence_states(monkeypatch) -> Non
         ),
     )
 
-    root = universe_manager_page(_Page(), _state())
-    rendered = {
-        str(control.value): control
-        for control in _walk(root)
-        if isinstance(control, ft.Text) and control.value
-    }
-
-    for state in ("current", "stale", "legacy_unmigrated", "unavailable", "manual_review"):
-        assert state in rendered
-    assert rendered["current"].color == manager.theme.GREEN
-    assert rendered["manual_review"].color == manager.theme.AMBER
-    assert rendered["stale"].tooltip == "version changed"
+    root = universe_manager_page(_Page(), _state()).body
+    rendered = _texts(root)
+    assert rendered.count("Pending refresh") == 2  # stale and legacy_unmigrated
+    assert rendered.count("Manual review") == 1  # manual_review
+    tooltips = [str(control.tooltip) for control in _walk(root) if getattr(control, "tooltip", None)]
+    for state, reason in (
+        ("current", "current policy"),
+        ("stale", "version changed"),
+        ("legacy_unmigrated", "legacy profile"),
+        ("unavailable", "no profile"),
+        ("manual_review", "tampered profile"),
+    ):
+        assert any(f"Policy evidence: {state} · {reason}" in text for text in tooltips)
 
 
 def test_universe_store_integrity_failure_is_visible_as_manual_review(
@@ -351,23 +339,13 @@ def test_universe_store_integrity_failure_is_visible_as_manual_review(
     )
 
     monkeypatch.setattr(manager, "save_universe", lambda *_args, **_kwargs: pytest.fail("invalid snapshot reached save"))
-    root = universe_manager_page(_Page(), _state())
-    rendered = "\n".join(
-        str(control.value)
-        for control in _walk(root)
-        if isinstance(control, ft.Text) and control.value
-    )
+    root = universe_manager_page(_Page(), _state()).body
+    rendered = _texts(root)
 
     assert "Policy evidence requires manual_review" in rendered
     assert "store revision checksum mismatch" in rendered
-    save_button = next(control for control in _walk(root) if isinstance(control, ft.Button) and control.key == "universe.save")
-    save_button.on_click(None)
-    rendered = "\n".join(
-        str(control.value)
-        for control in _walk(root)
-        if isinstance(control, ft.Text) and control.value
-    )
-    assert "Save blocked: store revision checksum mismatch" in rendered
+    _keyed(root)["universe.save"].on_click(None)
+    assert "Save blocked: store revision checksum mismatch" in _texts(root)
 
 
 def test_universe_identity_action_exposes_graph_conflict_review_and_authority(monkeypatch) -> None:
@@ -388,14 +366,9 @@ def test_universe_identity_action_exposes_graph_conflict_review_and_authority(mo
         },
     )
     page = _Page()
-    root = universe_manager_page(page, _state())
+    root = universe_manager_page(page, _state()).body
 
-    identity_button = next(
-        control
-        for control in _walk(root)
-        if isinstance(control, ft.Button) and control.key == "universe.identity.A"
-    )
-    identity_button.on_click(None)
+    _keyed(root)["universe.identity.A"].on_click(None)
 
     rendered_controls = [
         control for control in _walk(page.overlay[-1]) if isinstance(control, ft.Text) and control.value
@@ -410,7 +383,7 @@ def test_universe_identity_action_exposes_graph_conflict_review_and_authority(mo
             control
             for control in rendered_controls
             if "resolution=quarantined" in str(control.value)
-        ).color
+        ).style.color
         == manager.theme.AMBER
     )
 
@@ -498,13 +471,8 @@ def test_universe_classification_action_exposes_fallback_and_saves_versioned_ove
     state.invalidate_classification_scores = (
         lambda instrument_id, *, root: invalidated.append((instrument_id, root))
     )
-    root = universe_manager_page(page, state)
-    button = next(
-        control
-        for control in _walk(root)
-        if isinstance(control, ft.Button) and control.key == "universe.classification.A"
-    )
-    button.on_click(None)
+    root = universe_manager_page(page, state).body
+    _keyed(root)["universe.classification.A"].on_click(None)
 
     dialog = page.overlay[-1]
     rendered = "\n".join(
@@ -516,19 +484,8 @@ def test_universe_classification_action_exposes_fallback_and_saves_versioned_ove
     assert "sector:financials" in rendered
     assert "execution_allowed=False" in rendered
 
-    fields = {
-        str(control.label): control
-        for control in _walk(dialog)
-        if isinstance(control, ft.TextField) and control.label
-    }
-    fields["Sector override"].value = "banks"
-    fields["Override reason"].value = "Reviewed issuer activity"
-    save = next(
-        control
-        for control in _walk(dialog)
-        if isinstance(control, ft.Button) and control.key == "universe.classification-save"
-    )
-    save.on_click(None)
+    _fill(dialog, **{"universe.override.sector": "banks", "universe.override.reason": "Reviewed issuer activity"})
+    _keyed(dialog)["universe.classification-save"].on_click(None)
 
     assert len(captured) == 1
     assert captured[0].instrument_id == "A"
@@ -549,13 +506,14 @@ def test_universe_tier_filter_uses_visible_scrollable_table(monkeypatch) -> None
     record = UniverseRecord("A", "Alpha", "NO0000000001", "verified", "A", "stock", "primary", "", True, "daily", "EUR", "NO", "", "", "")
     monkeypatch.setattr(manager, "load_universe", lambda *_args: UniverseStoreSnapshot((record,), "revision", Path("store.json")))
 
-    root = universe_manager_page(_Page(), _state())
-    tier = next(control for control in _walk(root) if isinstance(control, ft.Dropdown) and control.key == "universe.tier")
-    table_scroll = next(control for control in _walk(root) if isinstance(control, ft.Row) and control.key == "universe.table-scroll")
+    root = universe_manager_page(_Page(), _state()).body
+    keyed = _keyed(root)
+    host = keyed["universe.table-host"]
 
-    assert tier.value == "primary"
-    assert table_scroll.scroll == ft.ScrollMode.AUTO
-    assert any(isinstance(control, ft.DataTable) for control in _walk(table_scroll))
+    assert keyed["universe.tier"].value == "all"
+    # the kit DataTable scrolls its own virtualised rows inside the card
+    assert any(isinstance(control, ft.ListView) for control in _walk(host))
+    assert (keyed["universe.table"].data or {}).get("kit") == "DataTable"
 
 
 def test_save_reloads_active_state_and_marks_universe_cache_revision(monkeypatch) -> None:
@@ -586,9 +544,8 @@ def test_save_reloads_active_state_and_marks_universe_cache_revision(monkeypatch
     state.universe_cache_revision = "captured"
     state.workflow_calls = 0
     page = _Page()
-    root = universe_manager_page(page, state)
-    save_button = next(control for control in _walk(root) if isinstance(control, ft.Button) and control.key == "universe.save")
-    save_button.on_click(None)
+    root = universe_manager_page(page, state).body
+    _keyed(root)["universe.save"].on_click(None)
     assert state.snapshot.config.universe == refreshed_config.universe
     assert state.snapshot.config.universe.enabled_ids == []
     assert state.universe_cache_revision == "saved-revision"
