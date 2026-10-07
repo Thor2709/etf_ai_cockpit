@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 
 import flet as ft
 import pandas as pd
@@ -32,7 +33,9 @@ from etf_cockpit.application.ui_views import forecast_lab as lab_view
 
 _HORIZONS = list(lab_view.HORIZON_LIMITS)
 _UNAVAILABLE_MODEL = "Unavailable: optional package or weights not installed"
-_MODEL_LINES = (ck.palette.VIO, ck.palette.P, *ck.palette.CATEGORICAL[1:])
+_MODEL_LINES = (ck.palette.P, *ck.palette.CATEGORICAL[1:])  # accent first; the baseline is neutral grey and dashed
+_BASELINE_LINE = ck.palette.BM
+_GAP = 16
 _COMPARISON_ROW = 78
 _CALIBRATION_NOTE = "Calibration compares the stored conformal coverage interval with its 90% target."
 
@@ -47,7 +50,8 @@ def _display_name(model_id: str, catalogue: pd.DataFrame) -> str:
     match = catalogue.loc[catalogue["model_id"] == model_id] if not catalogue.empty else catalogue
     if not match.empty:
         return str(match.iloc[0]["display_name"])
-    return model_id.replace("_", " ").strip().title() or model_id
+    spaced = re.sub(r"(?<=\d)_(?=\d)", ".", model_id).replace("_", " ").strip()
+    return spaced.title() or model_id
 
 
 def _metric(value: object) -> str:
@@ -95,6 +99,14 @@ def _status_tag(model_id: str, row: pd.Series | None, card: pd.Series | None) ->
     return Tag("Shadow" if str(row["promotion_state"]) == "shadow_only" else "Available", "warn" if str(row["promotion_state"]) == "shadow_only" else "ok", dense=True)
 
 
+def _net_cell(value: str, sub: str | None) -> ft.Control:
+    """Right-aligned value with its status sub-label, like the other numeric columns."""
+    parts = [common.text(value, 13.5, 400, text_align=ft.TextAlign.RIGHT, no_wrap=True)]
+    if sub:
+        parts.append(common.text(sub, 11.5, 400, theme.INK3, text_align=ft.TextAlign.RIGHT, no_wrap=True))
+    return ft.Column(parts, spacing=2, tight=True, horizontal_alignment=ft.CrossAxisAlignment.END)
+
+
 def _model_ids(models: pd.DataFrame, catalogue: pd.DataFrame) -> list[str]:
     """Models with stored rows first, then registered optional models that have none (shown as unavailable)."""
     stored = [str(name) for name in models["model_name"]] if not models.empty else []
@@ -120,7 +132,7 @@ def _comparison_rows(ids: list[str], models: pd.DataFrame, catalogue: pd.DataFra
             kind = f"{kind} · Runtime {_runtime(row)}"
         name = (_display_name(model_id, catalogue), kind)
         if row is None:
-            rows.append({"model": name, "rows": None, "direction": None, "net": None, "coverage": None, "calibration": Tag("n/a", "mute", dense=True), "status": _status_tag(model_id, None, card)})
+            rows.append({"model": name, "rows": None, "direction": None, "net": None, "coverage": None, "gap": "", "calibration": Tag("n/a", "mute", dense=True), "status": _status_tag(model_id, None, card)})
             continue
         net = row["net_forward_value"]
         interval, conformal = _pct(row["interval_coverage"]), _pct(row["conformal_coverage"])
@@ -128,8 +140,9 @@ def _comparison_rows(ids: list[str], models: pd.DataFrame, catalogue: pd.DataFra
             "model": name,
             "rows": f"{int(row['forecast_rows'])} / {int(row['matured_rows'])}",
             "direction": _pct(row["directional_accuracy"]),
-            "net": str(row["net_value_status"]) if net is None or pd.isna(net) else (f"{float(net) * 100:+.1f}%".replace("-", "−"), str(row["net_value_status"])),
+            "net": _net_cell(str(row["net_value_status"]) if net is None or pd.isna(net) else f"{float(net) * 100:+.1f}%".replace("-", "−"), None if net is None or pd.isna(net) else str(row["net_value_status"])),
             "coverage": None if interval is None and conformal is None else f"{interval or '—'} / {conformal or '—'}",
+            "gap": "",
             "calibration": _calibration_tag(row),
             "status": _status_tag(model_id, row, card),
         })
@@ -168,13 +181,13 @@ def _run_card(layout: common.GridLayout, page: object, state: AppState, report: 
     share = f"{matured / forecast_rows * 100:.0f}% of rows" if forecast_rows and matured is not None else "no stored forecast rows"
     splits = report["walk_forward_splits"]
     status = {name: bool(value) for name, value in dict(getattr(state.snapshot, "model_status", {}) or {}).items()}
-    available = ", ".join(sorted(name for name, ok in status.items() if ok)) or "none"
+    available = ", ".join(sorted(_display_name(name, report["model_catalogue"]) for name, ok in status.items() if ok)) or "none"
     tiles = common.tile_grid(
         (
             ("Forecast rows", None if forecast_rows is None else format_count(forecast_rows), f"{len(models)} models" if forecast_rows is not None else "No local forecast rows are stored", None),
             ("Matured outcomes", None if matured is None else format_count(matured), share, None),
             ("Walk-forward splits", format_count(len(splits)) if report["status"] == "ok" else None, "expanding folds" if report["status"] == "ok" else "Not enough forecast dates", None),
-            ("Promotion", "shadow_only", "execution off", "neg"),
+            ("Promotion", "Shadow only", "execution off", None),
         )
     )
     run = _workflow_button(
@@ -207,6 +220,7 @@ def _comparison_card(layout: common.GridLayout, ids: list[str], models: pd.DataF
         TableColumn("direction", "Direction", flex=2, numeric=True, sortable=False),
         TableColumn("net", "Net value", flex=2, numeric=True, sortable=False),
         *([] if layout.narrow else [TableColumn("coverage", "Coverage int/conf", flex=3, numeric=True, sortable=False)]),
+        TableColumn("gap", "", width=_GAP, sortable=False),
         TableColumn("calibration", "Calibration", flex=2, sortable=False),
         TableColumn("status", "Status", flex=2, sortable=False),
     ]
@@ -229,16 +243,27 @@ def _comparison_card(layout: common.GridLayout, ids: list[str], models: pd.DataF
     return GlassCard("Model comparison", "descriptive metrics · no model is promoted", body=body, width=layout.span_width(8), height=layout.row_heights[0])
 
 
+def _fold_legend(width: float, height: float, *, show: bool = True) -> ft.Control:
+    """Legend for the two segment colours (chartkit's stacked bar has no legend option; see handoff OPEN)."""
+    items = [(ck.palette.GP[0], "Train window"), (ck.palette.GOLD[0], "Test fold")]
+    swatches = [] if not show else [
+        ft.Row([ft.Container(width=12, height=12, border_radius=3, bgcolor=colour), common.text(label, theme.FONT_XS, 500, theme.INK2)], spacing=6, tight=True)
+        for colour, label in items
+    ]
+    return ft.Container(ft.Row(swatches, spacing=14, alignment=ft.MainAxisAlignment.END), width=width, height=height)
+
+
 def _folds_card(layout: common.GridLayout, folds: lab_view.FoldBars) -> ft.Control:
     width, height = layout.card_body(6, 1, insight=True)
     insight = folds.reason or f"{folds.total} folds; the final test window stays untouched for selection."
     segments = [[ck.Segment(train, "pos"), ck.Segment(test, "gold")] for train, test in zip(folds.train_months, folds.test_months, strict=True)]
     axis_w = theme.SPACE_5
+    legend_h = theme.SPACE_5
     chart = ck.horizontal_stacked_bar(
-        list(folds.labels), segments, x_name="Months of history", margins=ck.Margins(78, 20, 20, 48), width=width - axis_w, height=height,
+        list(folds.labels), segments, x_name="Months of history", margins=ck.Margins(78, 20, 20, 48), width=width - axis_w, height=height - legend_h - 8,
         unavailable_reason=folds.reason, empty_title="No walk-forward folds", insight=insight,
     )
-    return GlassCard("Walk-forward protocol", "expanding train window · test fold", insight, body=ft.Row([ft.Container(common.text("Fold", theme.FONT_XS, 500, theme.INK2), rotate=ft.Rotate(-math.pi / 2), width=axis_w, alignment=ft.Alignment(0, 0)), Well(chart, width=width - axis_w, height=height)], spacing=0), width=layout.span_width(6), height=layout.row_heights[1])
+    return GlassCard("Walk-forward protocol", "expanding train window · test fold", insight, body=ft.Column([_fold_legend(width, legend_h, show=folds.reason is None), ft.Row([ft.Container(common.text("Fold", theme.FONT_XS, 500, theme.INK2), rotate=ft.Rotate(-math.pi / 2), width=axis_w, alignment=ft.Alignment(0, 0)), Well(chart, width=width - axis_w, height=height - legend_h - 8)], spacing=0)], spacing=8), width=layout.span_width(6), height=layout.row_heights[1])
 
 
 def _error_card(layout: common.GridLayout, series: lab_view.ErrorSeries, names: dict[str, str]) -> ft.Control:
@@ -254,7 +279,7 @@ def _error_card(layout: common.GridLayout, series: lab_view.ErrorSeries, names: 
             insight = f"{names.get(name, name)} beats the baseline up to {horizon} days; beyond that it is not better."
         else:
             insight = "No model beats the baseline at an evaluated horizon."
-    lines = [ck.Series(names.get(series.baseline or "", "Baseline"), series.lines.get(series.baseline or "", []), ck.palette.SECOND, 3.0, markers=8, decimals=2)] if series.baseline in series.lines else []
+    lines = [ck.Series(names.get(series.baseline or "", "Baseline"), series.lines.get(series.baseline or "", []), _BASELINE_LINE, 3.0, markers=8, decimals=2, dashed=True)] if series.baseline in series.lines else []
     for index, name in enumerate(name for name in series.lines if name != series.baseline):
         lines.append(ck.Series(names.get(name, name), series.lines[name], _MODEL_LINES[index % len(_MODEL_LINES)], 3.0, markers=8, decimals=2))
     chart = ck.line_chart(

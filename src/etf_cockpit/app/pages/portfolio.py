@@ -299,7 +299,7 @@ def _performance_controller(
         if series.status == "unavailable" or stats.range_return is None:
             insight = series.reason or _NO_HISTORY[1]
         elif gap is None:
-            insight = f"The portfolio is {_signed(stats.range_return)} over {ui['range']}; benchmark comparison unavailable ({bench_reason})."
+            insight = f"The portfolio is {_signed(stats.range_return)} over {ui['range']}; benchmark comparison unavailable ({str(bench_reason).rstrip('. ')})."
         else:
             insight = f"The portfolio is {_signed(stats.range_return)} over {ui['range']}, {abs(gap):.1f} pts {'ahead of' if gap >= 0 else 'behind'} the benchmark."
         insight_text.value = insight
@@ -1117,7 +1117,8 @@ def _portfolio_holdings_block(
         if projection.get("conflicts"):
             detail += " · conflicts: " + ", ".join(str(item) for item in projection["conflicts"])
         if reason:
-            status.value += f" · {reason}"
+            status.value += f" · {_REASON_LABELS.get(str(reason), str(reason).replace('_', ' '))}"
+            detail += f" · reason id: {reason}"
         detail_host.controls = [Disclosure("Holdings source", detail)]
         status.color = theme.GREEN if projection.get("status") == "available" else theme.AMBER
         proposal_button.disabled = not bool(projection.get("proposal_handoff_allowed"))
@@ -1206,11 +1207,14 @@ def _portfolio_holdings_block(
         ),
         width=320,
     )
-    body = ft.Column([row_host, status, detail_host], spacing=theme.SPACE_3)
+    body = ft.Column([row_host, ft.Container(status, padding=ft.Padding(0, theme.SPACE_3, 0, 0)), detail_host], spacing=theme.SPACE_3)
     if body_size is not None:
         body = ft.Container(content=body, width=body_size[0], height=body_size[1])  # type: ignore[assignment]
     card = _card("Holdings", "sorted by weight", body, width=width, height=height, menu=common.menu_button("Options", filters.toggle))
     return common.with_popovers(card, width or 640, height, filters)
+
+
+_REASON_LABELS = {"performance_snapshot_unavailable": "performance history unavailable"}
 
 
 def _return_cell(value: float | None) -> ft.Control | None:
@@ -1798,7 +1802,7 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> PageView:
                 ck.BarSeries("Weight", [None if line.weight is None else line.weight * 100.0 for line in shown], "blue"),
                 ck.BarSeries("Risk contribution", [None if line.risk_share is None else line.risk_share * 100.0 for line in shown], "gold"),
             ],
-            x_name="Holding", y_name="Share of total (%)", width=width, height=height, margins=ck.Margins(56, 16, 34, 44),
+            x_name="Holding", y_name="Share of total (%)", width=width, height=height, margins=ck.Margins(56, 16, 34, 58),
             unavailable_reason=reason, empty_title="No risk contribution", insight=insight or reason,
         )
         risk_chart_host.content = GlassCard("Risk contribution vs. weight", "% of portfolio · by holding", insight or reason, body=Well(chart, width=width, height=height), width=layout.span_width(5), height=layout.row_heights[1])
