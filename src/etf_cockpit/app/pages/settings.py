@@ -216,11 +216,14 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
             status_details.value = f"{type(exc).__name__}: {exc}"
         update_page()
 
+    def select_output_currency(value: str) -> None:
+        selected["output_currency"] = value
+
     currency_field = Field(
         "Output currency",
         options=OUTPUT_CURRENCIES,
         value=str(selected["output_currency"]),
-        on_change=lambda value: selected.__setitem__("output_currency", value),
+        on_change=lambda value: select_output_currency(value),
         key="settings.output-currency",
         expand=True,
     )

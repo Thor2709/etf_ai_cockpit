@@ -144,6 +144,17 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
         rows = []
         for workflow in items:
             label, kind = _status(str(getattr(workflow, "status", "")))
+            workflow_id = str(getattr(workflow, "workflow_id", "") or "")
+            cancellable = bool(workflow_id) and str(getattr(workflow, "status", "")).casefold() in {"queued", "running"}
+            cancel_control = (
+                Button.secondary(
+                    "Cancel workflow",
+                    on_click=lambda _e, workflow_id=workflow_id: cancel_workflow(workflow_id),
+                    key=f"jobs.cancel.{workflow_id}",
+                )
+                if cancellable
+                else None
+            )
             rows.append(
                 {
                     "workflow": getattr(workflow, "label", None) or "—",
@@ -152,7 +163,7 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
                     "started": format_timestamp(getattr(workflow, "created_at", None), unavailable="—"),
                     "duration": None,
                     "lease": None,
-                    "action": None,
+                    "action": cancel_control,
                 }
             )
         return DataTable(

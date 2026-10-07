@@ -916,17 +916,18 @@ def import_export_page(page: ft.Page, state: AppState) -> PageView:
     def export_view() -> ft.Control:
         destination = GlassCard("Export destination", note="explicit local output path",
             body=export_destination_disclosure, expand=True)
-        specs = (("Scoreboard", "scoreboard", "import-export.export-scoreboard"),
-            ("Audit packet", "audit_packet", "import-export.export-audit-packet"),
-            ("Watchlist", "watchlist", "import-export.export-watchlist"),
-            ("Paper-trade journal", "paper_trade_journal", "import-export.export-paper-trade-journal"),
-            ("Decision journal", "decision_journal", "import-export.export-decision-journal"),
-            ("Plan/issues snapshot", "plan_issues_snapshot", "import-export.export-plan-issues-snapshot"))
+        specs = (("Scoreboard", "scoreboard", "scoreboard"),
+            ("Audit packet", "audit_packet", "audit-packet"),
+            ("Watchlist", "watchlist", "watchlist"),
+            ("Paper-trade journal", "paper_trade_journal", "paper-trade-journal"),
+            ("Decision journal", "decision_journal", "decision-journal"),
+            ("Plan/issues snapshot", "plan_issues_snapshot", "plan-issues-snapshot"))
         cards = []
-        for title, category, key in specs:
+        for title, category, slug in specs:
             cards.append(GlassCard(title, note="last export time", body=ft.Column([
                 KpiTile("Last export", None, sub="Unavailable: this view has no export timestamp."),
-                Button.secondary("Export", on_click=lambda _event, category=category: export_category(category), key=key),
+                Button.secondary("Export", on_click=lambda _event, category=category: export_category(category),
+                    key=f"import-export.export-{slug}"),
             ], spacing=12), expand=True))
         return ft.Column([destination, ft.Row(cards[:3], spacing=16, expand=1), ft.Row(cards[3:], spacing=16, expand=1),
             Note("Export status and destination are shown above; unavailable sources are reported without writing placeholders."),

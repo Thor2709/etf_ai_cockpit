@@ -621,7 +621,10 @@ def discover_actionable_controls(source_root: Path) -> dict[str, DiscoveredContr
             elif function_name == "_attach_picker":
                 expression = node.args[1] if len(node.args) > 1 else None
                 event_nodes = {"file_picker": ast.Name(id="pick_files")}
-            elif function_name in _ACTION_CONTROL_CALLS and any(name in _EVENT_BINDINGS for name in keywords):
+            elif (function_name in _ACTION_CONTROL_CALLS and any(name in _EVENT_BINDINGS for name in keywords)) or (
+                # Kit Field wraps an input; it is a contract control only when it carries an explicit key.
+                function_name == "Field" and "key" in keywords and any(name in _EVENT_BINDINGS for name in keywords)
+            ):
                 expression = keywords.get("key")
                 event_nodes = {name: value for name, value in keywords.items() if name in _EVENT_BINDINGS}
             elif function_name == "FilePicker":
