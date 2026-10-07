@@ -31,7 +31,7 @@ a = Analysis(
     ['src\\etf_cockpit\\main.py'],
     pathex=['src', str(flet_web_directory.parent)],
     binaries=runtime_binaries,
-    datas=[('configs', 'configs'), ('models/lightgbm', 'models/lightgbm'), ('models/cached', 'models/cached'), (str(flet_web_directory), 'flet_web'), (str(flet_directory / 'controls' / 'material' / 'icons.json'), 'flet/controls/material')] + collect_data_files('etf_cockpit', include_py_files=False),
+    datas=[('configs', 'configs'), ('models/lightgbm', 'models/lightgbm'), ('models/cached', 'models/cached'), (str(flet_web_directory), 'flet_web'), (str(flet_directory / 'controls' / 'material' / 'icons.json'), 'flet/controls/material')] + collect_data_files('etf_cockpit', include_py_files=False) + [('src/etf_cockpit/app/assets/globe', 'etf_cockpit/app/assets/globe'), ('src/etf_cockpit/app/assets/geo', 'etf_cockpit/app/assets/geo')],
     hiddenimports=['flet_web', 'flet_web.patch_index', 'flet_web.uploads', 'flet_web.fastapi', 'flet_web.fastapi.app', 'flet_web.fastapi.flet_app', 'flet_web.fastapi.flet_app_manager', 'flet_web.fastapi.flet_fastapi', 'flet_web.fastapi.flet_oauth', 'flet_web.fastapi.oauth_state', 'flet_web.fastapi.serve_fastapi_web_app', 'fastapi', 'fastapi.staticfiles', 'starlette', 'starlette.middleware.base', 'uvicorn', 'uvicorn.loops.auto', 'uvicorn.lifespan.on', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.websockets.websockets_sansio_impl', 'yfinance', 'curl_cffi', 'bs4', 'peewee', 'multitasking', 'platformdirs', 'pandas._libs._cyutility'],
     hookspath=[],
     hooksconfig={},
