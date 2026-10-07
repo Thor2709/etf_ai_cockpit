@@ -12,8 +12,46 @@ import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
-from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections, simple_score_legend
-from etf_cockpit.app.components.kit import kpi_tile, status_tag
+from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections
+from etf_cockpit.app.components import chartkit as ck
+from etf_cockpit.app.components.kit import (
+    Button,
+    DataTable,
+    Disclosure,
+    EmptyState,
+    GlassCard,
+    KpiTile,
+    ListRow,
+    Note,
+    ScoreBar,
+    SectionHeader,
+    StepSpec,
+    Stepper,
+    TableColumn,
+    Tag,
+    Well,
+    kpi_tile,
+    status_tag,
+)
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
+from etf_cockpit.app.pages._p1_common import GridLayout, grid, make_layout, refresh, text, with_edge_fade
+from etf_cockpit.app.pages._p1_common import workflow_button as _workflow_button
+from etf_cockpit.application.ui_views.home import (
+    BAND_LABELS,
+    SORT_MODES,
+    TIER_FILTERS,
+    HomeView,
+    ScoreRow,
+    band_insight,
+    build_checks,
+    filter_tier,
+    rank_change_bars,
+    rank_insight,
+    score_bands,
+    score_rows,
+    signed,
+    sort_rows,
+)
 from etf_cockpit.app.components.states import state_panel
 from etf_cockpit.app.state import ActivityUnavailableError, AppState, activity_result_error
 from etf_cockpit.application.contracts import ApiStatus, CommandResult, DashboardAction, DashboardActionCommand
@@ -59,6 +97,8 @@ from etf_cockpit.application.ui_facade import (
     score_history_frame,
     sort_news_items,
 )
+
+COMPACT_TABLE_WIDTH = 760  # Scores card narrower than this: no Tier column, shorter score bar
 
 
 def _rebuild(page: ft.Page, state: AppState) -> None:
@@ -127,7 +167,8 @@ def _dashboard_action_message(
     return dict(result.details)["message"]
 
 
-def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
+def _home_view(state: AppState) -> tuple[HomeView, list[SimpleInstrumentScore]]:
+    """Fetch the local evidence once and project it into the read-only Home view model."""
     reference_context = context_from_snapshot(
         state.snapshot,
         purpose="comparison",
@@ -149,50 +190,374 @@ def dashboard_page(page: ft.Page, state: AppState) -> ft.Control:
         peer_member_ids=reference_context.peer_member_ids,
         cash_observation_time=state.snapshot.benchmark_reference_decision_time,
     )
+    try:
+        _as_of, records, report = _digest_parts(state, scores)
+    except Exception:
+        records, report = {}, None
+    rank_info = {
+        change.instrument_id: (change.previous_rank, change.current_rank)
+        for change in (report.changes if report is not None else ())
+    }
+    data_report = state.snapshot.data_report
+    status = str(data_report.status or "")
+    flagged = set(getattr(data_report, "blocked_etfs", ()) or ()) | set(getattr(data_report, "warning_etfs", ()) or ())
     best = scores[0] if scores else None
-    configured_count = sum(1 for score in scores if score.source_group == "Primary tier")
-    candidate_count = sum(1 for score in scores if score.source_group == "Secondary tier")
-    sparebanken_count = sum(1 for score in scores if score.source_group == "Sparebanken")
-    model_pairs = _valid_model_pairs(state)
-    cards = _summary_cards(state, best, configured_count, candidate_count, sparebanken_count, model_pairs, narrow=False)
+    mode = "Manual review" if status == "Blocked" else "Caution" if status == "Warning" else "Normal"
+    forecasts = getattr(state.snapshot, "forecasts", None)
+    extra_models: tuple[str, ...] = ()
+    if isinstance(forecasts, pd.DataFrame) and {"model_name", "status"} <= set(forecasts.columns):
+        names = forecasts.loc[forecasts["status"].astype(str).str.lower() == "ok", "model_name"].astype(str)
+        extra_models = tuple(sorted({n for n in names if "baseline" not in n.lower()}))
+    checks = build_checks(
+        records,
+        regime_label=None if best is None else best.market_regime_label,
+        regime_detail="yfinance market context" if best is not None else "run scores to read the regime",
+        final_mode=mode,
+        data_status=status,
+    )
+    rows = score_rows(scores, rank_info, getattr(data_report, "blocked_etfs", ()) or ())
+    return (HomeView(
+        checks=checks,
+        scores=rows,
+        data_status=status,
+        instrument_total=len(rows),
+        valid_scores=sum(1 for row in rows if row.score is not None),
+        data_quality_pct=None if not rows else 100.0 * (1 - len(flagged) / len(rows)),
+        extra_models=extra_models,
+        changes_reason="No previous run to compare"
+        if report is None or not report.previous_run_id
+        else "No instrument changed rank",
+    ), scores)
 
-    return ft.Column(
-        [
-            as_of_strip(state, key="dashboard.as-of"),
-            _evidence_state_panel(state),
-            _what_matters_today(state, scores=scores),
-            cards,
-            _action_bar(page, state),
-            disclosure(
-                "Alerts, run changes and news",
-                "Local warnings, score/rank changes since the previous run, and news/macro contradictions.",
-                ft.Column([_alerts_digest(page, state), _run_changes_digest(page, state), _news_digest(page, state)], spacing=12),
-                key="dashboard.details.signals",
+
+def dashboard_page(page: ft.Page, state: AppState) -> PageView:
+    view, scores = _home_view(state)
+    selection = {"tier": "All", "sort": "Score"}
+    layout = make_layout(page)
+    holder = ft.Container(expand=True)
+
+    def paint() -> None:
+        holder.content = _home_body(page, state, view, scores, layout, selection["tier"], selection["sort"])
+        refresh(holder)
+
+    def choose_tier(value: str) -> None:
+        selection["tier"] = value
+        paint()
+
+    def choose_sort(value: str) -> None:
+        selection["sort"] = value
+        paint()
+
+    holder.content = _home_body(page, state, view, scores, layout, "All", "Score")
+    return PageView(
+        chrome=PageChrome(
+            "Simple Scores",
+            "Today's evidence across your local universe",
+            (
+                SegmentGroup("tier", TIER_FILTERS, "All", choose_tier),
+                SegmentGroup("sort", SORT_MODES, "Score", choose_sort),
             ),
-            simple_score_legend(),
-            panel(
-                ft.Column(
-                    [
-                        section_header(
-                            "Simple yfinance scores",
-                            "Primary tier, secondary tier and Sparebanken rows are separated by asset class. Expand a row for evidence quality, risk/friction, deterministic algorithms and low-authority AI forecast confirmation.",
-                        ),
-                        simple_score_grouped_sections(scores, page=page, state=state),
-                    ],
-                    spacing=12,
+        ),
+        body=holder,
+    )
+
+
+def _open_instrument(page: ft.Page, state: AppState, instrument_id: str) -> None:
+    state.selected_etf = instrument_id
+    _go_to(page, state, "/stock-research")
+
+
+def _home_body(
+    page: ft.Page,
+    state: AppState,
+    view: HomeView,
+    scores: list[SimpleInstrumentScore],
+    layout: GridLayout,
+    tier: str,
+    sort: str,
+) -> ft.Control:
+    rows = filter_tier(view.scores, tier)
+    ordered = sort_rows(rows, sort)
+    stacked = layout.narrow or layout.medium
+    first = [
+        (_what_matters_card(page, state, view, layout), 5),
+        (_scores_card(page, state, view, ordered, tier, layout), 7),
+    ]
+    if layout.medium:  # 1100-1300px: the Evidence state card gets its own full-width row
+        layout = layout.with_row(300)
+        cards = [
+            first,
+            [
+                (_rank_change_card(layout, rows, view.changes_reason, 6), 6),
+                (_distribution_card(layout, rows, 6), 6),
+            ],
+            [(_evidence_state_card(page, state, view, wide=True), 12)],
+        ]
+    else:
+        cards = [
+            first,
+            [
+                (_rank_change_card(layout, rows, view.changes_reason, 5), 5),
+                (_distribution_card(layout, rows, 4), 4),
+                (_evidence_state_card(page, state, view, wide=stacked, layout=layout), 3),
+            ],
+        ]
+    return grid(layout, cards, below=_below_the_fold(page, state, scores))
+
+
+def _what_matters_card(page: ft.Page, state: AppState, view: HomeView, layout: GridLayout) -> ft.Control:
+    rows = [
+        ListRow(
+            check.dot,
+            check.title,
+            check.sub,
+            (check.tag_text, check.tag_kind),
+            last=index == len(view.checks) - 1,
+            on_click=lambda _event, route=check.route: _go_to(page, state, route),
+        )
+        for index, check in enumerate(view.checks)
+    ]
+    body: ft.Control = (
+        with_edge_fade(ft.ListView(rows, spacing=0, expand=True))
+        if rows
+        else EmptyState("No checks available", "The local digest could not be read; manual review is required.")
+    )
+    card = GlassCard(
+        "What matters today",
+        layout.card_note(5, f"{len(view.checks)} checks · local evidence only"),
+        body=body,
+        expand=True,
+    )
+    return card
+
+
+def _scores_card(
+    page: ft.Page, state: AppState, view: HomeView, ordered: list[ScoreRow], tier: str, layout: GridLayout
+) -> ft.Control:
+    if not view.scores:
+        body: ft.Control = EmptyState(
+            "No instruments yet",
+            "Set up a local watchlist to start.",
+            Button.secondary("Open first-run setup", lambda _event: _go_to(page, state, "/onboarding")),
+        )
+    else:
+        compact = layout.span_width(7) < COMPACT_TABLE_WIDTH  # under ~760px: drop the Tier column, shrink the bar
+        bar_width = 80 if compact else 190
+        columns = [
+            TableColumn("rank", "#", width=36, sortable=False),
+            TableColumn("instrument", "Instrument", flex=4, sortable=False),
+            *([] if compact else [TableColumn("tier", "Tier", flex=3, sortable=False)]),
+            TableColumn("score", "Score", width=bar_width + 40, sortable=False),
+            TableColumn("evidence", "Evidence", flex=3, sortable=False),
+            TableColumn("risk", "Risk", flex=3 if compact else 2, sortable=False),
+            TableColumn("delta", "Δ rank", flex=2, numeric=True, sortable=False),
+        ]
+        table_rows = [
+            {
+                "rank": None if row.rank is None else str(row.rank),
+                "instrument": (row.instrument_id, row.name),
+                "tier": Tag(row.tier, "mute", dense=True),
+                "score": ScoreBar(row.score, width=bar_width),
+                "evidence": Tag(row.evidence_text, row.evidence_kind, dense=True),
+                "risk": row.risk,
+                "delta": text(
+                    signed(row.rank_delta),
+                    13.5,
+                    400,
+                    theme.POS if (row.rank_delta or 0) > 0 else theme.NEG if (row.rank_delta or 0) < 0 else theme.INK2,
+                    text_align=ft.TextAlign.RIGHT,
                 ),
-            ),
-            disclosure(
-                "Activity and local imports",
-                "Session activity trace and the renew/import tools.",
-                ft.Column([_activity_panel(state, page=page), _secondary_actions(page, state)], spacing=12),
-                key="dashboard.details.activity",
+            }
+            for row in ordered
+        ]
+        body = DataTable(
+            columns,
+            table_rows,
+            row_height=54,
+            expand=True,
+            on_select=lambda index: _open_instrument(page, state, ordered[index].instrument_id),
+            empty_title="No instruments in this tier",
+            empty_reason=f"The {tier} tier has no instruments in the local universe.",
+        )
+    return GlassCard("Scores", layout.card_note(7, "0–10 · higher = stronger evidence"), body=body, expand=True)
+
+
+def _rank_change_card(layout: GridLayout, rows: list[ScoreRow], empty_reason: str, span: int) -> ft.Control:
+    bars = rank_change_bars(rows)
+    width, height = layout.card_body(span, 1, insight=True)
+    chart = ck.bar_chart(
+        [bar.instrument_id for bar in bars],
+        [bar.rank_delta for bar in bars],
+        labels=[signed(bar.rank_delta) for bar in bars],
+        x_name="Instrument",
+        y_name="Rank change (places)",
+        decimals=0,
+        y_min=min([0, *(bar.rank_delta for bar in bars)]) - 1,
+        y_max=max([0, *(bar.rank_delta for bar in bars)]) + 1,
+        margins=ck.Margins(62, 30, 20, 48),
+        width=width,
+        height=height,
+        unavailable_reason=None if bars else empty_reason,
+        empty_title="No rank changes",
+        insight=rank_insight(bars),
+    )
+    return GlassCard(
+        "Biggest score & rank changes",
+        layout.card_note(span, "rank change vs. previous run"),
+        insight=rank_insight(bars),
+        body=Well(chart, width=width, height=height),
+        expand=True,
+    )
+
+
+def _distribution_card(layout: GridLayout, rows: list[ScoreRow], span: int) -> ft.Control:
+    counts = score_bands(rows)
+    width, height = layout.card_body(span, 1, insight=True)
+    scored = sum(counts)
+    chart = ck.bar_chart(
+        list(BAND_LABELS),
+        [float(c) for c in counts],
+        kinds=["neg", "neg", "pos", "pos", "pos", "pos"],
+        x_name="Score band",
+        y_name="Instruments (count)",
+        decimals=0,
+        signed_labels=False,
+        show_labels=False,
+        bar_width=0.70,
+        margins=ck.Margins(54, 14, 20, 48),
+        width=width,
+        height=height,
+        unavailable_reason=None if scored else "No instrument has a valid score yet.",
+        empty_title="No scores",
+        insight=band_insight(rows),
+    )
+    return GlassCard(
+        "Score distribution",
+        layout.card_note(span, "instruments per score band"),
+        insight=band_insight(rows),
+        body=Well(chart, width=width, height=height),
+        expand=True,
+    )
+
+
+def _evidence_state_card(
+    page: ft.Page, state: AppState, view: HomeView, *, wide: bool = False, layout: GridLayout | None = None
+) -> ft.Control:
+    quality = view.data_quality_pct
+    forecasts_sub = "+ " + ", ".join(f"{m} (exp.)" for m in view.extra_models) if view.extra_models else "baseline only"
+    tile_list = [
+        KpiTile(
+            "Instruments",
+            str(view.instrument_total) if view.instrument_total else None,
+            f"{view.valid_scores} with valid scores" if view.instrument_total else "No universe loaded",
+            expand=True,
+        ),
+        KpiTile(
+            "Data quality",
+            None if quality is None else f"{quality:.0f}%",
+            "adjusted prices" if quality is not None else "No instruments to assess",
+            expand=True,
+        ),
+        KpiTile("Forecasts", "baseline", forecasts_sub, expand=True),
+        KpiTile("Authority", "locked", "execution off", tone="neg", expand=True),
+    ]
+    # 2 x 2 in the 3-column card; one row of four when the card is full width (narrow and medium windows).
+    tile_rows = [tile_list] if wide else [tile_list[:2], tile_list[2:]]
+    tiles = ft.Column(
+        [
+            *(ft.Row(cells, spacing=12) for cells in tile_rows),
+            Note("Scores and model outputs are advisory evidence. Risk and data-quality gates always override."),
+            ft.Row(
+                [
+                    Button.primary("Run workflow", lambda _event: _open_workflow_sheet(page, state)),
+                    Button.secondary("Open scores", lambda _event: _go_to(page, state, "/signals")),
+                ],
+                spacing=12,
             ),
         ],
-        expand=True,
-        spacing=14,
+        spacing=12,
         scroll=ft.ScrollMode.AUTO,
+        expand=True,
     )
+    return GlassCard("Evidence state", f"data health {view.data_status or 'unavailable'}", body=tiles, expand=True)
+
+
+def _workflow_stepper(page: ft.Page, state: AppState) -> ft.Control:
+    """The four daily-workflow steps with their live status line (shared by the sheet and the page)."""
+    steps = (
+        ("1. Refresh yfinance data", "Refresh", "dashboard.refresh-yfinance", "Refresh yfinance data",
+         "refresh_yfinance_data"),
+        ("2. Run algorithms", "Run", "dashboard.run-algorithms", "Run algorithms", "run_algorithm_scores"),
+        ("3. Run forecasting models", "Run", "dashboard.run-forecasting-models", "Run forecasting models",
+         "run_forecasting_models"),
+    )
+    current = state.current_activity
+    specs: list[StepSpec] = []
+    for title, verb, key_name, label, action in steps:
+        running = current is not None and current.label == label
+        specs.append(
+            StepSpec(
+                title,
+                current.step if running else "",
+                "running" if running else "pending",
+                _workflow_button(
+                    verb,
+                    key_name=key_name,
+                    on_click=lambda _event, label=label, action=action: _run_action(
+                        page, state, label, lambda: _dashboard_action_message(state, action)
+                    ),
+                    disabled=current is not None,
+                    disabled_reason="Another activity is running.",
+                ),
+            )
+        )
+    specs.append(
+        StepSpec(
+            "4. Show scores",
+            "",
+            "pending",
+            _workflow_button("Open", key_name="dashboard.show-scores", on_click=lambda _event: _go_to(page, state, "/signals")),
+        )
+    )
+    last = str(state.last_message or "")
+    return ft.Column([Stepper(specs), text(last, 12.5, 400, theme.INK2, trunc=True)], spacing=12)
+
+
+def _open_workflow_sheet(page: ft.Page, state: AppState) -> None:
+    def close(_event: object | None = None) -> None:
+        if hasattr(page, "pop_dialog"):
+            page.pop_dialog()
+
+    dialog = ft.AlertDialog(
+        modal=True,
+        bgcolor=theme.GLASS_FILL_SOLID,
+        shape=ft.RoundedRectangleBorder(radius=theme.CARD_RADIUS),
+        title=text("Daily workflow", 15, 600, shadow=True),
+        content=ft.Container(width=560, content=_workflow_stepper(page, state)),
+        actions=[Button.secondary("Close", close)],
+    )
+    if hasattr(page, "show_dialog"):
+        page.show_dialog(dialog)
+
+
+def _below_the_fold(page: ft.Page, state: AppState, scores: list[SimpleInstrumentScore]) -> list[ft.Control]:
+    """Everything the earlier Home panels offered that has no place in the two reference rows."""
+    return [
+        SectionHeader("Score details", "Evidence quality, risk, algorithms and forecast confirmation per instrument."),
+        GlassCard("Instrument score details", f"{len(scores)} instruments",
+                  body=simple_score_grouped_sections(scores, page=page, state=state)),
+        SectionHeader("Daily workflow", "Refresh data, run algorithms, run forecasting models, then inspect scores."),
+        GlassCard("Workflow", "", body=_workflow_stepper(page, state)),
+        SectionHeader("Local data and audit", "Imports, audit packet and model diagnostics."),
+        GlassCard("Local data", "", body=_secondary_actions(page, state)),
+        SectionHeader("Activity", "Session activity, alerts and review reminders."),
+        GlassCard("Activity log", "", body=_activity_panel(state, page=page)),
+        _alerts_digest(page, state),
+        SectionHeader("Digest details", "Sources, provenance and run, news and macro context behind What matters today."),
+        _run_changes_digest(page, state),
+        _news_digest(page, state),
+        Disclosure("what-matters detail", _what_matters_today(state)),
+    ]
 
 
 def as_of_strip(state: object, *, key: str) -> ft.Control:
@@ -293,7 +658,8 @@ def _what_matters_today(state: AppState, *, scores: list[SimpleInstrumentScore] 
     return control
 
 
-def _dashboard_digest(state: AppState, *, scores: list[SimpleInstrumentScore] | None = None) -> DashboardDigest:
+def _digest_parts(state: AppState, scores: list[SimpleInstrumentScore] | None = None):
+    """Return (as_of, digest records, run-change report) from the existing local evidence readers."""
     as_of = str(getattr(getattr(state.snapshot, "data_report", None), "as_of_date", "") or "") or None
     cutoff = normalise_event_decision_time(as_of)
     report = _latest_run_change_report(cutoff)
@@ -301,7 +667,6 @@ def _dashboard_digest(state: AppState, *, scores: list[SimpleInstrumentScore] | 
         "score_changes": _score_change_record(report, as_of=as_of),
         "warning_changes": _warning_change_record(report, as_of=as_of),
     }
-
     alerts = (
         _read_alerts(as_of=cutoff.to_pydatetime(), limit=None)
         if cutoff is not None
@@ -314,6 +679,11 @@ def _dashboard_digest(state: AppState, *, scores: list[SimpleInstrumentScore] | 
     records["contradictions"] = _contradiction_record(state, as_of=as_of, cutoff=cutoff)
     records["upcoming_events"] = _event_record(as_of=as_of, cutoff=cutoff)
     records["audit_export"] = _audit_export_record(state, as_of=as_of)
+    return as_of, records, report
+
+
+def _dashboard_digest(state: AppState, *, scores: list[SimpleInstrumentScore] | None = None) -> DashboardDigest:
+    as_of, records, _report = _digest_parts(state, scores)
     return build_digest(records, as_of=as_of)
 
 
@@ -922,44 +1292,26 @@ def _activity_panel(state: AppState, *, page: ft.Page | None = None) -> ft.Contr
     )
 
 
-def _workflow_button(label: str, *, key_name: str, icon: str, on_click, width: int) -> ft.Control:
-    button = ft.OutlinedButton(
-        label,
-        key=key_name,
-        tooltip=label,
-        icon=icon,
-        on_click=on_click,
-    )
-    return ft.Container(
-        content=button,
-        width=width,
-        height=42,
-    )
-
-
 def _secondary_actions(page: ft.Page, state: AppState) -> ft.Control:
     return ft.Row(
         [
-            ft.OutlinedButton(
+            _workflow_button(
                 "Renew/import local files",
-                key="dashboard.renew-import",
-                icon=ft.Icons.DOWNLOAD,
+                key_name="dashboard.renew-import",
                 on_click=lambda _event: _open_renew_dialog(page, state),
             ),
-            ft.OutlinedButton(
+            _workflow_button(
                 "Audit packet",
-                key="dashboard.export-audit",
-                icon=ft.Icons.CHECK_CIRCLE,
+                key_name="dashboard.export-audit",
                 on_click=lambda _event: _export_pack(page, state),
             ),
-            ft.OutlinedButton(
+            _workflow_button(
                 "Advanced data/model diagnostics",
-                key="dashboard.open-data-models",
-                icon=ft.Icons.INSIGHTS,
+                key_name="dashboard.open-data-models",
                 on_click=lambda _event: _go_to(page, state, "/data-models"),
             ),
         ],
-        spacing=10,
+        spacing=12,
         wrap=True,
     )
 
