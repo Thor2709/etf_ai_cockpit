@@ -57,6 +57,19 @@ def _available_value(value: object, unit: str = "") -> str | None:
     return f"{format_count(value, unavailable='—')} {unit}".strip()
 
 
+def _refresh_activity_shell(page: ft.Page | None, state: AppState | None) -> None:
+    """Re-render the shell so the activity rail follows running and terminal job states."""
+
+    if page is None or state is None:
+        return
+    if not hasattr(page, "views"):
+        page.update()
+        return
+    from etf_cockpit.app.router import render_shell
+
+    render_shell(page, state, getattr(page, "route", "") or state.snapshot.config.ui.default_page)
+
+
 def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
     api = getattr(state, "application_api", None) if state is not None else None
     requested_profile = "auto"
@@ -268,7 +281,7 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
             if result.get("status") in {"failed", "unavailable"}:
                 cleanup_message.value = "Generated-cache cleanup failed."
                 safe_error = redact_text(str(result.get("error") or result.get("message") or result.get("status")))
-                cleanup_details.value = f"{safe_error}; result={result}"
+                cleanup_details.value = redact_text(f"{safe_error}; result={result}")
                 state.fail_activity(
                     label,
                     TimeoutError(safe_error),
@@ -278,7 +291,7 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
             else:
                 removed_count = len(result.get("removed", ()))
                 cleanup_message.value = f"Generated-cache cleanup completed; {format_count(removed_count)} files removed."
-                cleanup_details.value = str(result)
+                cleanup_details.value = redact_text(str(result))
                 state.update_activity("Cache cleanup complete", completed_units=1, total_units=1, expected_action_id=action_id)
                 state.finish_activity(cleanup_message.value, output_path=result.get("cache_path"), label=label, expected_action_id=action_id)
         except Exception as exc:
@@ -294,7 +307,7 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
                 cleanup_message.value = "Generated-cache cleanup was cancelled."
                 cleanup_details.value = cancelled_message
             state.release_activity(action_id)
-            update_page()
+            _refresh_activity_shell(page, state)
 
     def start_cache_cleanup() -> threading.Thread | None:
         if state is None:
@@ -315,7 +328,7 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
             update_page()
             return None
         cleanup_message.value = "Generated-cache cleanup is in progress."
-        update_page()
+        _refresh_activity_shell(page, state)
         worker = threading.Thread(target=run_cache_cleanup, args=(action_id,), daemon=True)
         worker.start()
         return worker

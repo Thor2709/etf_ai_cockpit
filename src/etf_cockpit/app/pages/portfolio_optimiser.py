@@ -54,13 +54,14 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> PageView:
     cash_default = float(state.snapshot.config.targets.cash_target_weight)
     max_weight_default = float(state.snapshot.config.risks.portfolio_limits.max_single_etf_weight)
     method_selection = {"value": "equal_weight"}
+    def select_method(label: str) -> None:
+        method_selection["value"] = next((key for key, value in _METHOD_LABELS.items() if value == label), "equal_weight")
+
     method = Field(
         "Method",
         options=[_METHOD_LABELS[key] for key in METHODS],
         value=_METHOD_LABELS[method_selection["value"]],
-        on_change=lambda label: method_selection.update(
-            value=next((key for key, value in _METHOD_LABELS.items() if value == label), "equal_weight")
-        ),
+        on_change=select_method,
         key="portfolio-optimiser.method",
     )
     cash = text_field(

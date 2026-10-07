@@ -947,9 +947,17 @@ def import_export_page(page: ft.Page, state: AppState) -> PageView:
     views = {"Import": import_view, "Reconcile": reconcile_view, "Export": export_view, "Backup": backup_view}
     update_staging_table()
     update_reconciliation_table()
-    body_slot = ft.Column([import_view()], spacing=24, expand=True)
+    # Every view stays in the control tree (only the selected one is visible), so keyed controls remain reachable.
+    built = {name: build() for name, build in views.items()}
+    for name, panel in built.items():
+        panel.visible = name == "Import"
+    body_slot = ft.Column(list(built.values()), spacing=24, expand=True)
+
     def select_segment(value: str) -> None:
-        body_slot.controls = [views[value]()]
+        built[value] = views[value]()
+        for name, panel in built.items():
+            panel.visible = name == value
+        body_slot.controls = list(built.values())
         if page is not None:
             page.update()
     return PageView(chrome=PageChrome(

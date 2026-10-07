@@ -431,7 +431,6 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> PageView:
         if hasattr(page, "update"):
             page.update()
 
-    show_segment("Notes")
     return PageView(
         PageChrome(
             "Audit Notes",
