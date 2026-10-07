@@ -239,9 +239,10 @@ def import_export_page(page: ft.Page, state: AppState) -> PageView:
             expand=True,
         )
 
-    def show(message: str, *, colour: str = theme.MUTED) -> None:
+    def show(message: str, *, colour: str = theme.MUTED, record: bool = True) -> None:
         summary = status_summary(message)
-        state.last_message = summary
+        if record:
+            state.last_message = summary
         preview_text.value = summary
         preview_details.value = redact_text(message)
         preview_text.color = colour
@@ -743,7 +744,7 @@ def import_export_page(page: ft.Page, state: AppState) -> PageView:
             finally:
                 cancelled_message = state.restore_cancelled_activity_message(action_id)
                 if cancelled_message is not None:
-                    show(cancelled_message)
+                    show(cancelled_message, record=False)  # the canonical cancellation message stays authoritative
                 state.release_activity(action_id)
                 _refresh_activity_shell(page, state)
 
