@@ -28,7 +28,7 @@ from etf_cockpit.app.formatting import format_count, format_number, format_perce
 from etf_cockpit.app.pages._l4a_common import input_of, page_body, text_field
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.portfolio_optimiser import METHODS, OptimiserConstraints, build_portfolio_optimiser
-from etf_cockpit.portfolio.optimiser import OPTIMISER_MODEL_VERSION
+from etf_cockpit.application.ui_views.portfolio_optimiser import portfolio_optimiser_view
 
 
 _METHOD_LABELS = {
@@ -50,6 +50,7 @@ _STATUS_LABELS = {
 
 def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> PageView:
     optimiser, returns = build_portfolio_optimiser(getattr(state.snapshot, "prices", None))
+    model_metadata = portfolio_optimiser_view()
     cash_default = float(state.snapshot.config.targets.cash_target_weight)
     max_weight_default = float(state.snapshot.config.risks.portfolio_limits.max_single_etf_weight)
     method_selection = {"value": "equal_weight"}
@@ -94,7 +95,7 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> PageView:
     def percent(value: object, *, decimals: int = 2) -> str:
         return format_percent(value, decimals=decimals, unavailable="—").replace("-", "−")
 
-    def render(_event: ft.ControlEvent | None = None) -> None:
+    def run(_event: ft.ControlEvent | None = None) -> None:
         if returns.empty:
             status["text"] = "Optimisation unavailable: adjusted-price returns are required."
             result_table["control"] = EmptyState("Comparison unavailable", "Adjusted-price returns are required.")
@@ -203,7 +204,7 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> PageView:
                 audit["text"] = "\n".join(fingerprints)
                 audit["details"] = "\n".join(
                     [
-                        f"Model version: {OPTIMISER_MODEL_VERSION}",
+                        f"Model version: {model_metadata['model_version']}",
                         f"Cash weight: {percent(cash_percent / 100)}",
                         f"Max weight: {percent(max_percent / 100)}",
                         *warnings,
@@ -249,14 +250,14 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> PageView:
                 ),
                 method,
                 ft.Row([cash, maximum], spacing=theme.SPACE_2, wrap=True),
-                Button.primary("Run comparison", key="portfolio-optimiser.run", on_click=render),
+                Button.primary("Run comparison", key="portfolio-optimiser.run", on_click=run),
                 status_note,
                 Note(f"{len(METHODS)} transparent methods compared on a held-out local return slice."),
             ],
             spacing=theme.SPACE_2,
         ),
     )
-    render()
+    run()
     cards = [
         constraints_card,
         GlassCard(

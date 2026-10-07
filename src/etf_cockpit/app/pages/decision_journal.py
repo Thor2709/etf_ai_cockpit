@@ -23,7 +23,7 @@ from etf_cockpit.app.formatting import format_number, format_timestamp
 from etf_cockpit.app.pages._l4a_common import input_of, page_body, text_field
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import DATA_DIR
-from etf_cockpit.data.decision_journal import DecisionJournal, JournalEntry, JournalIntegrityError
+from etf_cockpit.application.ui_facade import DecisionJournal, JournalEntry, JournalIntegrityError
 
 
 _STATES = ("pending", "accepted", "rejected", "deferred")

@@ -8,6 +8,7 @@ from etf_cockpit.app.components.kit import (
     DataTable,
     Disclosure,
     EmptyState,
+    Field,
     GlassCard,
     KpiStrip,
     KpiStripItem,
@@ -63,13 +64,39 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
 
     preview_instrument = text_field("Instrument", "operations.instrument")
     preview_quantity = text_field("Quantity", "operations.quantity")
+    event_status = ft.Text("Event policy unavailable")
+
+    def change_event_policy(_value: bool) -> None:
+        event_status.value = "Event policy unavailable in this build."
+        if page is not None:
+            page.update()
+
     event_blackout = Toggle(
         on=False,
+        on_change=change_event_policy,
         disabled=True,
         disabled_reason="Event policy details are unavailable in this build.",
+        key="operations.event-policy",
     )
-    event_blackout.key = "operations.event-policy"
-    event_status = ft.Text("Event policy unavailable")
+    event_policy = Field(
+        "Apply local high-risk event blackout (earnings/high-risk; high/critical; ±24 hours)",
+        control=event_blackout,
+    )
+    environment = Field(
+        "Environment",
+        control=ft.Row(
+            [
+                Segmented(["Paper proposal"], "Paper proposal"),
+                Button.secondary(
+                    "Live (disabled)",
+                    disabled=True,
+                    disabled_reason="Live account access, order submission and broker credentials are unavailable in this build.",
+                ),
+            ],
+            spacing=theme.SPACE_2,
+            wrap=True,
+        ),
+    )
     preview_details = ft.Container(content=Disclosure("preview details", "No operation preview has been stored."))
 
     def notify(status: ft.Text, details: ft.Container, name: str, action) -> None:
@@ -98,12 +125,6 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
 
         notify(event_status, preview_details, "Operation preview", store_preview)
 
-    def change_event_policy(_value: bool) -> None:
-        event_status.value = "Event policy unavailable in this build."
-        if page is not None:
-            page.update()
-
-    event_blackout.on_change = change_event_policy
     proposal_status = ft.Text("Proposal review unavailable: current authority and optimiser evidence is not available here.")
     proposal_details = ft.Container(
         content=Disclosure("proposal review details", "No validated proposal review is available.")
@@ -138,13 +159,13 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
 
     overview = GlassCard(
         "Preview and confirm",
-        note="Every preview remains non-executable; live authority is disabled.",
+        note="A preview is stored before any local workflow; live authority remains disabled.",
         body=ft.Column(
             [
                 preview_instrument,
                 preview_quantity,
-                Segmented(["Paper proposal"], "Paper proposal"),
-                ft.Row([Tag("Live environment disabled", "bad"), event_blackout], wrap=True),
+                environment,
+                event_policy,
                 ft.Row(
                     [
                         Button.secondary("Preview selected operation", key="operations.preview", on_click=preview),
@@ -191,8 +212,8 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
         ),
     )
 
-    account_id = text_field("Paper account ID", "operations.paper-account-id", value="local-paper")
-    opening_cash = text_field("Opening cash EUR", "operations.paper-opening-cash")
+    account_id = text_field("Paper account ID", "operations.paper-account-id")
+    opening_cash = text_field("Opening cash (EUR)", "operations.paper-opening-cash")
     account_status = ft.Text("No paper account has been opened from this form.")
     account_details = ft.Container(content=Disclosure("paper account details", "No account action has been recorded."))
 
@@ -204,7 +225,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
             lambda: api.open_paper_account(
                 PaperAccountOpenRequest(
                     account_id=_required(account_id, "Paper account ID"),
-                    initial_cash=_number(opening_cash, "Opening cash EUR"),
+                    initial_cash=_number(opening_cash, "Opening cash (EUR)"),
                 )
             ),
         )
@@ -394,7 +415,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
 
     action_instrument = text_field("Action instrument", "operations.paper-action-instrument")
     split_ratio = text_field("Split ratio", "operations.paper-split-ratio")
-    dividend = text_field("Dividend per unit", "operations.paper-dividend-per-unit")
+    dividend = text_field("Dividend/unit", "operations.paper-dividend-per-unit")
     action_as_of = text_field("Action as of (ISO date/time)", "operations.paper-action-as-of")
     action_authority = text_field("Action source authority", "operations.paper-action-authority")
     action_checksum = text_field("Action source checksum", "operations.paper-action-checksum")
@@ -412,7 +433,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
                 PaperCorporateActionRequest(
                     instrument_id=_required(action_instrument, "Action instrument"),
                     split_ratio=_number(split_ratio, "Split ratio"),
-                    cash_dividend_per_unit=_number(dividend, "Dividend per unit"),
+                    cash_dividend_per_unit=_number(dividend, "Dividend/unit"),
                     as_of=_moment(action_as_of),
                     source_authority=_required(action_authority, "Action source authority"),
                     source_checksum=_required(action_checksum, "Action source checksum"),
@@ -575,6 +596,10 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
         ),
     )
 
+    def navigate_to_training(_event: ft.ControlEvent | None) -> None:
+        if page is not None:
+            page.go("/training-centre")
+
     environments = GlassCard(
         "Environments",
         note="Environment authority is constrained to local paper simulation.",
@@ -592,7 +617,13 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
                     "Live access and order transmission are unavailable.",
                     tag=("disabled", "bad"),
                 ),
-                ListRow("info", "Training", "Training Centre is available."),
+                ListRow(
+                    "info",
+                    "Training",
+                    "Training Centre is available.",
+                    on_click=navigate_to_training,
+                    key="navigation.training-centre",
+                ),
             ],
             spacing=theme.SPACE_2,
         ),
