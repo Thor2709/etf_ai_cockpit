@@ -98,6 +98,7 @@ from etf_cockpit.application.ui_facade import (
     sort_news_items,
 )
 
+SORT_COLUMNS = {"Score": ("score", True), "Rank": ("rank", False), "Change": ("delta", True)}  # segment -> (column, descending)
 COMPACT_TABLE_WIDTH = 760  # Scores card narrower than this: no Tier column, shorter score bar
 
 
@@ -281,7 +282,7 @@ def _home_body(
     stacked = layout.narrow or layout.medium
     first = [
         (_what_matters_card(page, state, view, layout), 5),
-        (_scores_card(page, state, view, ordered, tier, layout), 7),
+        (_scores_card(page, state, view, ordered, tier, layout, sort), 7),
     ]
     if layout.medium:  # 1100-1300px: the Evidence state card gets its own full-width row
         layout = layout.with_row(300)
@@ -337,7 +338,7 @@ def _what_matters_card(page: ft.Page, state: AppState, view: HomeView, layout: G
 
 
 def _scores_card(
-    page: ft.Page, state: AppState, view: HomeView, ordered: list[ScoreRow], tier: str, layout: GridLayout
+    page: ft.Page, state: AppState, view: HomeView, ordered: list[ScoreRow], tier: str, layout: GridLayout, sort: str
 ) -> ft.Control:
     if not view.scores:
         body: ft.Control = EmptyState(
@@ -380,6 +381,8 @@ def _scores_card(
             table_rows,
             row_height=54,
             expand=True,
+            sort_key=SORT_COLUMNS[sort][0],  # arrow on the active column header (kit shows it when sort_key is set)
+            descending=SORT_COLUMNS[sort][1],
             on_select=lambda index: _open_instrument(page, state, ordered[index].instrument_id),
             empty_title="No instruments in this tier",
             empty_reason=f"The {tier} tier has no instruments in the local universe.",
