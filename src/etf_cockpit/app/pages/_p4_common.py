@@ -199,7 +199,7 @@ def dropdown(*, key: str, options: Sequence[str | tuple[str, str]], value: str |
         text_size=14,
         color=theme.INK,
         content_padding=ft.Padding(left=0, top=0, right=0, bottom=0),
-        text_style=ft.TextStyle(size=14, color=theme.INK, font_family=theme.FONT_FAMILY),
+        text_style=ft.TextStyle(size=theme.FONT_MD, color=theme.INK, font_family=theme.FONT_FAMILY),
     )
 
 
@@ -209,7 +209,7 @@ def text_input(*, key: str, value: str = "", hint: str = "", on_change: Callable
 
     style = field_input_style(multiline=multiline, placeholder=hint)
     if mono:
-        style["text_style"] = ft.TextStyle(size=12.5, color=theme.INK, font_family=theme.FONT_MONO)
+        style["text_style"] = ft.TextStyle(size=theme.FONT_SM, color=theme.INK, font_family=theme.FONT_MONO)
     field = ft.TextField(key=key, value=value, on_change=on_change, tooltip=tooltip, **style)
     if max_lines is not None:
         field.max_lines = max_lines
@@ -220,14 +220,9 @@ class Popover:
     """A glass panel over a card, opened by a small text button (never navigates, never starts a workflow)."""
 
     def __init__(self, heading: str, content: ft.Control, *, width: float = 320, top: float = 52, right: float = 24) -> None:
-        from etf_cockpit.app.components.kit import FloatingPanel
+        from etf_cockpit.app.components.kit import Well
 
-        panel = ft.Container(
-            content=FloatingPanel(heading, content, width=width),
-            bgcolor=theme.rgba(14, 24, 48, 0.96),
-            border_radius=16,
-            width=width,
-        )
+        panel = Well(ft.Column([text(heading, theme.FONT_XS, 700, theme.INK2), content], spacing=8, tight=True), padding=12, width=width)
         self.control = ft.Container(content=panel, top=top, right=right, visible=False)
 
     def toggle(self, _event: object = None) -> None:
@@ -242,7 +237,6 @@ def menu_button(label: str, on_click: Callable[[object], object], *, key: str | 
         on_click=on_click,
         ink=True,
         ink_color=theme.HOVER_OVERLAY,
-        border_radius=theme.RADIUS_SM,
         padding=ft.Padding(left=8, top=4, right=8, bottom=4),
         key=key,
     )

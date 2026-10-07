@@ -502,7 +502,7 @@ def test_analysis_discloses_canonical_service_values_tables_and_binding_warnings
     for expected in ("minimum_variance", "0.61", "equal_weight", "0.45", "current", "0.4", "0.031", "0.004", "0.006", "0.027", "recession", "-0.12", "0.057", "dated-attribution", "ownership cannot be established", "known_at rows excluded", "tax_lots ownership unavailable"):
         assert expected in text
     controls = list(_walk(rendered))
-    assert any(isinstance(control, ft.DataTable) and len(control.rows) == 2 for control in controls)
+    assert any(isinstance(getattr(control, 'data', None), dict) and control.data.get('kit') == 'DataTable' and control.data['rows'] == 2 for control in controls)
     assert any(isinstance(control, ft.ExpansionTile) and control.controls[0].height == 320 for control in controls)
     assert "execution_allowed=false" in text
 
@@ -519,7 +519,7 @@ def test_analysis_discloses_sandbox_correlation_matrix_or_its_unavailable_reason
     rendered = portfolio._analysis_view(replace(analysis, service_evidence={"correlation": available}))
     text = _text(rendered)
     assert "Correlation matrix / matrix" in text and "0.734" in text and "LYP6" in text
-    assert any(isinstance(control, ft.DataTable) and len(control.rows) == 2 and len(control.columns) == 3 for control in _walk(rendered))
+    assert any(isinstance(getattr(control, 'data', None), dict) and control.data.get('kit') == 'DataTable' and control.data['rows'] == 2 and len(control.data['columns']) == 3 for control in _walk(rendered))
 
     unavailable = {"status": "unavailable", "reason": "insufficient_joint_adjusted_returns: observed=1", "execution_allowed": False}
     text = _text(portfolio._analysis_view(replace(analysis, service_evidence={"correlation": unavailable})))

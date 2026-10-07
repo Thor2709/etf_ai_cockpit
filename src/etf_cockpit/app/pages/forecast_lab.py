@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import flet as ft
 import pandas as pd
 
@@ -148,7 +150,7 @@ def _run_status(state: AppState) -> ft.Control:
                     spacing=8,
                 ),
                 common.text(f"Current step: {current.step}", 12, 400, theme.INK2, trunc=True),
-                ft.ProgressBar(value=progress, color=theme.ACC, bgcolor=theme.rgba(255, 255, 255, 0.12)),
+                ScoreBar(progress * 100, maximum=100, decimals=0),
             ],
             spacing=4,
             tight=True,
@@ -204,7 +206,7 @@ def _comparison_card(layout: common.GridLayout, ids: list[str], models: pd.DataF
         TableColumn("rows", "Rows / matured", flex=2, numeric=True, sortable=False),
         TableColumn("direction", "Direction", flex=2, numeric=True, sortable=False),
         TableColumn("net", "Net value", flex=2, numeric=True, sortable=False),
-        TableColumn("coverage", "Coverage int/conf", flex=3, numeric=True, sortable=False),
+        *([] if layout.narrow else [TableColumn("coverage", "Coverage int/conf", flex=3, numeric=True, sortable=False)]),
         TableColumn("calibration", "Calibration", flex=2, sortable=False),
         TableColumn("status", "Status", flex=2, sortable=False),
     ]
@@ -231,11 +233,12 @@ def _folds_card(layout: common.GridLayout, folds: lab_view.FoldBars) -> ft.Contr
     width, height = layout.card_body(6, 1, insight=True)
     insight = folds.reason or f"{folds.total} folds; the final test window stays untouched for selection."
     segments = [[ck.Segment(train, "pos"), ck.Segment(test, "gold")] for train, test in zip(folds.train_months, folds.test_months, strict=True)]
+    axis_w = theme.SPACE_5
     chart = ck.horizontal_stacked_bar(
-        list(folds.labels), segments, x_name="Months of history", margins=ck.Margins(78, 20, 20, 48), width=width, height=height,
+        list(folds.labels), segments, x_name="Months of history", margins=ck.Margins(78, 20, 20, 48), width=width - axis_w, height=height,
         unavailable_reason=folds.reason, empty_title="No walk-forward folds", insight=insight,
     )
-    return GlassCard("Walk-forward protocol", "expanding train window · test fold", insight, body=Well(chart, width=width, height=height), width=layout.span_width(6), height=layout.row_heights[1])
+    return GlassCard("Walk-forward protocol", "expanding train window · test fold", insight, body=ft.Row([ft.Container(common.text("Fold", theme.FONT_XS, 500, theme.INK2), rotate=ft.Rotate(-math.pi / 2), width=axis_w, alignment=ft.Alignment(0, 0)), Well(chart, width=width - axis_w, height=height)], spacing=0), width=layout.span_width(6), height=layout.row_heights[1])
 
 
 def _error_card(layout: common.GridLayout, series: lab_view.ErrorSeries, names: dict[str, str]) -> ft.Control:
