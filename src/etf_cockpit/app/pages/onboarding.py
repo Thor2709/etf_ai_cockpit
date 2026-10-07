@@ -397,7 +397,7 @@ def onboarding_page(
                             sub="Edit the saved choices for this section.",
                             last=index == len(summary_rows) - 1,
                         ),
-                        Button.secondary("Edit", on_click=lambda _event, action=action: action()),
+                        Button.secondary("Edit", on_click=lambda _event, action=action: action(), key=f"onboarding.edit.{index}"),
                     ],
                     spacing=12,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -425,16 +425,16 @@ def onboarding_page(
                     title=name,
                     status="Current step" if position == current_step else "",
                     state="running" if position == current_step else "done" if position < current_step else "pending",
-                    action=Button.secondary("Open", on_click=lambda _event, selected=position: select_step(selected)),
+                    action=Button.secondary("Open", on_click=lambda _event, selected=position: select_step(selected), key=f"onboarding.step.{position}"),
                 )
                 for position, name in enumerate(step_names)
             ]
         )
         buttons: list[ft.Control] = []
         if current_step > 0:
-            buttons.append(Button.secondary("Back", on_click=lambda _event: select_step(current_step - 1)))
+            buttons.append(Button.secondary("Back", on_click=lambda _event: select_step(current_step - 1), key="onboarding.back"))
         if current_step < len(step_names) - 1:
-            buttons.append(Button.primary("Next", on_click=lambda _event: select_step(current_step + 1)))
+            buttons.append(Button.primary("Next", on_click=lambda _event: select_step(current_step + 1), key="onboarding.next"))
         else:
             buttons.append(Button.primary("Save setup", on_click=submit, key="onboarding.save"))
         active_card.content = GlassCard(

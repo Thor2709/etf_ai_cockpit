@@ -794,7 +794,7 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
         note="local YAML and JSON settings",
         body=ft.Column(
             [
-                Button.secondary("Open folder", on_click=open_config_folder),
+                Button.secondary("Open folder", on_click=open_config_folder, key="settings.open-config-folder"),
                 config_folder_status,
                 Disclosure("Configuration folder path", str(CONFIG_DIR)),
             ],
