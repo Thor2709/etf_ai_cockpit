@@ -7,6 +7,23 @@ import flet as ft
 import pandas as pd
 
 from etf_cockpit.app import theme
+from etf_cockpit.app.components import chartkit as ck
+from etf_cockpit.app.components.chartkit import Bubble, Series
+from etf_cockpit.app.components.kit import (
+    Button,
+    CardMenu,
+    DataTable,
+    Disclosure,
+    Field,
+    GlassCard,
+    KpiStrip,
+    KpiStripItem,
+    KpiTile,
+    Note,
+    TableColumn,
+)
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
+from etf_cockpit.app.formatting import format_count, format_date, format_number, format_percent
 from etf_cockpit.app.pages._lab_style import lab_page, metric_card, panel, section_header
 from etf_cockpit.app.components.charts import equity_drawdown_chart, history_chart
 from etf_cockpit.app.components.tables import accessible_table
@@ -63,7 +80,7 @@ def _negative_contributions_label(value: object) -> str:
 
 
 @lab_page("backtests")
-def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
+def _legacy_backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
     report = state.snapshot.backtest
     news_warning = _news_validation_warning()
     reference_context = context_from_snapshot(
@@ -96,12 +113,12 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                             monthly_decision_panel,
                             ft.Text("\n".join(report.quality_notes or ["Backtest pending."]), color=theme.MUTED, selectable=True),
                         ],
-                        spacing=10,
+                        spacing=12,
                     )
                 )
             ],
             expand=True,
-            spacing=14,
+            spacing=16,
             scroll=ft.ScrollMode.AUTO,
         )
     signal_rows = report.results[report.results["strategy_name"] == "signal_strategy"]
@@ -118,12 +135,12 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                             monthly_decision_panel,
                             ft.Text("\n".join(report.quality_notes or ["Backtest pending."]), color=theme.MUTED, selectable=True),
                         ],
-                        spacing=10,
+                        spacing=12,
                     )
                 )
             ],
             expand=True,
-            spacing=14,
+            spacing=16,
             scroll=ft.ScrollMode.AUTO,
         )
     signal = signal_rows.iloc[0]
@@ -345,7 +362,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                         section_header("Tail-event diagnostics", "Worst windows and loss clustering make concentrated drawdown risk visible."),
                         ft.Text("\n".join(tail_diagnostics), color=theme.MUTED, selectable=True),
                     ],
-                    spacing=6,
+                    spacing=8,
                 )
             ),
             panel(
@@ -405,7 +422,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
                         section_header("Operational execution evidence", "Quality-momentum uses point-in-time evidence and next-session simulation; decision-price assumptions are descriptive only and same-bar execution is forbidden."),
                         ft.Text("\n".join(operational_evidence), color=theme.MUTED, selectable=True),
                     ],
-                    spacing=6,
+                    spacing=8,
                 )
             ),
             panel(
@@ -432,7 +449,7 @@ def backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
             panel(ft.Text("Backtest logs are written to data/backtests/ for audit. Diagnostics are local deterministic estimates, not proof of future performance.", color=theme.MUTED, selectable=True)),
         ],
         expand=True,
-        spacing=14,
+        spacing=16,
         scroll=ft.ScrollMode.AUTO,
     )
 
@@ -515,7 +532,7 @@ def _monthly_decision_panel(reference_context: object, *, report: object, config
                 ),
                 ft.Text("\n".join(monthly_decision_template_lines(template)), color=theme.MUTED, selectable=True),
             ],
-            spacing=6,
+            spacing=8,
         ),
     )
 
@@ -877,7 +894,7 @@ def _event_replay_panel() -> ft.Control:
                 section_header("Event timeline, orders and fills", "The order-level historical replay contract is deterministic and shared with future paper/proposal adapters."),
                 ft.Text("\n".join(lines), color=theme.MUTED, selectable=True),
             ],
-            spacing=6,
+            spacing=8,
         )
     )
 
@@ -917,7 +934,7 @@ def _cost_capacity_panel(config: object) -> ft.Control:
                 ft.Text("\n".join(lines), color=theme.MUTED, selectable=True),
                 ft.Text("Order preview is descriptive evidence only. It does not create, submit or amend an order.", color=theme.AMBER, selectable=True),
             ],
-            spacing=6,
+            spacing=8,
         )
     )
 
@@ -941,7 +958,7 @@ def _validation_panel(prices: object, *, reference_context=None) -> ft.Control:
                 section_header("Validation Designer and report", "Walk-forward folds purge overlapping labels, embargo future observations and keep the final test untouched for selection."),
                 ft.Text(message, color=theme.MUTED if report is not None else theme.AMBER, selectable=True),
             ],
-            spacing=6,
+            spacing=8,
         )
     )
 
@@ -954,7 +971,7 @@ def _news_validation_warning() -> ft.Control:
     except Exception:
         frame = pd.DataFrame()
     if frame.empty or "backtest_eligible" not in frame.columns:
-        return panel(ft.Column([section_header("News point-in-time checks", "News is optional context and cannot rescue or alter deterministic backtests."), ft.Text("No invalid news evidence detected; no canonical validation rows are available.", color=theme.MUTED, selectable=True)], spacing=6))
+        return panel(ft.Column([section_header("News point-in-time checks", "News is optional context and cannot rescue or alter deterministic backtests."), ft.Text("No invalid news evidence detected; no canonical validation rows are available.", color=theme.MUTED, selectable=True)], spacing=8))
     invalid = frame.loc[~frame["backtest_eligible"].fillna(False).astype(bool)]
     if invalid.empty:
         message = "No invalid news evidence detected; all recorded rows are eligible only where their timestamps and availability are proven."
@@ -966,7 +983,7 @@ def _news_validation_warning() -> ft.Control:
         status_values = status_values.mask(status_values.eq(""), "unknown")
         statuses = ", ".join(f"{status}={count}" for status, count in status_values.value_counts().sort_index().items())
         message = f"{len(invalid)} news rows are excluded from backtests ({statuses}); rejected evidence remains context-only and requires review."
-    return panel(ft.Column([section_header("News point-in-time checks", "Rejected news is visible here and cannot change deterministic backtest authority."), ft.Text(message, color=theme.AMBER if not invalid.empty else theme.MUTED, selectable=True)], spacing=6))
+    return panel(ft.Column([section_header("News point-in-time checks", "Rejected news is visible here and cannot change deterministic backtest authority."), ft.Text(message, color=theme.AMBER if not invalid.empty else theme.MUTED, selectable=True)], spacing=8))
 
 
 def _equity_drawdown_frame(frame: pd.DataFrame) -> pd.DataFrame:
@@ -982,3 +999,410 @@ def _equity_drawdown_frame(frame: pd.DataFrame) -> pd.DataFrame:
     result["equity"] = pd.to_numeric(result[equity_column], errors="coerce")
     result["drawdown"] = result["equity"] / result["equity"].cummax() - 1.0
     return result[["date", "equity", "drawdown"]].dropna(subset=["equity"])
+
+
+def _control_text(control: ft.Control) -> str:
+    values: list[str] = []
+
+    def collect(item: object) -> None:
+        value = getattr(item, "value", None)
+        if value:
+            values.append(str(value))
+        for child in getattr(item, "controls", ()) or ():
+            collect(child)
+        content = getattr(item, "content", None)
+        if content is not None:
+            collect(content)
+
+    collect(control)
+    return "\n".join(values)
+
+
+def backtests_page(page: ft.Page, state: AppState) -> PageView:
+    """Present saved backtest results as descriptive, non-authoritative evidence."""
+    snapshot = getattr(state, "snapshot", None)
+    report = getattr(snapshot, "backtest", None)
+    results = getattr(report, "results", None)
+    if not isinstance(results, pd.DataFrame):
+        results = pd.DataFrame()
+    strategy_rows = results.to_dict(orient="records") if not results.empty else []
+    signal = next((row for row in strategy_rows if row.get("strategy_name") == "signal_strategy"), {})
+    equal_weight = next((row for row in strategy_rows if row.get("strategy_name") == "equal_weight"), {})
+    quality = getattr(report, "quality_label", None)
+    train_periods = format_count(signal.get("train_periods"), unavailable="Unavailable")
+    quality_subtitle = (
+        f"Quality label {str(quality).title()} · {train_periods} train periods"
+        if quality and train_periods != "Unavailable"
+        else "Training-period count is unavailable for this snapshot."
+    )
+    cagr = signal.get("cagr")
+    cagr_text = format_percent(cagr, unavailable="")
+    try:
+        cagr_number = float(cagr)
+    except (TypeError, ValueError):
+        cagr_number = None
+    cagr_tone = "neg" if cagr_number is not None and math.isfinite(cagr_number) and cagr_number < 0 else "pos" if cagr_number is not None and math.isfinite(cagr_number) and cagr_number > 0 else None
+    drawdown_text = format_percent(signal.get("max_drawdown"), unavailable="")
+    turnover_text = format_number(signal.get("turnover"), unavailable="")
+    added_value = getattr(report, "ai_added_value", None)
+    added_value_text = "Yes" if added_value is True else "No" if added_value is False else None
+    kpi = KpiStrip(
+        "BACKTEST QUALITY",
+        str(quality).title() if quality else "Unavailable",
+        quality_subtitle if quality else "Backtest quality detail is unavailable.",
+        [
+            KpiStripItem("Signal strategy CAGR", cagr_text or None, "No saved CAGR is available." if not cagr_text else "", tone=cagr_tone),
+            KpiStripItem("Max drawdown", drawdown_text or None, "No saved maximum drawdown is available." if not drawdown_text else "", tone="neg"),
+            KpiStripItem("Turnover", turnover_text or None, "No saved turnover result is available." if not turnover_text else ""),
+            KpiStripItem("Model-added value", added_value_text, "diagnostic only" if added_value_text is not None else "No saved model-added value result is available."),
+        ],
+    )
+    equity_frame = _equity_drawdown_frame(getattr(report, "equity_curves", None))
+    palette = {
+        "signal_strategy": theme.CHART_PRIMARY,
+        "equal_weight": theme.CHART_SECOND,
+        "benchmark": theme.CHART_BENCHMARK,
+    }
+    equity_insight = (
+        f"The strategy returned {format_percent(signal.get('cagr'), unavailable='—')} a year vs "
+        f"{format_percent(equal_weight.get('cagr'), unavailable='—')} for equal weight; worst drawdown "
+        f"{format_percent(signal.get('max_drawdown'), unavailable='—')}."
+        if signal and equal_weight
+        else "Unavailable: saved strategy and equal-weight results are needed for the comparison insight."
+    )
+    def equity_chart_for(frame: pd.DataFrame) -> ft.Control:
+        columns = [column for column in frame.columns if column not in {"date", "drawdown"}]
+        series = [Series(str(column), frame[column].tolist(), palette.get(str(column), theme.CHART_SECOND)) for column in columns]
+        return ck.price_drawdown_chart(
+            frame["date"].tolist() if not frame.empty else [],
+            series,
+            [value * 100 if value is not None else None for value in frame["drawdown"].tolist()] if "drawdown" in frame else [],
+            price_name="Equity (start = 100)",
+            unavailable_reason="No saved equity and drawdown series are available." if not series or frame.empty else None,
+            insight=equity_insight,
+        )
+
+    equity_chart_holder = ft.Container(content=equity_chart_for(equity_frame), expand=True)
+    strategy_keys = (
+        ("strategy_name", "Strategy"),
+        ("cagr", "CAGR"),
+        ("volatility", "Vol"),
+        ("sharpe", "Sharpe"),
+        ("sortino", "Sortino"),
+        ("max_drawdown", "Max DD"),
+        ("calmar", "Calmar"),
+        ("turnover", "Turnover"),
+        ("cost_drag", "Cost drag"),
+    )
+    strategy_table = DataTable(
+        [TableColumn(key, label, numeric=label != "Strategy") for key, label in strategy_keys],
+        [{key: row.get(key) for key, _ in strategy_keys} for row in strategy_rows],
+        empty_title="No strategy results",
+        empty_reason="No saved strategy results are available for this snapshot.",
+    )
+    strategy_columns = [TableColumn(key, label, numeric=label != "Strategy") for key, label in strategy_keys]
+    export_status = Note("CSV export status is unavailable.")
+    strategy_body = ft.Column(spacing=8)
+
+    def _search_changed(value: str) -> None:
+        query = str(value or "").casefold().strip()
+        show_all = query == "all strategies"
+        filtered_rows = [
+            {key: row.get(key) for key, _ in strategy_keys}
+            for row in strategy_rows
+            if show_all or query == str(row.get("strategy_name", "")).casefold()
+        ]
+        strategy_body.controls = [
+            search_field,
+            DataTable(
+                strategy_columns,
+                filtered_rows,
+                empty_title="No matching strategy results",
+                empty_reason="No saved strategy row matches this search.",
+            ),
+            Button.secondary(
+                "Export strategy results CSV",
+                export_strategy_results,
+                key="backtests.export-strategy-results",
+            ),
+            CardMenu([("Export strategy results CSV", export_strategy_results)]),
+            Disclosure("Export status", export_status),
+        ]
+        if callable(getattr(page, "update", None)):
+            page.update()
+
+    strategy_names = sorted({str(row.get("strategy_name")) for row in strategy_rows if row.get("strategy_name")})
+    search_field = Field(
+        "Search strategy results",
+        options=["All strategies", *strategy_names],
+        value="All strategies",
+        on_change=_search_changed,
+        key="backtests.strategy-results.search",
+    )
+    scatter_points = []
+    for row in strategy_rows:
+        drawdown = row.get("max_drawdown")
+        cagr = row.get("cagr")
+        if drawdown is None or cagr is None:
+            continue
+        scatter_points.append(Bubble(str(row.get("strategy_name", "Strategy")), float(drawdown) * 100, float(cagr) * 100, group="strategy"))
+    comparison_insight = (
+        f"{signal.get('strategy_name', 'Strategy')}: CAGR {format_percent(signal.get('cagr'), unavailable='—')} and maximum drawdown {format_percent(signal.get('max_drawdown'), unavailable='—')}."
+        if signal and signal.get("cagr") is not None and signal.get("max_drawdown") is not None
+        else "Unavailable: saved CAGR and maximum drawdown values are needed for this comparison."
+    )
+    comparison_chart = ck.scatter_bubble(
+        scatter_points,
+        groups=[("strategy", theme.CHART_PRIMARY)],
+        x_name="Max drawdown",
+        y_name="CAGR",
+        x_unit="%",
+        y_unit="%",
+        unavailable_reason="No saved strategy rows contain both CAGR and maximum drawdown." if not scatter_points else None,
+        insight=comparison_insight,
+    )
+    tail_categories = ["Worst 1-day", "Worst 5-day", "Worst 10-day"]
+    tail_values = [value * 100 if value is not None else None for value in (signal.get("worst_1d_return"), signal.get("worst_5d_return"), signal.get("worst_10d_return"))]
+    tail_available = [(category, value) for category, value in zip(tail_categories, tail_values, strict=True) if value is not None]
+    tail_insight = (
+        f"{min(tail_available, key=lambda item: item[1])[0]} returned {format_percent(min(tail_available, key=lambda item: item[1])[1] / 100)}."
+        if tail_available
+        else "Unavailable: no saved worst-window return is available."
+    )
+    tail_chart = ck.bar_chart(
+        tail_categories,
+        tail_values,
+        kinds=["neg" if value is not None else "blue" for value in tail_values],
+        x_name="Window",
+        y_name="Return",
+        unit="%",
+        unavailable_reason="No saved worst-window return metrics are available." if not any(value is not None for value in tail_values) else None,
+        insight=tail_insight,
+    )
+    diagnostic_fields = (
+        ("Return skew", "skew"),
+        ("Open gap warning", "open_gap_warning"),
+        ("Payoff profile", "payoff_profile"),
+        ("Loss dominance warning", "loss_dominance_warning"),
+        ("Overfitting warning", "overfitting_warning"),
+        ("Probabilistic Sharpe", "probabilistic_sharpe"),
+        ("Deflated Sharpe", "deflated_sharpe"),
+        ("PBO probability", "pbo_probability_backtest_overfitting"),
+        ("Parameter sensitivity", "parameter_sensitivity_status"),
+        ("Largest negative contribution period", "largest_negative_period_return"),
+        ("Largest negative contribution periods", "largest_negative_contribution_periods"),
+        ("Negative return concentration status", "negative_return_concentration_status"),
+        ("Few sessions explain most performance", "few_days_explain_most_performance"),
+        ("Losses during high volatility", "losses_during_high_volatility"),
+        ("Losses during regime stress", "losses_during_regime_stress"),
+    )
+    diagnostic_text = "\n".join(f"{label}: {signal.get(key, '—')}" for label, key in diagnostic_fields)
+    diagnostic_text += "\nquality-momentum evidence: " + str(getattr(report, "quality_momentum_evidence", "Unavailable"))
+    diagnostic_text += "\nExecution delay and next-open evidence remain descriptive; no same-bar execution is implied."
+    diagnostic_text += "\nDescriptive payoff profile only; no trade recommendation is derived from payoff profile. execution_allowed=false."
+    config = getattr(snapshot, "config", None)
+    prices = getattr(snapshot, "prices", None)
+    reference_context = None
+    if snapshot is not None and config is not None:
+        try:
+            reference_context = context_from_snapshot(
+                snapshot,
+                purpose="validation",
+                analysis_id=f"validation:{getattr(snapshot, 'universe_revision', 'unknown')}",
+            )
+        except (AttributeError, KeyError, TypeError, ValueError):
+            reference_context = None
+    try:
+        validation_detail = _control_text(_validation_panel(prices, reference_context=reference_context))
+    except (AttributeError, KeyError, TypeError, ValueError):
+        validation_detail = "Validation Designer unavailable: no saved validation result is available."
+    try:
+        news_detail = _control_text(_news_validation_warning())
+    except (OSError, ValueError, TypeError):
+        news_detail = "Unavailable: local point-in-time validation rows could not be read."
+    if config is not None and report is not None and reference_context is not None:
+        try:
+            monthly_detail = _control_text(_monthly_decision_panel(reference_context, report=report, config=config))
+        except (ArithmeticError, AttributeError, KeyError, TypeError, ValueError):
+            monthly_detail = "Monthly decision template unavailable for this snapshot."
+    else:
+        monthly_detail = "Monthly decision template unavailable for this snapshot."
+    enabled_ids = list(getattr(getattr(config, "universe", None), "enabled_ids", ()) or ())
+    cost = None
+    if enabled_ids:
+        try:
+            cost = cost_capacity_status(config, str(enabled_ids[0]))
+        except (ArithmeticError, AttributeError, KeyError, TypeError, ValueError):
+            cost = None
+    cost_reason = "No local cost-capacity result is available for this snapshot."
+    order_preview = format_number(cost.get("order_preview_eur"), unavailable="") if cost else ""
+    estimated_cost = format_number(cost.get("estimated_cost_eur"), unavailable="") if cost else ""
+    cost_card = ft.Column(
+        [
+            KpiTile("Instrument", cost.get("instrument_id") if cost else None, cost_reason),
+            KpiTile("Order preview value", order_preview or None, cost_reason),
+            KpiTile("Estimated cost", estimated_cost or None, cost_reason),
+            Note("Order preview is descriptive evidence only. It does not create, submit or amend an order."),
+        ],
+        spacing=8,
+    )
+    operational = getattr(report, "operational_evidence", None)
+    operational_rows = operational.to_dict(orient="records") if isinstance(operational, pd.DataFrame) and not operational.empty else []
+    latest_operational_rows = operational_rows
+    operational_table = DataTable(
+        [TableColumn("status", "Status"), TableColumn("reason", "Reason"), TableColumn("instrument_id", "Instrument"), TableColumn("signal_date", "Signal date"), TableColumn("signal_timestamp", "Signal timestamp"), TableColumn("execution_date", "Execution date")],
+        latest_operational_rows,
+        empty_title="Instrument operational evidence unavailable",
+        empty_reason="No exact-instrument operational rows are available.",
+    )
+    operational_execution_table = DataTable(
+        [TableColumn("execution_timestamp", "Execution timestamp"), TableColumn("decision_price", "Decision price", numeric=True), TableColumn("next_open_reference_price", "Next-open reference", numeric=True), TableColumn("close_to_next_open_gap", "Close-to-next-open gap", numeric=True), TableColumn("observed_range_spread_proxy", "Observed H-L proxy", numeric=True), TableColumn("cost_spread_assumption_bps", "Cost spread bps", numeric=True), TableColumn("estimated_all_in_cost_bps", "Estimated all-in cost bps", numeric=True), TableColumn("evidence_status", "Evidence status"), TableColumn("evidence_reason", "Evidence reason"), TableColumn("fill_source", "Fill source")],
+        latest_operational_rows,
+        empty_title="Operational execution evidence unavailable",
+        empty_reason="No saved operational execution rows are available.",
+    )
+    trade_log = getattr(report, "trade_log", None)
+    trade_rows = trade_log.to_dict(orient="records") if isinstance(trade_log, pd.DataFrame) and not trade_log.empty else []
+    replay_columns = [TableColumn("strategy", "Strategy"), TableColumn("date", "Date"), TableColumn("cost_eur", "Cost", numeric=True)]
+    if isinstance(trade_log, pd.DataFrame):
+        known_columns = {"strategy", "date", "cost_eur"}
+        replay_columns.extend(TableColumn(str(column), str(column)) for column in trade_log.columns if str(column) not in known_columns)
+    replay_table = DataTable(
+        replay_columns,
+        trade_rows,
+        empty_title="No simulated executions",
+        empty_reason="No saved simulated execution rows are available.",
+    )
+    price_frame = prices if isinstance(prices, pd.DataFrame) else pd.DataFrame()
+    price_rows = [
+        {
+            "date": format_date(row.get("date"), unavailable="—"),
+            "etf_id": str(row.get("etf_id")) if row.get("etf_id") is not None and not pd.isna(row.get("etf_id")) else "—",
+            "adjusted_close": format_number(row.get("adjusted_close"), unavailable="—"),
+        }
+        for row in price_frame.to_dict(orient="records")
+    ] if not price_frame.empty and {"date", "etf_id", "adjusted_close"}.issubset(price_frame.columns) else []
+    price_table = DataTable(
+        [TableColumn("date", "Date"), TableColumn("etf_id", "Instrument"), TableColumn("adjusted_close", "Adjusted price", numeric=True)],
+        price_rows,
+        empty_title="Price history unavailable",
+        empty_reason="No local adjusted-price rows are available.",
+    )
+    def export_backtest(_event: object) -> None:
+        result = export_table("backtest_equity_drawdown", equity_frame, EXPORTS_DIR / "backtest_equity_drawdown.csv")
+        export_status.value = f"{result.error}" if not result.ok else f"Export complete: {result.destination} ({result.rows} rows)."
+        if callable(getattr(page, "update", None)):
+            page.update()
+
+    def export_strategy_results(_event: object) -> None:
+        result = export_table("backtest_strategy_results", results, EXPORTS_DIR / "backtest_strategy_results.csv")
+        export_status.value = f"{result.error}" if not result.ok else f"Export complete: {result.destination} ({result.rows} rows)."
+        if callable(getattr(page, "update", None)):
+            page.update()
+
+    strategy_body.controls = [
+        search_field,
+        strategy_table,
+        Button.secondary(
+            "Export strategy results CSV",
+            export_strategy_results,
+            key="backtests.export-strategy-results",
+        ),
+        Disclosure("Export status", export_status),
+    ]
+
+    def show_range(value: str) -> None:
+        frame = equity_frame
+        if value != "All" and not frame.empty and "date" in frame.columns:
+            dates = pd.to_datetime(frame["date"], errors="coerce", utc=True)
+            if dates.notna().any():
+                latest = dates.max()
+                years = int(value[0])
+                start = latest - pd.DateOffset(years=years)
+                frame = frame.loc[dates >= start].copy()
+        equity_chart_holder.content = equity_chart_for(frame)
+        if callable(getattr(page, "update", None)):
+            page.update()
+
+    strategy_row = ft.Row(
+        [
+            GlassCard("Equity and drawdown", note="After costs · next-session execution", insight=equity_insight, menu=CardMenu([("Export equity/drawdown CSV", export_backtest)]), body=ft.Column([equity_chart_holder, Button.secondary("Export equity/drawdown CSV", export_backtest, key="backtests.export-equity-drawdown"), Disclosure("Export status", export_status)], spacing=8), expand=True),
+            GlassCard("Strategy diagnostics", note="After-cost results vs. baselines", menu=CardMenu([("Export strategy results CSV", export_strategy_results)]), body=strategy_body, expand=True),
+        ],
+        spacing=16,
+        vertical_alignment=ft.CrossAxisAlignment.START,
+    )
+    strategy_detail_row = ft.Row(
+        [
+            GlassCard("CAGR vs. max drawdown", insight=comparison_insight, body=comparison_chart, expand=True),
+            GlassCard("Tail-event diagnostics", insight=tail_insight, body=ft.Column([tail_chart, Note("Descriptive / non-causal evidence only; execution_allowed=false."), Disclosure("Tail-event details", diagnostic_text)], spacing=8), expand=True),
+            GlassCard("Cost/Capacity", body=cost_card, expand=True),
+        ],
+        spacing=16,
+        vertical_alignment=ft.CrossAxisAlignment.START,
+    )
+    instrument_row = ft.Row(
+            [
+                GlassCard("Instrument operational evidence", body=Disclosure("Operational evidence", operational_table), expand=True),
+                GlassCard("Operational execution evidence", body=Disclosure("Execution evidence", operational_execution_table), expand=True),
+            ],
+        spacing=16,
+        visible=False,
+    )
+    replay_row = ft.Row(
+        [
+            GlassCard("Simulated executions", body=Disclosure("Execution rows", replay_table), expand=True),
+            GlassCard("Event timeline, orders and fills", insight="Unavailable: saved event timeline rows are not available.", body=ck.line_chart([], [], x_name="Date", y_name="Events (count)", unavailable_reason="No saved event timeline rows are available for this replay.", insight="Unavailable: saved event timeline rows are not available."), expand=True),
+        ],
+        spacing=16,
+        visible=False,
+    )
+
+    def show_view(value: str) -> None:
+        strategy_row.visible = value == "Strategies"
+        strategy_detail_row.visible = value == "Strategies"
+        instrument_row.visible = value == "Instrument evidence"
+        replay_row.visible = value == "Replay"
+        if callable(getattr(page, "update", None)):
+            page.update()
+
+    body = ft.Column(
+        [
+            kpi,
+            strategy_row,
+            strategy_detail_row,
+            instrument_row,
+            replay_row,
+            ft.Row(
+                [
+                    GlassCard("Validation Designer and report", body=Disclosure("Validation report details", validation_detail), expand=True),
+                    GlassCard("Walk-forward and overfitting diagnostics", body=Disclosure("Validation diagnostics", "No saved validation detail is available."), expand=True),
+                ],
+                spacing=16,
+            ),
+            ft.Row(
+                [
+                    GlassCard("News point-in-time checks", body=Disclosure("Point-in-time check details", news_detail), expand=True),
+                    GlassCard("Monthly decision template", body=Disclosure("Monthly decision details", monthly_detail), expand=True),
+                    GlassCard("Price history evidence", body=Disclosure("Price history rows", price_table), expand=True),
+                ],
+                spacing=16,
+            ),
+            Disclosure("Backtest logs", "Backtest logs are written to data/backtests/ for audit. Diagnostics are local deterministic estimates, not proof of future performance."),
+            Disclosure("Operational execution evidence", str(latest_operational_rows) if latest_operational_rows else "No exact operational evidence is available."),
+        ],
+        spacing=16,
+        expand=True,
+        scroll=ft.ScrollMode.AUTO,
+    )
+    return PageView(
+        chrome=PageChrome(
+            "Backtests",
+            "Historical results with their universe, dates, benchmark, rebalance and cost assumptions",
+            (
+                SegmentGroup("backtests-view", ("Strategies", "Instrument evidence", "Replay"), "Strategies", on_change=show_view),
+                SegmentGroup("backtests-range", ("1Y", "3Y", "5Y", "All"), "All", on_change=show_range),
+            ),
+        ),
+        body=body,
+    )

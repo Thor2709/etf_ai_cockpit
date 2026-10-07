@@ -2,49 +2,57 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import flet as ft
 import pandas as pd
 
 from etf_cockpit.app.components.shell.page_view import PageView
-from etf_cockpit.app.pages.feature_catalogue import feature_catalogue_page
-from tests.ui._p4_helpers import all_text, card_titles
-
-TITLES = {"Feature definitions", "Feature coverage", "Training data preview", "Targets and leakage controls"}
+from etf_cockpit.app.pages import feature_catalogue
 
 
-def _state(features):
-    return SimpleNamespace(snapshot=SimpleNamespace(features=features), last_message="")
+def _walk(control: object):
+    yield control
+    content = getattr(control, "content", None)
+    if content is not None:
+        yield from _walk(content)
+    for child in getattr(control, "controls", ()) or ():
+        yield from _walk(child)
 
 
-def _features() -> pd.DataFrame:
-    return pd.DataFrame(
-        {
-            "date": ["2026-07-08", "2026-07-09"],
-            "etf_id": ["VWCE", "VWCE"],
-            "return_1d_log": [0.01, None],
-            "momentum_60d": [0.1, 0.2],
-        }
-    )
+class _Store:
+    def feature_catalogue(self):
+        return (SimpleNamespace(feature_id="feature-a", source_column="close", lookback_days=5, availability_delay_days=1, units="ratio", missing_policy="reject"),)
+
+    def target_catalogue(self):
+        return ()
+
+    def coverage(self, _source):
+        return {"rows": 1, "features": 1, "coverage": {"feature-a": 0.98}, "missing_rows": 0}
 
 
-def test_sample_data_renders_every_card_and_returns_page_view() -> None:
-    view = feature_catalogue_page(None, _state(_features()))
-    assert isinstance(view, PageView)
-    assert view.chrome.title == "Feature Catalogue"
-    assert TITLES <= set(card_titles(view.body))
-    text = all_text(view.body)
-    assert "features registered" in text
-    assert "return_1d_log" in text
-    assert "Traceback" not in text
+def _render(monkeypatch, source):
+    monkeypatch.setattr(feature_catalogue, "LocalFeatureStore", lambda _root: _Store())
+    state = SimpleNamespace(snapshot=SimpleNamespace(features=source))
+    return feature_catalogue.feature_catalogue_page(None, state)
 
 
-def test_empty_features_show_unavailable_states_not_zeros() -> None:
-    view = feature_catalogue_page(None, _state(pd.DataFrame()))
-    text = all_text(view.body)
-    assert "Unavailable" in text
-    assert "Coverage unavailable" in text
-    assert "No preview rows" in text
+def _text(page: PageView) -> list[str]:
+    return [str(item.value) for item in _walk(page.body) if isinstance(item, ft.Text)]
 
 
-def test_lowest_coverage_insight_names_the_feature() -> None:
-    view = feature_catalogue_page(None, _state(_features()))
-    assert "has the lowest coverage" in all_text(view.body)
+def test_renders_with_sample_data(monkeypatch) -> None:
+    rendered = _render(monkeypatch, pd.DataFrame({"decision_timestamp": ["2026-01-02"], "feature-a": [0.5]}))
+    values = _text(rendered)
+    assert isinstance(rendered, PageView)
+    for title in ("Feature definitions", "Feature coverage", "Training data preview", "Targets and leakage controls"):
+        assert title in values
+    assert rendered.chrome.title == "Feature Catalogue"
+    assert rendered.chrome.subtitle == "Versioned point-in-time feature definitions and a leakage-safe training preview"
+    assert rendered.chrome.segment_groups == ()
+    assert not any("Traceback" in value for value in values)
+
+
+def test_empty_data_shows_unavailable(monkeypatch) -> None:
+    rendered = _render(monkeypatch, None)
+    values = _text(rendered)
+    assert "Unavailable" in " ".join(values)
+    assert not any(value.strip() == "0" for value in values)

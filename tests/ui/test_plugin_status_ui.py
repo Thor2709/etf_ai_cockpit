@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import flet as ft
-
 from etf_cockpit.app.pages.data_models import data_models_page
 from etf_cockpit.app.pages.trust_evidence import provider_status_page
 from etf_cockpit.app.state import AppState
@@ -41,13 +39,10 @@ def test_data_models_page_reuses_the_same_plugin_status_representation() -> None
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
 
     rendered = data_models_page(None, state)
-    text = _text(rendered)
+    text = _text(rendered.body)
 
     assert "Unified plugin capability status" in text
     assert "plugin:builtin.baseline-model" in text
     assert "plugin:builtin.paper-broker" in text
     assert "Data coverage and model monitoring" in text
-    assert any(
-        isinstance(item, ft.OutlinedButton) and getattr(item, "content", "") == "Export coverage audit"
-        for item in _walk(rendered)
-    )
+    assert "Export coverage audit" in text

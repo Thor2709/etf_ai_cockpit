@@ -262,7 +262,7 @@ def test_issue_0058_data_models_surface_shows_structured_flags(monkeypatch) -> N
     )
 
     rendered = data_models_page(None, SimpleNamespace(snapshot=snapshot, last_message=""))
-    text = "\n".join(_text_values(rendered))
+    text = "\n".join(_text_values(rendered.body))
 
     assert "credibility_flags=" in text
     assert "missing_benchmark" in text
