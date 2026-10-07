@@ -11,7 +11,6 @@ from etf_cockpit.application.scope_facade import (
     capability_scope_view,
     load_authority_matrix,
     load_feature_registry,
-    load_product_governance,
 )
 from etf_cockpit.application.ui_facade import supply_chain_intake_report
 from etf_cockpit.core.paths import ROOT
@@ -21,7 +20,6 @@ TextButton = kit.Button.secondary
 
 def system_map_page(page: ft.Page | None, state: AppState) -> PageView:
     loaded = load_feature_registry()
-    product = load_product_governance()
     matrix = load_authority_matrix()
     scope = capability_scope_view()
     supply_chain = supply_chain_intake_report(ROOT)
@@ -40,12 +38,14 @@ def system_map_page(page: ft.Page | None, state: AppState) -> PageView:
                 navigate_to(page, state, route)
 
         dependencies = tuple(getattr(entry, "required_data", ()) or ())
-        data_tags = [kit.Tag(str(dependency), "mute") for dependency in dependencies] or [kit.Tag("Unavailable", "bad")]
+        data_tags = [kit.Tag(str(dependency).replace("_", " "), "mute") for dependency in dependencies] or [kit.Tag("Unavailable", "bad")]
+        lifecycle = str(getattr(entry, "lifecycle", None) or "Unavailable").replace("_", " ").title()
+        authority = str(getattr(entry, "authority", None) or "Unavailable").replace("_", " ").title()
         capability_rows.append(
             {
                 "capability": str(getattr(entry, "name", getattr(entry, "feature_id", "Unavailable"))),
-                "lifecycle": kit.Tag(str(getattr(entry, "lifecycle", "Unavailable")), "mute"),
-                "authority": kit.Tag(str(getattr(entry, "authority", "Unavailable")), "warn"),
+                "lifecycle": kit.Tag(lifecycle, "mute"),
+                "authority": kit.Tag(authority, "warn"),
                 "data": ft.Row(data_tags, wrap=True, spacing=4),
                 "validation": "Data health evidence is local and read-only.",
                 "limitation": "; ".join(str(item) for item in (getattr(entry, "limitations", ()) or ())) or "No explicit limitation recorded.",
@@ -106,14 +106,18 @@ def system_map_page(page: ft.Page | None, state: AppState) -> PageView:
         None,
     )
     matrix_policy = getattr(matrix, "policy", None)
-    product_policy = getattr(product, "policy", None)
     matrix_version = getattr(scope, "matrix_version", None) if getattr(scope, "status", None) == "available" else None
+    matrix_capabilities = tuple(getattr(matrix_policy, "capabilities", ()) or ()) if matrix_policy is not None else ()
     product_card = kit.GlassCard(
         "Product contract",
         body=ft.Column(
             [
-                kit.Headline(getattr(getattr(product_policy, "product", None), "canonical_name", "Unavailable")),
-                kit.KpiTile("Capabilities", str(len(getattr(matrix_policy, "capabilities", ()))) if matrix_policy is not None else None, "Declared in the local matrix." if matrix_policy is not None else "Unavailable: authority matrix is not loaded."),
+                kit.Headline(active_stage or "Unavailable"),
+                kit.KpiTile(
+                    "Capabilities",
+                    str(len(matrix_capabilities)) if matrix_capabilities else None,
+                    "Declared in the local matrix." if matrix_capabilities else "Unavailable: capability entries are not available in the local matrix.",
+                ),
                 kit.KpiTile("Execution", "disabled", "Execution remains disabled by policy.", tone="neg"),
                 kit.KpiTile("Matrix", matrix_version, "Unavailable: capability matrix is not available." if matrix_version is None else ""),
                 kit.Note("Execution: disabled by policy; every route, dataset, model, strategy and broker capability is declared."),
@@ -147,7 +151,8 @@ def system_map_page(page: ft.Page | None, state: AppState) -> PageView:
         summaries = tuple(getattr(row, "stage_summary", ()) or ())
         for stage in stages:
             status = next((value.split(":", 1)[-1].strip() for value in summaries if value.casefold().startswith(f"{stage}".casefold())), None)
-            stage_values[str(stage)] = kit.Tag(status, "ok" if status and status.casefold() in {"available", "allowed", "supported"} else "mute") if status else "—"
+            display_status = status.replace("_", " ").title() if status else None
+            stage_values[str(stage)] = kit.Tag(display_status, "ok" if status and status.casefold() in {"available", "allowed", "supported"} else "mute") if display_status else "—"
         strategy_rows.append({"strategy": row.strategy_id, **stage_values})
     strategy_columns = [kit.TableColumn("strategy", "Strategy")] + [kit.TableColumn(str(stage), str(stage).replace("_", " ").title()) for stage in stages]
     stage_grid = kit.DataTable(

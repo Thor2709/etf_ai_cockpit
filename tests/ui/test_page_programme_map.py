@@ -25,6 +25,26 @@ def _texts(control: object) -> list[str]:
     return values
 
 
+def _kit_controls(control: object, kind: str) -> list[object]:
+    found = []
+    pending = [control]
+    visited: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in visited:
+            continue
+        visited.add(id(current))
+        data = getattr(current, "data", None)
+        if isinstance(data, dict) and data.get("kit") == kind:
+            found.append(current)
+        pending.extend(getattr(current, "controls", ()) or ())
+        for name in ("content", "body"):
+            child = getattr(current, name, None)
+            if child is not None:
+                pending.append(child)
+    return found
+
+
 def test_renders_with_sample_data() -> None:
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
@@ -33,6 +53,15 @@ def test_renders_with_sample_data() -> None:
     assert isinstance(result, PageView)
     assert all(title in text for title in ("Registry", "Issues by status", "Issues"))
     assert "Traceback" not in text
+    map_data = programme_map.load_programme_map(programme_map.ROOT)
+    assert map_data.status == "loaded"
+    expected_blocked = sum(entry.implementation == "blocked" for entry in map_data.entries)
+    result.chrome.segment_groups[0].on_change("Blocked")
+    tables = _kit_controls(result.body, "DataTable")
+    if expected_blocked:
+        assert tables[-1].data["rows"] == expected_blocked
+    else:
+        assert "No issues in this view" in "\n".join(_texts(result))
 
 
 def test_empty_data_shows_unavailable(monkeypatch) -> None:

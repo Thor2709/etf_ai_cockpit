@@ -345,7 +345,7 @@ def evidence_ledger_page(page: ft.Page, state) -> PageView:
         ("Benchmark attribution", BENCHMARK_ATTRIBUTION_PATH, ["instrument_id", "benchmark_id", "benchmark_beta", "benchmark_correlation", "alpha_proxy", "sector_relative_return", "sector_alpha_proxy", "sector_attribution_status", "theme_relative_return", "theme_alpha_proxy", "theme_attribution_status", "net_expected_edge_bps", "friction_status", "status", "execution_allowed"], None),
     ]
     frames: list[tuple[str, Path, list[str], pd.DataFrame]] = []
-    switcher_tables = []
+    tables_by_name = {}
     counts: list[int] = []
     for label, path, columns, normaliser in sources:
         frame = _read_frame(path)
@@ -369,14 +369,50 @@ def evidence_ledger_page(page: ft.Page, state) -> PageView:
         table_columns = [kit.TableColumn(key=column, label=column.replace("_", " ").title()) for column in visible_columns]
         for row in frame[visible_columns].to_dict(orient="records") if visible_columns else []:
             rows.append({key: ("—" if pd.isna(value) else _short(value)) for key, value in row.items()})
-        switcher_tables.append(kit.EvidenceTable(label, table_columns, rows, path.name, str(path)))
+        tables_by_name[label] = {
+            "columns": table_columns,
+            "rows": rows,
+            "file_name": path.name,
+            "source_path": str(path),
+            "source_rows": len(frame.index),
+        }
 
+    selected_table = {"name": sources[0][0]}
+
+    def table_note(label: str) -> str:
+        row_count = len(tables_by_name[label]["rows"])
+        return f"{row_count} rows" if row_count else "Unavailable: no evidence rows are available in this table."
+
+    def render_table(label: str) -> list[ft.Control]:
+        table_data = tables_by_name[label]
+        rows = table_data["rows"]
+        if rows:
+            table_control = kit.DataTable(table_data["columns"], rows, expand=True)
+        elif table_data["source_rows"]:
+            table_control = kit.EmptyState("Unavailable", "No supported display columns are available in this evidence table.")
+        else:
+            table_control = kit.EmptyState("No rows", f"{table_data['file_name']} has no rows; evidence is unavailable.")
+        return [table_control, kit.Disclosure("Source path", table_data["source_path"])]
+
+    table_view = ft.Column(render_table(selected_table["name"]), spacing=8, expand=True, scroll=ft.ScrollMode.AUTO)
+
+    def select_table(label: str) -> None:
+        if label not in tables_by_name:
+            return
+        selected_table["name"] = label
+        table_view.controls = render_table(label)
+        evidence_tables.data["note_control"].value = table_note(label)
+        if hasattr(page, "update"):
+            page.update()
+
+    table_picker = kit.Field("Table", options=list(tables_by_name), value=selected_table["name"], on_change=select_table)
     evidence_tables = kit.GlassCard(
         "Evidence tables",
-        note="Local evidence · select a table",
+        note=table_note(selected_table["name"]),
         body=ft.Column(
             [
-                kit.EvidenceTableSwitcher(switcher_tables, title="Evidence tables"),
+                table_picker,
+                table_view,
                 kit.Disclosure(
                     "Technical evidence details",
                     "\n\n".join(
@@ -393,22 +429,24 @@ def evidence_ledger_page(page: ft.Page, state) -> PageView:
         expand=True,
     )
     nonempty = [(label, count) for (label, _, _, _), count in zip(sources, counts, strict=True) if count]
-    zero_rows = [f"{label}: 0 · unavailable" for (label, _, _, _), count in zip(sources, counts, strict=True) if not count]
-    rows_chart = ck.bar_chart(
+    unavailable_rows = [
+        f"{label}: Unavailable — no rows are available."
+        for (label, _, _, _), count in zip(sources, counts, strict=True)
+        if not count
+    ]
+    rows_chart = ck.horizontal_stacked_bar(
         [label for label, _ in nonempty],
-        [count for _, count in nonempty],
-        x_name="Evidence table",
-        y_name="Rows (count)",
+        [[ck.Segment(count, "pos")] for _, count in nonempty],
+        x_name="Rows (count)",
+        x_max=max((count for _, count in nonempty), default=0) or None,
         unit="rows",
-        decimals=0,
-        signed_labels=False,
         insight="Row counts describe local evidence files.",
         unavailable_reason="No evidence table has rows available." if not nonempty else None,
     )
     rows_by_table = kit.GlassCard(
         "Rows by evidence table",
         note="Rows (count)",
-        body=ft.Column([kit.Well(rows_chart), *(kit.Note(note) for note in zero_rows)], spacing=8, scroll=ft.ScrollMode.AUTO),
+        body=ft.Column([kit.Well(rows_chart), *(kit.Note(note) for note in unavailable_rows)], spacing=8, scroll=ft.ScrollMode.AUTO),
         expand=True,
     )
     boundaries = kit.GlassCard(

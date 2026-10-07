@@ -38,6 +38,7 @@ def test_empty_data_shows_unavailable(monkeypatch) -> None:
     texts = _texts(result)
     assert isinstance(result, PageView)
     assert any("Unavailable" in value or "No rows" in value for value in texts)
+    assert not any("0 · unavailable" in value for value in texts)
     body = result.body
     tables = []
     stack = [body]

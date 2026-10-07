@@ -31,6 +31,7 @@ def test_renders_with_sample_data() -> None:
     text = "\n".join(_texts(result))
     assert isinstance(result, PageView)
     assert all(title in text for title in ("Mandatory checks", "Release evidence", "Blockers", "Accepted limitations", "Quality programme", "Legal terms"))
+    assert "Mandatory check evidence" in text
     assert "Traceback" not in text
 
 

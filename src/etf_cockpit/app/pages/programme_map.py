@@ -24,15 +24,23 @@ def _status_kind(status: str) -> str:
 
 
 def _issue_row(entry: ProgrammeMapEntry) -> dict[str, object]:
+    status = entry.implementation.replace("_", " ").strip()
     return {
-        "id": entry.canonical_id,
-        "title": entry.title,
-        "status": kit.Tag(entry.implementation.replace("_", " "), _status_kind(entry.implementation)),
-        "release": entry.release.replace("_", " "),
-        "data": entry.data.replace("_", " "),
-        "authority": entry.live.replace("_", " "),
+        "id": entry.canonical_id or "—",
+        "title": entry.title or "—",
+        "status": kit.Tag(status, _status_kind(entry.implementation)) if status else "—",
+        "release": entry.release.replace("_", " ") or "—",
+        "data": entry.data.replace("_", " ") or "—",
+        "authority": entry.live.replace("_", " ") or "—",
         "depends": ", ".join(entry.blocking_dependencies) or "—",
     }
+
+
+def _issue_details(entries: tuple[ProgrammeMapEntry, ...]) -> str:
+    return "\n\n".join(
+        f"{entry.canonical_id} · {entry.title}\n{entry.phase} · priority {entry.priority}\nImplementation: {entry.implementation} · Release: {entry.release} · Data: {entry.data} · Model: {entry.model} · Paper: {entry.paper} · Live: {entry.live}\nImplementation readiness: {'ready' if entry.ready else 'blocked'} · Activation readiness: {'ready' if entry.activation_ready else 'blocked'}\nBlocking dependencies: {', '.join(entry.blocking_dependencies) or 'none'} · Required inputs: {', '.join(entry.required_inputs) or 'none'}\nReadiness reasons: {', '.join(entry.readiness_reason_codes)} · Edges: {', '.join(entry.edge_reason_codes) or 'none'}\nActivation dependencies: {', '.join(entry.activation_dependencies) or 'none'} · Activation reasons: {', '.join(entry.activation_reason_codes)}\nDownstream issues: {', '.join(entry.downstream_issues) or 'none'} · Related: {', '.join(entry.related_issues) or 'none'}\nexecution_allowed=false"
+        for entry in entries
+    )
 
 
 def _bar_data(entries: tuple[ProgrammeMapEntry, ...]) -> tuple[list[str], list[list[ck.Segment]]]:
@@ -47,8 +55,8 @@ def _bar_data(entries: tuple[ProgrammeMapEntry, ...]) -> tuple[list[str], list[l
         rows.append(
             [
                 ck.Segment(done, "pos", "Done"),
-                ck.Segment(in_progress, "gold", "In progress"),
-                ck.Segment(blocked, "gold", "Blocked"),
+                ck.Segment(in_progress, "blue", "In progress"),
+                ck.Segment(blocked, "neg", "Blocked"),
                 ck.Segment(planned, "gold", "Planned"),
             ]
         )
@@ -77,31 +85,37 @@ def programme_map_page(page: ft.Page | None, state: AppState) -> PageView:
     )
     registry_card = kit.GlassCard("Registry", body=registry_body, expand=True)
 
-    table = kit.DataTable(
-        [
-            kit.TableColumn("id", "ID"),
-            kit.TableColumn("title", "Title"),
-            kit.TableColumn("status", "Status"),
-            kit.TableColumn("release", "Release"),
-            kit.TableColumn("data", "Data"),
-            kit.TableColumn("authority", "Authority"),
-            kit.TableColumn("depends", "Depends on"),
-        ],
-        [_issue_row(entry) for entry in entries] if map_data.status == "loaded" else [],
-        expand=True,
-        empty_title="Registry blocked",
-        empty_reason="No issue records are displayed while the registry is blocked.",
-    )
-    issue_details = "\n\n".join(
-        f"{entry.canonical_id} · {entry.title}\n{entry.phase} · priority {entry.priority}\nImplementation: {entry.implementation} · Release: {entry.release} · Data: {entry.data} · Model: {entry.model} · Paper: {entry.paper} · Live: {entry.live}\nImplementation readiness: {'ready' if entry.ready else 'blocked'} · Activation readiness: {'ready' if entry.activation_ready else 'blocked'}\nBlocking dependencies: {', '.join(entry.blocking_dependencies) or 'none'} · Required inputs: {', '.join(entry.required_inputs) or 'none'}\nReadiness reasons: {', '.join(entry.readiness_reason_codes)} · Edges: {', '.join(entry.edge_reason_codes) or 'none'}\nActivation dependencies: {', '.join(entry.activation_dependencies) or 'none'} · Activation reasons: {', '.join(entry.activation_reason_codes)}\nDownstream issues: {', '.join(entry.downstream_issues) or 'none'} · Related: {', '.join(entry.related_issues) or 'none'}\nexecution_allowed=false"
-        for entry in entries
-    )
+    table_columns = [
+        kit.TableColumn("id", "ID"),
+        kit.TableColumn("title", "Title"),
+        kit.TableColumn("status", "Status"),
+        kit.TableColumn("release", "Release"),
+        kit.TableColumn("data", "Data"),
+        kit.TableColumn("authority", "Authority"),
+        kit.TableColumn("depends", "Depends on"),
+    ]
+
+    def issue_table(selected: tuple[ProgrammeMapEntry, ...]) -> ft.Control:
+        rows = [_issue_row(entry) for entry in selected]
+        if map_data.status != "loaded":
+            return kit.EmptyState("Registry blocked", "No issue records are displayed while the registry is blocked.")
+        return kit.DataTable(
+            table_columns,
+            rows,
+            expand=True,
+            empty_title="Issues unavailable" if not entries else "No issues in this view",
+            empty_reason="No issue records are available from the local registry." if not entries else "No registered issues match this status filter.",
+        )
+
+    table = issue_table(entries)
+    issue_details = _issue_details(entries)
     issue_details_text = kit.Note(issue_details or map_data.error or "No issue records are available.")
     issue_details_disclosure = kit.Disclosure("Issue record details", issue_details_text)
+    issues_body = ft.Column([table, issue_details_disclosure], spacing=8, expand=True, scroll=ft.ScrollMode.AUTO)
     issues_card = kit.GlassCard(
         "Issues",
-        note=f"{len(entries)} registered issues" if map_data.status == "loaded" else "Unavailable",
-        body=ft.Column([table, issue_details_disclosure], spacing=8, expand=True, scroll=ft.ScrollMode.AUTO),
+        note=f"{len(entries)} registered issues" if map_data.status == "loaded" and entries else "Unavailable",
+        body=issues_body,
         expand=True,
     )
 
@@ -125,12 +139,9 @@ def programme_map_page(page: ft.Page | None, state: AppState) -> PageView:
             selected = tuple(entry for entry in entries if entry.implementation in {"closed", "implemented", "implemented_initially", "integrated", "ready"})
         else:
             selected = tuple(entry for entry in entries if entry.implementation == "blocked")
-        table.rows = [_issue_row(entry) for entry in selected] if map_data.status == "loaded" else []
-        issue_details_text.value = "\n\n".join(
-            f"{entry.canonical_id} · {entry.title}\n{entry.phase} · priority {entry.priority}\nImplementation: {entry.implementation} · Release: {entry.release} · Data: {entry.data} · Model: {entry.model} · Paper: {entry.paper} · Live: {entry.live}\nImplementation readiness: {'ready' if entry.ready else 'blocked'} · Activation readiness: {'ready' if entry.activation_ready else 'blocked'}\nBlocking dependencies: {', '.join(entry.blocking_dependencies) or 'none'} · Required inputs: {', '.join(entry.required_inputs) or 'none'}\nReadiness reasons: {', '.join(entry.readiness_reason_codes)} · Edges: {', '.join(entry.edge_reason_codes) or 'none'}\nActivation dependencies: {', '.join(entry.activation_dependencies) or 'none'} · Activation reasons: {', '.join(entry.activation_reason_codes)}\nDownstream issues: {', '.join(entry.downstream_issues) or 'none'} · Related: {', '.join(entry.related_issues) or 'none'}\nexecution_allowed=false"
-            for entry in selected
-        ) or map_data.error or "No issue records are available."
-        issues_card.note_control.value = f"{len(selected)} registered issues" if map_data.status == "loaded" else "Unavailable"
+        issues_body.controls[0] = issue_table(selected)
+        issue_details_text.value = _issue_details(selected) or map_data.error or "No issue records are available."
+        issues_card.data["note_control"].value = f"{len(selected)} registered issues" if map_data.status == "loaded" and selected else "Unavailable"
         if page is not None and hasattr(page, "update"):
             page.update()
 

@@ -22,6 +22,24 @@ def _texts(control: object) -> list[str]:
     return values
 
 
+def _visible_texts(control: object) -> list[str]:
+    data = getattr(control, "data", None)
+    if isinstance(data, dict) and data.get("kit") == "Disclosure":
+        controls = getattr(control, "controls", ()) or ()
+        return _visible_texts(controls[0]) if controls else []
+    values = []
+    value = getattr(control, "value", None)
+    if isinstance(value, str):
+        values.append(value)
+    for child in getattr(control, "controls", ()) or ():
+        values.extend(_visible_texts(child))
+    for name in ("content", "body"):
+        child = getattr(control, name, None)
+        if child is not None:
+            values.extend(_visible_texts(child))
+    return values
+
+
 def _state():
     return SimpleNamespace(last_message="", last_export_path=None, local_audit_output=None, recent_activity=[], current_activity=None)
 
@@ -32,6 +50,7 @@ def test_renders_with_sample_data() -> None:
     assert isinstance(result, PageView)
     assert all(title in text for title in ("Active product authority", "LLM thesis diary", "Manual note credibility", "Audit timeline", "External audit packet", "Import audit commentary", "Local LLM commentary"))
     assert "Traceback" not in text
+    assert "executable_authority=false" not in "\n".join(_visible_texts(result))
 
 
 def test_empty_data_shows_unavailable(monkeypatch) -> None:

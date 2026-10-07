@@ -36,7 +36,6 @@ def test_renders_with_sample_data() -> None:
 
 def test_empty_data_shows_unavailable(monkeypatch) -> None:
     monkeypatch.setattr(system_map, "load_feature_registry", lambda: SimpleNamespace(policy=None, diagnostic_mode=True))
-    monkeypatch.setattr(system_map, "load_product_governance", lambda: SimpleNamespace(policy=None))
     monkeypatch.setattr(system_map, "load_authority_matrix", lambda: SimpleNamespace(policy=None, checksum=None))
     monkeypatch.setattr(system_map, "capability_scope_view", lambda: SimpleNamespace(status="unavailable", stages=(), strategies=(), instruments=(), rejected_strategy_ids=(), checksum=None, matrix_version=None))
     monkeypatch.setattr(system_map, "supply_chain_intake_report", lambda _root: {})

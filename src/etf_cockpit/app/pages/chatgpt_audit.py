@@ -120,7 +120,7 @@ def _thesis_diary_rows() -> list[dict[str, str]]:
     return rows
 
 
-def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
+def chatgpt_audit_page(page: ft.Page, state: AppState) -> PageView:
     path_field = ft.TextField(label="External audit commentary JSON path", expand=True, **kit.field_input_style(placeholder="Select a local commentary file path"))
     output = kit.Note("No audit import or export has run in this session.")
     output_details = kit.Note(state.last_message or "No technical audit action details are available.")
@@ -130,7 +130,7 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
     llm_details = kit.Note(saved_llm_output or "No local LLM status details are available.")
     llm_disclosure = kit.Disclosure("Local LLM status details", llm_details)
     diary_output = kit.Note(_thesis_diary_text())
-    credibility_output = kit.Note(_manual_note_credibility_text())
+    credibility_output = kit.Note(f"{_manual_note_credibility_text()}\nexecutable_authority=false")
     authority_matrix = load_authority_matrix()
     version_summary = compatibility_summary(build_version_registry())
 
@@ -279,7 +279,16 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
             state.release_activity(action_id)
             refresh_shell()
 
-    active_stage = "Research" if authority_matrix.policy is not None else "Unavailable"
+    active_stage = next(
+        (
+            stage.label
+            for stage in getattr(getattr(authority_matrix, "policy", None), "authority_stages", ())
+            if stage.enabled_by_default
+        ),
+        "Unavailable",
+    )
+    lineage_records = version_summary.get("record_count")
+    lineage_value = str(lineage_records) if lineage_records not in (None, "", 0, "0") else None
     authority_card = kit.GlassCard(
         "Active product authority",
         body=ft.Column(
@@ -287,7 +296,11 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
                 kit.Headline(active_stage),
                 kit.KpiTile("ADR", authority_matrix.policy.adr_id if authority_matrix.policy is not None else None, "Authority matrix is unavailable." if authority_matrix.policy is None else ""),
                 kit.KpiTile("Execution", "disabled", "Execution remains disabled by policy.", tone="neg"),
-                kit.KpiTile("Lineage records", str(version_summary["record_count"]), "Immutable after run"),
+                kit.KpiTile(
+                    "Lineage records",
+                    lineage_value,
+                    "Immutable after run" if lineage_value is not None else "Unavailable: no lineage records are available.",
+                ),
                 kit.Disclosure(
                     "Authority and lineage details",
                     f"matrix_checksum={authority_matrix.checksum if authority_matrix.policy is not None else 'unavailable'}\nregistry_signature={version_summary['registry_signature']}\nexecution_allowed=false",
@@ -324,23 +337,30 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> ft.Control:
             [
                 kit.Note("Promotional and missing-method evidence cannot alter scores, actions or execution authority."),
                 kit.Disclosure("Credibility flags", credibility_output),
-                kit.Note("executable_authority=false"),
+                kit.Note("Manual credibility flags remain commentary only."),
             ],
             spacing=8,
         ),
         expand=True,
     )
-    timeline_rows = [
-        kit.ListRow("info", item.label, getattr(item, "message", "") or getattr(item, "step", ""))
-        for item in list(getattr(state, "recent_activity", ()) or ())
-        if any(word in str(getattr(item, "label", "")).casefold() for word in ("export", "import"))
-    ]
+    timeline_rows = []
+    for item in list(getattr(state, "recent_activity", ()) or ()):
+        if not any(word in str(getattr(item, "label", "")).casefold() for word in ("export", "import")):
+            continue
+        timeline_rows.append(kit.ListRow("info", item.label, getattr(item, "step", "") or "Local audit activity"))
+        timeline_rows.append(
+            kit.Disclosure(
+                "Audit timeline details",
+                f"message={getattr(item, 'message', '') or 'Unavailable'}\nstarted_at={format_timestamp(getattr(item, 'started_at', None), unavailable='Unavailable')}\naction_id={getattr(item, 'action_id', '') or '—'}\nstatus={getattr(item, 'status', 'Unavailable')}",
+            )
+        )
     timeline_card = kit.GlassCard(
         "Audit timeline",
         note="Local exports and imports",
         body=ft.Column(
             timeline_rows or [kit.EmptyState("No audit activity", "No local audit exports or imports are recorded in this session.")],
             spacing=8,
+            scroll=ft.ScrollMode.AUTO,
         ),
         expand=True,
     )

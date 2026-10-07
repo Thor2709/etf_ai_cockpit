@@ -96,20 +96,21 @@ def errors_recovery_page(page: ft.Page, state: AppState) -> PageView:
     activity_rows = []
     if current is not None:
         progress = f"{current.completed_units}/{current.total_units}" if current.total_units is not None else str(current.completed_units)
-        activity_rows.append(kit.ListRow("info", current.label, f"{current.step} · {progress} · {current.message}"))
-        activity_rows.append(kit.Disclosure("Activity details", f"status=running\nprogress={progress}"))
+        activity_rows.append(kit.ListRow("info", current.label, f"{current.step} · {progress}"))
+        activity_rows.append(kit.Disclosure("Activity details", f"status=running\nprogress={progress}\nmessage={current.message}"))
     for entry in list(getattr(state, "recent_activity", ()) or ()):
+        message = getattr(entry, "message", "") or "No activity detail is available."
         activity_rows.append(
             kit.ListRow(
                 "warn" if str(entry.status).lower() not in {"passed", "complete", "completed"} else "ok",
                 getattr(entry, "label", "Activity"),
-                getattr(entry, "message", "") or getattr(entry, "step", ""),
+                getattr(entry, "step", "") or "Activity update",
             )
         )
         activity_rows.append(
             kit.Disclosure(
                 "Activity details",
-                f"started_at={format_timestamp(entry.started_at, unavailable='Unavailable')}\naction_id={getattr(entry, 'action_id', '') or '—'}\nstatus={entry.status}\nstep={entry.step}",
+                f"message={message}\nstarted_at={format_timestamp(entry.started_at, unavailable='Unavailable')}\naction_id={getattr(entry, 'action_id', '') or '—'}\nstatus={entry.status}\nstep={entry.step}",
             )
         )
     activity = kit.GlassCard(

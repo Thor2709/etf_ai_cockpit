@@ -44,16 +44,22 @@ def release_readiness_page(page: ft.Page | None, state: AppState) -> PageView:
     quality_display = quality_status.replace("_", " ").title()
     legal_status = str(legal.get("status") or "unavailable")
     legal_display = legal_status.replace("_", " ").title()
+    legal_review = str(legal.get("review_status") or "").replace("_", " ").title()
     network_calls = certification.get("network_calls")
+    certification_note = (
+        "Certification remains blocked until the closure matrix, mandatory gates and signed release evidence pass."
+        if status.casefold() == "blocked"
+        else "Evidence-only certification status for the completion programme."
+    )
     strip = kit.KpiStrip(
         "Certification",
         headline,
-        "Evidence-only certification status for the completion programme.",
+        certification_note,
         [
             ("Execution", "disabled" if certification.get("execution_allowed") is False else "Unavailable", "Execution remains disabled by policy.", "neg"),
             ("Quality programme", quality_display, str(quality.get("unavailable_reason") or ("Quality programme status is unavailable from local evidence." if quality_status == "unavailable" else "Local quality evidence.")), None),
-            ("Legal terms", legal_display, str(legal.get("review_status") or ("Legal terms status is unavailable from local evidence." if legal_status == "unavailable" else "Legal terms evidence.")), None),
-            ("Network calls", "false" if network_calls is False else "true" if network_calls is True else "Unavailable", "Unavailable: network-call status is not recorded." if network_calls is None else "Reported by local certification evidence.", None),
+            ("Legal terms", legal_display, legal_review or ("Legal terms status is unavailable from local evidence." if legal_status == "unavailable" else "Legal terms evidence."), None),
+            ("Network calls", "No" if network_calls is False else "Yes" if network_calls is True else "Unavailable", "Unavailable: network-call status is not recorded." if network_calls is None else "Reported by local certification evidence.", None),
         ],
     )
 
@@ -67,15 +73,17 @@ def release_readiness_page(page: ft.Page | None, state: AppState) -> PageView:
         "Mandatory checks",
         note="Local certification gates",
         body=ft.Column(
-            checks or [kit.EmptyState("Checks unavailable", "No mandatory check results are available from the local certification report.")],
-            kit.Disclosure(
-                "Mandatory check evidence",
-                "\n".join(
-                    f"{check.get('check_id') or 'Unavailable'} · status={check.get('status') or 'Unavailable'} · evidence={check.get('evidence') or check.get('reason') or 'Unavailable'}"
-                    for check in certification.get("checks", []) or []
-                    if isinstance(check, dict)
-                ) or "No mandatory check details are available.",
-            ),
+            [
+                *(checks or [kit.EmptyState("Checks unavailable", "No mandatory check results are available from the local certification report.")]),
+                kit.Disclosure(
+                    "Mandatory check evidence",
+                    "\n".join(
+                        f"{check.get('check_id') or 'Unavailable'} · status={check.get('status') or 'Unavailable'} · evidence={check.get('evidence') or check.get('reason') or 'Unavailable'}"
+                        for check in certification.get("checks", []) or []
+                        if isinstance(check, dict)
+                    ) or "No mandatory check details are available.",
+                ),
+            ],
             spacing=8,
             scroll=ft.ScrollMode.AUTO,
         ),
@@ -132,7 +140,7 @@ def release_readiness_page(page: ft.Page | None, state: AppState) -> PageView:
         body=ft.Column(
             [
                 kit.Tag(quality_display, "ok" if quality_status == "passed" else "warn"),
-                kit.Note("ISSUE-0143 bounded local evidence; this surface never starts tests or network calls."),
+                kit.Note("Bounded local evidence; this surface never starts tests or network calls."),
                 kit.Disclosure(
                     "Quality evidence details",
                     "\n".join(
