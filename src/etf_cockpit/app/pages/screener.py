@@ -213,33 +213,95 @@ def _quality_risk_chart(result: object) -> ft.Control:
     )
 
 
+def _present(value: object) -> bool:
+    if value is None or value is pd.NA or value is pd.NaT:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set)):
+        return True
+    try:
+        return not bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return True
+
+
+def _evidence(value: object, fallback: str = "N/A") -> str:
+    """Evidence text, or an explicit unavailable marker; a missing value is never shown as zero."""
+
+    if not _present(value):
+        return fallback
+    if isinstance(value, (list, tuple, set)):
+        return " | ".join(str(item) for item in value) or fallback
+    return str(value)
+
+
 def _fundamentals(frame: pd.DataFrame) -> ft.Control:
     if frame.empty:
         return EmptyState(
             "Fundamentals unavailable",
-            "No canonical rows are present in the local clean store; missing metrics are not inferred or scored.",
+            "The local clean store has no canonical rows; missing metrics are not inferred or scored.",
             expand=True,
         )
+    records = frame.to_dict(orient="records")
     columns = (
         TableColumn("instrument_id", "Instrument Id"),
         *(TableColumn(name, label, numeric=True) for name, label in _FUNDAMENTAL_FIELDS),
+        TableColumn("eligibility", "Eligibility"),
+        TableColumn("source", "Source"),
+        TableColumn("as_of", "As of"),
+        TableColumn("sector_status", "Sector-relative"),
     )
     rows = []
-    for record in frame.to_dict(orient="records"):
+    for record in records:
         rows.append(
             {
                 "instrument_id": _shown(record.get("instrument_id")),
                 **{
-                    name: format_number(_number(record.get(name)), decimals=1, unavailable="—")
+                    name: format_number(_number(record.get(name)), decimals=1, unavailable="N/A")
                     for name, _label in _FUNDAMENTAL_FIELDS
                 },
+                "eligibility": _evidence(record.get("eligibility"), "unavailable"),
+                "source": _evidence(record.get("source", record.get("source_authority")), "unavailable"),
+                "as_of": _evidence(record.get("as_of_date", record.get("as_of")), "unavailable"),
+                "sector_status": _evidence(record.get("sector_relative_status"), "unavailable"),
             }
         )
-    return DataTable(
-        columns,
-        rows,
-        empty_title="Fundamentals unavailable",
-        empty_reason="No canonical fundamental rows are available.",
+    detail_columns = (
+        TableColumn("instrument_id", "Instrument Id"),
+        TableColumn("missing", "Missing"),
+        TableColumn("warnings", "Warnings"),
+        TableColumn("limitations", "Limitations"),
+        TableColumn("value", "Sector value", numeric=True),
+        TableColumn("peer", "Sector peer"),
+        TableColumn("benchmark", "Sector benchmark"),
+        TableColumn("delta", "Sector delta", numeric=True),
+        TableColumn("sector_limitation", "Sector limitation"),
+        TableColumn("authority", "Executable authority"),
+    )
+    detail_rows = [
+        {
+            "instrument_id": _shown(record.get("instrument_id")),
+            "missing": _evidence(record.get("missing_fields"), "none recorded"),
+            "warnings": _evidence(record.get("warnings"), "none recorded"),
+            "limitations": _evidence(record.get("limitations"), "unavailable"),
+            "value": _evidence(record.get("sector_relative_value"), "unavailable"),
+            "peer": _evidence(record.get("sector_relative_peer"), "unavailable"),
+            "benchmark": _evidence(record.get("sector_relative_benchmark"), "unavailable"),
+            "delta": _evidence(record.get("sector_relative_delta"), "unavailable"),
+            "sector_limitation": _evidence(
+                record.get("sector_relative_limitation"), "No sector-relative comparison evidence supplied."
+            ),
+            "authority": "false",
+        }
+        for record in records
+    ]
+    return ft.Column(
+        [
+            DataTable(columns, rows, empty_title="Fundamentals unavailable"),
+            Disclosure("Evidence, limitations and sector-relative detail", DataTable(detail_columns, detail_rows)),
+        ],
+        spacing=12,
     )
 
 
@@ -687,7 +749,7 @@ def screener_page(page: ft.Page | None, state: AppState) -> PageView:
         )
         filter_chips.controls = []
         for index, item in enumerate(filters):
-            chip = Tag(f"{_human(item.field)} {item.operator} {_shown(item.value)}", "info")
+            chip = Tag(f"{_human(item.field)} {item.operator} {_shown(item.value)} ×", "mute")
             chip.on_click = lambda _event, position=index: remove_filter(position)
             chip.ink = True
             filter_chips.controls.append(chip)
@@ -717,8 +779,8 @@ def screener_page(page: ft.Page | None, state: AppState) -> PageView:
             filters.append(ScreenFilter(filter_field, str(operator_control.value or "eq"), raw_value))
             value_control.value = ""
             render_screen()
-        except ValueError:
-            status.value = "Filter not applied · enter a supported field and value."
+        except ValueError as exc:
+            status.value = f"Filter not applied · {exc}"
             if page is not None:
                 page.update()
 
@@ -826,6 +888,7 @@ def screener_page(page: ft.Page | None, state: AppState) -> PageView:
         note="Five canonical sections · local evidence",
         body=[
             _fundamentals(frame),
+            Note("executable_authority=false | fundamentals are not an action or broker authority"),
             Note("Missing values remain unavailable and are not inferred or scored."),
             Disclosure("Fundamental source and row details", _fundamental_details(frame)),
         ],
