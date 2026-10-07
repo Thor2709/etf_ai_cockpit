@@ -178,7 +178,7 @@ def _workspace_card(width: float, height: float, page: object, state: AppState, 
         body: list[ft.Control] = [fields, EmptyState("Select two instruments", "Both comparison sides must be present in the canonical local score set.")]
     else:
         # fields 66, table header 44, buttons 36 and three 12 px gaps (the status text sits beside the buttons)
-        rows = max(3, int((inner_h - 66 - 44 - 36 - 36 - 12) // _ROW_HEIGHT))
+        rows = max(3, int((inner_h - 66 - 44 - 36 - 12) // _ROW_HEIGHT))
         ters = (common.instrument_meta(state, ui["a"])["ter"], common.instrument_meta(state, ui["b"])["ter"])
         body = [fields, _comparison_table(first, second, ters=ters, max_rows=rows), ft.Container(expand=True), buttons]
     column = ft.Column(body, spacing=12)
