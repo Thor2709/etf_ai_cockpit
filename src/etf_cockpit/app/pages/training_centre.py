@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import flet as ft
 
 from etf_cockpit.app import theme
@@ -12,12 +14,13 @@ from etf_cockpit.app.components.kit import (
     GlassCard,
     KpiStrip,
     KpiStripItem,
+    KpiTile,
     Note,
     Tag,
     TableColumn,
 )
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
-from etf_cockpit.app.components.chartkit import Bubble, Series
+from etf_cockpit.app.components.chartkit import Bubble, Segment, Series
 from etf_cockpit.app.formatting import format_count, format_timestamp
 from etf_cockpit.app.pages._lab_style import lab_page, panel, section_header
 from etf_cockpit.application.runtime import DurableJobScheduler
@@ -355,18 +358,21 @@ def training_centre_page(page: ft.Page, state: object) -> PageView:
         if callable(getattr(page, "go", None)):
             page.go("/training-centre")
 
+    def table_value(value: object) -> object:
+        return "—" if value is None or str(value).strip().casefold() in {"", "none", "nan", "nat"} else value
+
     run_rows = []
     for run in runs:
         state_value = str(run.get("status") or "").replace("_", " ").title() or "Unavailable"
         state_kind = {"Completed": "ok", "Running": "warn", "Failed": "bad", "Cancelled": "mute", "Queued": "mute"}.get(state_value, "mute")
         run_rows.append(
             {
-                "run": run.get("run_id"),
-                "model": run.get("model_id") or run.get("model_name"),
+                "run": table_value(run.get("run_id")),
+                "model": table_value(run.get("model_id") or run.get("model_name")),
                 "state": Tag(state_value, state_kind),
                 "started": format_timestamp(run.get("started_at"), unavailable="—"),
-                "duration": run.get("duration") or "—",
-                "best_metric": run.get("best_metric") or "—",
+                "duration": table_value(run.get("duration")),
+                "best_metric": table_value(run.get("best_metric")),
             }
         )
     run_table = DataTable(
@@ -375,23 +381,49 @@ def training_centre_page(page: ft.Page, state: object) -> PageView:
         empty_title="No training runs have been registered.",
         empty_reason=load_reason or "The local registry contains no run rows.",
     )
-    steps = sorted({item.get("step") for item in metrics if item.get("step") is not None}, key=str)
     metric_names = sorted({str(item.get("name")) for item in metrics if item.get("name")})
-    metric_series = []
-    for series_index, name in enumerate(metric_names):
-        values = []
-        for step in steps:
-            item = next((row for row in metrics if str(row.get("name")) == name and row.get("step") == step), None)
-            values.append(item.get("value") if item else None)
-        metric_series.append(Series(name, values, theme.CATEGORICAL[series_index % len(theme.CATEGORICAL)]))
-    metrics_chart = ck.line_chart(
-        steps,
-        metric_series,
-        x_name="Step",
-        y_name=metric_names[0] if len(metric_names) == 1 else "Metric",
-        unavailable_reason=load_reason or "No metrics have been recorded." if not metrics else None,
-        empty_title="No metrics have been recorded.",
-        insight="Recorded local metrics by training step.",
+    run_ids = sorted({str(item.get("run_id")) for item in metrics if item.get("run_id")})
+    metric_charts: list[ft.Control] = []
+    for metric_name in metric_names:
+        metric_rows = [item for item in metrics if str(item.get("name")) == metric_name]
+        steps = sorted({item.get("step") for item in metric_rows if item.get("step") is not None}, key=str)
+        metric_series = []
+        for series_index, run_id in enumerate(run_ids):
+            values = [
+                next((row.get("value") for row in metric_rows if str(row.get("run_id")) == run_id and row.get("step") == step), None)
+                for step in steps
+            ]
+            if any(value is not None for value in values):
+                metric_series.append(Series(run_id, values, theme.CATEGORICAL[series_index % len(theme.CATEGORICAL)]))
+        metric_insight = f"Recorded {metric_name} values across {len(metric_series)} training runs." if metric_series else f"Unavailable: no recorded {metric_name} values have a step."
+        metric_charts.append(
+            ck.line_chart(
+                steps,
+                metric_series,
+                x_name="Step",
+                y_name=metric_name,
+                unavailable_reason=load_reason or ("No metrics have been recorded." if not metrics else "No recorded metric values include a step.") if not metric_series else None,
+                empty_title="No metrics have been recorded.",
+                insight=metric_insight,
+            )
+        )
+    if not metric_charts:
+        metric_charts.append(
+            ck.line_chart(
+                [],
+                [],
+                x_name="Step",
+                y_name="Metric",
+                unavailable_reason=load_reason or "No metrics have been recorded.",
+                empty_title="No metrics have been recorded.",
+                insight="Unavailable: no saved training metrics are available.",
+            )
+        )
+    metrics_chart = ft.Column(metric_charts, spacing=8)
+    metrics_insight = (
+        f"Recorded {', '.join(metric_names)} metrics across {len(run_ids)} training runs."
+        if metric_names and run_ids
+        else "Unavailable: no saved training metric series are available."
     )
     report = max(reports, key=lambda item: str(item.get("run_id", "")), default=None)
     report_trials = [item for item in trials if report and item.get("report_id") == report.get("report_id")]
@@ -400,20 +432,85 @@ def training_centre_page(page: ft.Page, state: object) -> PageView:
     validation_detail = _retained_validation_text(report, report_trials, report_decisions, report_promotions) if report else None
     prices = getattr(getattr(state, "snapshot", None), "prices", None)
     can_retain = prices is not None and hasattr(prices, "columns")
+    validation_status = Note("No validation evidence change is pending.")
 
     def retain(_event: object) -> None:
         if not can_retain:
             return
-        record_validation_preview(ROOT, prices)
+        try:
+            result = record_validation_preview(ROOT, prices)
+        except Exception as exc:
+            validation_status.value = f"Validation evidence could not be retained: {type(exc).__name__}: {exc}"
+        else:
+            if result is None:
+                validation_status.value = "Unavailable: local adjusted-price history is insufficient to retain validation evidence."
+            elif callable(getattr(page, "go", None)):
+                page.go("/training-centre")
+                return
+            else:
+                validation_status.value = "Retained validation evidence is available after refreshing this page."
         if callable(getattr(page, "update", None)):
             page.update()
 
+    fold_records = report.get("folds", ()) if report else ()
+    if not isinstance(fold_records, (list, tuple)):
+        fold_records = ()
+    fold_rows: list[str] = []
+    fold_segments: list[list[Segment]] = []
+    for fold_index, fold in enumerate(fold_records):
+        if not isinstance(fold, Mapping):
+            continue
+        boundaries = [fold.get("train_indices"), fold.get("validation_indices"), fold.get("purged_indices"), fold.get("embargoed_indices")]
+        if not all(isinstance(items, (list, tuple)) for items in boundaries):
+            continue
+        fold_rows.append(f"Fold {fold_index + 1}")
+        fold_segments.append(
+            [
+                Segment(len(boundaries[0]), "pos", "Train"),
+                Segment(len(boundaries[1]), "gold", "Validation"),
+                Segment(len(boundaries[2]), "blue", "Purged"),
+                Segment(len(boundaries[3]), "neg", "Embargoed"),
+            ]
+        )
+    fold_chart_reason = "No retained validation fold boundaries are available."
+    fold_chart_ready = bool(fold_records) and len(fold_rows) == len(fold_records)
+    fold_chart = ck.horizontal_stacked_bar(
+        fold_rows,
+        fold_segments,
+        x_name="Observations (count)",
+        unit="observations",
+        unavailable_reason=load_reason or (None if fold_chart_ready else fold_chart_reason),
+        empty_title="Validation fold diagram unavailable",
+        insight=f"Retained report contains {len(fold_rows)} walk-forward folds." if fold_chart_ready else "Unavailable: retained fold boundaries are incomplete.",
+    )
+    regime_results = report.get("regime_results") if report else None
+    regime_names = ", ".join(str(name) for name in regime_results) if isinstance(regime_results, Mapping) and regime_results else None
+    fold_tile_value = format_count(len(fold_records), unavailable="") if fold_records else ""
+    trial_ids = report.get("trial_ids") if report else None
+    retained_trial_count = len(trial_ids) if isinstance(trial_ids, (list, tuple)) else len(report_trials)
+    validation_tiles = ft.Row(
+        [
+            KpiTile("Folds", fold_tile_value or None, "" if fold_tile_value else "No retained fold boundaries are available."),
+            KpiTile("Trials retained", format_count(retained_trial_count, unavailable="") if report else None, "No retained validation report is available." if not report else ""),
+            KpiTile("Selected", str(report.get("selected_trial_id")) if report and report.get("selected_trial_id") else None, "" if report and report.get("selected_trial_id") else "No selected trial is recorded."),
+            KpiTile("Regimes", regime_names, "" if regime_names else "No regime results are recorded."),
+        ],
+        spacing=8,
+        wrap=True,
+    )
     validation_body = ft.Column(
         [
-            EmptyState("Validation preview unavailable", "No precomputed validation report is available for this snapshot.")
-            if validation_detail is None
-            else Disclosure("Retained validation evidence", validation_detail),
-            ft.Row([Button.secondary("Retain trial evidence", on_click=retain, disabled=not can_retain, disabled_reason="Local price history is unavailable." if not can_retain else None), Button.secondary("Refresh validation report", on_click=refresh)], spacing=8),
+            fold_chart,
+            validation_tiles,
+            Disclosure("Retained validation evidence", validation_detail) if validation_detail else EmptyState("Validation preview unavailable", "No precomputed validation report is available for this snapshot."),
+            Disclosure("Evidence action status", validation_status),
+            ft.Row(
+                [
+                    Button.secondary("Retain trial evidence", on_click=retain, disabled=not can_retain, disabled_reason="Local price history is unavailable." if not can_retain else None, key="training-centre.record-evidence"),
+                    Button.secondary("Refresh validation report", on_click=refresh, key="training-centre.validation-refresh"),
+                ],
+                spacing=8,
+            ),
         ],
         spacing=8,
     )
@@ -426,15 +523,18 @@ def training_centre_page(page: ft.Page, state: object) -> PageView:
         if trial_index is None or objective is None:
             continue
         status = str(item.get("status", "")).casefold()
-        group = "completed" if status == "completed" else "pruned" if status == "pruned" else "failed"
-        trial_points.append(Bubble(str(item.get("trial_id", trial_index)), float(trial_index), float(objective), group=group))
+        if status not in {"completed", "pruned", "failed"}:
+            continue
+        group = status
+        trial_points.append(Bubble(str(trial_index), float(trial_index), float(objective), group=group))
+    optimisation_insight = f"Recorded objective values are available for {len(trial_points)} bounded trials." if trial_points else "Unavailable: no completed, pruned or failed trial objectives are available."
     optimisation_chart = ck.scatter_bubble(
         trial_points,
         groups=[("completed", theme.CHART_POS), ("pruned", theme.MUTED), ("failed", theme.CHART_NEG)],
         x_name="Trial",
         y_name="Objective",
         unavailable_reason="No bounded optimisation rows with recorded trial and objective values are available." if not trial_points else None,
-        insight="Recorded bounded optimisation trial objectives.",
+        insight=optimisation_insight,
     )
     workflow_count = sum(1 for item in workflows if getattr(item, "workflow_type", None) == "model_training")
     registry_ready = load_reason is None
@@ -443,27 +543,40 @@ def training_centre_page(page: ft.Page, state: object) -> PageView:
         "ready" if registry_ready else "Unavailable",
         "lightweight local registry · no external upload",
         [
-            KpiStripItem("Runs", format_count(len(runs) if runs else None, unavailable="—")),
-            KpiStripItem("Models", format_count(len(models) if models else None, unavailable="—")),
-            KpiStripItem("Metrics", format_count(len(metrics) if metrics else None, unavailable="—")),
-            KpiStripItem("Training workflows", format_count(workflow_count if workflow_count else None, unavailable="—")),
+            KpiStripItem("Runs", format_count(len(runs), unavailable="") if runs else None, "No training runs are registered." if not runs else ""),
+            KpiStripItem("Models", format_count(len(models), unavailable="") if models else None, "No models are registered." if not models else ""),
+            KpiStripItem("Metrics", format_count(len(metrics), unavailable="") if metrics else None, "No training metrics are recorded." if not metrics else ""),
+            KpiStripItem("Training workflows", format_count(workflow_count, unavailable="") if workflow_count else None, "No training workflows are registered." if not workflow_count else ""),
         ],
     )
     latest_report_lines = [
         {"run": run.get("run_id"), "model": run.get("model_id") or run.get("model_name"), "state": str(run.get("status") or "Unavailable").replace("_", " ").title(), "started": format_timestamp(run.get("started_at"), unavailable="—"), "duration": run.get("duration") or "—", "best_metric": run.get("best_metric") or "—"}
         for run in runs
     ]
-    scenario_rows = ft.Text("Unavailable", selectable=True)
-    scenario_details = ft.Text("Generate a local scenario to view its seed and dataset hash.", selectable=True)
+    scenario_details = Note("Generate a local scenario to view its seed and dataset hash.")
+    scenario_tiles = ft.Row(
+        [
+            KpiTile(label, None, "Generate a seeded scenario to view fixture row counts.", expand=True)
+            for label in ("Price rows", "Quality rows", "Execution fixtures")
+        ],
+        spacing=8,
+    )
+
+    def show_scenario_counts(rows: Mapping[str, object] | None, reason: str) -> None:
+        labels = (("Price rows", "prices"), ("Quality rows", "data_quality"), ("Execution fixtures", "execution_events"))
+        scenario_tiles.controls = [
+            KpiTile(label, format_count(rows.get(key), unavailable="") or None if rows is not None else None, reason if rows is None or rows.get(key) is None else "", expand=True)
+            for label, key in labels
+        ]
 
     def generate_scenario(_event: object) -> None:
         try:
             dataset = SyntheticScenarioGenerator().generate(SyntheticScenarioSpec())
             evidence = SyntheticScenarioGenerator.validate(dataset)
-            scenario_rows.value = " · ".join(f"{name.replace('_', ' ').title()}: {count}" for name, count in evidence["rows"].items())
+            show_scenario_counts(evidence["rows"], "Fixture row count is unavailable.")
             scenario_details.value = f"Seed {dataset.metadata.get('seed', '—')} · hash {dataset.metadata.get('dataset_hash', '—')} · synthetic=true · promotion_eligible=false"
         except Exception:
-            scenario_rows.value = "Unavailable"
+            show_scenario_counts(None, "The local synthetic fixture could not be generated.")
             scenario_details.value = "The local synthetic fixture could not be generated."
         if callable(getattr(page, "update", None)):
             page.update()
@@ -473,9 +586,10 @@ def training_centre_page(page: ft.Page, state: object) -> PageView:
         body=ft.Column(
             [
                 Note("Seeded local robustness fixtures; synthetic and not promotion-eligible."),
-                scenario_rows,
+                scenario_tiles,
                 Disclosure("Seed and dataset hash", scenario_details),
-                Button.secondary("Generate seeded scenario", on_click=generate_scenario),
+                ft.Row([Tag("synthetic", "mute"), Tag("not promotion-eligible", "mute")], spacing=8),
+                Button.secondary("Generate seeded scenario", on_click=generate_scenario, key="training-centre.synthetic-scenario"),
             ],
             spacing=8,
         ),
@@ -483,20 +597,20 @@ def training_centre_page(page: ft.Page, state: object) -> PageView:
     )
     runs_row = ft.Row(
         [
-            GlassCard("Run list", note="Queued, running, completed, failed, cancelled", body=ft.Column([Button.secondary("Refresh", on_click=refresh), run_table], spacing=8), expand=True),
-            GlassCard("Live metrics", body=metrics_chart, expand=True),
+            GlassCard("Run list", note="Queued, running, completed, failed, cancelled", body=ft.Column([Button.secondary("Refresh", on_click=refresh, key="training-centre.refresh"), run_table], spacing=8), expand=True),
+            GlassCard("Live metrics", insight=metrics_insight, body=metrics_chart, expand=True),
         ],
         spacing=16,
         vertical_alignment=ft.CrossAxisAlignment.START,
     )
     validation_row = ft.Row(
-        [GlassCard("Validation Designer", body=validation_body, expand=True)],
+        [GlassCard("Validation Designer", insight=f"Retained report contains {len(fold_rows)} walk-forward folds." if fold_chart_ready else "Unavailable: retained validation fold data are incomplete.", body=validation_body, expand=True)],
         spacing=16,
         vertical_alignment=ft.CrossAxisAlignment.START,
         visible=False,
     )
     optimisation_row = ft.Row(
-        [GlassCard("Bounded optimisation", body=ft.Column([optimisation_chart, Disclosure("Trial and resource details", str(opt_summaries[-1]) if opt_summaries else "No bounded optimisation runs have been recorded.")], spacing=8), expand=True)],
+        [GlassCard("Bounded optimisation", insight=optimisation_insight, body=ft.Column([optimisation_chart, Disclosure("Trial and resource details", str(opt_summaries[-1]) if opt_summaries else "No bounded optimisation runs have been recorded.")], spacing=8), expand=True)],
         spacing=16,
         visible=False,
     )

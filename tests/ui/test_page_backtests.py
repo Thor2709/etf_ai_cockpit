@@ -39,8 +39,28 @@ def test_renders_with_sample_data() -> None:
     rendered = _render(pd.DataFrame([{ "strategy_name": "signal_strategy", "cagr": 0.04, "max_drawdown": -0.12, "turnover": 1.1 }]))
     values = _text(rendered)
     assert isinstance(rendered, PageView)
-    for title in ("Equity and drawdown", "Strategy diagnostics", "CAGR vs. max drawdown", "Tail-event diagnostics", "Cost/Capacity"):
+    for title in (
+        "Equity and drawdown",
+        "Strategy diagnostics",
+        "CAGR vs. max drawdown",
+        "Tail-event diagnostics",
+        "Cost/Capacity",
+        "Instrument operational evidence",
+        "Operational execution evidence",
+        "Simulated executions",
+        "Event timeline, orders and fills",
+        "Validation Designer and report",
+        "Walk-forward and overfitting diagnostics",
+        "News point-in-time checks",
+        "Monthly decision template",
+        "Price history evidence",
+    ):
         assert title in values
+    assert rendered.chrome.title == "Backtests"
+    assert tuple(group.items for group in rendered.chrome.segment_groups) == (
+        ("Strategies", "Instrument evidence", "Replay"),
+        ("1Y", "3Y", "5Y", "All"),
+    )
     assert not any("Traceback" in value for value in values)
 
 

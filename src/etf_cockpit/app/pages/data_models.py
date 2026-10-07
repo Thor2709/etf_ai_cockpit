@@ -9,6 +9,7 @@ import pandas as pd
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.kit import (
     Button,
+    CardMenu,
     DataTable,
     Disclosure,
     GlassCard,
@@ -17,7 +18,7 @@ from etf_cockpit.app.components.kit import (
     TableColumn,
 )
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
-from etf_cockpit.app.formatting import format_percent
+from etf_cockpit.app.formatting import format_date, format_percent
 from etf_cockpit.app.components import chartkit as ck
 from etf_cockpit.app.pages._lab_style import lab_page, model_status_row, panel, section_header
 from etf_cockpit.app.state import AppState
@@ -678,6 +679,13 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
     """Build the local availability and freshness surface from the current snapshot."""
     snapshot = getattr(state, "snapshot", None)
     models = getattr(snapshot, "model_status", {}) or {}
+
+    def display_value(value: object) -> str:
+        if value is None:
+            return "—"
+        text = str(value).strip()
+        return text if text.casefold() not in {"", "none", "nan", "nat"} else "—"
+
     model_rows = [
         ListRow(
             "ok" if available else "bad",
@@ -696,7 +704,10 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
     latest_rows: list[dict[str, object]] = []
     if isinstance(prices, pd.DataFrame) and not prices.empty and {"etf_id", "date"}.issubset(prices.columns):
         latest = prices.groupby("etf_id", sort=True)["date"].max()
-        latest_rows = [{"instrument": instrument, "date": str(value)} for instrument, value in latest.items()]
+        latest_rows = [
+            {"instrument": display_value(instrument), "date": format_date(value, unavailable="—")}
+            for instrument, value in latest.items()
+        ]
     coverage_rows: list[dict[str, object]] = []
     coverage_lines = "No coverage audit result is available."
     coverage_report = None
@@ -714,8 +725,8 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
                 {
                     "group": f"{item.dimension}: {item.bucket}",
                     "coverage": format_percent(item.observation_coverage, unavailable="—"),
-                    "status": item.status,
-                    "authority": item.authority,
+                    "status": display_value(item.status).replace("_", " ").title(),
+                    "authority": display_value(item.authority).replace("_", " ").title(),
                     "mase": item.mean_mase,
                     "direction": format_percent(item.directional_accuracy, unavailable="—"),
                 }
@@ -776,6 +787,14 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
     except Exception:
         reference_lines = ["Reference inventory is unavailable."]
 
+    data_quality = getattr(snapshot, "data_report", None)
+    findings = getattr(data_quality, "issues", ()) if data_quality is not None else ()
+    validation_detail = (
+        "\n".join(f"{display_value(getattr(issue, 'severity', None))}: {display_value(getattr(issue, 'code', None))}: {display_value(getattr(issue, 'message', None))}" for issue in findings)
+        if findings
+        else "No data-quality validation findings are available for this snapshot."
+    )
+
     def export_coverage(_event: object) -> None:
         if coverage_report is None:
             return
@@ -789,7 +808,24 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
         if callable(getattr(page, "update", None)):
             page.update()
 
-    coverage_export_status = ft.Text("Coverage audit export is unavailable.")
+    coverage_export_status = Note("Coverage audit export is unavailable.")
+    price_table = Disclosure(
+        "Price rows",
+        DataTable([TableColumn("instrument", "Instrument"), TableColumn("date", "Latest date")], latest_rows, empty_title="No local price data", empty_reason="The clean price store has no rows for this snapshot."),
+    )
+    price_table.visible = False
+
+    def show_price_table(_event: object) -> None:
+        price_table.visible = True
+        if callable(getattr(page, "update", None)):
+            page.update()
+
+    coverage_authorities = sorted({row["authority"] for row in coverage_rows if row.get("authority") and row["authority"] != "—"})
+    coverage_note = (
+        f"Authority: {', '.join(coverage_authorities)}"
+        if coverage_authorities
+        else "Coverage authority is unavailable for this snapshot."
+    )
     plugin_table = DataTable(
         [TableColumn("plugin", "Plugin"), TableColumn("kind", "Kind"), TableColumn("status", "Status"), TableColumn("authority", "Authority"), TableColumn("execution", "Execution")],
         [
@@ -812,20 +848,23 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
                     "Model availability",
                     body=ft.Column([*model_rows, Disclosure("Local model file details", "\n".join(model_details) or "No local model files detected.")], spacing=8),
                     expand=True,
+                    key="Model availability",
                 ),
                 GlassCard(
                     "Latest local price data",
                     note="Per instrument · clean store",
+                    insight="Unavailable: the snapshot has no precomputed days-since-last-price series.",
+                    menu=CardMenu([("Show table", show_price_table)]),
                     body=ft.Column(
                         [
                             Note("Days since last price"),
-                            ck.bar_chart([], [], x_name="Instrument", y_name="Days since last price", unit="days", unavailable_reason="A precomputed local freshness series is not available."),
-                            Note("No freshness summary is available from the current snapshot."),
-                            Disclosure("Show table", DataTable([TableColumn("instrument", "Instrument"), TableColumn("date", "Latest date")], latest_rows, empty_title="No local price data", empty_reason="The clean price store has no rows for this snapshot.")),
+                            ck.bar_chart([], [], x_name="Instrument", y_name="Days since last price", unit="days", unavailable_reason="A precomputed local freshness series is not available.", insight="Unavailable: the snapshot has no precomputed days-since-last-price series."),
+                            price_table,
                         ],
                         spacing=8,
                     ),
                     expand=True,
+                    key="Latest local price data",
                 ),
             ],
             spacing=16,
@@ -835,28 +874,26 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
             [
                 GlassCard(
                     "Data coverage and model monitoring",
-                    note="Coverage, status, authority and model metrics",
-                    body=Disclosure(
-                        "Coverage audit details",
-                        ft.Column(
-                            [
-                                Note(coverage_lines),
-                                Button.secondary(
-                                    "Export coverage audit",
-                                    on_click=export_coverage,
-                                    disabled=coverage_report is None,
-                                    disabled_reason="No coverage audit result is available." if coverage_report is None else None,
-                                ),
-                                Disclosure("Export status", coverage_export_status),
-                                DataTable(
-                                    [TableColumn("group", "Group"), TableColumn("coverage", "Coverage"), TableColumn("status", "Status"), TableColumn("authority", "Authority"), TableColumn("mase", "MASE"), TableColumn("direction", "Direction")],
-                                    coverage_rows,
-                                    empty_title="Coverage unavailable",
-                                    empty_reason="No existing coverage-monitoring result is available in this snapshot.",
-                                ),
-                            ],
-                            spacing=8,
-                        ),
+                    note=coverage_note,
+                    body=ft.Column(
+                        [
+                            Button.secondary(
+                                "Export coverage audit",
+                                on_click=export_coverage,
+                                disabled=coverage_report is None,
+                                disabled_reason="No coverage audit result is available." if coverage_report is None else None,
+                                key="data-models.export-coverage",
+                            ),
+                            Disclosure("Coverage summary", coverage_lines),
+                            DataTable(
+                                [TableColumn("group", "Group"), TableColumn("coverage", "Coverage"), TableColumn("status", "Status"), TableColumn("authority", "Authority"), TableColumn("mase", "MASE"), TableColumn("direction", "Direction")],
+                                coverage_rows,
+                                empty_title="Coverage unavailable",
+                                empty_reason="No existing coverage-monitoring result is available in this snapshot.",
+                            ),
+                            Disclosure("Export status", coverage_export_status),
+                        ],
+                        spacing=8,
                     ),
                     expand=True,
                 ),
@@ -865,8 +902,8 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
             spacing=16,
             vertical_alignment=ft.CrossAxisAlignment.START,
         ),
-        ft.Row([GlassCard("Forecast artefacts", body=Disclosure("Local artefact details", "\n".join(str(path) for path in forecast_files) or "No forecast artefacts are available."), expand=True), GlassCard("Derived evidence artefacts", body=Disclosure("Local artefact details", "\n".join(str(path) for path in derived_files) or "No derived evidence artefacts are available."), expand=True)], spacing=16),
-        ft.Row([GlassCard("Market regime", body=Disclosure("Regime details", _market_regime_text()), expand=True), GlassCard("Forecast calibration", body=Disclosure("Calibration details", _calibration_text()), expand=True)], spacing=16),
+        ft.Row([GlassCard("Forecast artefacts", body=Disclosure("Local artefact details", "\n".join(str(path) for path in forecast_files) or "No forecast artefacts are available."), expand=True, key="Forecast artefacts"), GlassCard("Derived evidence artefacts", body=Disclosure("Local artefact details", "\n".join(str(path) for path in derived_files) or "No derived evidence artefacts are available."), expand=True)], spacing=16),
+        ft.Row([GlassCard("Market regime", body=Disclosure("Regime details", _market_regime_text()), expand=True), GlassCard("Forecast calibration", insight="Unavailable: saved calibration summaries do not provide reliability-curve points.", body=ft.Column([ck.line_chart([], [], x_name="Predicted probability", y_name="Observed frequency", unavailable_reason="No saved calibration reliability points are available.", empty_title="Forecast calibration unavailable", insight="Unavailable: saved calibration summaries do not provide reliability-curve points."), Disclosure("Calibration details", _calibration_text())], spacing=8), expand=True)], spacing=16),
         ft.Row([GlassCard("Strategy templates", body=ft.Column([Disclosure("Template details", _strategy_template_text()), Disclosure("Monthly decision template", monthly_detail)], spacing=8), expand=True), GlassCard("Candidate reports", body=Disclosure("Report details", "\n".join(str(path) for path in report_files) or "No candidate reports are available."), expand=True)], spacing=16),
         ft.Row(
             [
@@ -882,9 +919,16 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
             ],
             spacing=16,
         ),
-        ft.Row([GlassCard("Manual thesis and news notes", body=Disclosure("Manual note details", manual_note_detail), expand=True), GlassCard("Validation findings", body=Disclosure("Validation details", "No validation finding summary is available."), expand=True)], spacing=16),
+        ft.Row([GlassCard("Manual thesis and news notes", body=Disclosure("Manual note details", manual_note_detail), expand=True), GlassCard("Validation findings", body=Disclosure("Validation details", validation_detail), expand=True)], spacing=16),
     ]
+
+    def jump_to(value: str) -> None:
+        scroll_key = {"Models": "Model availability", "Data": "Latest local price data", "Artefacts": "Forecast artefacts"}.get(value)
+        scroll_to = getattr(page, "scroll_to", None)
+        if scroll_key is not None and callable(scroll_to):
+            scroll_to(scroll_key=scroll_key)
+
     return PageView(
-        chrome=PageChrome("Data & Models", "Model availability, local data freshness and derived artefacts", (SegmentGroup("data-models", ("Models", "Data", "Artefacts"), "Models"),)),
+        chrome=PageChrome("Data & Models", "Model availability, local data freshness and derived artefacts", (SegmentGroup("data-models", ("Models", "Data", "Artefacts"), "Models", on_change=jump_to),)),
         body=ft.Column(cards, spacing=16, expand=True, scroll=ft.ScrollMode.AUTO),
     )

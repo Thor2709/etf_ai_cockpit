@@ -27,12 +27,20 @@ def _text(page: PageView) -> list[str]:
 
 
 def test_renders_with_sample_data() -> None:
+    class _Page:
+        def __init__(self) -> None:
+            self.scroll_targets: list[str] = []
+
+        def scroll_to(self, *, scroll_key: str) -> None:
+            self.scroll_targets.append(scroll_key)
+
     snapshot = SimpleNamespace(
         model_status={"reasons": True, "timesfm": False, "toto": False},
         model_inventory=(),
         prices=pd.DataFrame({"etf_id": ["ETF-A"], "date": ["2026-01-02"]}),
     )
-    rendered = _page(snapshot)
+    page = _Page()
+    rendered = data_models_page(page, SimpleNamespace(snapshot=snapshot))
     values = _text(rendered)
     assert isinstance(rendered, PageView)
     for title in (
@@ -52,6 +60,12 @@ def test_renders_with_sample_data() -> None:
         "Validation findings",
     ):
         assert title in values
+    assert rendered.chrome.title == "Data & Models"
+    assert rendered.chrome.subtitle == "Model availability, local data freshness and derived artefacts"
+    assert tuple(rendered.chrome.segment_groups[0].items) == ("Models", "Data", "Artefacts")
+    assert rendered.chrome.segment_groups[0].on_change is not None
+    rendered.chrome.segment_groups[0].on_change("Data")
+    assert page.scroll_targets == ["Latest local price data"]
     assert not any("Traceback" in value for value in values)
 
 

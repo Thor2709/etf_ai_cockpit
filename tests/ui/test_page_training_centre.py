@@ -45,6 +45,9 @@ def test_renders_with_sample_data(monkeypatch) -> None:
     assert isinstance(rendered, PageView)
     for title in ("Run list", "Live metrics", "Validation Designer", "Bounded optimisation", "Synthetic Scenario Builder", "Model comparison and registry", "Final reports and replay"):
         assert title in values
+    assert rendered.chrome.title == "Training Centre"
+    assert rendered.chrome.subtitle == "Experiments, runs, metrics and model cards · promotion needs recorded human approval"
+    assert tuple(rendered.chrome.segment_groups[0].items) == ("Runs", "Validation", "Optimisation")
     assert not any("Traceback" in value for value in values)
 
 

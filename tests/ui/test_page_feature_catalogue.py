@@ -45,6 +45,9 @@ def test_renders_with_sample_data(monkeypatch) -> None:
     assert isinstance(rendered, PageView)
     for title in ("Feature definitions", "Feature coverage", "Training data preview", "Targets and leakage controls"):
         assert title in values
+    assert rendered.chrome.title == "Feature Catalogue"
+    assert rendered.chrome.subtitle == "Versioned point-in-time feature definitions and a leakage-safe training preview"
+    assert rendered.chrome.segment_groups == ()
     assert not any("Traceback" in value for value in values)
 
 
