@@ -436,6 +436,22 @@ def _resolve_instrument(state: AppState, by_key: dict[str, object]) -> str:
     return max(scored)[1] if scored else next(iter(by_key))
 
 
+_POSITIVE_GATE_WORDING = ((" is available", " is not available"), (" is evaluated", " is not evaluated"), (" are explicit", " are not explicit"))
+
+
+def gate_sub_line(passed: bool | None, message: str) -> str:
+    """A failed gate must state its failing reason; the domain message is the pass wording ("... is available")."""
+    text = str(message or "").strip()
+    if passed is not False:
+        return text
+    if not text:
+        return "Reason unavailable"
+    for positive, negative in _POSITIVE_GATE_WORDING:
+        if text.endswith(positive.rstrip()) or positive in text:
+            return text.replace(positive, negative, 1)
+    return f"Not met: {text}"
+
+
 def _gate_rows(score: object, view: research_view.StockView, meta: dict[str, str]) -> list[tuple[bool | None, str, str]]:
     gates = tuple(getattr(getattr(score, "authority_decision", None), "gates", ()) or ())
     risk_gate = next((gate for gate in gates if "risk" in str(gate.gate_id).casefold() or "drawdown" in str(gate.gate_id).casefold()), None)
@@ -460,7 +476,7 @@ def _gate_rows(score: object, view: research_view.StockView, meta: dict[str, str
     else:
         forecast = (True, "Forecast agrees", f"Baseline {common.signed(q50, 1, ratio=True)} (80% range {common.signed(q10, 1, '', ratio=True)} … {common.signed(q90, 1, ratio=True)})")
     rows = [risk, data, cost, forecast]
-    failed = [(False, str(gate.gate_id).replace("_", " ").capitalize(), str(gate.message)) for gate in sorted(gates, key=lambda item: (item.order, item.gate_id)) if not gate.passed]
+    failed = [(False, str(gate.gate_id).replace("_", " ").capitalize(), gate_sub_line(False, gate.message)) for gate in sorted(gates, key=lambda item: (item.order, item.gate_id)) if not gate.passed]
     titles = {row[1] for row in rows}
     extra = [row for row in failed if row[1] not in titles]
     rows.sort(key=lambda row: row[0] is not False)  # a failed gate always takes the first slot
@@ -475,7 +491,7 @@ def _all_gates_dialog(page: object, score: object) -> Callable[[object], None]:
 
     def show(_event: object) -> None:
         rows = [
-            GateCheck(gate.passed, gate.gate_id.replace("_", " ").capitalize(), gate.message, last=index == len(gates) - 1)
+            GateCheck(gate.passed, gate.gate_id.replace("_", " ").capitalize(), gate_sub_line(gate.passed, gate.message), last=index == len(gates) - 1)
             for index, gate in enumerate(gates)
         ] or [Note("Gate evidence unavailable; manual review required.")]
         dialog = ft.AlertDialog(
