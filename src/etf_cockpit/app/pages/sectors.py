@@ -32,6 +32,14 @@ _TREEMAP_INSET = (6, 6, 76, 6)  # room for the colour legend labels (+21.0%)
 _REGION_STRIP = 56  # region bar (16) + labels (20) + insets under the globe
 
 
+def _tone(value: float | None) -> str | None:
+    return None if value is None or value == 0 else "pos" if value > 0 else "neg"
+
+
+def _tone_colour(value: float | None) -> str:
+    return {"pos": theme.POS, "neg": theme.NEG}.get(_tone(value) or "", theme.INK3)
+
+
 def _pct(value: float | None, decimals: int = 1) -> str | None:
     return None if value is None else f"{value:.{decimals}f}%"
 
@@ -58,12 +66,12 @@ def _region_bar(shares: Sequence[tuple[str, float]], width: float) -> ft.Control
     """Share bar (one segment per region) with its labels below."""
     track = width - 28
     segments = [
-        ft.ProgressBar(value=1.0, color=_REGION_COLOURS[name], height=16, width=max(track * share / 100.0 - 1, 2.0))
+        ft.ProgressBar(value=1.0, color=_REGION_COLOURS[name], height=16, width=max(track * share / 100.0, 2.0))
         for name, share in shares
     ]
     labels = [common.text(f"{name} {share:.0f}%", 12, 400, theme.INK2, trunc=True) for name, share in shares]
     return ft.Column(
-        [ft.Row(segments, spacing=1), ft.Row(labels, spacing=12, alignment=ft.MainAxisAlignment.SPACE_BETWEEN)],
+        [ft.Row(segments, spacing=0), ft.Row(labels, spacing=12, alignment=ft.MainAxisAlignment.SPACE_BETWEEN)],
         spacing=8,
         tight=True,
     )
@@ -146,7 +154,7 @@ def _sector_card_insight(sectors: Sequence[view.Weight], window: str) -> str | N
         return f"{top.name} is the largest sector ({top.weight:.1f}%); {window} returns are unavailable."
     best = max(known, key=lambda item: item.ret)  # type: ignore[arg-type,return-value]
     worst = min(known, key=lambda item: item.ret)  # type: ignore[arg-type,return-value]
-    pick, word = (best, "best") if top is best or abs(best.ret or 0) >= abs(worst.ret or 0) else (worst, "worst")  # type: ignore[arg-type]
+    pick, word = (best, "best") if top is best or abs(best.ret) >= abs(worst.ret) else (worst, "worst")  # type: ignore[operator]
     ret = view.signed_pct(pick.ret) or "—"
     if pick is top:
         return f"{top.name} is the largest sector ({top.weight:.1f}%) and the {word} performer ({ret})."
@@ -177,7 +185,7 @@ def _sector_body(data: view.SectorsView, mode: str, drill: str | None, width: fl
                 [
                     ft.Container(content=common.text(item.name, 12.5, 400, theme.INK, trunc=True), width=140),
                     ScoreBar(item.weight, ck.palette.GB, maximum=peak, decimals=0 if item.weight >= 10 else 1),
-                    ft.Container(content=common.text(view.signed_pct(item.ret) or "—", 12.5, 500, theme.POS if (item.ret or 0) > 0 else theme.NEG if (item.ret or 0) < 0 else theme.INK3, text_align=ft.TextAlign.RIGHT), width=56),
+                    ft.Container(content=common.text(view.signed_pct(item.ret) or "—", 12.5, 500, _tone_colour(item.ret), text_align=ft.TextAlign.RIGHT), width=56),
                 ],
                 spacing=12,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -296,7 +304,7 @@ def sectors_page(page: ft.Page | None, state: AppState) -> PageView:
             (f"Top-1 {noun}", _pct(top.weight) if top else None, delta or ("" if top else reason), tone),
             (f"Top-5 {word}", _pct(top5), "of portfolio" if top5 is not None else reason, None),
             ("Concentration (HHI)", None if hhi is None else f"{hhi:.2f}", (band or "").capitalize() if hhi is not None else reason, {"high": "neg", "low": "pos"}.get(band or "")),
-            ("Largest sector", f"{largest.short or largest.name} {largest.weight:.1f}%" if largest else None, sector_delta, "pos" if (largest and (largest.ret or 0) > 0) else "neg" if (largest and (largest.ret or 0) < 0) else None),
+            ("Largest sector", f"{largest.short or largest.name} {largest.weight:.1f}%" if largest else None, sector_delta, None if largest is None else {"pos": "pos", "neg": "neg"}.get(_tone(largest.ret))),
         ]
         return KpiStrip("Headline", headline or "Unavailable", sub or reason, entries, key="sectors.strip")
 
