@@ -1,888 +1,159 @@
+"""Instrument detail and provenance page."""
+
 from __future__ import annotations
 
-import math
-from collections.abc import Callable, Mapping, Sequence
+import json
+from collections.abc import Mapping, Sequence
 
 import flet as ft
 import pandas as pd
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import evidence_chip, section_header
-from etf_cockpit.app.components.research_surface import distribution_range, panel
-from etf_cockpit.app.components.fixed_income_views import (
-    build_fixed_income_bond_view_model,
-    fixed_income_bond_panel,
+from etf_cockpit.app.components import chartkit as ck
+from etf_cockpit.app.components.kit import (
+    Button,
+    CardMenu,
+    DataTable,
+    Disclosure,
+    EmptyState,
+    Field,
+    GlassCard,
+    KpiTile,
+    ListRow,
+    Note,
+    ScoreBar,
+    SectionHeader,
+    TableColumn,
+    VerdictRing,
+    Well,
+    Segmented,
+    field_input_style,
 )
-from etf_cockpit.app.components.states import state_panel
-from etf_cockpit.application.instrument_detail_view import InstrumentDetailViewModel, _valuation_panel, build_etf_disclosure_panel, build_etf_structure_panel, build_etf_liquidity_panel, build_instrument_detail
-from etf_cockpit.app.state import AppState
-from etf_cockpit.application.alerts import AlertReadback, read_local_alerts
-from etf_cockpit.application.ui_facade import bitemporal_history_summary
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
+from etf_cockpit.app.formatting import format_number
+from etf_cockpit.application.alerts import read_local_alerts
+from etf_cockpit.application.instrument_detail_view import (
+    InstrumentDetailViewModel,
+    _valuation_panel,
+    build_instrument_detail,
+)
+from etf_cockpit.application.ui_facade import bitemporal_history_summary, load_market_series_projection
 from etf_cockpit.core.paths import ROOT
-from etf_cockpit.application.digest import contradiction_digest_records
+
+_MISSING = "\u2014"
 
 
-def render_etf_disclosure_panel(model: InstrumentDetailViewModel) -> ft.Control:
-    """Render selected ETF document inventory and holdings quality without inventing evidence."""
-    disclosure = build_etf_disclosure_panel(model)
-    if disclosure.get("status") == "unavailable" and not disclosure.get("document_inventory"):
-        body: ft.Control = ft.Text("ETF disclosure evidence unavailable; no local document inventory is registered.", color=theme.MUTED, selectable=True)
-    else:
-        documents = disclosure.get("document_inventory", [])
-        document_lines = [
-            f"{row.get('document_type', 'document')}: {row.get('coverage_status', 'unavailable')} | date={row.get('document_date', 'unavailable')} | source={row.get('source', 'unavailable')} | checksum={row.get('checksum', 'unavailable')}"
-            for row in documents
-        ]
-        holdings = disclosure.get("holdings", {})
-        holdings_line = "Holdings: " + ", ".join(f"{key}={holdings.get(key, 'unavailable')}" for key in ("completeness", "freshness", "confidence", "source", "authority", "as_of"))
-        kid = disclosure.get("kid", {})
-        methodology = disclosure.get("methodology", {})
-        sfdr = disclosure.get("sfdr", {})
-        kid_line = "KID: " + ", ".join(f"{key}={kid.get(key, 'unavailable')}" for key in ("status", "sri", "holding_period_years", "document_date", "extraction_confidence", "source_pages", "warnings", "source_sha256", "parser_version"))
-        methodology_line = "Methodology: " + ", ".join(f"{key}={methodology.get(key, 'unavailable')}" for key in ("status", "provider", "index_series", "version", "document_date", "confidence", "source_pages", "warnings", "source_sha256", "parser_version"))
-        sfdr_line = "SFDR: " + ", ".join(f"{key}={sfdr.get(key, 'unavailable')}" for key in ("status", "classification", "document_type", "document_date", "methodology_disclosed", "data_sources_disclosed", "sustainable_characteristics", "taxonomy_alignment_pct", "warnings", "conflict_id", "manual_review", "score_eligible", "execution_allowed"))
-        metadata = ft.Column(
-            [
-                ft.Text("KID evidence metadata", color=theme.TEXT, size=11, weight=ft.FontWeight.BOLD),
-                _render_evidence_badges(kid),
-                ft.Text("Methodology evidence metadata", color=theme.TEXT, size=11, weight=ft.FontWeight.BOLD),
-                _render_evidence_badges(methodology),
-                ft.Text("Holdings evidence metadata", color=theme.TEXT, size=11, weight=ft.FontWeight.BOLD),
-                _render_evidence_badges(holdings),
-                ft.Text("SFDR evidence metadata", color=theme.TEXT, size=11, weight=ft.FontWeight.BOLD),
-                _render_evidence_badges(sfdr),
-            ],
-            spacing=4,
-        )
-        body = ft.Column([metadata, *[ft.Text(line, color=theme.MUTED, selectable=True, size=11) for line in [*document_lines, holdings_line, kid_line, methodology_line, sfdr_line] or ["No local disclosure rows are available."]]], spacing=4)
-    return panel(ft.Column([section_header("ETF disclosure evidence", "Document inventory and normalised holdings quality for the selected instrument; unavailable values stay explicit."), body], spacing=8))
-
-
-def render_etf_structure_panel(model: InstrumentDetailViewModel) -> ft.Control:
-    """Render structural evidence, provenance, conflicts, versions and stresses."""
-
-    structure = build_etf_structure_panel(model)
-    fields = structure.get("fields", {}) if isinstance(structure.get("fields"), dict) else {}
-    documents = structure.get("documents", {}) if isinstance(structure.get("documents"), dict) else {}
-    field_lines = []
-    for field_name, field in fields.items():
-        if not isinstance(field, Mapping):
-            continue
-        field_lines.append(
-            f"{field_name}: status={field.get('status', 'unknown')} | value={field.get('value', 'unavailable')} | "
-            f"document={field.get('document_id', 'unavailable')} | date={field.get('document_date', 'unavailable')} | "
-            f"page={field.get('page', 'unavailable')} | confidence={field.get('confidence', 0.0)} | "
-            f"known_at={field.get('known_at', 'unavailable')} | checksum={field.get('checksum', 'unavailable')}"
-        )
-        if field.get("status") == "conflict":
-            for index, candidate in enumerate(field.get("candidates", []), start=1):
-                if not isinstance(candidate, Mapping):
-                    continue
-                field_lines.append(
-                    f"{field_name} conflict candidate {index}: value={candidate.get('value', 'unavailable')} | "
-                    f"source_id={candidate.get('source_id', 'unavailable')} | "
-                    f"document_id={candidate.get('document_id', candidate.get('source_id', 'unavailable'))} | "
-                    f"date={candidate.get('document_date', 'unavailable')} | page={candidate.get('page', 'unavailable')} | "
-                    f"confidence={candidate.get('confidence', 0.0)} | known_at={candidate.get('known_at', 'unavailable')} | "
-                    f"checksum={candidate.get('checksum', 'unavailable')}"
-                )
-    document_lines = [
-        f"{family}: status={value.get('status', 'unknown')} | source_id={value.get('source_id', 'unavailable')} | "
-        f"date={value.get('document_date', 'unavailable')} | version={value.get('version', 'unavailable')} | "
-        f"checksum={value.get('checksum', 'unavailable')}"
-        for family, value in documents.items()
-        if isinstance(value, Mapping)
-    ]
-    versions = structure.get("versions", [])
-    version_lines = [
-        f"version {row.get('family', 'document')}: {row.get('version', 'unavailable')} | date={row.get('document_date', 'unavailable')} | source_id={row.get('source_id', 'unavailable')}"
-        for row in versions
-        if isinstance(row, Mapping)
-    ]
-    stress = structure.get("stress", {}) if isinstance(structure.get("stress"), Mapping) else {}
-    lines = [
-        f"status={structure.get('status', 'unavailable')} | evidence_confidence_cap={structure.get('evidence_confidence_cap', 0.0)} | confidence_version={structure.get('confidence_version', 'unavailable')}",
-        f"flags={structure.get('flags', [])} | conflicts={structure.get('conflict_fields', [])} | limitations={structure.get('confidence_limitation', 'unavailable')}",
-        f"stress: status={stress.get('status', 'unavailable')} | unsecured={stress.get('unsecured', 'unavailable')} | concentration={stress.get('concentration', 'unavailable')} | formula={stress.get('formula_version', 'unavailable')}",
-        "Legal and sustainability labels are context-only; no alpha or expected return is derived from them.",
-        "execution_allowed=false",
-        *document_lines,
-        *version_lines,
-        *field_lines,
-    ]
-    body = ft.Column([ft.Text(line, color=theme.MUTED, selectable=True, size=11) for line in lines], spacing=4)
-    return panel(ft.Column([section_header("ETF Structure & Documents", "Document-bound replication, legal, counterparty, lending and collateral evidence with explicit unknown, conflict and numeric-stress limitations."), body], spacing=8))
-
-
-def render_news_context_panel(model: InstrumentDetailViewModel) -> ft.Control:
-    """Render source-linked news context with every point-in-time field visible."""
-
-    news = model.sections.get("news")
-    if not isinstance(news, dict):
-        news = {"status": "unavailable", "items": []}
-    items = news.get("items", [])
-    if news.get("status") != "available" or not items:
-        body: ft.Control = ft.Text(
-            str(news.get("message", "News unavailable for this instrument.")),
-            color=theme.MUTED,
-            selectable=True,
-        )
-    else:
-        rows: list[ft.Control] = []
-        for item in items:
-            headline = item.get("headline", "Headline unavailable")
-            provenance = " | ".join(
-                (
-                    f"source_url={item.get('source_url', 'unavailable')}",
-                    f"published_at={item.get('published_at', 'unavailable')}",
-                    f"ingested_at={item.get('ingested_at', 'unavailable')}",
-                    f"provider_name={item.get('provider_name', 'unavailable')}",
-                    f"credibility={item.get('credibility', 'unverified')}",
-                    f"credibility_flag_status={item.get('credibility_flag_status', 'unavailable')}",
-                    f"credibility_flags={item.get('credibility_flags', 'unknown')}",
-                    f"credibility_reason_codes={item.get('credibility_reason_codes', 'unknown')}",
-                    f"instrument_mapping_method={item.get('instrument_mapping_method', 'unavailable')}",
-                    f"available_at_decision_time={bool(item.get('available_at_decision_time', False))}",
-                    f"timestamp_status={item.get('timestamp_status', 'unavailable')}",
-                    "context_only=true",
-                    "executable_authority=false",
-                )
-            )
-            rows.append(ft.Text(f"{headline} | {provenance}", color=theme.MUTED, selectable=True, size=11))
-        body = ft.Column(rows, spacing=4)
-    return panel(
-        ft.Column(
-            [
-                section_header("News & context", "Source URL, timestamps, provider and point-in-time status are shown for each item; manual credibility flags are context-only and cannot change scores or actions."),
-                body,
-            ],
-            spacing=8,
-        )
-    )
-
-
-def _driver_value(value: object, *, missing: str = "unavailable") -> str:
+def _value(value: object) -> str:
     if value is None:
-        return missing
-    if isinstance(value, float) and not math.isfinite(value):
-        return missing
+        return _MISSING
+    if isinstance(value, float) and not (value == value and abs(value) != float("inf")):
+        return _MISSING
     text = str(value).strip()
-    if text.casefold() in {"", "nan", "none", "<na>", "inf", "+inf", "-inf", "infinity", "+infinity", "-infinity"}:
-        return missing
-    return text
+    return _MISSING if text.casefold() in {"", "none", "nan", "<na>", "nat"} else text
 
 
-def _driver_table(label: str, rows: list[dict[str, object]]) -> ft.Control:
-    columns = [
-        "Component", "Score", "Direction", "Peer group", "Peer percentile", "Historical contribution",
-        "Coverage", "Uncertainty", "Interaction", "Counterfactual sensitivity",
-        "Authority", "Source authority", "Freshness", "Source span", "Source vintage hash", "Claim hash", "Missingness", "Conflict", "Contribution", "Driver",
-    ]
-    if not rows:
-        return ft.Column([ft.Text(label, color=theme.TEXT, weight=ft.FontWeight.BOLD, size=12), ft.Text("Unavailable", color=theme.MUTED, size=11)], spacing=4)
-    table_rows = [
-        ft.DataRow(
-            cells=[
-                ft.DataCell(ft.Text(_driver_value(row.get("component")), color=theme.TEXT)),
-                ft.DataCell(ft.Text(_driver_value(row.get("normalised_score"), missing="N/A"), color=theme.CYAN)),
-                ft.DataCell(ft.Text(_driver_value(row.get("direction")), color=theme.MUTED)),
-                ft.DataCell(ft.Text(_driver_value(row.get("peer_group")), color=theme.MUTED)),
-                ft.DataCell(ft.Text(_driver_value(row.get("peer_percentile")), color=theme.MUTED)),
-                ft.DataCell(ft.Text(_driver_value(row.get("historical_contribution")), color=theme.MUTED)),
-                ft.DataCell(ft.Text(_driver_value(row.get("coverage")), color=theme.MUTED)),
-                ft.DataCell(ft.Text(_driver_value(row.get("uncertainty")), color=theme.MUTED)),
-                ft.DataCell(ft.Text(_driver_value(row.get("interaction")), color=theme.MUTED, selectable=True)),
-                ft.DataCell(ft.Text(_driver_value(row.get("counterfactual_sensitivity")), color=theme.MUTED, selectable=True)),
-                ft.DataCell(ft.Text(_driver_value(row.get("authority")), color=theme.MUTED)),
-                ft.DataCell(ft.Text(_driver_value(row.get("source_authority")), color=theme.MUTED)),
-                ft.DataCell(ft.Text(_driver_value(row.get("freshness_status")), color=theme.MUTED)),
-                ft.DataCell(ft.Text(_driver_value(row.get("source_span")), color=theme.MUTED, selectable=True)),
-                ft.DataCell(ft.Text(_driver_value(row.get("source_vintage_hash")), color=theme.MUTED, selectable=True)),
-                ft.DataCell(ft.Text(_driver_value(row.get("claim_hash")), color=theme.MUTED, selectable=True)),
-                ft.DataCell(ft.Text(_driver_value(row.get("missingness")), color=theme.MUTED)),
-                ft.DataCell(ft.Text(_driver_value(row.get("conflict")), color=theme.MUTED, selectable=True)),
-                ft.DataCell(ft.Text(_driver_value(row.get("contribution")), color=theme.MUTED)),
-                ft.DataCell(ft.Text(_driver_value(row.get("driver_text")), color=theme.MUTED, selectable=True)),
-            ]
-        )
-        for row in rows
-    ]
-    return ft.Column(
-        [
-            ft.Text(label, color=theme.TEXT, weight=ft.FontWeight.BOLD, size=12),
-            ft.Row([ft.DataTable(columns=[ft.DataColumn(ft.Text(column, color=theme.TEXT)) for column in columns], rows=table_rows)], scroll=ft.ScrollMode.AUTO),
-        ],
-        spacing=4,
-    )
-
-
-def _render_feature_driver_panel(panel_data: object) -> ft.Control:
-    if not isinstance(panel_data, dict):
-        return panel(ft.Column([ft.Text("Feature drivers unavailable", color=theme.MUTED)], spacing=4))
-    groups = [
-        ("Top positive", panel_data.get("top_positive", [])),
-        ("Top negative", panel_data.get("top_negative", [])),
-        ("Missing / N/A", panel_data.get("missing_or_na", [])),
-        ("Low authority", panel_data.get("low_authority", [])),
-        ("Stale / partial", panel_data.get("stale_or_partial", [])),
-    ]
-    return panel(
-        ft.Column(
-            [
-                section_header("Feature drivers", "Ordered driver rows are descriptive, non-causal evidence only; missing, low-authority and stale values remain explicit."),
-                *[_driver_table(label, rows if isinstance(rows, list) else []) for label, rows in groups],
-            ],
-            spacing=8,
-        )
-    )
-
-
-def _render_crowding_attribution_panel(sections: dict[str, object]) -> ft.Control:
-    scores = sections.get("scores") if isinstance(sections.get("scores"), dict) else {}
-    attribution = sections.get("attribution") if isinstance(sections.get("attribution"), dict) else {}
-    crowding = scores.get("crowding") if isinstance(scores.get("crowding"), dict) else {}
-    friction = scores.get("friction") if isinstance(scores.get("friction"), dict) else {}
-
-    def _bps(value: object) -> str:
-        try:
-            number = float(value)
-        except (TypeError, ValueError):
-            return "N/A"
-        return "N/A" if not math.isfinite(number) else f"{number:.2f} bps"
-
-    def _ratio(value: object) -> str:
-        try:
-            number = float(value)
-        except (TypeError, ValueError):
-            return "N/A"
-        return "N/A" if not math.isfinite(number) else f"{number:.2f}"
-
-    def _pct(value: object) -> str:
-        try:
-            number = float(value)
-        except (TypeError, ValueError):
-            return "N/A"
-        return "N/A" if not math.isfinite(number) else f"{number:+.1%}"
-
-    def _euro(value: object) -> str:
-        try:
-            number = float(value)
-        except (TypeError, ValueError):
-            return "N/A"
-        return "N/A" if not math.isfinite(number) else f"EUR {number:,.2f}"
-
-    horizon = friction.get("expected_return_horizon_days")
-    try:
-        horizon_text = f"{int(float(horizon))}d" if math.isfinite(float(horizon)) else "N/A"
-    except (TypeError, ValueError):
-        horizon_text = "N/A"
-
-    lines = [
-        f"Crowding: {crowding.get('crowding_warning', 'N/A')} | cluster {crowding.get('cluster_label', 'N/A')} | peer corr {crowding.get('average_peer_correlation', 'N/A')} | risk contribution {crowding.get('cluster_risk_contribution', 'N/A')} | coverage {crowding.get('ranking_coverage', 'N/A')} | pair sample {crowding.get('pair_sample_size', 'N/A')} / row sample {crowding.get('sample_size', 'N/A')} | top-theme concentration {crowding.get('top_ranked_theme_concentration', 'N/A')} | top-theme warning {crowding.get('top_ranked_theme_warning', 'N/A')} | as of {crowding.get('as_of_date', 'N/A')}",
-        f"Broad benchmark: beta {attribution.get('benchmark_beta', 'N/A')} | corr {attribution.get('benchmark_correlation', 'N/A')} | alpha {attribution.get('alpha') if attribution.get('alpha') is not None else attribution.get('alpha_proxy', 'N/A')}",
-        f"Cash comparison: return {attribution.get('cash_return', 'N/A')} | excess {attribution.get('excess_over_cash', 'N/A')} | currency {attribution.get('cash_currency', 'N/A')} | horizon {attribution.get('cash_horizon_years', 'N/A')} | vintage {attribution.get('cash_vintage', 'N/A')} | status {attribution.get('cash_comparison_status', 'unavailable')}",
-        f"Sector-relative: return {attribution.get('sector_relative_return', 'N/A')} | alpha {attribution.get('sector_alpha_proxy', 'N/A')} | status {attribution.get('sector_attribution_status', 'N/A')} | theme-relative return {attribution.get('theme_relative_return', 'N/A')} | theme alpha {attribution.get('theme_alpha_proxy', 'N/A')} | theme status {attribution.get('theme_attribution_status', 'N/A')} | source {attribution.get('source_dataset', 'N/A')}",
-        f"Gross edge: {_bps(friction.get('gross_expected_edge_bps'))} | Estimated cost: {_bps(friction.get('estimated_total_cost_bps'))} | Net edge: {_bps(friction.get('net_expected_edge_bps'))} | Edge/cost: {_ratio(friction.get('edge_to_cost_ratio'))} | Cost scenario: {friction.get('cost_stress_scenario', 'unavailable')} | status {friction.get('status', 'unavailable')}",
-        f"Expected-return distribution ({horizon_text}): q10 {_pct(friction.get('q10_expected_return'))} | q50 {_pct(friction.get('q50_expected_return'))} | q90 {_pct(friction.get('q90_expected_return'))} | net {_pct(friction.get('net_expected_return'))} on {_euro(friction.get('expected_return_order_value_eur'))} | cost {_bps(friction.get('expected_return_cost_bps'))} / {_euro(friction.get('expected_return_cost_eur'))} | return/cost {_ratio(friction.get('expected_return_cost_ratio'))} | source {friction.get('expected_return_source_dataset', 'forecast_return_distribution')}",
-        "These diagnostics are descriptive evidence only; execution_allowed=false.",
-    ]
-    return ft.Column([panel(ft.Column([section_header("Crowding and attribution", "Configured sector/theme metadata and clean adjusted-price evidence; unavailable values remain N/A."), *[ft.Text(line, color=theme.MUTED, size=11, selectable=True) for line in lines]], spacing=5)), distribution_range(friction, key="instrument-detail.expected-return-range")], spacing=10)
-
-
-def _format_record_value(value: object) -> str:
-    if value is None:
-        return "N/A"
-    try:
-        if isinstance(value, float) and not math.isfinite(value):
-            return "N/A"
-    except (TypeError, ValueError):
-        return "N/A"
-    return str(value)
-
-
-def _structured_record_lines(prefix: str, value: object) -> list[ft.Control]:
-    """Render nested evidence as labelled controls, never mapping reprs."""
-    lines: list[ft.Control] = []
+def _reason(value: object, title: str) -> str:
     if isinstance(value, Mapping):
-        if not value:
-            return [ft.Text(f"{prefix}: unavailable", color=theme.MUTED, size=11, selectable=True)]
-        for field, child in value.items():
-            child_prefix = f"{prefix} / {field}"
-            if isinstance(child, Mapping) or (
-                isinstance(child, Sequence) and not isinstance(child, (str, bytes))
-            ):
-                lines.extend(_structured_record_lines(child_prefix, child))
-            else:
-                lines.append(ft.Text(f"{child_prefix}: {_format_record_value(child)}", color=theme.MUTED, size=11, selectable=True))
-        return lines
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-        if not value:
-            return [ft.Text(f"{prefix}: unavailable", color=theme.MUTED, size=11, selectable=True)]
-        for index, child in enumerate(value, start=1):
-            item_prefix = f"{prefix} [{index}]"
-            if isinstance(child, Mapping) or (
-                isinstance(child, Sequence) and not isinstance(child, (str, bytes))
-            ):
-                lines.extend(_structured_record_lines(item_prefix, child))
-            else:
-                lines.append(ft.Text(f"{item_prefix}: {_format_record_value(child)}", color=theme.MUTED, size=11, selectable=True))
-        return lines
-    return [ft.Text(f"{prefix}: {_format_record_value(value)}", color=theme.MUTED, size=11, selectable=True)]
-
-
-def _render_evidence_badges(value: Mapping[str, object]) -> ft.Control:
-    """Render provenance metadata without treating missing values as evidence."""
-
-    def metadata_value(*keys: str) -> str:
-        for key in keys:
+        for key in ("unavailable_reason", "message", "reason"):
             candidate = value.get(key)
-            if candidate is None:
-                continue
-            text = str(candidate).strip()
-            if text and text.casefold() not in {"<na>", "nan", "nat", "none"}:
-                return text
-        return "unavailable"
-
-    return ft.Row(
-        [
-            evidence_chip("Source ID", metadata_value("source_id"), theme.CYAN),
-            evidence_chip("Authority", metadata_value("source_authority", "authority"), theme.CYAN),
-            evidence_chip("Conflict", metadata_value("conflict_id", "conflict_status"), theme.CYAN),
-        ],
-        wrap=True,
-        spacing=6,
-    )
+            if candidate:
+                return str(candidate).splitlines()[0]
+    return f"{title} evidence is unavailable for this instrument."
 
 
-def _render_record_group(label: str, records: object) -> ft.Control:
-    if isinstance(records, Mapping):
-        records = [records]
-    elif not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
-        records = []
-    if not records:
-        return ft.Column(
-            [
-                ft.Text(label, color=theme.TEXT, weight=ft.FontWeight.BOLD, size=12),
-                ft.Text("No scoped records available.", color=theme.MUTED, size=11, selectable=True),
-            ],
-            spacing=4,
-        )
-    lines: list[ft.Control] = [ft.Text(label, color=theme.TEXT, weight=ft.FontWeight.BOLD, size=12)]
-    for index, record in enumerate(records, start=1):
-        if isinstance(record, Mapping):
-            scalar_fields: list[str] = []
-            nested_fields: list[tuple[object, object]] = []
-            for field, value in record.items():
-                if isinstance(value, Mapping) or (
-                    isinstance(value, Sequence) and not isinstance(value, (str, bytes))
-                ):
-                    nested_fields.append((field, value))
-                else:
-                    scalar_fields.append(f"{field}={_format_record_value(value)}")
-            details = " | ".join(scalar_fields) or "unavailable"
-            lines.append(ft.Text(f"{label} {index}: {details}", color=theme.MUTED, size=11, selectable=True))
-            for field, value in nested_fields:
-                lines.extend(_structured_record_lines(f"{label} {index} / {field}", value))
-        else:
-            lines.extend(_structured_record_lines(f"{label} {index}", record))
-    return ft.Column(lines, spacing=4, height=320 if len(lines) > 12 else None, scroll=ft.ScrollMode.AUTO)
-
-
-def _detail_disclosure(title: str, content: ft.Control, status: object = "Evidence and explicit limitations", *, expanded: bool = False) -> ft.Control:
-    return ft.ExpansionTile(
-        title=ft.Text(title, color=theme.TEXT), subtitle=ft.Text(str(status), color=theme.MUTED, size=11),
-        controls=[content], expanded=expanded, maintain_state=True,
-        expanded_cross_axis_alignment=ft.CrossAxisAlignment.STRETCH,
-    )
-
-
-def _render_sparebank_workspace(workspace: object) -> ft.Control:
-    """Render the already-calculated Sparebank analysis without UI formulas."""
-
-    if not isinstance(workspace, Mapping) or workspace.get("status") != "available":
-        return ft.Container()
-    scorecard = workspace.get("scorecard")
-    scorecard = scorecard if isinstance(scorecard, Mapping) else {}
-    underwriting = workspace.get("underwriting_horizon")
-    underwriting = underwriting if isinstance(underwriting, Mapping) else {}
-    tactical = workspace.get("tactical_horizon")
-    tactical = tactical if isinstance(tactical, Mapping) else {}
-    axes = scorecard.get("axes")
-    axes = axes if isinstance(axes, Mapping) else {}
-    grouped: dict[str, list[ft.Control]] = {}
-    for axis_id, axis in axes.items():
-        if not isinstance(axis, Mapping):
-            continue
-        group = str(axis.get("group") or "Scorecard")
-        grouped.setdefault(group, []).append(
-            ft.Column(
-                [
-                    ft.Text(
-                        f"{axis.get('label', axis_id)}: {axis.get('status', 'UNAVAILABLE')} | rating={axis.get('rating_10', 'unavailable')} | coverage={axis.get('coverage', 'unavailable')}",
-                        selectable=True,
-                    ),
-                    _render_evidence_section(f"{axis.get('label', axis_id)} inputs", axis.get("inputs", ())),
-                ],
-                spacing=4,
-            )
-        )
-    body: list[ft.Control] = [
-        ft.Text("Bank soundness, EC owner value, and purchase-price attractiveness are separate conclusions; no automatic buy/sell rule is produced.", selectable=True),
-        ft.Text(
-            f"Underwriting horizon — {underwriting.get('horizon', 'multi-year owner economics')} | status={underwriting.get('status', 'UNAVAILABLE')} | composite={underwriting.get('composite_10', 'unavailable')} | coverage={underwriting.get('overall_coverage', 'unavailable')}",
-            selectable=True,
-        ),
-        ft.Text(f"Underwriting gate reasons: {underwriting.get('gate_reasons', ())}", selectable=True),
-    ]
-    body.extend(ft.Column([ft.Text(group, weight=ft.FontWeight.BOLD), *items], spacing=4) for group, items in grouped.items())
-    body.extend(
-        [
-            _render_evidence_section("Ownership passport — What this EC owns", workspace.get("ownership_passport")),
-            _render_evidence_section("Bank economics", workspace.get("bank_economics")),
-            _render_evidence_section("Valuation and expectations", workspace.get("valuation_expectations")),
-            _render_evidence_section("Structural transition", workspace.get("structural_transition")),
-            _render_evidence_section("Marketability and implementation", workspace.get("marketability_implementation")),
-            _render_evidence_section("Decision card", workspace.get("decision_card")),
-            ft.Text(f"Tactical horizon — {tactical.get('horizon', '1-3 months')} | status={tactical.get('status', 'UNAVAILABLE')}", selectable=True),
-            _render_evidence_section("Tactical evidence (separate; does not affect underwriting)", tactical.get("evidence", {})),
-            _render_evidence_section("Evidence and coverage", workspace.get("evidence_and_coverage")),
-            _render_evidence_section("Generic stock modules", workspace.get("generic_stock_modules")),
-        ]
-    )
-    return ft.ExpansionTile(
-        title=ft.Text("Sparebank EC workspace"),
-        subtitle=ft.Text(f"Scorecard {scorecard.get('formula_version', 'unavailable')} | execution_allowed=false"),
-        controls=[ft.Column(body, spacing=8)],
-        expanded=False,
-        key="instrument-detail.sparebank-workspace",
-    )
+def _payload(value: object) -> str:
+    return json.dumps(value, default=str, ensure_ascii=False, sort_keys=True, indent=2)
 
 
 def _render_evidence_section(
     title: str,
     value: object,
     *,
-    subtitle: str = "Canonical local evidence is shown as stored; unavailable values remain explicit.",
+    subtitle: str = "Canonical local evidence and explicit limitations.",
     key: str | None = None,
     expanded: bool = False,
 ) -> ft.Control:
-    if not isinstance(value, dict):
-        return _detail_disclosure(title, panel(ft.Column([section_header(title, subtitle), ft.Text(str(value), color=theme.MUTED, selectable=True)], key=key, spacing=6)), value, expanded=expanded)
-    lines: list[ft.Control] = [_render_evidence_badges(value)]
-    for field_name, item in value.items():
-        if field_name in {
-            "history",
-            "rows",
-            "cards",
-            "entries",
-            "signal_rows",
-            "trade_rows",
-            "tail_diagnostics",
-            "changes",
-            "document_inventory",
-            "statement_history",
-            "pairs",
-            "concentrations",
-            "forecast_model_matches",
-            "factor_exposures",
-            "specific_risk",
-            "instrument_contributions",
-            "instrument_beta",
-        }:
-            lines.append(_render_record_group(str(field_name), item))
-            continue
-        if isinstance(item, dict):
-            if any(isinstance(child_value, (Mapping, Sequence)) and not isinstance(child_value, (str, bytes)) for child_value in item.values()):
-                lines.append(_render_record_group(str(field_name), item))
-            else:
-                compact = ", ".join(f"{child}={_format_record_value(child_value)}" for child, child_value in item.items())
-                lines.append(ft.Text(f"{field_name}: {compact or 'unavailable'}", color=theme.MUTED, size=11, selectable=True))
-        elif isinstance(item, (list, tuple)):
-            if any(isinstance(child, (Mapping, Sequence)) and not isinstance(child, (str, bytes)) for child in item):
-                lines.append(_render_record_group(str(field_name), item))
-            else:
-                lines.append(ft.Text(f"{field_name}: {', '.join(str(child) for child in item) or 'unavailable'}", color=theme.MUTED, size=11, selectable=True))
-        else:
-            lines.append(ft.Text(f"{field_name}: {item if item is not None else 'N/A'}", color=theme.MUTED, size=11, selectable=True))
-    if not lines:
-        lines.append(ft.Text("Unavailable", color=theme.MUTED, size=11, selectable=True))
-    return _detail_disclosure(title, panel(ft.Column([section_header(title, subtitle), *lines], key=key, spacing=5)), value.get("status", "Evidence and explicit limitations"), expanded=expanded)
-
-
-def _render_opportunity_card(value: object) -> ft.Control:
-    opportunity = value if isinstance(value, Mapping) else {}
-    percentile = opportunity.get("percentile")
-    percentile_text = (
-        f"{float(percentile):.1f}%"
-        if isinstance(percentile, (int, float))
-        else "unavailable"
-    )
-    domain_scores = opportunity.get("domain_scores", ())
-    domain_line = ", ".join(
-        f"{row[0]}={row[1] if row[1] is not None else 'unavailable'}"
-        for row in domain_scores
-        if isinstance(row, (tuple, list)) and len(row) == 2
-    ) or "unavailable"
-    driver_lines = []
-    for label, field in (("Positive drivers", "positive_drivers"), ("Negative drivers", "negative_drivers")):
-        rows = opportunity.get(field, ())
-        summaries = [
-            f"{row.get('metric_id', 'unavailable')} (z={row.get('z_score', 'unavailable')})"
-            for row in rows
-            if isinstance(row, Mapping)
-        ]
-        driver_lines.append(
-            ft.Text(f"{label}: {', '.join(summaries) or 'unavailable'}", color=theme.MUTED, size=11, selectable=True)
-        )
-    return panel(
-        ft.Column(
-            [
-                section_header(
-                    "Opportunity",
-                    "Point-in-time universe and peer rank; timing remains separate from opportunity.",
-                ),
-                evidence_chip(
-                    "Opportunity",
-                    str(opportunity.get("status", "Insufficient Evidence")),
-                    theme.MUTED,
-                ),
-                ft.Text(
-                    f"Universe rank: {opportunity.get('universe_rank', 'unavailable')}/{opportunity.get('universe_support', 'unavailable')} | Percentile: {percentile_text}",
-                    color=theme.TEXT,
-                    size=13,
-                    selectable=True,
-                ),
-                ft.Text(
-                    f"Peer: {opportunity.get('peer_id', 'unavailable')} | Peer rank: {opportunity.get('peer_rank', 'unavailable')}/{opportunity.get('peer_support', 'unavailable')} | Peer percentile: {opportunity.get('peer_percentile', 'unavailable')}",
-                    color=theme.MUTED,
-                    size=11,
-                    selectable=True,
-                ),
-                ft.Text(f"Domains: {domain_line}", color=theme.MUTED, size=11, selectable=True),
-                ft.Text(f"Confidence: {opportunity.get('confidence', 'unavailable')} | Coverage: {opportunity.get('coverage', 'unavailable')}", color=theme.MUTED, size=11, selectable=True),
-                *driver_lines,
-                ft.Text(f"Timing: {opportunity.get('timing', 'Insufficient')}", color=theme.MUTED, size=11, selectable=True),
-                ft.Text(str(opportunity.get("explanation", "Domain evidence is unavailable.")), color=theme.MUTED, size=11, selectable=True),
-            ],
-            key="instrument-detail.opportunity",
-            spacing=5,
-        )
-    )
-
-
-def _render_etf_order_preview(page: ft.Page | None, state: AppState, instrument_id: str, report: object) -> ft.Control:
-    """Render a small local order-size preview without granting execution authority."""
-
-    initial = report if isinstance(report, dict) else {}
-    order_field = ft.TextField(
-        label="Order value (EUR)",
-        value=str(initial.get("order_value_eur", 10_000.0)),
-        width=180,
-        key="instrument-detail.order-size",
-    )
-
-
-    horizon_field = ft.TextField(
-        label="Horizon (days)",
-        value=str(initial.get("horizon_days", 1)),
-        width=150,
-        key="instrument-detail.capacity-horizon",
-    )
-    result = ft.Text(color=theme.MUTED, selectable=True, size=11)
-
-    def _format_preview(value: dict[str, object]) -> str:
-        return (
-            f"Capacity: {value.get('capacity_status', 'unavailable')} | "
-            f"exchange capacity={value.get('exchange_capacity_eur', 'N/A')} EUR | "
-            f"headroom={value.get('capacity_headroom_eur', 'N/A')} EUR | "
-            f"estimated cost={value.get('estimated_cost_bps', 'N/A')} bps | "
-            f"stressed={value.get('stressed_cost_bps', 'N/A')} bps | "
-            "execution_allowed=false"
-        )
-
-    result.value = _format_preview(initial)
-
-    def preview(_event: ft.ControlEvent) -> None:
-        try:
-            order_value = max(0.0, float(order_field.value or 0.0))
-            horizon = max(1, int(float(horizon_field.value or 1)))
-        except (TypeError, ValueError):
-            result.value = "Capacity preview failed: enter a non-negative order value and a positive whole-day horizon."
-        else:
-            refreshed = build_etf_liquidity_panel(state.snapshot, instrument_id, order_value_eur=order_value, horizon_days=horizon)
-            result.value = _format_preview(refreshed)
-        if page is not None and hasattr(page, "update"):
-            page.update()
-
-    return panel(
-        ft.Column(
-            [
-                section_header("ETF order-preview capacity meter", "Preview only: exchange volume and optional primary-market context remain separate; no order is submitted."),
-                ft.Row([order_field, horizon_field, ft.OutlinedButton("Preview capacity", key="instrument-detail.preview-capacity", on_click=preview)], wrap=True),
-                result,
-            ],
-            spacing=6,
-        )
-    )
-
-
-def render_news_contradiction_panel(model: InstrumentDetailViewModel) -> ft.Control:
-    """Render validated, point-in-time contradiction records supplied by the selector."""
-
-    news = model.sections.get("news") if isinstance(model.sections.get("news"), dict) else {}
-    supplied = news.get("contradictions") if isinstance(news, dict) else None
-    cutoff = news.get("contradiction_cutoff") if isinstance(news, dict) else None
-    def valid_record(item: object) -> bool:
-        if not isinstance(item, Mapping) or item.get("status") not in {"available", "manual_review", "unavailable"}:
-            return False
-        contradiction = item.get("contradiction")
-        return (
-            isinstance(contradiction, Mapping)
-            and bool(contradiction.get("rule"))
-            and item.get("rule_status") == contradiction.get("status")
-            and contradiction.get("execution_allowed") is False
-        )
-    results = (
-        [item for item in supplied if valid_record(item)]
-        if isinstance(supplied, (list, tuple)) and cutoff
-        else []
-    )
-    rows = [
-        ft.Text(
-            f"{result.get('title', 'contradiction')}: status={result.get('rule_status', result.get('status', 'unavailable'))} | {result.get('detail', 'unavailable')}",
-            color=theme.AMBER if result.get("status") != "clear" else theme.MUTED,
-            selectable=True,
-            size=11,
-        )
-        for result in results
-    ] or [ft.Text("No contradiction rule results are available.", color=theme.MUTED, selectable=True)]
-    return panel(
-        ft.Column(
-            [
-                section_header("News/macro contradictions", "All rule states are point-in-time, informational and non-executable; missing or stale inputs remain unavailable."),
-                ft.Column(rows, spacing=4),
-            ],
-            spacing=8,
-        )
-    )
-
-
-def render_event_calendar_panel(model: InstrumentDetailViewModel) -> ft.Control:
-    """Render dated events and high-risk warnings as non-executable context."""
-
-    events = model.sections.get("events")
-    if not isinstance(events, dict):
-        events = {"status": "unavailable", "events": []}
-    records = events.get("events", [])
-    if events.get("status") != "available" or not records:
-        body: ft.Control = ft.Text(str(events.get("message", "Event calendar unavailable.")), color=theme.MUTED, selectable=True)
+    available = isinstance(value, Mapping) and value.get("status") not in {"unavailable", "missing"}
+    if available:
+        summary: ft.Control = Note("Evidence details are available in the local result.")
     else:
-        body = ft.Column(
-            [
-                ft.Text(
-                    " | ".join(
-                        (
-                            f"{item.get('event_type', 'event')}={item.get('event_date', 'unavailable')}",
-                            f"title={item.get('title') or 'unavailable'}",
-                            f"risk={item.get('risk_level', 'unknown')}",
-                            f"source={item.get('source_id', 'unavailable')}",
-                            f"authority={item.get('source_authority', 'unavailable')}",
-                            f"source_url={item.get('source_url', 'unavailable')}",
-                            f"timezone_name={item.get('timezone_name', 'unavailable')}",
-                            f"available_at={item.get('available_at', 'unavailable')}",
-                            f"available_at_decision_time={item.get('available_at_decision_time', False)}",
-                            f"decision_time={item.get('decision_time', events.get('decision_time', 'unavailable'))}",
-                            f"precision={item.get('precision', 'unavailable')}",
-                            "context_only=true",
-                            "execution_allowed=false",
-                        )
-                    ),
-                    color=theme.AMBER if str(item.get("risk_level", "")).casefold() in {"high", "critical"} else theme.MUTED,
-                    selectable=True,
-                    size=11,
-                )
-                for item in records
-            ],
-            spacing=4,
-        )
-    return panel(ft.Column([section_header("Event calendar", "Upcoming earnings, dividends, splits and high-risk actions are shown with source and availability metadata; events are context-only."), body], spacing=8))
+        summary = KpiTile(title, None, _reason(value, title))
+    body = [summary, Disclosure("Evidence details", _payload(value), expanded=expanded)]
+    return GlassCard(title, note=subtitle, body=body, key=key)
 
 
-def _instrument_alerts_panel(instrument_id: str) -> ft.Control:
-    try:
-        readback = read_local_alerts(ROOT, subject_id=instrument_id, include_inactive=True, limit=8)
-    except Exception:
-        readback = AlertReadback("unavailable")
-    if readback.status != "available":
-        return state_panel(
-            "error",
-            "Alerts unavailable",
-            "Local alert storage could not be read; manual review is required.",
-            details="Instrument alert state is unavailable; execution_allowed=false",
-        )
-    records = readback.records
-    if records:
-        body: ft.Control = ft.Column(
-            [
-                ft.Text(
-                    f"{record.alert.alert_type.value} | severity={record.alert.severity.value} | confidence={record.alert.confidence.value} | status={record.alert.status.value} | {record.alert.message} | execution_allowed=false",
-                    color=theme.AMBER if record.alert.severity.value != "info" else theme.MUTED,
-                    selectable=True,
-                    size=11,
-                )
-                for record in records
-            ],
-            spacing=4,
-        )
-    else:
-        body = ft.Text("No local alerts or review reminders for this instrument.", color=theme.MUTED, selectable=True)
-    return panel(
-        ft.Column(
-            [
-                section_header(
-                    "Alerts & review reminders",
-                    "Instrument-scoped local readback. Alerts are informational unless an explicit external policy says otherwise; no order is submitted.",
-                ),
-                body,
-            ],
-            spacing=8,
-        )
+def _render_crowding_attribution_panel(sections: Mapping[str, object]) -> ft.Control:
+    attribution = sections.get("attribution")
+    value = attribution.get("alpha") if isinstance(attribution, Mapping) else None
+    alpha = format_number(value, decimals=2, unavailable="Unavailable")
+    return GlassCard(
+        "Crowding and attribution",
+        note="Instrument-scoped attribution and crowding evidence.",
+        body=[
+            KpiTile(
+                "Alpha",
+                alpha if alpha != "Unavailable" else None,
+                "Stored attribution value" if alpha != "Unavailable" else "No stored alpha value is available.",
+            ),
+            Disclosure("Attribution details", _payload(sections)),
+        ],
     )
 
 
-def _render_valuation_scenarios(page: ft.Page, model: InstrumentDetailViewModel, decision_time: object, *, session_active: Callable[[], bool] | None = None) -> ft.Control:
-    """Keep private assumptions in this page instance, outside snapshot/export state."""
-    subtitle = "Relative valuation, intrinsic value, reverse DCF and residual income; dated source lineage; execution_allowed=false."
-    initial = model.sections.get("valuation")
-
-    def render(projection: object) -> ft.Control:
-        return _render_evidence_section("Stock valuation and scenarios", projection, subtitle=subtitle, key="instrument-detail.valuation", expanded=True)
-
-    result = ft.Container(content=render(initial))
-    if model.identity.get("asset_type") not in {"stock", "equity"}:
-        return result
-
-    def refresh() -> None:
-        if page is not None and callable(getattr(page, "update", None)):
-            page.update()
-
-    def invalidate_valuation(_event: ft.ControlEvent) -> None:
-        if session_active is not None and not session_active():
-            return
-        result.content = render({"status": "unavailable", "message": "Inputs changed. Preview valuation scenarios to calculate current inputs.", "execution_allowed": False})
-        refresh()
-
-    labels = {"forecast_years": "Forecast years (1-50)", "discount_rate": "Discount rate (%) >0 to 100",
-              "terminal_growth": "Terminal growth (%)",
-              "bear": "Bear growth (%) >=-50", "base": "Base growth (%)", "bull": "Bull growth (%) <=100"}
-    inputs = {name: ft.TextField(label=label, value="", col={"xs": 12, "sm": 6}, autofocus=name == "forecast_years", on_change=invalidate_valuation,
-                                key=f"instrument-detail.valuation-input.{name}") for name, label in labels.items()}
-
-    def preview_valuation(_event: ft.ControlEvent) -> None:
-        if session_active is not None and not session_active():
-            return
-        # Only parsing and percentage normalization; no financial formulas.
-        try:
-            assumptions = {"forecast_years": int(inputs["forecast_years"].value.strip()),
-                           "discount_rate": float(inputs["discount_rate"].value) / 100,
-                           "terminal_growth": float(inputs["terminal_growth"].value) / 100,
-                           "scenarios": {name: {"growth": float(inputs[name].value) / 100} for name in ("bear", "base", "bull")}}
-        except (ValueError, TypeError, AttributeError, OverflowError):
-            assumptions = {}  # An invalid submission replaces any previous result.
-        result.content = render(_valuation_panel(model.instrument_id, model.identity.get("asset_type"), decision_time, assumptions))
-        refresh()
-
-    def clear_valuation(_event: ft.ControlEvent) -> None:
-        if session_active is not None and not session_active():
-            return
-        for control in inputs.values():
-            control.value = ""
-        result.content = render(initial)
-        refresh()
-
-    return ft.Column([
-        ft.Text("Session-only scenario assumptions. Enter every input; bear < base < bull. Inputs are not saved or exported and do not change scores. execution_allowed=false.", selectable=True),
-        ft.Text("Terminal growth must be at least -100% and below the discount rate.", size=11),
-        ft.ResponsiveRow(list(inputs.values()), spacing=8, run_spacing=8),
-        ft.Row([
-            ft.OutlinedButton("Preview valuation scenarios", key="instrument-detail.preview-valuation", on_click=preview_valuation),
-            ft.OutlinedButton("Clear scenario inputs", key="instrument-detail.clear-valuation", on_click=clear_valuation),
-        ], wrap=True), result,
-    ])
+def render_etf_disclosure_panel(model: InstrumentDetailViewModel) -> ft.Control:
+    return _render_evidence_section(
+        "ETF disclosure evidence",
+        model.sections.get("etf_disclosures"),
+        subtitle="Document inventory and normalised holdings quality.",
+    )
 
 
-def _valuation_workspace(page: ft.Page, model: InstrumentDetailViewModel, decision_time: object) -> ft.Control:
-    valuation = model.sections.get("valuation")
-    evidence = _render_evidence_section("Stock valuation and scenarios", valuation, key="instrument-detail.valuation")
-    if isinstance(valuation, Mapping) and valuation.get("delegated_to") == "financial_institutions":
-        return evidence
-    if model.identity.get("asset_type") not in {"stock", "equity"}:
-        return evidence
-
-    owner = {"mounted": True}
-    sessions: list[tuple[dict[str, bool], ft.AlertDialog]] = []
-
-    def dispose_workspace() -> None:
-        owner["mounted"] = False
-        for session, dialog in sessions:
-            session["active"] = False
-            dialog.open = False
-            dialog.content = None
-        sessions.clear()
-        # Flet removes each closed dialog after its native dismiss animation.
-        # Never pop the stack: another feature may own its topmost dialog.
-
-    page._valuation_workspace_dispose = dispose_workspace
-
-    def open_valuation_workspace(_event: ft.ControlEvent) -> None:
-        if not owner["mounted"] or any(session["active"] for session, _dialog in sessions):
-            return
-        session = {"active": True}
-
-        def session_active() -> bool:
-            return owner["mounted"] and session["active"]
-
-        def release_session() -> None:
-            session["active"] = False
-            dialog.content = None
-            sessions[:] = [(state, owned_dialog) for state, owned_dialog in sessions if owned_dialog is not dialog]
-
-        async def restore_valuation_focus(_event: ft.ControlEvent | None = None) -> None:
-            release_session()
-            if owner["mounted"]:
-                await opener.focus()
-
-        async def close_valuation_workspace(_event: ft.ControlEvent) -> None:
-            release_session()
-            dialog.open = False
-            page.update()
-            if owner["mounted"]:
-                await opener.focus()
-
-        dialog = ft.AlertDialog(
-            title=ft.Text("Valuation scenario workspace"), modal=False, scrollable=True,
-            inset_padding=12, content_padding=12,
-            content=ft.Container(width=620, content=ft.Column([
-                ft.Text("Closing this workspace discards its inputs and results. Resize retains them. Escape or Close returns to Instrument Detail."),
-                _render_valuation_scenarios(page, model, decision_time, session_active=session_active),
-            ], tight=True)),
-            actions=[ft.TextButton("Close scenario workspace", key="instrument-detail.close-valuation", on_click=close_valuation_workspace)],
-            on_dismiss=restore_valuation_focus,
-        )
-        sessions.append((session, dialog))
-        page.show_dialog(dialog)
-
-    opener = ft.OutlinedButton("Open valuation scenarios", key="instrument-detail.open-valuation", on_click=open_valuation_workspace)
-    return ft.Column([opener, evidence])
-
-
-def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
+def _instrument_id(page: ft.Page | None, state: object) -> str:
     route = str(getattr(page, "route", "") or "") if page is not None else ""
-    selected = route.split("/", 2)[-1].split("?", 1)[0].split("#", 1)[0] if route.startswith("/instrument/") else state.selected_etf
+    if route.startswith("/instrument/") or route.startswith("/etf/"):
+        selected = route.split("/", 2)[-1].split("?", 1)[0].split("#", 1)[0]
+        if selected:
+            return selected
+    selected = str(getattr(state, "selected_etf", "") or "").strip()
     if selected:
-        state.selected_etf = selected
-    model = build_instrument_detail(
-        state.snapshot,
+        return selected
+    snapshot = getattr(state, "snapshot", None)
+    config = getattr(snapshot, "config", None)
+    return str(getattr(getattr(config, "ui", None), "default_etf", "") or "")
+
+
+def _instrument_ids(snapshot: object, selected: str) -> list[str]:
+    values: list[str] = []
+    universe = getattr(getattr(getattr(snapshot, "config", None), "universe", None), "etfs", ())
+    for item in universe or ():
+        identifier = getattr(item, "id", None)
+        if identifier:
+            values.append(str(identifier))
+    for item in getattr(snapshot, "signals", ()) or ():
+        identifier = getattr(item, "etf_id", None) or getattr(item, "display_id", None)
+        if identifier:
+            values.append(str(identifier))
+    unique = list(dict.fromkeys(values))
+    if selected and selected not in unique:
+        unique.insert(0, selected)
+    unique = unique[:3]
+    if selected and selected not in unique:
+        unique[-1] = selected
+    return unique
+
+
+def _model_for(state: object, selected: str) -> InstrumentDetailViewModel:
+    snapshot = getattr(state, "snapshot", None)
+    if snapshot is None or not selected:
+        return InstrumentDetailViewModel(
+            selected,
+            "",
+            "unavailable",
+            {"instrument_id": selected},
+            {},
+        )
+    return build_instrument_detail(
+        snapshot,
         selected,
         candidate_score=getattr(state, "selected_instrument_score", None),
         financial_projection=getattr(state, "financial_projection", None),
@@ -892,262 +163,740 @@ def instrument_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         innovation_projection=getattr(state, "innovation_projection", None),
         innovation_source_digest=getattr(state, "innovation_source_digest", None),
     )
-    decision_cutoff = getattr(getattr(state.snapshot, "data_report", None), "as_of_date", None)
-    cutoff = decision_cutoff
-    if cutoff and len(str(cutoff)) == 10:
-        cutoff = f"{cutoff}T23:59:59+00:00"
-    news_section = model.sections.get("news")
-    if isinstance(news_section, dict):
-        news_section["contradictions"] = contradiction_digest_records(
-            pd.DataFrame(news_section.get("items", [])),
-            prices=getattr(state.snapshot, "prices", pd.DataFrame()),
-            cutoff=cutoff,
-        )
-        news_section["contradiction_cutoff"] = cutoff
-    vintage_history = bitemporal_history_summary(selected) if selected else {"status": "unavailable", "message": "No instrument selected."}
-    export_status = ft.Text(
-        "Audit evidence export unavailable for this selection."
-        if model.status == "unavailable" or not callable(getattr(state, "export_audit_packet", None))
-        else str(getattr(state, "last_export_path", "") or "No audit evidence export has been created in this session."),
-        color=theme.MUTED,
-        selectable=True,
-    )
-    export_available = model.status != "unavailable" and callable(getattr(state, "export_audit_packet", None))
 
-    def export_instrument_evidence(_event: ft.ControlEvent) -> None:
-        if not export_available:
-            export_status.value = "Audit evidence export unavailable: canonical evidence or export capability is missing."
-        else:
-            try:
-                path = state.export_audit_packet()
-                export_status.value = f"Exported audit evidence: {path}"
-            except Exception as exc:
-                export_status.value = f"Audit evidence export failed: {type(exc).__name__}. No score authority changed."
-        if page is not None and hasattr(page, "update"):
+
+def _price_chart(
+    model: InstrumentDetailViewModel,
+    state: object,
+    basis: str,
+    currency: str,
+    range_name: str,
+    mode: str,
+) -> ft.Control:
+    if mode == "Candles":
+        return EmptyState(
+            "Unavailable",
+            "The chart kit has no candlestick and volume chart.",
+        )
+    snapshot = getattr(state, "snapshot", None)
+    local_currency = str(model.identity.get("currency") or "")
+    projection = load_market_series_projection(
+        getattr(snapshot, "prices", None),
+        model.instrument_id,
+        basis=basis,
+        local_currency=local_currency,
+        output_currency=currency or local_currency,
+        decision_time=getattr(getattr(snapshot, "data_report", None), "as_of_date", None),
+    )
+    frame = projection.get("frame")
+    if projection.get("status") != "available" or frame is None or frame.empty:
+        return EmptyState(
+            "Unavailable",
+            "No complete local price series is available for the selected basis and currency.",
+        )
+    if range_name != "All" and "date" in frame.columns:
+        months = {"1M": 1, "3M": 3, "6M": 6, "1Y": 12}[range_name]
+        dates = pd.to_datetime(frame["date"], errors="coerce", utc=True)
+        latest = dates.max()
+        if pd.notna(latest):
+            frame = frame.loc[dates >= latest - pd.DateOffset(months=months)]
+    rows = frame.to_dict(orient="records")
+    x_values = [str(row.get("date", "")) for row in rows]
+    values = [row.get("series_value") for row in rows]
+    valid = [value for value in values if isinstance(value, (int, float)) and value == value]
+    if not x_values or not valid:
+        return ck.line_chart(
+            [],
+            [],
+            x_name="Date",
+            y_name=f"Price ({currency})",
+            unavailable_reason="No numeric observations are available for the selected price series.",
+            insight="Price history is unavailable.",
+        )
+    return ck.line_chart(
+        x_values,
+        [ck.Series("Adjusted close", values, color=theme.CYAN, glow=True, area=True)],
+        x_name="Date",
+        y_name=f"Price ({currency})",
+        insight=f"Price history across {len(valid)} stored observations.",
+    )
+
+
+def _forecast_chart(forecasts: object) -> ft.Control:
+    rows = forecasts.get("rows", ()) if isinstance(forecasts, Mapping) else ()
+    rows = [row for row in rows if isinstance(row, Mapping)] if isinstance(rows, Sequence) else []
+    complete = [
+        row
+        for row in rows
+        if row.get("horizon_days") is not None
+        if all(isinstance(row.get(key), (int, float)) for key in ("q10", "q50", "q90"))
+        and row.get("q10") <= row.get("q50") <= row.get("q90")
+    ]
+    if not complete:
+        return EmptyState(
+            "No forecast fan",
+            "No complete ordered q10/q50/q90 distribution is stored for this instrument; a fan chart is not drawn and missing quantiles are never filled.",
+        )
+    horizons = [row.get("horizon_days") for row in complete]
+    lower = [row["q10"] for row in complete]
+    median = [row["q50"] for row in complete]
+    upper = [row["q90"] for row in complete]
+    return ck.line_chart(
+        horizons,
+        [ck.Series("q50", median, color=theme.CYAN, glow=True)],
+        bands=[ck.Band("80% range", lower, upper, color=theme.CYAN)],
+        x_name="Horizon (days)",
+        y_name="Expected return (%)",
+        insight=f"Stored quantiles cover {len(complete)} horizons.",
+    )
+
+
+def _price_card(
+    model: InstrumentDetailViewModel,
+    state: object,
+    page: ft.Page | None,
+) -> ft.Control:
+    local_currency = str(model.identity.get("currency") or "")
+    base_currency = str(
+        getattr(getattr(getattr(state, "snapshot", None), "config", None), "targets", None)
+        and state.snapshot.config.targets.base_currency
+        or local_currency
+    )
+    currencies = list(dict.fromkeys(value for value in (local_currency, base_currency) if value))
+    settings = {"basis": "adjusted", "currency": local_currency, "range": "All", "mode": "Line"}
+    well = Well(
+        _price_chart(model, state, settings["basis"], settings["currency"], settings["range"], settings["mode"]),
+        expand=True,
+        key="instrument-detail.price-series",
+    )
+    card_ref: dict[str, ft.Control] = {}
+
+    def update_chart() -> None:
+        well.content = _price_chart(
+            model,
+            state,
+            settings["basis"],
+            settings["currency"],
+            settings["range"],
+            settings["mode"],
+        )
+        card = card_ref.get("card")
+        note = getattr(card, "data", {}).get("note_control") if card is not None else None
+        if note is not None:
+            note.value = f"{settings['currency']} · {settings['basis']} close"
+        if page is not None and callable(getattr(page, "update", None)):
             page.update()
 
-    export_control = ft.OutlinedButton(
-        "Export audit evidence",
-        key="instrument-detail.export-evidence",
-        icon=ft.Icons.DOWNLOAD,
-        disabled=not export_available,
-        on_click=export_instrument_evidence,
+    def change_mode(value: str) -> None:
+        settings["mode"] = value
+        update_chart()
+
+    def choose_basis(value: str) -> None:
+        settings["basis"] = value
+        update_chart()
+
+    def choose_currency(value: str) -> None:
+        settings["currency"] = value
+        update_chart()
+
+    def choose_range(value: str):
+        def select(_event: ft.ControlEvent | None = None) -> None:
+            settings["range"] = value
+            update_chart()
+        return select
+
+    menu = CardMenu(
+        [(value, choose_range(value)) for value in ("1M", "3M", "6M", "1Y", "All")]
     )
-    fixed_income_terms = model.sections.get("fixed_income_terms")
-    fixed_income_terms = fixed_income_terms if isinstance(fixed_income_terms, Mapping) else {}
-    asset_type = str(model.identity.get("asset_type") or model.identity.get("asset_class") or "").casefold()
-    is_bond = asset_type in {"bond", "fixed_income", "fixed income", "government_bond", "corporate_bond"} or fixed_income_terms.get("status") in {"available", "quarantined"}
-    rows: list[ft.Control] = []
-    if is_bond:
-        rows.append(
-            fixed_income_bond_panel(
-                build_fixed_income_bond_view_model(
-                    selected,
-                    terms_projection=fixed_income_terms,
-                    market_data_projection=model.sections.get("fixed_income_market_data"),
-                    analytics_projection=model.sections.get("fixed_income_analytics"),
-                    risk_projection=model.sections.get("fixed_income_risk"),
-                )
-            )
-        )
-    rows.extend([
-        _render_evidence_section(
-            "Fixed-income risk",
-            model.sections.get("fixed_income_risk"),
-            subtitle="Rates, curve, spread, credit, liquidity and optionality scenarios with explicit unknowns and non-executable authority.",
-            key="instrument-detail.fixed-income-risk",
-        ),
-        _render_evidence_section(
-            "Fixed-income market data",
-            model.sections.get("fixed_income_market_data"),
-            subtitle="Provider-separated point-in-time quotes, curves, liquidity labels, conflicts and source lineage; missing tape/quotes remain non-executable.",
-            key="instrument-detail.fixed-income-market-data",
-        ),
-        _render_evidence_section(
-            "Fixed-income analytics",
-            model.sections.get("fixed_income_analytics"),
-            subtitle="Deterministic clean/dirty price, yield, risk, curve and scenario evidence; observed and model values remain separate and execution_allowed=false.",
-            key="instrument-detail.fixed-income-analytics",
-        ),
-        _render_evidence_section(
-            "Fixed-income terms and contractual cash flows",
-            model.sections.get("fixed_income_terms"),
-            subtitle="Versioned terms, coupon/redemption schedule, source lineage, overlays, conflicts and unsupported structures; pricing, proposals and execution remain disabled.",
-            key="instrument-detail.fixed-income-terms",
-        ),
-        _render_evidence_section(
-            "Market clock and session",
-            model.sections.get("market_clock"),
-            subtitle="Identity-certified MIC, timezone, session/auction state, expected-session staleness and next valid advisory timestamps; execution_allowed=false.",
-            key="instrument-detail.market-clock",
-        ),
-        _render_evidence_section(
-            "Classification context",
-            model.identity.get(
-                "classification",
-                {
-                    "status": model.identity.get("classification_status", "unavailable"),
-                    "reason_code": model.identity.get(
-                        "classification_reason_code",
-                        "classification_evidence_unavailable",
+    card = GlassCard(
+        "Price history",
+        note=f"{_value(settings['currency'])} · adjusted close",
+        insight="Price history from the selected stored price series.",
+        body=[
+            ft.ResponsiveRow(
+                [
+                    Field(
+                        "Price basis",
+                        value=settings["basis"],
+                        options=["raw", "adjusted", "total_return"],
+                        on_change=choose_basis,
+                        key="instrument-detail.price-basis",
                     ),
-                    "execution_allowed": False,
-                },
+                    Field(
+                        "Currency",
+                        value=settings["currency"],
+                        options=currencies,
+                        on_change=choose_currency,
+                        key="instrument-detail.price-currency",
+                    ),
+                ],
+                spacing=8,
+                run_spacing=8,
             ),
-            subtitle="Point-in-time asset, sector, industry, strategy and fixed-income look-through with confidence, fallback and invalidation lineage.",
-            key="instrument-detail.classification",
-        ),
-        _render_evidence_section("Price history", model.sections.get("price"), subtitle="Adjusted-price history, latest value/date and freshness."),
-        _render_evidence_section(
-            "Candle Evidence",
-            model.sections.get("candle_evidence"),
-            subtitle="Validated adjusted OHLCV templates are low-authority context; score contribution is capped, named patterns do not trigger actions, and ambiguous same-bar exits remain unfilled.",
-            key="instrument-detail.candle-evidence",
-        ),
-        _render_evidence_section("ETF Liquidity", model.sections.get("etf_liquidity"), subtitle="Rolling turnover, spread/gap proxies, zero-volume days, quote/NAV evidence and primary-market context remain explicit."),
-        _render_etf_order_preview(page, state, selected, model.sections.get("etf_liquidity")),
-        _render_evidence_section("ETF Economics", model.sections.get("etf_economics"), subtitle="Historical fees, share-class metrics, matched point-in-time tracking and closure-quality proxy evidence; missing values remain unavailable."),
-        _render_evidence_section("Evidence Score", model.sections.get("scores"), subtitle="Authority score, quality, final label/reason and blocked gates; execution_allowed=false."),
-        _render_opportunity_card(model.sections.get("opportunity")),
-        _render_evidence_section(
-            "Peer cohort and adapter lineage",
-            model.sections.get("peer_cohort"),
-            subtitle="Persisted point-in-time adapter, fallback, members/exclusions, support, effective sample, applicability, rank interval and version hashes; execution_allowed=false.",
-            key="instrument-detail.peer-cohort",
-        ),
-        _render_evidence_section(
-            "Financial Institutions",
-            model.sections.get("financial_institutions"),
-            subtitle="Bank, insurer and diversified-financial solvency, asset quality, stress, rationale, lineage and limitations; unavailable inputs stay explicit.",
-            key="instrument-detail.financial-institutions",
-        ),
-        _render_sparebank_workspace(model.sections.get("sparebank_workspace")),
-        _render_evidence_section(
-            "Real Assets",
-            model.sections.get("real_assets"),
-            subtitle="REIT, utility and infrastructure cash-flow definitions, NAV/RAB availability, payout, leverage, coverage, deterministic stresses and point-in-time lineage; execution_allowed=false.",
-            key="instrument-detail.real-assets",
-        ),
-        _render_evidence_section(
-            "Cyclicals",
-            model.sections.get("cyclicals"),
-            subtitle="Energy, materials and non-infrastructure industrial operating metrics, distinct-cycle history, scenario portfolio impacts, confidence and point-in-time lineage; execution_allowed=false.",
-            key="instrument-detail.cyclicals",
-        ),
-        _render_evidence_section(
-            "Innovation and Healthcare",
-            model.sections.get("innovation"),
-            subtitle="Software, semiconductor, healthcare and biotechnology operating metrics, dated concentration and milestone timelines, reconciliation checks and explicit low-authority event limits; execution_allowed=false.",
-            key="instrument-detail.innovation",
-        ),
-        _render_evidence_section("Risk and feature evidence", model.sections.get("risk"), subtitle="Momentum, trend, relative strength, volatility, drawdown and liquidity/cost."),
-        _render_evidence_section("Alpha, beta and correlation", model.sections.get("attribution")),
-        _render_evidence_section(
-            "Fundamentals",
-            model.sections.get("fundamentals"),
-            subtitle="Five-section values, statement coverage, source, period, freshness and limitations; execution_allowed=false.",
-            key="instrument-detail.fundamentals",
-        ),
-        _valuation_workspace(page, model, getattr(getattr(state.snapshot, "data_report", None), "as_of_date", None)),
-        _render_evidence_section("ETF holdings and exposure", model.sections.get("etf_holdings")),
-        _render_evidence_section(
-            "ETF direct overlap",
-            model.sections.get("etf_overlap"),
-            subtitle="Exact typed identities, dated coverage and unresolved exposure; execution_allowed=false.",
-            key="instrument-detail.etf-overlap",
-        ),
-        _render_evidence_section("Forecast evidence", model.sections.get("forecasts")),
-        _render_evidence_section(
-            "Model cards",
-            model.sections.get("model_cards"),
-            subtitle="Deterministic model catalogue capabilities, versions, licences and optional availability; cards do not prove a model produced this instrument's forecast.",
-            key="instrument-detail.model-cards",
-        ),
-        _render_evidence_section(
-            "Factor risk",
-            model.sections.get("factor_risk"),
-            subtitle="Global factor-risk diagnostics are calculated from the complete snapshot and only then filtered to the selected instrument; historical point-in-time look-through selection remains unavailable.",
-            key="instrument-detail.factor-risk",
-        ),
-        _render_evidence_section(
-            "Backtest trust",
-            model.sections.get("backtests"),
-            subtitle="Instrument-scoped signals and trades determine instrument trust; payoff profile, skew and loss dominance are descriptive portfolio context only and never recommendations. execution_allowed=false.",
-        ),
-        _render_evidence_section(
-            "Operational evidence",
-            (model.sections.get("backtests") or {}).get("operational_evidence", "unavailable")
-            if isinstance(model.sections.get("backtests"), dict)
-            else "unavailable",
-            subtitle="Exact-instrument simulated decision/next-open evidence; aggregate backtest rows remain context-only and paper/reconciled fills are separate. execution_allowed=false.",
-            key="instrument-detail.operational-evidence",
-        ),
-        _render_evidence_section("Paper-trade history", model.sections.get("paper_trades")),
-        _render_evidence_section(
-            "Score history",
-            model.sections.get("history"),
-            subtitle="Dated local score runs and source metadata are shown exactly as recorded; missing values remain unavailable.",
-            key="instrument-detail.score-history",
-        ),
-        _render_evidence_section(
-            "Score-component metric history",
-            model.sections.get("metric_history"),
-            subtitle="All persisted component/run rows, raw and normalized values, missing reasons and stored provenance.",
-            key="instrument-detail.metric-history",
-        ),
-        _render_evidence_section("Decision journal", model.sections.get("journal")),
-        _render_evidence_section(
-            "LLM thesis diary",
-            model.sections.get("thesis_diary"),
-            subtitle="Dated instrument-specific LLM thesis, source snapshot, uncertainty, human review, score/risk context and forward outcomes; context-only with execution_allowed=false.",
-            key="instrument-detail.thesis-diary",
-        ),
-        _render_evidence_section("What changed since the last run", model.sections.get("run_changes")),
-        _render_evidence_section("Point-in-time vintage history", vintage_history, subtitle="Append-only effective and availability timestamps, revisions, corrections and source-vintage metadata."),
-    ])
-    return ft.Column(
-        [
-            panel(ft.Column([
-                section_header(f"Instrument Detail: {model.display_name}", "Canonical identity, score evidence, data freshness and unavailable states are shown without recalculating authority in the UI."),
-                ft.Row([export_control, export_status], wrap=True),
-            ], spacing=8)),
-            ft.Column([
-                _detail_disclosure("Identity and provenance", ft.Column([_render_evidence_badges(model.identity), _render_record_group(
-                    "Identity",
-                    [
-                        {
-                            field: model.identity.get(field)
-                            for field in (
-                                "instrument_id",
-                                "ticker",
-                                "isin",
-                                "asset_type",
-                                "asset_class",
-                                "exchange",
-                                "currency",
-                                "region",
-                                "sector",
-                                "theme",
-                                "identity_resolution_state",
-                                "identity_confidence",
-                                "identity_decision_id",
-                                "source_id",
-                                "execution_allowed",
-                            )
-                            if field in model.identity
-                        }
-                    ],
-                )])),
-            _detail_disclosure("Instrument alerts", _instrument_alerts_panel(selected)),
-            _detail_disclosure("Feature drivers", _render_feature_driver_panel(model.sections.get("feature_drivers"))),
-            _detail_disclosure("Crowding and attribution", _render_crowding_attribution_panel(model.sections)),
-            _detail_disclosure("ETF disclosure evidence", render_etf_disclosure_panel(model)),
-            _detail_disclosure("ETF structure", render_etf_structure_panel(model)),
-            _detail_disclosure("News context", render_news_context_panel(model)),
-            _detail_disclosure("News/macro contradictions", render_news_contradiction_panel(model)),
-            _detail_disclosure("Event calendar", render_event_calendar_panel(model)),
-            *rows,
-            ], expand=True, scroll=ft.ScrollMode.AUTO),
+            Segmented(["Line", "Candles"], "Line", on_change=change_mode),
+            well,
+            Disclosure(
+                "Price-series details",
+                _payload(model.sections.get("price")),
+            ),
+        ],
+        menu=menu,
+        expand=True,
+    )
+    card_ref["card"] = card
+    return card
+
+
+def _identity_card(
+    model: InstrumentDetailViewModel,
+    state: object,
+    page: ft.Page | None,
+    instrument_ids: Sequence[str],
+    on_instrument_change: object,
+) -> ft.Control:
+    identity = model.identity
+    source_id = identity.get("source_id")
+    authority = identity.get("source_authority", identity.get("authority"))
+    conflict = identity.get("conflict_id", identity.get("conflict_status"))
+    rows = [
+        {"field": label, "value": _value(identity.get(key))}
+        for key, label in (
+            ("instrument_id", "instrument_id"),
+            ("ticker", "ticker"),
+            ("isin", "ISIN"),
+            ("asset_type", "asset type"),
+            ("asset_class", "asset class"),
+            ("exchange", "exchange"),
+            ("currency", "currency"),
+            ("region", "region"),
+            ("sector", "sector"),
+            ("theme", "theme"),
+        )
+    ]
+    can_export = model.status != "unavailable" and callable(getattr(state, "export_audit_packet", None))
+    status = Note("No audit evidence export has been created in this session.")
+
+    def export_instrument_evidence(_event: ft.ControlEvent | None = None) -> None:
+        exporter = getattr(state, "export_audit_packet", None)
+        if not can_export or not callable(exporter):
+            status.value = "Audit evidence export is unavailable for this selection."
+        else:
+            try:
+                exporter()
+                status.value = "Audit evidence export created."
+            except Exception:
+                status.value = "Audit evidence export could not be created."
+        if page is not None and callable(getattr(page, "update", None)):
+            page.update()
+
+    return GlassCard(
+        "Identity and provenance",
+        note="canonical identity",
+        body=[
+            *(
+                [
+                    Field(
+                        "Instrument",
+                        value=model.instrument_id,
+                        options=instrument_ids,
+                        on_change=on_instrument_change,
+                        key="instrument-detail.instrument",
+                    )
+                ]
+                if instrument_ids
+                else []
+            ),
+            ft.ResponsiveRow(
+                [
+                    KpiTile(
+                        "Source ID",
+                        _value(source_id) if source_id is not None else None,
+                        "Canonical source identifier" if source_id is not None else "Source identifier is unavailable.",
+                    ),
+                    KpiTile(
+                        "Authority",
+                        _value(authority) if authority is not None else None,
+                        "Recorded source authority" if authority is not None else "Source authority is unavailable.",
+                    ),
+                    KpiTile(
+                        "Conflict",
+                        _value(conflict) if conflict is not None else None,
+                        "Identity conflict evidence" if conflict is not None else "No conflict evidence is available.",
+                    ),
+                ],
+                spacing=8,
+                run_spacing=8,
+            ),
+            DataTable(
+                [TableColumn("field", "Field"), TableColumn("value", "Value")],
+                rows,
+                empty_title="Unavailable",
+                empty_reason="Identity fields are unavailable.",
+            ),
+            Button.secondary(
+                "Export audit evidence",
+                on_click=export_instrument_evidence,
+                disabled=not can_export,
+                disabled_reason="Canonical evidence or export capability is missing.",
+                key="instrument-detail.export-evidence",
+            ),
+            status,
+            Note("Research context only · execution_allowed=false."),
+            Disclosure(
+                "Export details",
+                str(getattr(state, "last_export_path", "") or "No export path is available."),
+            ),
         ],
         expand=True,
     )
+
+
+def _score_card(model: InstrumentDetailViewModel, page: ft.Page | None) -> ft.Control:
+    score = model.sections.get("scores")
+    score = score if isinstance(score, Mapping) else {}
+    raw_score = score.get("evidence_score")
+    ring_score = raw_score * 10 if isinstance(raw_score, (int, float)) else None
+    component_keys = (
+        ("canonical_attractiveness_10", "Attractiveness"),
+        ("canonical_expected_return_10", "Expected return"),
+        ("canonical_risk_implementation_10", "Risk / implementation"),
+        ("canonical_evidence_confidence_10", "Evidence confidence"),
+        ("canonical_coverage", "Coverage"),
+    )
+    bars = [
+        ft.Row(
+            [
+                Note(label),
+                ScoreBar(score.get(key) if isinstance(score.get(key), (int, float)) else None),
+            ],
+            spacing=8,
+        )
+        for key, label in component_keys
+    ]
+
+    def open_scores(_event: ft.ControlEvent | None = None) -> None:
+        if page is not None and callable(getattr(page, "go", None)):
+            page.go("/signals")
+
+    return GlassCard(
+        "Evidence score",
+        note="Canonical score evidence",
+        body=[
+            VerdictRing(ring_score),
+            KpiTile(
+                "Evidence score",
+                format_number(raw_score, decimals=1, unavailable="Unavailable")
+                if raw_score is not None
+                else None,
+                _reason(score, "Evidence score") if raw_score is None else "Canonical score evidence.",
+            ),
+            *bars,
+            ListRow(
+                "info",
+                "Open in Scores",
+                "View canonical score evidence for this instrument.",
+                on_click=open_scores,
+            ),
+        ],
+        expand=True,
+    )
+
+
+def _alerts_card(model: InstrumentDetailViewModel, state: object) -> ft.Control:
+    snapshot = getattr(state, "snapshot", None)
+    as_of = getattr(getattr(snapshot, "data_report", None), "as_of_date", None)
+    readback = read_local_alerts(ROOT, subject_id=model.instrument_id, as_of=as_of)
+    records = readback.records
+    rows = [
+        ListRow(
+            "info",
+            _value(getattr(item, "title", None) or getattr(item, "alert_id", None)),
+            _value(getattr(item, "reason", None) or getattr(item, "message", None)),
+            last=index == len(records) - 1,
+        )
+        for index, item in enumerate(records)
+    ]
+    if readback.status != "available":
+        rows = [Note("Unavailable · Local alert data could not be read.")]
+    return GlassCard(
+        "Alerts & review reminders",
+        note="instrument-scoped · informational",
+        body=rows or [Note("No local alerts or review reminders for this instrument.")],
+        expand=True,
+    )
+
+
+def _section_card(title: str, value: object, key: str | None = None) -> ft.Control:
+    return _render_evidence_section(title, value, key=key)
+
+
+def _valuation_card(model: InstrumentDetailViewModel, page: ft.Page | None, state: object) -> ft.Control:
+    valuation = model.sections.get("valuation")
+    if str(model.identity.get("asset_type", "")).casefold() not in {"stock", "equity"}:
+        return _section_card("Stock valuation and scenarios", valuation)
+
+    decision_time = getattr(
+        getattr(getattr(state, "snapshot", None), "data_report", None),
+        "as_of_date",
+        None,
+    )
+    initial = valuation
+    result = {"value": initial}
+    labels = {
+        "forecast_years": "Forecast years (1-50)",
+        "discount_rate": "Discount rate (%) >0 to 100",
+        "terminal_growth": "Terminal growth (%)",
+        "bear": "Bear growth (%) >=-50",
+        "base": "Base growth (%)",
+        "bull": "Bull growth (%) <=100",
+    }
+
+    def invalidate_valuation(_event: ft.ControlEvent | None = None) -> None:
+        result["value"] = {
+            "status": "unavailable",
+            "message": "Inputs changed. Preview valuation scenarios to calculate current inputs.",
+            "execution_allowed": False,
+        }
+        result_panel.content = Disclosure("Scenario result", _payload(result["value"]))
+        if page is not None and callable(getattr(page, "update", None)):
+            page.update()
+
+    inputs = {
+        name: ft.TextField(
+            key=f"instrument-detail.valuation-input.{name}",
+            value="",
+            on_change=invalidate_valuation,
+            **field_input_style(),
+        )
+        for name in labels
+    }
+    input_fields = []
+    for name, label in labels.items():
+        field = Field(label, control=inputs[name])
+        field.col = {"xs": 12, "sm": 6}
+        input_fields.append(field)
+
+    result_panel = ft.Container(content=Disclosure("Scenario result", _payload(initial)))
+    workspace = ft.Column(
+        [
+            Note(
+                "Session-only scenario assumptions. Enter every input; bear < base < bull. "
+                "Inputs are not saved or exported and do not change scores. execution_allowed=false."
+            ),
+            Note("Terminal growth must be at least -100% and below the discount rate."),
+            ft.ResponsiveRow(input_fields, spacing=8, run_spacing=8),
+            ft.Row(
+                [
+                    Button.primary(
+                        "Preview valuation scenarios",
+                        on_click=lambda _event: preview_valuation(),
+                        key="instrument-detail.preview-valuation",
+                    ),
+                    Button.secondary(
+                        "Clear scenario inputs",
+                        on_click=lambda _event: clear_valuation(),
+                        key="instrument-detail.clear-valuation",
+                    ),
+                    Button.secondary(
+                        "Close scenario workspace",
+                        on_click=lambda _event: close_valuation_workspace(),
+                        key="instrument-detail.close-valuation",
+                    ),
+                ],
+                spacing=8,
+                wrap=True,
+            ),
+            result_panel,
+        ],
+        spacing=8,
+        visible=False,
+    )
+
+    def preview_valuation() -> None:
+        try:
+            assumptions = {
+                "forecast_years": int(inputs["forecast_years"].value.strip()),
+                "discount_rate": float(inputs["discount_rate"].value) / 100,
+                "terminal_growth": float(inputs["terminal_growth"].value) / 100,
+                "scenarios": {
+                    name: {"growth": float(inputs[name].value) / 100}
+                    for name in ("bear", "base", "bull")
+                },
+            }
+        except (ValueError, TypeError, AttributeError, OverflowError):
+            assumptions = {}
+        result["value"] = _valuation_panel(
+            model.instrument_id,
+            model.identity.get("asset_type"),
+            decision_time,
+            assumptions,
+        )
+        result_panel.content = Disclosure("Scenario result", _payload(result["value"]))
+        if page is not None and callable(getattr(page, "update", None)):
+            page.update()
+
+    def clear_valuation() -> None:
+        for control in inputs.values():
+            control.value = ""
+        result["value"] = initial
+        result_panel.content = Disclosure("Scenario result", _payload(initial))
+        if page is not None and callable(getattr(page, "update", None)):
+            page.update()
+
+    def close_valuation_workspace() -> None:
+        workspace.visible = False
+        if page is not None and callable(getattr(page, "update", None)):
+            page.update()
+
+    def open_valuation_workspace(_event: ft.ControlEvent | None = None) -> None:
+        workspace.visible = True
+        if page is not None and callable(getattr(page, "update", None)):
+            page.update()
+
+    return GlassCard(
+        "Stock valuation and scenarios",
+        body=[
+            Button.primary(
+                "Open valuation scenarios",
+                on_click=open_valuation_workspace,
+                key="instrument-detail.open-valuation",
+            ),
+            workspace,
+            Disclosure("Stored valuation evidence", _payload(initial)),
+        ],
+    )
+
+
+def _section_rows(
+    model: InstrumentDetailViewModel,
+    vintage: object,
+    page: ft.Page | None,
+    state: object,
+) -> dict[str, list[ft.Control]]:
+    def preview(_event: object) -> None:
+        return None
+
+    sections = model.sections
+    overview = [
+        _section_card("Feature drivers", sections.get("feature_drivers")),
+        _render_crowding_attribution_panel(
+            {"scores": sections.get("scores"), "attribution": sections.get("attribution")}
+        ),
+        _section_card("Alpha, beta and correlation", sections.get("attribution")),
+        _section_card("Opportunity", sections.get("opportunity")),
+        _section_card("Peer cohort and adapter lineage", sections.get("peer_cohort")),
+        _section_card("Classification context", model.identity),
+        _section_card("Market clock and session", sections.get("market_clock")),
+    ]
+    fund = [
+        _section_card("ETF Structure & Documents", sections.get("etf_structure")),
+        render_etf_disclosure_panel(model),
+        _section_card("ETF holdings and exposure", sections.get("etf_holdings")),
+        _section_card("ETF direct overlap", sections.get("etf_overlap"), "instrument-detail.etf-overlap"),
+        _section_card("ETF Liquidity", sections.get("etf_liquidity")),
+        GlassCard(
+            "ETF order-preview capacity meter",
+            note="Order value and horizon capacity are unavailable without a stored preview result.",
+            body=[
+                KpiTile("Capacity preview", None, "No capacity preview result is available for this instrument."),
+                Disclosure("Capacity evidence", _payload(sections.get("etf_liquidity"))),
+                Button.primary(
+                    "Preview capacity",
+                    on_click=preview,
+                    disabled=True,
+                    disabled_reason="A capacity preview result is unavailable.",
+                    key="instrument-detail.preview-capacity",
+                ),
+            ],
+        ),
+        _section_card("ETF Economics", sections.get("etf_economics")),
+    ]
+    fundamentals = [
+        _section_card("Fundamentals", sections.get("fundamentals"), "instrument-detail.fundamentals"),
+        _valuation_card(model, page, state),
+        _section_card("Financial Institutions", sections.get("financial_institutions")),
+        _section_card("Real Assets", sections.get("real_assets")),
+        _section_card("Cyclicals", sections.get("cyclicals")),
+        _section_card("Innovation and Healthcare", sections.get("innovation")),
+    ]
+    fixed_income = [
+        _section_card("Fixed-income risk", sections.get("fixed_income_risk"), "instrument-detail.fixed-income-risk"),
+        _section_card("Fixed-income market data", sections.get("fixed_income_market_data"), "instrument-detail.fixed-income-market-data"),
+        _section_card("Fixed-income analytics", sections.get("fixed_income_analytics")),
+        _section_card(
+            "Fixed-income terms and contractual cash flows",
+            sections.get("fixed_income_terms"),
+            "instrument-detail.fixed-income-terms",
+        ),
+    ]
+    backtests = sections.get("backtests")
+    operational = (
+        backtests.get("operational_evidence", "unavailable")
+        if isinstance(backtests, Mapping)
+        else "unavailable"
+    )
+    risk = [
+        _section_card("Risk and feature evidence", sections.get("risk")),
+        _section_card("Factor risk", sections.get("factor_risk"), "instrument-detail.factor-risk"),
+        _section_card("Forecast evidence", sections.get("forecasts")),
+        _section_card("Model cards", sections.get("model_cards"), "instrument-detail.model-cards"),
+        _section_card("Backtest trust", sections.get("backtests")),
+        _section_card("Operational evidence", operational),
+        _section_card("Evidence Score", sections.get("scores")),
+        _section_card("News/macro contradictions", sections.get("news")),
+    ]
+    history = [
+        _section_card("Score history", sections.get("history"), "instrument-detail.score-history"),
+        _section_card("Score-component metric history", sections.get("metric_history"), "instrument-detail.metric-history"),
+        _section_card("Point-in-time vintage history", vintage),
+        _section_card("What changed since the last run", sections.get("run_changes")),
+        _section_card("Paper-trade history", sections.get("paper_trades")),
+        _section_card("Decision journal", sections.get("journal")),
+        _section_card("LLM thesis diary", sections.get("thesis_diary"), "instrument-detail.thesis-diary"),
+        _section_card("News & context", sections.get("news")),
+        _section_card("Event calendar", sections.get("events")),
+    ]
+    return {
+        "Overview": overview,
+        "Fund": fund,
+        "Fundamentals": fundamentals,
+        "Fixed income": fixed_income,
+        "Risk & forecasts": risk,
+        "History": history,
+    }
+
+
+def _section_kind(identity: Mapping[str, object]) -> str:
+    asset_type = str(identity.get("asset_type", identity.get("asset_class", ""))).casefold()
+    if "bond" in asset_type or "fixed_income" in asset_type or "fixed income" in asset_type:
+        return "Fixed income"
+    if asset_type in {"etf", "fund", "mutual_fund"}:
+        return "Fund"
+    return "Fundamentals"
+
+
+def _body(
+    model: InstrumentDetailViewModel,
+    state: object,
+    page: ft.Page | None,
+    active_section: str,
+    instrument_ids: Sequence[str],
+    on_instrument_change: object,
+) -> ft.Control:
+    identity = _identity_card(model, state, page, instrument_ids, on_instrument_change)
+    price = _price_card(model, state, page)
+    score = _score_card(model, page)
+    forecast = GlassCard(
+        "Expected-return range",
+        note="q10 / q50 / q90 by horizon",
+        body=Well(_forecast_chart(model.sections.get("forecasts")), expand=True),
+        expand=True,
+    )
+    alerts = _alerts_card(model, state)
+    kind = _section_kind(model.identity)
+    options = ["Overview", kind, "Risk & forecasts", "History"]
+    if active_section not in options:
+        active_section = "Overview"
+    vintage = (
+        bitemporal_history_summary(model.instrument_id)
+        if model.instrument_id
+        else {"status": "unavailable", "message": "No instrument is selected."}
+    )
+    groups = _section_rows(model, vintage, page, state)
+    section_controls = [
+        ft.Column(
+            [
+                SectionHeader(
+                    section,
+                    "Instrument evidence and review context.",
+                ),
+                ft.ResponsiveRow(cards, spacing=16, run_spacing=16),
+            ],
+            spacing=12,
+            visible=section == active_section,
+        )
+        for section in options
+        for cards in [groups[section]]
+    ]
+    return ft.Column(
+        [
+            ft.ResponsiveRow(
+                [identity, price],
+                spacing=16,
+                run_spacing=16,
+            ),
+            ft.ResponsiveRow(
+                [score, forecast, alerts],
+                spacing=16,
+                run_spacing=16,
+            ),
+            *section_controls,
+        ],
+        spacing=16,
+        expand=True,
+        scroll=ft.ScrollMode.AUTO,
+    )
+
+
+def instrument_detail_page(page: ft.Page | None, state: object) -> PageView:
+    snapshot = getattr(state, "snapshot", None)
+    selected = _instrument_id(page, state)
+    options = _instrument_ids(snapshot, selected)
+    holder: dict[str, PageView] = {}
+
+    def render(instrument_id: str, section: str) -> None:
+        model = _model_for(state, instrument_id)
+        identity = model.identity
+        display_name = _value(model.display_name)
+        asset_type = _value(identity.get("asset_type", identity.get("asset_class")))
+        isin = _value(identity.get("isin"))
+        currency = _value(identity.get("currency"))
+        kind = _section_kind(identity)
+        groups = []
+        if options:
+            groups.append(
+                SegmentGroup(
+                    "instrument",
+                    options,
+                    instrument_id,
+                    on_change=lambda value: render(value, section),
+                )
+            )
+        section_options = ["Overview", kind, "Risk & forecasts", "History"]
+        if section not in section_options:
+            section = "Overview"
+        groups.append(
+            SegmentGroup(
+                "instrument-section",
+                section_options,
+                section,
+                on_change=lambda value: render(instrument_id, value),
+            )
+        )
+        chrome = PageChrome(
+            f"Instrument Detail · {instrument_id or 'Unavailable'}",
+            f"{display_name} · {asset_type} · {isin} · {currency}",
+            groups,
+        )
+        def on_instrument_change(value: str) -> None:
+            state.selected_etf = value
+            render(value, "Overview")
+
+        body = _body(model, state, page, section, options, on_instrument_change)
+        current = holder.get("view")
+        if current is None:
+            holder["view"] = PageView(chrome=chrome, body=body)
+        else:
+            current.chrome = chrome
+            current.body = body
+        if page is not None and callable(getattr(page, "update", None)):
+            page.update()
+
+    render(selected, "Overview")
+    view = holder["view"]
+    if view is None:
+        raise RuntimeError("Instrument detail view could not be built.")
+    return view
+
+
+__all__ = ["instrument_detail_page", "render_etf_disclosure_panel"]
