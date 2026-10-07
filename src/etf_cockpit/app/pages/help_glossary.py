@@ -99,8 +99,8 @@ def page_help_panel(
     controls: list[ft.Control] = [
         ft.Column(
             [
-                ft.Text(f"About {title}", color=theme.CYAN, size=11, weight=ft.FontWeight.BOLD),
-                ft.Text(description, color=theme.MUTED, size=11, selectable=True),
+                ft.Text(f"About {title}", color=theme.CYAN, size=theme.FONT_XS, weight=ft.FontWeight.BOLD),
+                ft.Text(description, color=theme.MUTED, size=theme.FONT_XS, selectable=True),
             ],
             spacing=4,
             expand=True,
@@ -227,7 +227,7 @@ def _definition_card(term: GlossaryTerm | None, terms, open_help, available: boo
             on_click=lambda _event, name=name: open_help(name),
             ink=True,
             padding=ft.Padding(left=4, top=4, right=4, bottom=4),
-            border_radius=8,
+            border_radius=theme.RADIUS_SM,
         )
         for name in term.related
     ]
@@ -328,7 +328,7 @@ def _terms_card(page, legal_report, *, extended: bool) -> ft.Control:
 
 def _toast(page: object, message: str) -> None:
     try:
-        page.show_dialog(ft.SnackBar(content=text(message, 13.5, 500), duration=4000, bgcolor=theme.GLASS_FILL_SOLID))
+        page.show_dialog(ft.SnackBar(content=text(message, 13.5, 500), duration=4000))
     except Exception:
         pass
 

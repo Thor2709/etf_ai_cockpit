@@ -11,6 +11,8 @@ from etf_cockpit.app import theme
 from etf_cockpit.app.components.kit import Button
 from etf_cockpit.app.components.kit._base import txt
 
+# Semantic dot names used by the view models that the kit ListRow does not know itself.
+DOT_TOKENS = {"mute": theme.INK3}
 NARROW_WIDTH = 1100
 MEDIUM_WIDTH = 1300
 NOTE_MIN_CARD_WIDTH = 480

@@ -34,7 +34,7 @@ from etf_cockpit.app.components.kit import (
     status_tag,
 )
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
-from etf_cockpit.app.pages._p1_common import GridLayout, grid, make_layout, refresh, text, with_edge_fade
+from etf_cockpit.app.pages._p1_common import DOT_TOKENS, GridLayout, grid, make_layout, refresh, text, with_edge_fade
 from etf_cockpit.app.pages._p1_common import workflow_button as _workflow_button
 from etf_cockpit.application.ui_views.home import (
     BAND_LABELS,
@@ -308,7 +308,7 @@ def _home_body(
 def _what_matters_card(page: ft.Page, state: AppState, view: HomeView, layout: GridLayout) -> ft.Control:
     rows = [
         ListRow(
-            check.dot,
+            DOT_TOKENS.get(check.dot, check.dot),
             check.title,
             check.sub,
             (check.tag_text, check.tag_kind),
@@ -317,8 +317,13 @@ def _what_matters_card(page: ft.Page, state: AppState, view: HomeView, layout: G
         )
         for index, check in enumerate(view.checks)
     ]
+    # Row height 76; card chrome (padding, title, gap) takes about 76. When the rows overflow, the list scrolls
+    # inside the card, ends with a clear bottom padding (the last row is fully reachable) and shows the edge fade.
+    overflow = len(rows) * 76 > layout.row_heights[0] - 76
     body: ft.Control = (
-        with_edge_fade(ft.ListView(rows, spacing=0, expand=True))
+        with_edge_fade(ft.ListView(rows, spacing=0, expand=True, padding=ft.Padding(left=0, top=0, right=0, bottom=28)))
+        if rows and overflow
+        else ft.ListView(rows, spacing=0, expand=True)
         if rows
         else EmptyState("No checks available", "The local digest could not be read; manual review is required.")
     )
@@ -574,7 +579,7 @@ def as_of_strip(state: object, *, key: str) -> ft.Control:
         [
             date_tag,
             basis_tag,
-            ft.Text("Matches the global as-of bar; every figure below is read at this date.", size=11, color=theme.MUTED),
+            ft.Text("Matches the global as-of bar; every figure below is read at this date.", size=theme.FONT_XS, color=theme.MUTED),
         ],
         spacing=8,
         wrap=True,
@@ -586,8 +591,8 @@ def disclosure(title: str, subtitle: str, content: ft.Control, *, key: str, expa
     """Collapsed-by-default detail section so each page leads with its summary."""
 
     return ft.ExpansionTile(
-        title=ft.Text(title, size=15, weight=ft.FontWeight.W_600, color=theme.TEXT),
-        subtitle=ft.Text(subtitle, size=12, color=theme.MUTED),
+        title=ft.Text(title, size=theme.FONT_MD, weight=ft.FontWeight.W_600, color=theme.TEXT),
+        subtitle=ft.Text(subtitle, size=theme.FONT_SM, color=theme.MUTED),
         controls=[content],
         expanded=expanded,
         key=key,
@@ -620,7 +625,7 @@ def _what_matters_today(state: AppState, *, scores: list[SimpleInstrumentScore] 
                     f"(status={item.status}, source={item.provenance}, as_of={as_of}, execution_allowed=false)",
                     color=theme.TEXT if item.status == "available" else theme.AMBER,
                     selectable=True,
-                    size=11,
+                    size=theme.FONT_XS,
                     max_lines=4,
                     overflow=ft.TextOverflow.ELLIPSIS,
                 )
@@ -632,7 +637,7 @@ def _what_matters_today(state: AppState, *, scores: list[SimpleInstrumentScore] 
                     "Unavailable/manual-review inputs: " + ", ".join(unavailable),
                     color=theme.MUTED,
                     selectable=True,
-                    size=11,
+                    size=theme.FONT_XS,
                 )
             )
         body: ft.Control = ft.Column(rows, spacing=4)
@@ -934,7 +939,7 @@ def _run_changes_digest(_page: ft.Page, _state: AppState) -> ft.Control:
             report = compare_runs(history, current, previous)
             lines = [ft.Text(report.summary, color=theme.MUTED, selectable=True)]
             for change in report.changes[:5]:
-                lines.append(ft.Text(f"{change.instrument_id}: {change.summary}", color=theme.MUTED, selectable=True, size=11))
+                lines.append(ft.Text(f"{change.instrument_id}: {change.summary}", color=theme.MUTED, selectable=True, size=theme.FONT_XS))
             body = ft.Column(lines, spacing=4)
     return panel(
         ft.Column(
@@ -961,7 +966,7 @@ def _news_digest(page: ft.Page, state: AppState) -> ft.Control:
                 f"{row.get('published_at', 'unavailable')} | {row.get('headline', 'Headline unavailable')} | {row.get('provider_name', 'provider unavailable')} | timestamp={row.get('timestamp_status', 'unavailable')} | context_only=true | executable_authority=false",
                 color=theme.MUTED,
                 selectable=True,
-                size=11,
+                size=theme.FONT_XS,
             ))
         body = ft.Column(rows, spacing=4)
     contradiction_records = _contradiction_record(
@@ -974,7 +979,7 @@ def _news_digest(page: ft.Page, state: AppState) -> ft.Control:
             f"{record['title']}: {record['detail']} (status={record.get('rule_status', record['status'])})",
             color=theme.AMBER if record["status"] != "available" else theme.MUTED,
             selectable=True,
-            size=11,
+            size=theme.FONT_XS,
         )
         for record in contradiction_records
     ] or [ft.Text("Contradiction engine unavailable; no rule result is inferred.", color=theme.MUTED, selectable=True)]
@@ -1026,7 +1031,7 @@ def _alert_row(page: ft.Page | None, state: AppState, record: AlertRecord, *, ac
         f"{alert.title} | {alert.message} | type={alert.alert_type.value} | severity={alert.severity.value} | confidence={alert.confidence.value} | subject={alert.subject_id} | {status} | execution_allowed=false",
         color=theme.MUTED,
         selectable=True,
-        size=11,
+        size=theme.FONT_XS,
         max_lines=4,
         overflow=ft.TextOverflow.ELLIPSIS,
     )
@@ -1060,7 +1065,7 @@ def _alerts_digest(page: ft.Page, state: AppState) -> ft.Control:
         )
     records = readback.records
     body: ft.Control = (
-        ft.Column([_alert_row(page, state, record, actions=True) for record in records], spacing=6)
+        ft.Column([_alert_row(page, state, record, actions=True) for record in records], spacing=theme.SPACE_2)
         if records
         else ft.Text("No active local alerts or review reminders.", color=theme.MUTED, selectable=True)
     )
@@ -1089,16 +1094,16 @@ def _alert_history_panel(page: ft.Page, state: AppState) -> ft.Control:
         )
     records = readback.records
     body: ft.Control = (
-        ft.Column([_alert_row(page, state, record, actions=False) for record in records], spacing=6)
+        ft.Column([_alert_row(page, state, record, actions=False) for record in records], spacing=theme.SPACE_2)
         if records
         else ft.Text("No local alert history.", color=theme.MUTED, selectable=True)
     )
     return ft.Column(
         [
-            ft.Text("Alert history", color=theme.TEXT, weight=ft.FontWeight.BOLD, size=12),
+            ft.Text("Alert history", color=theme.TEXT, weight=ft.FontWeight.BOLD, size=theme.FONT_SM),
             body,
         ],
-        spacing=6,
+        spacing=theme.SPACE_2,
     )
 
 
@@ -1216,12 +1221,12 @@ def _action_bar(page: ft.Page, state: AppState) -> ft.Control:
                             width=170,
                         ),
                     ],
-                    spacing=10,
+                    spacing=theme.SPACE_3,
                     wrap=True,
                 ),
-                ft.Text(state.last_message, color=theme.MUTED, size=12),
+                ft.Text(state.last_message, color=theme.MUTED, size=theme.FONT_SM),
             ],
-            spacing=10,
+            spacing=theme.SPACE_3,
         )
     )
 
@@ -1243,16 +1248,16 @@ def _activity_panel(state: AppState, *, page: ft.Page | None = None) -> ft.Contr
                             on_click=lambda _event: _cancel_activity(page, state),
                         ),
                     ],
-                    spacing=10,
+                    spacing=theme.SPACE_3,
                     wrap=True,
                 ),
                 ft.ProgressBar(
                     value=(current.completed_units / current.total_units if current.total_units else None),
                     color=theme.CYAN,
-                    bgcolor=theme.SURFACE_2,
+                    bgcolor=theme.WELL_FILL,
                 ),
                 ft.Text(f"Current step: {current.step}", color=theme.MUTED),
-                ft.Text(f"Started: {current.started_at}", color=theme.MUTED, size=11),
+                ft.Text(f"Started: {current.started_at}", color=theme.MUTED, size=theme.FONT_XS),
             ]
         )
     else:
@@ -1260,7 +1265,7 @@ def _activity_panel(state: AppState, *, page: ft.Page | None = None) -> ft.Contr
 
     recent = list(reversed(state.recent_activity[-5:]))
     if recent:
-        rows.append(ft.Text("Recent activity", color=theme.TEXT, weight=ft.FontWeight.BOLD, size=12))
+        rows.append(ft.Text("Recent activity", color=theme.TEXT, weight=ft.FontWeight.BOLD, size=theme.FONT_SM))
         for entry in recent:
             colour = theme.GREEN if entry.status == "success" else theme.RED if entry.status == "failed" else theme.CYAN
             output = f" | output: {Path(entry.output_path).name}" if entry.output_path else ""
@@ -1272,7 +1277,7 @@ def _activity_panel(state: AppState, *, page: ft.Page | None = None) -> ft.Contr
                         ft.Text(
                             f"{entry.finished_at or entry.started_at} | {entry.message}{output}{error}",
                             color=theme.MUTED,
-                            size=11,
+                            size=theme.FONT_XS,
                             max_lines=3,
                             overflow=ft.TextOverflow.ELLIPSIS,
                         ),
@@ -1719,7 +1724,7 @@ def _open_renew_dialog(page: ft.Page, state: AppState) -> None:
                     ft.Text("With yfinance configured, this refreshes Yahoo data. Without provider details, it returns a safe message.", color=theme.MUTED),
                     result_text,
                 ],
-                spacing=10,
+                spacing=theme.SPACE_3,
                 scroll=ft.ScrollMode.AUTO,
             ),
         ),

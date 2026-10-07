@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 TIER_FILTERS = ("All", "Primary", "Secondary", "Sparebanken")
 SORT_MODES = ("Score", "Rank", "Change")
 BAND_LABELS = ("<3", "3", "4", "5", "6", "7+")
-GREY = "#8e9ab4"
+GREY = "mute"  # semantic dot colour; the page maps it to a theme token
 MINUS = "−"
 
 _STRONG = {"strong_evidence_candidate"}

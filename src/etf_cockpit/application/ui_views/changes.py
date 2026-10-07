@@ -225,7 +225,7 @@ def score_insight(bars: Sequence[ChangeRow]) -> str | None:
 def lineage_rows(context: Mapping[str, object] | None, version_summary: Mapping[str, object] | None) -> tuple[LineageRow, ...]:
     """Run lineage rows from the existing upstream context; every missing source is explicit."""
     if context is None:
-        out = [LineageRow("#8e9ab4", "Run lineage unavailable", "Two comparable runs are needed.")]
+        out = [LineageRow("mute", "Run lineage unavailable", "Two comparable runs are needed.")]
     else:
         corrections, dependencies, paper = (
             value if isinstance(value, Mapping) else {}
@@ -237,15 +237,15 @@ def lineage_rows(context: Mapping[str, object] | None, version_summary: Mapping[
                               f"{corrections.get('current_corrections')} corrections" if changed
                               else "Unchanged between runs (point-in-time)")]
         else:
-            out = [LineageRow("#8e9ab4", "Data corrections", f"Unavailable ({corrections.get('reason', 'not recorded')})")]
+            out = [LineageRow("mute", "Data corrections", f"Unavailable ({corrections.get('reason', 'not recorded')})")]
         if dependencies.get("status") == "available":
             moved = tuple(dependencies.get("changed_artifacts") or ())
             out.append(LineageRow("warn" if moved else "ok", "Run dependencies",
                                   "Changed: " + "; ".join(moved) if moved else "Unchanged"))
         else:
-            out.append(LineageRow("#8e9ab4", "Run dependencies",
+            out.append(LineageRow("mute", "Run dependencies",
                                   f"Unavailable ({dependencies.get('reason', 'not recorded')})"))
-        out.append(LineageRow("ok" if paper.get("status") == "available" else "#8e9ab4", "Paper / order state",
+        out.append(LineageRow("ok" if paper.get("status") == "available" else "mute", "Paper / order state",
                               "Unchanged · execution_allowed=false" if paper.get("status") == "available"
                               else f"Unavailable ({paper.get('reason', 'not recorded')}) · execution_allowed=false"))
     if version_summary is not None:

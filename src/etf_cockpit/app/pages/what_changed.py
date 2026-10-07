@@ -22,7 +22,7 @@ from etf_cockpit.app.components.kit import (
 )
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
 from etf_cockpit.app.formatting import format_timestamp
-from etf_cockpit.app.pages._p1_common import GridLayout, grid, make_layout, refresh, text
+from etf_cockpit.app.pages._p1_common import DOT_TOKENS, GridLayout, grid, make_layout, refresh, text
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import (
     REQUIRED_CHANGE_DIMENSIONS,
@@ -47,7 +47,7 @@ from etf_cockpit.application.ui_views.changes import (
     sorted_rows,
 )
 
-_RISING, _FALLING = "#6fcfa6", "#e8897c"
+_RISING, _FALLING = theme.CHART_POS, theme.CHART_NEG
 
 
 def _run_stamp(history: object, run_id: str | None) -> str | None:
@@ -115,7 +115,7 @@ def what_changed_page(_page: ft.Page, _state: AppState) -> PageView:
         key="what-changed.filter.changed-only",
         value=True,
         active_color=theme.SELECTED_BG[0],
-        inactive_track_color=theme.rgba(0, 0, 0, 0.35),
+        inactive_track_color=theme.FIELD_FILL,
         thumb_color=theme.INK,
     )
     table_holder = ft.Container(expand=True)
@@ -275,7 +275,7 @@ def _changes_table(rows: list[ChangeRow], view: ChangesView, selected: int | Non
 
 def _lineage_card(view: ChangesView, layout: GridLayout, span: int) -> ft.Control:
     rows = [
-        ListRow(item.dot, item.title, item.sub, last=index == len(view.lineage) - 1)
+        ListRow(DOT_TOKENS.get(item.dot, item.dot), item.title, item.sub, last=index == len(view.lineage) - 1)
         for index, item in enumerate(view.lineage)
     ]
     return GlassCard(
@@ -315,11 +315,11 @@ def _path_card(layout: GridLayout, row: ChangeRow | None) -> ft.Control:
         for path in row.causal_paths:
             steps = [part.strip() for part in path.split("->") if part.strip()]
             for position, step in enumerate(steps):
-                seen.setdefault(step, sink_colour if position == len(steps) - 1 else "#9ad1ff")
+                seen.setdefault(step, sink_colour if position == len(steps) - 1 else theme.CHART_PRIMARY)
             links.extend(ck.SankeyLink(source, target, 1.0) for source, target in zip(steps, steps[1:]))
         nodes = [ck.SankeyNode(name, colour) for name, colour in seen.items()]
     elif row.changed_inputs:
-        nodes = [ck.SankeyNode(label, "#cfe8ff") for label, _key in row.changed_inputs]
+        nodes = [ck.SankeyNode(label, theme.CHART_MODEL) for label, _key in row.changed_inputs]
         nodes.append(ck.SankeyNode(sink, sink_colour))
         links = [ck.SankeyLink(label, sink, 1.0) for label, _key in row.changed_inputs]
     else:
