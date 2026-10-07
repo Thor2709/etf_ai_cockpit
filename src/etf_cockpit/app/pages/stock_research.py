@@ -469,7 +469,8 @@ def _gate_rows(score: object, view: research_view.StockView, meta: dict[str, str
         data = (view.adjusted_share == 1.0 and not view.gap_count, "Data quality", f"{adjusted} adjusted prices, {gaps}, as of {format_date(view.last_date)}")
     friction = getattr(score, "risk_friction_10", None)
     cost_text = f"TER {meta['ter']}" if meta["ter"] else "TER unavailable"
-    cost = (None if friction is None else friction >= 4.0, "Cost", f"{cost_text} · tracking difference unavailable")
+    # Missing cost evidence is unavailable, never a pass (no fail-open on missing data).
+    cost = (None if friction is None or not meta["ter"] else friction >= 4.0, "Cost", f"{cost_text} · tracking difference unavailable")
     q10, q50, q90 = (getattr(score, name, None) for name in ("q10_expected_return", "q50_expected_return", "q90_expected_return"))
     if q10 is None or q50 is None or q90 is None:
         forecast = (None, "Forecast agrees", "No complete forecast distribution")
