@@ -218,7 +218,7 @@ def navigate_to(page: ft.Page, state: AppState, route: str, *, candidate_score: 
 
 MIN_BODY_HEIGHT = 742  # row A 420 + gap + row B 300 (spec 1): below this the body scrolls inside the main area
 MIN_BODY_HEIGHT_NARROW = 1400  # stacked cards in one column (spec 1, width < 1100)
-_CHROME_HEIGHT = 24 + 80 + 20 + 20 + 48 + 24  # margins, top bar, two gaps, footer
+_CHROME_HEIGHT = 24 + 80 + 22 + 22 + 48 + 24  # margins, top bar, two gaps, footer
 
 
 def _window_size(page: ft.Page, state: AppState, width: float | None = None) -> tuple[float, float]:
@@ -390,7 +390,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
         footer_slot[0] = footer.control
 
     # Progress strip for a running activity (cancel stays reachable)
-    progress_strip: ft.Control = ft.Container(height=0)
+    progress_strip: ft.Control | None = None
     if getattr(state, "current_activity", None) is not None:
         running_action_id = state.current_activity.action_id
 
@@ -432,9 +432,9 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
 
     footer_slot = [footer.control]
     column = ft.Column(
-        [topbar.control, progress_strip, body_area, footer.control],
+        [c for c in (topbar.control, progress_strip, body_area, footer.control) if c is not None],
         expand=True,
-        spacing=20,
+        spacing=22,
     )
     shell_row = ft.Row(
         [dock.control, column],

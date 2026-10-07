@@ -291,7 +291,10 @@ def y_axis(
             nx = name_x if name_x is not None else max(11.0, plot.x0 - 46)
         else:
             nx = name_x if name_x is not None else min(plot.width - 11.0, plot.x1 + 46)
-        scene.add(txt(nx, (plot.y0 + plot.y1) / 2, name, size=13, weight=500, color=pal.T2,
+        # Rotated name: keep its whole length inside the canvas (truncate with an ellipsis, shift the centre).
+        length = min(text_width(name, 13) * 1.08, plot.height - 8)
+        cy = min(max((plot.y0 + plot.y1) / 2, 4 + length / 2), plot.height - 4 - length / 2)
+        scene.add(txt(nx, cy, name, size=13, weight=500, color=pal.T2, max_width=length,
                       rotate=-math.pi / 2 if side == "left" else math.pi / 2))
     return scale
 
@@ -299,7 +302,9 @@ def y_axis(
 def x_axis_line(scene: Scene, plot: Plot, name: str | None = None, *, name_gap: float = 36) -> None:
     scene.add(line(plot.x0, plot.y1, plot.x1, plot.y1, pal.AXIS, 1))
     if name:
-        scene.add(txt((plot.x0 + plot.x1) / 2, min(plot.y1 + name_gap, plot.height - 8), name, size=13, weight=500, color=pal.T2))
+        length = min(text_width(name, 13) * 1.08, plot.width - 8)
+        cx = min(max((plot.x0 + plot.x1) / 2, 4 + length / 2), plot.width - 4 - length / 2)
+        scene.add(txt(cx, min(plot.y1 + name_gap, plot.height - 12), name, size=13, weight=500, color=pal.T2, max_width=length))
 
 
 def category_labels(

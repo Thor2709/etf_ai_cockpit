@@ -96,3 +96,16 @@ def test_resize_rebuilds_scene():
     before = _scene(chart)
     chart.data.resize(500, 260)
     assert _scene(chart) is not before and _scene(chart).width == 500 and chart.width == 500
+
+
+def test_axis_names_stay_inside_small_frame():
+    width, height = 300, 220
+    chart = ck.histogram(["<3", "3", "4", "5", "6", "7+"], [1, 3, 10, 20, 3, 9],
+                         x_name="Score band", y_name="Instruments (count)", width=width, height=height)
+    texts = {t.value: t for t in _scene(chart).shapes if isinstance(t, cv.Text)}
+    for name, rotated in (("Score band", False), ("Instruments (count)", True)):
+        t = texts[name]
+        length = t.max_width or ck.text_width(name, 13)
+        w, h = (13, length) if rotated else (length, 13)
+        assert t.x - w / 2 >= 0 and t.x + w / 2 <= width, name
+        assert t.y - h / 2 >= 0 and t.y + h / 2 <= height, name
