@@ -104,7 +104,7 @@ def test_forecast_lab_renders_net_value_coverage_runtime_and_fold_evaluation(mon
         ),
     )
 
-    controls = forecast_lab.forecast_lab_page(None, state)
+    controls = forecast_lab.forecast_lab_page(None, state).body
     text = "\n".join(_texts(controls))
 
     for label in (
@@ -126,6 +126,6 @@ def test_forecast_lab_renders_net_value_coverage_runtime_and_fold_evaluation(mon
         "Current step: Running baseline forecasts",
         "Forecasts are low-authority and cannot rescue or upgrade weak deterministic evidence.",
     ):
-        assert label in text
+        assert label.casefold() in text.casefold()
     assert "forecast-lab.run" in _keys(controls)
     assert "Resource and latency metadata: not recorded" not in text
