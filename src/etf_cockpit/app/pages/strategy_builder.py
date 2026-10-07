@@ -65,7 +65,11 @@ def strategy_builder_page(page: ft.Page, state: AppState) -> PageView:
     template_rows: list[ft.Control] = []
     for template in templates:
         enabled = facade.is_enabled(template.template_id)
-        enabled_tag = Tag("Enabled" if enabled else "Disabled", "ok" if enabled else "mute")
+        enabled_tag = Tag(
+            "Enabled" if enabled else "Disabled",
+            "ok" if enabled else "mute",
+            key=f"strategy-builder.status.{template.template_id}",
+        )
 
         def toggle_template(
             _event: object,
@@ -112,7 +116,10 @@ def strategy_builder_page(page: ft.Page, state: AppState) -> PageView:
     templates_card = GlassCard(
         "Strategy templates",
         note=f"{len(templates)} templates · {sum(facade.enabled.values())} enabled",
-        body=[*template_rows, Note("Local preferences are stored atomically; execution_allowed=false.")],
+        body=[
+            ft.Column(template_rows, spacing=8, key="strategy-builder.template.*"),
+            Note("Local preferences are stored atomically; execution_allowed=false."),
+        ],
         expand=7,
         key="strategy-builder.card.templates",
     )
