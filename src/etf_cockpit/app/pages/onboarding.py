@@ -7,6 +7,7 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel, section_header
 from etf_cockpit.app.components.kit import status_tag
+from etf_cockpit.app.pages._l1a_common import page_view
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.settings import ANALYSIS_DEPTHS, HORIZONS, load_config, OUTPUT_CURRENCIES, RISK_PROFILES
 from etf_cockpit.core.paths import ROOT
@@ -198,7 +199,7 @@ def onboarding_page(
             status.value = f"Setup not saved: {exc}"
         page.update()
 
-    return ft.Column(
+    body = ft.Column(
         [
             panel(ft.Column([_as_of_strip(state), section_header("First-run setup", "Create a local watchlist without requiring network access."), ft.Text(f"{jurisdiction_disclaimer} Offline or unresolved tickers remain disabled until validated. Online validation is opt-in and requires an injected provider callback.", color=theme.MUTED), ft.Row([base_currency, region, scope, risk, horizon, analysis_depth], wrap=True), _disclosure("Advanced setup options", "Storage, hardware profile, providers, bootstrap, encryption and backups; defaults are safe and offline.", ft.Column([ft.Row([storage_location, ft.Text(f"Project-local runtime root: {ROOT}", color=theme.MUTED), hardware_profile, mandatory_provider, optional_providers, bootstrap_mode, bulk_source_path, encryption_preference, backup_preference], wrap=True), ft.Text("Sample creates a shipped identity-only universe without fabricated prices. Bulk accepts only an explicit local price file and remains visibly unavailable when absent or invalid.", color=theme.MUTED, size=11), ft.Text("Mandatory providers are offline-compatible. Optional provider absence or quota failure is recorded visibly and never blocks setup.", color=theme.MUTED, size=11), ft.Text("Quick/Medium/High/Full are versioned analysis-effort selections; warm/cold timing effects remain unavailable until ISSUE-0175.", color=theme.MUTED, size=11)], spacing=8), key="onboarding.details.advanced"), ft.ResponsiveRow([ft.Container(content=tickers, col={"xs": 12, "md": 9}), ft.Container(content=ft.Button("Save setup", key="onboarding.save", icon=ft.Icons.SAVE, on_click=submit), col={"xs": 12, "md": 3})], spacing=8, run_spacing=8), online_validation, status], spacing=10)),
             panel(ft.Column([section_header("Authority boundary", "Setup stores preferences only. It never grants broker/provider write authority or starts execution."), ft.Text("execution_allowed=false | staged_execution_enabled=false | paper_enabled=false | broker_write_enabled=false", color=theme.AMBER)])),
@@ -207,4 +208,9 @@ def onboarding_page(
         ],
         expand=True,
         scroll=ft.ScrollMode.AUTO,
+    )
+    return page_view(
+        "First-run Setup",
+        "Create a local watchlist without network access",
+        body,
     )

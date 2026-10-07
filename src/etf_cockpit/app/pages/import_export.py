@@ -12,6 +12,8 @@ import pandas as pd
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.glass_pages import page_panel
 from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.components.shell.page_view import SegmentGroup
+from etf_cockpit.app.pages._l1a_common import page_view
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.portfolio_imports import PortfolioImportApplication
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, DERIVED_DIR, ROOT
@@ -677,7 +679,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
     def export_scoreboard(_event: ft.ControlEvent) -> None:
         export_category("scoreboard")
 
-    return ft.Column(
+    body = ft.Column(
         [
             panel(ft.Column([section_header("Import and Export Centre", "Preview and validate local evidence before any commit. All actions remain non-executable."), ft.Text("execution_allowed=false", color=theme.AMBER), ft.Row([import_type, portfolio_source_system, portfolio_provider, portfolio_locale], wrap=True), ft.Row([path_field, ft.OutlinedButton("Choose and preview", key="import-export.import", icon=ft.Icons.UPLOAD_FILE, on_click=open_import)], wrap=True), ft.Row([commit_button], wrap=True), preview_text, staging_report], spacing=10)),
             panel(ft.Column([section_header("Portfolio reconciliation", "Match imported source evidence against point-in-time canonical ledger replay. Account mappings and corrections require explicit reviewer decisions; imported evidence is never a second balance calculation."), ft.Row([mapping_source, mapping_canonical, mapping_reviewer, mapping_reason, ft.OutlinedButton("Apply identity mapping", key="import-export.portfolio-apply-mapping", on_click=apply_portfolio_mapping)], wrap=True), ft.Row([portfolio_authority, portfolio_as_of, portfolio_known_at], wrap=True), ft.Row([source_account_id, ledger_cash_account, ledger_position_account, ledger_clearing_account, ft.OutlinedButton("Map source account", key="import-export.portfolio-map-account", on_click=map_portfolio_account)], wrap=True), ft.Row([ft.OutlinedButton("Reconcile against ledger", key="import-export.portfolio-reconcile", on_click=reconcile_portfolio), source_adjustment_event, ft.OutlinedButton("Post/reverse source correction", key="import-export.portfolio-adjust", on_click=apply_portfolio_adjustment)], wrap=True), ft.Row([orphan_entry_id, ft.OutlinedButton("Reverse orphaned source entry", key="import-export.portfolio-reverse-orphan", on_click=reverse_orphaned_portfolio_entry)], wrap=True), ft.Row([portfolio_export_path, ft.OutlinedButton("Export source evidence", key="import-export.portfolio-export", icon=ft.Icons.DOWNLOAD, on_click=export_portfolio)], wrap=True), ft.Row([portfolio_audit_path, ft.OutlinedButton("Export reconciliation audit", key="import-export.portfolio-audit-export", icon=ft.Icons.DOWNLOAD, on_click=export_portfolio_audit)], wrap=True), reconciliation_status], spacing=10)),
@@ -689,4 +691,10 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         ],
         expand=True,
         scroll=ft.ScrollMode.AUTO,
+    )
+    return page_view(
+        "Import & Export",
+        "Preview and validate local evidence before any commit · explicit export paths",
+        body,
+        (SegmentGroup("import-export", ("Import", "Reconcile", "Export", "Backup"), "Import"),),
     )

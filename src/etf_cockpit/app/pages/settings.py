@@ -5,6 +5,8 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.glass_pages import page_panel
 from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.components.shell.page_view import SegmentGroup
+from etf_cockpit.app.pages._l1a_common import page_view
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.ui_facade import (
     create_encrypted_backup,
@@ -341,7 +343,7 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
         f"{name}: provider={section.active_provider or 'none'}; base URL={'configured' if section.base_url else 'not configured'}"
         for name, section in config.data_providers.providers.items()
     ]
-    return ft.Column(
+    body = ft.Column(
         [
             panel(
                 ft.Column(
@@ -456,4 +458,10 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
         spacing=14,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
+    )
+    return page_view(
+        "Settings",
+        "Local preferences, credentials and release metadata · no provider, broker or live authority",
+        body,
+        (SegmentGroup("settings", ("General", "Data & models", "Privacy", "About"), "General"),),
     )

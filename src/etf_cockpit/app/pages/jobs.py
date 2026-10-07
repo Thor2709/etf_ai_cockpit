@@ -8,6 +8,8 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.glass_pages import page_panel
 from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.components.shell.page_view import SegmentGroup
+from etf_cockpit.app.pages._l1a_common import page_view
 from etf_cockpit.app.formatting import format_count, format_timestamp
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.paths import ROOT
@@ -278,7 +280,7 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
         page.update()
 
     refresh()
-    return ft.Column(
+    body = ft.Column(
         [
             resource_panel,
             panel(
@@ -295,4 +297,10 @@ def jobs_page(page: ft.Page, state: AppState) -> ft.Control:
         ],
         expand=True,
         scroll=ft.ScrollMode.AUTO,
+    )
+    return page_view(
+        "Jobs & Activity",
+        "Durable local workflows, dependency order and audit events",
+        body,
+        (SegmentGroup("jobs", ("All", "Running", "Failed", "Completed"), "All"),),
     )

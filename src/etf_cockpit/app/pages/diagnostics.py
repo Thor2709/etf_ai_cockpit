@@ -10,6 +10,8 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.glass_pages import page_panel
 from etf_cockpit.app.components.cards import section_header
+from etf_cockpit.app.components.shell.page_view import SegmentGroup
+from etf_cockpit.app.pages._l1a_common import page_view
 from etf_cockpit.app.formatting import format_count, format_timestamp
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.architecture import build_report as build_architecture_report
@@ -83,7 +85,7 @@ def diagnostics_page(_page: ft.Page, state: AppState) -> ft.Control:
         f"Version registry: {versions['record_count']} records | {versions['available_count']} available | signature {str(versions['registry_signature'])[:16]}…",
         f"Compatibility: forward-only migrations={versions['forward_only_migrations']} | immutable-after-run={versions['immutable_after_run']} | rebuild-sensitive={versions['rebuild_sensitive_count']}",
     ]
-    return ft.Column(
+    body = ft.Column(
         [
             panel(
                 ft.Column(
@@ -123,6 +125,12 @@ def diagnostics_page(_page: ft.Page, state: AppState) -> ft.Control:
         spacing=14,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
+    )
+    return page_view(
+        "Diagnostics",
+        "Configuration, local service state and performance budgets · no external telemetry",
+        body,
+        (SegmentGroup("diagnostics", ("Runtime", "Performance", "Session log"), "Runtime"),),
     )
 
 
