@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import flet as ft
 
+from etf_cockpit.app import theme
 from etf_cockpit.app.components.chartkit import bar_chart
 from etf_cockpit.app.components.kit import (
     Button,
@@ -15,7 +16,6 @@ from etf_cockpit.app.components.kit import (
     Note,
     TableColumn,
     Tag,
-    Toggle,
 )
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
 from etf_cockpit.app.state import AppState
@@ -35,8 +35,14 @@ _STAGES = (
 
 def strategy_builder_page(page: ft.Page, state: AppState) -> PageView:
     facade = StrategyTemplateFacade()
-    snapshot = getattr(getattr(state, "snapshot", None), "signals", ())
-    matches = facade.matches(snapshot)
+    signal_data = getattr(getattr(state, "snapshot", None), "signals", None)
+    if isinstance(signal_data, ft.Control):
+        signal_data_available = False
+    elif hasattr(signal_data, "empty"):
+        signal_data_available = not bool(signal_data.empty)
+    else:
+        signal_data_available = bool(signal_data)
+    matches = facade.matches(signal_data) if signal_data_available else []
     by_template = {template.template_id: [] for template in facade.templates}
     for match in matches:
         by_template.setdefault(match.template_id, []).append(match)
@@ -59,21 +65,42 @@ def strategy_builder_page(page: ft.Page, state: AppState) -> PageView:
     template_rows: list[ft.Control] = []
     for template in templates:
         enabled = facade.is_enabled(template.template_id)
+        enabled_tag = Tag("Enabled" if enabled else "Disabled", "ok" if enabled else "mute")
 
-        def set_enabled(value: bool, template_id: str = template.template_id) -> None:
+        def toggle_template(
+            _event: object,
+            template_id: str = template.template_id,
+            status_tag: ft.Container = enabled_tag,
+        ) -> None:
+            value = not facade.is_enabled(template_id)
             facade.set_enabled(template_id, value)
+            status_tag.content.value = "Enabled" if value else "Disabled"
+            status_tag.data = {"kit": "Tag", "kind": "ok" if value else "mute", "text": status_tag.content.value}
+            tone = "ok" if value else "mute"
+            status_tag.bgcolor = theme.TAG_TONES[tone][1]
+            status_tag.content.color = theme.TAG_TONES[tone][0]
             filter_templates(filter_state["selected"])
 
         row = ft.Row(
             [
-                Toggle(enabled, on_change=set_enabled, key=f"strategy-builder.status.{template.template_id}"),
-                Button.secondary(
+                ListRow(
+                    "info",
                     template.name,
+                    f"v{template.version} · benchmark {template.benchmark}",
                     on_click=lambda _e, template_id=template.template_id: select_template(template_id),
-                    key="strategy-builder.template.*",
+                    last=True,
                 ),
-                Note(f"v{template.version} · benchmark {template.benchmark}"),
-                Note(f"Matches {len(by_template[template.template_id])}"),
+                Button.secondary(
+                    "Toggle enabled",
+                    on_click=toggle_template,
+                    key=f"strategy-builder.template.{template.template_id}",
+                ),
+                enabled_tag,
+                (
+                    Note(f"Matches {len(by_template[template.template_id])}")
+                    if signal_data_available
+                    else Note("Unavailable · no saved signal data is available.")
+                ),
                 Tag("context-only" if template.context_only else "long-only research", "warn" if template.context_only else "mute"),
             ],
             spacing=8,
@@ -94,7 +121,11 @@ def strategy_builder_page(page: ft.Page, state: AppState) -> PageView:
         body=_template_detail(templates[0], by_template[templates[0].template_id]) if templates else Note("Unavailable · no strategy templates are registered."),
         expand=5,
     )
-    most_matches = max((len(by_template[template.template_id]) for template in templates), default=None)
+    most_matches = (
+        max((len(by_template[template.template_id]) for template in templates), default=None)
+        if signal_data_available
+        else None
+    )
     most_template = next(
         (template for template in templates if most_matches is not None and len(by_template[template.template_id]) == most_matches),
         None,
@@ -102,7 +133,7 @@ def strategy_builder_page(page: ft.Page, state: AppState) -> PageView:
     match_insight = (
         f"{most_template.name} has the most matches ({most_matches})."
         if most_template is not None
-        else "Unavailable · no strategy match results are available."
+        else "Unavailable · no saved signal data is available for strategy matching."
     )
     matches_card = GlassCard(
         "Matches per template",
@@ -114,7 +145,13 @@ def strategy_builder_page(page: ft.Page, state: AppState) -> PageView:
             y_name="Matches (count)",
             unit="matches",
             show_labels=True,
-            unavailable_reason="No strategy templates are registered." if not templates else None,
+            unavailable_reason=(
+                "No strategy templates are registered."
+                if not templates
+                else "No saved signal data is available for strategy matching."
+                if not signal_data_available
+                else None
+            ),
             insight=match_insight,
         ),
         expand=7,
