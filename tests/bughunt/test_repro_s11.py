@@ -14,6 +14,7 @@ import pandas as pd
 import etf_cockpit.app.components.tables as tables
 import etf_cockpit.app.pages.chatgpt_audit as chatgpt_audit
 import etf_cockpit.app.pages.comparison as comparison
+from etf_cockpit.app.pages import _p3_common as common
 import etf_cockpit.app.pages.import_export as import_export
 import etf_cockpit.app.pages.operations as operations
 from etf_cockpit.application.api import LocalApplicationApi
@@ -112,6 +113,15 @@ def test_s11_04_cancelled_worker_preserves_new_preview():
         assert getclosurevars(buttons[2].on_click).nonlocals["active_record"].operation_id == expected[0]
 
 
+def _walk_controls(control):
+    yield control
+    for child in getattr(control, "controls", None) or []:
+        yield from _walk_controls(child)
+    content = getattr(control, "content", None)
+    if content is not None:
+        yield from _walk_controls(content)
+
+
 def test_s11_05_comparison_workspace_save_accepts_snapshot_date():
     snapshot = N(
         config=N(),
@@ -126,14 +136,15 @@ def test_s11_05_comparison_workspace_save_accepts_snapshot_date():
     scores = [N(instrument_key="A", display_id="A", name="A")]
     context = N(benchmark_data_id=None, projection=None, registry=None, identity=None, peer_member_ids=())
     with (
-        patch.object(comparison, "context_from_snapshot", return_value=context),
-        patch.object(comparison, "build_simple_instrument_scores", return_value=scores),
+        patch.object(common, "context_from_snapshot", return_value=context),
+        patch.object(common, "build_simple_instrument_scores", return_value=scores),
         patch.object(comparison, "_comparison_table", return_value=ft.Text("stub")),
         patch.object(Path, "mkdir"),
         patch.object(Path, "write_text") as write,
     ):
         root = comparison.comparison_page(None, state)
-        root.controls[0].content.controls[2].controls[2].on_click(None)
+        save = [c for c in _walk_controls(root.body) if getattr(c, "key", None) == "comparison.save-workspace"][0]
+        save.on_click(None)
         assert '"2026-10-06"' in write.call_args.args[0]
 
 

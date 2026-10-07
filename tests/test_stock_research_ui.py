@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 import flet as ft
 
-from etf_cockpit.app.pages.stock_research import _capital_efficiency_panel, _expectations_panel, _growth_panel, _metrics_panel, _valuation_panel, stock_research_page
+from etf_cockpit.app.pages.stock_research import _capital_efficiency_panel, _expectations_panel, _growth_panel, _fundamentals, _metrics_panel, _valuation_panel, stock_research_page
 
 
 def test_stock_research_page_exposes_required_evidence_panels() -> None:
-    source = inspect.getsource(stock_research_page) + inspect.getsource(_capital_efficiency_panel) + inspect.getsource(_growth_panel) + inspect.getsource(_expectations_panel) + inspect.getsource(_valuation_panel)
+    source = inspect.getsource(stock_research_page) + inspect.getsource(_fundamentals) + inspect.getsource(_capital_efficiency_panel) + inspect.getsource(_growth_panel) + inspect.getsource(_expectations_panel) + inspect.getsource(_valuation_panel)
 
     assert "Profitability" in source
     assert "Earnings quality" in source

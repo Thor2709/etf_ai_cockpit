@@ -121,7 +121,10 @@ def test_comparison_workspace_is_registered_and_has_explicit_authority_text() ->
     snapshot = _snapshot_copy()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     rendered = comparison_page(None, state)
-    text = _text(rendered)
+    text = _text(rendered.body)
     assert "Comparison workspace" in text or "Comparison unavailable" in text
-    assert "disabled" in text
-    assert "local" in text.casefold()
+    # the redesigned table shows execution authority as the "None" tag (spec 6.5) instead of the word "disabled"
+    assert "Execution authority" in text and "None" in text
+    # the redesigned card keeps the locality statement as the Export CSV tooltip (spec 6.5)
+    tooltips = " ".join(str(getattr(item, "tooltip", "") or "") for item in _walk(rendered.body))
+    assert "local file only" in tooltips
