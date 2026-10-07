@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import cast
 
 import flet as ft
+from etf_cockpit.app.components.shell.page_descriptions import PAGE_DESCRIPTIONS
 from etf_cockpit.app.pages.help_glossary import PAGE_HELP, help_glossary_page
 from etf_cockpit.app.router import PAGES, build_shell
 from etf_cockpit.app.state import AppState
@@ -68,8 +69,10 @@ def test_every_registered_route_has_page_specific_help() -> None:
     view = build_shell(page, state, "/signals")
     text = _text_content(view)
 
-    assert PAGE_HELP["/signals"] in text
-    assert "Help & Glossary" in text
+    # The About panel is gone (spec 5.3): its first sentence is the page-menu description.
+    assert set(PAGE_DESCRIPTIONS) == set(PAGES)
+    assert PAGE_HELP["/signals"].startswith(PAGE_DESCRIPTIONS["/signals"])
+    assert "Scores" in text
 
 
 def test_glossary_covers_scores_authority_and_required_user_terms() -> None:

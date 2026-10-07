@@ -1,6 +1,5 @@
 version: 3
 controls:
-  - {key: shell.evidence-mode, route: /, control_label: Evidence mode, callback: evidence_mode_changed, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_frontend_design_system.py, control_type: input}
   - {key: shell.analysis-depth-selector, route: /, control_label: Analysis depth, callback: changed, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_analysis_depth_selector_ui.py, control_type: input}
   - {key: shell.analysis-depth-details, route: /, control_label: Depth details, callback: show_details, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_analysis_depth_details_ui.py, control_type: button}
   - {key: shell.analysis-depth-details.close, route: /, control_label: Close depth details, callback: close_dialog, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_analysis_depth_details_ui.py, control_type: button}
@@ -46,6 +45,7 @@ controls:
   - {key: navigation.data-models, route: /data-models, control_label: Data & Models, callback: navigate_to, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_accessibility_contracts.py, control_type: navigation}
   - {key: navigation.forecasts, route: /forecasts, control_label: Forecast Lab, callback: navigate_to, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_forecasts_ui.py, control_type: navigation}
   - {key: navigation.feature-catalogue, route: /feature-catalogue, control_label: Feature Catalogue, callback: navigate_to, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_feature_catalogue_ui.py, control_type: navigation}
+  - {key: navigation.sectors, route: /sectors, control_label: Sectors & Countries, callback: navigate_to, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_shell_navigation.py, control_type: navigation}
   - {key: navigation.macro, route: /macro, control_label: Macro and Factors, callback: navigate_to, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_macro_factors_ui.py, control_type: navigation}
   - {key: macro.regime-dashboard, route: /macro, control_label: Regime and proxy context, callback: render, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_macro_factors_ui.py, control_type: evidence}
   - {key: macro.refresh-context, route: /macro, control_label: Refresh local macro/news context, callback: refresh_context, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_issue_0012_progress.py, control_type: button}
@@ -70,6 +70,7 @@ controls:
   - {key: navigation.decision-journal, route: /decision-journal, control_label: Decision Journal, callback: navigate_to, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_accessibility_contracts.py, control_type: navigation}
   - {key: navigation.release-readiness, route: /release-readiness, control_label: Release Readiness, callback: navigate_to, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_release_readiness_ui.py, control_type: navigation}
   - {key: navigation.roadmap, route: /roadmap, control_label: Programme Map, callback: navigate_to, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_programme_map_ui.py, control_type: navigation}
+  - {key: shell.view-menu, route: /, control_label: View menu, callback: open_view_menu, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_shell_navigation.py, control_type: button}
   - {key: shell.command-palette.on-change, route: /, control_label: Search command palette, callback: render_palette_results, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_frontend_design_system.py, control_type: input}
   - {key: shell.command-palette.on-submit, route: /, control_label: Submit command palette, callback: submit_palette, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_frontend_design_system.py, control_type: input}
   - {key: shell.command.*, route: /, control_label: Open matching workspace, callback: select_palette_command, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_frontend_design_system.py, control_type: button}

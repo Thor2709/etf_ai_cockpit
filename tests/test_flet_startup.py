@@ -240,7 +240,7 @@ def test_resize_preserves_mounted_route_and_session_without_builder(monkeypatch)
         assert any(node is field for node in walk(view))
         assert page.update_count == updates + expected_updates
         dock = next(node for node in walk(view) if getattr(node, "key", None) == "shell.dock")
-        assert dock.width == 84
+        assert dock.width == (64 if width < 1100 else 84)
         active_label = next(
             node for node in walk(view) if getattr(node, "key", None) == "shell.dock.label.Lab"
         )

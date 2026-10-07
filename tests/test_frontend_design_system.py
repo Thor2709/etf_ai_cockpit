@@ -9,6 +9,7 @@ import pytest
 
 from etf_cockpit.app import theme
 from etf_cockpit.app import router
+from etf_cockpit.app.components.shell.page_menu import build_page_menu
 from etf_cockpit.app.components.states import STATE_NAMES, state_panel
 from etf_cockpit.app.router import PAGES, WORKSPACE_GROUPS, build_shell, uses_narrow_layout, workspace_for_route
 from etf_cockpit.app.state import AppState
@@ -107,12 +108,12 @@ def test_workspace_groups_cover_each_registered_route_once() -> None:
     assert len(grouped_routes) == len(set(grouped_routes))
     assert tuple(workspace for workspace, _routes in WORKSPACE_GROUPS) == (
         "Home",
-        "Research",
-        "Compare",
-        "Map",
         "Universe",
+        "Research",
         "Portfolio",
+        "Compare",
         "Lab",
+        "Map",
         "Changes",
         "Help",
     )
@@ -139,13 +140,14 @@ def test_shell_has_grouped_navigation_and_evidence_mode_at_responsive_widths(wid
 
     view = build_shell(page, state, "/")
     controls = list(_walk(view))
+    # Evidence mode moved from the header into the Analysis depth dialog (spec 5.5), opened from the footer rail.
+    assert any(getattr(control, "key", None) == "shell.as-of.analysis-depth" for control in controls)
     keys = {str(control.key) for control in controls if getattr(control, "key", None)}
     dock_items = [control for control in controls if str(getattr(control, "key", "")).startswith("nav.workspace.")]
 
-    assert "shell.evidence-mode" in keys
     assert "shell.command-palette" in keys
     assert len(dock_items) == 9
-    assert all(item.tooltip == f"Workspace: {workspace}" for item, (workspace, _routes) in zip(dock_items, WORKSPACE_GROUPS))
+    assert all(item.tooltip.startswith(f"{workspace} — ") for item, (workspace, _routes) in zip(dock_items, WORKSPACE_GROUPS))
     assert sum(item.data == "active" for item in dock_items) == 1
     dock_label = next(control for control in controls if getattr(control, "key", None) == "shell.dock.label.Home")
     assert dock_label.visible is (width >= 1100)
@@ -161,12 +163,11 @@ def test_shell_command_palette_exposes_search_and_enter_instructions() -> None:
     text = " ".join(str(control.value) for control in _walk(view) if isinstance(control, ft.Text))
     fields = [control for control in _walk(view) if isinstance(control, ft.TextField)]
 
-    assert any(field.label == "Command palette" and field.hint_text == "Search pages or commands" for field in fields)
+    assert any(field.hint_text == "Search or jump to…" for field in fields)
     palette = next(field for field in fields if field.key == "shell.command-palette")
     assert palette.on_change.__name__ == "render_palette_results"
     assert palette.on_submit.__name__ == "submit_palette"
     assert "Home" in text
-    assert "Search or jump to…" in text
 
 
 def test_shell_command_palette_filters_and_navigates(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -319,7 +320,9 @@ def test_mobile_dock_is_icons_only_and_subnavigation_stays_bounded(monkeypatch):
     dock = next(control for control in controls if getattr(control, "key", None) == "shell.dock")
     dock_items = [control for control in _walk(dock) if str(getattr(control, "key", "")).startswith("nav.workspace.")]
     label = next(control for control in controls if getattr(control, "key", None) == "shell.dock.label.Home")
-    subnav = next(control for control in controls if getattr(control, "key", None) == "shell.workspace-navigation")
     assert len(dock_items) == 9
     assert label.visible is False
-    assert {control.key for control in _walk(subnav) if getattr(control, "key", None)} >= {"navigation.home", "navigation.onboarding"}
+    assert dock.width == 64
+    # The sub-page chips moved into the page menu (spec 5.3); the Home workspace still lists both pages.
+    menu = build_page_menu(dict(WORKSPACE_GROUPS)["Home"], "/", PAGES, navigate_to=lambda _route: None)
+    assert {control.key for control in _walk(menu.panel) if getattr(control, "key", None)} >= {"navigation.home", "navigation.onboarding"}

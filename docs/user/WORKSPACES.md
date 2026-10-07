@@ -14,24 +14,26 @@ place a live order: `execution_allowed=false`.
 
 Every page is shown inside the same shell.
 
-- The safety rail (top): `Execution locked`, data quality, as-of time, price
-  basis (`adjusted`), forecast source and `execution_allowed=false`. A value the
-  current snapshot cannot supply is shown as `Unavailable` with the reason in
-  its tooltip.
-- **Command palette**: type part of a page title, route or workspace name and
-  pick a result; Enter opens the first match. It lists up to eight matches.
-- **Evidence mode**: `Compact - decision summary`, `Default - evidence and
-  uncertainty` or `Advanced - evidence and diagnostics`. It is a display
-  preference held in the session (it is saved with a Comparison workspace and
-  shown in the dashboard details); it never changes a score.
+- The footer rail (bottom): `Execution locked`, data quality, as-of time, price
+  basis (`adjusted`), forecast source, analysis depth, the saved currency,
+  horizon and risk profile, and `execution_allowed=false`. A value the current
+  snapshot cannot supply is shown as `Unavailable` with the reason in its
+  tooltip. **Depth:** opens the Analysis depth dialog, which also holds the
+  evidence mode.
+- **Search or jump to**: type part of a page title, route, instrument or
+  glossary term and pick a result; Enter opens the first page match and `/`
+  focuses the field from anywhere. It lists up to eight matches.
+- **Evidence mode** (in the Analysis depth dialog): `Compact - decision
+  summary`, `Default - evidence and uncertainty` or `Advanced - evidence and
+  diagnostics`. It is a display preference held in the session (it is saved
+  with a Comparison workspace and shown in the dashboard details); it never
+  changes a score.
 - **What changed**: opens the What Changed page.
-- Context pills below the title show the data as-of date, price basis, horizon
-  and currency, or `Unavailable` when no value is set.
-- Page buttons for the active workspace sit under the header; **All pages**
-  expands every other workspace.
-- The workspace dock on the left switches workspace; Help is pinned at the
-  bottom. Below a window width of 1100 px the shell switches to a stacked
-  layout without the sidebar.
+- The page title in the top bar opens a menu of the other pages in the active
+  workspace (arrow keys, Enter and Esc work in it).
+- The workspace dock on the left switches workspace (Alt+1 to Alt+9); Help is
+  pinned at the bottom. Below a window width of 1100 px the shell switches to a
+  stacked layout with a narrow dock.
 - A running action shows a progress strip with a **Cancel** button.
 
 ## Workspace map
@@ -67,6 +69,7 @@ instrument ID.
 
 | Route | Page | Use it to |
 | --- | --- | --- |
+| `/sectors` | Sectors & Countries | Map sector and country returns on a globe and a world map. |
 | `/macro` | Macro and Factors | Read macro observations with their release and vintage dates. |
 
 ### Universe

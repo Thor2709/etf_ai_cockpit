@@ -7,7 +7,8 @@ import time
 import flet as ft
 
 from etf_cockpit.app.pages.data_health import data_health_page
-from etf_cockpit.app.router import PAGES, build_shell
+from etf_cockpit.app.components.shell.page_menu import build_page_menu
+from etf_cockpit.app.router import PAGES, WORKSPACE_GROUPS, build_shell
 from etf_cockpit.app.state import AppState
 from etf_cockpit.app import state as state_module
 from etf_cockpit.core.ui_acceptance import build_main_ui_action_inventory
@@ -76,7 +77,7 @@ def test_dashboard_smoke_exposes_semantic_shell_and_workflow_controls() -> None:
     view = build_shell(page, state, "/")
     controls = _controls_by_key(view)
 
-    assert {"dashboard.what-matters-today", "shell.evidence-mode", "shell.command-palette"} <= set(controls)
+    assert {"dashboard.what-matters-today", "shell.as-of.analysis-depth", "shell.command-palette"} <= set(controls)
     workflow_keys = {
         "dashboard.refresh-yfinance",
         "dashboard.run-algorithms",
@@ -91,13 +92,17 @@ def test_navigation_smoke_exposes_every_registered_route() -> None:
     page, state = _render_state()
     view = build_shell(page, state, "/")
     controls = _controls_by_key(view)
-    expected = {
-        f"navigation.{route.strip('/').replace('/', '-') or 'home'}"
-        for route in PAGES
-    }
-
-    assert expected <= set(controls)
-    assert all(callable(getattr(controls[key][0], "on_click", None)) for key in expected)
+    assert all(callable(getattr(controls[f"nav.workspace.{workspace}"][0], "on_click", None)) for workspace, _ in WORKSPACE_GROUPS)
+    # Every page is reachable through the page menu of its workspace (spec 5.3).
+    expected = set()
+    for _workspace, routes in WORKSPACE_GROUPS:
+        menu = build_page_menu(routes, routes[0], PAGES, navigate_to=lambda _route: None)
+        menu_controls = _controls_by_key(menu.panel)
+        for route in menu.routes:
+            key = f"navigation.{route.strip('/').replace('/', '-') or 'home'}"
+            expected.add(key)
+            assert callable(getattr(menu_controls[key][0], "on_click", None))
+    assert expected == {f"navigation.{route.strip('/').replace('/', '-') or 'home'}" for route in PAGES if route != "/etf"}
 
 
 def test_score_row_expand_callback_toggles_details_visibility() -> None:

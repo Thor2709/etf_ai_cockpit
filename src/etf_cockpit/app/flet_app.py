@@ -16,8 +16,9 @@ _RUNTIME_TEMP = configure_runtime_environment()
 
 import flet as ft  # noqa: E402
 
-from etf_cockpit.app.router import relayout_shell, render_shell  # noqa: E402
+from etf_cockpit.app.router import relayout_shell, render_shell, shell_key_event  # noqa: E402
 from etf_cockpit.app.state import AppState  # noqa: E402
+from etf_cockpit.app import theme  # noqa: E402
 from etf_cockpit.app.theme import BG  # noqa: E402
 from etf_cockpit.core.session_log import init_session_log, log_event  # noqa: E402
 
@@ -93,6 +94,8 @@ def initialise_page(page: ft.Page, state: AppState | None = None) -> AppState:
     page.title = "ETF AI Evidence Cockpit"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG
+    page.fonts = theme.font_map()
+    page.theme = ft.Theme(font_family=theme.FONT_FAMILY)
     try:
         page.window.width = state.snapshot.config.ui.window_width
         page.window.height = state.snapshot.config.ui.window_height
@@ -119,6 +122,7 @@ def initialise_page(page: ft.Page, state: AppState | None = None) -> AppState:
         relayout_shell(page, state, getattr(event, "width", None))
 
     page.on_route_change = route_change
+    page.on_keyboard_event = lambda event: shell_key_event(page, event)
     page.on_resize = resize
     initial_route = page.route or state.snapshot.config.ui.default_page
     _render_route(page, state, initial_route)
@@ -219,7 +223,7 @@ def run() -> None:
     try:
         if view_setting in {"desktop", "flet_app"}:
             init_session_log(clear=False, build_mode="desktop", port=port, route="/")
-        _resolve_flet_app()(target=main, view=view, host="127.0.0.1", port=port)
+        _resolve_flet_app()(target=main, view=view, host="127.0.0.1", port=port, assets_dir=str(theme.ASSETS_DIR))
     except Exception:
         _startup_log("ft.app failed\n" + traceback.format_exc())
         raise

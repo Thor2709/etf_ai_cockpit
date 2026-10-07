@@ -1,17 +1,25 @@
 from __future__ import annotations
 
-from base64 import b64encode
-from importlib.resources import files
-from pathlib import Path
+from collections.abc import Callable
+from contextlib import contextmanager
 
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.command_palette import search_commands
 from etf_cockpit.app.components.cards import panel
-from etf_cockpit.app.components.depth_selector import ProfileRunController, depth_label, depth_selector
-from etf_cockpit.app.components.kit import backdrop, glass_panel
-from etf_cockpit.app.components.flet_compat import border_only, padding_symmetric
+from etf_cockpit.app.components.depth_selector import depth_label
+from etf_cockpit.app.components.kit import glass_panel
+from etf_cockpit.app.components.kit._base import txt
+from etf_cockpit.app.components.shell._glass import glass
+from etf_cockpit.app.components.shell.depth_dialog import open_depth_dialog
+from etf_cockpit.app.components.shell.dock import DOCK_WIDTH, DOCK_WIDTH_NARROW, build_dock
+from etf_cockpit.app.components.shell.footer import Footer, build_footer
+from etf_cockpit.app.components.shell.overlay import Overlay, Toast
+from etf_cockpit.app.components.shell.page_menu import PageMenu, build_page_menu, menu_routes
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView
+from etf_cockpit.app.components.shell.search import Search, build_search
+from etf_cockpit.app.components.shell.status import footer_values, material_change_count
+from etf_cockpit.app.components.shell.topbar import build_topbar
 from etf_cockpit.app.pages.backtests import backtests_page
 from etf_cockpit.app.pages.catalogue import catalogue_page
 from etf_cockpit.app.pages.comparison import comparison_page
@@ -32,7 +40,7 @@ from etf_cockpit.app.pages.what_changed import what_changed_page
 from etf_cockpit.app.pages.instrument_detail import instrument_detail_page
 from etf_cockpit.app.pages.import_export import import_export_page
 from etf_cockpit.app.pages.system_map import system_map_page
-from etf_cockpit.app.pages.help_glossary import help_glossary_page, page_help_panel
+from etf_cockpit.app.pages.help_glossary import help_glossary_page
 from etf_cockpit.app.pages.decision_journal import decision_journal_page
 from etf_cockpit.app.pages.forward_evidence import forward_evidence_page
 from etf_cockpit.app.pages.jobs import jobs_page
@@ -52,13 +60,12 @@ from etf_cockpit.app.pages.trust_evidence import (
     news_context_page,
     provider_status_page,
 )
+from etf_cockpit.app.pages.sectors import sectors_page
 from etf_cockpit.app.pages.release_readiness import release_readiness_page
 from etf_cockpit.app.pages.programme_map import programme_map_page
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.interactive_profile_run import interactive_profile_binder
 from etf_cockpit.core.navigation import ROUTE_TITLES, WORKSPACE_GROUPS
 from etf_cockpit.core.session_log import log_event
-from etf_cockpit.core.ui_acceptance import UIInvocationResult, command_contract_from_metadata
 
 _PAGE_RENDERERS = {
     "/": dashboard_page,
@@ -102,6 +109,7 @@ _PAGE_RENDERERS = {
     "/operations": operations_page,
     "/release-readiness": release_readiness_page,
     "/roadmap": programme_map_page,
+    "/sectors": sectors_page,
 }
 if set(_PAGE_RENDERERS) != {route for route, _title in ROUTE_TITLES}:
     raise RuntimeError("router renderers and core.navigation.ROUTE_TITLES disagree")
@@ -110,12 +118,12 @@ PAGES = {route: (title, _PAGE_RENDERERS[route]) for route, title in ROUTE_TITLES
 
 WORKSPACE_ICONS = {
     "Home": "house",
-    "Research": "telescope",
-    "Compare": "abacus",
-    "Map": "compass",
     "Universe": "globe",
+    "Research": "telescope",
     "Portfolio": "briefcase",
+    "Compare": "abacus",
     "Lab": "alembic",
+    "Map": "compass",
     "Changes": "newspaper",
     "Help": "bulb",
 }
@@ -177,84 +185,6 @@ def _shell_controls(state: AppState) -> object | None:
         return None
 
 
-def _safety_rail(state: AppState, data_report: object) -> ft.Container:
-    snapshot = getattr(state, "snapshot", None)
-    quality_value, quality_reason = _available_display(
-        getattr(data_report, "status", None),
-        "The current snapshot has no data-quality status.",
-    )
-    as_of_value, as_of_reason = _available_display(
-        getattr(snapshot, "as_of_time", getattr(data_report, "as_of_time", None)),
-        "The current snapshot provides an as-of date but no as-of timestamp.",
-    )
-    forecasts = getattr(snapshot, "forecasts", None)
-    forecast_value: object = None
-    forecast_reason = "No forecast source is available in the current snapshot."
-    if forecasts is not None and not getattr(forecasts, "empty", True) and "source_file" in getattr(forecasts, "columns", ()):
-        raw_forecast_source = forecasts["source_file"].iloc[0]
-        forecast_value = Path(str(raw_forecast_source)).name
-        forecast_reason = "The current snapshot has no forecast source file."
-    forecast_display, forecast_reason = _available_display(forecast_value, forecast_reason)
-
-    def rail_item(key: str, label: str, value: str, reason: str | None = None) -> ft.Container:
-        return ft.Container(
-            key=key,
-            data="unavailable" if value == "Unavailable" else "available",
-            tooltip=reason or label,
-            content=ft.Text(
-                "Execution locked"
-                if label == "Execution locked"
-                else f"execution_allowed={value}"
-                if label == "execution_allowed"
-                else f"{label}: {value}",
-                color=theme.TEXT,
-                size=theme.FONT_XS,
-            ),
-            bgcolor="#4c040a1a",
-            border=ft.Border(
-                left=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-                top=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-                right=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-                bottom=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-            ),
-            border_radius=999,
-            padding=ft.Padding(left=9, top=4, right=9, bottom=4),
-        )
-
-    rail_contents: list[ft.Control] = [
-        rail_item(
-            "shell.safety.execution",
-            "Execution locked",
-            "Execution locked",
-            "Execution is permanently locked in this application.",
-        ),
-        rail_item("shell.safety.data-quality", "Data quality", quality_value, quality_reason),
-        rail_item("shell.safety.as-of-time", "As of time", as_of_value, as_of_reason),
-        rail_item("shell.safety.price-basis", "Price basis", "adjusted"),
-        rail_item("shell.safety.forecast-source", "Forecast source", forecast_display, forecast_reason),
-        rail_item("shell.safety.execution-authority", "execution_allowed", "false"),
-    ]
-    return ft.Container(
-        key="shell.safety-rail",
-        content=ft.Row(rail_contents, spacing=6, scroll=ft.ScrollMode.AUTO, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-        height=48,
-        padding=ft.Padding(left=8, top=4, right=8, bottom=4),
-        gradient=ft.LinearGradient(
-            colors=("#7a0e1830", "#66081024"),
-            begin=ft.Alignment(0, -1),
-            end=ft.Alignment(0, 1),
-        ),
-        blur=theme.GLASS_PANEL_BLUR,
-        border=ft.Border(
-            left=ft.BorderSide(width=1, color=theme.FOOTER_RAIL_BORDER),
-            top=ft.BorderSide(width=1, color=theme.FOOTER_RAIL_BORDER),
-            right=ft.BorderSide(width=1, color=theme.FOOTER_RAIL_BORDER),
-            bottom=ft.BorderSide(width=1, color=theme.FOOTER_RAIL_BORDER),
-        ),
-        border_radius=theme.FOOTER_RAIL_RADIUS,
-    )
-
-
 def navigate_to(page: ft.Page, state: AppState, route: str, *, candidate_score: object | None = None) -> None:
     if str(route).startswith("/instrument/"):
         selected = str(route).split("/", 2)[-1].strip()
@@ -286,516 +216,326 @@ def navigate_to(page: ft.Page, state: AppState, route: str, *, candidate_score: 
         render_shell(page, state, route)
 
 
+MIN_BODY_HEIGHT = 742  # row A 420 + gap + row B 300 (spec 1): below this the body scrolls inside the main area
+MIN_BODY_HEIGHT_NARROW = 1400  # stacked cards in one column (spec 1, width < 1100)
+_CHROME_HEIGHT = 24 + 80 + 20 + 20 + 48 + 24  # margins, top bar, two gaps, footer
+
+
+def _window_size(page: ft.Page, state: AppState, width: float | None = None) -> tuple[float, float]:
+    ui = state.snapshot.config.ui
+    page_width = float(width or getattr(page, "width", 0) or ui.window_width)
+    page_height = float(getattr(page, "height", 0) or getattr(ui, "window_height", 900))
+    return page_width, page_height
+
+
+def _workspace_tooltips() -> dict[str, str]:
+    """Tooltip per dock item: workspace name and its page list (spec 5.1)."""
+    return {
+        workspace: f"{workspace} — " + ", ".join(PAGES[route][0] for route in menu_routes(routes) if route in PAGES)
+        for workspace, routes in WORKSPACE_GROUPS
+    }
+
+
+def _profile_text(state: AppState) -> str | None:
+    controls = _shell_controls(state)
+    currency = getattr(controls, "output_currency", None)
+    horizon = getattr(controls, "horizon", None)
+    risk = getattr(controls, "risk_profile", None)
+    if currency is None or horizon is None or risk is None:
+        return None
+    return f"{currency} · {horizon} · {str(risk).capitalize()} risk"
+
+
+def _toast_is_error(message: str) -> bool:
+    return message.casefold().startswith(("route failure", "error", "failed", "unavailable"))
+
+
+@contextmanager
+def _deferred_page_update(page: ft.Page):
+    """Legacy builders call ``page.update()`` while building; the shell mounts the view and updates once."""
+    original = page.__dict__.get("update")
+    page.update = lambda *_args, **_kwargs: None  # type: ignore[method-assign]
+    try:
+        yield
+    finally:
+        if original is None:
+            page.__dict__.pop("update", None)
+        else:
+            page.update = original  # type: ignore[method-assign]
+
+
 def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
     canonical_route = _page_route(route)
     page_entry = PAGES.get(canonical_route)
     title = page_entry[0] if page_entry is not None else "Route unavailable"
     builder = page_entry[1] if page_entry is not None else None
+    window_width, window_height = _window_size(page, state)
     narrow = uses_narrow_layout(page, state)
-
-    def nav_button(path: str, label: str) -> ft.Container:
-        selected = path == canonical_route
-        button = ft.TextButton(
-            label,
-            key=f"navigation.{path.strip('/').replace('/', '-') or 'home'}",
-            tooltip=label,
-            on_click=lambda _e, p=path: navigate_to(page, state, p),
-            style=ft.ButtonStyle(
-                color=theme.QUAIL_SELECTED_INK if selected else theme.TEXT,
-                bgcolor="transparent",
-                padding=ft.Padding(left=10, top=6, right=10, bottom=6),
-                shape=ft.RoundedRectangleBorder(radius=10),
-            ),
-        )
-        return ft.Container(
-            tooltip=label,
-            content=button,
-            gradient=(
-                ft.LinearGradient(
-                    colors=list(theme.QUAIL_SELECTED_COLORS),
-                    begin=ft.Alignment(0, -1),
-                    end=ft.Alignment(0, 1),
-                )
-                if selected
-                else ft.LinearGradient(
-                    colors=("#14ffffff", "#0affffff"),
-                    begin=ft.Alignment(0, -1),
-                    end=ft.Alignment(0, 1),
-                )
-            ),
-            border=ft.Border(
-                left=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-                top=ft.BorderSide(width=1, color=theme.QUAIL_SELECTED_HIGHLIGHT if selected else theme.HAIRLINE_BORDER),
-                right=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-                bottom=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-            ),
-            border_radius=theme.RADIUS_MD,
-            shadow=[ft.BoxShadow(color=theme.QUAIL_SELECTED_SHADOW, blur_radius=0, offset=ft.Offset(0, 3))]
-            if selected
-            else None,
-        )
-
     active_workspace = workspace_for_route(canonical_route)
-    mode_options = [ft.dropdown.Option(value, theme.EVIDENCE_MODE_LABELS[value]) for value in theme.EVIDENCE_MODES]
     snapshot = getattr(state, "snapshot", None)
     data_report = getattr(snapshot, "data_report", None)
 
-    def evidence_mode_changed(event: ft.ControlEvent) -> None:
-        value = getattr(getattr(event, "control", None), "value", None) or getattr(event, "data", None)
-        if value in theme.EVIDENCE_MODES:
-            state.set_evidence_mode(value)
-            message_text.value = state.last_message
+    if builder is None:
+        built: object = _route_failure_control(state, route, "The requested route is not registered.")
+    else:
+        try:
+            with _deferred_page_update(page):
+                built = builder(page, state)
+        except Exception as exc:
+            built = _route_failure_control(state, route, f"The page could not be rendered safely ({type(exc).__name__}).")
+    if isinstance(built, PageView):
+        chrome, page_body = built.chrome, built.body
+    else:  # legacy builder: plain control under the route's default title
+        chrome = PageChrome(title, theme.APP_TAGLINE)
+        page_body = glass_panel(
+            ft.Column([built], expand=True, spacing=theme.SPACE_3, scroll=ft.ScrollMode.AUTO),
+            key="shell.legacy-body",
+            label=f"{title} content",
+            expand=True,
+            padding=theme.SPACE_3 if narrow else theme.SPACE_5,
+        )
+
+    def go(target: str) -> None:
+        navigate_to(page, state, target)
+
+    def update() -> None:
+        if callable(getattr(page, "update", None)):
             page.update()
 
-    evidence_mode = ft.Dropdown(
-        key="shell.evidence-mode",
-        label="Evidence mode",
-        value=state.evidence_mode,
-        options=mode_options,
-        width=190 if not narrow else 160,
-        dense=True,
-        on_select=evidence_mode_changed,
+    mode = {"narrow": narrow, "width": window_width, "height": window_height}
+
+    def margin() -> int:
+        return 16 if mode["narrow"] else 24
+
+    def left_edge() -> float:
+        return margin() + (DOCK_WIDTH_NARROW if mode["narrow"] else DOCK_WIDTH) + margin()
+
+    overlay = Overlay(update)
+    toast = Toast(page, update)
+
+    # Dock
+    def select_workspace(workspace: str) -> None:
+        go(dict(WORKSPACE_GROUPS)[workspace][0])
+
+    dock = build_dock(
+        [workspace for workspace, _routes in WORKSPACE_GROUPS],
+        active=active_workspace,
+        narrow=narrow,
+        icons=WORKSPACE_ICONS,
+        tooltips=_workspace_tooltips(),
+        badge_count=material_change_count(state),
+        on_select=select_workspace,
     )
 
-    palette_results = ft.Container(visible=False)
-    palette_commands: dict[str, object] = {}
-    palette_invocations: dict[str, UIInvocationResult] = {}
+    # Top bar
+    workspace_routes = menu_routes(dict(WORKSPACE_GROUPS)[active_workspace])
+    menu_state: dict[str, PageMenu] = {}
 
-    def navigate_palette_command(event: ft.ControlEvent) -> None:
-        route = str(getattr(getattr(event, "control", None), "data", "") or "")
-        if not route:
-            raise ValueError("selected command has no registered route")
-        navigate_to(page, state, route)
+    def title_width() -> float:
+        return 260 if mode["width"] < 1500 else 340
 
-    def show_palette_message(message: str) -> None:
-        palette_results.content = panel(ft.Column([ft.Text(message, color=theme.AMBER, size=theme.FONT_SM, selectable=True)]))
-        palette_results.visible = True
-        state.last_message = message
-        if callable(getattr(page, "update", None)):
-            page.update()
+    def search_anchor() -> float:
+        return left_edge() + 28 + title_width() + 16
 
-    def select_palette_command(event: ft.ControlEvent) -> UIInvocationResult | None:
-        route = str(getattr(getattr(event, "control", None), "data", "") or "")
-        command = palette_commands.get(route)
-        if command is None:
-            show_palette_message("Selected command has no registered route")
-            return None
-        contract = command_contract_from_metadata(command)
-        result = contract.invoke(
-            navigate_palette_command,
-            event,
-            invoked=palette_invocations,
-            show_failure=lambda _message: None,
-        )
-        if result.status == "failed":
-            show_palette_message(f"{result.signal} · {result.visible_message}")
-        return result
+    search = build_search(
+        page,
+        state,
+        PAGES,
+        WORKSPACE_GROUPS,
+        navigate=go,
+        overlay=overlay,
+        anchor_left=search_anchor,
+        anchor_top=margin() + 80 + 8,
+        compact=mode["width"] < 1500,
+    )
 
-    def render_palette_results(event: ft.ControlEvent) -> None:
-        query = str(getattr(getattr(event, "control", None), "value", None) or "")
-        matches = search_commands(PAGES, WORKSPACE_GROUPS, query)
-        palette_commands.update({command.route: command for command in matches})
-        result_controls: list[ft.Control] = [
-            ft.Text("Command palette results", color=theme.MUTED, size=theme.FONT_XS, weight=ft.FontWeight.BOLD)
-        ]
-        result_controls.extend(
-            ft.TextButton(
-                f"{command.title} · {command.workspace} · {command.route}",
-                key=f"shell.command.{command.route.strip('/').replace('/', '-') or 'home'}",
-                tooltip=f"Open {command.title}",
-                data=command.route,
-                on_click=select_palette_command,
-            )
-            for command in matches
-        )
-        if not matches:
-            result_controls.append(ft.Text("No matching workspace", color=theme.AMBER, size=theme.FONT_SM, selectable=True))
-        palette_results.content = panel(ft.Column(result_controls, spacing=2))
-        palette_results.visible = bool(query.strip())
-        if callable(getattr(page, "update", None)):
-            page.update()
-
-    def submit_palette(event: ft.ControlEvent) -> None:
-        query = str(getattr(getattr(event, "control", None), "value", None) or "")
-        if not query.strip():
-            show_palette_message("Enter a page or workspace to search")
+    def open_page_menu() -> None:
+        if overlay.kind == "menu":
+            overlay.hide(update=True)
             return
-        matches = search_commands(PAGES, WORKSPACE_GROUPS, query, limit=1)
-        if matches:
-            navigate_to(page, state, matches[0].route)
-        else:
-            show_palette_message("No matching workspace")
+        menu = build_page_menu(workspace_routes, canonical_route, PAGES, navigate_to=go)
+        menu_state["menu"] = menu
+        overlay.show("menu", menu.panel, left_edge() + 8, margin() + 80 + 8, on_hide=lambda: menu_state.clear())
 
-    palette_field = ft.TextField(
-        key="shell.command-palette",
-        label="Command palette",
-        hint_text="Search pages or commands",
-        dense=True,
-        width=300 if not narrow else 220,
-        on_change=render_palette_results,
-        on_submit=submit_palette,
+    topbar = build_topbar(
+        chrome,
+        has_menu=len(workspace_routes) > 1,
+        on_open_menu=open_page_menu,
+        search=search,
+        overlay=overlay,
+        badge_count=material_change_count(state),
+        on_what_changed=None if canonical_route == "/what-changed" else (lambda: go("/what-changed")),
+        width=window_width,
     )
-    palette_column = ft.Column(
-        [
-            ft.Text("Search or jump to…", key="shell.command-prompt", color=theme.MUTED, size=theme.FONT_XS),
-            palette_field,
-        ],
-        spacing=0,
-        tight=True,
-    )
-    title_column = ft.Column(
-        [
-            ft.Text(title, color=theme.TEXT, size=theme.FONT_LG if narrow else theme.FONT_XL, weight=ft.FontWeight.BOLD),
-            ft.Text(
-                theme.APP_TAGLINE,
-                color=theme.MUTED,
-                size=theme.FONT_XS,
-                max_lines=1,
-                overflow=ft.TextOverflow.ELLIPSIS,
-            ),
-        ],
-        spacing=theme.SPACE_1,
-    )
-    message_text = ft.Text(state.last_message, color=theme.MUTED, size=theme.FONT_XS, visible=not narrow, col=12)
 
-    def value_pill(key: str, label: str, value: object, unavailable_reason: str) -> ft.Container:
-        rendered, reason = _available_display(value, unavailable_reason)
-        return ft.Container(
-            key=key,
-            data="unavailable" if reason else "available",
-            tooltip=reason or f"{label}: {rendered}",
-            content=ft.Column(
-                [
-                    ft.Text(label, color=theme.BLUE_GREY, size=theme.FONT_XS, weight=ft.FontWeight.W_600),
-                    ft.Text(rendered, color=theme.TEXT, size=theme.FONT_SM, weight=ft.FontWeight.W_600),
-                ],
-                spacing=1,
-                tight=True,
-            ),
-            bgcolor="#61040a1a",
-            border=ft.Border(
-                left=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-                top=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-                right=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-                bottom=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-            ),
-            border_radius=theme.RADIUS_MD,
-            padding=ft.Padding(left=10, top=4, right=10, bottom=4),
-            width=130,
+    # Footer
+    def make_footer() -> Footer:
+        values = footer_values(snapshot, data_report)
+        return build_footer(
+            values,
+            depth_label=depth_label(getattr(state, "analysis_depth", None)),
+            profile_text=_profile_text(state),
+            on_data_health=lambda: go("/data-health"),
+            on_depth=lambda: open_depth_dialog(page, state, on_changed=refresh_footer),
+            on_settings=lambda: go("/settings"),
+            compact=mode["width"] < 1500,
         )
 
-    depth_chip_reason = "No analysis depth has been selected; choose Quick, Medium, High or Full."
-    depth_chip = value_pill(
-        "shell.as-of.analysis-depth",
-        "Analysis depth",
-        depth_label(getattr(state, "analysis_depth", None)),
-        depth_chip_reason,
-    )
+    footer = make_footer()
 
-    def analysis_depth_selected(depth: str) -> None:
-        state.set_analysis_depth(depth)
-        state.last_message = f"{state.last_message}. {state.persist_analysis_depth(depth)}"
-        rendered, reason = _available_display(depth_label(state.analysis_depth), depth_chip_reason)
-        depth_chip.data = "unavailable" if reason else "available"
-        depth_chip.tooltip = reason or f"Analysis depth: {rendered}"
-        depth_chip.content.controls[1].value = rendered
-        message_text.value = state.last_message
-        page.update()
+    def refresh_footer() -> None:
+        nonlocal footer
+        footer = make_footer()
+        column.controls[column.controls.index(footer_slot[0])] = footer.control
+        footer_slot[0] = footer.control
 
-    analysis_depth_control = depth_selector(
-        getattr(state, "analysis_depth", None),
-        on_selected=analysis_depth_selected,
-        width=150 if not narrow else 130,
-        open_dialog=lambda dialog: page.show_dialog(dialog) if hasattr(page, "show_dialog") else None,
-        close_dialog=lambda dialog: page.pop_dialog() if hasattr(page, "pop_dialog") else None,
-        get_selected=lambda: getattr(state, "analysis_depth", None),
-        run_controller=ProfileRunController(
-            state,
-            root=getattr(state, "settings_root", None),
-            binder=interactive_profile_binder(lambda: getattr(state, "snapshot", None)),
-        ),
-    )
-    as_of_date = getattr(data_report, "as_of_date", None)
-    shell_controls = _shell_controls(state)
-    global_values = ft.Row(
-        [
-            value_pill(
-                "shell.as-of.data-date",
-                "Data as-of",
-                as_of_date,
-                "The current snapshot has no data as-of date.",
-            ),
-            value_pill("shell.as-of.price-basis", "Price basis", "adjusted", "The shell contract uses adjusted prices."),
-            value_pill(
-                "shell.as-of.horizon",
-                "Horizon",
-                getattr(shell_controls, "horizon", None),
-                "No saved horizon is available in Settings.",
-            ),
-            value_pill(
-                "shell.as-of.currency",
-                "Currency",
-                getattr(shell_controls, "output_currency", None),
-                "No saved output currency is available in Settings.",
-            ),
-            value_pill(
-                "shell.as-of.risk-profile",
-                "Risk profile",
-                getattr(shell_controls, "risk_profile", None),
-                "No saved risk profile is available in Settings.",
-            ),
-            depth_chip,
-        ],
-        spacing=6,
-        wrap=True,
-    )
-    sub_navigation = ft.Row(
-        [nav_button(path, PAGES[path][0]) for path in next(routes for workspace, routes in WORKSPACE_GROUPS if workspace == active_workspace)],
-        key="shell.workspace-navigation",
-        spacing=5,
-        run_spacing=5,
-        wrap=True,
-    )
-
-    other_workspace_rows = [
-        ft.Column(
-            [
-                ft.Text(workspace, size=theme.FONT_XS, weight=ft.FontWeight.W_600, color=theme.MUTED),
-                ft.Row(
-                    [nav_button(path, PAGES[path][0]) for path in routes],
-                    spacing=5,
-                    run_spacing=5,
-                    wrap=True,
-                ),
-            ],
-            spacing=3,
-        )
-        for workspace, routes in WORKSPACE_GROUPS
-        if workspace != active_workspace
-    ]
-    all_pages_navigation = ft.ExpansionTile(
-        title=ft.Text("All pages", size=theme.FONT_SM, color=theme.TEXT),
-        key="shell.all-pages-navigation",
-        tooltip="Show every page in the other workspaces",
-        controls=other_workspace_rows,
-        dense=True,
-    )
-
-    def _go_to(_event: ft.ControlEvent) -> None:
-        navigate_to(page, state, "/what-changed")
-
-    what_changed_button = ft.TextButton(
-        "What changed",
-        key="dashboard.open-what-changed",
-        tooltip="Open What Changed",
-        icon=ft.Icons.HISTORY,
-        on_click=_go_to,
-    )
-    header_content = ft.Column(
-        [
-            ft.Row(
-                [title_column, palette_column, evidence_mode, analysis_depth_control, what_changed_button],
-                spacing=theme.SPACE_2,
-                run_spacing=theme.SPACE_2,
-                wrap=True,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            global_values,
-            sub_navigation,
-            all_pages_navigation,
-            message_text,
-        ],
-        spacing=theme.SPACE_2,
-    )
-    header = glass_panel(
-        header_content,
-        key="shell.topbar",
-        label=f"{title} page header",
-        padding=12,
-    )
-
-    dock_labels: dict[str, ft.Text] = {}
-
-    def dock_item(workspace: str) -> ft.Container:
-        selected = workspace == active_workspace
-        label = ft.Text(
-            workspace,
-            key=f"shell.dock.label.{workspace}",
-            color=theme.QUAIL_SELECTED_INK if selected else theme.TEXT,
-            size=theme.FONT_XS,
-            weight=ft.FontWeight.W_600,
-            visible=selected and not narrow,
-            text_align=ft.TextAlign.CENTER,
-        )
-        if selected:
-            dock_labels[workspace] = label
-        icon_name = WORKSPACE_ICONS[workspace]
-        icon_path = files("etf_cockpit.app").joinpath("assets", "icons", f"{icon_name}.png")
-        icon_data = b64encode(icon_path.read_bytes()).decode("ascii")
-        icon = ft.Image(
-            src=f"data:image/png;base64,{icon_data}",
-            width=50,
-            height=50,
-            scale=1.06 if selected else 1.0,
-            fit=ft.BoxFit.CONTAIN,
-            semantics_label=f"{workspace} workspace icon",
-        )
-        icon_pad = ft.Container(
-            content=icon,
-            width=54,
-            height=54,
-            alignment=ft.Alignment(0, 0),
-            gradient=(
-                ft.LinearGradient(
-                    colors=list(theme.QUAIL_SELECTED_COLORS),
-                    begin=ft.Alignment(0, -1),
-                    end=ft.Alignment(0, 1),
-                )
-                if selected
-                else None
-            ),
-            border=ft.Border(
-                left=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-                top=ft.BorderSide(width=1, color=theme.QUAIL_SELECTED_HIGHLIGHT if selected else "transparent"),
-                right=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER if selected else "transparent"),
-                bottom=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER if selected else "transparent"),
-            ),
-            border_radius=theme.RADIUS_MD,
-            shadow=[ft.BoxShadow(color=theme.QUAIL_SELECTED_SHADOW, blur_radius=0, offset=ft.Offset(0, 3))]
-            if selected
-            else None,
-        )
-        return ft.Container(
-            key=f"nav.workspace.{workspace}",
-            data="active" if selected else "inactive",
-            tooltip=f"Workspace: {workspace}",
-            content=ft.Column(
-                [icon_pad, label],
-                spacing=0,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                tight=True,
-            ),
-            width=68,
-            height=72 if selected and not narrow else 60,
-            alignment=ft.Alignment(0, 0),
-            on_click=lambda _event, name=workspace: navigate_to(page, state, dict(WORKSPACE_GROUPS)[name][0]),
-        )
-
-    dock_items = [dock_item(workspace) for workspace, _routes in WORKSPACE_GROUPS]
-    help_item = dock_items.pop()
-    dock_content = ft.Column(
-        [
-            *dock_items,
-            ft.Container(key="shell.dock.help-spacer", expand=True),
-            help_item,
-        ],
-        spacing=5,
-        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-        scroll=ft.ScrollMode.AUTO,
-        expand=True,
-    )
-    dock = glass_panel(dock_content, key="shell.dock", label="Workspace dock", padding=6)
-    dock.width = 84
-    progress_strip: ft.Control
-    if state.current_activity is not None:
+    # Progress strip for a running activity (cancel stays reachable)
+    progress_strip: ft.Control = ft.Container(height=0)
+    if getattr(state, "current_activity", None) is not None:
         running_action_id = state.current_activity.action_id
 
         def cancel_running_activity(_event: ft.ControlEvent) -> None:
             state.cancel_activity(expected_action_id=running_action_id)
             render_shell(page, state, route)
 
-        progress_strip = ft.Container(
-            bgcolor=theme.SURFACE,
-            border=border_only(bottom=ft.BorderSide(width=1, color=theme.BORDER)),
-            padding=padding_symmetric(horizontal=theme.SPACE_5, vertical=theme.SPACE_2),
-            content=ft.Column(
+        activity = state.current_activity
+        progress_strip = glass(
+            ft.Row(
                 [
-                    ft.Row(
-                        [
-                            ft.ProgressRing(width=16, height=16, stroke_width=2, color=theme.CYAN),
-                            ft.Text(state.current_activity.label, color=theme.TEXT, size=theme.FONT_SM, weight=ft.FontWeight.BOLD),
-                            ft.Text(state.current_activity.step, color=theme.MUTED, size=theme.FONT_SM, expand=True),
-                            ft.TextButton(
-                                "Cancel",
-                                key="activity.cancel",
-                                icon=ft.Icons.CANCEL_OUTLINED,
-                                on_click=cancel_running_activity,
-                            ),
-                        ],
-                        spacing=8,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
-                    ft.ProgressBar(
-                        value=(
-                            state.current_activity.completed_units / state.current_activity.total_units
-                            if state.current_activity.total_units
-                            else None
-                        ),
-                        color=theme.CYAN,
-                        bgcolor=theme.SURFACE_2,
-                    ),
+                    ft.ProgressRing(width=16, height=16, stroke_width=2, color=theme.ACC),
+                    txt(activity.label, 13.5, 650, theme.INK, trunc=True),
+                    ft.Container(content=txt(activity.step, 12.5, 400, theme.INK2, trunc=True), expand=True),
+                    ft.TextButton("Cancel", key="activity.cancel", icon=ft.Icons.CANCEL_OUTLINED, on_click=cancel_running_activity),
                 ],
-                spacing=6,
+                spacing=12,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
+            radius=24,
+            padding=ft.Padding(20, 0, 12, 0),
+            height=48,
+            key="shell.progress",
         )
-    else:
-        progress_strip = ft.Container(height=0)
-    if builder is None:
-        page_content = _route_failure_control(state, route, "The requested route is not registered.")
-    else:
+
+    # Body: fills the area between top bar and footer; scrolls inside when too short or narrow
+    body_holder = ft.Container(content=page_body, key="shell.content")
+    body_area = ft.Column([body_holder], expand=True)
+
+    def apply_body_mode() -> None:
+        available = mode["height"] - _CHROME_HEIGHT
+        minimum = MIN_BODY_HEIGHT_NARROW if mode["narrow"] else MIN_BODY_HEIGHT
+        scrolls = available < minimum
+        body_area.scroll = ft.ScrollMode.AUTO if scrolls else None
+        body_holder.height = minimum if scrolls else None
+        body_holder.expand = not scrolls
+
+    apply_body_mode()
+
+    footer_slot = [footer.control]
+    column = ft.Column(
+        [topbar.control, progress_strip, body_area, footer.control],
+        expand=True,
+        spacing=20,
+    )
+    shell_row = ft.Row(
+        [dock.control, column],
+        expand=True,
+        spacing=margin(),
+        vertical_alignment=ft.CrossAxisAlignment.STRETCH,
+    )
+    shell_content = ft.Container(content=shell_row, padding=margin(), expand=True)
+    background = ft.Image(src="background/bg_3200.jpg", fit=ft.BoxFit.COVER, left=-12, top=-12, right=-12, bottom=-12,
+                          exclude_from_semantics=True)
+    scrim = ft.Container(
+        left=0, top=0, right=0, bottom=0, ignore_interactions=True,
+        gradient=ft.LinearGradient(colors=[theme.rgba(6, 10, 24, 0.10), theme.rgba(6, 10, 24, 0.26)],
+                                   begin=ft.Alignment(0, -1), end=ft.Alignment(0, 1)),
+    )
+    root = ft.Stack(
+        [background, scrim, ft.Container(content=shell_content, left=0, top=0, right=0, bottom=0), overlay.layer, toast.holder],
+        expand=True,
+        key="shell.backdrop",
+    )
+    view = ft.View(route=route, controls=[root], bgcolor=theme.BG, padding=0)
+
+    message = str(getattr(state, "last_message", "") or "")
+    if message and message != "Ready" and message != getattr(page, "_shell_last_toast", None):
         try:
-            page_content = builder(page, state)
-        except Exception as exc:
-            page_content = _route_failure_control(
-                state,
-                route,
-                f"The page could not be rendered safely ({type(exc).__name__}).",
-            )
-    context_help = page_help_panel(
-        canonical_route,
-        title,
-        on_open_help=lambda _event: navigate_to(page, state, "/help"),
-    )
-    content_container = glass_panel(
-        ft.Column([context_help, page_content], expand=True, spacing=theme.SPACE_3, scroll=ft.ScrollMode.AUTO),
-        key="shell.content",
-        label=f"{title} content",
-        expand=True,
-        padding=theme.SPACE_3 if narrow else theme.SPACE_5,
-    )
-    body = ft.Column(
-        [
-            header,
-            palette_results,
-            progress_strip,
-            content_container,
-            _safety_rail(state, data_report),
-        ],
-        expand=True,
-        spacing=theme.SPACE_2,
-    )
-    shell_row = ft.Row([dock, body], expand=True, spacing=theme.SPACE_3, vertical_alignment=ft.CrossAxisAlignment.STRETCH)
-    shell_content = ft.Container(content=shell_row, padding=theme.SPACE_4, expand=True)
-    view = ft.View(route=route, controls=[backdrop(shell_content, key="shell.backdrop")], bgcolor=theme.BG, padding=0)
-    layout_state = {"narrow": narrow}
+            page._shell_last_toast = message
+        except Exception:
+            pass
+        toast.show(message, error=_toast_is_error(message), update=False)
 
     def relayout(width: float | None = None) -> bool:
-        next_narrow = uses_narrow_layout(page, state, width)
-        if layout_state["narrow"] == next_narrow:
+        new_width, new_height = _window_size(page, state, width)
+        new_narrow = uses_narrow_layout(page, state, width)
+        before = (mode["narrow"], mode["width"] < 1500, mode["width"] < 1300, mode["height"] < 900)
+        mode.update(narrow=new_narrow, width=new_width, height=new_height)
+        after = (new_narrow, new_width < 1500, new_width < 1300, new_height < 900)
+        if before == after:
             return False
-        layout_state["narrow"] = next_narrow
-        for label in dock_labels.values():
-            label.visible = not next_narrow
-        message_text.visible = not next_narrow
-        content_container.padding = theme.SPACE_3 if next_narrow else theme.SPACE_5
-        title_column.controls[0].size = theme.FONT_LG if next_narrow else theme.FONT_XL
-        palette_field.width = 220 if next_narrow else 300
-        evidence_mode.width = 160 if next_narrow else 190
+        dock.set_narrow(new_narrow)
+        topbar.set_width(new_width)
+        footer.set_compact(new_width < 1500)
+        shell_content.padding = margin()
+        shell_row.spacing = margin()
+        apply_body_mode()
         return True
 
     # Page content remains mounted at the same position; resize changes chrome only.
-    view.data = {"relayout": relayout}
+    def on_key(event: ft.KeyboardEvent) -> bool:
+        return handle_shell_key(event, go=go, overlay=overlay, search=search, menu=menu_state.get("menu"), update=update)
+
+    view.data = {"relayout": relayout, "on_key": on_key}
     return view
+
+
+def handle_shell_key(
+    event: ft.KeyboardEvent,
+    *,
+    go: Callable[[str], None],
+    overlay: Overlay,
+    search: Search,
+    menu: PageMenu | None,
+    update: Callable[[], None],
+) -> bool:
+    """Keyboard path of the shell (spec 10): ``/`` search, Esc closes, Alt+1..9 workspaces, arrows in the page menu."""
+    key = str(getattr(event, "key", ""))
+    if key == "Escape":
+        if overlay.hide(update=True):
+            return True
+        if getattr(search.field, "value", ""):
+            search.clear()
+            update()
+            return True
+        return False
+    if getattr(event, "alt", False) and key.isdigit() and 1 <= int(key) <= len(WORKSPACE_GROUPS):
+        go(WORKSPACE_GROUPS[int(key) - 1][1][0])
+        return True
+    if key == "/" and not search.status["focused"] and not getattr(event, "ctrl", False):
+        search.focus()
+        return True
+    if menu is not None and overlay.kind == "menu":
+        if key == "Arrow Down":
+            menu.highlight(menu.state["index"] + 1)
+        elif key == "Arrow Up":
+            menu.highlight(menu.state["index"] - 1)
+        elif key == "Enter":
+            go(menu.routes[menu.state["index"]])
+            return True
+        else:
+            return False
+        update()
+        return True
+    return False
+
+
+def shell_key_event(page: ft.Page, event: ft.KeyboardEvent) -> bool:
+    """Route a page-level key event to the mounted shell view."""
+    if not page.views:
+        return False
+    data = page.views[-1].data
+    handler = data.get("on_key") if isinstance(data, dict) else None
+    return bool(callable(handler) and handler(event))
 
 
 def relayout_shell(page: ft.Page, state: AppState, width: float | None = None) -> None:
@@ -804,7 +544,6 @@ def relayout_shell(page: ft.Page, state: AppState, width: float | None = None) -
     layout = page.views[-1].data
     if isinstance(layout, dict) and callable(layout.get("relayout")) and layout["relayout"](width):
         page.update()
-
 
 
 def _route_failure_control(state: AppState, route: str, detail: str) -> ft.Control:

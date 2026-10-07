@@ -15,10 +15,7 @@ SIDES = ("left", "top", "right", "bottom")
 ONE_SIDED_HELPERS = {"border_only", "only", "symmetric", "vertical", "horizontal"}
 
 # Files allowed to violate until the shell/page waves replace them (relative to APP, posix style).
-LEGACY_NON_UNIFORM = {
-    "router.py": "dock/top bar built in the old shell; replaced by the shell wave",
-    "components/flet_compat.py": "border_only helper; delete when router.py no longer imports it",
-}
+LEGACY_NON_UNIFORM: dict[str, str] = {}
 
 
 def _violations(path: Path) -> list[int]:
@@ -29,7 +26,9 @@ def _violations(path: Path) -> list[int]:
             continue
         name = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
         owner = ast.unparse(node.func.value) if isinstance(node.func, ast.Attribute) else ""
-        if name == "Border" or (name in ONE_SIDED_HELPERS and ("border" in owner.lower() or name == "border_only")):
+        if name == "Border" or (
+            name in ONE_SIDED_HELPERS and owner != "ft.BorderRadius" and ("border" in owner.lower() or name == "border_only")
+        ):
             if name != "Border":
                 found.append(node.lineno)
                 continue
@@ -54,7 +53,7 @@ def test_no_non_uniform_border_anywhere_in_the_app() -> None:
 
 
 def test_legacy_allow_list_only_shrinks() -> None:
-    assert set(LEGACY_NON_UNIFORM) == {"router.py", "components/flet_compat.py"}
+    assert set(LEGACY_NON_UNIFORM) == set()
     stale = [name for name in LEGACY_NON_UNIFORM if not _violations(APP / name)]
     assert not stale, f"remove fixed files from LEGACY_NON_UNIFORM: {stale}"
 

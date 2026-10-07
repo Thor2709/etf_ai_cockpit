@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import flet as ft
 import pytest
 
-from etf_cockpit.app.components.depth_selector import DETAIL_KEY, SELECTOR_KEY, summarise_depth
+from etf_cockpit.app.components.depth_selector import summarise_depth
 from etf_cockpit.app.router import build_shell
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.analysis_depth import AnalysisTimingRecord
@@ -56,26 +56,53 @@ def _shell(snapshot):
     return state, page, build_shell(page, state, "/")
 
 
-def test_selector_renders_four_options_and_chip_starts_unavailable(snapshot) -> None:
-    _state, _page, view = _shell(snapshot)
-    selector = _by_key(view, SELECTOR_KEY)
-    assert [option.key for option in selector.options] == ["quick", "medium", "high", "full"]
-    assert [option.text for option in selector.options] == ["Quick", "Medium", "High", "Full"]
-    assert selector.value is None
+class _DialogPage(_Page):
+    height = 900
+
+    def __init__(self):
+        super().__init__()
+        self.dialog = None
+
+    def show_dialog(self, dialog):
+        self.dialog = dialog
+
+    def pop_dialog(self):
+        self.dialog = None
+
+
+def _open_dialog(state, page, view):
+    """The depth selector lives in the footer-opened Analysis depth dialog (spec 5.5)."""
+    _by_key(view, "shell.as-of.analysis-depth").on_click(None)
+    return page.dialog.content
+
+
+def _segments(control):
+    return {c.data["value"]: c for c in _walk(control) if isinstance(c.data, dict) and c.data.get("kit") == "Segment"}
+
+
+def test_dialog_renders_four_options_and_footer_starts_unavailable(snapshot) -> None:
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    page = _DialogPage()
+    view = build_shell(page, state, "/")
     chip = _by_key(view, "shell.as-of.analysis-depth")
     assert "Unavailable" in _texts(chip) and chip.data == "unavailable" and chip.tooltip
+    dialog = _open_dialog(state, page, view)
+    selector = _by_key(dialog, "shell.depth-dialog.depth")
+    assert list(_segments(selector)) == ["Quick", "Medium", "High", "Full"]
+    assert not any(segment.data["selected"] for segment in _segments(selector).values())  # nothing pretends to be chosen
 
 
-def test_choice_updates_app_state_and_chip(snapshot) -> None:
-    state, page, view = _shell(snapshot)
-    selector = _by_key(view, SELECTOR_KEY)
-    selector.value = "high"
-    selector.on_select(SimpleNamespace(control=selector, data="high"))
+def test_choice_updates_app_state_and_footer(snapshot) -> None:
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    page = _DialogPage()
+    view = build_shell(page, state, "/")
+    dialog = _open_dialog(state, page, view)
+    _segments(_by_key(dialog, "shell.depth-dialog.depth"))["High"].on_click(None)
     chip = _by_key(view, "shell.as-of.analysis-depth")
     assert state.analysis_depth == "high"
     assert "High" in _texts(chip) and chip.data == "available"
     assert page.updates >= 1
-    assert "SLO target" in _by_key(view, DETAIL_KEY).value
+    assert "High profile stages" in " ".join(_texts(dialog))
     with pytest.raises(ValueError):
         state.set_analysis_depth("turbo")
     assert state.analysis_depth == "high"
@@ -84,9 +111,11 @@ def test_choice_updates_app_state_and_chip(snapshot) -> None:
 def test_restored_choice_renders_selected_in_new_shell(snapshot) -> None:
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     state.set_analysis_depth("quick")
-    view = build_shell(_Page(), state, "/")
-    assert _by_key(view, SELECTOR_KEY).value == "quick"
+    page = _DialogPage()
+    view = build_shell(page, state, "/")
     assert "Quick" in _texts(_by_key(view, "shell.as-of.analysis-depth"))
+    selector = _by_key(_open_dialog(state, page, view), "shell.depth-dialog.depth")
+    assert [name for name, segment in _segments(selector).items() if segment.data["selected"]] == ["Quick"]
 
 
 def test_unavailable_measurements_say_unavailable_never_zero(tmp_path) -> None:

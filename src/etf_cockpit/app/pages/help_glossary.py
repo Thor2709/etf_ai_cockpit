@@ -43,6 +43,7 @@ PAGE_HELP: dict[str, str] = {
     "/feature-catalogue": "Read each feature's meaning, source, availability and supported use before selecting it. Unsupported or future-dated values must not be treated as valid historical inputs.",
     "/catalogue": "Use the local dataset catalogue to check coverage, dates, source and licence notes. A listed dataset may still be stale, partial or unavailable for a particular instrument.",
     "/macro": "Read macro observations with their release/vintage dates and units. Later revisions must not be treated as information known at an earlier decision date.",
+    "/sectors": "Read sector and country returns on the globe and the map. Returns are shown only where loaded evidence supports them; a missing region stays unavailable and is never filled with zero.",
     "/settings": "Review local preferences and release metadata. Settings do not grant provider, broker, paper or live authority.",
     "/diagnostics": "Use diagnostics to inspect configuration and local service state. Record the visible failure and preserve evidence before attempting recovery.",
     "/errors": "Follow the named recovery guidance and keep the original files and logs intact. Unknown or conflicting state should remain blocked until reconciled.",

@@ -53,20 +53,22 @@ ROUTE_TITLES: tuple[tuple[str, str], ...] = (
     ("/operations", "Operations Centre"),
     ("/release-readiness", "Release Readiness"),
     ("/roadmap", "Programme Map"),
+    ("/sectors", "Sectors & Countries"),
 )
 
+# Dock order and page-menu order of FINAL_UI_SPEC 7.0 (the first route is the workspace default).
 # One stable information architecture for the existing routes. The pages stay
 # independently testable while the shell gives them a decision-oriented home.
 WORKSPACE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Home", ("/", "/onboarding")),
-    ("Research", ("/stock-research", "/etf", "/instrument", "/signals", "/screener", "/strategy-builder")),
+    ("Universe", ("/universe", "/data-health", "/providers", "/catalogue", "/filings", "/etf-disclosures", "/news-context")),
+    ("Research", ("/stock-research", "/instrument", "/etf", "/signals", "/screener", "/strategy-builder")),
+    ("Portfolio", ("/portfolio", "/risk", "/portfolio-optimiser", "/stress-lab", "/decision-journal", "/forward-evidence", "/operations")),
     ("Compare", ("/comparison",)),
-    ("Map", ("/macro",)),
-    ("Universe", ("/universe", "/catalogue", "/providers", "/filings", "/etf-disclosures", "/news-context", "/data-health")),
-    ("Portfolio", ("/portfolio", "/portfolio-optimiser", "/risk", "/stress-lab", "/decision-journal", "/forward-evidence", "/operations")),
-    ("Lab", ("/forecasts", "/training-centre", "/feature-catalogue", "/data-models", "/backtests")),
+    ("Lab", ("/forecasts", "/backtests", "/training-centre", "/feature-catalogue", "/data-models")),
+    ("Map", ("/sectors", "/macro")),
     ("Changes", ("/what-changed", "/jobs")),
-    ("Help", ("/help", "/settings", "/diagnostics", "/errors", "/import-export", "/system-map", "/chatgpt", "/evidence", "/release-readiness", "/roadmap")),
+    ("Help", ("/help", "/settings", "/import-export", "/diagnostics", "/errors", "/evidence", "/chatgpt", "/system-map", "/release-readiness", "/roadmap")),
 )
 
 

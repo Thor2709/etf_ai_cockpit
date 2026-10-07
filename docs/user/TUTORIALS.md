@@ -65,7 +65,7 @@ subject to its own terms; its failure is visible and does not block local work.
 
 ## 3. Research an instrument
 
-1. Use the **Command palette** to jump to a page, for example Stock Research or
+1. Use the **Search or jump to** to jump to a page, for example Stock Research or
    Instrument Detail, or open an instrument from Simple Scores.
 2. On Scores, read the three score groups and their component tables. Check the
    as-of date, coverage, freshness and warnings first.
