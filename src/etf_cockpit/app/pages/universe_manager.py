@@ -748,10 +748,12 @@ def universe_manager_page(page: ft.Page, state: AppState) -> PageView:
 
     tier_filter.on_select = on_tier
     query.on_change = rebuild_table
+    duplicates_label = common.text("Allow cross-tier duplicate tickers and verified ISINs", 12.5, 500, theme.INK2, trunc=True)
+    duplicates_label.tooltip = "Allow cross-tier duplicate tickers and verified ISINs (instrument IDs stay globally unique)"
     strip.content = ft.Row(
         [
             status,
-            ft.Row([allow_duplicates, common.text("Allow cross-tier duplicate tickers and verified ISINs", 12.5, 500, theme.INK2, trunc=True, tooltip="Allow cross-tier duplicate tickers and verified ISINs (instrument IDs stay globally unique)")], spacing=12, tight=True),
+            ft.Row([allow_duplicates, duplicates_label], spacing=12, tight=True),
             _workflow_button("Discard", key_name="universe.discard", on_click=discard_changes),
             _workflow_button("Save validated changes", key_name="universe.save", on_click=save_changes, primary=True),
         ],

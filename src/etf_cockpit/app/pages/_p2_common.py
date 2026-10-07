@@ -41,7 +41,7 @@ def glass_dialog(page: object, title: str, body: Sequence[ft.Control], actions: 
     height = max(360.0, min(760.0, float(getattr(page, "height", 0) or 900) - 96))
     content = ft.Column(
         [
-            txt(title, 18, 650, theme.INK, shadow=True, trunc=True),
+            txt(title, 18, 650, theme.INK, trunc=True),
             ft.Column(list(body), spacing=12, scroll=ft.ScrollMode.AUTO, expand=True),
             ft.Row(list(actions), spacing=12, alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         ],
@@ -49,7 +49,7 @@ def glass_dialog(page: object, title: str, body: Sequence[ft.Control], actions: 
         expand=True,
     )
     panel = glass(content, radius=30, padding=sym(24, 24), width=width, height=height)
-    return ft.AlertDialog(modal=True, content=panel, inset_padding=ft.Padding(24, 24, 24, 24), barrier_color=theme.rgba(4, 8, 20, 0.55), **_DIALOG_FRAME)
+    return ft.AlertDialog(modal=True, content=panel, inset_padding=ft.Padding(24, 24, 24, 24), **_DIALOG_FRAME)
 
 
 def show_dialog(page: object, dialog: ft.AlertDialog) -> None:
