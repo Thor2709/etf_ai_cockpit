@@ -24,6 +24,7 @@ from etf_cockpit.app.components.kit import (
     ScoreBar,
     SectionHeader,
     TableColumn,
+    Tag,
     VerdictRing,
     Well,
     Segmented,
@@ -72,14 +73,43 @@ def _render_evidence_section(
     subtitle: str = "Canonical local evidence and explicit limitations.",
     key: str | None = None,
     expanded: bool = False,
+    extra: Sequence[ft.Control] = (),
 ) -> ft.Control:
     available = isinstance(value, Mapping) and value.get("status") not in {"unavailable", "missing"}
     if available:
         summary: ft.Control = Note("Evidence details are available in the local result.")
     else:
         summary = KpiTile(title, None, _reason(value, title))
-    body = [summary, Disclosure("Evidence details", _payload(value), expanded=expanded)]
+    body = [summary, *_provenance_tags(value), *extra, Disclosure("Evidence details", _payload(value), expanded=expanded)]
     return GlassCard(title, note=subtitle, body=body, key=key)
+
+
+def _provenance_tags(value: object) -> list[ft.Control]:
+    """Source ID / Authority / Conflict badges; missing metadata is shown as unavailable, never as evidence."""
+
+    if not isinstance(value, Mapping):
+        return []
+
+    def metadata(*keys: str) -> str:
+        for name in keys:
+            candidate = _value(value.get(name))
+            if candidate != _MISSING:
+                return candidate
+        return "unavailable"
+
+    if not any(name in value for name in ("source_id", "source_authority", "authority", "conflict_id", "conflict_status")):
+        return []
+    return [
+        ft.Row(
+            [
+                Tag(f"Source ID {metadata('source_id')}", "mute", dense=True),
+                Tag(f"Authority {metadata('source_authority', 'authority')}", "mute", dense=True),
+                Tag(f"Conflict {metadata('conflict_id', 'conflict_status')}", "mute", dense=True),
+            ],
+            wrap=True,
+            spacing=6,
+        )
+    ]
 
 
 def _render_crowding_attribution_panel(sections: Mapping[str, object]) -> ft.Control:
@@ -100,11 +130,38 @@ def _render_crowding_attribution_panel(sections: Mapping[str, object]) -> ft.Con
     )
 
 
+_DISCLOSURE_LINES = (
+    ("KID", "kid", ("status", "sri", "holding_period_years", "document_date", "extraction_confidence", "source_pages", "warnings", "source_sha256", "parser_version")),
+    ("Methodology", "methodology", ("status", "provider", "index_series", "version", "document_date", "confidence", "source_pages", "warnings", "source_sha256", "parser_version")),
+    ("Holdings", "holdings", ("completeness", "freshness", "confidence", "source", "authority", "as_of")),
+    ("SFDR", "sfdr", ("status", "classification", "document_type", "document_date", "methodology_disclosed", "data_sources_disclosed", "sustainable_characteristics", "taxonomy_alignment_pct", "warnings", "conflict_id", "manual_review", "score_eligible", "execution_allowed")),
+)
+
+
+def _disclosure_metadata(disclosure: Mapping[str, object]) -> str:
+    """Document inventory and per-family evidence lines; missing fields read ``unavailable``."""
+
+    lines = [
+        f"{row.get('document_type', 'document')}: {row.get('coverage_status', 'unavailable')} | date={row.get('document_date', 'unavailable')} | source={row.get('source', 'unavailable')} | checksum={row.get('checksum', 'unavailable')}"
+        for row in disclosure.get("document_inventory", []) or []
+        if isinstance(row, Mapping)
+    ]
+    for label, name, fields in _DISCLOSURE_LINES:
+        family = disclosure.get(name)
+        family = family if isinstance(family, Mapping) else {}
+        lines.append(f"{label} evidence metadata")
+        lines.append(f"{label}: " + ", ".join(f"{field}={family.get(field, 'unavailable')}" for field in fields))
+    return "\n".join(lines)
+
+
 def render_etf_disclosure_panel(model: InstrumentDetailViewModel) -> ft.Control:
+    section = model.sections.get("etf_disclosures")
+    shown = isinstance(section, Mapping) and section.get("status") not in {"unavailable", "missing"}
     return _render_evidence_section(
         "ETF disclosure evidence",
-        model.sections.get("etf_disclosures"),
+        section,
         subtitle="Document inventory and normalised holdings quality.",
+        extra=[Disclosure("Evidence metadata", _disclosure_metadata(section))] if shown else (),
     )
 
 

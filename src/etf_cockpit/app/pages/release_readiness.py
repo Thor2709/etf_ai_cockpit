@@ -140,7 +140,7 @@ def release_readiness_page(page: ft.Page | None, state: AppState) -> PageView:
         body=ft.Column(
             [
                 kit.Tag(quality_display, "ok" if quality_status == "passed" else "warn"),
-                kit.Note("Bounded local evidence; this surface never starts tests or network calls."),
+                kit.Note("ISSUE-0143 bounded local evidence; this surface never starts tests or network calls."),
                 kit.Disclosure(
                     "Quality evidence details",
                     "\n".join(
