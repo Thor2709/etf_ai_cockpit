@@ -99,6 +99,11 @@ controls:
   - {key: universe.import-stage, route: /universe, control_label: Apply to pending changes, callback: stage_import, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_universe_manager.py, control_type: button}
   - {key: universe.import-close, route: /universe, control_label: Cancel, callback: close_import, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_universe_manager.py, control_type: button}
   - {key: onboarding.save, route: /onboarding, control_label: Save setup, callback: submit, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_onboarding.py, control_type: button}
+  - {key: onboarding.edit.*, route: /onboarding, control_label: Edit, callback: action, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_onboarding.py, control_type: button}
+  - {key: onboarding.step.*, route: /onboarding, control_label: Open, callback: select_step, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_onboarding.py, control_type: button}
+  - {key: onboarding.back, route: /onboarding, control_label: Back, callback: select_step, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_onboarding.py, control_type: button}
+  - {key: onboarding.next, route: /onboarding, control_label: Next, callback: select_step, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_onboarding.py, control_type: button}
+  - {key: settings.open-config-folder, route: /settings, control_label: Open folder, callback: open_config_folder, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_settings_centre_ui.py, control_type: button}
   - {key: settings.open-universe, route: /settings, control_label: Open Universe manager, callback: go, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_accessibility_contracts.py, control_type: button}
   - {key: settings.open-onboarding, route: /settings, control_label: Open first-run setup, callback: go, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_accessibility_contracts.py, control_type: button}
   - {key: settings.preview, route: /settings, control_label: Preview changes, callback: preview, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_settings_centre_ui.py, control_type: button}
@@ -314,6 +319,7 @@ controls:
   - {key: filings.bulk.file-picker, route: /filings, control_label: SEC bulk native file picker, callback: pick_files, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_sec_bulk_ui.py, control_type: file_picker}
 
   # Provider credentials stay in the Windows-protected vault and outside settings exports.
+  - {key: settings.output-currency, route: /settings, control_label: Output currency, callback: select_output_currency, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_settings_centre_ui.py, control_type: input}
   - {key: settings.credential-provider, route: /settings, control_label: Provider, callback: select_credential_provider, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_credentials.py, control_type: input}
   - {key: settings.credential-value, route: /settings, control_label: Provider credential, callback: edit_credential, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_credentials.py, control_type: input}
   - {key: settings.credential-save, route: /settings, control_label: Save credential, callback: save_provider_credential, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_credentials.py, control_type: button}
