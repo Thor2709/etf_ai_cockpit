@@ -42,7 +42,7 @@ def test_training_centre_route_renders_retained_evidence_without_type_error(monk
     )
     state = SimpleNamespace(snapshot=None)
     rendered = training_centre.training_centre_page(SimpleNamespace(go=lambda _route: None), state)
-    assert any(isinstance(item, ft.Text) and item.value == "Training Centre" for item in _walk(rendered))
+    assert rendered.chrome.title == "Training Centre"
 
 
 def test_synthetic_scenario_button_regenerates_and_shows_controlled_failure(

@@ -3,6 +3,22 @@ from __future__ import annotations
 import flet as ft
 
 from etf_cockpit.app import theme
+from etf_cockpit.app.components import chartkit as ck
+from etf_cockpit.app.components.kit import (
+    Button,
+    DataTable,
+    Disclosure,
+    EmptyState,
+    GlassCard,
+    KpiStrip,
+    KpiStripItem,
+    Note,
+    Tag,
+    TableColumn,
+)
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
+from etf_cockpit.app.components.chartkit import Bubble, Series
+from etf_cockpit.app.formatting import format_count, format_timestamp
 from etf_cockpit.app.pages._lab_style import lab_page, panel, section_header
 from etf_cockpit.application.runtime import DurableJobScheduler
 from etf_cockpit.core.paths import ROOT
@@ -12,7 +28,7 @@ from etf_cockpit.application.validation import SyntheticScenarioGenerator, Synth
 
 
 @lab_page("training_centre")
-def training_centre_page(page: ft.Page, state: object) -> ft.Control:
+def _legacy_training_centre_page(page: ft.Page, state: object) -> ft.Control:
     """Render durable local training evidence without granting model authority."""
 
     try:
@@ -67,10 +83,10 @@ def training_centre_page(page: ft.Page, state: object) -> ft.Control:
                 ),
             ),
             _runs_panel(runs),
-            ft.Row([_metrics_panel(metrics), _models_panel(models)], spacing=14, vertical_alignment=ft.CrossAxisAlignment.START),
+        ft.Row([_metrics_panel(metrics), _models_panel(models)], spacing=16, vertical_alignment=ft.CrossAxisAlignment.START),
             _reports_panel(runs),
         ],
-        spacing=14,
+        spacing=16,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
     )
@@ -312,6 +328,211 @@ def _reports_panel(runs: tuple[dict[str, object], ...]) -> ft.Container:
         report = run.get("completion_report") or {}
         lines.append(f"{run.get('run_id')} · {run.get('status')} · {report or 'completion report pending'}")
     return panel(ft.Column([section_header("Final reports and replay", "Completion reports retain the lineage needed for offline replay."), ft.Text("\n".join(lines) or "No completion reports are available.", color=theme.MUTED, selectable=True)]))
+
+
+def training_centre_page(page: ft.Page, state: object) -> PageView:
+    """Present existing run and validation evidence without starting model work."""
+    try:
+        snapshot = load_training_evidence(ROOT)
+        optimisation = load_optimisation_evidence(ROOT)
+        workflows = DurableJobScheduler(ROOT).list_workflows(limit=100)
+        runs = tuple(snapshot.get("training.run", ()))
+        models = tuple(snapshot.get("training.model", ()))
+        metrics = tuple(snapshot.get("training.metric", ()))
+        reports = tuple(snapshot.get("validation.report", ()))
+        trials = tuple(snapshot.get("validation.trial", ()))
+        decisions = tuple(snapshot.get("validation.researcher_decision", ()))
+        promotions = tuple(snapshot.get("validation.promotion_result", ()))
+        load_reason = None
+    except Exception:
+        snapshot = {}
+        optimisation = {"trials": (), "summaries": ()}
+        workflows = ()
+        runs = models = metrics = reports = trials = decisions = promotions = ()
+        load_reason = "The local training registry is unavailable."
+
+    def refresh(_event: object) -> None:
+        if callable(getattr(page, "go", None)):
+            page.go("/training-centre")
+
+    run_rows = []
+    for run in runs:
+        state_value = str(run.get("status") or "").replace("_", " ").title() or "Unavailable"
+        state_kind = {"Completed": "ok", "Running": "warn", "Failed": "bad", "Cancelled": "mute", "Queued": "mute"}.get(state_value, "mute")
+        run_rows.append(
+            {
+                "run": run.get("run_id"),
+                "model": run.get("model_id") or run.get("model_name"),
+                "state": Tag(state_value, state_kind),
+                "started": format_timestamp(run.get("started_at"), unavailable="—"),
+                "duration": run.get("duration") or "—",
+                "best_metric": run.get("best_metric") or "—",
+            }
+        )
+    run_table = DataTable(
+        [TableColumn("run", "Run"), TableColumn("model", "Model"), TableColumn("state", "State"), TableColumn("started", "Started"), TableColumn("duration", "Duration"), TableColumn("best_metric", "Best metric")],
+        run_rows,
+        empty_title="No training runs have been registered.",
+        empty_reason=load_reason or "The local registry contains no run rows.",
+    )
+    steps = sorted({item.get("step") for item in metrics if item.get("step") is not None}, key=str)
+    metric_names = sorted({str(item.get("name")) for item in metrics if item.get("name")})
+    metric_series = []
+    for series_index, name in enumerate(metric_names):
+        values = []
+        for step in steps:
+            item = next((row for row in metrics if str(row.get("name")) == name and row.get("step") == step), None)
+            values.append(item.get("value") if item else None)
+        metric_series.append(Series(name, values, theme.CATEGORICAL[series_index % len(theme.CATEGORICAL)]))
+    metrics_chart = ck.line_chart(
+        steps,
+        metric_series,
+        x_name="Step",
+        y_name=metric_names[0] if len(metric_names) == 1 else "Metric",
+        unavailable_reason=load_reason or "No metrics have been recorded." if not metrics else None,
+        empty_title="No metrics have been recorded.",
+        insight="Recorded local metrics by training step.",
+    )
+    report = max(reports, key=lambda item: str(item.get("run_id", "")), default=None)
+    report_trials = [item for item in trials if report and item.get("report_id") == report.get("report_id")]
+    report_decisions = [item for item in decisions if report and item.get("report_id") == report.get("report_id")]
+    report_promotions = [item for item in promotions if report and item.get("report_id") == report.get("report_id")]
+    validation_detail = _retained_validation_text(report, report_trials, report_decisions, report_promotions) if report else None
+    prices = getattr(getattr(state, "snapshot", None), "prices", None)
+    can_retain = prices is not None and hasattr(prices, "columns")
+
+    def retain(_event: object) -> None:
+        if not can_retain:
+            return
+        record_validation_preview(ROOT, prices)
+        if callable(getattr(page, "update", None)):
+            page.update()
+
+    validation_body = ft.Column(
+        [
+            EmptyState("Validation preview unavailable", "No precomputed validation report is available for this snapshot.")
+            if validation_detail is None
+            else Disclosure("Retained validation evidence", validation_detail),
+            ft.Row([Button.secondary("Retain trial evidence", on_click=retain, disabled=not can_retain, disabled_reason="Local price history is unavailable." if not can_retain else None), Button.secondary("Refresh validation report", on_click=refresh)], spacing=8),
+        ],
+        spacing=8,
+    )
+    opt_trials = tuple(optimisation.get("trials", ()))
+    opt_summaries = tuple(optimisation.get("summaries", ()))
+    trial_points = []
+    for item in opt_trials:
+        trial_index = item.get("trial_number", item.get("trial_index"))
+        objective = item.get("objective", item.get("score"))
+        if trial_index is None or objective is None:
+            continue
+        status = str(item.get("status", "")).casefold()
+        group = "completed" if status == "completed" else "pruned" if status == "pruned" else "failed"
+        trial_points.append(Bubble(str(item.get("trial_id", trial_index)), float(trial_index), float(objective), group=group))
+    optimisation_chart = ck.scatter_bubble(
+        trial_points,
+        groups=[("completed", theme.CHART_POS), ("pruned", theme.MUTED), ("failed", theme.CHART_NEG)],
+        x_name="Trial",
+        y_name="Objective",
+        unavailable_reason="No bounded optimisation rows with recorded trial and objective values are available." if not trial_points else None,
+        insight="Recorded bounded optimisation trial objectives.",
+    )
+    workflow_count = sum(1 for item in workflows if getattr(item, "workflow_type", None) == "model_training")
+    registry_ready = load_reason is None
+    kpi = KpiStrip(
+        "REGISTRY",
+        "ready" if registry_ready else "Unavailable",
+        "lightweight local registry · no external upload",
+        [
+            KpiStripItem("Runs", format_count(len(runs) if runs else None, unavailable="—")),
+            KpiStripItem("Models", format_count(len(models) if models else None, unavailable="—")),
+            KpiStripItem("Metrics", format_count(len(metrics) if metrics else None, unavailable="—")),
+            KpiStripItem("Training workflows", format_count(workflow_count if workflow_count else None, unavailable="—")),
+        ],
+    )
+    latest_report_lines = [
+        {"run": run.get("run_id"), "model": run.get("model_id") or run.get("model_name"), "state": str(run.get("status") or "Unavailable").replace("_", " ").title(), "started": format_timestamp(run.get("started_at"), unavailable="—"), "duration": run.get("duration") or "—", "best_metric": run.get("best_metric") or "—"}
+        for run in runs
+    ]
+    scenario_rows = ft.Text("Unavailable", selectable=True)
+    scenario_details = ft.Text("Generate a local scenario to view its seed and dataset hash.", selectable=True)
+
+    def generate_scenario(_event: object) -> None:
+        try:
+            dataset = SyntheticScenarioGenerator().generate(SyntheticScenarioSpec())
+            evidence = SyntheticScenarioGenerator.validate(dataset)
+            scenario_rows.value = " · ".join(f"{name.replace('_', ' ').title()}: {count}" for name, count in evidence["rows"].items())
+            scenario_details.value = f"Seed {dataset.metadata.get('seed', '—')} · hash {dataset.metadata.get('dataset_hash', '—')} · synthetic=true · promotion_eligible=false"
+        except Exception:
+            scenario_rows.value = "Unavailable"
+            scenario_details.value = "The local synthetic fixture could not be generated."
+        if callable(getattr(page, "update", None)):
+            page.update()
+
+    synthetic = GlassCard(
+        "Synthetic Scenario Builder",
+        body=ft.Column(
+            [
+                Note("Seeded local robustness fixtures; synthetic and not promotion-eligible."),
+                scenario_rows,
+                Disclosure("Seed and dataset hash", scenario_details),
+                Button.secondary("Generate seeded scenario", on_click=generate_scenario),
+            ],
+            spacing=8,
+        ),
+        expand=True,
+    )
+    runs_row = ft.Row(
+        [
+            GlassCard("Run list", note="Queued, running, completed, failed, cancelled", body=ft.Column([Button.secondary("Refresh", on_click=refresh), run_table], spacing=8), expand=True),
+            GlassCard("Live metrics", body=metrics_chart, expand=True),
+        ],
+        spacing=16,
+        vertical_alignment=ft.CrossAxisAlignment.START,
+    )
+    validation_row = ft.Row(
+        [GlassCard("Validation Designer", body=validation_body, expand=True)],
+        spacing=16,
+        vertical_alignment=ft.CrossAxisAlignment.START,
+        visible=False,
+    )
+    optimisation_row = ft.Row(
+        [GlassCard("Bounded optimisation", body=ft.Column([optimisation_chart, Disclosure("Trial and resource details", str(opt_summaries[-1]) if opt_summaries else "No bounded optimisation runs have been recorded.")], spacing=8), expand=True)],
+        spacing=16,
+        visible=False,
+    )
+
+    def show_view(value: str) -> None:
+        runs_row.visible = value == "Runs"
+        validation_row.visible = value == "Validation"
+        optimisation_row.visible = value == "Optimisation"
+        if callable(getattr(page, "update", None)):
+            page.update()
+
+    body = ft.Column(
+        [
+            kpi,
+            runs_row,
+            validation_row,
+            optimisation_row,
+            ft.Row(
+                [
+                    synthetic,
+                    GlassCard("Model comparison and registry", body=Disclosure("Model registry details", str(models) if models else "No completed model has been registered."), expand=True),
+                    GlassCard("Final reports and replay", body=Disclosure("Final report details", str(latest_report_lines) if latest_report_lines else "No completion reports are available."), expand=True),
+                ],
+                spacing=16,
+                vertical_alignment=ft.CrossAxisAlignment.START,
+            ),
+            Note("execution_allowed=false · promotion requires recorded human approval"),
+        ],
+        spacing=16,
+        expand=True,
+        scroll=ft.ScrollMode.AUTO,
+    )
+    return PageView(
+        chrome=PageChrome("Training Centre", "Experiments, runs, metrics and model cards · promotion needs recorded human approval", (SegmentGroup("training-centre", ("Runs", "Validation", "Optimisation"), "Runs", on_change=show_view),)),
+        body=body,
+    )
 
 
 __all__ = ["training_centre_page"]
