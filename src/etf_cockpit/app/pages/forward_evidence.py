@@ -138,8 +138,8 @@ def forward_evidence_page(page: ft.Page | None, state: AppState) -> PageView:
             )
             refresh()
             show("Observation recorded locally with its decision-time manifest.")
-        except Exception:
-            show("Observation unavailable: check required fields and local storage.")
+        except Exception as exc:
+            show(f"Error: observation was not recorded ({type(exc).__name__}: {exc}). No external action was created.")
 
     def update_outcome(_event: ft.ControlEvent | None) -> None:
         try:
@@ -158,8 +158,8 @@ def forward_evidence_page(page: ft.Page | None, state: AppState) -> PageView:
             )
             refresh()
             show("Mature outcome recorded locally; prior records remain immutable.")
-        except Exception:
-            show("Outcome unavailable: check required fields and local storage.")
+        except Exception as exc:
+            show(f"Error: outcome was not recorded ({type(exc).__name__}: {exc}). The prior outcome remains unchanged.")
 
     proposal_field = Field(
         "Proposal outcome",
@@ -266,6 +266,7 @@ def forward_evidence_page(page: ft.Page | None, state: AppState) -> PageView:
                     sub="Backtest result status" if status_label is not None else "Backtest result status is unavailable",
                 ),
                 KpiTile("Fills", "next adjusted close", sub="Forward paper evidence method"),
+                Note("Paper proposals are evidence only; fills=next adjusted close | execution_allowed=false."),
                 Note("Use the decision-time hashes below to record a local paper observation; no broker or external action is created."),
             ],
             spacing=theme.SPACE_2,
