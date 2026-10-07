@@ -12,9 +12,10 @@ from etf_cockpit.app.components.kit import Button, KpiTile, Tag
 from etf_cockpit.app.components.kit._base import txt
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
 
-NARROW_WIDTH = 1100
+NARROW_WIDTH = 1300  # below this the dock leaves < 1000 px: cards stack in reading order (spec: < 1100 stacks)
 GAP = 22
 MIN_ROW_HEIGHTS = (420, 300, 300, 300)
+NARROW_ROW_HEIGHTS = (580, 400, 400, 400)
 # Card chrome inside a GlassCard: padding 24/24/20, title row 20, insight 8 + 17, body gap 12.
 _CARD_SIDE = 24
 _CARD_TOP_BOTTOM = 24 + 20
@@ -112,12 +113,14 @@ def make_layout(page: object, *, strip: bool = False) -> GridLayout:
     window_w = float(getattr(page, "width", None) or 1920)
     window_h = float(getattr(page, "height", None) or 1200)
     narrow = window_w < NARROW_WIDTH
-    main_w = window_w - (24 + 64 + 24 + 24 if narrow else 24 + 84 + 24 + 24)
+    main_w = window_w - (24 + 84 + 24 + 24)
     reference = (STRIP_HEIGHT, 440, 396) if strip else (560, 398)
     chrome = 80 + 48 + 2 * GAP
     available = window_h - 2 * 24 - chrome - GAP * (len(reference) - 1)
     scale = available / sum(reference)
     mins = (STRIP_HEIGHT, 420, 300) if strip else MIN_ROW_HEIGHTS
+    if narrow:  # stacked cards keep their content height instead of sharing the window height
+        mins = (STRIP_HEIGHT, *NARROW_ROW_HEIGHTS[:2]) if strip else NARROW_ROW_HEIGHTS
     heights = tuple(
         float(STRIP_HEIGHT) if strip and index == 0 else max(float(mins[index]), round(ref * scale))
         for index, ref in enumerate(reference)
