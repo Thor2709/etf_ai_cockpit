@@ -108,6 +108,14 @@ def _field(
     return Field(label, control=control, expand=True)
 
 
+def _credential_management_marker() -> ft.Control:
+    """Evidence row kept from the staged placeholder: bulk credential management stays tracked under ISSUE-0176."""
+    marker = Note("Credential actions replace the unavailable credentials management placeholder.", key="settings.manage-credentials")
+    marker.disabled = True
+    marker.tooltip = "Bulk credential management remains unavailable until ISSUE-0176."
+    return marker
+
+
 def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
     settings_bundle, migration_issues = load_settings_bundle_with_issues(ROOT)
     config = state.snapshot.config if state is not None and getattr(state, "snapshot", None) is not None else None
@@ -136,7 +144,7 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
         ),
         expand=True,
     )
-    preview_note = Note("New analysis run required: Unavailable until settings are previewed.")
+    preview_note = Note("Preview shows whether a new analysis/selection run is required: Unavailable until settings are previewed.")
     last_preview: dict[str, str] = {}
     preview_details = ft.Text("")
 
@@ -179,7 +187,7 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
                 empty_reason="The current choices do not change the saved settings.",
                 expand=True,
             )
-            preview_note.value = f"New analysis run required: {'yes' if report.creates_new_run else 'no'}"
+            preview_note.value = f"Preview shows whether a new analysis/selection run is required: {'yes' if report.creates_new_run else 'no'}"
             preview_details.value = (
                 f"Changed fields: {report.changed_fields}; before revision: {report.before_revision}; "
                 f"after revision: {report.after_revision}; effects: {report.run_effects}; warnings: {report.warnings}"
@@ -569,7 +577,7 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
                 credential_recovery,
                 Disclosure("Credential vault details", credential_details),
                 Disclosure("Provider definitions and URLs", provider_details),
-                Note("Credential actions replace the unavailable credentials management placeholder.", key="settings.manage-credentials"),
+                _credential_management_marker(),
             ],
             spacing=12,
             expand=True,
@@ -708,6 +716,7 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
                         [
                             ft.Text(version_metadata),
                             ft.Text(f"Data root: {DATA_DIR}"),
+                            ft.Text(f"Last rebuild timestamp: {rebuild_timestamp}"),
                             ft.Text(f"Changelog excerpt: {changelog_excerpt}"),
                             ft.Text("ISSUE-0044 update plan: build and verify the Windows package, back up local data/configuration, run restore/startup checks, and retain release metadata."),
                         ],

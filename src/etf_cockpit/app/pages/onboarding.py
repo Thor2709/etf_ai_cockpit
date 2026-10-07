@@ -212,7 +212,7 @@ def onboarding_page(
     backup_map = dict(zip(backup_labels, backup_ids, strict=True))
     backup_selected = next(
         (label for label, value in backup_map.items() if profile and profile.backup_preference == value),
-        backup_labels[0],
+        _label("local"),
     )
     selected_values["backup"] = backup_map[backup_selected]
     backup_field = Field(
@@ -237,9 +237,10 @@ def onboarding_page(
     validation = Toggle(
         disabled=validator is None,
         disabled_reason="No ticker validator is configured",
+        key="onboarding.online-validation",
     )
 
-    status = ft.Text("")
+    status = ft.Text("", key="onboarding.status")
     technical_details = ft.Text("")
 
     try:
@@ -488,7 +489,13 @@ def onboarding_page(
                 refresh_profile = getattr(state, "refresh_runtime_profile", None)
                 if callable(refresh_profile):
                     refresh_profile(setup_profile.hardware_profile)
-            status.value = "Setup saved locally. Unresolved tickers remain disabled; no refresh or model run was started."
+            optional_status = ", ".join(
+                f"{provider}: {provider_state}"
+                for provider, provider_state in result.optional_provider_status
+                if provider_state == "quota_exceeded"
+            )
+            suffix = f" Optional provider status: {optional_status}; mandatory setup was not blocked." if optional_status else ""
+            status.value = "Setup saved locally. Unresolved tickers remain disabled; no refresh or model run was started." + suffix
             technical_details.value = (
                 f"Storage path: {result.storage_root}; revision: {result.revision}; "
                 f"unresolved symbols: {result.unresolved_symbols}; bootstrap: {result.bootstrap}"
