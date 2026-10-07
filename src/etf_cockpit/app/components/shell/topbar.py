@@ -21,6 +21,9 @@ MAX_SEGMENT_ITEMS = 6
 TITLE_WIDTH = 340
 TITLE_WIDTH_COMPACT = 260
 COMPACT_BELOW = 1500  # search shrinks, title narrows
+TIGHT_BELOW = 1100  # narrow layout: title and search shrink so the What changed button stays inside the bar
+TITLE_WIDTH_TIGHT = 200
+SEARCH_WIDTH_TIGHT = 160
 VIEW_MENU_BELOW = 1300  # segment groups collapse into one "View" pill
 _WC_SHADOWS = drops(
     (
@@ -222,8 +225,11 @@ def build_topbar(
 
     def set_width(value: float) -> None:
         small = value < COMPACT_BELOW
-        title_block.width = TITLE_WIDTH_COMPACT if small else TITLE_WIDTH
+        tight = value < TIGHT_BELOW
+        title_block.width = TITLE_WIDTH_TIGHT if tight else TITLE_WIDTH_COMPACT if small else TITLE_WIDTH
         search.set_compact(small)
+        if tight:
+            search.box.width = SEARCH_WIDTH_TIGHT
         use_view = value < VIEW_MENU_BELOW and bool(groups)
         segments.visible = not use_view
         view_pill.visible = use_view

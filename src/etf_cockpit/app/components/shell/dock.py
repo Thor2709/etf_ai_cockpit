@@ -9,7 +9,7 @@ import flet as ft
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.kit import Badge
-from etf_cockpit.app.components.kit._base import drops, ring, txt, vgradient
+from etf_cockpit.app.components.kit._base import drops, txt, vgradient
 from etf_cockpit.app.components.shell._glass import glass
 
 DOCK_WIDTH = 84

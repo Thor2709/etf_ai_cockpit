@@ -66,9 +66,12 @@ def test_help_route_renders_through_shared_shell() -> None:
 
     text = _text_content(build_shell(page, state, "/help"))
 
-    assert "Help and glossary" in text
-    assert "User guide: docs/user/USER_GUIDE.md" in text
-    assert "N/A denotes unavailable" in text
+    # Moved (spec 5.2, 6.9): the title lives in the top bar, the guide path in the Terms card,
+    # and the unavailable convention in the footer rail's "Unavailable" values.
+    assert "Help & Glossary" in text
+    assert "docs/user/USER_GUIDE.md" in text
+    assert "Terms and use boundaries" in text
+    assert "execution_allowed=false" in text
 
 
 def test_every_registered_route_has_page_specific_help() -> None:
