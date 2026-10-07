@@ -28,11 +28,16 @@ class _Page:
 
 def _walk(control):
     yield control
+    page_body = getattr(control, "body", None)  # PageView wraps the page body
+    if page_body is not None and page_body is not control:
+        yield from _walk(page_body)
     for child in getattr(control, "controls", []) or []:
         yield from _walk(child)
     content = getattr(control, "content", None)
     if content is not None:
         yield from _walk(content)
+    for item in getattr(control, "items", []) or []:  # card menu entries
+        yield from _walk(item)
 
 
 def _keys(slug: str) -> list[str]:
@@ -42,20 +47,32 @@ def _keys(slug: str) -> list[str]:
     return [str(item.key) for item in _walk(root) if getattr(item, "key", None)]
 
 
+def _kit(slug: str, name: str) -> list:
+    """Kit components (GlassCard, DataTable, KpiTile...) tagged by the kit in the rendered page."""
+
+    snapshot = build_snapshot()
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    root = PAGES[slug](_Page(), state)
+    return [
+        item
+        for item in _walk(root)
+        if isinstance(getattr(item, "data", None), dict) and item.data.get("kit") == name
+    ]
+
+
 @pytest.mark.parametrize("slug", sorted(PAGES))
 def test_page_uses_kit_panels_with_deterministic_unique_keys(slug: str) -> None:
     first = _keys(slug)
     assert not [key for key in first if key.startswith("pending.")]
-    panels = [key for key in first if key.startswith(f"{slug}.panel-")]
-    assert panels, "page must render kit glass panels"
+    assert _kit(slug, "GlassCard"), "page must render kit glass panels"
     assert len(first) == len(set(first)), "element keys must be unique"
     assert first == _keys(slug), "keys must not depend on a process-global counter"
 
 
 def test_risk_tables_use_kit_table_plate_and_kpis() -> None:
     keys = _keys("risk")
-    assert any(key.startswith("risk.table-") for key in keys)
-    assert any(key.startswith("risk.kpi-") for key in keys)
+    assert _kit("risk", "DataTable")
+    assert _kit("risk", "KpiStrip") or _kit("risk", "KpiTile")
     assert "risk.export-limits" in keys and "risk.download-limits" in keys
 
 
