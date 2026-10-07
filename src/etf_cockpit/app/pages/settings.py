@@ -1,231 +1,202 @@
 from __future__ import annotations
 
+import os
+
 import flet as ft
 
-from etf_cockpit.app import theme
-from etf_cockpit.app.components.glass_pages import page_panel
-from etf_cockpit.app.components.cards import section_header
-from etf_cockpit.app.components.shell.page_view import SegmentGroup
-from etf_cockpit.app.pages._l1a_common import page_view
-from etf_cockpit.app.state import AppState
-from etf_cockpit.application.ui_facade import (
-    create_encrypted_backup,
-    run_disaster_recovery_drill,
-    validate_encrypted_restore,
-    delete_private_data,
-    legal_terms_report,
-    supply_chain_intake_report,
+from etf_cockpit.app.components.kit import (
+    Button,
+    DataTable,
+    Disclosure,
+    Field,
+    GlassCard,
+    Note,
+    Segmented,
+    TableColumn,
+    Tag,
+    Toggle,
+    field_input_style,
 )
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
+from etf_cockpit.app.formatting import format_percent
+from etf_cockpit.app.state import AppState
+from etf_cockpit.application.release_metadata import (
+    describe_release_evidence,
+    read_changelog_excerpt,
+    read_rebuild_timestamp,
+)
+from etf_cockpit.application.scope_facade import load_authority_matrix, load_product_governance
 from etf_cockpit.application.settings import (
     ANALYSIS_DEPTHS,
     ASSET_SCOPES,
     HORIZONS,
     OUTPUT_CURRENCIES,
     RISK_PROFILES,
+    CredentialVault,
+    CredentialVaultError,
     SettingsError,
+    canonical_provider_account,
+    load_config,
     load_settings_bundle,
     load_settings_bundle_with_issues,
     preview_settings,
     save_settings,
 )
-from etf_cockpit.application.release_metadata import read_changelog_excerpt, read_rebuild_timestamp
-from etf_cockpit.application.settings import load_config
+from etf_cockpit.application.ui_facade import (
+    create_encrypted_backup,
+    delete_private_data,
+    legal_terms_report,
+    run_disaster_recovery_drill,
+    supply_chain_intake_report,
+    validate_encrypted_restore,
+)
 from etf_cockpit.core.constants import APP_VERSION
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, ROOT
-from etf_cockpit.application.release_metadata import describe_release_evidence
-from etf_cockpit.application.scope_facade import load_authority_matrix, load_product_governance
-from etf_cockpit.application.settings import (
-    CredentialVault,
-    CredentialVaultError,
-    canonical_provider_account,
-)
 
 
-panel = page_panel("settings")
+_RISK_LABELS = {
+    "safe": "Safe",
+    "safe_medium": "Safe-Medium",
+    "medium": "Medium",
+    "medium_aggressive": "Medium-Aggressive",
+    "aggressive": "Aggressive",
+}
+_HORIZON_LABELS = {str(value): str(value).upper() for value in HORIZONS}
+_DEPTH_LABELS = {str(value): str(value).title() for value in ANALYSIS_DEPTHS}
 
 
-def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
-    config = state.snapshot.config
-    product_policy = load_product_governance()
-    authority_matrix = load_authority_matrix()
-    target_lines = [f"{etf_id}: context target {pos.target_weight:.1%}, drift bands {pos.soft_band:.1%}/{pos.hard_band:.1%}" for etf_id, pos in config.targets.positions.items()]
-    model_lines = [f"{name}: {settings}" for name, settings in config.models.models.items()]
-    status_text = ft.Text(state.last_message, color=theme.MUTED, selectable=True)
-    version_metadata_path = ROOT / "pyproject.toml"
-    version_status = f"available at {version_metadata_path}" if version_metadata_path.is_file() else "unavailable (missing pyproject.toml)"
-    changelog_path = ROOT / "CHANGELOG.md"
-    changelog_status = read_changelog_excerpt(changelog_path.parent)
-    release_evidence = describe_release_evidence(ROOT)
-    legal_report = legal_terms_report(ROOT)
-    supply_chain_report = supply_chain_intake_report(ROOT)
-    rebuild_timestamp = read_rebuild_timestamp(ROOT)
-    issue_0044_update_plan = (
-        "ISSUE-0044 packaged-app update workflow: build the Windows package, record the release version and SHA-256 checksum, "
-        "back up local data/configs, install the package, run a restore/startup smoke check, then retain the changelog and rebuild timestamp."
-    )
-    backup_archive = ROOT / "exports" / "storage" / "cockpit-encrypted.backup"
-    recovery_key = ft.TextField(
-        label="Recovery key",
-        password=True,
-        can_reveal_password=True,
-        hint_text="At least 16 characters; never logged or exported",
-        key="settings.recovery-key",
-        width=360,
-    )
-    privacy_status = ft.Text("No privacy or recovery action has run in this session.", color=theme.MUTED, selectable=True)
-    deletion_confirmation = ft.TextField(
-        label="Type DELETE PRIVATE DATA to remove local private notes",
-        password=True,
-        key="settings.delete-private-confirmation",
-        width=360,
-    )
-
-    def refresh_privacy_status() -> None:
-        if _page is not None:
-            _page.update()
-
-    def create_backup(_event: ft.ControlEvent) -> None:
-        try:
-            manifest = create_encrypted_backup([DATA_DIR, CONFIG_DIR], backup_archive, recovery_key.value or "")
-            privacy_status.value = f"Encrypted backup created: {manifest.archive} | files={len(manifest.checksums)} | excluded={len(manifest.excluded)}"
-            privacy_status.color = theme.GREEN
-        except Exception as exc:
-            privacy_status.value = f"Backup failed safely: {type(exc).__name__}: {exc}"
-            privacy_status.color = theme.RED
-        refresh_privacy_status()
-
-    def validate_backup(_event: ft.ControlEvent) -> None:
-        preview = validate_encrypted_restore(backup_archive, recovery_key.value or "") if backup_archive.is_file() else None
-        if preview is None:
-            privacy_status.value = f"Backup unavailable: {backup_archive}"
-            privacy_status.color = theme.AMBER
-        elif preview.valid:
-            privacy_status.value = f"Backup validated: {len(preview.entries)} files; no data was restored."
-            privacy_status.color = theme.GREEN
-        else:
-            privacy_status.value = f"Backup validation failed safely: {'; '.join(preview.errors)}"
-            privacy_status.color = theme.RED
-        refresh_privacy_status()
-
-    def recovery_drill(_event: ft.ControlEvent) -> None:
-        try:
-            drill = run_disaster_recovery_drill([DATA_DIR, CONFIG_DIR], ROOT / "exports" / "storage" / "recovery-drill", recovery_key=recovery_key.value or "")
-            privacy_status.value = f"Recovery drill {'passed' if drill.ok else 'failed'}: {drill.restored_files} files restored | {drill.archive}"
-            if drill.errors:
-                privacy_status.value += f" | {'; '.join(drill.errors)}"
-            privacy_status.color = theme.GREEN if drill.ok else theme.RED
-        except Exception as exc:
-            privacy_status.value = f"Recovery drill failed safely: {type(exc).__name__}: {exc}"
-            privacy_status.color = theme.RED
-        refresh_privacy_status()
-
-    def delete_private(_event: ft.ControlEvent) -> None:
-        try:
-            deleted = delete_private_data(ROOT, confirmation=deletion_confirmation.value or "")
-            privacy_status.value = f"Private data deletion complete: {len(deleted)} files removed from data/private/."
-            privacy_status.color = theme.GREEN
-        except Exception as exc:
-            privacy_status.value = f"Private data was not deleted: {type(exc).__name__}: {exc}"
-            privacy_status.color = theme.AMBER
-        refresh_privacy_status()
-    settings_bundle, migration_issues = load_settings_bundle_with_issues(ROOT)
-    migration_message = ""
-    if migration_issues:
-        issue_summary = ", ".join(f"{issue.code} ({issue.field})" for issue in migration_issues)
-        migration_message = f"Legacy settings require manual review: {issue_summary}. "
-    settings_status = ft.Text(
-        migration_message + "Edit locally, preview the complete policy impact, then save one atomic settings version.",
-        color=theme.MUTED,
-        selectable=True,
-    )
-    output_currency = ft.Dropdown(
-        label="Output currency",
-        value=settings_bundle.controls.output_currency,
-        options=[ft.dropdown.Option(item) for item in OUTPUT_CURRENCIES],
-        key="settings.output-currency",
-        width=180,
-        dense=True,
-    )
-    scope_checks = {
-        scope: ft.Checkbox(label=scope.title(), value=scope in settings_bundle.controls.asset_scopes)
-        for scope in ASSET_SCOPES
+def _label(value: object) -> str:
+    text = str(value or "").replace("_", " ").strip()
+    known = {
+        "none": "Not configured",
+        "true": "Enabled",
+        "false": "Disabled",
+        "available": "Available",
+        "unavailable": "Unavailable",
+        "passed": "Passed",
+        "failed": "Failed",
+        "ready": "Ready",
+        "review_required": "Review required",
+        "local": "Local",
     }
-    asset_scopes = ft.Column(
-        [ft.Text("Asset scope", color=theme.MUTED, size=11), ft.Row(list(scope_checks.values()), wrap=True)],
-        key="settings.asset-scopes",
-        spacing=2,
+    return known.get(text.casefold(), text.title()) if text else "—"
+
+
+def _value(record: object, name: str, default: object = None) -> object:
+    if isinstance(record, dict):
+        return record.get(name, default)
+    return getattr(record, name, default)
+
+
+def _field(
+    label: str,
+    *,
+    value: str = "",
+    placeholder: str = "",
+    password: bool = False,
+    key: str | None = None,
+    on_change=None,
+) -> ft.Control:
+    control = ft.TextField(
+        value=value,
+        password=password,
+        can_reveal_password=password,
+        key=key,
+        on_change=on_change,
+        **field_input_style(placeholder=placeholder),
     )
-    risk_profile = ft.Dropdown(
-        label="Risk profile",
-        value=settings_bundle.controls.risk_profile,
-        options=[ft.dropdown.Option(item) for item in RISK_PROFILES],
-        key="settings.risk-profile",
-        width=220,
-        dense=True,
-    )
-    horizon = ft.Dropdown(
-        label="Target horizon",
-        value=settings_bundle.controls.horizon,
-        options=[ft.dropdown.Option(item) for item in HORIZONS],
-        key="settings.horizon",
-        width=180,
-        dense=True,
-    )
-    analysis_depth = ft.Dropdown(
-        label="Analysis depth",
-        value=(
+    return Field(label, control=control, expand=True)
+
+
+def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
+    settings_bundle, migration_issues = load_settings_bundle_with_issues(ROOT)
+    config = state.snapshot.config if state is not None and getattr(state, "snapshot", None) is not None else None
+    if config is None:
+        config = load_config()
+
+    selected: dict[str, object] = {
+        "output_currency": settings_bundle.controls.output_currency,
+        "risk_profile": settings_bundle.controls.risk_profile,
+        "horizon": settings_bundle.controls.horizon,
+        "analysis_depth": (
             getattr(state, "analysis_depth", None)
             if getattr(state, "analysis_depth", None) in ANALYSIS_DEPTHS
             else settings_bundle.controls.analysis_depth
         ),
-        options=[ft.dropdown.Option(item) for item in ANALYSIS_DEPTHS],
-        key="settings.analysis-depth",
-        width=190,
-        dense=True,
+        "evidence_mode": getattr(state, "evidence_mode", "default"),
+    }
+    status_note = Note("No settings action has run in this session.")
+    status_details = ft.Text("")
+    preview_table = ft.Container(
+        content=DataTable(
+            [TableColumn("setting", "Setting"), TableColumn("previous", "Previous"), TableColumn("proposed", "Proposed")],
+            [],
+            empty_title="Unavailable",
+            empty_reason="Preview changes to see the setting-by-setting policy impact.",
+        ),
+        expand=True,
     )
-    version_text = ft.Text(
-        f"Settings v{settings_bundle.settings_version} · {settings_bundle.revision[:16]}",
-        key="settings.version",
-        color=theme.MUTED,
-        selectable=True,
-    )
+    preview_note = Note("New analysis run required: Unavailable until settings are previewed.")
     last_preview: dict[str, str] = {}
+    preview_details = ft.Text("")
+
+    def update_page() -> None:
+        if page is not None:
+            page.update()
 
     def candidate_bundle():
-        selected_scopes = tuple(scope for scope, checkbox in scope_checks.items() if checkbox.value)
+        selected_scopes = tuple(scope for scope, toggle in scope_toggles.items() if toggle.data.get("on"))
         controls = settings_bundle.controls.model_copy(
             update={
-                "output_currency": output_currency.value or "",
+                "output_currency": str(selected["output_currency"]),
                 "asset_scopes": selected_scopes,
-                "risk_profile": risk_profile.value or "",
-                "horizon": horizon.value or "",
-                "analysis_depth": analysis_depth.value or "",
+                "risk_profile": str(selected["risk_profile"]),
+                "horizon": str(selected["horizon"]),
+                "analysis_depth": str(selected["analysis_depth"]),
             }
         )
         return settings_bundle.model_copy(update={"controls": controls})
 
-    def refresh_settings_status() -> None:
-        if _page is not None:
-            _page.update()
-
-    def preview(_event: ft.ControlEvent) -> None:
+    def preview(_event: object) -> None:
         try:
-            report = preview_settings(candidate_bundle(), expected_revision=settings_bundle.revision, root=ROOT)
+            candidate = candidate_bundle()
+            report = preview_settings(candidate, expected_revision=settings_bundle.revision, root=ROOT)
             last_preview["revision"] = report.after_revision
-            changed = ", ".join(report.changed_fields) or "no semantic fields"
-            settings_status.value = (
-                f"Preview valid: {changed}. "
-                f"{'A new analysis/selection run is required.' if report.creates_new_run else 'No new run is required.'} "
-                "Currency/risk/depth effects remain explicitly unavailable until ISSUE-0173/0174/0175."
+            current_values = settings_bundle.controls.model_dump()
+            next_values = candidate.controls.model_dump()
+            changes = [
+                {
+                    "setting": _label(name),
+                    "previous": _display_setting(current_values.get(name)),
+                    "proposed": _display_setting(next_values.get(name)),
+                }
+                for name in report.changed_fields
+            ]
+            preview_table.content = DataTable(
+                [TableColumn("setting", "Setting"), TableColumn("previous", "Previous"), TableColumn("proposed", "Proposed")],
+                changes,
+                empty_title="No changes",
+                empty_reason="The current choices do not change the saved settings.",
+                expand=True,
             )
-            settings_status.color = theme.GREEN
+            preview_note.value = f"New analysis run required: {'yes' if report.creates_new_run else 'no'}"
+            preview_details.value = (
+                f"Changed fields: {report.changed_fields}; before revision: {report.before_revision}; "
+                f"after revision: {report.after_revision}; effects: {report.run_effects}; warnings: {report.warnings}"
+            )
+            status_note.value = "Settings preview is ready."
+            status_details.value = ""
         except SettingsError as exc:
             last_preview.clear()
-            settings_status.value = f"Preview rejected: {exc}"
-            settings_status.color = theme.RED
-        refresh_settings_status()
+            status_note.value = "Settings preview needs review."
+            status_details.value = f"{exc.code}: {exc.message}"
+        except Exception as exc:
+            last_preview.clear()
+            status_note.value = "Settings preview could not be completed."
+            status_details.value = f"{type(exc).__name__}: {exc}"
+        update_page()
 
-    def save(_event: ft.ControlEvent) -> None:
+    def save(_event: object) -> None:
         nonlocal settings_bundle
         try:
             candidate = candidate_bundle()
@@ -233,235 +204,748 @@ def settings_page(_page: ft.Page, state: AppState) -> ft.Control:
             if last_preview.get("revision") != fresh_preview.after_revision:
                 raise SettingsError("SETTINGS_MIGRATION_REVIEW_REQUIRED", "preview the current edits before saving")
             result = save_settings(candidate, expected_revision=settings_bundle.revision, root=ROOT)
-            state.snapshot.config = load_config()
+            if state is not None:
+                state.snapshot.config = load_config()
+                state.analysis_depth = str(selected["analysis_depth"])
             settings_bundle = load_settings_bundle(ROOT)
-            state.analysis_depth = settings_bundle.controls.analysis_depth
-            settings_status.value = (
-                f"Settings v{result.settings_version} saved atomically; revision {result.revision[:16]}. "
-                "No analysis, provider, model or execution workflow was started."
-            )
-            settings_status.color = theme.GREEN
-            version_text.value = f"Settings v{result.settings_version} · {result.revision[:16]}"
+            status_note.value = "Settings saved atomically. No analysis, provider, model or execution workflow was started."
+            status_details.value = f"Settings version: {result.settings_version}; revision: {result.revision}; snapshot path: {result.snapshot_path}"
             last_preview.clear()
         except Exception as exc:
-            settings_status.value = f"Settings not saved: {exc}"
-            settings_status.color = theme.RED
-        refresh_settings_status()
+            status_note.value = "Settings were not saved."
+            status_details.value = f"{type(exc).__name__}: {exc}"
+        update_page()
 
-    def select_credential_provider(_event: ft.ControlEvent) -> None:
-        credential_value.value = ""
-        credential_status.value = "Enter a credential to save or remove the selected provider value."
-        credential_status.color = theme.MUTED
-        refresh_settings_status()
+    currency_field = Field(
+        "Output currency",
+        options=OUTPUT_CURRENCIES,
+        value=str(selected["output_currency"]),
+        on_change=lambda value: selected.__setitem__("output_currency", value),
+        key="settings.output-currency",
+        expand=True,
+    )
 
-    def edit_credential(_event: ft.ControlEvent) -> None:
-        credential_status.value = "Credential values are never shown after save."
-        credential_status.color = theme.MUTED
-        refresh_settings_status()
+    risk_labels = tuple(_RISK_LABELS.get(value, _label(value)) for value in RISK_PROFILES)
+    risk_to_value = dict(zip(risk_labels, RISK_PROFILES, strict=True))
+    selected_risk_label = _RISK_LABELS.get(str(selected["risk_profile"]), _label(selected["risk_profile"]))
+    risk_control = Segmented(
+        risk_labels,
+        selected_risk_label,
+        on_change=lambda value: selected.__setitem__("risk_profile", risk_to_value[value]),
+        key="settings.risk-profile",
+    )
+    horizon_labels = tuple(_HORIZON_LABELS[value] for value in HORIZONS)
+    horizon_to_value = dict(zip(horizon_labels, HORIZONS, strict=True))
+    selected_horizon_label = _HORIZON_LABELS[str(selected["horizon"])]
+    horizon_control = Segmented(
+        horizon_labels,
+        selected_horizon_label,
+        on_change=lambda value: selected.__setitem__("horizon", horizon_to_value[value]),
+        key="settings.horizon",
+    )
+    depth_labels = tuple(_DEPTH_LABELS[value] for value in ANALYSIS_DEPTHS)
+    depth_to_value = dict(zip(depth_labels, ANALYSIS_DEPTHS, strict=True))
+    selected_depth_label = _DEPTH_LABELS[str(selected["analysis_depth"])]
+    depth_control = Segmented(
+        depth_labels,
+        selected_depth_label,
+        on_change=lambda value: selected.__setitem__("analysis_depth", depth_to_value[value]),
+        key="settings.analysis-depth",
+    )
+    scope_toggles = {
+        scope: Toggle(
+            on=scope in settings_bundle.controls.asset_scopes,
+        )
+        for scope in ASSET_SCOPES
+    }
+    scope_controls = ft.Column(
+        [
+            Note("Asset scope"),
+            ft.Row(
+                [
+                    ft.Column([Note(scope.title()), toggle], spacing=8, tight=True)
+                    for scope, toggle in scope_toggles.items()
+                ],
+                spacing=16,
+                wrap=True,
+            ),
+        ],
+        spacing=8,
+        key="settings.asset-scopes",
+    )
+    evidence_items = ("Compact", "Default", "Advanced")
+    evidence_selected = _label(selected["evidence_mode"])
+    if evidence_selected not in evidence_items:
+        evidence_selected = "Default"
+    evidence_control = Segmented(
+        evidence_items,
+        evidence_selected,
+        on_change=lambda value: state.set_evidence_mode(value.casefold()) if state is not None else None,
+    )
 
-    def save_provider_credential(_event: ft.ControlEvent) -> None:
-        provider_name = str(credential_provider.value or "").strip()
-        secret = credential_value.value or ""
-        try:
-            if not provider_name:
-                raise CredentialVaultError("A provider name is required.")
-            CredentialVault().set(canonical_provider_account(provider_name), secret)
-            credential_status.value = "Credential saved in the Windows-protected vault; cached provider probes were invalidated."
-            credential_status.color = theme.GREEN
-        except CredentialVaultError as exc:
-            credential_status.value = f"Credential could not be saved safely: {exc}"
-            credential_status.color = theme.RED
-        except Exception:
-            credential_status.value = "Credential could not be saved safely. Check the Windows vault status and try again."
-            credential_status.color = theme.RED
-        finally:
-            credential_value.value = ""
-        refresh_settings_status()
+    settings_version = Note(f"Settings version {settings_bundle.settings_version}", key="settings.version")
+    if migration_issues:
+        migration_note = Note("Some legacy settings need manual review before they can be used.")
+        migration_details = ft.Text(", ".join(f"{issue.code} ({issue.field})" for issue in migration_issues))
+    else:
+        migration_note = Note("Saved settings are loaded from the local settings bundle.")
+        migration_details = ft.Text("")
 
-    def delete_provider_credential(_event: ft.ControlEvent) -> None:
-        provider_name = str(credential_provider.value or "").strip()
-        try:
-            if not provider_name:
-                raise CredentialVaultError("A provider name is required.")
-            CredentialVault().delete(canonical_provider_account(provider_name))
-            credential_status.value = "Credential removed from the Windows-protected vault; cached provider probes were invalidated."
-            credential_status.color = theme.GREEN
-        except CredentialVaultError as exc:
-            credential_status.value = f"Credential could not be removed safely: {exc}"
-            credential_status.color = theme.RED
-        except Exception:
-            credential_status.value = "Credential could not be removed safely. Check the Windows vault status and try again."
-            credential_status.color = theme.RED
-        finally:
-            credential_value.value = ""
-        refresh_settings_status()
+    settings_details = Disclosure(
+        "Settings revision and policy details",
+        ft.Column(
+            [
+                ft.Text(f"Revision: {settings_bundle.revision}"),
+                ft.Text("execution_allowed=false"),
+                migration_details,
+            ],
+            spacing=8,
+        ),
+    )
+    product_policy = load_product_governance()
+    authority_matrix = load_authority_matrix()
+    product_details_text = (
+        f"Product: {product_policy.policy.product.canonical_name}; ADR: {authority_matrix.policy.adr_id}; "
+        f"active stage: Research; authority checksum: {authority_matrix.checksum}; "
+        f"capabilities: {authority_matrix.policy.capabilities}; execution_allowed=false"
+        if product_policy.policy is not None and authority_matrix.policy is not None
+        else "Product authority contract or capability matrix is unavailable; execution_allowed=false."
+    )
 
-    credential_provider_names = sorted(
+    def _display_setting(value: object) -> str:
+        if value is None:
+            return "—"
+        if isinstance(value, (tuple, list)):
+            return ", ".join(_label(item) for item in value) or "—"
+        return _label(value)
+
+    settings_centre = GlassCard(
+        "Settings centre",
+        note=f"Settings v{settings_bundle.settings_version}",
+        body=ft.Column(
+            [
+                ft.Row([currency_field], spacing=12),
+                ft.Column([Note("Risk profile"), risk_control], spacing=8),
+                ft.Column([Note("Target horizon"), horizon_control], spacing=8),
+                ft.Column([Note("Analysis depth"), depth_control], spacing=8),
+                ft.Column([Note("Evidence mode"), evidence_control], spacing=8),
+                scope_controls,
+                Button.secondary("Preview changes", on_click=preview, key="settings.preview"),
+                Button.primary("Save settings", on_click=save, key="settings.save"),
+                settings_version,
+                migration_note,
+                status_note,
+                Note("Edit locally, preview the complete policy impact, then save one atomic settings version."),
+                Note("Any semantic change invalidates reuse of an existing run manifest."),
+                Note("Execution authority remains off."),
+                Note("Credential values never enter the settings bundle, logs or exports."),
+                settings_details,
+                Disclosure("Product scope and authority", product_details_text, expanded=False),
+            ],
+            spacing=12,
+            expand=True,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
+    change_preview = GlassCard(
+        "Change preview",
+        note="policy impact",
+        body=ft.Column(
+            [
+                preview_note,
+                preview_table,
+                Note("Credential values never enter this bundle, logs or exports."),
+                Disclosure("Preview revision and effects", preview_details),
+                Disclosure("Settings action details", status_details),
+            ],
+            spacing=12,
+            expand=True,
+        ),
+        expand=True,
+    )
+
+    if config is not None:
+        limits = config.risks.portfolio_limits
+        guardrail_rows = [
+            {"limit": "Max single ETF weight", "value": format_percent(limits.max_single_etf_weight, decimals=0, unavailable="—")},
+            {"limit": "Max sector weight", "value": format_percent(limits.max_sector_weight, decimals=0, unavailable="—")},
+            {"limit": "Max region weight", "value": format_percent(limits.max_region_weight, decimals=0, unavailable="—")},
+            {"limit": "Max theme weight", "value": format_percent(limits.max_theme_weight, decimals=0, unavailable="—")},
+            {"limit": "Max monthly turnover", "value": format_percent(limits.max_monthly_turnover, decimals=0, unavailable="—")},
+        ]
+        target_rows = [
+            {
+                "instrument": instrument,
+                "target": format_percent(position.target_weight, decimals=0, unavailable="—"),
+                "bands": f"{format_percent(position.soft_band, decimals=0, unavailable='—')} / {format_percent(position.hard_band, decimals=0, unavailable='—')}",
+            }
+            for instrument, position in config.targets.positions.items()
+        ]
+    else:
+        guardrail_rows = []
+        target_rows = []
+
+    guardrails = GlassCard(
+        "Guardrail settings",
+        note="allocation caps are context",
+        body=ft.Column(
+            [
+                DataTable(
+                    [TableColumn("limit", "Limit"), TableColumn("value", "Value", numeric=True)],
+                    guardrail_rows,
+                    empty_title="Unavailable",
+                    empty_reason="Guardrail values are unavailable without a loaded configuration.",
+                    expand=True,
+                ),
+                Note("Data-quality failures still block analysis; allocation caps are displayed as context."),
+            ],
+            spacing=12,
+            expand=True,
+        ),
+        expand=True,
+    )
+    portfolio_targets = GlassCard(
+        "Portfolio context targets",
+        note="drift context only",
+        body=ft.Column(
+            [
+                DataTable(
+                    [
+                        TableColumn("instrument", "Instrument", flex=2),
+                        TableColumn("target", "Context target", numeric=True),
+                        TableColumn("bands", "Drift bands", numeric=True),
+                    ],
+                    target_rows,
+                    empty_title="Unavailable",
+                    empty_reason="Portfolio context targets are unavailable without a loaded configuration.",
+                    expand=True,
+                ),
+                Note("Used for drift context only; they do not override stock or ETF evidence scores."),
+            ],
+            spacing=12,
+            expand=True,
+        ),
+        expand=True,
+    )
+
+    provider_items = tuple(config.data_providers.providers.items()) if config is not None else ()
+    provider_rows = [
         {
-            canonical_provider_account(provider_name)
-            for provider_name, section in config.data_providers.providers.items()
-            if provider_name not in {"prices", "fx", "etf_metadata", "etf_holdings"}
+            "provider": _label(name),
+            "active": _label(section.active_provider or "none"),
+            "base_url": "Configured" if section.base_url else "Not configured",
+        }
+        for name, section in provider_items
+    ]
+    provider_names = sorted(
+        {
+            canonical_provider_account(name)
+            for name, section in provider_items
+            if name not in {"prices", "fx", "etf_metadata", "etf_holdings"}
         }
         | {
             canonical_provider_account(section.active_provider)
-            for section in config.data_providers.providers.values()
+            for _, section in provider_items
             if (section.active_provider or "none").strip().casefold() not in {"", "none"}
         }
     )
-    credential_provider = ft.Dropdown(
-        label="Provider",
-        value=credential_provider_names[0] if credential_provider_names else None,
-        options=[ft.dropdown.Option(name) for name in credential_provider_names],
+    provider_display = tuple(_label(name) for name in provider_names) or ("Unavailable",)
+    provider_by_label = dict(zip(provider_display, provider_names, strict=False))
+    credential_provider_id = {"value": provider_names[0] if provider_names else ""}
+
+    def edit_credential(_event: object) -> None:
+        credential_note.value = "Credential values are never shown after save."
+        update_page()
+
+    credential_provider = Field(
+        "Provider",
+        options=provider_display,
+        value=provider_display[0],
+        on_change=lambda value: select_credential_provider(value),
         key="settings.credential-provider",
-        width=220,
-        dense=True,
-        on_select=select_credential_provider,
+        expand=True,
     )
     credential_value = ft.TextField(
-        label="Provider credential",
         password=True,
         can_reveal_password=False,
-        hint_text="Stored with Windows protection; never included in settings exports.",
         key="settings.credential-value",
-        width=360,
         on_change=edit_credential,
+        **field_input_style(placeholder="Stored with Windows protection; never included in settings exports."),
     )
+    credential_field = Field("Provider credential", control=credential_value, expand=True)
     vault_status = CredentialVault().status()
-    initial_credential_status = (
-        f"Credential vault unavailable: {vault_status['reason']} Existing .env values remain usable."
-        if vault_status["status"] == "unavailable"
-        else "No credential action has run in this session."
-    )
-    credential_status = ft.Text(
-        initial_credential_status,
+    credential_note = Note(
+        "Credential vault unavailable; existing environment values remain a fallback."
+        if vault_status.get("status") == "unavailable"
+        else "No credential action has run in this session.",
         key="settings.credential-status",
-        color=theme.MUTED,
-        selectable=True,
     )
+    credential_details = ft.Text(str(vault_status.get("reason") or ""))
+    credential_recovery = Note(
+        "Credentials can be recovered only by the same Windows user profile. Re-enter credentials if a backup is restored under another profile.",
+        key="settings.credential-recovery",
+    )
+    credential_delete_pending = {"value": False}
 
-    provider_lines = [
-        f"{name}: provider={section.active_provider or 'none'}; base URL={'configured' if section.base_url else 'not configured'}"
-        for name, section in config.data_providers.providers.items()
-    ]
-    body = ft.Column(
-        [
-            panel(
-                ft.Column(
+    def select_credential_provider(value: str) -> None:
+        credential_provider_id["value"] = provider_by_label.get(value, "")
+        credential_value.value = ""
+        credential_note.value = "Enter a credential to save or remove the selected provider value."
+        update_page()
+
+    def save_provider_credential(_event: object) -> None:
+        provider_name = credential_provider_id["value"]
+        secret = credential_value.value or ""
+        try:
+            if not provider_name:
+                raise CredentialVaultError("No provider definition is available.")
+            CredentialVault().set(canonical_provider_account(provider_name), secret)
+            credential_note.value = "Credential saved in the Windows-protected vault; cached provider probes were invalidated."
+            credential_details.value = ""
+        except CredentialVaultError as exc:
+            credential_note.value = "Credential could not be saved safely."
+            credential_details.value = str(exc)
+        except Exception as exc:
+            credential_note.value = "Credential could not be saved safely. Check the Windows vault status and try again."
+            credential_details.value = f"{type(exc).__name__}: {exc}"
+        finally:
+            credential_value.value = ""
+        update_page()
+
+    def delete_provider_credential(_event: object) -> None:
+        provider_name = credential_provider_id["value"]
+        if not credential_delete_pending["value"]:
+            credential_delete_pending["value"] = True
+            credential_note.value = "Select Delete credential again to confirm removal."
+            update_page()
+            return
+        credential_delete_pending["value"] = False
+        try:
+            if not provider_name:
+                raise CredentialVaultError("No provider definition is available.")
+            CredentialVault().delete(canonical_provider_account(provider_name))
+            credential_note.value = "Credential removed from the Windows-protected vault; cached provider probes were invalidated."
+            credential_details.value = ""
+        except CredentialVaultError as exc:
+            credential_note.value = "Credential could not be removed safely."
+            credential_details.value = str(exc)
+        except Exception as exc:
+            credential_note.value = "Credential could not be removed safely. Check the Windows vault status and try again."
+            credential_details.value = f"{type(exc).__name__}: {exc}"
+        update_page()
+
+    provider_details = ft.Column(
+        [ft.Text(f"{name}: active={section.active_provider or 'none'}; base_url={section.base_url or 'not configured'}") for name, section in provider_items]
+        or [Note("Provider definitions are unavailable without a loaded configuration.")],
+        spacing=8,
+    )
+    data_providers = GlassCard(
+        "Data providers",
+        note="local definitions and protected credentials",
+        body=ft.Column(
+            [
+                DataTable(
+                    [TableColumn("provider", "Provider"), TableColumn("active", "Active source"), TableColumn("base_url", "Base URL")],
+                    provider_rows,
+                    empty_title="Unavailable",
+                    empty_reason="Provider definitions are unavailable without a loaded configuration.",
+                    expand=True,
+                ),
+                ft.Row([credential_provider, credential_field], spacing=12),
+                ft.Row(
                     [
-                        section_header("Product scope and authority", "The active local contract is versioned, checksum-bearing and fail-closed."),
-                        ft.Text(
-                            f"{product_policy.policy.product.canonical_name} · ADR {authority_matrix.policy.adr_id} · active stage: Research · execution_allowed=false"
-                            if product_policy.policy is not None and authority_matrix.policy is not None
-                            else "Product authority contract unavailable; manual review required; execution_allowed=false.",
-                            key="settings.product-authority",
-                            color=theme.AMBER,
-                            selectable=True,
-                        ),
-                        ft.Text(
-                            f"Capability matrix: {len(authority_matrix.policy.capabilities)} entries; checksum {authority_matrix.checksum}"
-                            if authority_matrix.policy is not None
-                            else "Capability matrix unavailable.",
-                            key="settings.authority-matrix",
-                            color=theme.MUTED,
-                            selectable=True,
-                        ),
-                    ],
-                    spacing=6,
-                )
-            ),
-            panel(
-                ft.Column(
-                    [
-                        section_header(
-                            "Settings centre",
-                            "Typed local controls are staged, previewed as one policy bundle and saved atomically.",
-                        ),
-                        ft.Row([output_currency, risk_profile, horizon, analysis_depth], wrap=True, spacing=10),
-                        asset_scopes,
-                        ft.Text(
-                            "Quick/Medium/High/Full describe warm/cold analysis effort; selection is stored now, while measured runtime effects remain unavailable until ISSUE-0175.",
-                            color=theme.MUTED,
-                            size=11,
-                            selectable=True,
-                        ),
-                        ft.Row(
-                            [
-                                ft.Button("Preview changes", key="settings.preview", icon=ft.Icons.PREVIEW, on_click=preview),
-                                ft.Button("Save settings", key="settings.save", icon=ft.Icons.SAVE, on_click=save),
-                                ft.Button(
-                                    "Manage credentials",
-                                    key="settings.manage-credentials",
-                                    disabled=True,
-                                    tooltip="Credential controls are available below. ISSUE-0176",
-                                ),
-                            ],
-                            wrap=True,
-                        ),
-                        version_text,
-                        settings_status,
-                        ft.Text(
-                            "Any semantic change creates a new settings version and invalidates reuse of an existing run manifest. execution_allowed=false",
-                            color=theme.AMBER,
-                            selectable=True,
-                        ),
-                        ft.Text(
-                            "Preview shows whether a new analysis/selection run is required. Credential values never enter this bundle, logs or exports.",
-                            color=theme.MUTED,
-                            selectable=True,
-                        ),
-                    ],
-                    spacing=8,
-                )
-            ),
-            panel(ft.Column([section_header("Release and data metadata", "Local release metadata helps users identify the current evidence build."), ft.Text(f"App version: {APP_VERSION}", key="settings.app-version", selectable=True), ft.Text(f"Version metadata: {version_status}", key="settings.version-metadata", selectable=True), ft.Text(f"Last rebuild timestamp: {rebuild_timestamp}", key="settings.last-rebuild", selectable=True), ft.Text(f"Current data root: {DATA_DIR}", key="settings.data-root", selectable=True), ft.Text(f"Changelog excerpt: {changelog_status}", key="settings.changelog", selectable=True), ft.Text(issue_0044_update_plan, key="settings.issue-0044-update-plan", color=theme.MUTED, selectable=True)], spacing=6)),
-            panel(ft.Column([section_header("Privacy, backup and recovery", "Local encrypted backups use Fernet with PBKDF2-HMAC-SHA256. Private fields, credentials, transient logs and caches are excluded by default."), recovery_key, ft.Row([ft.OutlinedButton("Create encrypted backup", key="settings.backup-create", icon=ft.Icons.SAVE, on_click=create_backup), ft.OutlinedButton("Validate latest backup", key="settings.backup-validate", icon=ft.Icons.VERIFIED, on_click=validate_backup), ft.OutlinedButton("Run recovery drill", key="settings.recovery-drill", icon=ft.Icons.SECURITY, on_click=recovery_drill)], wrap=True), ft.Text(f"Backup destination: {backup_archive}", color=theme.MUTED, selectable=True), deletion_confirmation, ft.OutlinedButton("Delete private data", key="settings.delete-private", icon=ft.Icons.DELETE_OUTLINE, on_click=delete_private), privacy_status], spacing=8)),
-            panel(ft.Column([section_header("About and offline update verification", "Updates are local-only: unsigned, tampered or path-unsafe bundles are rejected before staging."), ft.Text(f"Release evidence: {release_evidence['verification']}", key="settings.update-verification", selectable=True), ft.Text(f"Release evidence version: {release_evidence['version']}", key="settings.update-version", selectable=True), ft.Text(f"Third-party notices: {release_evidence['notices']} ({release_evidence['notices_path']})", key="settings.third-party-notices", selectable=True), ft.Text("Network retrieval and live execution are disabled by policy.", color=theme.MUTED, selectable=True)], spacing=6)),
-            panel(ft.Column([section_header("Legal terms, disclaimers and jurisdiction", "Terms and source permissions are versioned locally and reviewed before release."), ft.Text("Research and education only. Not financial or tax advice. No broker execution or order transmission.", color=theme.AMBER, selectable=True), ft.Text(f"Legal terms registry: {legal_report['status']} ({legal_report['review_status']}); checksum={legal_report['registry_sha256']}", key="settings.legal-terms-status", selectable=True), ft.Text("Restricted sources are excluded from standard audit export unless the registry explicitly permits metadata or attribution.", color=theme.MUTED, selectable=True)], spacing=6)),
-            panel(ft.Column([section_header("Third-party intake and upstream governance", "Dependencies, optional model archives and copied-file boundaries are recorded locally before release."), ft.Text(f"Supply-chain intake: {supply_chain_report['status']} ({supply_chain_report['review_status']}); components={supply_chain_report['component_count']}; locked dependencies={supply_chain_report['dependency_count']}", key="settings.supply-chain-intake-status", color=theme.AMBER, selectable=True), ft.Text(f"Intake checksum: {supply_chain_report['registry_sha256']}; notices: {supply_chain_report['third_party_notices']}", key="settings.supply-chain-intake-checksum", color=theme.MUTED, size=11, selectable=True), ft.Text("No copied third-party core is permitted without an approved intake record. Upstream and licence hardening remains visible.", color=theme.MUTED, size=11, selectable=True)], spacing=6)),
-            panel(ft.Column([section_header("Universe manager", "Validated local CRUD for watchlists and the Primary, Secondary and Sparebanken tiers."), ft.Row([ft.Button("Open Universe manager", key="settings.open-universe", on_click=lambda _event: _page.go("/universe")), ft.Button("Open first-run setup", key="settings.open-onboarding", on_click=lambda _event: _page.go("/onboarding"))]), ft.Text("Configuration saves show pending-refresh only; they never trigger refresh, scoring or model calls.", color=theme.MUTED)], spacing=8)),
-            panel(ft.Column([section_header("Config folder", "Local YAML, JSON and .env-backed settings."), ft.Text(str(CONFIG_DIR), color=theme.MUTED, selectable=True)])),
-            panel(ft.Column([section_header("Settings status", "Provider saves show progress here and are also written to the dashboard activity log."), status_text])),
-            panel(ft.Column([section_header("Primary tier universe", "These first-class stocks and ETFs are loaded into the main score table. Secondary tier and Sparebanken entries come from the yfinance-only candidate CSV."), ft.Text("\n".join(f"{etf.id} - {etf.name} ({getattr(etf, 'model_extra', {}).get('instrument_type', etf.asset_class)})" for etf in config.universe.etfs), color=theme.MUTED, selectable=True)])),
-            panel(ft.Column([section_header("Secondary and Sparebanken groups", "Secondary ETFs/stocks and Norwegian savings-bank equity-certificate issuers are displayed as separate Simple Scores groups. Unknown Sparebanken ISINs stay needs_verification."), ft.Text("Candidate source: data/raw/trade_candidates/yahoo_trade_candidates_2026-07-09.csv", color=theme.MUTED, selectable=True)])),
-            panel(ft.Column([section_header("Portfolio context targets", "Used for drift context only; they do not override stock/ETF evidence scores."), ft.Text("\n".join(target_lines), color=theme.MUTED, selectable=True)])),
-            panel(ft.Column([section_header("Guardrail settings", "Data-quality failures still block analysis; allocation caps are displayed as context."), ft.Text(str(config.risks.model_dump()), color=theme.MUTED, selectable=True)])),
-            panel(ft.Column([section_header("Asset support matrix", "Daily ETF/stock data is score eligible. Intraday, futures and options are research-only or unsupported; leveraged/inverse instruments require manual review."), ft.Text("execution_allowed=false", color=theme.AMBER)])),
-            panel(
-                ft.Column(
-                    [
-                        section_header(
-                            "Data providers",
-                            "Provider definitions are visible and versioned here. Vault credentials use Windows DPAPI; existing .env values remain a fallback.",
-                        ),
-                        ft.Text("\n".join(provider_lines), color=theme.MUTED, selectable=True),
-                        ft.Row([credential_provider, credential_value], wrap=True, spacing=10),
-                        ft.Row(
-                            [
-                                ft.Button("Save credential", key="settings.credential-save", on_click=save_provider_credential),
-                                ft.OutlinedButton("Delete credential", key="settings.credential-delete", on_click=delete_provider_credential),
-                            ],
-                            wrap=True,
-                        ),
-                        credential_status,
-                        ft.Text(
-                            "DPAPI credentials can be recovered only by the same Windows user profile. A backup restored under another profile cannot decrypt them; re-enter unrecoverable credentials.",
-                            key="settings.credential-recovery",
-                            color=theme.AMBER,
-                            selectable=True,
-                        ),
+                        Button.primary("Save credential", on_click=save_provider_credential, key="settings.credential-save"),
+                        Button.secondary("Delete credential", on_click=delete_provider_credential, key="settings.credential-delete"),
                     ],
                     spacing=12,
-                )
-            ),
-            panel(ft.Column([section_header("Model settings", "Toto and TimesFM remain local optional evidence sources."), ft.Text("\n".join(model_lines), color=theme.MUTED, selectable=True)])),
+                    wrap=True,
+                ),
+                credential_note,
+                Note("Stored with Windows protection; never included in settings exports."),
+                credential_recovery,
+                Disclosure("Credential vault details", credential_details),
+                Disclosure("Provider definitions and URLs", provider_details),
+                Note("Credential actions replace the unavailable credentials management placeholder.", key="settings.manage-credentials"),
+            ],
+            spacing=12,
+            expand=True,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
+
+    model_items = tuple(config.models.models.items()) if config is not None else ()
+    model_rows = []
+    model_details = []
+    for model_name, model_settings in model_items:
+        enabled = bool(_value(model_settings, "enabled", False))
+        mode = _value(model_settings, "mode")
+        backend = _value(model_settings, "backend")
+        model_path = _value(model_settings, "model_path", _value(model_settings, "path"))
+        model_rows.append(
+            {
+                "model": _label(model_name),
+                "enabled": Tag("Enabled" if enabled else "Disabled", "ok" if enabled else "mute"),
+                "mode": _label(mode),
+                "backend": _label(backend),
+                "path": "Configured" if model_path else "—",
+            }
+        )
+        model_details.append(ft.Text(f"{model_name}: path={model_path or 'unavailable'}; settings={model_settings}"))
+    model_settings_card = GlassCard(
+        "Model settings",
+        note="local optional evidence sources",
+        body=ft.Column(
+            [
+                DataTable(
+                    [
+                        TableColumn("model", "Model"),
+                        TableColumn("enabled", "Enabled"),
+                        TableColumn("mode", "Mode"),
+                        TableColumn("backend", "Backend"),
+                        TableColumn("path", "Model path"),
+                    ],
+                    model_rows,
+                    empty_title="Unavailable",
+                    empty_reason="Model settings are unavailable without a loaded configuration.",
+                    expand=True,
+                ),
+                Disclosure("Model paths and full settings", ft.Column(model_details or [Note("Model paths are unavailable.")], spacing=8)),
+            ],
+            spacing=12,
+            expand=True,
+        ),
+        expand=True,
+    )
+
+    universe_items = tuple(config.universe.etfs) if config is not None else ()
+    universe_rows = [
+        {
+            "instrument": f"{item.id} · {item.name}",
+            "type": _label(getattr(item, "model_extra", {}).get("instrument_type", item.asset_class)),
+            "status": Tag("Enabled" if item.enabled else "Disabled", "ok" if item.enabled else "mute"),
+        }
+        for item in universe_items
+    ]
+    universe_manager = GlassCard(
+        "Universe manager",
+        note="validated local CRUD",
+        body=ft.Column(
+            [
+                ft.Row(
+                    [
+                        Button.secondary("Open Universe manager", on_click=lambda _event: page.go("/universe") if page is not None else None, key="settings.open-universe"),
+                        Button.secondary("Open first-run setup", on_click=lambda _event: page.go("/onboarding") if page is not None else None, key="settings.open-onboarding"),
+                    ],
+                    spacing=12,
+                    wrap=True,
+                ),
+                Note("Configuration saves show pending refresh only; they never trigger refresh, scoring or model calls."),
+            ],
+            spacing=12,
+        ),
+        expand=True,
+    )
+    primary_universe = GlassCard(
+        "Primary tier universe",
+        note="configured local instruments",
+        body=DataTable(
+            [TableColumn("instrument", "Instrument", flex=2), TableColumn("type", "Asset type"), TableColumn("status", "Status")],
+            universe_rows,
+            empty_title="Unavailable",
+            empty_reason="The primary universe is unavailable without a loaded configuration.",
+            expand=True,
+        ),
+        expand=True,
+    )
+    secondary_groups = GlassCard(
+        "Secondary and Sparebanken groups",
+        note="separate candidate groups",
+        body=ft.Column(
+            [
+                Note("Secondary ETFs and stocks remain separate from the primary universe."),
+                Note("Unknown Sparebanken instruments remain marked for verification."),
+                Disclosure("Candidate source details", "data/raw/trade_candidates/yahoo_trade_candidates_2026-07-09.csv"),
+            ],
+            spacing=12,
+        ),
+        expand=True,
+    )
+    asset_support = GlassCard(
+        "Asset support matrix",
+        note="daily evidence only",
+        body=DataTable(
+            [TableColumn("asset", "Asset class"), TableColumn("support", "Support"), TableColumn("note", "Review note")],
+            [
+                {"asset": "Daily stock and ETF data", "support": Tag("Eligible", "ok"), "note": "Score eligible"},
+                {"asset": "Intraday data", "support": Tag("Research only", "warn"), "note": "Not score eligible"},
+                {"asset": "Futures and options", "support": Tag("Unsupported", "bad"), "note": "Not eligible"},
+                {"asset": "Leveraged and inverse", "support": Tag("Manual review", "warn"), "note": "Review before use"},
+            ],
+            expand=True,
+        ),
+        expand=True,
+    )
+
+    version_metadata_path = ROOT / "pyproject.toml"
+    version_metadata = f"Available at {version_metadata_path}" if version_metadata_path.is_file() else "Unavailable: project version metadata is missing."
+    changelog_excerpt = read_changelog_excerpt(ROOT)
+    rebuild_timestamp = read_rebuild_timestamp(ROOT)
+    release_metadata = GlassCard(
+        "Release and data metadata",
+        note=f"App version {APP_VERSION}",
+        body=ft.Column(
+            [
+                Note(f"App version: {APP_VERSION}"),
+                Note(f"Last rebuild: {rebuild_timestamp or 'Unavailable'}"),
+                Disclosure(
+                    "Version metadata, data root and changelog",
+                    ft.Column(
+                        [
+                            ft.Text(version_metadata),
+                            ft.Text(f"Data root: {DATA_DIR}"),
+                            ft.Text(f"Changelog excerpt: {changelog_excerpt}"),
+                            ft.Text("ISSUE-0044 update plan: build and verify the Windows package, back up local data/configuration, run restore/startup checks, and retain release metadata."),
+                        ],
+                        spacing=8,
+                    ),
+                ),
+            ],
+            spacing=12,
+        ),
+        expand=True,
+    )
+    release_evidence = describe_release_evidence(ROOT)
+    offline_update = GlassCard(
+        "Offline update verification",
+        note="local-only verification",
+        body=ft.Column(
+            [
+                Note("Unsigned, tampered or unsafe update bundles are rejected before staging."),
+                Note("Network retrieval and live execution are disabled by policy."),
+                Disclosure(
+                    "Release evidence and notices",
+                    ft.Text(
+                        f"Verification: {release_evidence.get('verification')}; version: {release_evidence.get('version')}; "
+                        f"notices: {release_evidence.get('notices')}; notices path: {release_evidence.get('notices_path')}"
+                    ),
+                ),
+            ],
+            spacing=12,
+        ),
+        expand=True,
+    )
+    legal_report = legal_terms_report(ROOT)
+    legal_terms = GlassCard(
+        "Legal terms, disclaimers and jurisdiction",
+        note="local terms and source permissions",
+        body=ft.Column(
+            [
+                Note("Research and education only. Not financial or tax advice. No broker execution or order transmission."),
+                Note("Restricted sources are excluded from standard audit export unless the registry permits attribution."),
+                Disclosure(
+                    "Legal terms registry status and checksum",
+                    ft.Text(
+                        f"Status: {legal_report.get('status')}; review status: {legal_report.get('review_status')}; "
+                        f"checksum: {legal_report.get('registry_sha256')}"
+                    ),
+                ),
+            ],
+            spacing=12,
+        ),
+        expand=True,
+    )
+    supply_chain_report = supply_chain_intake_report(ROOT)
+    supply_chain = GlassCard(
+        "Third-party intake and upstream governance",
+        note="local intake records",
+        body=ft.Column(
+            [
+                Note("Copied third-party code requires an approved intake record."),
+                Note("Upstream and licence review is recorded before release."),
+                Disclosure(
+                    "Supply-chain status, counts, checksum and notices",
+                    ft.Text(
+                        f"Status: {supply_chain_report.get('status')}; review: {supply_chain_report.get('review_status')}; "
+                        f"components: {supply_chain_report.get('component_count')}; locked dependencies: {supply_chain_report.get('dependency_count')}; "
+                        f"checksum: {supply_chain_report.get('registry_sha256')}; notices: {supply_chain_report.get('third_party_notices')}"
+                    ),
+                ),
+            ],
+            spacing=12,
+        ),
+        expand=True,
+    )
+    config_folder_status = Note("Configuration folder is available in the local app directory.")
+
+    def open_config_folder(_event: object) -> None:
+        opener = getattr(os, "startfile", None)
+        if callable(opener):
+            try:
+                opener(str(CONFIG_DIR))
+                config_folder_status.value = "Configuration folder opened."
+            except OSError:
+                config_folder_status.value = "Configuration folder could not be opened."
+        update_page()
+
+    config_folder = GlassCard(
+        "Config folder",
+        note="local YAML and JSON settings",
+        body=ft.Column(
+            [
+                Button.secondary("Open folder", on_click=open_config_folder),
+                config_folder_status,
+                Disclosure("Configuration folder path", str(CONFIG_DIR)),
+            ],
+            spacing=12,
+        ),
+        expand=True,
+    )
+
+    if config is not None:
+        status_note.value = "Local settings and configuration are ready."
+    else:
+        status_note.value = "Unavailable: no application configuration is loaded."
+
+    general_view = ft.Column(
+        [
+            ft.Row([settings_centre, change_preview], spacing=24, expand=6),
+            ft.Row([guardrails, portfolio_targets], spacing=24, expand=4),
         ],
-        spacing=14,
+        spacing=24,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
     )
-    return page_view(
-        "Settings",
-        "Local preferences, credentials and release metadata · no provider, broker or live authority",
-        body,
-        (SegmentGroup("settings", ("General", "Data & models", "Privacy", "About"), "General"),),
+    data_view = ft.Column(
+        [
+            ft.Row([data_providers, model_settings_card], spacing=24, expand=6),
+            ft.Row([universe_manager, primary_universe], spacing=24, expand=4),
+            ft.Row([secondary_groups, asset_support], spacing=24, expand=4),
+            ft.Row([release_metadata, config_folder], spacing=24, expand=4),
+            ft.Row([offline_update, legal_terms], spacing=24, expand=4),
+            ft.Row([supply_chain, GlassCard("Settings status", body=ft.Column([status_note, Disclosure("Settings action details", status_details)], spacing=12), expand=True)], spacing=24, expand=4),
+        ],
+        spacing=24,
+        expand=True,
+        scroll=ft.ScrollMode.AUTO,
+    )
+
+    backup_archive = ROOT / "exports" / "storage" / "cockpit-encrypted.backup"
+    recovery_key = ft.TextField(
+        password=True,
+        can_reveal_password=True,
+        **field_input_style(placeholder="At least 16 characters; never logged or exported"),
+    )
+    recovery_key_field = Field("Recovery key", control=recovery_key, expand=True)
+    deletion_confirmation = ft.TextField(
+        password=True,
+        **field_input_style(placeholder="Type DELETE PRIVATE DATA to confirm"),
+    )
+    deletion_field = Field(
+        "Type DELETE PRIVATE DATA to remove local private notes",
+        control=deletion_confirmation,
+        expand=True,
+    )
+    privacy_note = Note("No privacy or recovery action has run in this session.")
+    privacy_details = ft.Text("")
+
+    def set_privacy_status(message: str, details: str = "") -> None:
+        privacy_note.value = message
+        privacy_details.value = details
+        update_page()
+
+    def create_backup(_event: object) -> None:
+        try:
+            manifest = create_encrypted_backup([DATA_DIR, CONFIG_DIR], backup_archive, recovery_key.value or "")
+            set_privacy_status("Encrypted backup created.", f"Archive: {manifest.archive}; files: {manifest.checksums}; excluded: {manifest.excluded}")
+        except Exception as exc:
+            set_privacy_status("Backup creation failed safely.", f"{type(exc).__name__}: {exc}")
+
+    def validate_backup(_event: object) -> None:
+        preview = validate_encrypted_restore(backup_archive, recovery_key.value or "") if backup_archive.is_file() else None
+        if preview is None:
+            set_privacy_status("Backup validation is unavailable because no backup archive is present.", str(backup_archive))
+        elif preview.valid:
+            set_privacy_status("Backup validated; no data was restored.", f"Entries: {preview.entries}")
+        else:
+            set_privacy_status("Backup validation failed safely.", f"Validation detail: {preview.errors}")
+
+    def recovery_drill(_event: object) -> None:
+        try:
+            drill = run_disaster_recovery_drill(
+                [DATA_DIR, CONFIG_DIR],
+                ROOT / "exports" / "storage" / "recovery-drill",
+                recovery_key=recovery_key.value or "",
+            )
+            set_privacy_status(
+                "Recovery drill completed." if drill.ok else "Recovery drill did not complete.",
+                f"Restored entries: {drill.restored_files}; archive: {drill.archive}; errors: {drill.errors}",
+            )
+        except Exception as exc:
+            set_privacy_status("Recovery drill failed safely.", f"{type(exc).__name__}: {exc}")
+
+    def delete_private(_event: object) -> None:
+        try:
+            deleted = delete_private_data(ROOT, confirmation=deletion_confirmation.value or "")
+            set_privacy_status("Private data deletion completed.", f"Deleted entries: {deleted}")
+        except Exception as exc:
+            set_privacy_status("Private data was not deleted.", f"{type(exc).__name__}: {exc}")
+
+    privacy_view = ft.Column(
+        [
+            GlassCard(
+                "Privacy, backup and recovery",
+                note="local encrypted backups; no credential export",
+                body=ft.Column(
+                    [
+                        Note("Private fields, credentials, transient logs and caches are excluded from encrypted backups by default."),
+                        recovery_key_field,
+                        ft.Row(
+                            [
+                                Button.primary("Create encrypted backup", on_click=create_backup, key="settings.backup-create"),
+                                Button.secondary("Validate latest backup", on_click=validate_backup, key="settings.backup-validate"),
+                                Button.secondary("Run recovery drill", on_click=recovery_drill, key="settings.recovery-drill"),
+                            ],
+                            spacing=12,
+                            wrap=True,
+                        ),
+                        Note("Backup destination is stored locally."),
+                        deletion_field,
+                        Button.secondary("Delete private data", on_click=delete_private, key="settings.delete-private"),
+                        privacy_note,
+                        Disclosure("Backup destination and recovery details", ft.Column([ft.Text(str(backup_archive)), privacy_details], spacing=8)),
+                    ],
+                    spacing=16,
+                ),
+                expand=True,
+            ),
+        ],
+        spacing=24,
+        expand=True,
+        scroll=ft.ScrollMode.AUTO,
+    )
+
+    views = {"General": general_view, "Data & models": data_view, "Privacy": privacy_view}
+    body_slot = ft.Container(content=general_view, expand=True)
+
+    def select_view(value: str) -> None:
+        body_slot.content = views[value]
+        update_page()
+
+    body = ft.Column([body_slot], spacing=0, expand=True)
+    return PageView(
+        chrome=PageChrome(
+            title="Settings",
+            subtitle="Local preferences, credentials and release metadata - no provider, broker or live authority",
+            segment_groups=(
+                SegmentGroup(
+                    "settings",
+                    ("General", "Data & models", "Privacy"),
+                    "General",
+                    on_change=select_view,
+                ),
+            ),
+        ),
+        body=body,
     )

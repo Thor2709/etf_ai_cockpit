@@ -10,10 +10,21 @@ import flet as ft
 import pandas as pd
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.glass_pages import page_panel
-from etf_cockpit.app.components.cards import section_header
-from etf_cockpit.app.components.shell.page_view import SegmentGroup
-from etf_cockpit.app.pages._l1a_common import page_view
+from etf_cockpit.app.components.kit import (
+    Button,
+    DataTable,
+    Disclosure,
+    Field,
+    GlassCard,
+    KpiTile,
+    Note,
+    Segmented,
+    TableColumn,
+    Tag,
+    Well,
+    field_input_style,
+)
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.portfolio_imports import PortfolioImportApplication
 from etf_cockpit.core.paths import CONFIG_DIR, DATA_DIR, DERIVED_DIR, ROOT
@@ -33,9 +44,6 @@ from etf_cockpit.application.ui_facade import (
     bulk_cache_health,
     load_simple_scoreboard,
 )
-
-
-panel = page_panel("import-export")
 
 
 def _record_export_terminal(
@@ -77,7 +85,14 @@ def _refresh_activity_shell(page: ft.Page, state: AppState) -> None:
     render_shell(page, state, getattr(page, "route", "") or state.snapshot.config.ui.default_page)
 
 
-def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
+def _table_cell(value: object) -> object:
+    try:
+        return None if value is None or bool(pd.isna(value)) else value
+    except (TypeError, ValueError):
+        return value
+
+
+def import_export_page(page: ft.Page, state: AppState) -> PageView:
     picker = ft.FilePicker(key="import-export.import.file-picker")
     try:
         page.services.append(picker)
@@ -86,98 +101,154 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             page.overlay.append(picker)
         except Exception:
             pass
-    import_type = ft.Dropdown(label="Import type", value="portfolio_history", options=[ft.dropdown.Option(value, value.replace("_", " ").title()) for value in ("portfolio_history", "broker", "candidate", "manual_notes", "etf_holdings", "news", "events", "rss_list")], width=190)
-    path_field = ft.TextField(label="Local source path", hint_text="Choose a CSV, JSON, Parquet or RSS file", width=460, key="import-export.import-path")
-    preview_text = ft.Text("Preview required before commit.", color=theme.MUTED, selectable=True, key="import-export.preview-status")
-    commit_button = ft.OutlinedButton("Commit validated import", key="import-export.commit", disabled=True)
+    import_types = ("portfolio_history", "broker", "candidate", "manual_notes", "etf_holdings", "news", "events", "rss_list")
+    import_type_labels = tuple(value.replace("_", " ").title() for value in import_types)
+    import_type_values = dict(zip(import_type_labels, import_types, strict=True))
+    selections = {"import_type": "portfolio_history", "portfolio_locale": "en_US", "portfolio_authority": "broker"}
+    path_field = ft.TextField(key="import-export.import-path", **field_input_style(placeholder="Choose a CSV, JSON, Parquet or RSS file"))
+    preview_text = Note("Preview required before commit.", key="import-export.preview-status")
+    preview_details = ft.Text("")
+    action_status = Note("No import, export or recovery action has run in this session.")
+    action_details = ft.Text("")
+    commit_button_slot = ft.Container()
     selected_preview: ImportPreview | None = None
     portfolio_imports = PortfolioImportApplication(ROOT)
-    staging_report = ft.Text(
-        "No portfolio rows staged.",
-        color=theme.MUTED,
-        selectable=True,
-        key="import-export.portfolio-staging-report",
-    )
-    reconciliation_status = ft.Text(
-        "Portfolio reconciliation not run.",
-        color=theme.MUTED,
-        selectable=True,
-        key="import-export.portfolio-reconciliation-status",
-    )
-    portfolio_authority = ft.Dropdown(
-        label="Ledger authority",
-        value="broker",
-        options=[ft.dropdown.Option("broker"), ft.dropdown.Option("paper")],
-        width=150,
-        key="import-export.portfolio-authority",
-    )
+    staging_report = Note("No portfolio rows staged.", key="import-export.portfolio-staging-report")
+    staging_details = ft.Text("")
+    staging_table_slot = ft.Container(expand=True)
+    reconciliation_status = Note("Portfolio reconciliation not run.", key="import-export.portfolio-reconciliation-status")
+    reconciliation_summary = Note("Portfolio reconciliation has not been run.")
+    reconciliation_details = ft.Text("")
+    reconciliation_table_slot = ft.Container(expand=True)
     portfolio_as_of = ft.TextField(
-        label="Effective cutoff (ISO-8601)",
-        value=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        width=270,
         key="import-export.portfolio-as-of",
+        value=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        **field_input_style(placeholder="ISO-8601 timestamp"),
     )
     portfolio_known_at = ft.TextField(
-        label="Known-time cutoff (ISO-8601)",
-        value=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        width=270,
         key="import-export.portfolio-known-at",
+        value=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        **field_input_style(placeholder="ISO-8601 timestamp"),
     )
     source_account_id = ft.TextField(
-        label="Source account ID", width=170, key="import-export.portfolio-source-account"
+        key="import-export.portfolio-source-account", **field_input_style()
     )
     ledger_cash_account = ft.TextField(
-        label="Ledger cash account ID", width=190, key="import-export.portfolio-ledger-cash"
+        key="import-export.portfolio-ledger-cash", **field_input_style()
     )
     ledger_position_account = ft.TextField(
-        label="Ledger position account ID", width=210, key="import-export.portfolio-ledger-position"
+        key="import-export.portfolio-ledger-position", **field_input_style()
     )
     ledger_clearing_account = ft.TextField(
-        label="Ledger clearing account ID", width=210, key="import-export.portfolio-ledger-clearing"
+        key="import-export.portfolio-ledger-clearing", **field_input_style()
     )
     source_adjustment_event = ft.TextField(
-        label="Source event ID to post", width=330, key="import-export.portfolio-adjust-event"
+        key="import-export.portfolio-adjust-event", **field_input_style()
     )
     orphan_entry_id = ft.TextField(
-        label="Orphaned source-linked entry ID", width=330, key="import-export.portfolio-orphan-entry"
+        key="import-export.portfolio-orphan-entry", **field_input_style()
     )
     rollback_batch = ft.TextField(
-        label="Portfolio batch ID",
-        width=300,
         key="import-export.portfolio-rollback-batch",
+        **field_input_style(),
     )
     rollback_reason = ft.TextField(
-        label="Rollback reason",
-        width=300,
         key="import-export.portfolio-rollback-reason",
+        **field_input_style(),
     )
     portfolio_export_path = ft.TextField(
-        label="Canonical portfolio export",
         value=str(ROOT / "exports" / "portfolio_history.csv"),
-        width=460,
         key="import-export.portfolio-export-path",
+        **field_input_style(),
     )
     portfolio_audit_path = ft.TextField(
-        label="Deterministic ledger audit JSON",
         value=str(ROOT / "exports" / "portfolio_reconciliation.json"),
-        width=460,
         key="import-export.portfolio-audit-path",
+        **field_input_style(),
     )
-    portfolio_source_system = ft.TextField(label="Source system", value="user_local", width=180, key="import-export.portfolio-source-system")
-    portfolio_provider = ft.TextField(label="Provider", value="user_local", width=180, key="import-export.portfolio-provider")
-    portfolio_locale = ft.Dropdown(label="Numeric locale", value="en_US", options=[ft.dropdown.Option("en_US", "1,234.56"), ft.dropdown.Option("de_DE", "1.234,56")], width=170, key="import-export.portfolio-locale")
-    mapping_source = ft.TextField(label="Source ticker/ISIN/listing", width=210, key="import-export.portfolio-mapping-source")
-    mapping_canonical = ft.TextField(label="Canonical instrument ID", width=210, key="import-export.portfolio-mapping-canonical")
-    mapping_reviewer = ft.TextField(label="Reviewer", width=170, key="import-export.portfolio-mapping-reviewer")
-    mapping_reason = ft.TextField(label="Mapping reason", width=240, key="import-export.portfolio-mapping-reason")
-    bulk_source_id = ft.TextField(label="Bulk source ID", value="local-bulk-source", width=220, key="import-export.bulk-source-id")
-    bulk_status = ft.Text("No bulk source cached in this session.", color=theme.MUTED, selectable=True, key="import-export.bulk-status")
+    portfolio_source_system = ft.TextField(value="user_local", key="import-export.portfolio-source-system", **field_input_style())
+    portfolio_provider = ft.TextField(value="user_local", key="import-export.portfolio-provider", **field_input_style())
+    locale_items = ("1,234.56", "1.234,56")
+    locale_values = {locale_items[0]: "en_US", locale_items[1]: "de_DE"}
+    selections["portfolio_locale"] = "en_US"
+    mapping_source = ft.TextField(key="import-export.portfolio-mapping-source", **field_input_style())
+    mapping_canonical = ft.TextField(key="import-export.portfolio-mapping-canonical", **field_input_style())
+    mapping_reviewer = ft.TextField(key="import-export.portfolio-mapping-reviewer", **field_input_style())
+    mapping_reason = ft.TextField(key="import-export.portfolio-mapping-reason", **field_input_style())
+    bulk_source_id = ft.TextField(value="local-bulk-source", key="import-export.bulk-source-id", **field_input_style())
+    bulk_status = Note("No bulk source cached in this session.", key="import-export.bulk-status")
+    bulk_status_summary = Note("No local bulk source has been cached.")
+    bulk_details = ft.Text("")
+
+    def set_commit_enabled(enabled: bool) -> None:
+        commit_button_slot.content = Button.secondary(
+            "Commit validated import",
+            on_click=commit,
+            disabled=not enabled,
+            disabled_reason="Preview required before commit." if not enabled else None,
+            key="import-export.commit",
+        )
+
+    def update_staging_table() -> None:
+        frame = selected_preview.frame if selected_preview is not None else pd.DataFrame()
+        rows = []
+        if isinstance(frame, pd.DataFrame) and not frame.empty:
+            for _, record in frame.head(100).iterrows():
+                status = str(record.get("staging_status", record.get("status", "unavailable")) or "unavailable")
+                label, kind = {
+                    "accepted": ("Accepted", "ok"),
+                    "valid": ("Valid", "ok"),
+                    "quarantined": ("Needs review", "warn"),
+                    "correction": ("Correction", "warn"),
+                    "rejected": ("Rejected", "bad"),
+                }.get(status.casefold(), ("Unavailable", "bad"))
+                source_row = _table_cell(record.get("source_id", record.get("source_row", None)))
+                instrument = _table_cell(record.get("instrument_id", record.get("raw_instrument_id", None)))
+                rows.append({"source": source_row, "instrument": instrument, "validation": Tag(label, kind)})
+        staging_table_slot.content = DataTable(
+            [
+                TableColumn("source", "Source row"),
+                TableColumn("instrument", "Instrument", flex=2),
+                TableColumn("validation", "Validation"),
+            ],
+            rows,
+            empty_title="No portfolio rows staged",
+            empty_reason="No portfolio rows are staged for validation.",
+            expand=True,
+        )
+
+    def update_reconciliation_table(discrepancies=()) -> None:
+        rows = [
+            {
+                "kind": str(getattr(item, "kind", "Difference")).replace("_", " ").title(),
+                "event": _table_cell(getattr(item, "event_id", None)),
+                "entry": _table_cell(getattr(item, "ledger_entry_id", None)),
+            }
+            for item in discrepancies
+        ]
+        reconciliation_details.value = "\n".join(str(getattr(item, "detail", "")) for item in discrepancies)
+        reconciliation_table_slot.content = DataTable(
+            [
+                TableColumn("kind", "Difference"),
+                TableColumn("event", "Source event"),
+                TableColumn("entry", "Ledger entry"),
+            ],
+            rows,
+            empty_title="Unavailable",
+            empty_reason="No reconciliation differences are available until reconciliation is run.",
+            expand=True,
+        )
 
     def show(message: str, *, colour: str = theme.MUTED) -> None:
-        state.last_message = message
-        preview_text.value = message
+        summary = status_summary(message)
+        state.last_message = summary
+        preview_text.value = summary
+        preview_details.value = redact_text(message)
         preview_text.color = colour
-        page.update()
+        action_status.value = summary or "Action completed."
+        action_details.value = redact_text(message)
+        if page is not None:
+            page.update()
 
     async def open_import(_event: ft.ControlEvent) -> None:
         nonlocal selected_preview
@@ -185,12 +256,12 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["csv", "xlsx", "xls", "json", "jsonl", "parquet", "pq", "rss", "xml"], with_data=True)
         except Exception as exc:
             selected_preview = None
-            commit_button.disabled = True
+            set_commit_enabled(False)
             show(f"Import picker failed: {type(exc).__name__}; no data changed.", colour=theme.RED)
             return
         if not files:
             selected_preview = None
-            commit_button.disabled = True
+            set_commit_enabled(False)
             show("Local import cancelled; no data changed.")
             return
         selected = files[0]
@@ -202,15 +273,15 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             content = getattr(selected, "bytes", None)
             if not isinstance(content, (bytes, bytearray)):
                 selected_preview = None
-                commit_button.disabled = True
+                set_commit_enabled(False)
                 show("Import rejected: the selected browser file did not include readable bytes.", colour=theme.RED)
                 return
             upload_directory = TemporaryDirectory(prefix="etf-import-", dir=tempfile.gettempdir())
             source = Path(upload_directory.name) / Path(selected.name).name
             source.write_bytes(content)
         try:
-            if import_type.value == "portfolio_history":
-                selected_preview = portfolio_imports.preview(source, source_format="broker_csv", numeric_locale=portfolio_locale.value or "en_US", source_system=portfolio_source_system.value or None, provider_id=portfolio_provider.value or None)
+            if selections["import_type"] == "portfolio_history":
+                selected_preview = portfolio_imports.preview(source, source_format="broker_csv", numeric_locale=selections["portfolio_locale"], source_system=portfolio_source_system.value or None, provider_id=portfolio_provider.value or None)
                 if not selected_preview.frame.empty:
                     staged = selected_preview.frame
                     accounts = tuple(sorted(str(value) for value in staged["account_id"].dropna().unique()))
@@ -232,11 +303,12 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
                     staging_report.value = f"Staging counts={counts}; reconciliation exceptions={exceptions.to_dict(orient='records') or 'none'}. Identity ambiguities remain quarantined."
                     staging_report.color = theme.AMBER if counts.get("quarantined", 0) else theme.GREEN
             else:
-                selected_preview = validate_import(import_type.value or "broker", source)
+                selected_preview = validate_import(str(selections["import_type"] or "broker"), source)
         finally:
             if upload_directory is not None:
                 upload_directory.cleanup()
-        commit_button.disabled = not selected_preview.valid
+        set_commit_enabled(selected_preview.valid)
+        update_staging_table()
         colour = theme.GREEN if selected_preview.valid else theme.RED
         show(f"Preview {'valid' if selected_preview.valid else 'rejected'}: {selected_preview.rows} rows; source {display_source}; errors={'; '.join(selected_preview.errors) or 'none'}.", colour=colour)
 
@@ -287,7 +359,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             state.release_activity(action_id)
             _refresh_activity_shell(page, state)
 
-    commit_button.on_click = commit
+    set_commit_enabled(False)
 
     def apply_portfolio_mapping(_event: ft.ControlEvent) -> None:
         nonlocal selected_preview
@@ -302,7 +374,8 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
                 reviewer=mapping_reviewer.value or "",
                 reason=mapping_reason.value or "",
             )
-            commit_button.disabled = not selected_preview.valid
+            set_commit_enabled(selected_preview.valid)
+            update_staging_table()
             mapped = selected_preview.frame
             exceptions = mapped.loc[mapped["staging_status"].isin(["quarantined", "correction"]), ["source_id", "raw_instrument_id", "instrument_id", "identity_candidates", "staging_status", "quarantine_reason"]].head(8)
             staging_report.value = f"Mapping revision staged: preview={selected_preview.preview_id}; exceptions={exceptions.to_dict(orient='records') or 'none'}; mapping decision is checksum-bound and immutable."
@@ -314,7 +387,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
     def reconcile_portfolio(_event: ft.ControlEvent) -> None:
         try:
             result = portfolio_imports.reconcile(
-                authority=portfolio_authority.value or "broker",
+                authority=str(selections["portfolio_authority"]),
                 as_of=portfolio_as_of.value or "",
                 known_at=portfolio_known_at.value or "",
             )
@@ -337,19 +410,25 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
                 f"missing lots={list(replay.missing_lot_identity)}; execution_allowed=false."
             )
             reconciliation_status.color = theme.GREEN if replay.trial_balance_balanced and not result.discrepancies and not replay.missing_lot_identity else theme.AMBER
+            reconciliation_summary.value = "Ledger reconciliation completed; review status and differences below."
+            update_reconciliation_table(result.discrepancies)
         except Exception as exc:
             reconciliation_status.value = f"Reconciliation unavailable: {type(exc).__name__}: {redact_text(str(exc))}; no data changed."
             reconciliation_status.color = theme.RED
+            reconciliation_summary.value = "Ledger reconciliation is unavailable."
+            update_reconciliation_table()
         page.update()
 
-    def rollback_portfolio(_event: ft.ControlEvent) -> None:
+    def rollback_portfolio_once(_event: ft.ControlEvent) -> None:
         try:
             portfolio_imports.rollback(rollback_batch.value or "", reason=rollback_reason.value or "")
             reconciliation_status.value = f"Source-evidence rollback recorded for {rollback_batch.value}; posted ledger facts remain immutable and require an explicit reversing adjustment; execution_allowed=false."
             reconciliation_status.color = theme.AMBER
+            reconciliation_summary.value = "Source-evidence rollback was recorded."
         except Exception as exc:
             reconciliation_status.value = f"Rollback blocked: {type(exc).__name__}: {redact_text(str(exc))}; no data changed."
             reconciliation_status.color = theme.RED
+            reconciliation_summary.value = "Source-evidence rollback was blocked."
         page.update()
 
     def export_portfolio(_event: ft.ControlEvent) -> None:
@@ -357,15 +436,17 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             destination = portfolio_imports.export_canonical(Path(portfolio_export_path.value or ""))
             reconciliation_status.value = f"Canonical portfolio history exported to {destination}; quarantined rows excluded."
             reconciliation_status.color = theme.GREEN
+            reconciliation_summary.value = "Canonical portfolio history exported."
         except Exception as exc:
             reconciliation_status.value = f"Portfolio export unavailable: {type(exc).__name__}: {redact_text(str(exc))}; no placeholder written."
             reconciliation_status.color = theme.RED
+            reconciliation_summary.value = "Canonical portfolio export is unavailable."
         page.update()
 
     def map_portfolio_account(_event: ft.ControlEvent) -> None:
         try:
             mapping = portfolio_imports.map_source_account(
-                authority=portfolio_authority.value or "broker",
+                authority=str(selections["portfolio_authority"]),
                 source_account_id=source_account_id.value or "",
                 cash_account_id=ledger_cash_account.value or "",
                 position_account_id=ledger_position_account.value or "",
@@ -375,16 +456,18 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             )
             reconciliation_status.value = f"Account mapping {mapping.mapping_id} recorded for source account {mapping.source_account_id}; reviewer={mapping.reviewer}; immutable decision."
             reconciliation_status.color = theme.GREEN
+            reconciliation_summary.value = "Source account mapping was recorded."
         except Exception as exc:
             reconciliation_status.value = f"Account mapping rejected: {type(exc).__name__}: {redact_text(str(exc))}; prior mapping preserved."
             reconciliation_status.color = theme.RED
+            reconciliation_summary.value = "Source account mapping was rejected."
         page.update()
 
     def apply_portfolio_adjustment(_event: ft.ControlEvent) -> None:
         try:
             result = portfolio_imports.apply_adjustment(
                 source_adjustment_event.value or "",
-                authority=portfolio_authority.value or "broker",
+                authority=str(selections["portfolio_authority"]),
                 as_of=portfolio_as_of.value or "",
                 known_at=portfolio_known_at.value or "",
                 reviewer=mapping_reviewer.value or "",
@@ -392,39 +475,45 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             )
             reconciliation_status.value = f"Adjustment {result.adjustment_id} posted as {result.ledger_entry_id}; reversed={list(result.reversed_entry_ids)}; reviewer={result.reviewer}; execution_allowed=false."
             reconciliation_status.color = theme.AMBER
+            reconciliation_summary.value = "Source correction was posted."
         except Exception as exc:
             reconciliation_status.value = f"Adjustment blocked: {type(exc).__name__}: {redact_text(str(exc))}; no ledger fact changed."
             reconciliation_status.color = theme.RED
+            reconciliation_summary.value = "Source correction was blocked."
         page.update()
 
     def reverse_orphaned_portfolio_entry(_event: ft.ControlEvent) -> None:
         try:
             reversal_id = portfolio_imports.reverse_orphaned_entry(
                 orphan_entry_id.value or "",
-                authority=portfolio_authority.value or "broker",
+                authority=str(selections["portfolio_authority"]),
                 reviewer=mapping_reviewer.value or "",
                 reason=mapping_reason.value or "",
             )
             reconciliation_status.value = f"Orphan discrepancy reversed with immutable entry {reversal_id}; execution_allowed=false."
             reconciliation_status.color = theme.AMBER
+            reconciliation_summary.value = "Orphaned source entry was reversed."
         except Exception as exc:
             reconciliation_status.value = f"Reversal blocked: {type(exc).__name__}: {redact_text(str(exc))}; no ledger fact changed."
             reconciliation_status.color = theme.RED
+            reconciliation_summary.value = "Orphaned source reversal was blocked."
         page.update()
 
     def export_portfolio_audit(_event: ft.ControlEvent) -> None:
         try:
             destination = portfolio_imports.export_reconciliation_audit(
                 Path(portfolio_audit_path.value or ""),
-                authority=portfolio_authority.value or "broker",
+                authority=str(selections["portfolio_authority"]),
                 as_of=portfolio_as_of.value or "",
                 known_at=portfolio_known_at.value or "",
             )
             reconciliation_status.value = f"Deterministic reconciliation audit exported to {destination}; no ledger data changed."
             reconciliation_status.color = theme.GREEN
+            reconciliation_summary.value = "Reconciliation audit exported."
         except Exception as exc:
             reconciliation_status.value = f"Audit export unavailable: {type(exc).__name__}: {redact_text(str(exc))}; no placeholder written."
             reconciliation_status.color = theme.RED
+            reconciliation_summary.value = "Reconciliation audit export is unavailable."
         page.update()
 
     async def cache_bulk_source(_event: ft.ControlEvent) -> None:
@@ -432,11 +521,13 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             files = await picker.pick_files(file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["csv", "json", "jsonl", "parquet", "pq", "zip", "tar", "gz"], with_data=True)
         except Exception as exc:
             bulk_status.value = f"Bulk cache picker failed: {type(exc).__name__}; no data changed."
+            bulk_status_summary.value = "Bulk source could not be selected."
             bulk_status.color = theme.RED
             page.update()
             return
         if not files:
             bulk_status.value = "Bulk cache selection cancelled; no data changed."
+            bulk_status_summary.value = "Bulk cache selection was cancelled."
             bulk_status.color = theme.MUTED
             page.update()
             return
@@ -447,6 +538,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             content = getattr(selected, "bytes", None)
             if not isinstance(content, (bytes, bytearray)):
                 bulk_status.value = "Bulk cache rejected: the selected browser file did not include readable bytes."
+                bulk_status_summary.value = "The selected source could not be read."
                 bulk_status.color = theme.RED
                 page.update()
                 return
@@ -458,6 +550,7 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             if upload_directory is not None:
                 upload_directory.cleanup()
             bulk_status.value = f"Cache rebuild blocked: {state.current_activity.label} is already running."
+            bulk_status_summary.value = "Bulk cache is blocked while another local job is running."
             bulk_status.color = theme.RED
             page.update()
             return
@@ -466,6 +559,8 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             with state.activity_publication(action_id):
                 result = ContentAddressedCache(ROOT).store_local_file(bulk_source_id.value or "local-bulk-source", source)
             bulk_status.value = f"Cached and checksum-verified {result.manifest.source_id}: {result.manifest.content_sha256[:16]}…; version {result.manifest.version}; raw object is immutable."
+            bulk_status_summary.value = "Bulk source cache completed."
+            bulk_details.value = bulk_status.value
             bulk_status.color = theme.GREEN
             state.update_activity(
                 "Cache source promoted",
@@ -485,6 +580,8 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
                 return
             state.fail_activity(label, exc, expected_action_id=action_id)
             bulk_status.value = state.last_message
+            bulk_status_summary.value = "Bulk source cache failed."
+            bulk_details.value = redact_text(state.last_message)
             bulk_status.color = theme.RED
         finally:
             if upload_directory is not None:
@@ -492,6 +589,8 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
             cancelled_message = state.restore_cancelled_activity_message(action_id)
             if cancelled_message is not None:
                 bulk_status.value = cancelled_message
+                bulk_status_summary.value = "Bulk source cache was cancelled."
+                bulk_details.value = redact_text(cancelled_message)
                 bulk_status.color = theme.MUTED
             state.release_activity(action_id)
             _refresh_activity_shell(page, state)
@@ -499,14 +598,30 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
     cache_report = bulk_cache_health(ROOT)
     cache_summary = f"Status={cache_report['status']} | objects={cache_report['object_count']} | manifests={cache_report['manifest_count']} | staged={cache_report['staged_file_count']} | promoted generations={cache_report['promoted_generation_count']} | network_calls=false"
 
-    export_path = ft.TextField(label="Export destination", value=str(ROOT / "exports" / "scoreboard.csv"), width=460, key="import-export.export-path")
-
-    backup_path = ft.TextField(label="Backup archive destination", value=str(ROOT / "backups" / "cockpit-backup.zip"), width=460, key="import-export.backup-path")
-    restore_path = ft.TextField(label="Restore archive", width=460, key="import-export.restore-path")
-    restore_status = ft.Text("Restore validation preview required; nothing will be written.", color=theme.MUTED, selectable=True, key="import-export.restore-status")
-    restore_commit_button = ft.OutlinedButton("Commit restore", key="import-export.restore-commit", disabled=True)
-    restore_cancel_button = ft.TextButton("Cancel restore", key="import-export.restore-cancel", disabled=True)
+    export_path = ft.TextField(value=str(ROOT / "exports" / "scoreboard.csv"), key="import-export.export-path", **field_input_style())
+    backup_path = ft.TextField(value=str(ROOT / "backups" / "cockpit-backup.zip"), key="import-export.backup-path", **field_input_style())
+    restore_path = ft.TextField(key="import-export.restore-path", **field_input_style())
+    restore_status = Note("Restore validation preview required; nothing will be written.", key="import-export.restore-status")
+    restore_summary = Note("Restore validation preview required; nothing will be written.")
+    restore_commit_slot = ft.Container()
+    restore_cancel_slot = ft.Container()
     restore_preview = None
+
+    def set_restore_controls(commit_enabled: bool, cancel_enabled: bool) -> None:
+        restore_commit_slot.content = Button.primary(
+            "Commit restore",
+            on_click=commit_restore_preview,
+            disabled=not commit_enabled,
+            disabled_reason="Validate a restore preview before committing." if not commit_enabled else None,
+            key="import-export.restore-commit",
+        )
+        restore_cancel_slot.content = Button.secondary(
+            "Cancel restore",
+            on_click=cancel_restore_preview,
+            disabled=not cancel_enabled,
+            disabled_reason="No restore preview is active." if not cancel_enabled else None,
+            key="import-export.restore-cancel",
+        )
 
     def backup(_event: ft.ControlEvent) -> None:
         try:
@@ -519,8 +634,8 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         nonlocal restore_preview
         archive = Path(restore_path.value or "")
         restore_preview = validate_restore(archive, destination=ROOT)
-        restore_commit_button.disabled = not restore_preview.valid
-        restore_cancel_button.disabled = False
+        set_restore_controls(restore_preview.valid, True)
+        restore_summary.value = "Restore preview is valid; nothing has been written." if restore_preview.valid else "Restore preview was rejected; nothing has been written."
         restore_status.value = f"Restore preview {'valid' if restore_preview.valid else 'rejected'} for {archive}; destination {ROOT}; {len(restore_preview.entries)} entries; errors={'; '.join(restore_preview.errors) or 'none'}."
         restore_status.color = theme.GREEN if restore_preview.valid else theme.RED
         page.update()
@@ -529,29 +644,29 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
         nonlocal restore_preview
         if restore_preview is None or not restore_preview.valid:
             restore_status.value = "Restore commit blocked: validate a valid preview first."
+            restore_summary.value = "Restore commit is blocked until a valid preview is available."
             restore_status.color = theme.RED
             page.update()
             return
         result = commit_restore(restore_preview, ROOT)
         restore_status.value = f"Restore {'complete' if result.ok else 'failed'} at {result.destination}; {result.error or f'{result.restored} files'}."
+        restore_summary.value = "Restore completed." if result.ok else "Restore failed."
         restore_status.color = theme.GREEN if result.ok else theme.RED
         if result.ok:
             restore_preview = None
-            restore_commit_button.disabled = True
-            restore_cancel_button.disabled = True
+            set_restore_controls(False, False)
         page.update()
 
     def cancel_restore_preview(_event: ft.ControlEvent) -> None:
         nonlocal restore_preview
         restore_preview = None
-        restore_commit_button.disabled = True
-        restore_cancel_button.disabled = True
+        set_restore_controls(False, False)
+        restore_summary.value = "Restore cancelled; no files changed."
         restore_status.value = "Restore cancelled; no files changed."
         restore_status.color = theme.MUTED
         page.update()
 
-    restore_commit_button.on_click = commit_restore_preview
-    restore_cancel_button.on_click = cancel_restore_preview
+    set_restore_controls(False, False)
 
     def _export_frame(category: str) -> pd.DataFrame | None:
         if category == "scoreboard":
@@ -679,22 +794,165 @@ def import_export_page(page: ft.Page, state: AppState) -> ft.Control:
     def export_scoreboard(_event: ft.ControlEvent) -> None:
         export_category("scoreboard")
 
-    body = ft.Column(
-        [
-            panel(ft.Column([section_header("Import and Export Centre", "Preview and validate local evidence before any commit. All actions remain non-executable."), ft.Text("execution_allowed=false", color=theme.AMBER), ft.Row([import_type, portfolio_source_system, portfolio_provider, portfolio_locale], wrap=True), ft.Row([path_field, ft.OutlinedButton("Choose and preview", key="import-export.import", icon=ft.Icons.UPLOAD_FILE, on_click=open_import)], wrap=True), ft.Row([commit_button], wrap=True), preview_text, staging_report], spacing=10)),
-            panel(ft.Column([section_header("Portfolio reconciliation", "Match imported source evidence against point-in-time canonical ledger replay. Account mappings and corrections require explicit reviewer decisions; imported evidence is never a second balance calculation."), ft.Row([mapping_source, mapping_canonical, mapping_reviewer, mapping_reason, ft.OutlinedButton("Apply identity mapping", key="import-export.portfolio-apply-mapping", on_click=apply_portfolio_mapping)], wrap=True), ft.Row([portfolio_authority, portfolio_as_of, portfolio_known_at], wrap=True), ft.Row([source_account_id, ledger_cash_account, ledger_position_account, ledger_clearing_account, ft.OutlinedButton("Map source account", key="import-export.portfolio-map-account", on_click=map_portfolio_account)], wrap=True), ft.Row([ft.OutlinedButton("Reconcile against ledger", key="import-export.portfolio-reconcile", on_click=reconcile_portfolio), source_adjustment_event, ft.OutlinedButton("Post/reverse source correction", key="import-export.portfolio-adjust", on_click=apply_portfolio_adjustment)], wrap=True), ft.Row([orphan_entry_id, ft.OutlinedButton("Reverse orphaned source entry", key="import-export.portfolio-reverse-orphan", on_click=reverse_orphaned_portfolio_entry)], wrap=True), ft.Row([portfolio_export_path, ft.OutlinedButton("Export source evidence", key="import-export.portfolio-export", icon=ft.Icons.DOWNLOAD, on_click=export_portfolio)], wrap=True), ft.Row([portfolio_audit_path, ft.OutlinedButton("Export reconciliation audit", key="import-export.portfolio-audit-export", icon=ft.Icons.DOWNLOAD, on_click=export_portfolio_audit)], wrap=True), reconciliation_status], spacing=10)),
-            panel(ft.Column([section_header("Bulk source cache", "Cache a local bulk snapshot by content hash before parsing. Interrupted, changed or invalid sources remain outside the promoted generation."), ft.Row([bulk_source_id, ft.OutlinedButton("Cache local source", key="import-export.bulk-cache", icon=ft.Icons.FOLDER_COPY, on_click=cache_bulk_source)], wrap=True), ft.Text(cache_summary, color=theme.MUTED, size=11, selectable=True), bulk_status], spacing=10)),
-            panel(ft.Column([section_header("Exports", "Scoreboard, audit packet, watchlist, journals, plan/issues snapshot and analytical tables use explicit local paths."), ft.Row([export_path, ft.OutlinedButton("Export scoreboard", key="import-export.export-scoreboard", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("scoreboard")), ft.OutlinedButton("Export audit packet", key="import-export.export-audit-packet", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("audit_packet")), ft.OutlinedButton("Export watchlist", key="import-export.export-watchlist", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("watchlist")), ft.OutlinedButton("Export paper-trade journal", key="import-export.export-paper-trade-journal", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("paper_trade_journal")), ft.OutlinedButton("Export decision journal", key="import-export.export-decision-journal", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("decision_journal")), ft.OutlinedButton("Export plan/issues snapshot", key="import-export.export-plan-issues-snapshot", icon=ft.Icons.DOWNLOAD, on_click=lambda _event: export_category("plan_issues_snapshot"))], wrap=True), ft.Text("Export status and destination are shown above; unavailable sources are reported without writing placeholders.", color=theme.MUTED, selectable=True)], spacing=10)),
-            panel(ft.Column([section_header("Backup and Restore", "Validate a restore preview before an explicit commit; cancel leaves the destination unchanged."), ft.Row([backup_path, ft.OutlinedButton("Create backup", key="import-export.create-backup", icon=ft.Icons.ARCHIVE, on_click=backup)], wrap=True), ft.Row([restore_path, ft.OutlinedButton("Validate restore preview", key="import-export.restore-validate", icon=ft.Icons.RESTORE, on_click=validate_restore_preview), restore_commit_button, restore_cancel_button], wrap=True), restore_status], spacing=10)),
-            panel(ft.Column([section_header("Portfolio source rollback", "Withdraw an imported batch from future source reconciliation only. Existing ledger entries remain immutable and require a separate explicit reversing adjustment."), ft.Row([rollback_batch, rollback_reason, ft.OutlinedButton("Rollback batch", key="import-export.portfolio-rollback", on_click=rollback_portfolio)], wrap=True)], spacing=10)),
-            ft.Text(state.last_message, color=theme.MUTED, selectable=True),
-        ],
-        expand=True,
-        scroll=ft.ScrollMode.AUTO,
-    )
-    return page_view(
-        "Import & Export",
-        "Preview and validate local evidence before any commit · explicit export paths",
-        body,
-        (SegmentGroup("import-export", ("Import", "Reconcile", "Export", "Backup"), "Import"),),
-    )
+    def status_summary(message: str) -> str:
+        lowered = message.casefold()
+        if "preview" in lowered:
+            return "Import preview updated; review staged rows."
+        if "backup" in lowered:
+            return "Backup action updated; review details."
+        if "restore" in lowered:
+            return "Restore action updated; review details."
+        if "export" in lowered:
+            return "Export action updated; review details."
+        if any(word in lowered for word in ("reconciliation", "mapping", "rollback", "adjustment", "reversal")):
+            return "Portfolio action updated; review details."
+        return "Local action updated; review details."
+
+    import_type_control = Field("Import type", options=import_type_labels, value="Portfolio History",
+        on_change=lambda label: selections.__setitem__("import_type", import_type_values[label]), expand=True)
+    locale_control = Segmented(locale_items, locale_items[0],
+        on_change=lambda label: selections.__setitem__("portfolio_locale", locale_values[label]),
+        key="import-export.portfolio-locale")
+    authority_values = {"Broker": "broker", "Paper": "paper"}
+    authority_control = Segmented(tuple(authority_values), "Broker",
+        on_change=lambda label: selections.__setitem__("portfolio_authority", authority_values[label]),
+        key="import-export.portfolio-authority")
+
+    source_path_disclosure = Disclosure("Local source path", Field("Local source path", control=path_field, expand=True))
+    action_disclosure = Disclosure("Import and export details", ft.Column([preview_details, action_details], spacing=8))
+    staging_disclosure = Disclosure("Staging validation details", ft.Column([staging_report, staging_details], spacing=8))
+    cache_disclosure = Disclosure("Bulk source cache details", ft.Column([ft.Text(cache_summary), bulk_status, bulk_details], spacing=8))
+    reconciliation_disclosure = Disclosure("Reconciliation details",
+        ft.Column([reconciliation_status, reconciliation_details, reconciliation_table_slot], spacing=8))
+    restore_disclosure = Disclosure("Restore validation details", restore_status)
+    export_destination_disclosure = Disclosure("Export destination path", Field("Export destination", control=export_path, expand=True))
+    backup_path_disclosure = Disclosure("Backup archive destination", Field("Backup archive destination", control=backup_path, expand=True))
+    restore_path_disclosure = Disclosure("Restore archive path", Field("Restore archive", control=restore_path, expand=True))
+    portfolio_export_disclosure = Disclosure("Canonical portfolio export path",
+        Field("Canonical portfolio export", control=portfolio_export_path, expand=True))
+    audit_export_disclosure = Disclosure("Deterministic ledger audit JSON path",
+        Field("Deterministic ledger audit JSON", control=portfolio_audit_path, expand=True))
+
+    rollback_confirmation = {"armed": False}
+    def rollback_portfolio(_event: ft.ControlEvent) -> None:
+        if not rollback_confirmation["armed"]:
+            rollback_confirmation["armed"] = True
+            action_status.value = "Select Rollback batch again to confirm this source rollback."
+            page.update()
+            return
+        rollback_confirmation["armed"] = False
+        rollback_portfolio_once(_event)
+
+    def import_view() -> ft.Control:
+        import_card = GlassCard("Import", note="local validation before commit", body=ft.Column([
+            import_type_control,
+            ft.Row([Field("Source system", control=portfolio_source_system),
+                    Field("Provider", control=portfolio_provider),
+                    ft.Column([Note("Numeric locale"), locale_control], spacing=8, tight=True)], spacing=12, wrap=True),
+            source_path_disclosure,
+            ft.Row([Button.primary("Choose and preview", on_click=open_import, key="import-export.import"), commit_button_slot], spacing=12, wrap=True),
+            preview_text, action_disclosure,
+            Note("Imports remain local previews until explicitly committed."),
+        ], spacing=12, expand=True), expand=5)
+        preview_card = GlassCard("Preview", note="staged rows and validation", body=ft.Column([
+            Well(staging_table_slot, expand=True), staging_disclosure,
+        ], spacing=12, expand=True), expand=7)
+        bulk_card = GlassCard("Bulk source cache", note="content-addressed local cache", body=ft.Column([
+            Field("Bulk source ID", control=bulk_source_id, expand=True),
+            Button.secondary("Cache local source", on_click=cache_bulk_source, key="import-export.bulk-cache"),
+            KpiTile("Cache health", None, sub="Unavailable: cache-health values are shown in the details."),
+            bulk_status_summary, cache_disclosure,
+        ], spacing=12, expand=True), expand=True)
+        rollback_card = GlassCard("Portfolio source rollback", note="future source reconciliation only", body=ft.Column([
+            Field("Portfolio batch ID", control=rollback_batch, expand=True),
+            Field("Rollback reason", control=rollback_reason, expand=True),
+            Button.secondary("Rollback batch", on_click=rollback_portfolio, key="import-export.portfolio-rollback"),
+            Note("Select the control again to confirm this source rollback."), reconciliation_summary,
+        ], spacing=12, expand=True), expand=True)
+        return ft.Column([ft.Row([import_card, preview_card], spacing=24, expand=12),
+            ft.Row([bulk_card, rollback_card], spacing=24, expand=12)],
+            spacing=24, expand=True, scroll=ft.ScrollMode.AUTO)
+
+    def reconcile_view() -> ft.Control:
+        identity = GlassCard("Identity mapping", note="reviewer-bound instrument identity", body=ft.Column([
+            Field("Source ticker/ISIN/listing", control=mapping_source, expand=True),
+            Field("Canonical instrument ID", control=mapping_canonical, expand=True),
+            Field("Reviewer", control=mapping_reviewer, expand=True),
+            Field("Mapping reason", control=mapping_reason, expand=True),
+            Button.secondary("Apply identity mapping", on_click=apply_portfolio_mapping, key="import-export.portfolio-apply-mapping"),
+        ], spacing=12, expand=True), expand=True)
+        account = GlassCard("Account mapping", note="canonical ledger authority and cutoffs", body=ft.Column([
+            ft.Column([Note("Ledger authority"), authority_control], spacing=8, tight=True),
+            ft.Row([Field("Effective cutoff (ISO-8601)", control=portfolio_as_of),
+                    Field("Known-time cutoff (ISO-8601)", control=portfolio_known_at)], spacing=12, wrap=True),
+            Field("Source account ID", control=source_account_id, expand=True),
+            Field("Ledger cash account ID", control=ledger_cash_account, expand=True),
+            Field("Ledger position account ID", control=ledger_position_account, expand=True),
+            Field("Ledger clearing account ID", control=ledger_clearing_account, expand=True),
+            ft.Row([Button.secondary("Map source account", on_click=map_portfolio_account, key="import-export.portfolio-map-account"),
+                    Button.primary("Reconcile against ledger", on_click=reconcile_portfolio, key="import-export.portfolio-reconcile")],
+                   spacing=12, wrap=True),
+        ], spacing=12, expand=True), expand=True)
+        corrections = GlassCard("Corrections", note="explicit reviewer decisions", body=ft.Column([
+            Field("Source event ID to post", control=source_adjustment_event, expand=True),
+            Button.secondary("Post/reverse source correction", on_click=apply_portfolio_adjustment, key="import-export.portfolio-adjust"),
+            Field("Orphaned source-linked entry ID", control=orphan_entry_id, expand=True),
+            Button.secondary("Reverse orphaned source entry", on_click=reverse_orphaned_portfolio_entry, key="import-export.portfolio-reverse-orphan"),
+            Note("Corrections preserve immutable ledger history."),
+        ], spacing=12, expand=True), expand=True)
+        audit = GlassCard("Audit exports", note="canonical evidence and deterministic ledger audit", body=ft.Column([
+            portfolio_export_disclosure,
+            Button.secondary("Export source evidence", on_click=export_portfolio, key="import-export.portfolio-export"),
+            audit_export_disclosure,
+            Button.secondary("Export reconciliation audit", on_click=export_portfolio_audit, key="import-export.portfolio-audit-export"),
+        ], spacing=12, expand=True), expand=True)
+        result = GlassCard("Reconciliation result", note="canonical replay status and differences",
+            body=ft.Column([reconciliation_summary, Well(reconciliation_table_slot, expand=True), reconciliation_disclosure],
+                spacing=12, expand=True), expand=True)
+        return ft.Column([ft.Row([identity, account], spacing=24, expand=12),
+            ft.Row([corrections, audit], spacing=24, expand=12), result],
+            spacing=24, expand=True, scroll=ft.ScrollMode.AUTO)
+
+    def export_view() -> ft.Control:
+        destination = GlassCard("Export destination", note="explicit local output path",
+            body=export_destination_disclosure, expand=True)
+        specs = (("Scoreboard", "scoreboard", "import-export.export-scoreboard"),
+            ("Audit packet", "audit_packet", "import-export.export-audit-packet"),
+            ("Watchlist", "watchlist", "import-export.export-watchlist"),
+            ("Paper-trade journal", "paper_trade_journal", "import-export.export-paper-trade-journal"),
+            ("Decision journal", "decision_journal", "import-export.export-decision-journal"),
+            ("Plan/issues snapshot", "plan_issues_snapshot", "import-export.export-plan-issues-snapshot"))
+        cards = []
+        for title, category, key in specs:
+            cards.append(GlassCard(title, note="last export time", body=ft.Column([
+                KpiTile("Last export", None, sub="Unavailable: this view has no export timestamp."),
+                Button.secondary("Export", on_click=lambda _event, category=category: export_category(category), key=key),
+            ], spacing=12), expand=True))
+        return ft.Column([destination, ft.Row(cards[:3], spacing=16, expand=1), ft.Row(cards[3:], spacing=16, expand=1),
+            Note("Export status and destination are shown above; unavailable sources are reported without writing placeholders."),
+            action_disclosure], spacing=16, expand=True, scroll=ft.ScrollMode.AUTO)
+
+    def backup_view() -> ft.Control:
+        card = GlassCard("Backup and Restore", note="validate before restoring", body=ft.Column([
+            backup_path_disclosure,
+            Button.primary("Create backup", on_click=backup, key="import-export.create-backup"),
+            restore_path_disclosure,
+            ft.Row([Button.secondary("Validate restore preview", on_click=validate_restore_preview, key="import-export.restore-validate"),
+                    restore_commit_slot, restore_cancel_slot], spacing=12, wrap=True),
+            restore_summary, restore_disclosure,
+        ], spacing=12, expand=True), expand=True)
+        return ft.Column([card], spacing=24, expand=True, scroll=ft.ScrollMode.AUTO)
+
+    views = {"Import": import_view, "Reconcile": reconcile_view, "Export": export_view, "Backup": backup_view}
+    update_staging_table()
+    update_reconciliation_table()
+    body_slot = ft.Column([import_view()], spacing=24, expand=True)
+    def select_segment(value: str) -> None:
+        body_slot.controls = [views[value]()]
+        if page is not None:
+            page.update()
+    return PageView(chrome=PageChrome(
+        title="Import & Export",
+        subtitle="Preview and validate local evidence before any commit Â· explicit export paths",
+        segment_groups=(SegmentGroup("import-export", ("Import", "Reconcile", "Export", "Backup"), "Import", on_change=select_segment),),
+    ), body=body_slot)
