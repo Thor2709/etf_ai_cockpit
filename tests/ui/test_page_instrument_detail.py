@@ -48,6 +48,13 @@ def test_renders_with_sample_data() -> None:
         "Opportunity",
         "Peer cohort and adapter lineage",
         "Classification context",
+        "ETF Structure & Documents",
+        "ETF disclosure evidence",
+        "ETF holdings and exposure",
+        "ETF direct overlap",
+        "ETF Liquidity",
+        "ETF order-preview capacity meter",
+        "ETF Economics",
         "Market clock and session",
         "Risk and feature evidence",
         "Factor risk",
@@ -95,4 +102,3 @@ def test_empty_data_shows_unavailable() -> None:
                 str(getattr(item, "value", "") or "") != "0"
                 for item in _walk(control)
             )
-
