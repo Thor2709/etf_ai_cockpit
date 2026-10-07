@@ -11,7 +11,12 @@ from etf_cockpit.application.snapshot_builder import build_snapshot
 
 def _walk(control):
     yield control
+    body = getattr(control, "body", None)
+    if body is not None and body is not control:
+        yield from _walk(body)
     for child in getattr(control, "controls", []) or []:
+        yield from _walk(child)
+    for child in getattr(control, "items", []) or []:
         yield from _walk(child)
     content = getattr(control, "content", None)
     if content is not None:
@@ -22,17 +27,38 @@ def test_filings_page_exposes_national_oam_discovery_control() -> None:
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     page = filings_page(None, state)
-    buttons = [item for item in _walk(page) if item.__class__.__name__ == "OutlinedButton"]
+    buttons = [
+        item
+        for item in _walk(page)
+        if isinstance(getattr(item, "data", None), dict)
+        and item.data.get("kit") == "Button"
+    ]
     controls = list(_walk(page))
 
     assert any(getattr(item, "key", None) == "filings.discover-oam" for item in buttons)
-    assert any(getattr(item, "content", None) == "Discover official filings" for item in buttons)
+    assert any(item.data.get("text") == "Discover official filings" for item in buttons)
     assert any(getattr(item, "key", None) == "filings.import-manual-official" for item in buttons)
     assert any(getattr(item, "key", None) == "filings.import-local-oam" for item in buttons)
-    assert any(getattr(item, "content", None) == "Import local OAM export" for item in buttons)
-    country = next(item for item in controls if getattr(item, "label", None) == "Official filing country")
-    assert {option.key for option in country.options} == {"DK", "FI", "FR", "GB", "NL", "NO", "SE"}
-    api_key = next(item for item in controls if getattr(item, "label", None) == "Companies House API key")
+    assert any(item.data.get("text") == "Import local OAM export" for item in buttons)
+    country = next(
+        item
+        for item in controls
+        if isinstance(getattr(item, "data", None), dict)
+        and item.data.get("kit") == "Field"
+        and item.data.get("label") == "Official filing country"
+    )
+    options = {
+        str(getattr(getattr(item, "content", None), "value", ""))
+        for item in _walk(country)
+        if item.__class__.__name__ == "PopupMenuItem"
+    }
+    assert options == {"DK", "FI", "FR", "GB", "NL", "NO", "SE"}
+    api_key = next(
+        item
+        for item in controls
+        if item.__class__.__name__ == "TextField"
+        and getattr(item, "label", None) == "Companies House API key"
+    )
     assert api_key.password is True
     assert api_key.can_reveal_password is False
 

@@ -8,6 +8,9 @@ from etf_cockpit.application.snapshot_builder import build_snapshot
 
 def _walk(control):
     yield control
+    body = getattr(control, "body", None)
+    if body is not None:
+        yield from _walk(body)
     for child in getattr(control, "controls", []) or []:
         yield from _walk(child)
     content = getattr(control, "content", None)
@@ -23,7 +26,9 @@ def test_provider_status_shows_source_tier_cache_and_quota_policy() -> None:
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
 
-    text = _text(provider_status_page(None, state))
+    page = provider_status_page(None, state)
+    page.chrome.segment_groups[0].on_change("Source tiers")
+    text = _text(page)
 
     assert "Mandatory source tiers" in text
     assert "Cache status describes the local replay path" in text

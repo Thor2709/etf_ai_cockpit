@@ -255,7 +255,7 @@ def _require_disclosure_available(label: str, result: object) -> None:
         raise ActivityUnavailableError(f"{label} unavailable: {status_value or 'parse failed'}.")
 
 
-def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
+def _legacy_provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
     registry = ProviderRegistry(state.snapshot.config.data_providers)
     capabilities = registry.probe_all()
     status_rows = registry.status_rows(capabilities) + plugin_status_rows()
@@ -348,7 +348,7 @@ def evidence_ledger_page(_page: ft.Page, _state) -> ft.Control:
     )
 
 
-def filings_page(page: ft.Page, state: AppState) -> ft.Control:
+def _legacy_filings_page(page: ft.Page, state: AppState) -> ft.Control:
     return _status_page(
         "Filings & Statements",
         "Official SEC/ESEF/local filing evidence. Missing filings remain missing; vendor fundamentals cannot outrank official matched filings.",
@@ -366,7 +366,7 @@ def filings_page(page: ft.Page, state: AppState) -> ft.Control:
     )
 
 
-def etf_disclosures_page(page: ft.Page, state: AppState) -> ft.Control:
+def _legacy_etf_disclosures_page(page: ft.Page, state: AppState) -> ft.Control:
     return _status_page(
         "ETF Disclosures",
         "ETF factsheets, holdings, PRIIPs KIDs, SFDR disclosures, reports and index methodology inventory. Disclosure reviews are advisory only; score_eligible=false and execution_allowed=false. Partial coverage is shown explicitly.",
@@ -412,7 +412,7 @@ def _sfdr_panel(path: Path) -> ft.Control:
     return glass("disclosures.sfdr", "SFDR disclosure", ft.Column([section_header("SFDR disclosure", "Classification and sustainability disclosures are evidence-only; SFDR never contributes return alpha, scores or execution authority."), body], spacing=8))
 
 
-def news_context_page(page: ft.Page, state: AppState) -> ft.Control:
+def _legacy_news_context_page(page: ft.Page, state: AppState) -> ft.Control:
     return _status_page(
         "News & Context",
         "Free/manual news and context evidence. News is non-executable and cannot directly change scores or actions.",
@@ -1309,3 +1309,27 @@ def _slug(label: str) -> str:
 def _short(value: object, max_len: int = 96) -> str:
     text = str(value)
     return text if len(text) <= max_len else text[: max_len - 3] + "..."
+
+
+def provider_status_page(page: ft.Page, state: AppState):
+    from etf_cockpit.app.pages.provider_status import provider_status_page as build_page
+
+    return build_page(page, state)
+
+
+def filings_page(page: ft.Page, state: AppState):
+    from etf_cockpit.app.pages.filings import filings_page as build_page
+
+    return build_page(page, state)
+
+
+def etf_disclosures_page(page: ft.Page, state: AppState):
+    from etf_cockpit.app.pages.etf_disclosures import etf_disclosures_page as build_page
+
+    return build_page(page, state)
+
+
+def news_context_page(page: ft.Page, state: AppState):
+    from etf_cockpit.app.pages.news_context import news_context_page as build_page
+
+    return build_page(page, state)

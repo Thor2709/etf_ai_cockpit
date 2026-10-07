@@ -1,14 +1,15 @@
-"""Local Macro and Factors workspace."""
+"""Point-in-time macro and factors context page."""
 
 from __future__ import annotations
+
+import math
 
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components import kit
-from etf_cockpit.app.components.cards import section_header
-from etf_cockpit.app.pages._glass import glass, tone_for
-from etf_cockpit.app.pages.dashboard import _run_action
+from etf_cockpit.app.components import chartkit as ck, kit
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
+from etf_cockpit.app.pages._l2_common import display_value
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.application.macro_context import build_macro_context_binding
@@ -16,15 +17,17 @@ from etf_cockpit.application.ui_facade import MacroWarehouse
 from etf_cockpit.core.paths import ROOT
 
 
-def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
-    def refresh_context(_event: ft.ControlEvent) -> None:
+def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
+    def refresh_context(event: ft.ControlEvent) -> None:
         if page is not None:
+            from etf_cockpit.app.pages.dashboard import _run_action
+
             _run_action(page, state, "Refresh macro/news context", state.refresh_signals)
 
     reference_context = context_from_snapshot(
         state.snapshot,
         purpose="comparison",
-        analysis_id=f"macro:{getattr(state.snapshot, 'universe_revision', 'unknown')}",
+        analysis_id=f"macro:{getattr(state.snapshot, 'universe_revision', 'unavailable')}",
     )
     binding = build_macro_context_binding(
         state.snapshot,
@@ -35,266 +38,341 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> ft.Control:
         benchmark_registry=reference_context.registry,
     )
     summary = binding.summary
-    context_rows = binding.observations
+    observations = list(binding.observations)
     curve_coverage = binding.curve_coverage
-    error_text = binding.error or ""
-    decision_time = binding.decision_time or "unavailable"
     macro_context = binding.context
     scenario_context = binding.scenario
+    decision_time = binding.decision_time or "Unavailable"
+    unavailable = binding.error or summary.get("reason") or "No local macro snapshot is available."
+    regime = macro_context.get("regime", {})
+    breadth = macro_context.get("breadth", {})
+    volatility = macro_context.get("volatility", {})
+    inflation = macro_context.get("inflation_rates", {})
 
-    status = str(summary.get("status", "unavailable"))
-    status_colour = theme.GREEN if status == "available" else theme.AMBER
-    if error_text:
-        status_text = error_text
-    elif status == "available":
-        status_text = (
-            f"Available: {summary.get('row_count', 0)} selected observation(s) across "
-            f"{len(summary.get('dataset_ids', []))} dataset(s). "
-            f"Missing country/currency context: {summary.get('missing_country_or_currency_count', 0)}."
-        )
-    else:
-        status_text = f"Unavailable: {summary.get('reason', 'no local snapshot is available')}."
-
-    entries = [
-        ft.Text(
-            f"{row.dataset_id} | {row.series_id} | {row.period_start} | {row.value:g} {row.unit} | "
-            f"source={row.source_id} | authority={row.source_authority or 'unavailable'} | "
-            f"observed_at={row.observed_at} | published_at={row.published_at} | "
-            f"available_at={row.available_at} | revised_at={row.revised_at or 'unavailable'} | "
-            f"ingested_at={row.ingested_at} | revision={row.revision} | "
-            f"source_observation_ids={','.join(row.source_observation_ids) or 'unavailable'} | "
-            f"checksum={row.source_checksum} | "
-            f"country={row.country or 'unavailable'} | currency={row.currency or 'unavailable'} | "
-            f"uncertainty={row.availability_confidence}/{row.timezone_confidence} | "
-            f"freshness={row.freshness_status or 'unavailable'} | "
-            f"limitations={row.source_terms or 'unavailable'} | "
-            f"transformation={row.transformation_version} | context={row.availability_status}",
-            color=theme.TEXT,
-            size=11,
-            selectable=True,
-        )
-        for row in sorted(context_rows, key=lambda item: (item.dataset_id, item.period_start, item.series_id))[-24:]
+    regime_rows = [
+        kit.ListRow(
+            "info",
+            "Regime",
+            sub=str(regime.get("label") or "Unavailable"),
+            tag=kit.Tag(
+                "Available" if regime.get("label") else "Unavailable",
+                "ok" if regime.get("label") else "warn",
+            ),
+        ),
+        kit.ListRow(
+            "info",
+            "Breadth above SMA200",
+            sub=_format_metric(breadth.get("pct_above_sma200")),
+            tag=kit.Tag("Context only", "mute"),
+        ),
+        kit.ListRow(
+            "info",
+            "Median annualised volatility",
+            sub=_format_metric(volatility.get("median_annualised")),
+            tag=kit.Tag("Context only", "mute"),
+        ),
     ]
-    if not entries:
-        entries = [ft.Text("No local macro/factor observations have been ingested yet.", color=theme.MUTED, selectable=True)]
-
-    regime = macro_context["regime"]
-    breadth = macro_context["breadth"]
-    volatility = macro_context["volatility"]
-    inflation_rates = macro_context["inflation_rates"]
-    proxy_entries = [
-        ft.Text(
-            f"{row['proxy']}: {row['status']} | "
-            f"return20d={_format_metric(row.get('period_return_20d'))} | "
-            f"vol={_format_metric(row.get('volatility_annualised'))} | "
-            f"source={row.get('source', row.get('provenance', 'local adjusted_close price snapshot'))} | "
-            f"as_of={row.get('as_of', 'unavailable')} | freshness={row.get('freshness_status', 'unavailable')}",
-            color=theme.TEXT if row["status"] == "available" else theme.MUTED,
-            size=11,
-            selectable=True,
-        )
-        for row in macro_context["proxy_rows"]
+    proxy_details = [
+        f"{row.get('proxy', 'Unavailable')}: {row.get('status', 'Unavailable')}; "
+        f"return={_format_metric(row.get('period_return_20d'))}; "
+        f"volatility={_format_metric(row.get('volatility_annualised'))}; "
+        f"as of={row.get('as_of') or 'Unavailable'}; freshness={row.get('freshness_status') or 'Unavailable'}"
+        for row in macro_context.get("proxy_rows", [])
     ]
-    inflation_entries = [
-        ft.Text(
-            f"{row['series_id']}: {row['value']} {row.get('unit') or ''} | "
-            f"source={row['source']} | authority={row.get('source_authority') or 'unavailable'} | "
-            f"observed_at={row.get('observed_at') or 'unavailable'} | "
-            f"published_at={row.get('published_at') or 'unavailable'} | "
-            f"available_at={row.get('available_at') or 'unavailable'} | "
-            f"revised_at={row.get('revised_at') or 'unavailable'} | "
-            f"ingested_at={row.get('ingested_at') or 'unavailable'} | revision={row.get('revision', 'unavailable')} | "
-            f"source_observation_ids={','.join(row.get('source_observation_ids') or ()) or 'unavailable'} | "
-            f"checksum={row.get('source_checksum') or 'unavailable'} | freshness={row['freshness_status']} | "
-            f"reasons={','.join(row.get('reason_codes') or ()) or 'none'}",
-            color=theme.TEXT,
-            size=11,
-            selectable=True,
-        )
-        for row in inflation_rates.get("rows", [])
-    ]
-    if not inflation_entries:
-        inflation_entries = [ft.Text("No local inflation or rates series is available.", color=theme.MUTED, size=11, selectable=True)]
-    scenario_entries = [
-        ft.Text(
-            f"{row.get('scenario', 'unavailable')} | driver={row.get('driver', 'unavailable')} | "
-            f"link={row.get('link_id', 'unavailable')} | status={row.get('status', 'unavailable')} | "
-            f"evidence={row.get('evidence_id') or 'unavailable'} | source={row.get('source_id') or 'unavailable'} | "
-            f"authority={row.get('authority') or 'unavailable'} | checksum={row.get('source_sha256') or 'unavailable'} | "
-            f"country={row.get('country') or 'unavailable'} | currency={row.get('currency') or 'unavailable'} | "
-            f"unit={row.get('unit') or 'unavailable'} | horizon_days={row.get('horizon_days', 'unavailable')} | "
-            f"observation_time={row.get('observation_time') or 'unavailable'} | "
-            f"effective_time={row.get('effective_time') or 'unavailable'} | "
-            f"available={row.get('available_at') or 'unavailable'} | revision={row.get('revision', 'unavailable')} | "
-            f"confidence={row.get('confidence', 'unavailable')} | "
-            f"reasons={','.join(row.get('reason_codes') or ()) or 'none'} | "
-            f"limitations={','.join(scenario_context.get('limitations') or ()) or 'none'}",
-            color=theme.TEXT if row.get("status") == "available" else theme.MUTED,
-            size=11,
-            selectable=True,
-        )
-        for row in scenario_context.get("rows", [])
-    ]
-    if not scenario_entries:
-        scenario_entries = [ft.Text("No local macro scenario links are available.", color=theme.MUTED, size=11, selectable=True)]
-
-    return ft.Column(
-        [
-            section_header(
-                "Macro and Factors",
-                "Local, versioned macro, factor, risk-free and benchmark snapshots; no remote fetch or execution authority.",
-            ),
-            ft.OutlinedButton(
-                "Refresh local macro/news context",
-                key="macro.refresh-context",
-                icon=ft.Icons.REFRESH,
-                on_click=refresh_context if page is not None else None,
-            ),
-            glass("macro.status", "Macro status",
-                ft.Column(
-                    [
-                        kit.status_tag(
-                            "Unavailable" if error_text or status != "available" else "Available",
-                            tone_for(status if not error_text else "failed"),
-                            key="macro.status-tag",
-                        ),
-                        ft.Text(status_text, color=status_colour, selectable=True),
-                        ft.Text(
-                            "Decision-time vintages select only observations whose available_at is on or before the decision time. "
-                            "Revisions remain append-only and transformations retain source observation IDs.",
-                            color=theme.MUTED,
-                            selectable=True,
-                        ),
-                        ft.Text(
-                            f"Shared snapshot decision cutoff: {decision_time}",
-                            color=theme.MUTED,
-                            selectable=True,
-                        ),
-                        ft.Text("Execution allowed: false", color=theme.AMBER, selectable=True),
-                    ],
-                    spacing=8,
-                )
-            ),
-            glass("macro.coverage", "Macro coverage",
-                ft.Column(
-                    [
-                        ft.Text(
-                            "Risk-free curves and lawful benchmarks",
-                            color=theme.TEXT,
-                            weight=ft.FontWeight.BOLD,
-                        ),
-                        ft.Text(
-                            f"Coverage: {curve_coverage.get('status', 'unavailable')} | "
-                            f"curves={', '.join(curve_coverage.get('curve_ids', [])) or 'unavailable'} | "
-                            f"types={', '.join(curve_coverage.get('curve_types', [])) or 'unavailable'} | "
-                            f"currencies={', '.join(curve_coverage.get('currencies', [])) or 'unavailable'} | "
-                            f"benchmarks={', '.join(curve_coverage.get('benchmark_ids', [])) or 'unavailable'}",
-                            color=theme.TEXT
-                            if curve_coverage.get("status") == "available"
-                            else theme.MUTED,
-                            selectable=True,
-                        ),
-                        ft.Text(
-                            f"Source/methodology: {', '.join(curve_coverage.get('source_ids', [])) or 'unavailable'} / "
-                            f"{', '.join(curve_coverage.get('methodologies', [])) or 'unavailable'} | "
-                            f"decision-time vintage={curve_coverage.get('decision_time', decision_time)}",
-                            color=theme.MUTED,
-                            selectable=True,
-                        ),
-                        ft.Text(
-                            "Interpolation is declared per curve and bounded; extrapolation is unavailable. "
-                            "Currency+horizon fallbacks are explicit and never zero-filled. "
-                            f"Issuer-specific credit curves: {curve_coverage.get('issuer_credit', 'unavailable')}.",
-                            color=theme.AMBER,
-                            selectable=True,
-                        ),
-                    ],
-                    spacing=8,
-                )
-            ),
-            glass("macro.regime", "Regime and proxy context",
-                ft.Column(
-                    [
-                        ft.Text("Regime and proxy context", color=theme.TEXT, weight=ft.FontWeight.BOLD),
-                        ft.Text(
-                            f"Regime: {regime.get('label', 'unknown')} | "
-                            f"breadth above SMA200: {_format_metric(breadth.get('pct_above_sma200'))} "
-                            f"(source={breadth.get('source', 'unavailable')}, freshness={breadth.get('freshness_status', 'unavailable')}) | "
-                            f"median annualised volatility: {_format_metric(volatility.get('median_annualised'))} "
-                            f"(source={volatility.get('source', 'unavailable')}, freshness={volatility.get('freshness_status', 'unavailable')})",
-                            color=theme.TEXT,
-                            selectable=True,
-                        ),
-                        ft.Text(
-                            f"As of: {macro_context.get('as_of') or 'unavailable'} | "
-                            f"decision cutoff: {macro_context.get('decision_time', decision_time)} | "
-                            f"freshness: {macro_context.get('freshness_status', 'unavailable')} | "
-                            f"provenance: {macro_context.get('provenance', 'unavailable')}",
-                            color=theme.MUTED,
-                            selectable=True,
-                        ),
-                        ft.Column(proxy_entries, spacing=6),
-                        ft.Text(
-                            f"Inflation/rates context: {inflation_rates.get('status', 'unavailable')} | "
-                            f"series shown: {len(inflation_rates.get('rows', []))}",
-                            color=theme.TEXT if inflation_rates.get("status") == "available" else theme.MUTED,
-                            selectable=True,
-                        ),
-                        ft.Column(inflation_entries, spacing=6),
-                        ft.Text(
-                            "Context only (context_only=true, score_eligible=false): this dashboard does not produce scores, expected returns or orders. "
-                            "Optional FRED: unavailable; no network request was made.",
-                            color=theme.AMBER,
-                            selectable=True,
-                        ),
-                    ],
-                    spacing=8,
-                )
-            ),
-            glass("macro.observations", "Latest local observations",
-                ft.Column(
-                    [
-                        ft.Text("Latest local observations", color=theme.TEXT, weight=ft.FontWeight.BOLD),
-                        ft.Column(entries, spacing=6, scroll=ft.ScrollMode.AUTO),
-                    ],
-                    spacing=8,
+    regime_card = kit.GlassCard(
+        "Regime and proxy context",
+        "local snapshot",
+        body=ft.Column(
+            [
+                *regime_rows,
+                kit.Disclosure(
+                    "Proxy details",
+                    "\n".join(proxy_details) if proxy_details else unavailable,
                 ),
-                expand=True,
-            ),
-            glass("macro.scenarios", "Scenario-linked macro evidence",
-                ft.Column(
-                    [
-                        ft.Text("Scenario-linked macro evidence", color=theme.TEXT, weight=ft.FontWeight.BOLD),
-                        ft.Text(
-                            f"Status: {scenario_context.get('status', 'unavailable')} | "
-                            f"decision_time={scenario_context.get('decision_time', decision_time)} | "
-                            f"portfolio_currency={scenario_context.get('portfolio_currency') or 'unavailable'} | "
-                            f"horizon_days={scenario_context.get('horizon_days') or 'unavailable'} | "
-                            f"context_only={scenario_context.get('context_only', False)} | "
-                            f"score_eligible={scenario_context.get('score_eligible', False)} | "
-                            f"execution_allowed={scenario_context.get('execution_allowed', False)}",
-                            color=theme.TEXT if scenario_context.get("status") == "available" else theme.MUTED,
-                            selectable=True,
-                        ),
-                        ft.Column(scenario_entries, spacing=6),
-                    ],
-                    spacing=8,
-                )
-            ),
-        ],
-        expand=True,
-        scroll=ft.ScrollMode.AUTO,
-        spacing=14,
+                kit.Note("Context only. No score, forecast or execution authority is created."),
+            ],
+            spacing=8,
+        ),
     )
 
+    colours = (theme.BAR_BLUE, theme.CHART_POS, theme.CHART_NEG, theme.AMBER)
+    unit_groups: dict[str, list[object]] = {}
+    for row in observations:
+        unit_groups.setdefault(display_value(row.unit), []).append(row)
+    chart_wells: list[ft.Control] = []
+    for unit, unit_rows in sorted(unit_groups.items()):
+        dates = sorted(
+            {
+                display_value(row.period_start)
+                for row in unit_rows
+                if display_value(row.period_start) != "—"
+            }
+        )
+        series_ids = sorted({str(row.series_id) for row in unit_rows})
+        chart_series = []
+        for index, series_id in enumerate(series_ids):
+            values_by_date = {
+                display_value(row.period_start): _numeric_value(row.value)
+                for row in unit_rows
+                if str(row.series_id) == series_id
+                and display_value(row.period_start) != "—"
+            }
+            chart_series.append(
+                ck.Series(
+                    series_id,
+                    [values_by_date.get(date) for date in dates],
+                    color=colours[index % len(colours)],
+                    unit=unit,
+                )
+            )
+        has_values = any(_numeric_value(row.value) is not None for row in unit_rows)
+        chart_wells.extend(
+            [
+                kit.Note(f"Unit: {unit}"),
+                kit.Well(
+                    ck.line_chart(
+                        dates,
+                        chart_series,
+                        x_name="Observation period",
+                        y_name="Observed value",
+                        unavailable_reason=(
+                            None
+                            if has_values
+                            else f"No numeric observations are available for {unit}."
+                        ),
+                        empty_title="Unavailable",
+                        insight="Local macro and factor observations available at the recorded decision time.",
+                    ),
+                    expand=True,
+                ),
+            ]
+        )
+    if not chart_wells:
+        chart_wells = [
+            kit.Well(
+                ck.line_chart(
+                    [],
+                    [],
+                    unavailable_reason=str(unavailable),
+                    empty_title="Unavailable",
+                    insight="Local macro and factor observations available at the recorded decision time.",
+                ),
+                expand=True,
+            )
+        ]
+    series_card = kit.GlassCard(
+        "Macro series chart",
+        "point-in-time observations grouped by unit",
+        body=ft.Column(chart_wells, spacing=8),
+    )
 
-__all__ = ["macro_factors_page"]
+    curve_status = str(curve_coverage.get("status") or "unavailable")
+    curve_card = kit.GlassCard(
+        "Risk-free curves and benchmarks",
+        "coverage",
+        body=ft.Column(
+            [
+                kit.Tag(
+                    "Available" if curve_status == "available" else "Unavailable",
+                    "ok" if curve_status == "available" else "warn",
+                ),
+                kit.Note(
+                    "Curve interpolation is bounded and declared per curve. Extrapolation and unsupported currency or horizon fallbacks remain unavailable."
+                ),
+                kit.Disclosure(
+                    "Curve and benchmark detail",
+                    "\n".join(
+                        (
+                            f"Decision time: {curve_coverage.get('decision_time') or decision_time}",
+                            f"Curve identifiers: {', '.join(curve_coverage.get('curve_ids') or ()) or 'Unavailable'}",
+                            f"Curve types: {', '.join(curve_coverage.get('curve_types') or ()) or 'Unavailable'}",
+                            f"Currencies: {', '.join(curve_coverage.get('currencies') or ()) or 'Unavailable'}",
+                            f"Benchmarks: {', '.join(curve_coverage.get('benchmark_ids') or ()) or 'Unavailable'}",
+                            f"Sources and methodology: {', '.join(curve_coverage.get('source_ids') or ()) or 'Unavailable'} / {', '.join(curve_coverage.get('methodologies') or ()) or 'Unavailable'}",
+                        )
+                    ),
+                ),
+            ],
+            spacing=8,
+        ),
+    )
+
+    latest_rows = []
+    for row in sorted(observations, key=lambda item: (item.dataset_id, item.period_start, item.series_id))[-24:]:
+        latest_rows.append(
+            {
+                "dataset": str(row.dataset_id),
+                "series": str(row.series_id),
+                "period": str(row.period_start),
+                "value": display_value(row.value),
+                "unit": str(row.unit or "—"),
+                "freshness": kit.Tag(
+                    display_value(row.freshness_status).replace("_", " ").title(),
+                    "warn",
+                ),
+                "detail": kit.Disclosure(
+                    "Observation provenance",
+                    "\n".join(
+                        (
+                            f"Source: {row.source_id or 'Unavailable'}",
+                            f"Authority: {row.source_authority or 'Unavailable'}",
+                            f"Observed: {row.observed_at or 'Unavailable'}",
+                            f"Published: {row.published_at or 'Unavailable'}",
+                            f"Available: {row.available_at or 'Unavailable'}",
+                            f"Revision: {row.revision}",
+                            f"Source checksum: {row.source_checksum or 'Unavailable'}",
+                            f"Transformation: {row.transformation_version or 'Unavailable'}",
+                        )
+                    ),
+                ),
+            }
+        )
+    observations_card = kit.GlassCard(
+        "Latest observations",
+        "selected local values",
+        body=(
+            kit.DataTable(
+                [
+                    kit.TableColumn("dataset", "Dataset"),
+                    kit.TableColumn("series", "Series"),
+                    kit.TableColumn("period", "Period"),
+                    kit.TableColumn("value", "Value", numeric=True),
+                    kit.TableColumn("unit", "Unit"),
+                    kit.TableColumn("freshness", "Freshness"),
+                    kit.TableColumn("detail", "Provenance", sortable=False),
+                ],
+                latest_rows,
+            )
+            if latest_rows
+            else kit.EmptyState("Unavailable", str(unavailable))
+        ),
+        expand=True,
+    )
+
+    inflation_rows = inflation.get("rows", [])
+    rates_card = kit.GlassCard(
+        "Rates and inflation",
+        "local series context",
+        body=(
+            kit.EvidenceTableSwitcher(
+                [
+                    kit.EvidenceTable(
+                        "Latest rates and inflation",
+                        [
+                            kit.TableColumn("series", "Series"),
+                            kit.TableColumn("value", "Value", numeric=True),
+                            kit.TableColumn("unit", "Unit"),
+                            kit.TableColumn("freshness", "Freshness"),
+                        ],
+                        [
+                            {
+                                "series": str(row.get("series_id") or "—"),
+                                "value": display_value(row.get("value")),
+                                "unit": str(row.get("unit") or "—"),
+                                "freshness": kit.Tag(
+                                    display_value(row.get("freshness_status")).replace("_", " ").title(),
+                                    "warn",
+                                ),
+                            }
+                            for row in inflation_rows
+                        ],
+                        file_name="Rates and inflation",
+                    )
+                ],
+                title="Rates and inflation evidence",
+            )
+            if inflation_rows
+            else kit.EmptyState("Unavailable", str(inflation.get("reason") or unavailable))
+        ),
+    )
+
+    scenario_rows = [
+        {
+            "scenario": str(row.get("scenario") or "—"),
+            "driver": str(row.get("driver") or "—"),
+            "status": kit.Tag(
+                str(row.get("status") or "Unavailable").replace("_", " ").title(),
+                "ok" if row.get("status") == "available" else "warn",
+            ),
+            "detail": kit.Disclosure(
+                "Scenario evidence",
+                "\n".join(
+                    (
+                        f"Evidence: {row.get('evidence_id') or 'Unavailable'}",
+                        f"Source: {row.get('source_id') or 'Unavailable'}",
+                        f"Authority: {row.get('authority') or 'Unavailable'}",
+                        f"Source checksum: {row.get('source_sha256') or 'Unavailable'}",
+                        f"Country and currency: {row.get('country') or 'Unavailable'} / {row.get('currency') or 'Unavailable'}",
+                        f"Horizon days: {row.get('horizon_days') or 'Unavailable'}",
+                        f"Available at: {row.get('available_at') or 'Unavailable'}",
+                        f"Limitations: {', '.join(scenario_context.get('limitations') or ()) or 'Unavailable'}",
+                    )
+                ),
+            ),
+        }
+        for row in scenario_context.get("rows", [])
+    ]
+    scenarios_card = kit.GlassCard(
+        "Scenario-linked macro evidence",
+        "context only",
+        body=(
+            kit.DataTable(
+                [
+                    kit.TableColumn("scenario", "Scenario"),
+                    kit.TableColumn("driver", "Driver"),
+                    kit.TableColumn("status", "Status"),
+                    kit.TableColumn("detail", "Evidence detail", sortable=False),
+                ],
+                scenario_rows,
+            )
+            if scenario_rows
+            else kit.EmptyState("Unavailable", "No local macro scenario links are available.")
+        ),
+    )
+    body = ft.Column(
+        [
+            kit.Button.secondary(
+                "Refresh local macro/news context",
+                on_click=refresh_context if page is not None else None,
+                key="macro.refresh-context",
+            ),
+            ft.Column([regime_card, series_card], spacing=8),
+            ft.Column([curve_card, rates_card], spacing=8),
+            observations_card,
+            scenarios_card,
+        ],
+        spacing=16,
+        expand=True,
+        scroll=ft.ScrollMode.AUTO,
+    )
+    return PageView(
+        PageChrome(
+            "Macro and Factors",
+            "Local, versioned macro, factor, risk-free and benchmark snapshots. Values are point-in-time context with no remote fetch or execution authority.",
+            segment_groups=(
+                SegmentGroup("macro_view", ("Regime", "Rates & inflation", "Scenarios"), "Regime"),
+                SegmentGroup("macro_horizon", ("3M", "1Y", "5Y"), "1Y"),
+            ),
+        ),
+        body,
+    )
 
 
 def _format_metric(value: object) -> str:
     if value is None:
-        return "unavailable"
+        return "Unavailable"
+
+
+def _numeric_value(value: object) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
     try:
         return f"{float(value):.2%}"
     except (TypeError, ValueError):
-        return "unavailable"
+        return "Unavailable"
+
+
+__all__ = ["macro_factors_page"]
