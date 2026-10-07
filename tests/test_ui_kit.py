@@ -161,9 +161,17 @@ def test_backdrop_uses_and_softens_local_image(tmp_path: Path) -> None:
     assert rendered.controls[1].blur == 4
 
 
-def test_glass_card_header_gives_the_title_width_priority_over_the_note() -> None:
+def test_glass_card_header_title_natural_width_note_takes_the_remaining_width() -> None:
     card = kit.GlassCard("Rolling 12-month return vs. benchmark", "percent per month-end", body=ft.Text("x"))
     row = next(c for c in _walk(card) if isinstance(c, ft.Row) and len(c.controls) == 2)
     title, note = row.controls
-    assert title.expand > 4 * note.expand  # the note shrinks (ellipsis + tooltip) before the title does
+    assert not title.expand and title.max_lines == 1  # natural width, never squeezed by a flex share
+    assert note.expand is True and note.alignment == ft.Alignment(1, 0)  # all remaining width, right-aligned
+    assert note.content.max_lines == 1 and note.content.overflow == ft.TextOverflow.ELLIPSIS
     assert note.tooltip == "percent per month-end"
+    assert note.content.text_align == ft.TextAlign.RIGHT
+
+
+def test_glass_card_without_a_note_still_builds_and_keeps_the_title_unsqueezed() -> None:
+    card = kit.GlassCard("Title only", body=ft.Text("x"))
+    assert card.data["title"] == "Title only"
