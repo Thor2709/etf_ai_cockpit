@@ -104,7 +104,7 @@ def _net_cell(value: str, sub: str | None) -> ft.Control:
     parts = [common.text(value, 13.5, 400, text_align=ft.TextAlign.RIGHT, no_wrap=True)]
     if sub:
         parts.append(common.text(sub, 11.5, 400, theme.INK3, text_align=ft.TextAlign.RIGHT, no_wrap=True))
-    return ft.Column(parts, spacing=2, tight=True, horizontal_alignment=ft.CrossAxisAlignment.END)
+    return ft.Column(parts, spacing=4, tight=True, horizontal_alignment=ft.CrossAxisAlignment.END)
 
 
 def _model_ids(models: pd.DataFrame, catalogue: pd.DataFrame) -> list[str]:
@@ -245,12 +245,8 @@ def _comparison_card(layout: common.GridLayout, ids: list[str], models: pd.DataF
 
 def _fold_legend(width: float, height: float, *, show: bool = True) -> ft.Control:
     """Legend for the two segment colours (chartkit's stacked bar has no legend option; see handoff OPEN)."""
-    items = [(ck.palette.GP[0], "Train window"), (ck.palette.GOLD[0], "Test fold")]
-    swatches = [] if not show else [
-        ft.Row([ft.Container(width=12, height=12, border_radius=3, bgcolor=colour), common.text(label, theme.FONT_XS, 500, theme.INK2)], spacing=6, tight=True)
-        for colour, label in items
-    ]
-    return ft.Container(ft.Row(swatches, spacing=14, alignment=ft.MainAxisAlignment.END), width=width, height=height)
+    swatches = [] if not show else [Tag("Train window", "ok", dense=True), Tag("Test fold", "warn", dense=True)]
+    return ft.Container(ft.Row(swatches, spacing=8, alignment=ft.MainAxisAlignment.END), width=width, height=height)
 
 
 def _folds_card(layout: common.GridLayout, folds: lab_view.FoldBars) -> ft.Control:
