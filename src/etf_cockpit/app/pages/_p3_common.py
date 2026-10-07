@@ -171,12 +171,27 @@ def verdict_word(tag: str) -> str:
 _SCORE_CACHE: dict[str, object] = {}
 
 
+def instrument_meta(state: object, key: str) -> dict[str, str]:
+    """Display facts of one configured instrument (name, currency, venue, type, TER text); missing stays explicit."""
+    etfs = getattr(getattr(getattr(getattr(state, "snapshot", None), "config", None), "universe", None), "etfs", ()) or ()
+    for etf in etfs:
+        if etf.id == key:
+            return {
+                "name": etf.name,
+                "currency": etf.currency or "—",
+                "venue": etf.exchange or "listing venue unavailable",
+                "type": etf.instrument_type,
+                "ter": "" if etf.ter is None else f"{etf.ter * 100:.2f}%",
+            }
+    return {"name": key, "currency": "—", "venue": "listing venue unavailable", "type": "", "ter": ""}
+
+
 def scores_for(state: object) -> list[object]:
     """Canonical score rows for the current snapshot, computed once per snapshot revision."""
     snapshot = state.snapshot
     revision = str(getattr(snapshot, "universe_revision", "") or getattr(state, "universe_cache_revision", ""))
-    key = f"{id(snapshot)}:{revision}:{len(getattr(snapshot, 'signals', ()) or ())}"
-    if _SCORE_CACHE.get("key") == key:
+    key = f"{revision}:{len(getattr(snapshot, 'signals', ()) or ())}"
+    if _SCORE_CACHE.get("snapshot") is snapshot and _SCORE_CACHE.get("key") == key:
         return list(_SCORE_CACHE["scores"])  # type: ignore[arg-type]
     reference = context_from_snapshot(snapshot, purpose="comparison", analysis_id=f"p3:{revision or 'unknown'}")
     scores = build_simple_instrument_scores(
@@ -192,7 +207,7 @@ def scores_for(state: object) -> list[object]:
         peer_member_ids=reference.peer_member_ids,
         cash_observation_time=snapshot.benchmark_reference_decision_time,
     )
-    _SCORE_CACHE.update(key=key, scores=scores)
+    _SCORE_CACHE.update(snapshot=snapshot, key=key, scores=scores)
     return list(scores)
 
 

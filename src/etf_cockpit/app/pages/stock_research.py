@@ -424,19 +424,6 @@ _RANGES = ["1M", "3M", "1Y", "5Y"]
 _ATTRIBUTION_STEPS = ["Price", "Dividends", "FX", "Fees", "Tax"]
 
 
-def _instrument_meta(state: AppState, key: str) -> dict[str, str]:
-    for etf in state.snapshot.config.universe.etfs:
-        if etf.id == key:
-            return {
-                "name": etf.name,
-                "currency": etf.currency or "—",
-                "venue": etf.exchange or "listing venue unavailable",
-                "type": etf.instrument_type,
-                "ter": "" if etf.ter is None else f"{etf.ter * 100:.2f}%",
-            }
-    return {"name": key, "currency": "—", "venue": "listing venue unavailable", "type": "", "ter": ""}
-
-
 def _resolve_instrument(state: AppState, by_key: dict[str, object]) -> str:
     selected = str(getattr(state, "selected_etf", "") or "")
     if selected in by_key:
@@ -793,7 +780,7 @@ def stock_research_page(page: ft.Page, state: AppState) -> PageView:
         score = by_key[key]
         state.selected_etf = key
         common.remember_instrument(state, key)
-        meta = _instrument_meta(state, key)
+        meta = common.instrument_meta(state, key)
         snapshot = state.snapshot
         view = research_view.build_stock_view(
             snapshot.prices, snapshot.forecasts, key, ui["range"], benchmark_id=score.benchmark_id,
@@ -823,7 +810,7 @@ def stock_research_page(page: ft.Page, state: AppState) -> PageView:
 
     holder.content = build()
     current = by_key[ui["key"]]
-    meta = _instrument_meta(state, ui["key"])
+    meta = common.instrument_meta(state, ui["key"])
     chrome = PageChrome(
         f"Stock Research · {current.display_id}",
         f"{meta['name']} · {meta['currency']} · {meta['venue']}",
