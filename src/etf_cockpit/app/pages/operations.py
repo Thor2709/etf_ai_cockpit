@@ -1,674 +1,676 @@
-from __future__ import annotations
-
-from datetime import datetime, timedelta, timezone
-from collections.abc import Mapping
-import threading
-import uuid
+from datetime import datetime
 
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import section_header
-from etf_cockpit.app.components.portfolio_b_style import metric_card, panel, restyle
-from etf_cockpit.app.components.states import state_panel
-from etf_cockpit.app.formatting import format_currency, format_number
-from etf_cockpit.application.operation_records import OperationRecord, build_operation_preview, load_operation_records, save_operation_record
+from etf_cockpit.app.components.kit import (
+    Button,
+    DataTable,
+    Disclosure,
+    EmptyState,
+    Field,
+    GlassCard,
+    KpiStrip,
+    KpiStripItem,
+    ListRow,
+    Note,
+    Segmented,
+    TableColumn,
+    Tag,
+    Toggle,
+    Well,
+)
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
+from etf_cockpit.app.pages._l4a_common import input_of, page_body, text_field
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.ui_facade import load_paper_tca_view
 from etf_cockpit.application.contracts import (
-    ApiStatus,
-    CancelWorkflowCommand,
-    EventBlockPolicy,
-    PaperCorporateActionRequest,
     PaperAccountOpenRequest,
+    PaperCorporateActionRequest,
     PaperFillRequest,
-    PaperOrderCancelRequest,
     PaperOperationalErrorRequest,
+    PaperOrderCancelRequest,
     PaperOutcomeMatureRequest,
     PaperPositionMarkRequest,
     PaperProposalAcceptRequest,
     PaperProposalDeferRequest,
     PaperProposalRejectRequest,
-    ProposalReviewRequest,
-    SubmitWorkflowCommand,
-    PageRequest,
 )
 
 
-def _safe_update(page: ft.Page | None) -> None:
-    if page is not None and callable(getattr(page, "update", None)):
-        page.update()
+def _number(field: ft.Control, label: str) -> float:
+    value = str(input_of(field).value or "").strip()
+    if not value:
+        raise ValueError(f"{label} is required.")
+    return float(value)
 
 
-def operations_page(page: ft.Page | None, state: AppState) -> ft.Control:
+def _required(field: ft.Control, label: str) -> str:
+    value = str(input_of(field).value or "").strip()
+    if not value:
+        raise ValueError(f"{label} is required.")
+    return value
+
+
+def _moment(field: ft.Control) -> datetime:
+    return datetime.fromisoformat(_required(field, "As of"))
+
+
+def operations_page(page: ft.Page | None, state: AppState) -> PageView:
     api = state.application_api
     paper = api.get_paper()
-    portfolio_page = api.get_portfolios(PageRequest())
-    total_value = sum(item.market_value or 0.0 for item in portfolio_page.items)
-    next_offset = getattr(portfolio_page, "next_offset", None)
-    while next_offset is not None:
-        portfolio_page = api.get_portfolios(PageRequest(offset=next_offset, limit=portfolio_page.limit))
-        total_value += sum(item.market_value or 0.0 for item in portfolio_page.items)
-        next_offset = getattr(portfolio_page, "next_offset", None)
-    paper_status = paper.items[0].status if paper.items else "unavailable"
-    message = ft.Text("No operation has been submitted.", color=theme.MUTED, selectable=True)
-    operation_state = ft.Text("State: idle", color=theme.TEXT, weight=ft.FontWeight.BOLD, selectable=True)
-    preview_text = ft.Text("Preview: none", color=theme.MUTED, selectable=True)
-    authority_text = ft.Text("Authority: paper preview or live disabled", color=theme.MUTED, selectable=True)
-    result_text = ft.Text("Result: none", color=theme.MUTED, selectable=True)
-    audit_text = ft.Text("Audit: none", color=theme.MUTED, selectable=True)
-    proposal_state = ft.Text("Proposal review: not evaluated", color=theme.MUTED, selectable=True)
-    proposal_evidence = ft.Text("Proposal evidence: validated optimiser output and all policy gates are required.", color=theme.MUTED, selectable=True)
-    paper_account_text = ft.Text(_paper_summary(paper.items[0] if paper.items else None), color=theme.MUTED, selectable=True)
-    paper_tca_summary = ft.Text("Paper TCA: loading local fill attribution.", color=theme.MUTED, selectable=True)
-    paper_tca_rows = ft.Column(spacing=4)
-    paper_account_id = ft.TextField(label="Paper account ID", value="local-paper", key="operations.paper-account-id", width=180)
-    paper_initial_cash = ft.TextField(label="Opening cash (EUR)", value="100000", key="operations.paper-initial-cash", width=180)
-    paper_open_button = ft.OutlinedButton("Open local paper account", key="operations.paper-open", icon=ft.Icons.ACCOUNT_BALANCE)
-    paper_proposal_id = ft.TextField(label="Validated proposal ID", key="operations.paper-proposal-id", width=230)
-    paper_execution_price = ft.TextField(label="Paper fill price", value="100", key="operations.paper-price", width=150, keyboard_type=ft.KeyboardType.NUMBER)
-    paper_accept_button = ft.OutlinedButton("Accept to paper", key="operations.paper-accept", icon=ft.Icons.CHECK)
-    paper_auto_button = ft.OutlinedButton("Auto-paper (local)", key="operations.paper-auto", icon=ft.Icons.PLAY_ARROW)
-    paper_reject_reason = ft.TextField(label="Reject reason", value="Manual review required", key="operations.paper-reject-reason", width=230)
-    paper_reject_button = ft.TextButton("Reject proposal", key="operations.paper-reject", icon=ft.Icons.BLOCK)
-    paper_defer_reason = ft.TextField(label="Defer reason", value="Wait for a fresh evidence window", key="operations.paper-defer-reason", width=250)
-    paper_defer_button = ft.TextButton("Defer proposal", key="operations.paper-defer", icon=ft.Icons.PAUSE)
-    paper_order_id = ft.TextField(label="Paper order ID", key="operations.paper-order-id", width=230)
-    paper_fill_quantity = ft.TextField(label="Fill quantity", value="1", key="operations.paper-fill-quantity", width=130, keyboard_type=ft.KeyboardType.NUMBER)
-    paper_fill_price = ft.TextField(label="Fill price", value="100", key="operations.paper-fill-price", width=130, keyboard_type=ft.KeyboardType.NUMBER)
-    paper_fill_button = ft.OutlinedButton("Record fill", key="operations.paper-fill", icon=ft.Icons.ADD_TASK)
-    paper_cancel_reason = ft.TextField(label="Cancel reason", value="Manual review deferred", key="operations.paper-cancel-reason", width=230)
-    paper_cancel_button = ft.TextButton("Cancel paper order", key="operations.paper-order-cancel", icon=ft.Icons.CANCEL)
-    paper_mark_instrument = ft.TextField(label="Mark instrument", value=state.selected_etf or "VWCE", key="operations.paper-mark-instrument", width=180)
-    paper_mark_price = ft.TextField(label="Adjusted-close mark", value="100", key="operations.paper-mark-price", width=160, keyboard_type=ft.KeyboardType.NUMBER)
-    paper_mark_checksum = ft.TextField(label="Mark source checksum", value="a" * 64, key="operations.paper-mark-checksum", width=280)
-    paper_mark_button = ft.OutlinedButton("Record adjusted-close mark", key="operations.paper-mark", icon=ft.Icons.QUERY_STATS)
-    paper_split_ratio = ft.TextField(label="Split ratio", value="1", key="operations.paper-split-ratio", width=130, keyboard_type=ft.KeyboardType.NUMBER)
-    paper_dividend = ft.TextField(label="Dividend/unit", value="0", key="operations.paper-dividend", width=130, keyboard_type=ft.KeyboardType.NUMBER)
-    paper_action_checksum = ft.TextField(label="Action source checksum", value="b" * 64, key="operations.paper-action-checksum", width=280)
-    paper_action_button = ft.OutlinedButton("Apply corporate action", key="operations.paper-corporate-action", icon=ft.Icons.ACCOUNT_BALANCE)
-    paper_outcome_reference = ft.TextField(label="Outcome order/proposal ID", key="operations.paper-outcome-reference", width=230)
-    paper_outcome_benchmark = ft.TextField(label="Benchmark return", value="0", key="operations.paper-outcome-benchmark", width=140, keyboard_type=ft.KeyboardType.NUMBER)
-    paper_outcome_cash = ft.TextField(label="Cash return", value="0", key="operations.paper-outcome-cash", width=120, keyboard_type=ft.KeyboardType.NUMBER)
-    paper_outcome_button = ft.OutlinedButton("Mature outcome", key="operations.paper-outcome", icon=ft.Icons.ASSESSMENT)
-    paper_incident_code = ft.TextField(label="Incident code", value="manual_review", key="operations.paper-incident-code", width=160)
-    paper_incident_message = ft.TextField(label="Operational incident", value="Evidence unavailable", key="operations.paper-incident-message", width=240)
-    paper_incident_button = ft.TextButton("Record incident", key="operations.paper-incident", icon=ft.Icons.WARNING)
-    instrument = ft.TextField(label="Instrument", value=state.selected_etf or "VWCE", key="operations.instrument", width=180)
-    quantity = ft.TextField(label="Quantity", value="1", key="operations.quantity", width=130, keyboard_type=ft.KeyboardType.NUMBER)
-    event_policy_enabled = ft.Checkbox(label="Apply local high-risk event blackout (earnings/high-risk; high/critical; ±24 hours)", value=False, key="operations.event-policy")
-    event_evidence = ft.Text("Event policy: off · context_only · execution_allowed=false", selectable=True, color=theme.MUTED)
-    environment = ft.Dropdown(
-        label="Environment",
-        value="paper",
-        key="operations.environment",
-        width=190,
-        options=[ft.dropdown.Option("paper", "Paper proposal"), ft.dropdown.Option("live", "Live (disabled)")],
+    account = paper.items[0] if getattr(paper, "items", None) else None
+    operations = api.get_operations()
+    local_status = {"paper": "Local paper actions are available when their required evidence is supplied."}
+
+    preview_instrument = text_field("Instrument", "operations.instrument")
+    preview_quantity = text_field("Quantity", "operations.quantity")
+    event_status = ft.Text("Event policy unavailable")
+
+    def change_event_policy(_value: bool) -> None:
+        event_status.value = "Event policy unavailable in this build."
+        if page is not None:
+            page.update()
+
+    event_blackout = Toggle(
+        on=False,
+        on_change=change_event_policy,
+        disabled=True,
+        disabled_reason="Event policy details are unavailable in this build.",
+        key="operations.event-policy",
     )
-    preview_button = ft.OutlinedButton("Preview selected operation", key="operations.preview", icon=ft.Icons.PREVIEW)
-    confirm_button = ft.OutlinedButton("Confirm paper workflow", key="operations.confirm", icon=ft.Icons.CHECK, disabled=True)
-    cancel_button = ft.TextButton("Cancel workflow", key="operations.cancel", icon=ft.Icons.CANCEL, disabled=True)
-    proposal_button = ft.OutlinedButton("Validate proposal review", key="operations.proposal-review", icon=ft.Icons.RULE)
-    records_body = ft.Column(spacing=6)
-    active_record: OperationRecord | None = None
-    busy = False
+    event_policy = Field(
+        "Apply local high-risk event blackout (earnings/high-risk; high/critical; ±24 hours)",
+        control=event_blackout,
+    )
+    environment = Field(
+        "Environment",
+        control=ft.Row(
+            [
+                Segmented(["Paper proposal"], "Paper proposal"),
+                Button.secondary(
+                    "Live (disabled)",
+                    disabled=True,
+                    disabled_reason="Live account access, order submission and broker credentials are unavailable in this build.",
+                ),
+            ],
+            spacing=theme.SPACE_2,
+            wrap=True,
+        ),
+    )
+    preview_details = ft.Container(content=Disclosure("preview details", "No operation preview has been stored."))
 
-    def selected_event_policy() -> EventBlockPolicy | None:
-        return EventBlockPolicy(policy_id="local-high-risk-preview", version="1", pre_minutes=1440, post_minutes=1440) if event_policy_enabled.value else None
-
-    def change_event_policy(_event: ft.ControlEvent) -> None:
-        nonlocal active_record
-        active_record = None
-        confirm_button.disabled = True
-        event_evidence.value = "Event policy changed; create a fresh preview. execution_allowed=false"
-        _safe_update(page)
-
-    event_policy_enabled.on_change = change_event_policy
-
-    def set_record(record: OperationRecord) -> None:
-        nonlocal active_record
-        active_record = record
-        operation_state.value = f"State: {record.status}"
-        preview_text.value = f"Preview: {record.instrument_id} · {format_number(record.quantity)} · {record.currency} · {record.action}"
-        authority_text.value = (
-            f"Authority: stage={record.authority.get('stage')} · execution_allowed={str(record.authority.get('execution_allowed')).lower()} · "
-            f"{record.authority.get('reason')}"
-        )
-        result_text.value = f"Result: {record.result.get('status')} · {record.result.get('message')}"
-        audit_text.value = f"Audit: record={record.audit.get('record_id')} · workflow={record.audit.get('workflow_id') or 'not submitted'} · event chain={record.audit.get('event_chain')}"
-        raw_evidence = record.audit.get("event_control", {})
-        evidence = raw_evidence if isinstance(raw_evidence, Mapping) else {}
-        event_evidence.value = f"Event evidence: {evidence}"
-
-    def refresh_records() -> None:
-        records_body.controls = []
-        records = load_operation_records()
-        if not records:
-            records_body.controls.append(ft.Text("No local paper/live operation records yet.", color=theme.MUTED, selectable=True))
-        for record in records[:6]:
-            raw_audit = record.get("audit", {})
-            audit = raw_audit if isinstance(raw_audit, Mapping) else {}
-            records_body.controls.append(
-                ft.Text(
-                    f"{record.get('operation_id')} · {record.get('environment')} · {record.get('status')} · "
-                    f"{record.get('instrument_id')} · workflow={audit.get('workflow_id') or 'none'}",
-                    color=theme.TEXT,
-                    size=theme.FONT_XS,
-                    selectable=True,
-                )
-            )
-
-    def finish(record: OperationRecord, status: str, text: str, *, workflow_id: str | None = None) -> None:
-        nonlocal busy
-        updated = record.with_update(
-            status=status,
-            result={"status": status, "message": text},
-            audit={**record.audit, "workflow_id": workflow_id or record.audit.get("workflow_id")},
-        )
-        save_operation_record(updated)
-        if active_record is None or active_record.operation_id != record.operation_id:
-            refresh_records()
-            return
-        set_record(updated)
-        busy = False
-        preview_button.disabled = False
-        confirm_button.disabled = True
-        cancel_button.disabled = True
-        refresh_records()
-        _safe_update(page)
-
-    def run_workflow(record: OperationRecord, workflow_id: str) -> None:
+    def notify(status: ft.Text, details: ft.Container, name: str, action) -> None:
         try:
-            def runner(_context: object) -> dict[str, object]:
-                return {"operation_id": record.operation_id, "execution_allowed": False}
-
-            runner.workflow_id = workflow_id
-            result = api.run_next_job(runner)
-            if result is None:
-                finish(record, "failed", "The paper preview workflow did not claim a job.", workflow_id=workflow_id)
-            elif getattr(result, "workflow_id", None) != workflow_id:
-                finish(record, "failed", "The paper preview worker claimed an unexpected workflow.", workflow_id=workflow_id)
-            else:
-                status = str(getattr(result, "status", ""))
-                if status == "succeeded":
-                    finish(record, "completed", "Paper proposal preview completed; no order was transmitted.", workflow_id=workflow_id)
-                elif status == "cancelled":
-                    finish(record, "cancelled", "Cancellation recorded; no order was transmitted.", workflow_id=workflow_id)
-                else:
-                    finish(record, status if status in {"failed", "queued", "running", "blocked"} else "failed", f"Paper preview workflow ended with status {status or 'unknown'}; no order was transmitted.", workflow_id=workflow_id)
+            result = action()
         except Exception as exc:
-            finish(record, "failed", f"Paper preview failed safely: {type(exc).__name__}: {exc}", workflow_id=workflow_id)
+            status.value = f"{name} unavailable. Review details."
+            details.content = Disclosure(f"{name} details", str(exc))
+        else:
+            status.value = f"{name} recorded locally."
+            details.content = Disclosure(f"{name} details", str(result))
+        if page is not None:
+            page.update()
 
-    def proposal_review(_event: ft.ControlEvent) -> None:
-        try:
-            selected_quantity = float(str(quantity.value or "0").replace(",", ""))
-            as_of = datetime.combine(state.snapshot.data_report.as_of_date, datetime.min.time(), tzinfo=timezone.utc)
-            decision = api.review_proposal(
-                ProposalReviewRequest(
-                    instrument_id=str(instrument.value or ""),
-                    current_quantity=0.0,
-                    target_quantity=selected_quantity,
-                    strategy_id="strategy:manual_review",
-                    strategy_stage="research",
-                    model_id="model:baseline",
-                    model_stage="research",
-                    account_id="broker:paper_portfolio",
-                    account_stage="paper",
-                    optimiser_output_id=None,
-                    portfolio_revision=None,
-                    data_revision=None,
-                    as_of=as_of,
-                    expires_at=as_of + timedelta(days=1),
-                    authority_policy_checksum=api.get_authority_policy_checksum(),
-                    event_policy=selected_event_policy(),
-                    rationale="Manual input is shown as review-only until validated optimiser and portfolio evidence is supplied.",
-                )
-            )
-            failed = sum(not item.passed for item in decision.gates)
-            alternatives = ", ".join(decision.alternatives)
-            gate_summary = ", ".join(f"{item.gate_id}={'passed' if item.passed else 'failed'}" for item in decision.gates)
-            proposal_state.value = f"Proposal review: {decision.outcome} · authority={decision.authority_stage} · allowed={str(decision.proposal_allowed).lower()}"
-            proposal_evidence.value = f"Proposal evidence: {failed} gate(s) failed; gates={gate_summary}; alternatives={alternatives}; execution_allowed=false. {decision.rationale}"
-            event_evidence.value = f"Event evidence: {decision.event_control}"
-            message.value = "Proposal review recorded locally. No order or draft-order authority was created."
-            _safe_update(page)
-        except (OSError, TypeError, ValueError) as exc:
-            proposal_state.value = "Proposal review: manual_review"
-            proposal_evidence.value = f"Proposal evidence unavailable: {exc}"
-            _safe_update(page)
+    def preview(_event: ft.ControlEvent | None) -> None:
+        def store_preview():
+            from etf_cockpit.application.operation_records import build_operation_preview, save_operation_record
 
-    def refresh_paper_tca() -> None:
-        view = load_paper_tca_view(account_id=str(paper_account_id.value or "local-paper"))
-        paper_tca_summary.value = _paper_tca_summary(view)
-        paper_tca_rows.controls = []
-        raw_rows = view.get("rows", [])
-        rows = raw_rows if isinstance(raw_rows, list) else []
-        for row in rows[-8:]:
-            if isinstance(row, Mapping):
-                paper_tca_rows.controls.append(
-                    ft.Text(_paper_tca_row_summary(row), color=theme.TEXT, size=theme.FONT_XS, selectable=True)
-                )
-        if not rows:
-            paper_tca_rows.controls.append(
-                ft.Text("No recorded fills are available for attribution.", color=theme.MUTED, selectable=True)
-            )
-
-    def refresh_paper_account() -> None:
-        current = api.get_paper(account_id=str(paper_account_id.value or "local-paper")).items
-        paper_account_text.value = _paper_summary(current[0] if current else None)
-        refresh_paper_tca()
-
-    def open_paper_account(_event: ft.ControlEvent) -> None:
-        try:
-            view = api.open_paper_account(
-                PaperAccountOpenRequest(account_id=str(paper_account_id.value or "local-paper"), initial_cash=float(str(paper_initial_cash.value or "0").replace(",", "")))
-            )
-            paper_account_text.value = _paper_summary(view)
-            message.value = "Local paper account is ready. No broker credentials or order route were used."
-        except (OSError, TypeError, ValueError) as exc:
-            paper_account_text.value = f"Paper account unavailable: {exc}"
-            message.value = f"Paper account could not be opened safely: {exc}"
-        _safe_update(page)
-
-    def accept_paper_proposal(_event: ft.ControlEvent) -> None:
-        try:
-            result = api.accept_paper_proposal(
-                PaperProposalAcceptRequest(
-                    account_id=str(paper_account_id.value or "local-paper"),
-                    proposal_id=str(paper_proposal_id.value or ""),
-                    execution_price=float(str(paper_execution_price.value or "0").replace(",", "")),
-                )
-            )
-            message.value = f"Paper order {result.order_id} accepted locally ({result.status}); execution_allowed=false."
-            refresh_paper_account()
-        except (OSError, TypeError, ValueError) as exc:
-            message.value = f"Paper acceptance blocked safely: {exc}"
-        _safe_update(page)
-
-    def auto_paper_proposal(_event: ft.ControlEvent) -> None:
-        try:
-            result = api.accept_paper_proposal(
-                PaperProposalAcceptRequest(
-                    account_id=str(paper_account_id.value or "local-paper"),
-                    proposal_id=str(paper_proposal_id.value or ""),
-                    execution_price=float(str(paper_execution_price.value or "0").replace(",", "")),
-                    mode="auto_paper",
-                )
-            )
-            message.value = f"Auto-paper order {result.order_id} accepted locally; execution_allowed=false."
-            refresh_paper_account()
-        except (OSError, TypeError, ValueError) as exc:
-            message.value = f"Auto-paper decision blocked safely: {exc}"
-        _safe_update(page)
-
-    def reject_paper_proposal(_event: ft.ControlEvent) -> None:
-        try:
-            result = api.reject_paper_proposal(
-                PaperProposalRejectRequest(
-                    account_id=str(paper_account_id.value or "local-paper"),
-                    proposal_id=str(paper_proposal_id.value or ""),
-                    reason=str(paper_reject_reason.value or ""),
-                )
-            )
-            message.value = f"Proposal {result.proposal_id} rejected locally; no paper order was created."
-        except (OSError, TypeError, ValueError) as exc:
-            message.value = f"Proposal rejection could not be recorded safely: {exc}"
-        _safe_update(page)
-
-    def defer_paper_proposal(_event: ft.ControlEvent) -> None:
-        try:
-            result = api.defer_paper_proposal(
-                PaperProposalDeferRequest(
-                    account_id=str(paper_account_id.value or "local-paper"),
-                    proposal_id=str(paper_proposal_id.value or ""),
-                    reason=str(paper_defer_reason.value or ""),
-                )
-            )
-            message.value = f"Proposal {result.proposal_id} deferred locally; no paper order was created."
-        except (OSError, TypeError, ValueError) as exc:
-            message.value = f"Proposal deferral could not be recorded safely: {exc}"
-        _safe_update(page)
-
-    fill_intent: dict[str, str] = {}
-
-    def fill_paper_order(_event: ft.ControlEvent) -> None:
-        # One fill-intent ID per user action: created once, reused only while the action has not succeeded
-        # (a retry after an error), so two deliberate equal partial fills are two ledger events.
-        intent_id = fill_intent.setdefault("id", "fill_" + uuid.uuid4().hex[:20])
-        try:
-            result = api.fill_paper_order(
-                PaperFillRequest(
-                    account_id=str(paper_account_id.value or "local-paper"),
-                    order_id=str(paper_order_id.value or ""),
-                    fill_id=intent_id,
-                    quantity=float(str(paper_fill_quantity.value or "0").replace(",", "")),
-                    price=float(str(paper_fill_price.value or "0").replace(",", "")),
-                )
-            )
-            fill_intent.clear()
-            paper_order_id.value = result.order_id
-            message.value = f"Paper fill recorded for {result.order_id}; status={result.status}; execution_allowed=false."
-            refresh_paper_account()
-        except (OSError, TypeError, ValueError) as exc:
-            message.value = f"Paper fill blocked safely: {exc}"
-        _safe_update(page)
-
-    def cancel_paper_order(_event: ft.ControlEvent) -> None:
-        try:
-            result = api.cancel_paper_order(
-                PaperOrderCancelRequest(account_id=str(paper_account_id.value or "local-paper"), order_id=str(paper_order_id.value or ""), reason=str(paper_cancel_reason.value or ""))
-            )
-            message.value = f"Paper order {result.order_id} is {result.status}; no order was transmitted."
-        except (OSError, TypeError, ValueError) as exc:
-            message.value = f"Paper cancellation blocked safely: {exc}"
-        _safe_update(page)
-
-    def mark_paper_position(_event: ft.ControlEvent) -> None:
-        try:
-            view = api.mark_paper_position(
-                PaperPositionMarkRequest(
-                    account_id=str(paper_account_id.value or "local-paper"),
-                    instrument_id=str(paper_mark_instrument.value or ""),
-                    adjusted_close=float(str(paper_mark_price.value or "0").replace(",", "")),
-                    as_of=datetime.now(timezone.utc),
-                    source_authority="local_manual_adjusted_close",
-                    source_checksum=str(paper_mark_checksum.value or ""),
-                )
-            )
-            paper_account_text.value = _paper_summary(view)
-            message.value = "Adjusted-close mark recorded with source provenance; execution_allowed=false."
-        except (OSError, TypeError, ValueError) as exc:
-            message.value = f"Adjusted-close mark blocked safely: {exc}"
-        _safe_update(page)
-
-    def apply_paper_corporate_action(_event: ft.ControlEvent) -> None:
-        try:
-            view = api.apply_paper_corporate_action(
-                PaperCorporateActionRequest(
-                    account_id=str(paper_account_id.value or "local-paper"),
-                    instrument_id=str(paper_mark_instrument.value or ""),
-                    split_ratio=float(str(paper_split_ratio.value or "0").replace(",", "")),
-                    cash_dividend_per_unit=float(str(paper_dividend.value or "0").replace(",", "")),
-                    as_of=datetime.now(timezone.utc),
-                    source_authority="local_manual_corporate_action",
-                    source_checksum=str(paper_action_checksum.value or ""),
-                )
-            )
-            paper_account_text.value = _paper_summary(view)
-            message.value = "Corporate action recorded with source provenance; execution_allowed=false."
-        except (OSError, TypeError, ValueError) as exc:
-            message.value = f"Corporate action blocked safely: {exc}"
-        _safe_update(page)
-
-    def mature_paper_outcome(_event: ft.ControlEvent) -> None:
-        try:
-            view = api.mature_paper_outcome(
-                PaperOutcomeMatureRequest(
-                    account_id=str(paper_account_id.value or "local-paper"),
-                    reference_id=str(paper_outcome_reference.value or ""),
-                    adjusted_close=float(str(paper_mark_price.value or "0").replace(",", "")),
-                    benchmark_return=float(str(paper_outcome_benchmark.value or "0").replace(",", "")),
-                    cash_return=float(str(paper_outcome_cash.value or "0").replace(",", "")),
-                    as_of=datetime.now(timezone.utc),
-                    source_authority="local_manual_adjusted_close",
-                    source_checksum=str(paper_mark_checksum.value or ""),
-                )
-            )
-            message.value = f"Paper outcome {view.outcome_id} matured against benchmark and cash; execution_allowed=false."
-            refresh_paper_account()
-        except (OSError, TypeError, ValueError) as exc:
-            message.value = f"Paper outcome could not be matured safely: {exc}"
-        _safe_update(page)
-
-    def record_paper_incident(_event: ft.ControlEvent) -> None:
-        try:
-            view = api.record_paper_operational_error(
-                PaperOperationalErrorRequest(
-                    account_id=str(paper_account_id.value or "local-paper"),
-                    code=str(paper_incident_code.value or ""),
-                    message=str(paper_incident_message.value or ""),
-                )
-            )
-            message.value = f"Operational incident {view.incident_id} recorded separately from investment performance."
-            refresh_paper_account()
-        except (OSError, TypeError, ValueError) as exc:
-            message.value = f"Operational incident could not be recorded safely: {exc}"
-        _safe_update(page)
-
-    def preview(_event: ft.ControlEvent) -> None:
-        if busy:
-            message.value = "Duplicate click ignored: the current operation is already running."
-            _safe_update(page)
-            return
-        try:
-            selected_environment = str(environment.value or "paper")
-            selected_quantity = float(str(quantity.value or "0").replace(",", ""))
             record = build_operation_preview(
-                environment=selected_environment,  # type: ignore[arg-type]
-                instrument_id=str(instrument.value or ""),
-                quantity=selected_quantity,
-                event_policy=selected_event_policy(),
-                decision_time=datetime.now(timezone.utc) if event_policy_enabled.value else None,
+                environment="paper",
+                instrument_id=_required(preview_instrument, "Instrument"),
+                quantity=_number(preview_quantity, "Quantity"),
             )
             save_operation_record(record)
-            set_record(record)
-            if not record.authority["submission_allowed"]:
-                message.value = f"Operation blocked by policy: {record.authority['reason']} Preview retained locally; no workflow submitted."
-                confirm_button.disabled = True
-                refresh_records()
-                _safe_update(page)
-                return
-            message.value = "Paper preview ready. Confirm the local workflow to start it; no order will be transmitted."
-            confirm_button.disabled = False
-            refresh_records()
-            _safe_update(page)
-        except (TypeError, ValueError) as exc:
-            message.value = f"Preview could not be created: {exc}"
-            operation_state.value = "State: error"
-            _safe_update(page)
+            return record
 
-    def confirm(_event: ft.ControlEvent) -> None:
-        nonlocal busy
-        if busy:
-            message.value = "Duplicate click ignored: the current operation is already running."
-            _safe_update(page)
-            return
-        if active_record is None or active_record.status != "preview" or active_record.environment != "paper" or not active_record.authority.get("submission_allowed"):
-            message.value = "Confirmation blocked: create a valid paper preview first."
-            _safe_update(page)
-            return
-        record = active_record
-        busy = True
-        preview_button.disabled = True
-        confirm_button.disabled = True
-        cancel_button.disabled = False
-        try:
-            dedupe_key = f"paper-preview:{record.operation_id}"
-            command = SubmitWorkflowCommand(
-                idempotency_key=dedupe_key,
-                workflow_type="paper_proposal_preview",
-                label=f"Paper proposal preview · {record.instrument_id}",
-                input_payload=record.to_payload(),
-                job_keys=("preview",),
-                dedupe_key=dedupe_key,
-            )
-            result = api.execute(command)
-            if result.status not in {ApiStatus.ACCEPTED, ApiStatus.REPLAYED} or not result.resource_id:
-                finish(record, "failed", result.error_message or "The local paper preview workflow was not accepted.")
-                return
-            queued = record.with_update(
-                status="queued",
-                result={"status": "queued", "message": "Paper preview workflow acknowledged."},
-                audit={**record.audit, "workflow_id": result.resource_id, "command_id": result.command_id},
-            )
-            save_operation_record(queued)
-            set_record(queued)
-            message.value = f"Acknowledged locally at {datetime.now(timezone.utc).isoformat(timespec='seconds')}; first workflow event recorded."
-            refresh_records()
-            _safe_update(page)
-            threading.Thread(target=run_workflow, args=(queued, result.resource_id), name="paper-preview", daemon=True).start()
-        except (TypeError, ValueError) as exc:
-            finish(record, "failed", f"Paper preview could not start safely: {exc}")
-            _safe_update(page)
+        notify(event_status, preview_details, "Operation preview", store_preview)
 
-    def cancel(_event: ft.ControlEvent) -> None:
-        nonlocal busy
-        if active_record is None or not active_record.audit.get("workflow_id"):
-            message.value = "Nothing is running; cancellation made no changes."
-            _safe_update(page)
-            return
-        workflow_id = str(active_record.audit["workflow_id"])
-        result = api.execute(CancelWorkflowCommand(idempotency_key=f"cancel:{active_record.operation_id}", workflow_id=workflow_id))
-        if result.status in {ApiStatus.ACCEPTED, ApiStatus.REPLAYED}:
-            finish(active_record, "cancelled", "Cancellation recorded; no order was transmitted.", workflow_id=workflow_id)
-            message.value = f"Cancelled local workflow {workflow_id}."
-        else:
-            message.value = f"Cancellation failed safely: {result.error_message or result.status.value}"
-            _safe_update(page)
-
-    preview_button.on_click = preview
-    proposal_button.on_click = proposal_review
-    paper_open_button.on_click = open_paper_account
-    paper_accept_button.on_click = accept_paper_proposal
-    paper_auto_button.on_click = auto_paper_proposal
-    paper_reject_button.on_click = reject_paper_proposal
-    paper_defer_button.on_click = defer_paper_proposal
-    paper_fill_button.on_click = fill_paper_order
-    paper_cancel_button.on_click = cancel_paper_order
-    paper_mark_button.on_click = mark_paper_position
-    paper_action_button.on_click = apply_paper_corporate_action
-    paper_outcome_button.on_click = mature_paper_outcome
-    paper_incident_button.on_click = record_paper_incident
-    confirm_button.on_click = confirm
-    cancel_button.on_click = cancel
-    refresh_paper_tca()
-    refresh_records()
-    portfolio_cards = [
-        metric_card("Portfolio context", format_currency(total_value), "Local holdings only"),
-        metric_card("Paper account", paper_status, "Reconciliation must be ready before submission"),
-        metric_card("Live authority", "Disabled", "No credentials or order route", theme.GREEN),
-    ]
-    root = ft.Column(
-        [
-            panel(ft.Column([section_header("Operations Centre", "Portfolio, training, paper proposals and live authority in one explicit local-first workspace."), message], spacing=6)),
-            ft.ResponsiveRow([ft.Container(content=card, col={"sm": 12, "md": 4}) for card in portfolio_cards], spacing=10),
-            ft.ResponsiveRow(
-                [
-                    ft.Container(content=state_panel("success", "Paper environment", "Paper proposal previews may start a local durable workflow. They never transmit an order.", details="environment=paper · submission=proposal only · execution_allowed=false"), col={"sm": 12, "md": 6}),
-                    ft.Container(content=state_panel("warning", "Live environment: disabled", "Live account access, order submission and broker credentials are unavailable in this build.", details="environment=live · authority stage=live_disabled · unknown/reconciling states block submission"), col={"sm": 12, "md": 6}),
-                ],
-                spacing=10,
-            ),
-            panel(
-                ft.Column(
-                    [
-                        section_header("Preview and confirm", "A command preview is stored before a local workflow is acknowledged. The selected environment is never inferred from colour."),
-                        ft.ResponsiveRow([ft.Container(content=instrument, col={"sm": 12, "md": 3}), ft.Container(content=quantity, col={"sm": 12, "md": 2}), ft.Container(content=environment, col={"sm": 12, "md": 3})], spacing=8),
-                        ft.Row([preview_button, proposal_button, confirm_button, cancel_button], wrap=True),
-                        event_policy_enabled,
-                        event_evidence,
-                        operation_state,
-                        preview_text,
-                        authority_text,
-                        result_text,
-                        audit_text,
-                        proposal_state,
-                        proposal_evidence,
-                    ],
-                    spacing=8,
-                )
-            ),
-            panel(
-                ft.Column(
-                    [
-                        section_header("Paper account and ledger", "Manual paper actions consume only validated proposal records. The append-only local ledger replays after restart."),
-                        paper_account_text,
-                        section_header("Post-trade TCA", "Recorded paper fill costs, cost forecast comparison and attribution; unavailable market benchmarks stay explicit."),
-                        paper_tca_summary,
-                        paper_tca_rows,
-                        ft.Row([paper_account_id, paper_initial_cash, paper_open_button], wrap=True),
-                        ft.Row([paper_proposal_id, paper_execution_price, paper_accept_button, paper_auto_button], wrap=True),
-                        ft.Row([paper_reject_reason, paper_reject_button, paper_defer_reason, paper_defer_button], wrap=True),
-                        ft.Row([paper_order_id, paper_fill_quantity, paper_fill_price, paper_fill_button], wrap=True),
-                        ft.Row([paper_cancel_reason, paper_cancel_button], wrap=True),
-                        ft.Row([paper_mark_instrument, paper_mark_price, paper_mark_checksum, paper_mark_button], wrap=True),
-                        ft.Row([paper_split_ratio, paper_dividend, paper_action_checksum, paper_action_button], wrap=True),
-                        ft.Row([paper_outcome_reference, paper_outcome_benchmark, paper_outcome_cash, paper_outcome_button], wrap=True),
-                        ft.Row([paper_incident_code, paper_incident_message, paper_incident_button], wrap=True),
-                        ft.Text("Paper marks use adjusted-close evidence and retain source provenance; live broker access, credentials and transmission remain disabled.", color=theme.MUTED, selectable=True),
-                    ],
-                    spacing=8,
-                )
-            ),
-            panel(ft.Column([section_header("Training Centre", "Training jobs, trials, validation and model promotion remain explicitly unavailable until their governed workflow slice is implemented."), ft.Text("State: empty · use Jobs & Activity for existing local durable self-checks; no model is promoted by this page.", color=theme.MUTED, selectable=True)], spacing=6)),
-            panel(ft.Column([section_header("Recent operation records", "Local JSON records are reproducible evidence; they are not broker or account truth."), records_body], spacing=6)),
-        ],
-        expand=True,
-        spacing=12,
-        scroll=ft.ScrollMode.AUTO,
+    proposal_status = ft.Text("Proposal review unavailable: current authority and optimiser evidence is not available here.")
+    proposal_details = ft.Container(
+        content=Disclosure("proposal review details", "No validated proposal review is available.")
     )
-    return restyle(root, "operations")
+    cancel_status = ft.Text("No active workflow is available to cancel.")
+    cancel_details = ft.Container(content=Disclosure("workflow details", "No active workflow is available."))
+
+    def proposal_review(_event: ft.ControlEvent | None) -> None:
+        def unavailable() -> None:
+            raise ValueError("Required authority and optimiser evidence is unavailable.")
+
+        notify(proposal_status, proposal_details, "Proposal review", unavailable)
+
+    def confirm(_event: ft.ControlEvent | None) -> None:
+        proposal_status.value = "Confirmation is unavailable until a reviewed proposal exists."
+        if page is not None:
+            page.update()
+
+    def cancel(_event: ft.ControlEvent | None) -> None:
+        def unavailable() -> None:
+            raise ValueError("No active workflow is available.")
+
+        notify(cancel_status, cancel_details, "Workflow cancellation", unavailable)
+
+    paper_equity = Well(
+        EmptyState(
+            "Paper equity unavailable",
+            "The paper ledger does not provide a dated equity series for a chart.",
+        )
+    )
+    tca = Well(EmptyState("Paper TCA unavailable", "Paper ledger cost attribution is not available."))
+
+    overview = GlassCard(
+        "Preview and confirm",
+        note="A preview is stored before any local workflow; live authority remains disabled.",
+        body=ft.Column(
+            [
+                preview_instrument,
+                preview_quantity,
+                environment,
+                event_policy,
+                ft.Row(
+                    [
+                        Button.secondary("Preview selected operation", key="operations.preview", on_click=preview),
+                        Button.secondary(
+                            "Validate proposal review",
+                            key="operations.proposal-review",
+                            on_click=proposal_review,
+                        ),
+                        Button.primary(
+                            "Confirm paper workflow",
+                            key="operations.confirm",
+                            on_click=confirm,
+                            disabled=True,
+                            disabled_reason="Confirmation remains disabled until a reviewed paper proposal exists.",
+                        ),
+                        Button.secondary(
+                            "Cancel workflow",
+                            key="operations.cancel",
+                            on_click=cancel,
+                        ),
+                    ],
+                    wrap=True,
+                ),
+                ft.Column(
+                    [
+                        ListRow("info", "State", "Paper proposal preview"),
+                        ListRow("info", "Preview", "Unavailable until a preview is stored."),
+                        ListRow("info", "Authority", "Paper proposal only · live disabled"),
+                        ListRow("info", "Result", "Unavailable until a review is available."),
+                        ListRow("info", "Audit", "Unavailable until a preview is stored."),
+                        ListRow("info", "Proposal review", "Unavailable · authority evidence is missing"),
+                        ListRow("info", "Event policy", "Unavailable · policy details are missing"),
+                    ],
+                    spacing=theme.SPACE_1,
+                ),
+                event_status,
+                preview_details,
+                proposal_status,
+                proposal_details,
+                cancel_status,
+                cancel_details,
+            ],
+            spacing=theme.SPACE_2,
+        ),
+    )
+
+    account_id = text_field("Paper account ID", "operations.paper-account-id")
+    opening_cash = text_field("Opening cash (EUR)", "operations.paper-opening-cash")
+    account_status = ft.Text("No paper account has been opened from this form.")
+    account_details = ft.Container(content=Disclosure("paper account details", "No account action has been recorded."))
+
+    def open_paper_account(_event: ft.ControlEvent | None) -> None:
+        notify(
+            account_status,
+            account_details,
+            "Paper account",
+            lambda: api.open_paper_account(
+                PaperAccountOpenRequest(
+                    account_id=_required(account_id, "Paper account ID"),
+                    initial_cash=_number(opening_cash, "Opening cash (EUR)"),
+                )
+            ),
+        )
+
+    account_card = GlassCard(
+        "Open paper account",
+        note="Creates a local paper ledger account; it cannot route orders.",
+        body=ft.Column(
+            [
+                account_id,
+                opening_cash,
+                Button.secondary("Open local paper account", key="operations.paper-open", on_click=open_paper_account),
+                account_status,
+                account_details,
+                Disclosure("current paper account", str(account) if account is not None else "No paper account is available."),
+            ],
+            spacing=theme.SPACE_2,
+        ),
+    )
+
+    proposal_id = text_field("Validated proposal ID", "operations.paper-proposal-id")
+    paper_fill_price = text_field("Paper fill price", "operations.paper-fill-price")
+    reject_reason = text_field("Reject reason", "operations.paper-reject-reason", multiline=True)
+    defer_reason = text_field("Defer reason", "operations.paper-defer-reason", multiline=True)
+    decision_status = ft.Text(local_status["paper"])
+    decision_details = ft.Container(content=Disclosure("proposal decision details", "No proposal action has been recorded."))
+
+    def _accept_paper_proposal(mode: str) -> None:
+        title = "Paper proposal accepted" if mode == "manual_accept" else "Auto-paper decision"
+        notify(
+            decision_status,
+            decision_details,
+            title,
+            lambda: api.accept_paper_proposal(
+                PaperProposalAcceptRequest(
+                    proposal_id=_required(proposal_id, "Validated proposal ID"),
+                    execution_price=_number(paper_fill_price, "Paper fill price"),
+                    mode=mode,
+                )
+            ),
+        )
+
+    def accept_paper_proposal(_event: ft.ControlEvent | None) -> None:
+        _accept_paper_proposal("manual_accept")
+
+    def auto_paper_proposal(_event: ft.ControlEvent | None) -> None:
+        _accept_paper_proposal("auto_paper")
+
+    def reject_paper_proposal(_event: ft.ControlEvent | None) -> None:
+        notify(
+            decision_status,
+            decision_details,
+            "Proposal rejection",
+            lambda: api.reject_paper_proposal(
+                PaperProposalRejectRequest(
+                    proposal_id=_required(proposal_id, "Validated proposal ID"),
+                    reason=_required(reject_reason, "Reject reason"),
+                )
+            ),
+        )
+
+    def defer_paper_proposal(_event: ft.ControlEvent | None) -> None:
+        notify(
+            decision_status,
+            decision_details,
+            "Proposal deferral",
+            lambda: api.defer_paper_proposal(
+                PaperProposalDeferRequest(
+                    proposal_id=_required(proposal_id, "Validated proposal ID"),
+                    reason=_required(defer_reason, "Defer reason"),
+                )
+            ),
+        )
+
+    proposal_decisions_card = GlassCard(
+        "Proposal decisions",
+        note="Paper accepts require an existing reviewed proposal.",
+        body=ft.Column(
+            [
+                proposal_id,
+                paper_fill_price,
+                ft.Row(
+                    [
+                        Button.secondary(
+                            "Accept to paper",
+                            key="operations.paper-accept",
+                            on_click=accept_paper_proposal,
+                        ),
+                        Button.secondary(
+                            "Auto-paper (local)",
+                            key="operations.paper-auto",
+                            on_click=auto_paper_proposal,
+                        ),
+                    ],
+                    wrap=True,
+                ),
+                reject_reason,
+                Button.secondary("Reject proposal", key="operations.paper-reject", on_click=reject_paper_proposal),
+                defer_reason,
+                Button.secondary("Defer proposal", key="operations.paper-defer", on_click=defer_paper_proposal),
+                decision_status,
+                decision_details,
+            ],
+            spacing=theme.SPACE_2,
+        ),
+    )
+
+    order_id = text_field("Paper order ID", "operations.paper-order-id")
+    fill_quantity = text_field("Fill quantity", "operations.paper-fill-quantity")
+    fill_price = text_field("Fill price", "operations.paper-fill-price")
+    order_cancel_reason = text_field("Cancel reason", "operations.paper-order-cancel-reason", multiline=True)
+    fill_status = ft.Text("Paper fills are unavailable until a paper order is selected.")
+    fill_details = ft.Container(content=Disclosure("paper fill details", "No paper order action has been recorded."))
+
+    def fill_paper_order(_event: ft.ControlEvent | None) -> None:
+        notify(
+            fill_status,
+            fill_details,
+            "Paper fill",
+            lambda: api.fill_paper_order(
+                PaperFillRequest(
+                    order_id=_required(order_id, "Paper order ID"),
+                    quantity=_number(fill_quantity, "Fill quantity"),
+                    price=_number(fill_price, "Fill price"),
+                )
+            ),
+        )
+
+    def cancel_paper_order(_event: ft.ControlEvent | None) -> None:
+        notify(
+            fill_status,
+            fill_details,
+            "Paper order cancellation",
+            lambda: api.cancel_paper_order(
+                PaperOrderCancelRequest(
+                    order_id=_required(order_id, "Paper order ID"),
+                    reason=_required(order_cancel_reason, "Cancel reason"),
+                )
+            ),
+        )
+
+    fills_card = GlassCard(
+        "Fills",
+        note="Fills and cancellations update the local paper ledger only.",
+        body=ft.Column(
+            [
+                order_id,
+                fill_quantity,
+                fill_price,
+                Button.secondary("Record fill", key="operations.paper-fill", on_click=fill_paper_order),
+                order_cancel_reason,
+                Button.secondary(
+                    "Cancel paper order", key="operations.paper-order-cancel", on_click=cancel_paper_order
+                ),
+                fill_status,
+                fill_details,
+            ],
+            spacing=theme.SPACE_2,
+        ),
+    )
+
+    mark_instrument = text_field("Mark instrument", "operations.paper-mark-instrument")
+    adjusted_close = text_field("Adjusted-close mark", "operations.paper-adjusted-close")
+    mark_as_of = text_field("Mark as of (ISO date/time)", "operations.paper-mark-as-of")
+    mark_authority = text_field("Mark source authority", "operations.paper-mark-authority")
+    mark_checksum = text_field("Mark source checksum", "operations.paper-mark-checksum")
+    input_of(mark_checksum).password = True
+    input_of(mark_checksum).can_reveal_password = False
+    mark_status = ft.Text("Adjusted-close mark unavailable until source evidence is supplied.")
+    mark_details = ft.Container(content=Disclosure("mark details", "No mark has been recorded."))
+
+    def mark_paper_position(_event: ft.ControlEvent | None) -> None:
+        notify(
+            mark_status,
+            mark_details,
+            "Adjusted-close mark",
+            lambda: api.mark_paper_position(
+                PaperPositionMarkRequest(
+                    instrument_id=_required(mark_instrument, "Mark instrument"),
+                    adjusted_close=_number(adjusted_close, "Adjusted-close mark"),
+                    as_of=_moment(mark_as_of),
+                    source_authority=_required(mark_authority, "Mark source authority"),
+                    source_checksum=_required(mark_checksum, "Mark source checksum"),
+                )
+            ),
+        )
+
+    action_instrument = text_field("Action instrument", "operations.paper-action-instrument")
+    split_ratio = text_field("Split ratio", "operations.paper-split-ratio")
+    dividend = text_field("Dividend/unit", "operations.paper-dividend-per-unit")
+    action_as_of = text_field("Action as of (ISO date/time)", "operations.paper-action-as-of")
+    action_authority = text_field("Action source authority", "operations.paper-action-authority")
+    action_checksum = text_field("Action source checksum", "operations.paper-action-checksum")
+    input_of(action_checksum).password = True
+    input_of(action_checksum).can_reveal_password = False
+    action_status = ft.Text("Corporate action unavailable until source evidence is supplied.")
+    action_details = ft.Container(content=Disclosure("corporate action details", "No corporate action has been recorded."))
+
+    def apply_paper_corporate_action(_event: ft.ControlEvent | None) -> None:
+        notify(
+            action_status,
+            action_details,
+            "Corporate action",
+            lambda: api.apply_paper_corporate_action(
+                PaperCorporateActionRequest(
+                    instrument_id=_required(action_instrument, "Action instrument"),
+                    split_ratio=_number(split_ratio, "Split ratio"),
+                    cash_dividend_per_unit=_number(dividend, "Dividend/unit"),
+                    as_of=_moment(action_as_of),
+                    source_authority=_required(action_authority, "Action source authority"),
+                    source_checksum=_required(action_checksum, "Action source checksum"),
+                )
+            ),
+        )
+
+    marks_card = GlassCard(
+        "Marks and corporate actions",
+        note="Marks and actions require dated adjusted-price evidence and its source.",
+        body=ft.Column(
+            [
+                mark_instrument,
+                adjusted_close,
+                mark_as_of,
+                mark_authority,
+                mark_checksum,
+                Button.secondary(
+                    "Record adjusted-close mark", key="operations.paper-mark", on_click=mark_paper_position
+                ),
+                mark_status,
+                mark_details,
+                action_instrument,
+                split_ratio,
+                dividend,
+                action_as_of,
+                action_authority,
+                action_checksum,
+                Button.secondary(
+                    "Apply corporate action",
+                    key="operations.paper-corporate-action",
+                    on_click=apply_paper_corporate_action,
+                ),
+                action_status,
+                action_details,
+            ],
+            spacing=theme.SPACE_2,
+        ),
+    )
+
+    outcome_reference = text_field("Outcome order/proposal ID", "operations.paper-outcome-reference")
+    outcome_adjusted_close = text_field("Outcome adjusted-close price", "operations.paper-outcome-price")
+    benchmark_return = text_field("Benchmark return", "operations.paper-benchmark-return")
+    cash_return = text_field("Cash return", "operations.paper-cash-return")
+    horizon = text_field("Outcome horizon days", "operations.paper-outcome-horizon")
+    outcome_as_of = text_field("Outcome as of (ISO date/time)", "operations.paper-outcome-as-of")
+    outcome_authority = text_field("Outcome source authority", "operations.paper-outcome-authority")
+    outcome_checksum = text_field("Outcome source checksum", "operations.paper-outcome-checksum")
+    input_of(outcome_checksum).password = True
+    input_of(outcome_checksum).can_reveal_password = False
+    outcome_status = ft.Text("Mature outcome unavailable until dated source evidence is supplied.")
+    outcome_details = ft.Container(content=Disclosure("outcome details", "No outcome has been matured."))
+
+    def mature_paper_outcome(_event: ft.ControlEvent | None) -> None:
+        notify(
+            outcome_status,
+            outcome_details,
+            "Paper outcome",
+            lambda: api.mature_paper_outcome(
+                PaperOutcomeMatureRequest(
+                    reference_id=_required(outcome_reference, "Outcome order/proposal ID"),
+                    adjusted_close=_number(outcome_adjusted_close, "Outcome adjusted-close price"),
+                    benchmark_return=_number(benchmark_return, "Benchmark return"),
+                    cash_return=_number(cash_return, "Cash return"),
+                    horizon_days=int(_number(horizon, "Outcome horizon days")),
+                    as_of=_moment(outcome_as_of),
+                    source_authority=_required(outcome_authority, "Outcome source authority"),
+                    source_checksum=_required(outcome_checksum, "Outcome source checksum"),
+                )
+            ),
+        )
+
+    outcomes_card = GlassCard(
+        "Outcomes",
+        note="Matured outcomes use the paper ledger's adjusted-close basis.",
+        body=ft.Column(
+            [
+                outcome_reference,
+                outcome_adjusted_close,
+                benchmark_return,
+                cash_return,
+                horizon,
+                outcome_as_of,
+                outcome_authority,
+                outcome_checksum,
+                Button.secondary("Mature outcome", key="operations.paper-outcome", on_click=mature_paper_outcome),
+                outcome_status,
+                outcome_details,
+            ],
+            spacing=theme.SPACE_2,
+        ),
+    )
+
+    incident_code = text_field("Incident code", "operations.paper-incident-code")
+    incident_message = text_field("Operational incident", "operations.paper-incident-message", multiline=True)
+    incident_related = text_field("Related paper record ID", "operations.paper-incident-related-id")
+    incident_status = ft.Text("No operational incident has been recorded.")
+    incident_details = ft.Container(content=Disclosure("incident details", "No incident has been recorded."))
+
+    def record_paper_incident(_event: ft.ControlEvent | None) -> None:
+        notify(
+            incident_status,
+            incident_details,
+            "Operational incident",
+            lambda: api.record_paper_operational_error(
+                PaperOperationalErrorRequest(
+                    code=_required(incident_code, "Incident code"),
+                    message=_required(incident_message, "Operational incident"),
+                    related_id=str(input_of(incident_related).value or "").strip() or None,
+                )
+            ),
+        )
+
+    incidents_card = GlassCard(
+        "Incidents",
+        note="Incident details are recorded in the local paper ledger.",
+        body=ft.Column(
+            [
+                incident_code,
+                incident_message,
+                incident_related,
+                Button.secondary("Record incident", key="operations.paper-incident", on_click=record_paper_incident),
+                incident_status,
+                incident_details,
+            ],
+            spacing=theme.SPACE_2,
+        ),
+    )
+
+    record_rows = []
+    for item in getattr(operations, "items", ()):
+        record_rows.append(
+            {
+                "time": getattr(item, "occurred_at", None) or "—",
+                "operation": "Local paper operation",
+                "result": Tag("Recorded", "ok"),
+                "details": Disclosure(
+                    "operation record",
+                    f"ID: {getattr(item, 'operation_id', '—')}\n"
+                    f"Status: {getattr(item, 'status', 'unavailable')}\n"
+                    f"Message: {getattr(item, 'message', '—')}",
+                ),
+            }
+        )
+    records_card = GlassCard(
+        "Recent operation records",
+        note="Operation identifiers, statuses and messages are available in each disclosure.",
+        body=Well(
+            DataTable(
+                [
+                    TableColumn("time", "Time"),
+                    TableColumn("operation", "Operation"),
+                    TableColumn("result", "Result"),
+                    TableColumn("details", "Details"),
+                ],
+                record_rows,
+                empty_title="Unavailable",
+                empty_reason="No local operation records are available.",
+            )
+        ),
+    )
+
+    def navigate_to_training(_event: ft.ControlEvent | None) -> None:
+        if page is not None:
+            page.go("/training-centre")
+
+    environments = GlassCard(
+        "Environments",
+        note="Environment authority is constrained to local paper simulation.",
+        body=ft.Column(
+            [
+                ListRow(
+                    "info",
+                    "Paper environment",
+                    "Paper proposal previews may start a local durable workflow. They never transmit an order.",
+                    tag=("proposal only", "ok"),
+                ),
+                ListRow(
+                    "bad",
+                    "Live environment: disabled",
+                    "Live access and order transmission are unavailable.",
+                    tag=("disabled", "bad"),
+                ),
+                ListRow(
+                    "info",
+                    "Training",
+                    "Training Centre is available.",
+                    on_click=navigate_to_training,
+                    key="navigation.training-centre",
+                ),
+            ],
+            spacing=theme.SPACE_2,
+        ),
+    )
+
+    kpis = KpiStrip(
+        "Live authority",
+        "Disabled",
+        "No credentials or order route",
+        [
+            KpiStripItem("Portfolio context", "Unavailable", "Portfolio execution context is not available."),
+            KpiStripItem(
+                "Paper account",
+                "Unavailable" if account is None else "Local paper account",
+                "No paper account is available." if account is None else "Reconciliation is required before submission.",
+            ),
+            KpiStripItem("Paper environment", "Proposal only", "Local evidence"),
+            KpiStripItem("Operations", "Unavailable", "No operation result is available."),
+        ],
+    )
+
+    views = {
+        "Overview": [kpis, overview, paper_equity, environments, GlassCard("Post-trade TCA", body=tca)],
+        "Paper ledger": [account_card, proposal_decisions_card, fills_card, marks_card, outcomes_card, incidents_card],
+        "Records": [records_card, Note("Paper ledger records are local and non-executable.")],
+    }
+    selected = {"view": "Overview"}
+    body = page_body([])
+
+    def render() -> None:
+        body.controls = views[selected["view"]]
+        if page is not None:
+            page.update()
+
+    def select_view(value: str) -> None:
+        selected["view"] = value
+        render()
+
+    render()
+    return PageView(
+        chrome=PageChrome(
+            "Operations Centre",
+            "Proposals and local paper simulation · live trading disabled in this build",
+            [SegmentGroup("operations", ["Overview", "Paper ledger", "Records"], "Overview", select_view)],
+        ),
+        body=body,
+    )
 
 
 __all__ = ["operations_page"]
-
-
-def _value_or_unavailable(value: object) -> object:
-    return "unavailable" if value is None else value
-
-
-def _paper_summary(item: object | None) -> str:
-    if item is None:
-        return "Paper account: unavailable · open a local account before paper activity."
-    return (
-        f"Paper account: {getattr(item, 'status', 'unavailable')} · cash={getattr(item, 'cash', None)} · "
-        f"equity={_value_or_unavailable(getattr(item, 'equity', None))} · PnL={_value_or_unavailable(getattr(item, 'pnl', None))} · "
-        f"positions={getattr(item, 'open_positions', 0)} · reconciliation={getattr(item, 'reconciliation_status', 'unavailable')} · "
-        f"matured_outcomes={getattr(item, 'matured_outcomes', 0)} · operational_incidents={getattr(item, 'operational_incidents', 0)} · "
-        "execution_allowed=false"
-    )
-
-
-def _paper_tca_summary(view: Mapping[str, object]) -> str:
-    if view.get("status") != "available":
-        return f"Paper TCA unavailable: {view.get('message') or view.get('reason_code')}; execution_allowed=false."
-    raw_rows = view.get("rows", [])
-    rows = raw_rows if isinstance(raw_rows, list) else []
-    coverage = view.get("coverage", {})
-    coverage_map = coverage if isinstance(coverage, Mapping) else {}
-    calibration = view.get("calibration", {})
-    calibration_map = calibration if isinstance(calibration, Mapping) else {}
-    estimated = sum(row.get("estimated_total_cost") is not None for row in rows if isinstance(row, Mapping))
-    realised = sum(row.get("realised_total_cost") is not None for row in rows if isinstance(row, Mapping))
-    limits = coverage_map.get("benchmark_limitations", [])
-    limitation_text = ", ".join(str(item).replace("_", " ") for item in limits) if isinstance(limits, list) and limits else "none recorded"
-    mean_bps = calibration_map.get("mean_realised_cost_bps")
-    calibration_text = (
-        f"{calibration_map.get('sample_count', 0)} completed fill(s), mean {mean_bps:.2f} bps"
-        if isinstance(mean_bps, (int, float))
-        else f"{calibration_map.get('sample_count', 0)} completed fill(s); cost unavailable"
-    )
-    return (
-        f"Paper TCA: fills={coverage_map.get('fill_count', len(rows))} · "
-        f"estimated cost coverage={estimated}/{len(rows)} · realised cost coverage={realised}/{len(rows)} · "
-        f"calibration={calibration_text} · benchmark limits={limitation_text} · execution_allowed=false"
-    )
-
-
-def _paper_tca_row_summary(row: Mapping[str, object]) -> str:
-    currency = str(row.get("currency") or "currency unavailable")
-    estimated = _tca_value(row.get("estimated_total_cost"), currency)
-    realised = _tca_value(row.get("realised_total_cost"), currency)
-    components = ", ".join(
-        f"{label}={_tca_value(row.get(field), currency)}"
-        for label, field in (("delay", "delay_cost"), ("spread", "spread_cost"), ("impact", "impact_cost"))
-    )
-    return (
-        f"Fill {row.get('fill_id')} · order={row.get('order_id') or 'unexpected'} · "
-        f"proposal={row.get('proposal_id') or 'unavailable'} · estimate={estimated} · realised={realised} "
-        f"({components}) · calibration={'eligible' if row.get('calibration_eligible') else 'excluded'}"
-    )
-
-
-def _tca_value(value: object, currency: str) -> str:
-    return f"{float(value):.4f} {currency}" if isinstance(value, (int, float)) else "unavailable"

@@ -1,994 +1,662 @@
 from __future__ import annotations
 
-import math
-import os
-from pathlib import Path
-
-import pandas as pd
 import flet as ft
+import pandas as pd
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import section_header
-from etf_cockpit.app.components.portfolio_b_style import metric_card, panel, restyle
-from etf_cockpit.app.components.kit import cta_button
-from etf_cockpit.app.components.overlap import overlap_evidence_panel
-from etf_cockpit.app.components.simple_scores import _is_crowding_warning_state
+from etf_cockpit.app.components import chartkit as ck
+from etf_cockpit.app.components.kit import (
+    Button,
+    CardMenu,
+    DataTable,
+    Disclosure,
+    EmptyState,
+    GlassCard,
+    KpiStrip,
+    KpiStripItem,
+    KpiTile,
+    Note,
+    TableColumn,
+    Tag,
+    Well,
+)
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
+from etf_cockpit.app.formatting import format_count, format_number, format_percent
+from etf_cockpit.app.pages._l4a_common import page_body
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.application.ui_facade import (
-    BENCHMARK_ATTRIBUTION_PATH,
-    CORRELATION_CLUSTERS_PATH,
-    FUND_HOLDINGS_PATH,
     allocation_frame,
-    build_performance_attribution,
-    build_direct_overlap_view,
     build_factor_risk_report,
+    build_performance_attribution,
     drawdown_contribution,
     exposure_limit_report,
     exposure_summary,
-    export_table,
-    load_reference_dataset,
-    load_simple_scoreboard,
-    normalise_holdings,
     return_correlation_matrix,
-    build_robust_risk_report,
-    underlying_holdings_exposure,
 )
-from etf_cockpit.core.paths import DERIVED_DIR, ROOT
-from etf_cockpit.core.paths import EXPORTS_DIR
-from etf_cockpit.application.benchmark_reference import context_from_snapshot
-from etf_cockpit.core.values import finite_float_or_none as _finite_float
-
-SCOREBOARD_PATH = DERIVED_DIR / "scoreboard.parquet"
 
 
-def _pct(value: object) -> str:
-    number = _finite_float(value)
-    return "n/a" if number is None else f"{number:.1%}"
+_DIMENSIONS = {
+    "Asset class": "asset_class",
+    "Region": "region",
+    "Currency": "currency",
+    "Sector": "sector",
+    "Theme": "theme",
+}
+_LIMIT_COLUMNS = [
+    "risk_type",
+    "bucket",
+    "current_weight",
+    "limit",
+    "headroom",
+    "status",
+    "status_rank",
+]
 
 
-def _number(value: object) -> str:
-    number = _finite_float(value)
-    return "n/a" if number is None else f"{number:.2f}"
-
-
-def _status_colour(status: str) -> str:
-    if status == "breach":
-        return theme.RED
-    if status == "watch":
-        return theme.AMBER
-    if status == "ok":
-        return theme.GREEN
-    return theme.MUTED
-
-
-def _exposure_table(title: str, frame: pd.DataFrame) -> ft.Control:
-    rows = [
-        ft.DataRow(
-            cells=[
-                ft.DataCell(ft.Text(str(row.iloc[0]), color=theme.TEXT, size=12)),
-                ft.DataCell(ft.Text(_pct(row["current_weight"]), color=theme.TEXT, size=12)),
-                ft.DataCell(ft.Text(_pct(row["target_weight"]), color=theme.MUTED, size=12)),
+def risk_page(page: ft.Page | None, state: AppState) -> PageView:
+    snapshot = state.snapshot
+    allocation = allocation_frame(snapshot.config, snapshot.holdings)
+    limits = (
+        exposure_limit_report(snapshot.config, allocation)
+        if not allocation.empty
+        else pd.DataFrame(columns=_LIMIT_COLUMNS)
+    )
+    correlation_window = 120
+    correlation = return_correlation_matrix(
+        snapshot.prices,
+        snapshot.config.universe.enabled_ids,
+        window=correlation_window,
+    )
+    if allocation.empty or not {"etf_id", "drawdown_current", "drawdown_60d_max", "vol_60d_ann"}.issubset(snapshot.latest_features.columns):
+        contribution = pd.DataFrame(
+            columns=[
+                "etf_id",
+                "name",
+                "current_weight",
+                "drawdown_current",
+                "drawdown_60d_max",
+                "vol_60d_ann",
+                "drawdown_contribution",
+                "risk_share",
             ]
         )
-        for _, row in frame.iterrows()
-    ]
-    return panel(
-        ft.Column(
-            [
-                ft.Text(title, color=theme.TEXT, weight=ft.FontWeight.BOLD),
-                ft.DataTable(
-                    columns=[ft.DataColumn(ft.Text("Bucket")), ft.DataColumn(ft.Text("Current")), ft.DataColumn(ft.Text("Target"))],
-                    rows=rows,
-                    data_row_min_height=32,
-                    data_row_max_height=38,
-                ),
-            ],
-            scroll=ft.ScrollMode.AUTO,
-        ),
-        expand=True,
-    )
-
-
-def _underlying_holdings_panel(holdings: pd.DataFrame, allocation: pd.DataFrame) -> ft.Control:
-    if holdings.empty:
-        return panel(
-            ft.Column(
-                [
-                    section_header("Underlying holdings context", "Optional look-through data for ETFs."),
-                    ft.Text("No look-through holdings file has been imported yet.", color=theme.MUTED),
-                ]
-            )
-        )
-    sector = underlying_holdings_exposure(allocation, holdings, "sector")
-    region = underlying_holdings_exposure(allocation, holdings, "region")
-    currency = underlying_holdings_exposure(allocation, holdings, "currency")
-    return panel(
-        ft.Column(
-            [
-                section_header("Underlying holdings context", "Portfolio-weighted exposure from imported look-through holdings; latest holding date per instrument."),
-                ft.Row(
-                    [
-                        _compact_exposure_table("Sector", sector),
-                        _compact_exposure_table("Region", region),
-                        _compact_exposure_table("Currency", currency),
-                    ],
-                    spacing=12,
-                ),
-            ],
-            scroll=ft.ScrollMode.AUTO,
-        ),
-        expand=True,
-    )
-
-
-def _holdings_quality_panel(holdings: pd.DataFrame) -> ft.Control:
-    """Show the evidence quality cap separately from portfolio exposure."""
-    if holdings.empty or not {"instrument_id", "completeness"}.issubset(holdings.columns):
-        return panel(
-            ft.Column(
-                [
-                    section_header("ETF holdings evidence", "Completeness and freshness determine whether look-through exposure is current."),
-                    ft.Text("No normalised holdings evidence is available; current exposure remains unavailable.", color=theme.MUTED),
-                ]
-            )
-        )
-    columns = [column for column in ("instrument_id", "as_of_date", "completeness", "freshness", "confidence", "authority", "score_eligible") if column in holdings.columns]
-    unique_rows = holdings.drop_duplicates(subset=["instrument_id"])
-    rows = [
-        ft.DataRow(cells=[ft.DataCell(ft.Text(str(row.get(column, "")), color=theme.TEXT if column in {"instrument_id", "completeness"} else theme.MUTED, size=11)) for column in columns])
-        for _, row in unique_rows.iterrows()
-    ]
-    summaries = [
-        f"{row.get('instrument_id', 'N/A')}: as_of {row.get('as_of_date', 'N/A')} | completeness={row.get('completeness', 'N/A')} | freshness={row.get('freshness', 'N/A')} | confidence={row.get('confidence', 'N/A')} | authority={row.get('authority', 'N/A')} | score_eligible={row.get('score_eligible', 'N/A')}"
-        for _, row in unique_rows.iterrows()
-    ]
-    return panel(
-        ft.Column(
-            [
-                section_header("ETF holdings evidence", "Issuer full/current holdings can support exposure; vendor partial, stale and invalid rows remain context-only."),
-                *[ft.Text(summary, color=theme.MUTED, size=11) for summary in summaries],
-                ft.DataTable(
-                    columns=[ft.DataColumn(ft.Text(column, color=theme.TEXT, size=11)) for column in columns],
-                    rows=rows,
-                )
-                if rows
-                else ft.Text("No normalised holdings evidence is available; current exposure remains unavailable.", color=theme.MUTED),
-            ],
-            scroll=ft.ScrollMode.AUTO,
-        )
-    )
-
-
-def _holdings_reference_day(reference_date: object | None) -> pd.Timestamp:
-    """Return the UTC day holdings age is measured against (wall clock only when no reference date is given)."""
-
-    if reference_date is None:
-        return pd.Timestamp.now(tz="UTC").normalize()
-    reference = pd.Timestamp(reference_date)
-    reference = reference.tz_localize("UTC") if reference.tzinfo is None else reference.tz_convert("UTC")
-    return reference.normalize()
-
-
-def _refresh_holdings_freshness(
-    holdings: pd.DataFrame, *, stale_after_days: int = 90, reference_date: object | None = None
-) -> pd.DataFrame:
-    """Recompute persisted holding freshness before rendering or scoring."""
-
-    if holdings.empty:
-        return holdings
-    refreshed = holdings.copy()
-    date_columns = [column for column in ("as_of_date", "as_of") if column in refreshed.columns]
-    if not date_columns:
-        for column, value in (("freshness", "invalid"), ("completeness", "invalid")):
-            if column in refreshed.columns:
-                refreshed[column] = value
-        if "score_eligible" in refreshed.columns:
-            refreshed["score_eligible"] = False
-        if "confidence" in refreshed.columns:
-            refreshed["confidence"] = 0.0
-        return refreshed
-    parsed_dates = [pd.to_datetime(refreshed[column], errors="coerce", utc=True) for column in date_columns]
-    as_of = parsed_dates[0]
-    today = _holdings_reference_day(reference_date)
-    age_days = (today - as_of.dt.normalize()).dt.days
-    invalid = as_of.isna()
-    for candidate in parsed_dates[1:]:
-        invalid |= candidate.isna() | candidate.dt.normalize().ne(as_of.dt.normalize())
-    stale = as_of.notna() & age_days.gt(max(0, int(stale_after_days)))
-    future = as_of.notna() & age_days.lt(0)
-    if "freshness" in refreshed.columns:
-        refreshed.loc[invalid, "freshness"] = "invalid"
-        refreshed.loc[stale, "freshness"] = "stale"
-        refreshed.loc[future, "freshness"] = "invalid"
-    if "completeness" in refreshed.columns:
-        refreshed.loc[invalid, "completeness"] = "invalid"
-    if "score_eligible" in refreshed.columns:
-        refreshed.loc[invalid | stale | future, "score_eligible"] = False
-    if "confidence" in refreshed.columns:
-        confidence = pd.to_numeric(refreshed["confidence"], errors="coerce")
-        refreshed.loc[invalid, "confidence"] = 0.0
-        refreshed.loc[stale, "confidence"] = confidence.loc[stale].clip(upper=0.25)
-        refreshed.loc[future, "confidence"] = 0.0
-    return refreshed
-
-
-def _holdings_file_candidates() -> tuple[Path, ...]:
-    """Return canonical holdings paths, including the runtime portable root."""
-
-    try:
-        FUND_HOLDINGS_PATH.absolute().relative_to(ROOT.absolute())
-        source_root = ROOT
-    except ValueError:
-        # Test and embedded callers may inject an isolated canonical path.
-        source_root = FUND_HOLDINGS_PATH.parent
-    candidates: list[tuple[Path, Path]] = [(FUND_HOLDINGS_PATH, source_root)]
-    env_root = os.getenv("ETF_COCKPIT_ROOT", "").strip()
-    if env_root:
-        runtime_root = Path(env_root)
-        candidates.append((runtime_root / "data" / "clean" / "fund_holdings.parquet", runtime_root))
-    unique: list[Path] = []
-    seen: set[Path] = set()
-    for candidate, root in candidates:
-        resolved = _resolved_local_path(candidate, root)
-        if resolved is not None and resolved not in seen:
-            seen.add(resolved)
-            unique.append(resolved)
-    return tuple(unique)
-
-
-def _resolved_local_path(path: Path, root: Path) -> Path | None:
-    root_resolved = root.expanduser().resolve()
-    resolved = path.expanduser().resolve()
-    if str(root_resolved).startswith(("\\\\", "//")) or str(resolved).startswith(("\\\\", "//")):
-        return None
-    try:
-        resolved.relative_to(root_resolved)
-    except ValueError:
-        return None
-    return resolved
-
-
-def _load_holdings_evidence() -> pd.DataFrame:
-    canonical = pd.DataFrame()
-    for holdings_path in _holdings_file_candidates():
-        try:
-            csv_candidate = holdings_path.with_suffix(".csv").resolve()
-            csv_path = csv_candidate if csv_candidate.parent == holdings_path.parent else None
-            if not holdings_path.exists() and (csv_path is None or not csv_path.exists()):
-                continue
-            try:
-                canonical = pd.read_parquet(holdings_path)
-            except Exception:
-                # Portable builds may have a usable CSV mirror even when the
-                # optional parquet engine cannot load a bundled binary.
-                if csv_path is not None and csv_path.exists():
-                    canonical = pd.read_csv(csv_path)
-            if canonical.empty:
-                if csv_path is not None and csv_path.exists():
-                    canonical = pd.read_csv(csv_path)
-            if not canonical.empty:
-                break
-        except Exception:
-            canonical = pd.DataFrame()
-    legacy = load_reference_dataset("etf_holdings")
-    if legacy.empty or not {"etf_id", "weight"}.issubset(legacy.columns):
-        return _refresh_holdings_freshness(canonical if not canonical.empty else legacy)
-    # Reference-data imports pre-date the normalised fund store. Adapt them in
-    # memory so existing holdings remain visible while issuer/vendor and
-    # freshness eligibility are still enforced by the normaliser.
-    rows: list[pd.DataFrame] = []
-    for etf_id, group in legacy.groupby("etf_id", dropna=False):
-        as_of = group.get("as_of_date", pd.Series(dtype=str)).dropna()
-        as_of_value = str(as_of.max().date()) if not as_of.empty and hasattr(as_of.max(), "date") else str(as_of.max()) if not as_of.empty else ""
-        source = str(group.get("source", pd.Series(["legacy_import"])).iloc[0])
-        adapted = normalise_holdings(group, str(etf_id), as_of_value, source)
-        if not adapted.frame.empty:
-            rows.append(adapted.frame)
-    legacy_context = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
-    if canonical.empty:
-        return _refresh_holdings_freshness(legacy_context)
-    if legacy_context.empty:
-        return _refresh_holdings_freshness(canonical)
-    canonical_ids = set(canonical.get("instrument_id", pd.Series(dtype=str)).dropna().astype(str))
-    legacy_only = legacy_context.loc[~legacy_context["instrument_id"].astype(str).isin(canonical_ids)]
-    return _refresh_holdings_freshness(pd.concat([canonical, legacy_only], ignore_index=True, sort=False))
-
-
-def _exposure_eligible_holdings(holdings: pd.DataFrame, *, reference_date: object | None = None) -> pd.DataFrame:
-    required = {"score_eligible", "authority", "freshness", "completeness", "source_id", "weight"}
-    if holdings.empty or not required.issubset(holdings.columns):
-        return pd.DataFrame(columns=holdings.columns)
-    eligible = _refresh_holdings_freshness(holdings, reference_date=reference_date)
-    valid_weight = eligible["weight"].map(_valid_holding_weight)
-    eligible = eligible[
-        eligible["score_eligible"].map(_as_bool)
-        & eligible["authority"].astype(str).str.strip().str.lower().eq("issuer")
-        & eligible["freshness"].astype(str).str.strip().str.lower().eq("fresh")
-        & eligible["completeness"].astype(str).str.strip().str.lower().eq("full")
-        & eligible["source_id"].astype(str).str.strip().ne("")
-        & valid_weight
-    ]
-    if "as_of_date" in eligible.columns:
-        as_of = pd.to_datetime(eligible["as_of_date"], errors="coerce", utc=True)
-        today = _holdings_reference_day(reference_date)
-        valid_as_of = as_of.notna() & as_of.dt.normalize().le(today)
-        eligible = eligible[valid_as_of]
-    return eligible
-
-
-def _valid_holding_weight(value: object) -> bool:
-    if pd.api.types.is_bool(value):
-        return False
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return False
-    return math.isfinite(number) and 0 <= number <= 1
-
-
-def _as_bool(value: object) -> bool:
-    if isinstance(value, bool):
-        return value
-    return str(value).strip().lower() in {"1", "true", "yes", "y"}
-
-
-def _compact_exposure_table(title: str, frame: pd.DataFrame) -> ft.Control:
-    rows = [
-        ft.DataRow(
-            cells=[
-                ft.DataCell(ft.Text(str(row.iloc[0]), color=theme.TEXT, size=11)),
-                ft.DataCell(ft.Text(_pct(row["current_weight"]), color=theme.TEXT, size=11)),
-            ]
-        )
-        for _, row in frame.head(8).iterrows()
-    ]
-    return ft.Column(
-        [
-            ft.Text(title, color=theme.TEXT, weight=ft.FontWeight.BOLD),
-            ft.DataTable(
-                columns=[ft.DataColumn(ft.Text("Bucket")), ft.DataColumn(ft.Text("Current"))],
-                rows=rows,
-                data_row_min_height=28,
-                data_row_max_height=34,
-            )
-            if rows
-            else ft.Text("No mapped holdings.", color=theme.MUTED, size=12),
-        ],
-        expand=True,
-        scroll=ft.ScrollMode.AUTO,
-    )
-
-
-def _limit_table(report: pd.DataFrame) -> ft.Control:
-    rows = [
-        ft.DataRow(
-            cells=[
-                ft.DataCell(ft.Text(str(row["risk_type"]), color=theme.TEXT, size=12)),
-                ft.DataCell(ft.Text(str(row["bucket"]), color=theme.TEXT, size=12)),
-                ft.DataCell(ft.Text(_pct(row["current_weight"]), color=theme.TEXT, size=12)),
-                ft.DataCell(ft.Text(_pct(row["limit"]), color=theme.MUTED, size=12)),
-                ft.DataCell(ft.Text(_pct(row["headroom"]), color=theme.MUTED, size=12)),
-                ft.DataCell(ft.Text(str(row["status"]).upper(), color=_status_colour(str(row["status"])), size=12, weight=ft.FontWeight.BOLD)),
-            ]
-        )
-        for _, row in report.iterrows()
-    ]
-    return panel(
-        ft.Column(
-            [
-                section_header("Portfolio guardrail context", "Breaches are shown as construction context. Data-quality failures remain hard blockers."),
-                ft.DataTable(
-                    columns=[
-                        ft.DataColumn(ft.Text("Type")),
-                        ft.DataColumn(ft.Text("Bucket")),
-                        ft.DataColumn(ft.Text("Current")),
-                        ft.DataColumn(ft.Text("Limit")),
-                        ft.DataColumn(ft.Text("Headroom")),
-                        ft.DataColumn(ft.Text("Status")),
-                    ],
-                    rows=rows,
-                    data_row_min_height=34,
-                    data_row_max_height=42,
-                ),
-            ],
-            scroll=ft.ScrollMode.AUTO,
-        ),
-        expand=True,
-    )
-
-
-def _factor_summary_panel(report: dict[str, object]) -> ft.Control:
-    coverage = report.get("coverage") if isinstance(report.get("coverage"), dict) else {}
-    diagnostics = report.get("diagnostics") if isinstance(report.get("diagnostics"), dict) else {}
-    lookthrough = coverage.get("lookthrough") if isinstance(coverage.get("lookthrough"), dict) else {}
-    selected = diagnostics.get("selected_factors", [])
-    warnings = report.get("warnings", [])
-    warning_text = ", ".join(str(item) for item in warnings) if warnings else "none"
-    return panel(
-        ft.Column(
-            [
-                section_header("Multi-factor risk model", "Versioned, evidence-only factor decomposition from adjusted prices and transparent descriptors."),
-                ft.Text(
-                    f"Status: {report.get('status', 'unavailable')} | model={report.get('model_version', 'unknown')} | selected factors={', '.join(map(str, selected)) or 'none'} | execution_allowed=false",
-                    color=theme.TEXT,
-                    selectable=True,
-                ),
-                ft.Text(
-                    f"Return observations: {coverage.get('return_observations', 0)} across {coverage.get('return_instrument_count', 0)} instruments | specific-risk sample is visible below | ETF look-through: {lookthrough.get('status', 'unavailable')}",
-                    color=theme.MUTED,
-                    selectable=True,
-                ),
-                ft.Text(
-                    f"Covariance condition number: {_number(diagnostics.get('covariance', {}).get('condition_number') if isinstance(diagnostics.get('covariance'), dict) else None)} | regularised: {diagnostics.get('covariance', {}).get('regularised', 'n/a') if isinstance(diagnostics.get('covariance'), dict) else 'n/a'} | warnings: {warning_text}",
-                    color=theme.AMBER if warnings else theme.MUTED,
-                    selectable=True,
-                ),
-            ],
-            spacing=6,
-        )
-    )
-
-
-def _factor_contribution_panel(report: dict[str, object]) -> ft.Control:
-    frame = report.get("portfolio_contributions")
-    frame = frame if isinstance(frame, pd.DataFrame) else pd.DataFrame()
-    rows = [
-        ft.DataRow(
-            cells=[
-                ft.DataCell(ft.Text(str(row.get("factor", "")), color=theme.TEXT, size=11)),
-                ft.DataCell(ft.Text(_number(row.get("portfolio_exposure")), color=theme.TEXT, size=11)),
-                ft.DataCell(ft.Text(_pct(row.get("variance_share")), color=theme.TEXT, size=11)),
-            ]
-        )
-        for _, row in frame.iterrows()
-    ]
-    return panel(
-        ft.Column(
-            [
-                section_header("Factor exposure and contribution", "Portfolio variance contribution reconciles to factor plus specific risk."),
-                ft.DataTable(
-                    columns=[ft.DataColumn(ft.Text("Factor")), ft.DataColumn(ft.Text("Exposure")), ft.DataColumn(ft.Text("Variance share"))],
-                    rows=rows,
-                )
-                if rows
-                else ft.Text("Factor contribution is unavailable; no complete cross-sectional fit was produced.", color=theme.MUTED),
-            ],
-            scroll=ft.ScrollMode.AUTO,
-        ),
-        expand=True,
-    )
-
-
-def _factor_history_panel(report: dict[str, object]) -> ft.Control:
-    frame = report.get("factor_returns")
-    frame = frame if isinstance(frame, pd.DataFrame) else pd.DataFrame()
-    if not frame.empty:
-        frame = frame.sort_values(["date", "factor"], kind="stable").tail(24)
-    rows = [
-        ft.DataRow(
-            cells=[
-                ft.DataCell(ft.Text(str(row.get("date", "")), color=theme.TEXT, size=11)),
-                ft.DataCell(ft.Text(str(row.get("factor", "")), color=theme.TEXT, size=11)),
-                ft.DataCell(ft.Text(_pct(row.get("factor_return")), color=theme.TEXT, size=11)),
-                ft.DataCell(ft.Text(_number(row.get("standard_error")), color=theme.MUTED, size=11)),
-                ft.DataCell(ft.Text(str(row.get("sample_count", "")), color=theme.MUTED, size=11)),
-            ]
-        )
-        for _, row in frame.iterrows()
-    ]
-    return panel(
-        ft.Column(
-            [
-                section_header("Historical factor returns", "Recent robust cross-sectional estimates; standard errors and sample counts remain visible."),
-                ft.DataTable(
-                    columns=[ft.DataColumn(ft.Text("Date")), ft.DataColumn(ft.Text("Factor")), ft.DataColumn(ft.Text("Return")), ft.DataColumn(ft.Text("SE")), ft.DataColumn(ft.Text("N"))],
-                    rows=rows,
-                )
-                if rows
-                else ft.Text("Historical factor returns are unavailable; insufficient complete observations.", color=theme.MUTED),
-            ],
-            scroll=ft.ScrollMode.AUTO,
-        ),
-        expand=True,
-    )
-
-
-def _performance_attribution_panel(report: dict[str, object]) -> ft.Control:
-    coverage = report.get("coverage") if isinstance(report.get("coverage"), dict) else {}
-    warnings = report.get("warnings") if isinstance(report.get("warnings"), list) else []
-    asset = report.get("asset_contributions")
-    asset = asset if isinstance(asset, pd.DataFrame) else pd.DataFrame()
-    rows = [
-        ft.DataRow(
-            cells=[
-                ft.DataCell(ft.Text(str(row.get("instrument_id", "")), color=theme.TEXT, size=11)),
-                ft.DataCell(ft.Text(_pct(row.get("contribution")), color=theme.TEXT, size=11)),
-                ft.DataCell(ft.Text(str(row.get("observations", "")), color=theme.MUTED, size=11)),
-                ft.DataCell(ft.Text(_pct(row.get("coverage")), color=theme.MUTED, size=11)),
-            ]
-        )
-        for _, row in asset.head(8).iterrows()
-    ]
-    return panel(
-        ft.Column(
-            [
-                section_header("Performance and decision attribution", "Linked adjusted-price contributions reconcile gross performance; missing costs, FX and journal evidence remain explicit."),
-                ft.Text(
-                    f"Status: {report.get('status', 'unavailable')} | time-weighted return: {_pct(report.get('time_weighted_return'))} | money-weighted: {_pct(report.get('money_weighted_return'))} ({report.get('money_weighted_status', 'unavailable')}) | net after explicit costs: {_pct(report.get('net_return_after_explicit_costs'))}",
-                    color=theme.TEXT,
-                    selectable=True,
-                ),
-                ft.Text(
-                    f"Gross identity residual: {_pct(report.get('identity_residual'))} | factor: {coverage.get('factor_status', 'unavailable')} | currency: {coverage.get('currency_status', 'unavailable')} | decisions: {coverage.get('decision_status', 'unavailable')} | execution_allowed=false",
-                    color=theme.AMBER if warnings else theme.MUTED,
-                    selectable=True,
-                ),
-                ft.Text(f"Warnings: {', '.join(str(item) for item in warnings) or 'none'}", color=theme.AMBER if warnings else theme.MUTED, selectable=True),
-                ft.DataTable(
-                    columns=[ft.DataColumn(ft.Text("Instrument")), ft.DataColumn(ft.Text("Contribution")), ft.DataColumn(ft.Text("N")), ft.DataColumn(ft.Text("Coverage"))],
-                    rows=rows,
-                )
-                if rows
-                else ft.Text("Asset attribution is unavailable; adjusted-price history and a valid allocation are required.", color=theme.MUTED),
-            ],
-            spacing=6,
-            scroll=ft.ScrollMode.AUTO,
-        ),
-        expand=True,
-    )
-
-
-def _robust_risk_summary_panel(report: dict[str, object]) -> ft.Control:
-    diagnostics = report.get("diagnostics") if isinstance(report.get("diagnostics"), dict) else {}
-    estimators = diagnostics.get("estimators") if isinstance(diagnostics.get("estimators"), dict) else {}
-    selected = str(report.get("selected_estimator", "n/a"))
-    selected_diagnostics = estimators.get(selected) if isinstance(estimators.get(selected), dict) else {}
-    portfolio = report.get("portfolio") if isinstance(report.get("portfolio"), dict) else {}
-    tail = report.get("tail_risk") if isinstance(report.get("tail_risk"), dict) else {}
-    tail_portfolio = tail.get("portfolio") if isinstance(tail.get("portfolio"), dict) else {}
-    bootstrap = report.get("bootstrap") if isinstance(report.get("bootstrap"), dict) else {}
-    warnings = report.get("warnings", [])
-    warning_text = ", ".join(str(item) for item in warnings) if warnings else "none"
-    confidence_interval = "n/a"
-    if bootstrap.get("status") == "available":
-        confidence_interval = f"{_number(bootstrap.get('lower_5'))} - {_number(bootstrap.get('upper_95'))}"
-    return panel(
-        ft.Column(
-            [
-                section_header("Robust risk model", "Versioned covariance estimators, out-of-sample selection and uncertainty; evidence-only and execution-disabled."),
-                ft.Text(
-                    f"Status: {report.get('status', 'unavailable')} | model={report.get('model_version', 'unknown')} | selected estimator: {selected} | execution_allowed=false",
-                    color=theme.TEXT,
-                    selectable=True,
-                ),
-                ft.Text(
-                    f"Annualised volatility: {_number(portfolio.get('annualised_volatility'))} | bootstrap 5-95% interval: {confidence_interval} | estimator condition number: {_number(selected_diagnostics.get('condition_number'))}",
-                    color=theme.TEXT,
-                    selectable=True,
-                ),
-                ft.Text(
-                    f"Component-share reconciliation: {_number(portfolio.get('component_share_sum'))} | bootstrap observations: {bootstrap.get('observations', 0)} | warnings: {warning_text}",
-                    color=theme.AMBER if warnings else theme.MUTED,
-                    selectable=True,
-                ),
-                ft.Text(
-                    f"Tail VaR 95%: {_pct(tail_portfolio.get('var_95'))} | expected shortfall 95%: {_pct(tail_portfolio.get('expected_shortfall_95'))} | downside volatility: {_number(tail_portfolio.get('downside_vol_ann'))} | maximum drawdown: {_pct(tail_portfolio.get('max_drawdown'))}",
-                    color=theme.TEXT,
-                    selectable=True,
-                ),
-            ],
-            spacing=6,
-        )
-    )
-
-
-def _robust_estimator_panel(report: dict[str, object]) -> ft.Control:
-    frame = report.get("estimator_comparison")
-    frame = frame if isinstance(frame, pd.DataFrame) else pd.DataFrame()
-    rows = [
-        ft.DataRow(
-            cells=[
-                ft.DataCell(ft.Text(str(row.get("estimator", "")), color=theme.TEXT, size=11)),
-                ft.DataCell(ft.Text(_number(row.get("validation_error")), color=theme.TEXT, size=11)),
-                ft.DataCell(ft.Text(str(row.get("validation_observations", "")), color=theme.MUTED, size=11)),
-                ft.DataCell(ft.Text("yes" if bool(row.get("selected")) else "", color=theme.GREEN if bool(row.get("selected")) else theme.MUTED, size=11)),
-            ]
-        )
-        for _, row in frame.iterrows()
-    ]
-    return panel(
-        ft.Column(
-            [
-                section_header("Estimator comparison", "Selection uses held-out covariance error; sample and diagonal baselines remain available."),
-                ft.DataTable(
-                    columns=[ft.DataColumn(ft.Text("Estimator")), ft.DataColumn(ft.Text("OOS error")), ft.DataColumn(ft.Text("Validation N")), ft.DataColumn(ft.Text("Selected"))],
-                    rows=rows,
-                )
-                if rows
-                else ft.Text("Out-of-sample estimator comparison is unavailable; the sample baseline remains explicit.", color=theme.MUTED),
-            ],
-            scroll=ft.ScrollMode.AUTO,
-        ),
-        expand=True,
-    )
-
-
-def _robust_regime_panel(report: dict[str, object]) -> ft.Control:
-    regimes = report.get("regimes")
-    regimes = regimes if isinstance(regimes, pd.DataFrame) else pd.DataFrame()
-    rows = [
-        ft.DataRow(
-            cells=[
-                ft.DataCell(ft.Text(str(row.get("regime", "")), color=theme.TEXT, size=11)),
-                ft.DataCell(ft.Text(str(row.get("observations", "")), color=theme.MUTED, size=11)),
-                ft.DataCell(ft.Text(_number(row.get("portfolio_vol_ann")), color=theme.TEXT, size=11)),
-            ]
-        )
-        for _, row in regimes.iterrows()
-    ]
-    tail = report.get("tail_risk") if isinstance(report.get("tail_risk"), dict) else {}
-    dependence = tail.get("tail_dependence") if isinstance(tail.get("tail_dependence"), dict) else {}
-    liquidity = tail.get("liquidity_adjusted") if isinstance(tail.get("liquidity_adjusted"), dict) else {}
-    return panel(
-        ft.Column(
-            [
-                section_header("Regimes, tail dependence and liquidity", "Calm/stress comparisons and transparent lower-tail and traded-value diagnostics."),
-                ft.DataTable(
-                    columns=[ft.DataColumn(ft.Text("Regime")), ft.DataColumn(ft.Text("N")), ft.DataColumn(ft.Text("Portfolio vol"))],
-                    rows=rows,
-                )
-                if rows
-                else ft.Text("Regime comparison is unavailable.", color=theme.MUTED),
-                ft.Text(
-                    f"Lower-tail dependence: {_pct(dependence.get('mean_lower_tail_dependence'))} across {dependence.get('pairs', 0)} pairs | liquidity proxy: {liquidity.get('status', 'unavailable')} | multiplier: {_number(liquidity.get('multiplier'))}",
-                    color=theme.TEXT,
-                    selectable=True,
-                ),
-            ],
-            scroll=ft.ScrollMode.AUTO,
-        ),
-        expand=True,
-    )
-
-
-def _correlation_table(correlation: pd.DataFrame) -> ft.Control:
-    columns = list(correlation.columns)
-    excluded_assets = correlation.attrs.get("excluded_assets", {})
-    excluded_ids = list(excluded_assets) if isinstance(excluded_assets, dict) else []
-    rows = []
-    for etf_id, row in correlation.iterrows():
-        rows.append(
-            ft.DataRow(
-                cells=[
-                    ft.DataCell(ft.Text(str(etf_id), color=theme.TEXT, size=11)),
-                    *[ft.DataCell(ft.Text(_number(row[column]), color=theme.TEXT, size=11)) for column in columns],
-                ]
-            )
-        )
-    return panel(
-        ft.Column(
-            [
-                section_header("Correlation matrix", "120 trading-day log-return correlation from adjusted prices; no forward-fill."),
-                *(
-                    [
-                        ft.Text(
-                            f"Excluded (no price history): {', '.join(map(str, excluded_ids))}",
-                            color=theme.AMBER,
-                            selectable=True,
-                        )
-                    ]
-                    if excluded_ids
-                    else []
-                ),
-                ft.DataTable(
-                    columns=[ft.DataColumn(ft.Text("Instrument"))] + [ft.DataColumn(ft.Text(str(column))) for column in columns],
-                    rows=rows,
-                    data_row_min_height=30,
-                    data_row_max_height=36,
-                )
-                if rows
-                else ft.Text("Not enough complete price history for correlation.", color=theme.MUTED),
-            ],
-            scroll=ft.ScrollMode.AUTO,
-        ),
-        expand=True,
-    )
-
-
-def _crowding_attribution_panel() -> ft.Control:
-    try:
-        crowding = pd.read_parquet(CORRELATION_CLUSTERS_PATH) if CORRELATION_CLUSTERS_PATH.exists() else pd.DataFrame()
-    except Exception:
-        crowding = pd.DataFrame()
-    try:
-        attribution = pd.read_parquet(BENCHMARK_ATTRIBUTION_PATH) if BENCHMARK_ATTRIBUTION_PATH.exists() else pd.DataFrame()
-    except Exception:
-        attribution = pd.DataFrame()
-    if crowding.empty and attribution.empty:
-        return panel(ft.Column([section_header("Crowding and attribution", "Trust evidence from clean adjusted-price returns."), ft.Text("Correlation and benchmark attribution evidence is unavailable; no cluster or sector-relative conclusion is inferred.", color=theme.MUTED)]))
-    warning_values = (
-        crowding["crowding_warning"]
-        if "crowding_warning" in crowding.columns
-        else pd.Series("", index=crowding.index, dtype=str)
-    )
-    warning_mask = warning_values.map(_is_crowding_warning_state)
-    warning_rows = crowding.loc[warning_mask] if not crowding.empty else pd.DataFrame()
-    if not warning_rows.empty and "cluster_id" in warning_rows.columns:
-        warning_ids = warning_rows["cluster_id"].astype("string").str.strip()
-        warning_count = int(warning_ids[warning_ids.notna() & warning_ids.ne("")].nunique())
+        contribution.attrs.update(status="unavailable")
     else:
-        warning_count = 0
-    sector_available = int((attribution.get("sector_attribution_status", pd.Series(dtype=str)).astype(str) == "available").sum()) if not attribution.empty else 0
-    theme_available = int((attribution.get("theme_attribution_status", pd.Series(dtype=str)).astype(str) == "available").sum()) if not attribution.empty else 0
-    broad_available = int(
-        pd.to_numeric(attribution.get("benchmark_return", pd.Series(dtype=float)), errors="coerce").notna().sum()
-    ) if not attribution.empty else 0
-    risk_contribution = pd.to_numeric(crowding.get("cluster_risk_contribution", pd.Series(dtype=float)), errors="coerce") if not crowding.empty else pd.Series(dtype=float)
-    top_contribution = float(risk_contribution.max()) if not risk_contribution.dropna().empty else None
-    coverage = pd.to_numeric(crowding.get("ranking_coverage", pd.Series(dtype=float)), errors="coerce") if not crowding.empty else pd.Series(dtype=float)
-    mean_coverage = float(coverage.mean()) if not coverage.dropna().empty else None
-    return panel(ft.Column([
-        section_header("Crowding and attribution", "Configured metadata and clean adjusted-price evidence; diagnostics are descriptive and non-executable."),
-        ft.Text(f"Clusters with warnings: {warning_count} | highest cluster risk contribution: {_number(top_contribution)} | mean ranking coverage: {_number(mean_coverage)} | execution_allowed=false", color=theme.MUTED, selectable=True),
-        ft.Text(f"Broad benchmark attribution: {broad_available} rows available | Sector attribution: {sector_available} rows available | Theme attribution: {theme_available} rows available | horizons use clean overlapping returns; unavailable or insufficient evidence is N/A.", color=theme.MUTED, selectable=True),
-    ]))
+        contribution = drawdown_contribution(allocation, snapshot.latest_features)
+    factors = build_factor_risk_report(
+        snapshot.prices,
+        allocation,
+        snapshot.latest_features,
+        pd.DataFrame(),
+    )
+    factor_history = factors.get("factor_returns", pd.DataFrame())
+    attribution = build_performance_attribution(
+        snapshot.prices,
+        allocation,
+        factor_returns=factor_history,
+        factor_exposures=factors.get("exposure_matrix"),
+        reference_context=context_from_snapshot(
+            snapshot,
+            purpose="attribution",
+            analysis_id=f"attribution:{getattr(snapshot, 'universe_revision', 'unknown')}",
+        ),
+    )
 
+    def export_frame(table_id: str, frame: pd.DataFrame, file_name: str) -> None:
+        from etf_cockpit.application.ui_facade import export_table
+        from etf_cockpit.core.paths import EXPORTS_DIR
 
-def _friction_edge_panel() -> ft.Control:
-    """Show persisted gross/net edge and cost scenarios as risk evidence."""
+        export_table(table_id, frame if not frame.empty else None, EXPORTS_DIR / file_name)
 
-    scoreboard_error: str | None = None
-    try:
-        scoreboard = load_simple_scoreboard(SCOREBOARD_PATH)
-    except (OSError, ValueError) as exc:
-        # Corrupt optional store: render the explicit unavailable panel with the reason.
-        scoreboard = pd.DataFrame()
-        scoreboard_error = type(exc).__name__
-    required = {"gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio", "cost_stress_scenario"}
-    id_column = next((column for column in ("display_id", "instrument_id", "etf_id") if column in scoreboard.columns), None)
-    if scoreboard.empty or id_column is None or not required.issubset(scoreboard.columns):
-        return panel(
-            ft.Column(
+    def export_limits(_event: ft.ControlEvent | None) -> None:
+        export_frame("risk_limits", limits, "risk_limits.csv")
+
+    def export_allocation(_event: ft.ControlEvent | None) -> None:
+        export_frame("risk_allocation", allocation, "risk_allocation.csv")
+
+    def export_holdings(_event: ft.ControlEvent | None) -> None:
+        export_frame("risk_holdings", pd.DataFrame(), "risk_holdings.csv")
+
+    def export_correlation(_event: ft.ControlEvent | None) -> None:
+        export_frame("risk_correlation", correlation.reset_index(), "risk_correlation.csv")
+
+    def export_drawdown(_event: ft.ControlEvent | None) -> None:
+        export_frame("risk_drawdown", contribution, "risk_drawdown.csv")
+
+    def export_factor_contributions(_event: ft.ControlEvent | None) -> None:
+        frame = factor_contributions if isinstance(factor_contributions, pd.DataFrame) else pd.DataFrame()
+        export_frame("risk_factor_contributions", frame, "risk_factor_contributions.csv")
+
+    def export_attribution(_event: ft.ControlEvent | None) -> None:
+        frame = asset_contributions if isinstance(asset_contributions, pd.DataFrame) else pd.DataFrame()
+        export_frame("risk_performance_attribution", frame, "risk_performance_attribution.csv")
+
+    def export_factor_history(_event: ft.ControlEvent | None) -> None:
+        frame = factor_history if isinstance(factor_history, pd.DataFrame) else pd.DataFrame()
+        export_frame("risk_factor_returns", frame, "risk_factor_returns.csv")
+
+    data_report = getattr(snapshot, "data_report", None)
+    issue_count = len(getattr(data_report, "issues", ())) if data_report is not None else None
+    data_status = getattr(data_report, "status", None) if data_report is not None else None
+    headline = (
+        "Risk data is unavailable"
+        if issue_count is None
+        else "Risk data is Clean"
+        if issue_count == 0
+        else "Risk data needs review"
+    )
+    risk_kpis = KpiStrip(
+        "Risk data",
+        headline,
+        f"{format_count(issue_count, unavailable='—')} data/context findings",
+        [
+            KpiStripItem(
+                "Portfolio guardrails",
+                format_count(len(limits), unavailable="—") if not limits.empty else None,
+                "Guardrail count" if not limits.empty else "Guardrail evidence unavailable",
+            ),
+            KpiStripItem(
+                "Top DD contributor",
+                str(contribution.iloc[0]["etf_id"])
+                if not contribution.empty and contribution.attrs.get("status") == "available"
+                else None,
+                "Weighted current drawdown",
+            ),
+            KpiStripItem(
+                "Correlation window",
+                f"{correlation_window}d" if correlation.attrs.get("status") in {"available", "partial"} else None,
+                "Adjusted-price log returns",
+            ),
+            KpiStripItem("Volatility (ann.)", None, "Bootstrap interval unavailable"),
+        ],
+    )
+
+    def menu(items: list[tuple[str, str, pd.DataFrame, str]]) -> CardMenu:
+        def make_action(table_id: str, frame: pd.DataFrame, file_name: str):
+            def export(_event: ft.ControlEvent | None) -> None:
+                export_frame(table_id, frame, file_name)
+
+            return export
+
+        return CardMenu([(label, make_action(table_id, frame, file_name)) for label, table_id, frame, file_name in items])
+
+    def percent_cell(value: object) -> str:
+        return format_percent(value, unavailable="—")
+
+    def numeric_cell(value: object) -> str:
+        return format_number(value, unavailable="—")
+
+    def exposure_card(label: str) -> GlassCard:
+        dimension = _DIMENSIONS[label]
+        exposure = exposure_summary(allocation, dimension)
+        bucket_column = dimension
+        exposure_rows = [
+            {
+                "bucket": str(row.get(bucket_column, "—")) if pd.notna(row.get(bucket_column)) else "—",
+                "current": percent_cell(row.get("current_weight")),
+                "target": percent_cell(row.get("target_weight")),
+            }
+            for _, row in exposure.iterrows()
+        ]
+        chart_values = [
+            (row.get("current_weight") * 100) if pd.notna(row.get("current_weight")) else None
+            for _, row in exposure.iterrows()
+        ]
+        target_values = [
+            (row.get("target_weight") * 100) if pd.notna(row.get("target_weight")) else None
+            for _, row in exposure.iterrows()
+        ]
+        if exposure.empty:
+            insight = f"{label} exposure and target comparison are unavailable."
+        else:
+            differences = exposure["current_weight"] - exposure["target_weight"]
+            over_target = differences.idxmax()
+            bucket = str(exposure.loc[over_target, bucket_column])
+            points = format_number(differences.loc[over_target] * 100, decimals=1, unavailable="—")
+            insight = f"{bucket} is {points} pts over its target."
+        chart = ck.grouped_bar_chart(
+            [str(row.get(bucket_column, "—")) for _, row in exposure.iterrows()],
+            [
+                ck.BarSeries("Current", chart_values, kind="blue"),
+                ck.BarSeries("Target", target_values, kind="gold"),
+            ],
+            x_name=label,
+            y_name="Weight (%)",
+            unit="%",
+            insight=insight,
+            unavailable_reason=f"{label} exposure data is unavailable for the selected holdings.",
+        )
+        return GlassCard(
+            f"{label} exposure vs. target",
+            note="% of portfolio",
+            insight=insight,
+            menu=menu(
                 [
-                    section_header("Expected edge and trading costs", "Gross/net edge, estimated cost, ratio and stress scenario are descriptive evidence only."),
-                    ft.Text(
-                        "Expected edge and cost evidence unavailable; no scenario conclusion is inferred."
-                        if scoreboard_error is None
-                        else f"Expected edge and cost evidence unavailable: scoreboard store unreadable ({scoreboard_error}); no scenario conclusion is inferred.",
-                        color=theme.MUTED,
-                        selectable=True,
+                    (
+                        f"Download {label.casefold()} exposure CSV",
+                        f"risk_exposure_{dimension}",
+                        exposure,
+                        f"risk_exposure_{dimension}.csv",
                     ),
                 ]
-            )
+            ),
+            body=ft.Column(
+                [
+                    Well(chart),
+                    Button.secondary("Export allocation CSV", key="risk.export-allocation", on_click=export_allocation),
+                    Well(
+                        DataTable(
+                            [
+                                TableColumn("bucket", "Bucket"),
+                                TableColumn("current", "Current"),
+                                TableColumn("target", "Target"),
+                            ],
+                            exposure_rows,
+                            empty_title="Unavailable",
+                            empty_reason=f"{label} exposure data is unavailable.",
+                        )
+                    ),
+                ],
+                spacing=theme.SPACE_2,
+            ),
         )
 
-    def _bps(value: object) -> str:
-        number = _finite_float(value)
-        return "N/A" if number is None else f"{number:.2f} bps"
-
-    def _ratio(value: object) -> str:
-        number = _finite_float(value)
-        return "N/A" if number is None else f"{number:.2f}"
-
-    def _scenario(value: object) -> str:
-        if value is None or pd.isna(value):
-            return "unavailable"
-        text = str(value).strip()
-        return text or "unavailable"
-
-    rows = [
-        ft.DataRow(
-            cells=[
-                ft.DataCell(ft.Text(str(row.get(id_column, "N/A")), color=theme.TEXT, size=11)),
-                ft.DataCell(ft.Text(_bps(row.get("gross_expected_edge_bps")), color=theme.TEXT, size=11)),
-                ft.DataCell(ft.Text(_bps(row.get("estimated_total_cost_bps")), color=theme.MUTED, size=11)),
-                ft.DataCell(ft.Text(_bps(row.get("net_expected_edge_bps")), color=theme.TEXT, size=11)),
-                ft.DataCell(ft.Text(_ratio(row.get("edge_to_cost_ratio")), color=theme.TEXT, size=11)),
-                ft.DataCell(ft.Text(_scenario(row.get("cost_stress_scenario")), color=theme.MUTED, size=11)),
-            ]
+    guardrail_rows = []
+    status_labels = {"ok": ("Within limit", "ok"), "watch": ("Watch", "warn"), "breach": ("Exceeded", "bad"), "info": ("Informational", "mute")}
+    for _, row in limits.iterrows():
+        display_status, status_kind = status_labels.get(str(row.get("status")), ("Unavailable", "bad"))
+        headroom = row.get("headroom")
+        guardrail_rows.append(
+            {
+                "type": str(row.get("risk_type", "—")),
+                "bucket": str(row.get("bucket", "—")),
+                "current": percent_cell(row.get("current_weight")),
+                "limit": percent_cell(row.get("limit")),
+                "headroom": percent_cell(headroom),
+                "status": Tag(display_status, status_kind),
+            }
         )
-        for _, row in scoreboard.iterrows()
-    ]
-    summary = [
-        f"{row.get(id_column, 'N/A')}: Gross edge {_bps(row.get('gross_expected_edge_bps'))} | Estimated cost {_bps(row.get('estimated_total_cost_bps'))} | Net edge {_bps(row.get('net_expected_edge_bps'))} | Edge/cost {_ratio(row.get('edge_to_cost_ratio'))} | Cost scenario: {_scenario(row.get('cost_stress_scenario'))}"
-        for _, row in scoreboard.iterrows()
-    ]
-    return panel(
-        ft.Column(
+    guardrail_card = GlassCard(
+        "Portfolio guardrail context",
+        note="breaches are construction context",
+        menu=menu(
             [
-                section_header("Expected edge and trading costs", "Gross/net edge, estimated cost, ratio and stress scenario are descriptive evidence only."),
-                *[ft.Text(line, color=theme.MUTED, size=11, selectable=True) for line in summary],
-                ft.DataTable(
-                    columns=[ft.DataColumn(ft.Text(column, color=theme.TEXT, size=11)) for column in ("Instrument", "Gross edge", "Estimated cost", "Net edge", "Edge/cost", "Cost scenario")],
-                    rows=rows,
-                ),
-                ft.Text("execution_allowed=false", color=theme.MUTED, size=11),
-            ],
-            scroll=ft.ScrollMode.AUTO,
-        )
-    )
-
-
-def _drawdown_table(contribution: pd.DataFrame) -> ft.Control:
-    rows = [
-        ft.DataRow(
-            cells=[
-                ft.DataCell(ft.Text(str(row["etf_id"]), color=theme.TEXT, size=12)),
-                ft.DataCell(ft.Text(_pct(row["current_weight"]), color=theme.TEXT, size=12)),
-                ft.DataCell(ft.Text(_pct(row["drawdown_current"]), color=theme.TEXT, size=12)),
-                ft.DataCell(ft.Text(_pct(row["drawdown_60d_max"]), color=theme.MUTED, size=12)),
-                ft.DataCell(ft.Text(_pct(row["drawdown_contribution"]), color=theme.TEXT, size=12)),
-                ft.DataCell(ft.Text(_pct(row["risk_share"]), color=theme.TEXT, size=12)),
+                ("Download limits CSV", "risk_limits", limits, "risk_limits.csv"),
             ]
-        )
-        for _, row in contribution.iterrows()
-    ]
-    return panel(
-        ft.Column(
-            [
-                section_header("Drawdown contribution", "Weighted current and recent drawdown context."),
-                ft.DataTable(
-                    columns=[
-                        ft.DataColumn(ft.Text("Instrument")),
-                        ft.DataColumn(ft.Text("Weight")),
-                        ft.DataColumn(ft.Text("Current DD")),
-                        ft.DataColumn(ft.Text("Worst 60d DD")),
-                        ft.DataColumn(ft.Text("Weighted DD")),
-                        ft.DataColumn(ft.Text("Risk Share")),
-                    ],
-                    rows=rows,
-                    data_row_min_height=34,
-                    data_row_max_height=42,
-                ),
-            ],
-            scroll=ft.ScrollMode.AUTO,
         ),
-        expand=True,
+        body=ft.Column(
+            [
+                ft.Row(
+                    [
+                        Button.secondary("Export risk limits CSV", key="risk.export-limits", on_click=export_limits),
+                        Button.secondary("Export holdings CSV", key="risk.export-holdings", on_click=export_holdings),
+                    ],
+                    wrap=True,
+                ),
+                Well(
+                    DataTable(
+                        [
+                            TableColumn("type", "Type"),
+                            TableColumn("bucket", "Bucket"),
+                            TableColumn("current", "Current", numeric=True),
+                            TableColumn("limit", "Limit", numeric=True),
+                            TableColumn("headroom", "Headroom", numeric=True),
+                            TableColumn("status", "Status"),
+                        ],
+                        guardrail_rows,
+                        empty_title="Unavailable",
+                        empty_reason="No portfolio guardrail context is available.",
+                    )
+                ),
+                Note("Breaches are shown as construction context. Data-quality failures remain hard blockers."),
+                Disclosure("risk data status", str(data_status) if data_status is not None else "Unavailable"),
+            ],
+            spacing=theme.SPACE_2,
+        ),
     )
 
-
-def _download_row(*buttons: ft.Control) -> ft.Control:
-    """Right-aligned local CSV download controls placed directly under a table."""
-    return ft.Row(list(buttons), alignment=ft.MainAxisAlignment.END, spacing=8, wrap=True)
-
-
-def _download_button(text: str, key: str, on_click) -> ft.Control:
-    return cta_button(text, key=key, label=f"{text}; writes a local file only", primary=False, on_click=on_click)
-
-
-def risk_page(_page: ft.Page, state: AppState) -> ft.Control:
-    allocation = allocation_frame(state.snapshot.config, state.snapshot.holdings)
-    limit_report = exposure_limit_report(state.snapshot.config, allocation)
-    breaches = int((limit_report["status"] == "breach").sum()) if not limit_report.empty else 0
-    watch = int((limit_report["status"] == "watch").sum()) if not limit_report.empty else 0
-    correlation = return_correlation_matrix(state.snapshot.prices, state.snapshot.config.universe.enabled_ids, window=120)
-    contribution = drawdown_contribution(allocation, state.snapshot.latest_features)
-    imported_holdings = _load_holdings_evidence()
-    snapshot_date = getattr(getattr(state.snapshot, "data_report", None), "as_of_date", None)
-    if snapshot_date is None or "as_of_date" not in imported_holdings.columns:
-        imported_holdings = imported_holdings.iloc[0:0].copy()
+    if correlation.shape[0] < 2 or correlation.empty or correlation.attrs.get("status") == "unavailable":
+        correlation_body: ft.Control = EmptyState(
+            "Correlation unavailable",
+            "Fewer than two holdings have joint returns.",
+        )
+        correlation_insight = "Pairwise correlation evidence is unavailable."
+        correlation_note = "adjusted-price return window unavailable"
     else:
-        cutoff = _holdings_reference_day(snapshot_date)
-        holding_dates = pd.to_datetime(imported_holdings["as_of_date"], errors="coerce", utc=True)
-        imported_holdings = imported_holdings.loc[
-            holding_dates.notna() & holding_dates.dt.normalize().le(cutoff)
+        corr_columns = [str(column) for column in correlation.columns]
+        corr_rows = []
+        for index, (instrument, row) in enumerate(correlation.iterrows()):
+            corr_rows.append(
+                {
+                    "instrument": str(instrument),
+                    **{
+                        str(column): "—" if index == column_index else numeric_cell(row.iloc[column_index])
+                        for column_index, column in enumerate(corr_columns)
+                    },
+                }
+            )
+        pairs = [
+            (float(correlation.iloc[row, column]), str(correlation.index[row]), str(correlation.columns[column]))
+            for row in range(len(correlation.index))
+            for column in range(row + 1, len(correlation.columns))
+            if pd.notna(correlation.iloc[row, column])
         ]
-    eligible_holdings = _exposure_eligible_holdings(imported_holdings, reference_date=snapshot_date)
-    overlap = build_direct_overlap_view(
-        state.snapshot,
-        list(state.snapshot.config.universe.enabled_ids),
-        current_weights={str(row["etf_id"]): float(row["current_weight"]) for _, row in allocation.iterrows()},
-        target_weights={str(row["etf_id"]): float(row["target_weight"]) for _, row in allocation.iterrows()},
-        holdings=imported_holdings,
+        most_alike = max(pairs) if pairs else None
+        correlation_insight = (
+            f"{most_alike[1]} and {most_alike[2]} move most alike ({format_number(most_alike[0], decimals=2)})."
+            if most_alike
+            else "Pairwise correlation evidence is unavailable."
+        )
+        correlation_note = f"{correlation_window}d · top {len(correlation)} holdings"
+        correlation_body = DataTable(
+            [TableColumn("instrument", "Instrument"), *[TableColumn(str(column), str(column), numeric=True) for column in corr_columns]],
+            corr_rows,
+            empty_title="Correlation unavailable",
+            empty_reason="Joint returns are unavailable.",
+        )
+    correlation_card = GlassCard(
+        "Correlation",
+        note=correlation_note,
+        insight=correlation_insight,
+        body=ft.Column(
+            [
+                Button.secondary(
+                    "Export correlation CSV", key="risk.export-correlation", on_click=export_correlation
+                ),
+                Well(correlation_body),
+            ],
+            spacing=theme.SPACE_2,
+        ),
     )
-    factor_report = build_factor_risk_report(state.snapshot.prices, allocation, state.snapshot.latest_features, eligible_holdings)
-    reference_context = context_from_snapshot(
-        state.snapshot,
-        purpose="attribution",
-        analysis_id=f"attribution:{getattr(state.snapshot, 'universe_revision', 'unknown')}",
+
+    tail_tiles = [
+        KpiTile(label, None, sub="No existing result provides this measure")
+        for label in (
+            "Tail VaR 95%",
+            "Expected shortfall 95%",
+            "Downside volatility",
+            "Maximum drawdown",
+            "Lower-tail dependence",
+            "Liquidity multiplier",
+        )
+    ]
+    regimes_chart = ck.grouped_bar_chart(
+        [],
+        [],
+        x_name="Regime",
+        y_name="Portfolio vol (%)",
+        unit="%",
+        unavailable_reason="Calm and stress portfolio volatility are unavailable.",
+        insight="Regime volatility evidence is unavailable.",
     )
-    attribution_report = build_performance_attribution(
-        state.snapshot.prices,
-        allocation,
-        factor_returns=factor_report.get("factor_returns"),
-        factor_exposures=factor_report.get("exposure_matrix"),
-        reference_context=reference_context,
+    regimes_tail_card = GlassCard(
+        "Regimes, tail dependence and liquidity",
+        body=ft.Column([Well(regimes_chart), *tail_tiles], spacing=theme.SPACE_2),
     )
-    robust_risk_report = build_robust_risk_report(state.snapshot.prices, allocation, factor_report=factor_report)
-    top_contributor = contribution.iloc[0]["etf_id"] if not contribution.empty else "n/a"
-    export_status = ft.Text("Risk tables show text status independent of colour.", color=theme.MUTED, selectable=True)
 
-    def export_limits(_event: ft.ControlEvent) -> None:
-        result = export_table("risk_limits", limit_report, EXPORTS_DIR / "risk_limits.csv")
-        export_status.value = f"Export {'complete' if result.ok else 'failed'}: {result.destination}; {result.error or f'{result.rows} rows'}."
-        export_status.color = theme.GREEN if result.ok else theme.RED
-        _page.update()
-
-    def export_risk_frame(table_id: str, frame: pd.DataFrame, filename: str) -> None:
-        result = export_table(table_id, frame if not frame.empty else None, EXPORTS_DIR / filename)
-        export_status.value = f"Export {'complete' if result.ok else 'unavailable'}: {result.destination}; {result.error or f'{result.rows} rows'}."
-        export_status.color = theme.GREEN if result.ok else theme.AMBER
-        _page.update()
-
-    def export_allocation(_event: ft.ControlEvent) -> None:
-        export_risk_frame("risk_allocation", allocation, "risk_allocation.csv")
-
-    def export_holdings(_event: ft.ControlEvent) -> None:
-        export_risk_frame("risk_holdings", imported_holdings, "risk_holdings.csv")
-
-    def export_correlation(_event: ft.ControlEvent) -> None:
-        export_risk_frame("risk_correlation", correlation.reset_index(), "risk_correlation.csv")
-
-    def export_drawdown(_event: ft.ControlEvent) -> None:
-        export_risk_frame("risk_drawdown", contribution, "risk_drawdown.csv")
-
-    def export_factor_contributions(_event: ft.ControlEvent) -> None:
-        export_risk_frame("risk_factor_contributions", factor_report.get("portfolio_contributions", pd.DataFrame()), "risk_factor_contributions.csv")
-
-    def export_factor_history(_event: ft.ControlEvent) -> None:
-        export_risk_frame("risk_factor_returns", factor_report.get("factor_returns", pd.DataFrame()), "risk_factor_returns.csv")
-
-    def export_attribution(_event: ft.ControlEvent) -> None:
-        export_risk_frame("risk_performance_attribution", attribution_report.get("asset_contributions", pd.DataFrame()), "risk_performance_attribution.csv")
-
-    def export_exposure(dimension: str):
-        def handler(_event: ft.ControlEvent) -> None:
-            export_risk_frame(f"risk_exposure_{dimension}", exposure_summary(allocation, dimension), f"risk_exposure_{dimension}.csv")
-
-        return handler
-
-    root = ft.Column(
-        [
-            ft.Row(
+    factor_contributions = factors.get("portfolio_contributions", pd.DataFrame())
+    if not isinstance(factor_contributions, pd.DataFrame) or factor_contributions.empty:
+        factor_chart: ft.Control = EmptyState(
+            "Factor contribution unavailable",
+            "No complete cross-sectional fit was produced.",
+        )
+    else:
+        factor_values = [
+            value * 100 if pd.notna(value) else None
+            for value in factor_contributions.get("variance_share", pd.Series(dtype=float)).tolist()
+        ]
+        factor_chart = ck.bar_chart(
+            factor_contributions.get("factor", pd.Series(dtype=str)).astype(str).tolist(),
+            factor_values,
+            x_name="Factor",
+            y_name="Variance contribution (%)",
+            unit="%",
+            insight="Factor contribution to portfolio variance.",
+            unavailable_reason="Factor contribution is unavailable.",
+        )
+    factor_card = GlassCard(
+        "Factor exposure and contribution",
+        body=ft.Column(
+            [
+                Button.secondary(
+                    "Export factor contributions CSV",
+                    key="risk.export-factor-contributions",
+                    on_click=export_factor_contributions,
+                ),
+                Well(factor_chart),
+            ],
+            spacing=theme.SPACE_2,
+        ),
+    )
+    factor_history_rows = []
+    if isinstance(factor_history, pd.DataFrame):
+        for _, row in factor_history.iterrows():
+            factor_history_rows.append(
+                {
+                    "date": str(row.get("date", "—")) if pd.notna(row.get("date")) else "—",
+                    "factor": str(row.get("factor", "—")) if pd.notna(row.get("factor")) else "—",
+                    "return": format_percent(row.get("factor_return"), decimals=2, unavailable="—"),
+                    "se": format_number(row.get("standard_error"), decimals=4, unavailable="—"),
+                    "n": format_count(row.get("sample_count"), unavailable="—"),
+                }
+            )
+    factor_history_card = GlassCard(
+        "Historical factor returns",
+        body=ft.Column(
+            [
+                Button.secondary(
+                    "Export factor returns CSV", key="risk.export-factor-returns", on_click=export_factor_history
+                ),
+                Well(
+                    DataTable(
                 [
-                    metric_card("Data status", state.snapshot.data_report.status, f"{len(state.snapshot.data_report.issues)} data/context findings", theme.RED if state.snapshot.data_report.status == "Blocked" else theme.AMBER if state.snapshot.data_report.issues else theme.GREEN),
-                    metric_card("Portfolio guardrails", str(breaches), f"{watch} watch items", theme.RED if breaches else theme.AMBER if watch else theme.GREEN),
-                    metric_card("Top DD contributor", str(top_contributor), "Weighted current drawdown"),
-                    metric_card("Correlation window", "120d", "Adjusted-price log returns"),
+                    TableColumn("date", "Date"),
+                    TableColumn("factor", "Factor"),
+                    TableColumn("return", "Return", numeric=True),
+                    TableColumn("se", "SE", numeric=True),
+                    TableColumn("n", "N", numeric=True),
                 ],
-                spacing=12,
-            ),
-            _limit_table(limit_report),
-            _download_row(_download_button("Download limits CSV", "risk.download-limits", export_limits)),
-            ft.Row(
-                [
-                    _exposure_table("Asset Class Exposure", exposure_summary(allocation, "asset_class")),
-                    _exposure_table("Region Exposure", exposure_summary(allocation, "region")),
-                    _exposure_table("Currency Exposure", exposure_summary(allocation, "currency")),
-                ],
-                spacing=12,
-            ),
-            ft.Row(
-                [
-                    _exposure_table("Sector Exposure", exposure_summary(allocation, "sector")),
-                    _exposure_table("Theme Exposure", exposure_summary(allocation, "theme")),
-                ],
-                spacing=12,
-            ),
-            _download_row(
-                *[
-                    _download_button(f"Download {dim.replace('_', ' ')} exposure CSV", f"risk.download-exposure-{dim.replace('_', '-')}", export_exposure(dim))
-                    for dim in ("asset_class", "region", "currency", "sector", "theme")
-                ]
-            ),
-            _holdings_quality_panel(imported_holdings),
-            overlap_evidence_panel(overlap, key="risk.etf-overlap"),
-            _underlying_holdings_panel(eligible_holdings, allocation),
-            _factor_summary_panel(factor_report),
-            ft.Row([_factor_contribution_panel(factor_report), _factor_history_panel(factor_report)], spacing=12),
-            _performance_attribution_panel(attribution_report),
-            _robust_risk_summary_panel(robust_risk_report),
-            ft.Row([_robust_estimator_panel(robust_risk_report), _robust_regime_panel(robust_risk_report)], spacing=12),
-            _correlation_table(correlation),
-            _download_row(_download_button("Download correlation CSV", "risk.download-correlation", export_correlation)),
-            _crowding_attribution_panel(),
-            _friction_edge_panel(),
-            _drawdown_table(contribution),
-            _download_row(_download_button("Download drawdown CSV", "risk.download-drawdown", export_drawdown)),
-            panel(ft.Column([section_header("Risk evidence export", "CSV output is local-only and does not trigger execution. Empty canonical sources report unavailable and do not write placeholders."), ft.Row([ft.OutlinedButton("Export risk limits CSV", key="risk.export-limits", icon=ft.Icons.DOWNLOAD, on_click=export_limits), ft.OutlinedButton("Export allocation CSV", key="risk.export-allocation", icon=ft.Icons.DOWNLOAD, on_click=export_allocation), ft.OutlinedButton("Export holdings CSV", key="risk.export-holdings", icon=ft.Icons.DOWNLOAD, on_click=export_holdings), ft.OutlinedButton("Export correlation CSV", key="risk.export-correlation", icon=ft.Icons.DOWNLOAD, on_click=export_correlation), ft.OutlinedButton("Export drawdown CSV", key="risk.export-drawdown", icon=ft.Icons.DOWNLOAD, on_click=export_drawdown), ft.OutlinedButton("Export factor contributions CSV", key="risk.export-factor-contributions", icon=ft.Icons.DOWNLOAD, on_click=export_factor_contributions), ft.OutlinedButton("Export factor returns CSV", key="risk.export-factor-returns", icon=ft.Icons.DOWNLOAD, on_click=export_factor_history), ft.OutlinedButton("Export performance attribution CSV", key="risk.export-performance-attribution", icon=ft.Icons.DOWNLOAD, on_click=export_attribution)], wrap=True), export_status], spacing=8)),
-        ],
-        expand=True,
-        spacing=14,
-        scroll=ft.ScrollMode.AUTO,
+                factor_history_rows,
+                empty_title="Unavailable",
+                empty_reason="Historical factor returns are unavailable.",
+                    )
+                ),
+            ],
+            spacing=theme.SPACE_2,
+        ),
     )
-    return restyle(root, "risk")
+    factor_status = str(factors.get("status", "unavailable"))
+    model_status = {"available": "Available", "partial": "Partial", "unavailable": "Unavailable"}.get(
+        factor_status,
+        "Unavailable",
+    )
+    model_card = GlassCard(
+        "Multi-factor risk model",
+        body=ft.Column(
+            [
+                KpiTile("Model status", model_status, sub="Factor model evidence"),
+                Disclosure("model warnings", str(factors.get("diagnostics", {}))),
+            ],
+            spacing=theme.SPACE_2,
+        ),
+    )
+    robust_card = GlassCard(
+        "Robust risk model",
+        body=ft.Column(
+            [
+                KpiTile("Robust risk model", None, sub="No robust estimator result is available."),
+                Well(
+                    DataTable(
+                        [
+                            TableColumn("estimator", "Estimator"),
+                            TableColumn("error", "OOS error", numeric=True),
+                            TableColumn("n", "Validation N", numeric=True),
+                            TableColumn("selected", "Selected"),
+                        ],
+                        [],
+                        empty_title="Unavailable",
+                        empty_reason="Robust risk model results are unavailable.",
+                    )
+                ),
+            ],
+            spacing=theme.SPACE_2,
+        ),
+    )
+
+    asset_contributions = attribution.get("asset_contributions", pd.DataFrame())
+    if not isinstance(asset_contributions, pd.DataFrame) or asset_contributions.empty:
+        attribution_chart: ft.Control = EmptyState(
+            "Attribution unavailable",
+            "No adjusted-price contribution results are available.",
+        )
+    else:
+        contributions = asset_contributions.get("contribution", pd.Series(dtype=float))
+        names = asset_contributions.get("instrument_id", pd.Series(dtype=str)).astype(str).tolist()
+        values = [value * 100 if pd.notna(value) else None for value in contributions.tolist()]
+        if names and any(value is not None for value in values):
+            top_index = max(range(len(values)), key=lambda index: abs(values[index] or 0))
+            insight = f"{names[top_index]} has the largest observed contribution ({format_number(values[top_index], decimals=2)}%)."
+        else:
+            insight = "Observed performance contribution is unavailable."
+        attribution_chart = ck.bar_chart(
+            names,
+            values,
+            x_name="Instrument",
+            y_name="Return contribution (%)",
+            unit="%",
+            insight=insight,
+            unavailable_reason="Observed performance attribution is unavailable.",
+        )
+    attribution_tiles = [
+        KpiTile(
+            label,
+            format_percent(attribution.get(key), decimals=2, unavailable="Unavailable")
+            if attribution.get(key) is not None
+            else None,
+            sub=reason,
+        )
+        for label, key, reason in (
+            ("TWR", "time_weighted_return", "Time-weighted return unavailable"),
+            ("MWR", "money_weighted_return", "Money-weighted return unavailable"),
+            ("Net after costs", "net_return_after_explicit_costs", "Cost evidence unavailable"),
+        )
+    ]
+    performance_card = GlassCard(
+        "Performance and decision attribution",
+        body=ft.Column(
+            [
+                ft.Row(
+                    [
+                        Button.secondary(
+                            "Export drawdown CSV", key="risk.export-drawdown", on_click=export_drawdown
+                        ),
+                        Button.secondary(
+                            "Export performance attribution CSV",
+                            key="risk.export-performance-attribution",
+                            on_click=export_attribution,
+                        ),
+                    ],
+                    wrap=True,
+                ),
+                Well(attribution_chart),
+                ft.Row(attribution_tiles, spacing=theme.SPACE_2, wrap=True),
+                Disclosure("attribution warnings", str(attribution.get("warnings", []))),
+            ],
+            spacing=theme.SPACE_2,
+        ),
+    )
+    regime_table = GlassCard(
+        "Regimes",
+        body=Well(
+            DataTable(
+                [
+                    TableColumn("regime", "Regime"),
+                    TableColumn("observations", "Observations", numeric=True),
+                    TableColumn("volatility", "Volatility", numeric=True),
+                ],
+                [],
+                empty_title="Unavailable",
+                empty_reason="Regime evidence is unavailable from the current snapshot.",
+            )
+        ),
+    )
+    tail_evidence = GlassCard("Tail evidence", body=ft.Row(tail_tiles, spacing=theme.SPACE_2, wrap=True))
+
+    holdings_card = GlassCard(
+        "ETF holdings evidence",
+        body=Well(EmptyState("Unavailable", "No eligible ETF holdings evidence is available.")),
+    )
+    overlap_card = GlassCard(
+        "ETF direct overlap",
+        body=Well(
+            DataTable(
+                [
+                    TableColumn("instrument", "Instrument"),
+                    TableColumn("coverage", "Coverage"),
+                    TableColumn("freshness", "Freshness"),
+                    TableColumn("as_of", "As of"),
+                    TableColumn("resolved", "Resolved", numeric=True),
+                    TableColumn("unresolved", "Unresolved", numeric=True),
+                    TableColumn("source", "Source"),
+                    TableColumn("authority", "Authority"),
+                ],
+                [],
+                empty_title="Unavailable",
+                empty_reason="Direct overlap evidence is unavailable.",
+            )
+        ),
+    )
+    underlying_card = GlassCard(
+        "Underlying holdings context",
+        body=Well(EmptyState("Unavailable", "Underlying holdings context is unavailable.")),
+    )
+
+    selection = {"view": "Exposure", "dimension": "Asset class"}
+    body = page_body([])
+
+    def render() -> None:
+        below_fold = [holdings_card, overlap_card, underlying_card]
+        if selection["view"] == "Factors":
+            cards = [factor_card, factor_history_card, model_card, robust_card]
+        elif selection["view"] == "Tail & regimes":
+            cards = [performance_card, regime_table, tail_evidence]
+        else:
+            cards = [
+                exposure_card(selection["dimension"]),
+                guardrail_card,
+                correlation_card,
+                regimes_tail_card,
+            ]
+        body.controls = [risk_kpis, *cards, *below_fold]
+        if page is not None:
+            page.update()
+
+    def select_view(value: str) -> None:
+        selection["view"] = value
+        render()
+
+    def select_dimension(value: str) -> None:
+        selection["dimension"] = value
+        render()
+
+    render()
+    return PageView(
+        chrome=PageChrome(
+            "Risk Evidence",
+            "Exposure, volatility, drawdown, liquidity and cost evidence for the selected holdings",
+            [
+                SegmentGroup("risk-view", ["Exposure", "Factors", "Tail & regimes"], "Exposure", select_view),
+                SegmentGroup(
+                    "risk-dimension",
+                    list(_DIMENSIONS),
+                    "Asset class",
+                    select_dimension,
+                ),
+            ],
+        ),
+        body=body,
+    )
+
+
+__all__ = ["risk_page"]
