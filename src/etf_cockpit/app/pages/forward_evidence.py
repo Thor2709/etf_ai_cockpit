@@ -8,15 +8,12 @@ import json
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import section_header
-from etf_cockpit.app.components.portfolio_b_style import panel, restyle
+from etf_cockpit.app.components import chartkit as ck
+from etf_cockpit.app.components.kit import Button, Disclosure, GlassCard, KpiTile, ListRow, Note, Segmented
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
+from etf_cockpit.app.pages._l4a_common import input_of, page_body, text_field
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.ui_facade import (
-    ForwardEvidenceDiary,
-    ForwardEvidenceIntegrityError,
-    ForwardEvidenceObservation,
-    ForwardInputManifest,
-)
+from etf_cockpit.application.ui_facade import ForwardEvidenceDiary, ForwardEvidenceObservation, ForwardInputManifest
 from etf_cockpit.core.paths import DATA_DIR
 
 
@@ -27,194 +24,191 @@ def _split(value: str | None) -> tuple[str, ...]:
 def _timestamp(value: str | None, label: str) -> datetime:
     text = (value or "").strip()
     if not text:
-        raise ValueError(f"{label} is required and must include a timezone")
+        raise ValueError(f"{label} is required")
     parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     if parsed.tzinfo is None or parsed.utcoffset() is None:
-        raise ValueError(f"{label} must include a timezone, for example +00:00")
+        raise ValueError(f"{label} must include a timezone")
     return parsed
 
 
-def _quality_momentum_summary(state: AppState) -> ft.Control:
-    report = getattr(state.snapshot, "backtest", None)
-    evidence = getattr(report, "quality_momentum_evidence", None)
-    metadata = getattr(report, "metadata", {}) or {}
-    rows = int(metadata.get("quality_momentum_evidence_rows", len(evidence) if evidence is not None else 0))
-    available = 0
-    if evidence is not None and hasattr(evidence, "get") and "status" in evidence:
-        available = int((evidence["status"].astype(str) == "available").sum())
-    evidence_status = str(metadata.get("quality_momentum_evidence", "unavailable"))
-    return panel(
-        ft.Column(
-            [
-                ft.Text("Quality-momentum forward paper evidence", color=theme.TEXT, weight=ft.FontWeight.BOLD),
-                ft.Text(
-                    f"Backtest observations: {rows} rows, {available} available | status={evidence_status} | "
-                    "fills=next adjusted close | execution_allowed=false",
-                    key="forward-evidence.quality-momentum-summary",
-                    color=theme.MUTED,
-                    selectable=True,
-                ),
-                ft.Text(
-                    "Use the decision-time hashes below to record a local paper observation; no broker or external action is created.",
-                    color=theme.MUTED,
-                    selectable=True,
-                ),
-            ],
-            spacing=6,
-        )
-    )
-
-
-def forward_evidence_page(page: ft.Page | None, state: AppState) -> ft.Control:
+def forward_evidence_page(page: ft.Page | None, state: AppState) -> PageView:
     diary = ForwardEvidenceDiary()
-    observation_id = ft.TextField(label="Observation ID", key="forward-evidence.observation-id")
-    instrument_ids = ft.TextField(label="Instrument IDs (comma-separated)", key="forward-evidence.instrument-ids")
-    decision_as_of = ft.TextField(label="Decision as-of (ISO 8601 with timezone)", key="forward-evidence.as-of")
-    data_hash = ft.TextField(label="Data hash (SHA-256)", key="forward-evidence.data-hash")
-    formula_hash = ft.TextField(label="Formula hash (SHA-256)", key="forward-evidence.formula-hash")
-    model_hash = ft.TextField(label="Model hash (SHA-256)", key="forward-evidence.model-hash")
-    portfolio_hash = ft.TextField(label="Portfolio hash (SHA-256)", key="forward-evidence.portfolio-hash")
-    policy_hash = ft.TextField(label="Policy hash (SHA-256)", key="forward-evidence.policy-hash")
-    proposal_hash = ft.TextField(label="Proposal hash (SHA-256)", key="forward-evidence.proposal-hash")
-    source_authority = ft.TextField(label="Decision source authority", key="forward-evidence.source-authority")
-    source_checksum = ft.TextField(label="Decision source checksum (SHA-256)", key="forward-evidence.source-checksum")
-    decision = ft.TextField(label="Decision", key="forward-evidence.decision")
-    proposal_outcome = ft.Dropdown(
-        label="Proposal outcome",
-        key="forward-evidence.proposal-outcome",
-        value="observation_only",
-        options=[ft.dropdown.Option(value) for value in ("not_proposed", "observation_only", "paper_proposed", "paper_accepted", "paper_rejected", "cancelled", "expired")],
-    )
-    proposal_id = ft.TextField(label="Proposal ID (optional)", key="forward-evidence.proposal-id")
-    paper_order_ids = ft.TextField(label="Paper order IDs (comma-separated)", key="forward-evidence.paper-order-ids")
-    rationale = ft.TextField(label="Rationale / limitations", key="forward-evidence.rationale", multiline=True, min_lines=2, max_lines=5)
-    update_id = ft.TextField(label="Observation ID to update", key="forward-evidence.update-id")
-    outcome_status = ft.Dropdown(
-        label="Outcome status",
-        key="forward-evidence.outcome-status",
-        value="available",
-        options=[ft.dropdown.Option(value) for value in ("available", "unavailable", "stale", "conflicted")],
-    )
-    outcome_as_of = ft.TextField(label="Outcome as-of (ISO 8601 with timezone)", key="forward-evidence.outcome-as-of")
-    outcome_authority = ft.TextField(label="Outcome source authority", key="forward-evidence.outcome-authority")
-    outcome_checksum = ft.TextField(label="Outcome source checksum (SHA-256)", key="forward-evidence.outcome-checksum")
-    metrics = ft.TextField(label="Outcome metrics (JSON object)", key="forward-evidence.metrics")
-    outcome_notes = ft.TextField(label="Outcome notes", key="forward-evidence.outcome-notes", multiline=True, min_lines=2, max_lines=4)
-    status = ft.Text("No external or broker action is available; execution_allowed=false.", color=theme.MUTED, selectable=True)
-    entries = ft.Column(spacing=6)
+    fields = {
+        "observation_id": text_field("Observation ID", "forward-evidence.observation-id"),
+        "instrument_ids": text_field("Instrument IDs (comma-separated)", "forward-evidence.instrument-ids"),
+        "decision_as_of": text_field("Decision as-of (ISO 8601 with timezone)", "forward-evidence.as-of"),
+        "decision": text_field("Decision", "forward-evidence.decision"),
+        "proposal_id": text_field("Proposal ID (optional)", "forward-evidence.proposal-id"),
+        "paper_order_ids": text_field("Paper order IDs (comma-separated)", "forward-evidence.paper-order-ids"),
+        "rationale": text_field("Rationale / limitations", "forward-evidence.rationale", multiline=True),
+        "data_hash": text_field("Data hash", "forward-evidence.data-hash"),
+        "formula_hash": text_field("Formula hash", "forward-evidence.formula-hash"),
+        "model_hash": text_field("Model hash", "forward-evidence.model-hash"),
+        "portfolio_hash": text_field("Portfolio hash", "forward-evidence.portfolio-hash"),
+        "policy_hash": text_field("Policy hash", "forward-evidence.policy-hash"),
+        "proposal_hash": text_field("Proposal hash", "forward-evidence.proposal-hash"),
+        "source_authority": text_field("Decision source authority", "forward-evidence.source-authority"),
+        "source_checksum": text_field("Decision source checksum", "forward-evidence.source-checksum"),
+        "update_id": text_field("Observation ID to update", "forward-evidence.update-id"),
+        "outcome_as_of": text_field("Outcome as-of", "forward-evidence.outcome-as-of"),
+        "outcome_authority": text_field("Outcome source authority", "forward-evidence.outcome-authority"),
+        "outcome_checksum": text_field("Outcome source checksum", "forward-evidence.outcome-checksum"),
+        "metrics": text_field("Outcome metrics (JSON object)", "forward-evidence.metrics", multiline=True),
+        "outcome_notes": text_field("Outcome notes", "forward-evidence.outcome-notes", multiline=True),
+    }
+    proposal_outcome = {"value": "observation_only"}
+    outcome_status = {"value": "available"}
+    state_segment = {"value": "Record"}
+    status = ft.Text("No external or broker action is available; execution_allowed=false.")
+    entries: list[object] = []
 
     def refresh() -> None:
         try:
-            rows = diary.list_entries(root=DATA_DIR)
-            if not rows:
-                entries.controls = [ft.Text("Empty: record a local observation opportunity to begin.", color=theme.MUTED)]
-            else:
-                entries.controls = [
-                    ft.Text(
-                        f"{row.observation.observation_id} | {row.observation.manifest.as_of.isoformat()} | instruments={','.join(row.observation.instrument_ids)} | "
-                        f"proposal={row.observation.proposal_outcome} | outcome={row.outcome.status} | "
-                        f"manifest={str(row.observation.checksum or '')[:12]}… | execution_allowed={row.observation.execution_allowed}",
-                        color=theme.TEXT,
-                        size=12,
-                        selectable=True,
-                    )
-                    for row in rows
-                ]
-        except (ForwardEvidenceIntegrityError, PermissionError, OSError, ValueError) as exc:
-            entries.controls = [ft.Text(f"Unavailable: forward-evidence storage requires manual review ({exc}).", color=theme.AMBER, selectable=True)]
+            entries[:] = diary.list_entries(root=DATA_DIR)
+        except Exception:
+            entries.clear()
 
-    def show(message: str, colour: str) -> None:
+    def show(message: str) -> None:
         status.value = message
-        status.color = colour
-        refresh()
         if page is not None:
             page.update()
 
-    def record_observation(_event: ft.ControlEvent) -> None:
+    def record_observation(_event: ft.ControlEvent | None) -> None:
         try:
-            manifest = ForwardInputManifest(
-                as_of=_timestamp(decision_as_of.value, "decision as-of"),
-                data_hash=data_hash.value or "",
-                formula_hash=formula_hash.value or "",
-                model_hash=model_hash.value or "",
-                portfolio_hash=portfolio_hash.value or "",
-                policy_hash=policy_hash.value or "",
-                proposal_hash=proposal_hash.value or "",
-                source_authority=source_authority.value or "",
-                source_checksum=source_checksum.value or "",
+            manifest = ForwardInputManifest.create(
+                as_of=_timestamp(input_of(fields["decision_as_of"]).value, "decision as-of"),
+                data_hash=input_of(fields["data_hash"]).value or "",
+                formula_hash=input_of(fields["formula_hash"]).value or "",
+                model_hash=input_of(fields["model_hash"]).value or "",
+                portfolio_hash=input_of(fields["portfolio_hash"]).value or "",
+                policy_hash=input_of(fields["policy_hash"]).value or "",
+                proposal_hash=input_of(fields["proposal_hash"]).value or "",
+                source_authority=input_of(fields["source_authority"]).value or "",
+                source_checksum=input_of(fields["source_checksum"]).value or "",
             )
-            observation = diary.record_observation(
+            diary.record_observation(
                 ForwardEvidenceObservation(
-                    observation_id=observation_id.value or "",
+                    observation_id=input_of(fields["observation_id"]).value or "",
                     created_at=datetime.now(timezone.utc),
-                    instrument_ids=_split(instrument_ids.value),
+                    instrument_ids=_split(input_of(fields["instrument_ids"]).value),
                     manifest=manifest,
-                    proposal_outcome=proposal_outcome.value or "observation_only",
-                    proposal_id=(proposal_id.value or "").strip() or None,
-                    paper_order_ids=_split(paper_order_ids.value),
-                    decision=decision.value or "",
-                    rationale=rationale.value or "",
+                    proposal_outcome=proposal_outcome["value"],
+                    proposal_id=(input_of(fields["proposal_id"]).value or "").strip() or None,
+                    paper_order_ids=_split(input_of(fields["paper_order_ids"]).value),
+                    decision=input_of(fields["decision"]).value or "",
+                    rationale=input_of(fields["rationale"]).value or "",
                 ),
                 root=DATA_DIR,
             )
-            show(f"Recorded {observation.observation.observation_id}; manifest and pending outcome are durable locally.", theme.GREEN)
-        except Exception as exc:
-            show(f"Error: observation was not recorded ({type(exc).__name__}: {exc}). No external action was created.", theme.RED)
+            refresh()
+            show("Observation recorded locally with its decision-time manifest.")
+        except Exception:
+            show("Observation unavailable: check required fields and local storage.")
 
-    def update_outcome(_event: ft.ControlEvent) -> None:
+    def update_outcome(_event: ft.ControlEvent | None) -> None:
         try:
-            metric_value = json.loads(metrics.value or "{}")
+            metric_value = json.loads(input_of(fields["metrics"]).value or "{}")
             if not isinstance(metric_value, dict):
-                raise ValueError("outcome metrics must be a JSON object")
-            outcome = diary.update_outcome(
-                update_id.value or "",
-                status=outcome_status.value or "available",
-                outcome_as_of=_timestamp(outcome_as_of.value, "outcome as-of"),
-                source_authority=outcome_authority.value or "",
-                source_checksum=outcome_checksum.value or "",
+                raise ValueError
+            diary.update_outcome(
+                input_of(fields["update_id"]).value or "",
+                status=outcome_status["value"],
+                outcome_as_of=_timestamp(input_of(fields["outcome_as_of"]).value, "outcome as-of"),
+                source_authority=input_of(fields["outcome_authority"]).value or "",
+                source_checksum=input_of(fields["outcome_checksum"]).value or "",
                 metrics=metric_value,
-                notes=outcome_notes.value or "",
+                notes=input_of(fields["outcome_notes"]).value or "",
                 root=DATA_DIR,
             )
-            show(f"Recorded outcome version {outcome.version} for {outcome.observation_id}; prior records remain immutable.", theme.GREEN)
-        except Exception as exc:
-            show(f"Error: outcome was not recorded ({type(exc).__name__}: {exc}). The prior outcome remains unchanged.", theme.RED)
+            refresh()
+            show("Mature outcome recorded locally; prior records remain immutable.")
+        except Exception:
+            show("Outcome unavailable: check required fields and local storage.")
 
     refresh()
-    root = ft.Column(
-        [
-            section_header("Forward Evidence Diary", "Record quality-momentum and other local observation opportunities with decision-time hashes, then mature outcomes separately. Paper proposals are evidence only; execution_allowed=false."),
-            _quality_momentum_summary(state),
-            panel(ft.Column([
-                ft.Text("Decision-time manifest", color=theme.TEXT, weight=ft.FontWeight.BOLD),
-                ft.Row([observation_id, instrument_ids], wrap=True),
-                decision_as_of,
-                ft.Row([data_hash, formula_hash], wrap=True),
-                ft.Row([model_hash, portfolio_hash], wrap=True),
-                ft.Row([policy_hash, proposal_hash], wrap=True),
-                ft.Row([source_authority, source_checksum], wrap=True),
-                ft.Row([decision, proposal_outcome, proposal_id], wrap=True),
-                paper_order_ids,
-                rationale,
-                ft.FilledButton("Record observation", key="forward-evidence.record", on_click=record_observation),
-            ], spacing=8)),
-            panel(ft.Column([
-                ft.Text("Mature outcome", color=theme.TEXT, weight=ft.FontWeight.BOLD),
-                ft.Row([update_id, outcome_status], wrap=True),
-                ft.Row([outcome_as_of, outcome_authority], wrap=True),
-                outcome_checksum,
-                metrics,
-                outcome_notes,
-                ft.FilledButton("Update outcome", key="forward-evidence.update", on_click=update_outcome),
-                status,
-            ], spacing=8)),
-            panel(ft.Column([ft.Text("Recent local diary entries", color=theme.TEXT, weight=ft.FontWeight.BOLD), entries], spacing=8), expand=True),
-        ],
-        expand=True,
-        scroll=ft.ScrollMode.AUTO,
-        spacing=14,
+    recent = [
+        ListRow(
+            "info",
+            row.observation.observation_id,
+            f"{row.observation.manifest.as_of.isoformat()} · {row.outcome.status}",
+            tag=(str(row.outcome.status), "mute"),
+        )
+        for row in entries[-12:]
+    ] or [ListRow("info", "No observations yet.")]
+    backtest = getattr(state.snapshot, "backtest", None)
+    evidence = getattr(backtest, "quality_momentum_evidence", None)
+    metadata = getattr(backtest, "metadata", {}) or {}
+    count = metadata.get("quality_momentum_evidence_rows")
+    count = count if count else None
+    available = None
+    if evidence is not None and hasattr(evidence, "get") and "status" in evidence and not evidence.empty:
+        available = int((evidence["status"].astype(str) == "available").sum())
+        available = available or None
+    record_card = GlassCard(
+        "Decision-time manifest",
+        body=ft.Column(
+            [
+                fields["observation_id"],
+                fields["instrument_ids"],
+                fields["decision_as_of"],
+                fields["decision"],
+                Segmented(
+                    ["not_proposed", "observation_only", "paper_proposed", "paper_accepted", "paper_rejected", "cancelled", "expired"],
+                    "observation_only",
+                    on_change=lambda value: proposal_outcome.update(value=value),
+                ),
+                fields["proposal_id"],
+                fields["paper_order_ids"],
+                fields["rationale"],
+                Disclosure("hashes and sources", ft.Column([fields[name] for name in ("data_hash", "formula_hash", "model_hash", "portfolio_hash", "policy_hash", "proposal_hash", "source_authority", "source_checksum")])),
+                Button.primary("Record observation", key="forward-evidence.record", on_click=record_observation),
+            ],
+            spacing=theme.SPACE_2,
+        ),
     )
-    return restyle(root, "forward-evidence")
+    mature_card = GlassCard(
+        "Mature outcome",
+        body=ft.Column(
+            [
+                fields["update_id"],
+                Segmented(["available", "unavailable", "stale", "conflicted"], "available", on_change=lambda value: outcome_status.update(value=value)),
+                fields["outcome_as_of"],
+                Disclosure("outcome sources", ft.Column([fields["outcome_authority"], fields["outcome_checksum"], fields["metrics"]])),
+                fields["outcome_notes"],
+                Button.primary("Update outcome", key="forward-evidence.update", on_click=update_outcome),
+                status,
+                Note("No external or broker action is available; execution_allowed=false."),
+            ],
+            spacing=theme.SPACE_2,
+        ),
+    )
+    summary = GlassCard(
+        "Quality-momentum forward paper evidence",
+        body=ft.Column(
+            [
+                KpiTile("Backtest observations", count, sub="Unavailable in the current backtest result"),
+                KpiTile("Available", available, sub="Unavailable in the current backtest result"),
+                KpiTile("Status", "Unavailable"),
+                KpiTile("Fills", "next adjusted close"),
+                Note("Use the decision-time hashes below to record a local paper observation; no broker or external action is created."),
+            ],
+            spacing=theme.SPACE_2,
+        ),
+    )
+    cards = [
+        GlassCard("Decision-time manifest / Mature outcome", body=ft.Column([record_card, mature_card], spacing=theme.SPACE_2)),
+        summary,
+        GlassCard("Outcomes over time", body=ck.scatter_bubble([], x_name="Decision date", y_name="Matured excess return (%)", y_unit="%", insight="Matured excess returns by outcome status.", unavailable_reason="No observations yet.")),
+        GlassCard("Recent local diary entries", body=ft.Column(recent, spacing=theme.SPACE_2)),
+    ]
+    return PageView(
+        chrome=PageChrome(
+            "Forward Evidence Diary",
+            "Frozen decisions checked against outcomes after their horizons mature",
+            [SegmentGroup("forward-evidence", ["Record", "Mature"], state_segment["value"], on_change=lambda value: state_segment.update(value=value))],
+        ),
+        body=page_body(cards),
+    )
 
 
 __all__ = ["forward_evidence_page"]
