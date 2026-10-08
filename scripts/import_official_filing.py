@@ -268,10 +268,14 @@ def _validate_units(records: Iterable[object]) -> None:
     for record in records:
         concept = str(getattr(record, "concept", "")).strip()
         unit = str(getattr(record, "unit", "") or "").strip()
-        if not concept or not unit:
+        if not concept:
+            raise ValueError("filing contains a fact with incomplete unit provenance")
+        if not unit:
+            if not bool(getattr(record, "is_numeric", True)):
+                continue
             raise ValueError("filing contains a fact with incomplete unit provenance")
         by_concept.setdefault(concept, set()).add(unit)
-        if unit.upper() not in {"SHARES", "PURE", "ITEMS", "PERCENT"}:
+        if unit.upper() not in {"SHARES", "PURE", "ITEM", "ITEMS", "PERCENT"} and "/" not in unit:
             currencies.add(unit.split("/", 1)[0].upper())
     if any(len(units) > 1 for units in by_concept.values()) or len(currencies) > 1:
         raise ValueError("filing contains inconsistent units or currencies")

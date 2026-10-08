@@ -48,6 +48,7 @@ class XbrlFact:
     context_dimensions: tuple[tuple[str, str], ...] = ()
     namespace: str | None = None
     consolidation_scope: str | None = None
+    is_numeric: bool = True
 
 
 _IFRS_MAPPING = {
@@ -124,9 +125,11 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
         return _failure(source_sha, "malformed_archive", f"Could not parse ESEF package: {type(exc).__name__}")
 
     contexts = _contexts(root)
+    units = _units(root, namespace_map)
     default_lei = _extract_lei(metadata, names) or next((item["entity_lei"] for item in contexts.values() if item["entity_lei"] != "unknown"), "unknown")
     period_hint = _extract_period(metadata, names)
     consolidation_scope = _extract_consolidation_scope(metadata)
+    metadata_has_scope = _has_consolidation_scope(metadata)
     facts: list[XbrlFact] = []
     seen: set[tuple[object, ...]] = set()
     warned_extensions: set[str] = set()
@@ -144,7 +147,8 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
             value, numeric_problem = _decode_numeric_fact(value, element.attrib)
         context_id = _optional_text(element.attrib.get("contextRef"))
         context = contexts.get(context_id or "", {})
-        unit = _optional_text(element.attrib.get("unitRef"))
+        unit_ref = _optional_text(element.attrib.get("unitRef"))
+        unit = units.get(unit_ref, unit_ref) if unit_ref else None
         decimals = _optional_text(element.attrib.get("decimals"))
         duplicate_key = (raw_name, value, unit, decimals, context_id, context.get("period_start"), context.get("period_end"))
         if duplicate_key in seen:
@@ -178,7 +182,8 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
                 mapping_status,
                 tuple(context.get("dimensions", ())),
                 namespace,
-                consolidation_scope,
+                consolidation_scope if metadata_has_scope else _context_consolidation_scope(context, namespace_map),
+                local_name == "nonFraction",
             )
         )
 
@@ -338,6 +343,72 @@ def _contexts(root: Any) -> dict[str, dict[str, Any]]:
                 dimensions.append((_optional_text(child.attrib.get("dimension")) or "unknown", text))
         contexts[context_id] = {"entity_lei": entity_lei, "period_start": period_start, "period_end": period_end, "dimensions": tuple(dimensions)}
     return contexts
+
+
+def _units(root: Any, namespace_map: dict[str, str]) -> dict[str, str]:
+    units: dict[str, str] = {}
+    for element in root.iter():
+        if _local_name(element.tag) != "unit":
+            continue
+        unit_id = _optional_text(element.attrib.get("id"))
+        if not unit_id:
+            continue
+        divide = next((child for child in element if _local_name(child.tag) == "divide"), None)
+        if divide is None:
+            measures = [_unit_measure_name(child, namespace_map) for child in element.iter() if _local_name(child.tag) == "measure"]
+            value = "*".join(measures)
+        else:
+            numerator = next((child for child in divide if _local_name(child.tag) == "unitNumerator"), None)
+            denominator = next((child for child in divide if _local_name(child.tag) == "unitDenominator"), None)
+            numerator_measures = [_unit_measure_name(child, namespace_map) for child in numerator.iter() if _local_name(child.tag) == "measure"] if numerator is not None else []
+            denominator_measures = [_unit_measure_name(child, namespace_map) for child in denominator.iter() if _local_name(child.tag) == "measure"] if denominator is not None else []
+            value = f"{'*'.join(numerator_measures)}/{'*'.join(denominator_measures)}" if numerator_measures and denominator_measures else ""
+        if value:
+            units[unit_id] = value
+    return units
+
+
+def _unit_measure_name(element: Any, namespace_map: dict[str, str]) -> str:
+    value = _optional_text("".join(element.itertext())) or ""
+    prefix, separator, local_name = value.partition(":")
+    if not separator:
+        return value
+    namespace = namespace_map.get(prefix)
+    if namespace == "http://www.xbrl.org/2003/iso4217":
+        return local_name
+    if namespace == "http://www.xbrl.org/2003/instance" and local_name.casefold() in {"shares", "pure", "item"}:
+        return local_name
+    return value
+
+
+def _context_consolidation_scope(context: dict[str, Any], namespace_map: dict[str, str]) -> str | None:
+    scope_members = [
+        member
+        for axis, member in context.get("dimensions", ())
+        if _is_ifrs_full_qname(axis, "ConsolidatedAndSeparateFinancialStatementsAxis", namespace_map)
+    ]
+    if not scope_members:
+        return "consolidated"
+    if len(scope_members) != 1:
+        return None
+    member = scope_members[0]
+    if _is_ifrs_full_qname(member, "SeparateMember", namespace_map):
+        return "separate"
+    if _is_ifrs_full_qname(member, "ConsolidatedMember", namespace_map):
+        return "consolidated"
+    return None
+
+
+def _is_ifrs_full_qname(value: str, local_name: str, namespace_map: dict[str, str]) -> bool:
+    prefix, separator, actual_local_name = value.partition(":")
+    if not separator or actual_local_name != local_name:
+        return False
+    namespace = namespace_map.get(prefix, "").rstrip("/")
+    return namespace.endswith("/ifrs-full") if namespace else prefix.lower() in _IFRS_PREFIXES
+
+
+def _has_consolidation_scope(metadata: Any) -> bool:
+    return isinstance(metadata, dict) and any(key in metadata for key in ("consolidationScope", "consolidation_scope"))
 
 
 def _extract_lei(metadata: Any, names: list[str]) -> str | None:
