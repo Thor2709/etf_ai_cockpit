@@ -199,7 +199,13 @@ def run() -> None:
     )
     if view_setting in {"desktop", "flet_app"}:
         view = ft.AppView.FLET_APP
-        _startup_log("starting flet desktop view")
+        embedded_platform = os.environ.pop("FLET_PLATFORM", None)
+        forced_web_server = os.environ.pop("FLET_FORCE_WEB_SERVER", None)
+        _startup_log(
+            "starting flet desktop view "
+            f"cleared_FLET_PLATFORM={embedded_platform} "
+            f"cleared_FLET_FORCE_WEB_SERVER={forced_web_server}"
+        )
     else:
         _attach_windowed_stdio()
         if _reuse_existing_web_server(port, open_browser):

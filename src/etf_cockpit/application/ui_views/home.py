@@ -47,6 +47,7 @@ class ScoreRow:
     rank_delta: int | None  # places gained (+) or lost (-) since the previous run; None = no previous run
     old_rank: int | None = None
     new_rank: int | None = None
+    scorecard_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -146,6 +147,12 @@ def score_rows(
                 rank_delta=None if old is None or new is None else int(round(old - new)),
                 old_rank=None if old is None else int(old),
                 new_rank=None if new is None else int(new),
+                scorecard_reason=(
+                    item.one_line_reason
+                    if tier_label(item.source_group) == "Sparebanken"
+                    and str(item.final_label or "").casefold() == "scorecard_owned"
+                    else None
+                ),
             )
         )
     return tuple(rows)

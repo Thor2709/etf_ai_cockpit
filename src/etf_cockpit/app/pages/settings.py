@@ -489,6 +489,13 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
         "Credentials can be recovered only by the same Windows user profile. Re-enter credentials if a backup is restored under another profile.",
         key="settings.credential-recovery",
     )
+    manage_credentials = Button.secondary(
+        "Manage credentials",
+        disabled=True,
+        disabled_reason="Credential management remains staged under ISSUE-0176.",
+        key="settings.manage-credentials",
+    )
+    manage_credentials.disabled = True
     credential_delete_pending = {"value": False}
 
     def select_credential_provider(value: str) -> None:
@@ -560,6 +567,7 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
                     [
                         Button.primary("Save credential", on_click=save_provider_credential, key="settings.credential-save"),
                         ft.TextButton("Delete credential", on_click=delete_provider_credential, key="settings.credential-delete"),
+                        manage_credentials,
                     ],
                     spacing=12,
                     wrap=True,
@@ -823,6 +831,11 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
     data_view = ft.Column(
         [
             ft.Row([data_providers, model_settings_card], spacing=24),
+            Note("Research and education only. Not financial or tax advice. No broker execution or order transmission."),
+            Note(
+                f"Terms acknowledgement: {_label(legal_report.get('review_status'))}; "
+                "restricted sources are not redistributed."
+            ),
             ft.Row([universe_manager, primary_universe], spacing=24),
             ft.Row([secondary_groups, asset_support], spacing=24),
             ft.Row([config_folder], spacing=24),

@@ -9,6 +9,11 @@ from etf_cockpit.app.pages import chatgpt_audit
 
 
 def _texts(control: object) -> list[str]:
+    if isinstance(control, PageView):
+        chrome_text = [control.chrome.title, control.chrome.subtitle]
+        for group in control.chrome.segment_groups:
+            chrome_text.extend(group.items)
+        return chrome_text + _texts(control.body)
     values = []
     value = getattr(control, "value", None)
     if isinstance(value, str):
@@ -25,6 +30,11 @@ def _texts(control: object) -> list[str]:
 
 
 def _visible_texts(control: object) -> list[str]:
+    if isinstance(control, PageView):
+        chrome_text = [control.chrome.title, control.chrome.subtitle]
+        for group in control.chrome.segment_groups:
+            chrome_text.extend(group.items)
+        return chrome_text + _visible_texts(control.body)
     data = getattr(control, "data", None)
     if isinstance(data, dict) and data.get("kit") == "Disclosure":
         controls = getattr(control, "controls", ()) or ()

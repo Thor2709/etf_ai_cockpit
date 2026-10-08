@@ -72,9 +72,23 @@ def _signed_cell(value: float | None) -> ft.Control:
     return common.text(text, theme.FONT_MD, 400, colour, text_align=ft.TextAlign.RIGHT)
 
 
-def _row_values(label: str, score: object, ter: str, plain: object) -> object:
+def _scorecard_reason(score: object) -> str | None:
+    source_group = str(getattr(score, "source_group", "") or "").casefold()
+    final_label = str(getattr(score, "final_label", "") or "").casefold()
+    if "sparebanken" not in source_group or final_label != "scorecard_owned":
+        return None
+    return str(getattr(score, "one_line_reason", "") or "")
+
+
+def _row_values(label: str, score: object, ter: str, plain: object, *, on_scorecard_click=None) -> object:
     """Cell for one aligned measure: kit controls for the spec rows, the canonical text for every other row."""
     if label == "Final score":
+        reason = _scorecard_reason(score)
+        if reason:
+            tag = Tag("Scorecard", "mute", dense=True)
+            tag.tooltip = reason
+            tag.on_click = on_scorecard_click
+            return tag
         return ScoreBar(getattr(score, "final_score_10", None))
     if label == "Evidence quality":
         text, kind = common.evidence_tag(score)
@@ -113,7 +127,14 @@ def _is_missing(value: object) -> bool:
     return value is None or (isinstance(value, str) and value.strip().casefold() in _MISSING_WORDS)
 
 
-def _comparison_table(first: object, second: object, *, ters: tuple[str, str] = ("", ""), max_rows: int = 14) -> ft.Container:
+def _comparison_table(
+    first: object,
+    second: object,
+    *,
+    ters: tuple[str, str] = ("", ""),
+    max_rows: int = 14,
+    on_scorecard_click=None,
+) -> ft.Container:
     rows = []
     missing_rows: list[str] = []
     raw_statuses: list[str] = []
@@ -126,7 +147,7 @@ def _comparison_table(first: object, second: object, *, ters: tuple[str, str] = 
             if label in {"Cash comparison", "Coverage"}:
                 raw_statuses.append(f"{score.display_id}: {plain}")
                 plain = plain if _is_missing(plain) else _human_status(str(plain))
-            cell = _row_values(label, score, ter, plain)
+            cell = _row_values(label, score, ter, plain, on_scorecard_click=on_scorecard_click)
             if _is_missing(cell):  # one form for a missing value in a table cell (rulebook V7)
                 cell = None
                 if label not in missing_rows:
@@ -179,6 +200,11 @@ def _workspace_card(width: float, height: float, page: object, state: AppState, 
         ui[side] = options.get(label, ui[side])
         rebuild()
 
+    def open_sparebanken(_event: object) -> None:
+        go = getattr(page, "go", None)
+        if callable(go):
+            go("/signals?tier=Sparebanken")
+
     def export_csv(_event: object) -> None:
         if first is None or second is None:
             say("CSV export unavailable: select two instruments from the canonical score set.", False)
@@ -220,7 +246,18 @@ def _workspace_card(width: float, height: float, page: object, state: AppState, 
         # fields 66, table header 44, buttons 36 and three 12 px gaps (the status text sits beside the buttons)
         rows = max(3, int((inner_h - 66 - 44 - 36 - 12 - 44) // _ROW_HEIGHT))  # 44: footnote/disclosure row + gap
         ters = (common.instrument_meta(state, ui["a"])["ter"], common.instrument_meta(state, ui["b"])["ter"])
-        body = [fields, _comparison_table(first, second, ters=ters, max_rows=rows), ft.Container(expand=True), buttons]
+        body = [
+            fields,
+            _comparison_table(
+                first,
+                second,
+                ters=ters,
+                max_rows=rows,
+                on_scorecard_click=open_sparebanken if callable(getattr(page, "go", None)) else None,
+            ),
+            ft.Container(expand=True),
+            buttons,
+        ]
     column = ft.Column(body, spacing=12)
     return GlassCard("Comparison workspace", "EUR and percent", body=ft.Container(column, width=inner_w, height=inner_h), width=width, height=height)
 

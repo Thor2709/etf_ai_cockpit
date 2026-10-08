@@ -1082,7 +1082,7 @@ def _render_opportunity_card(value: object) -> ft.Control:
             Disclosure("Opportunity evidence", _payload(value)),
         ],
         key="instrument-detail.opportunity",
-        spacing=5,
+        spacing=theme.SPACE_1,
     )
     card = GlassCard(
         "Opportunity",

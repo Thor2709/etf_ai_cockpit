@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import flet as ft
 
+from etf_cockpit.app import theme
 from etf_cockpit.app.components import kit
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
 from etf_cockpit.app.state import AppState
@@ -153,13 +154,13 @@ def system_map_page(page: ft.Page | None, state: AppState) -> PageView:
             status = next((value.split(":", 1)[-1].strip() for value in summaries if value.casefold().startswith(f"{stage}".casefold())), None)
             normalised = status.casefold().replace(" ", "_") if status else ""
             if normalised in {"available", "allowed", "supported"}:
-                glyph, colour = "✓", "rgba(111,207,166,.55)"
+                glyph, colour = "✓", theme.TAG_TONES["ok"][1]
             elif normalised in {"supported_with_limitations", "with_limitations", "limited"}:
-                glyph, colour = "~", "rgba(230,194,122,.55)"
+                glyph, colour = "~", theme.TAG_TONES["warn"][1]
             elif status:
-                glyph, colour = "–", "rgba(255,255,255,.08)"
+                glyph, colour = "–", theme.HOVER_OVERLAY
             else:
-                glyph, colour = "—", "rgba(255,255,255,.08)"
+                glyph, colour = "—", theme.HOVER_OVERLAY
             stage_values[str(stage)] = ft.Container(
                 content=ft.Text(glyph, tooltip=status or "Unavailable", text_align=ft.TextAlign.CENTER),
                 width=28,
@@ -173,11 +174,11 @@ def system_map_page(page: ft.Page | None, state: AppState) -> PageView:
         stage_grid_content: ft.Control = ft.Column(
             [
                 ft.Row(
-                    [ft.Container(width=150), *(ft.Container(content=ft.Text(str(stage).replace("_", " "), size=11), width=28, alignment=ft.Alignment(0, 0)) for stage in stages)],
+                    [ft.Container(width=theme.SPACE_6 * 5), *(ft.Container(content=ft.Text(str(stage).replace("_", " "), size=theme.FONT_XS), width=28, alignment=ft.Alignment(0, 0)) for stage in stages)],
                     spacing=4,
                 ),
                 *(ft.Row(
-                    [ft.Container(content=ft.Text(strategy, size=11, no_wrap=True), width=150), *(cells[str(stage)] for stage in stages)],
+                    [ft.Container(content=ft.Text(strategy, size=theme.FONT_XS, no_wrap=True), width=theme.SPACE_6 * 5), *(cells[str(stage)] for stage in stages)],
                     spacing=4,
                 ) for strategy, cells in strategy_rows),
             ],
@@ -190,15 +191,14 @@ def system_map_page(page: ft.Page | None, state: AppState) -> PageView:
             "Strategy stage coverage unavailable",
             "The local capability matrix is unavailable; stage coverage is not inferred.",
             expand=False,
-            height=140,
         )
     stage_grid = ft.Column(
         [
             ft.Row(
                 [kit.Tag("✓ Supported", "ok"), kit.Tag("~ With limitations", "warn"), kit.Tag("– Unavailable", "mute")],
                 wrap=True,
-                spacing=6,
-                run_spacing=6,
+                spacing=theme.SPACE_2,
+                run_spacing=theme.SPACE_2,
             ),
             stage_grid_content,
         ],

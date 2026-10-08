@@ -223,9 +223,7 @@ def data_health_page(page: ft.Page, state: AppState) -> PageView:
                 content=ft.Column(
                     [ft.Text(str(record["record_detail"]))],
                     scroll=ft.ScrollMode.AUTO,
-                ),
-                width=480,
-                height=420,
+                )
             ),
             actions=[ft.TextButton("Close", key="data-health.record.close", on_click=lambda _event: page.close(dialog))],
         )

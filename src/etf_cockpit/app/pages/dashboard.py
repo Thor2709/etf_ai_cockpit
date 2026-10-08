@@ -363,7 +363,7 @@ def _scores_card(
                 "rank": None if row.rank is None else str(row.rank),
                 "instrument": (row.instrument_id, row.name),
                 "tier": Tag(row.tier, "mute", dense=True),
-                "score": ScoreBar(row.score, width=bar_width),
+                "score": _score_cell(page, state, row, bar_width),
                 "evidence": Tag(row.evidence_text, row.evidence_kind, dense=True),
                 "risk": row.risk,
                 "delta": text(
@@ -388,6 +388,16 @@ def _scores_card(
             empty_reason=f"The {tier} tier has no instruments in the local universe.",
         )
     return GlassCard("Scores", layout.card_note(7, "0–10 · higher = stronger evidence"), body=body, expand=True)
+
+
+def _score_cell(page: ft.Page | None, state: AppState, row: ScoreRow, bar_width: float) -> ft.Control:
+    if row.scorecard_reason:
+        tag = Tag("Scorecard", "mute", dense=True)
+        tag.tooltip = row.scorecard_reason
+        if page is not None:
+            tag.on_click = lambda _event: _go_to(page, state, "/signals?tier=Sparebanken")
+        return tag
+    return ScoreBar(row.score, width=bar_width)
 
 
 def _rank_change_card(layout: GridLayout, rows: list[ScoreRow], empty_reason: str, span: int) -> ft.Control:

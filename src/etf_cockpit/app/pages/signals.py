@@ -6,6 +6,7 @@ import json
 import math
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import flet as ft
 import pandas as pd
@@ -153,7 +154,19 @@ def _matches_label(score: object, selected: str) -> bool:
     return selected == "All" or _label(score)[0] == selected
 
 
-def _score_rows(scores: Sequence[object]) -> list[dict[str, object]]:
+def _requested_tier(page: object | None) -> str:
+    query = parse_qs(urlsplit(str(getattr(page, "route", "") or "")).query)
+    requested = query.get("tier", ["All"])[0]
+    return requested if requested in {"All", "Primary", "Secondary", "Sparebanken"} else "All"
+
+
+def _scorecard_reason(score: object) -> str | None:
+    if _tier(score) != "Sparebanken" or str(_read(score, "final_label", "") or "").casefold() != "scorecard_owned":
+        return None
+    return str(_read(score, "one_line_reason", "") or "")
+
+
+def _score_rows(scores: Sequence[object], on_scorecard_click=None) -> list[dict[str, object]]:
     rows = []
     for index, score in enumerate(scores, start=1):
         label, kind = _label(score)
@@ -168,6 +181,13 @@ def _score_rows(scores: Sequence[object]) -> list[dict[str, object]]:
         warning_cell: object = _MISSING
         if warning_count is not None:
             warning_cell = Tag(str(warning_count), "warn" if warning_count else "mute")
+        reason = _scorecard_reason(score)
+        if reason:
+            score_cell: ft.Control = Tag("Scorecard", "mute")
+            score_cell.tooltip = reason
+            score_cell.on_click = on_scorecard_click
+        else:
+            score_cell = ScoreBar(_number(_read(score, "final_score_10")))
         rows.append(
             {
                 "rank": format_count(index),
@@ -175,7 +195,7 @@ def _score_rows(scores: Sequence[object]) -> list[dict[str, object]]:
                     str(_read(score, "display_id", "") or _MISSING),
                     str(_read(score, "name", "") or _MISSING),
                 ),
-                "score": ScoreBar(_number(_read(score, "final_score_10"))),
+                "score": score_cell,
                 "label": Tag(label, kind),
                 "action": Tag(action, action_kind),
                 "quality": _shown_number(_read(score, "evidence_quality_10")),
@@ -189,8 +209,8 @@ def _score_rows(scores: Sequence[object]) -> list[dict[str, object]]:
     return rows
 
 
-def _score_table(scores: Sequence[object], selected: object | None, on_select) -> ft.Control:
-    rows = _score_rows(scores)
+def _score_table(scores: Sequence[object], selected: object | None, on_select, on_scorecard_click=None) -> ft.Control:
+    rows = _score_rows(scores, on_scorecard_click)
     selected_index = next(
         (index for index, score in enumerate(scores) if score is selected),
         None,
@@ -503,6 +523,7 @@ def _body(
     page: ft.Page | None,
     forecast_source: str,
     on_select,
+    on_scorecard_click=None,
 ) -> ft.Control:
     counts = _counts(scores)
     missing = not scores
@@ -537,7 +558,7 @@ def _body(
         note="grouped by tier · click a row for details",
         body=[
             *groups,
-            _score_table(scores, selected, on_select),
+            _score_table(scores, selected, on_select, on_scorecard_click),
             Disclosure(
                 "Formula and forecast source",
                 json.dumps(
@@ -588,7 +609,7 @@ def signals_page(page: ft.Page | None, state: AppState) -> PageView:
     scores = _scores(getattr(state, "snapshot", None))
     snapshot = getattr(state, "snapshot", None)
     forecast_source = _forecast_source(snapshot)
-    filter_state: dict[str, object] = {"tier": "All", "label": "All", "selected": None}
+    filter_state: dict[str, object] = {"tier": _requested_tier(page), "label": "All", "selected": None}
     view_holder: dict[str, PageView] = {}
 
     def render() -> None:
@@ -608,7 +629,12 @@ def signals_page(page: ft.Page | None, state: AppState) -> PageView:
                 filter_state["selected"] = filtered[index]
                 render()
 
-        body = _body(filtered, current, state, page, forecast_source, select_row)
+        def open_sparebanken(_event: object) -> None:
+            if page is not None and callable(getattr(page, "go", None)):
+                page.go("/signals?tier=Sparebanken")
+
+        on_scorecard_click = open_sparebanken if page is not None and callable(getattr(page, "go", None)) else None
+        body = _body(filtered, current, state, page, forecast_source, select_row, on_scorecard_click)
         chrome = PageChrome(
             "Scores",
             "Canonical score components, gates and reasons · research context, not instructions",

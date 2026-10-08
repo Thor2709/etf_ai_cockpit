@@ -269,7 +269,6 @@ def provider_status_page(page: ft.Page, state: AppState) -> PageView:
         unavailable_reason=chart_reason,
         empty_title="No provider health",
         insight=health_insight,
-        height=240,
     )
     plugin_tags = ft.Row(
         [
@@ -287,7 +286,7 @@ def provider_status_page(page: ft.Page, state: AppState) -> PageView:
         "by status",
         health_insight,
         body=ft.Column(
-            [kit.Well(provider_chart, height=260), kit.Note("Built-in plugins"), plugin_tags],
+            [kit.Well(provider_chart), kit.Note("Built-in plugins"), plugin_tags],
             spacing=8,
         ),
     )

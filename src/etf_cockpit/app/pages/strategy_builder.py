@@ -243,11 +243,11 @@ def _template_detail(template: object, matches: list[object]) -> ft.Control:
 
 def _stage_cell(value: object) -> ft.Control:
     if value == "supported":
-        symbol, color = "✓", theme.rgba(111, 207, 166, 0.55)
+        symbol, color = "✓", theme.TAG_TONES["ok"][1]
     elif value == "supported_with_limitations":
-        symbol, color = "~", theme.rgba(230, 194, 122, 0.55)
+        symbol, color = "~", theme.TAG_TONES["warn"][1]
     else:
-        symbol, color = "–", theme.rgba(255, 255, 255, 0.08)
+        symbol, color = "–", theme.HOVER_OVERLAY
     return ft.Container(
         content=ft.Text(symbol, size=13, text_align=ft.TextAlign.CENTER),
         width=28,

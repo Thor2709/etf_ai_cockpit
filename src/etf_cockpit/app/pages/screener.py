@@ -830,6 +830,7 @@ def screener_page(page: ft.Page | None, state: AppState) -> PageView:
             if loaded.sort:
                 sort_control.value = loaded.sort[0].field
                 direction_state["value"] = "Descending" if loaded.sort[0].descending else "Ascending"
+                direction_control.value = direction_state["value"].casefold()
             render_screen()
             status.value = "Loaded latest saved screen."
         except (OSError, ValueError):
@@ -855,7 +856,16 @@ def screener_page(page: ft.Page | None, state: AppState) -> PageView:
     sort_control.on_change = lambda _event: render_screen()
     def change_direction(value: str) -> None:
         direction_state["value"] = value
+        direction_control.value = value.casefold()
         render_screen()
+
+    direction_control = Segmented(
+        ["Descending", "Ascending"],
+        direction_state["value"],
+        on_change=change_direction,
+        key="screener.sort.direction",
+    )
+    direction_control.value = direction_state["value"].casefold()
 
     render_screen()
     screen_card = GlassCard(
@@ -877,11 +887,7 @@ def screener_page(page: ft.Page | None, state: AppState) -> PageView:
                     ft.Column(
                         [
                             Note("DIRECTION"),
-                            Segmented(
-                                ["Descending", "Ascending"],
-                                direction_state["value"],
-                                on_change=change_direction,
-                            ),
+                            direction_control,
                         ],
                         spacing=4,
                         tight=True,
