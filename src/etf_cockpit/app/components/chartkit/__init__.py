@@ -9,7 +9,7 @@ from etf_cockpit.app.components.chartkit.bars import (
     BarSeries, LineSeries, Segment, bar_chart, grouped_bar_chart, histogram, horizontal_stacked_bar,
 )
 from etf_cockpit.app.components.chartkit.core import (
-    ChartHandle, Hit, Margins, Scene, empty_state, scene_of,
+    ChartHandle, Hit, LegendItem, Margins, Scene, empty_state, scene_of,
 )
 from etf_cockpit.app.components.chartkit.flow import SankeyLink, SankeyNode, TreeItem, sankey, squarify, treemap
 from etf_cockpit.app.components.chartkit.lines import (
@@ -21,7 +21,7 @@ from etf_cockpit.app.components.chartkit.surface import surface3d
 
 __all__ = [
     "palette", "BarSeries", "LineSeries", "Segment", "bar_chart", "grouped_bar_chart", "histogram",
-    "horizontal_stacked_bar", "ChartHandle", "Hit", "Margins", "Scene", "empty_state", "scene_of", "SankeyLink",
+    "horizontal_stacked_bar", "ChartHandle", "Hit", "LegendItem", "Margins", "Scene", "empty_state", "scene_of", "SankeyLink",
     "SankeyNode", "TreeItem", "sankey", "squarify", "treemap", "Band", "EventMark", "Series", "drawdown_panel",
     "line_chart", "price_drawdown_chart", "sparkline", "RadarSeries", "Slice", "donut_chart", "gauge",
     "radar_chart", "Bubble", "scatter_bubble", "surface3d",

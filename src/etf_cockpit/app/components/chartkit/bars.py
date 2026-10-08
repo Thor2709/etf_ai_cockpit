@@ -9,7 +9,7 @@ from flet import canvas as cv
 
 from etf_cockpit.app.components.chartkit import palette as pal
 from etf_cockpit.app.components.chartkit.core import (
-    Hit, LegendItem, Margins, Plot, Scene, Scale, bar_rect, category_labels, empty_scene, finite, fmt, legend,
+    Hit, LegendItem, Margins, Plot, Scene, Scale, bar_rect, category_labels, empty_scene, finite, fmt, legend as draw_legend,
     line, make_chart, nice_ticks, tick_label, txt, x_axis_line, y_axis,
 )
 
@@ -187,7 +187,7 @@ def grouped_bar_chart(
                 y_bot = ys(max(0.0, ys.d0))
                 sc.add(*bar_rect(x, y_top, bw, y_bot - y_top, top, bot, round_top=not clipped, radius=radius))
                 if clipped:
-                    sc.add(txt(x + bw / 2, y_top + 10, f"{fmt(v, 0)} ▲", weight=700, color="#ffffff", size=11.5))
+                    sc.add(txt(x + bw / 2, y_top + 12, f"{fmt(v, 0)} ▲", weight=700, color="#ffffff", size=11.5))
                 rows_by_cat[i].append((s.name, fmt(v, decimals, unit=unit), top))
         if line_series is not None:
             lv = [finite(v) for v in line_series.values]
@@ -213,7 +213,7 @@ def grouped_bar_chart(
             items = [LegendItem(s.name, (s.color or pal.BAR_KINDS.get(s.kind, pal.GB)[0]), "bar") for s in bars]
             if line_series:
                 items.append(LegendItem(line_series.name, line_series.color, "line"))
-            legend(sc, plot, items)
+            draw_legend(sc, plot, items)
         return sc
 
     return make_chart(build, width, height)
@@ -242,6 +242,7 @@ def horizontal_stacked_bar(
     unavailable_reason: str | None = None,
     empty_title: str = "No data",
     insight: str | None = None,
+    legend: Sequence[LegendItem] | None = None,
 ) -> ft.Container:
     """Horizontal stacked bars, first row at the top. First segment rounds left, last rounds right."""
     row_names = list(rows)
@@ -278,6 +279,8 @@ def horizontal_stacked_bar(
                 sc.hits.append(Hit("rect", (xa, cy - bh / 2, xb - xa, bh), name,
                                    [(s.label or s.kind, fmt(s.value, 0, unit=unit), top)], anchor=((xa + xb) / 2, cy - bh / 2)))
                 acc += s.value
+        if legend is not None:
+            draw_legend(sc, plot, legend)
         return sc
 
     return make_chart(build, width, height)

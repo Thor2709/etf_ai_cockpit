@@ -11,11 +11,10 @@ import statistics
 from collections.abc import Callable, Sequence
 
 import flet as ft
-import numpy as np
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components import chartkit as ck
-from etf_cockpit.app.components.globe import Globe, WorldMap, centre_longitude
+from etf_cockpit.app.components.globe import Globe, WorldMap
 from etf_cockpit.app.components.kit import EmptyState, FloatingPanel, GlassCard, KpiStrip, ScoreBar, Segmented, Well
 from etf_cockpit.app.components.shell.page_view import PageView, SegmentGroup
 from etf_cockpit.app.pages import _p2_common as shared
@@ -43,32 +42,6 @@ def _tone_colour(value: float | None) -> str:
 
 def _pct(value: float | None, decimals: int = 1) -> str | None:
     return None if value is None else f"{value:.{decimals}f}%"
-
-
-class _PillGlobe(Globe):
-    """Globe without its on-texture pin labels; the page draws them on dark plates (see ``_pill_layer``)."""
-
-    def top_labels(self, count: int = 3):
-        return []
-
-    def labelled(self, count: int = 3):
-        return Globe.top_labels(self, count)
-
-
-def _pill_layer(globe: _PillGlobe, left: float, top: float, bound_w: float, bound_h: float) -> tuple[list[ft.Control], Callable[[], None]]:
-    """Country labels on dark plates over the globe; positions follow the globe's current image."""
-    pills = [(country, value, ft.Container(content=Well(common.text(f"{view.display_name(country.iso3, country.name)} {value:.0f}%" if value >= 10 else f"{view.display_name(country.iso3, country.name)} {value:.1f}%", 11.5, 700, theme.INK), padding=ft.Padding(left=8, top=4, right=8, bottom=4)), visible=False)) for country, value in globe.labelled()]
-
-    def place() -> None:
-        centre = float(centre_longitude(globe.index))
-        for country, _value, holder in pills:
-            px, py, pz = globe._screen(np.array([country.anchor[0]]), np.array([country.anchor[1]]), centre)
-            holder.visible = bool(pz[0] > 0.12)
-            holder.left = min(max(left + float(px[0]) + 6, 4.0), bound_w - 96)
-            holder.top = min(max(top + float(py[0]) - 12, 4.0), bound_h - 28)
-
-    place()
-    return [holder for _c, _v, holder in pills], place
 
 
 def _top_rows(countries: Sequence[view.Weight], count: int) -> ft.Control:
@@ -129,7 +102,6 @@ def _world_body(data: view.SectorsView, mode: str, width: float, height: float, 
         return ft.Column([selector, Well(EmptyState("Exposure unavailable", reason), width=width, height=well_h)], spacing=12)
     if mode == "Bars":
         return ft.Column([selector, _bars_view(data.countries, width, well_h)], spacing=12)
-    pill_holders: list[ft.Control] = []
     exposure = {item.code: item.weight for item in data.countries if item.code}
     reason = _REGION_ONLY if data.region_only else None if exposure else "No country exposure available"
     size = max(min(well_h - _REGION_STRIP, width - _PANEL_WIDTH - 24), 120.0)
@@ -139,18 +111,14 @@ def _world_body(data: view.SectorsView, mode: str, width: float, height: float, 
         left = 12.0
     else:
         left = max((area - size) / 2, 0.0) + 12
-        refresh_pills: list[Callable[[], None]] = []
-        globe = _PillGlobe(exposure, reason, size=size, asset_base="globe", on_rotate=lambda _lon: [update() for update in refresh_pills])
+        globe = Globe(exposure, reason, size=size, asset_base="globe", label_backing=True)
         scene = globe.control
-        pill_holders, place = _pill_layer(globe, left, 8.0, width, well_h)
-        refresh_pills.append(lambda: (place(), [common.refresh(holder) for holder in pill_holders]))
     panel = FloatingPanel("Top countries", _top_rows(data.countries, 5), width=_PANEL_WIDTH)
     shares = view.region_shares(data.countries, region_only=data.region_only)
     stage = ft.Stack(
         [
             ft.Container(content=scene, left=left, top=8),
             ft.Container(content=panel, right=12, top=12),
-            *(pill_holders if mode == "Globe" else []),
             ft.Container(content=_region_bar(shares, width), left=14, right=14, bottom=8) if shares else ft.Container(),
         ],
         width=width,
@@ -291,9 +259,9 @@ def _country_chart(data: view.SectorsView, width: float, height: float, window: 
     insight = " ".join(parts) or (None if not top else f"{window} returns are unavailable for these exposures.")
     chart = ck.grouped_bar_chart(
         [item.short or item.name[:2].upper() for item in top],
-        [ck.BarSeries("Exposure %", [item.weight for item in top], "blue", ck.palette.mix(ck.palette.P, ck.palette.WELL_DARK, 0.4))],
+        [ck.BarSeries("Exposure %", [item.weight for item in top], "blue")],
         line_series=ck.LineSeries(f"{window} return %", returns) if any(value is not None for value in returns) else None,
-        x_name="Country", y_name="Exposure (% of portfolio)", y2_name=f"{window} return (%)", y_max=cap, bar_width=0.7,
+        x_name="Country", y_name="Exposure (% of portfolio)", y2_name=f"{window} return (%)", y_max=cap,
         margins=ck.Margins(58, 56, 36, 50), width=width, height=height, insight=insight, empty_title="No country exposure",
         unavailable_reason=None if top else (data.exposure_reason or "No country exposure is available."),
     )

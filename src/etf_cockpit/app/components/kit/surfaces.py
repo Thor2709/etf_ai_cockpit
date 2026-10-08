@@ -9,6 +9,7 @@ import flet as ft
 import flet.canvas as cv
 
 from etf_cockpit.app import theme
+from etf_cockpit.app.components.chartkit.core import text_width
 from etf_cockpit.app.components.kit._base import (
     diagonal_gradient,
     drops,
@@ -67,11 +68,14 @@ def GlassCard(  # noqa: N802 - kit component names are CamelCase per spec 3
     key: str | None = None,
 ) -> ft.Container:
     """Glass panel with h2 title left, note right, optional insight line, then the body (spec 3.1)."""
-    # Title at its natural width; the note takes ALL remaining width, right-aligned, and is the only part that
-    # ellipsizes (with a tooltip) when title + note do not fit.
-    heading: list[ft.Control] = [
-        txt(title, 15, 600, shadow=True, tracking=0.005, trunc=True, expand=None if note else 1, expand_loose=bool(not note))
-    ]
+    # The title keeps its natural width unless it exceeds the whole row, when it is constrained and ellipsized.
+    # The note then takes the remaining width, right-aligned, and keeps its full text in a tooltip.
+    title_text = txt(title, 15, 600, shadow=True, tracking=0.005, trunc=True, expand=None if note else 1, expand_loose=bool(not note))
+    side = theme.CARD_PADDING_QUIET[1] if quiet else theme.CARD_PADDING[1]
+    menu_width = float(getattr(menu, "width", 0) or 0) + 8 if menu is not None else 0
+    if note and width is not None and text_width(title, 15) > width - 2 * side - 8 - menu_width:
+        title_text.width = max(width - 2 * side - 8 - menu_width, 0)
+    heading: list[ft.Control] = [title_text]
     note_text = txt(note, 12, 500, theme.INK2, opacity=0.55, text_align=ft.TextAlign.RIGHT, trunc=True)
     if note:
         heading.append(ft.Container(content=note_text, expand=True, alignment=ft.Alignment(1, 0), tooltip=note))
@@ -180,9 +184,9 @@ def Well(  # noqa: N802
     return well
 
 
-def Note(text: str, *, key: str | None = None) -> ft.Text:  # noqa: N802
+def Note(text: str, *, color: str = theme.INK2, key: str | None = None) -> ft.Text:  # noqa: N802
     """Footnote or safety sentence (spec 3.22)."""
-    control = txt(text, 12.5, 400, theme.INK2, line_height=18.75)
+    control = txt(text, 12.5, 400, color, line_height=18.75)
     tag_semantics(control, key=key, label=None)
     return control
 

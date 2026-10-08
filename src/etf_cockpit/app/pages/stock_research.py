@@ -115,7 +115,7 @@ def _fundamentals(_page: ft.Page, state: AppState, instrument_id: str, view: str
         page=_page,
     )
     if view == "Valuation":
-        return ft.Column([valuation], spacing=14)
+        return ft.Column([valuation], spacing=16)
     return ft.Column(
         [
             panel(
@@ -138,7 +138,7 @@ def _fundamentals(_page: ft.Page, state: AppState, instrument_id: str, view: str
             _expectations_panel(report["expectations"]),
             panel(_selectable_text("All stock research outputs are evidence-only and carry execution_allowed=false. Import an official local statement package to replace the explicit unavailable state.", color=theme.MUTED)),
         ],
-        spacing=14,
+        spacing=16,
     )
 
 
@@ -331,7 +331,11 @@ def _capital_persistence_chart(history: object, label: str) -> ft.Control:
             value = float(item.get("roic"))
         except (TypeError, ValueError):
             value = 0.0
-        controls.append(ft.Row([ft.Text(str(item.get("period_key") or item.get("period_end") or "period"), width=90, color=theme.MUTED), ft.ProgressBar(value=max(0.0, min(abs(value), 1.0)), color=theme.CYAN if value >= 0 else theme.AMBER, expand=True), ft.Text(_research_value(item.get("roic")), width=72, color=theme.CYAN if value >= 0 else theme.AMBER)]))
+        period = Note(str(item.get("period_key") or item.get("period_end") or "period"), color=theme.MUTED)
+        period.width = 90
+        roic = Note(_research_value(item.get("roic")), color=theme.CYAN if value >= 0 else theme.AMBER)
+        roic.width = 72
+        controls.append(ft.Row([period, ft.ProgressBar(value=max(0.0, min(abs(value), 1.0)), color=theme.CYAN if value >= 0 else theme.AMBER, expand=True), roic]))
     if len(controls) == 1:
         controls.append(_selectable_text("No comparable ROIC history is available.", color=theme.MUTED))
     return ft.Column(controls, spacing=4, data=f"capital-persistence-{label.casefold()}")
@@ -379,8 +383,8 @@ def _metric_cards(cards: list[ft.Control]) -> ft.ResponsiveRow:
     """Give expanding metric cards finite responsive cells inside scrolling pages."""
     return ft.ResponsiveRow(
         [ft.Container(content=card, col={"xs": 12, "sm": 6, "md": 4, "lg": 3}) for card in cards],
-        spacing=10,
-        run_spacing=10,
+        spacing=8,
+        run_spacing=8,
     )
 
 
@@ -518,6 +522,11 @@ def _verdict_card(g: common.Grid, width: float, height: float, page: object, sco
         status = f"Passes all {len(gates)} gates · decision support only"
     ids = score.display_id
     inner_w, _ = common.inner_size(width, height, insight=False, title=False)
+    verdict_label = Note(f"RESEARCH VERDICT · {ids}", color=theme.INK3)
+    verdict_label.expand = True
+    verdict_label.max_lines = 1
+    verdict_label.overflow = ft.TextOverflow.ELLIPSIS
+    verdict_label.tooltip = verdict_label.value
     verdict_row = ft.Container(
         content=ft.Stack(
             [
@@ -526,7 +535,7 @@ def _verdict_card(g: common.Grid, width: float, height: float, page: object, sco
                         [
                             ft.Row(
                                 [
-                                    common.text(f"Research verdict · {ids}", 10.5, 600, theme.INK3, tracking=0.16, shadow=True, upper=True, expand=True),
+                                    verdict_label,
                                     common.link("View all gates", _all_gates_dialog(page, score)),
                                 ],
                                 spacing=8,
@@ -544,7 +553,7 @@ def _verdict_card(g: common.Grid, width: float, height: float, page: object, sco
                     width=inner_w - 128 - 12,
                 ),
                 ft.Container(
-                    content=ck.gauge(getattr(score, "final_score_10", None), maximum=10, size=128, caption="of 10", decimals=1),
+                    content=ck.gauge(getattr(score, "final_score_10", None), maximum=10, caption="of 10", decimals=1),
                     right=0,
                     bottom=0,
                 ),
@@ -559,7 +568,7 @@ def _verdict_card(g: common.Grid, width: float, height: float, page: object, sco
     )
     tiles = _stat_tiles(view)
     body = ft.Column(
-        [verdict_row, gate_column, ft.Row(tiles[:2], spacing=10), ft.Row(tiles[2:], spacing=10)],
+        [verdict_row, gate_column, ft.Row(tiles[:2], spacing=8), ft.Row(tiles[2:], spacing=8)],
         spacing=4,
         scroll=ft.ScrollMode.AUTO,
     )
@@ -730,7 +739,7 @@ def _rolling_card(state: AppState, width: float, height: float, page: object, vi
         common.update(page)
 
     holder.content = common.chart_well(rolling, width, height, reserve=reserve, quiet=True)
-    body = ft.Column([Segmented(["Rolling", "Scenarios (3D)"], "Rolling", on_change=show), holder], spacing=10)
+    body = ft.Column([Segmented(["Rolling", "Scenarios (3D)"], "Rolling", on_change=show), holder], spacing=12)
     return GlassCard("Rolling 12-month return vs. benchmark", "percent per month-end", insight, True, body=body, width=width, height=height)
 
 

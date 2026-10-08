@@ -21,6 +21,8 @@ import flet as ft
 import flet.canvas as cv
 import numpy as np
 
+from etf_cockpit.app import theme
+
 ASSET_DIR = Path(__file__).resolve().parents[1] / "assets"
 GLOBE_DIR = ASSET_DIR / "globe"
 GEOJSON_PATH = ASSET_DIR / "geo" / "countries.geojson"
@@ -175,6 +177,41 @@ def _label_shapes(text: str, x: float, y: float) -> list[cv.Shape]:
     return [dot, shadow, label]
 
 
+def _backed_label_shapes(text: str, x: float, y: float, size: float) -> list[cv.Shape]:
+    text_width = sum(0.62 if char.isupper() or char.isdigit() else 0.52 for char in text) * 11.5
+    plate_width = min(text_width + 16, max(size - 8, 0))
+    plate_height = 24.0
+    left = max(4.0, min(x + 6.0, size - plate_width - 4.0))
+    top = max(4.0, min(y - 12.0, size - plate_height - 4.0))
+    plate = cv.Rect(
+        left,
+        top,
+        plate_width,
+        plate_height,
+        border_radius=theme.RADIUS_FIELD,
+        paint=ft.Paint(color=theme.WELL_FILL, style=_FILL),
+    )
+    rim = cv.Rect(
+        left,
+        top,
+        plate_width,
+        plate_height,
+        border_radius=theme.RADIUS_FIELD,
+        paint=ft.Paint(color=theme.WELL_RING, style=_STROKE, stroke_width=1),
+    )
+    label = cv.Text(
+        left + 8,
+        top + 4,
+        text,
+        style=ft.TextStyle(size=11.5, weight=ft.FontWeight.W_700, color=theme.INK),
+        alignment=ft.Alignment(-1, -1),
+        text_align=ft.TextAlign.LEFT,
+        max_width=max(plate_width - 16, 0),
+        ellipsis="…",
+    )
+    return [cv.Circle(x, y, 2.6, ft.Paint(color=theme.INK, style=_FILL)), plate, rim, label]
+
+
 class _CountryView:
     """Shared state: exposure, hover tooltip and the unavailable badge."""
 
@@ -262,6 +299,7 @@ class Globe(_CountryView):
         centre_lon: float = DEFAULT_CENTRE_LON,
         asset_base: str | None = None,
         on_rotate: Callable[[float], None] | None = None,
+        label_backing: bool = False,
     ) -> None:
         super().__init__(exposure_by_country, unavailable_reason, return_by_country)
         self.size = float(size)
@@ -272,6 +310,7 @@ class Globe(_CountryView):
         self.index = centre_index(self.lon)
         self.asset_base = asset_base
         self._on_rotate = on_rotate
+        self.label_backing = label_backing
         self._spin_task: object | None = None
 
         self.atmosphere = cv.Canvas(self._atmosphere_shapes(), width=self.size, height=self.size)
@@ -360,7 +399,11 @@ class Globe(_CountryView):
             px, py, pz = self._screen(np.array([country.anchor[0]]), np.array([country.anchor[1]]), centre_lon)
             if pz[0] > 0.12:
                 short = _SHORT_NAMES.get(country.iso3, country.name)
-                labels.extend(_label_shapes(f"{short} {_format_pct(value)}", float(px[0]), float(py[0])))
+                text = f"{short} {_format_pct(value)}"
+                if self.label_backing:
+                    labels.extend(_backed_label_shapes(text, float(px[0]), float(py[0]), self.size))
+                else:
+                    labels.extend(_label_shapes(text, float(px[0]), float(py[0])))
         return [*raised, *fills, *strokes, *labels]
 
     # -- interaction

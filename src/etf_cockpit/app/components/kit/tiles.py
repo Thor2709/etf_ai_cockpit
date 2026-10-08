@@ -20,7 +20,7 @@ from etf_cockpit.app.components.kit._base import (
     vgradient,
 )
 
-_TONE_COLOURS = {"pos": theme.POS, "neg": theme.NEG}
+_TONE_COLOURS = {"pos": theme.POS, "neg": theme.NEG, "attention": theme.AMBER}
 
 
 def KpiTile(  # noqa: N802
@@ -34,8 +34,8 @@ def KpiTile(  # noqa: N802
     key: str | None = None,
 ) -> ft.Container:
     """Recessed KPI tile (spec 3.6). ``value=None`` shows ``Unavailable`` with ``sub`` as the reason."""
-    if tone not in (None, "pos", "neg"):
-        raise ValueError("tone must be None, 'pos' or 'neg'")
+    if tone not in (None, "pos", "neg", "attention"):
+        raise ValueError("tone must be None, 'pos', 'neg' or 'attention'")
     rows: list[ft.Control] = [txt(label, 11, 600, theme.INK3, tracking=0.08, upper=True, trunc=True)]
     if value is None:
         rows.append(txt("Unavailable", 20, 600, theme.INK2, trunc=True))
