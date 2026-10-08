@@ -216,7 +216,7 @@ def _score_table(scores: Sequence[object], selected: object | None, on_select) -
         [
             TableColumn("rank", "#", numeric=True),
             TableColumn("instrument", "Instrument"),
-            TableColumn("score", "Score", numeric=True),
+            TableColumn("score", "Score ▼", numeric=True, sortable=False),
             TableColumn("label", "Label"),
             TableColumn("action", "Action"),
             TableColumn("quality", "Quality", numeric=True),
@@ -438,24 +438,62 @@ def _bubble_chart(scores: Sequence[object]) -> tuple[ft.Control, str]:
     )
 
 
-def _operational_payload(scores: Sequence[object], report: object) -> str:
-    records = []
-    for score in scores:
-        instrument_id = str(_read(score, "display_id", "") or "")
+def _signals_operational_evidence(scores: list[object], report: object) -> ft.Control:
+    """Render exact-instrument operational evidence and keep unavailable states explicit."""
+
+    evidence_fields = (
+        "evidence_status", "evidence_reason", "signal_date", "signal_timestamp",
+        "execution_date", "execution_timestamp", "decision_price", "decision_price_basis",
+        "decision_price_source_identity", "next_open_reference_price", "next_open_reference_basis",
+        "next_open_source_identity", "next_period_reference_price", "next_period_reference_basis",
+        "next_period_source_identity", "close_to_next_open_gap", "open_gap_warning",
+        "open_gap_warning_threshold", "price_provenance", "arrival_price_assumption",
+        "execution_delay_sessions", "same_bar_execution_avoided", "observed_range_spread_proxy",
+        "spread_proxy", "cost_spread_assumption_bps", "cost_spread_assumption_source",
+        "estimated_cost_bps", "estimated_cost_bps_source", "session_state", "auction_state",
+        "expiry_state", "order_lifecycle", "fill_source", "paper_fill_source",
+        "reconciled_fill_source", "execution_allowed",
+    )
+
+    def display(value: object) -> str:
+        return "unavailable" if value is None or (isinstance(value, float) and pd.isna(value)) else str(value)
+
+    rows: list[ft.Control] = []
+    details: list[str] = []
+    scoped_scores = [score for score in scores if str(getattr(score, "display_id", "")).strip()]
+    for index, score in enumerate(scoped_scores):
+        instrument_id = str(getattr(score, "display_id", "")).strip()
         projection = _operational_evidence_panel(report, instrument_id)
         if projection.get("status") == "available":
-            rows = projection.get("rows", [])
-            latest = _latest_operational_row(rows)
-            records.append({"instrument_id": instrument_id, "evidence": latest})
+            latest = _latest_operational_row(projection.get("rows", []))
+            status = display(latest.get("evidence_status", "available"))
+            reason = display(latest.get("evidence_reason", getattr(score, "one_line_reason", "Operational evidence is available.")))
+            kind = "ok" if status.casefold() in {"available", "valid", "complete"} else "warn"
+            rows.append(ListRow(theme.GREEN if kind == "ok" else theme.AMBER, instrument_id, reason, tag=Tag(status, kind), last=index == len(scoped_scores) - 1))
+            details.append(f"{instrument_id}: " + "; ".join(f"{field}={display(latest.get(field))}" for field in evidence_fields))
         else:
-            records.append(
-                {
-                    "instrument_id": instrument_id,
-                    "reason": projection.get("message", "Operational evidence is unavailable."),
-                    "execution_allowed": False,
-                }
+            reason = display(projection.get("message", "exact operational evidence unavailable"))
+            rows.append(ListRow(theme.MUTED, instrument_id, reason, tag=Tag("unavailable", "mute"), last=index == len(scoped_scores) - 1))
+            unavailable_fields = "; ".join(
+                f"{field}=unavailable" for field in evidence_fields if field not in {"evidence_reason", "execution_allowed"}
             )
-    return json.dumps(records, default=str, ensure_ascii=False, indent=2)
+            details.append(
+                f"{instrument_id}: unavailable/context-only; {unavailable_fields}; evidence_reason={reason}; "
+                "execution_allowed=false; aggregate aliases are excluded"
+            )
+    if not rows:
+        rows = [ListRow(theme.MUTED, "Instrument-scoped operational evidence unavailable", "No instrument score rows are available.", last=True)]
+    return GlassCard(
+        "Operational evidence",
+        note="Exact-instrument backtest evidence · context only",
+        body=[
+            *rows,
+            Disclosure(
+                "Instrument operational details",
+                "\n".join(details) if details else "Instrument-scoped operational evidence unavailable; execution_allowed=false",
+            ),
+        ],
+    )
 
 
 def _body(
@@ -468,6 +506,15 @@ def _body(
 ) -> ft.Control:
     counts = _counts(scores)
     missing = not scores
+    formula_version = next(
+        (
+            str(_read(_read(score, "canonical_score"), "formula_version"))
+            for score in scores
+            if _read(_read(score, "canonical_score"), "formula_version")
+        ),
+        "none loaded",
+    )
+    forecast_label = str(forecast_source or "none loaded")
     items = [
         ("Strong evidence", str(counts["strong"]) if not missing else None, "score, quality and friction all pass", None),
         ("Positive evidence", str(counts["positive"]) if not missing else None, "usable evidence with enough quality", None),
@@ -477,7 +524,7 @@ def _body(
     strip = KpiStrip(
         "Canonical scores",
         f"{len(scores)} instruments scored" if not missing else "Unavailable",
-        "Formula and forecast-source details are available in the score-table disclosure.",
+        f"formula {formula_version} · forecast source {forecast_label}",
         items,
     )
     groups = []
@@ -517,25 +564,9 @@ def _body(
         body=Well(chart, expand=True),
         expand=True,
     )
-    operational_rows = [
-        ListRow(
-            _label(score)[1],
-            str(_read(score, "display_id", "") or _MISSING),
-            str(_read(score, "one_line_reason", "") or "Operational reason is unavailable."),
-            tag=Tag(*_label(score)),
-            last=index == len(scores) - 1,
-        )
-        for index, score in enumerate(scores)
-    ]
-    operational = GlassCard(
-        "Operational evidence",
-        body=[
-            *(operational_rows or [Note("Unavailable · No instruments have operational score rows.")]),
-            Disclosure(
-                "Instrument evidence details",
-                _operational_payload(scores, getattr(getattr(state, "snapshot", None), "backtest", None)),
-            ),
-        ],
+    operational = _signals_operational_evidence(
+        list(scores),
+        getattr(getattr(state, "snapshot", None), "backtest", None),
     )
     scores_card.col = {"xs": 12, "lg": 8}
     details.col = {"xs": 12, "lg": 4}

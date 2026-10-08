@@ -107,3 +107,33 @@ def test_empty_data_shows_unavailable(monkeypatch, _snapshot) -> None:
     assert any("Unavailable" in value or "unavailable" in value for value in text)
     assert not any(value == "0" for value in text)
     assert "No screen results" in "\n".join(text)
+
+
+def test_local_screen_card_controls_have_bounded_layout(monkeypatch, _snapshot) -> None:
+    _stub_projections(monkeypatch)
+    monkeypatch.setattr(screener, "load_fundamental_evidence", lambda _path: pd.DataFrame())
+    view = screener.screener_page(None, _state(_snapshot))
+    card = next(
+        control
+        for control in _walk(view)
+        if isinstance(getattr(control, "data", None), dict)
+        and control.data.get("kit") == "GlassCard"
+        and control.data.get("title") == "Reproducible local screen"
+    )
+    descendants = list(_walk(card))
+
+    assert card.expand is False
+    assert any(isinstance(control, ft.TextField) for control in descendants)
+    assert any(isinstance(control, ft.Dropdown) for control in descendants)
+    assert any(
+        isinstance(control, ft.TextButton)
+        and control.key == "screener.filter.clear"
+        for control in descendants
+    )
+    assert not any(isinstance(control, ft.ListView) for control in descendants)
+    assert not any(
+        isinstance(control, ft.Column)
+        and control.scroll == ft.ScrollMode.AUTO
+        and control.expand
+        for control in descendants
+    )

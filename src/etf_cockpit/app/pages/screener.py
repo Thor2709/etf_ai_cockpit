@@ -21,6 +21,7 @@ from etf_cockpit.app.components.kit import (
     Note,
     Pipeline,
     ScoreBar,
+    Segmented,
     TableColumn,
     Tag,
     Well,
@@ -715,17 +716,13 @@ def screener_page(page: ft.Page | None, state: AppState) -> PageView:
         [(value, _human(value)) for value in available_fields],
         initial_sort,
     )
-    direction_input, direction_control = _field(
-        "Direction",
-        "screener.sort.direction",
-        [("descending", "Descending"), ("ascending", "Ascending")],
-        "descending",
-    )
+    direction_state = {"value": "Descending"}
+    results_card_ref: dict[str, ft.Control | None] = {"card": None}
     saved_name_input = _text_field("Saved screen name", "screener.saved.name")
 
     def render_screen() -> None:
         sort_field = str(sort_control.value or "")
-        descending = direction_control.value == "descending"
+        descending = direction_state["value"] == "Descending"
         try:
             query[0] = query_for_snapshot(
                 snapshot,
@@ -764,12 +761,21 @@ def screener_page(page: ft.Page | None, state: AppState) -> PageView:
         ]
         distribution_holder.controls = [_distribution(result[0], sort_field)]
         quality_holder.controls = [_quality_risk_chart(result[0])]
+        results_card = results_card_ref["card"]
+        if results_card is not None:
+            note_control = results_card.data.get("note_control")
+            if isinstance(note_control, ft.Text):
+                note_control.value = (
+                    f"{result[0].total_matched} of {result[0].total_input} local instruments shown"
+                    if result[0].total_input
+                    else "Unavailable · no local instruments are present in the current evidence screen."
+                )
         if page is not None:
             page.update()
 
     def sort_changed(field: str, descending: bool) -> None:
         sort_control.value = field
-        direction_control.value = "descending" if descending else "ascending"
+        direction_state["value"] = "Descending" if descending else "Ascending"
         render_screen()
 
     def add_filter(_event: object) -> None:
@@ -823,7 +829,7 @@ def screener_page(page: ft.Page | None, state: AppState) -> PageView:
             filters[:] = list(loaded.filters)
             if loaded.sort:
                 sort_control.value = loaded.sort[0].field
-                direction_control.value = "descending" if loaded.sort[0].descending else "ascending"
+                direction_state["value"] = "Descending" if loaded.sort[0].descending else "Ascending"
             render_screen()
             status.value = "Loaded latest saved screen."
         except (OSError, ValueError):
@@ -847,7 +853,10 @@ def screener_page(page: ft.Page | None, state: AppState) -> PageView:
     field_control.on_change = None
     operator_control.on_change = None
     sort_control.on_change = lambda _event: render_screen()
-    direction_control.on_change = lambda _event: render_screen()
+    def change_direction(value: str) -> None:
+        direction_state["value"] = value
+        render_screen()
+
     render_screen()
     screen_card = GlassCard(
         "Reproducible local screen",
@@ -856,13 +865,31 @@ def screener_page(page: ft.Page | None, state: AppState) -> PageView:
             ft.ResponsiveRow([field_input, operator_input, value_input], spacing=16, run_spacing=12),
             ft.Row(
                 [
-                    Button.primary("Add filter", on_click=add_filter, key="screener.filter.add"),
-                    Button.secondary("Clear filters", on_click=clear_filters, key="screener.filter.clear"),
+                    Button.secondary("Add filter", on_click=add_filter, key="screener.filter.add"),
+                    ft.TextButton("Clear filters", key="screener.filter.clear", on_click=clear_filters),
                 ],
                 spacing=8,
                 wrap=True,
             ),
-            ft.ResponsiveRow([sort_input, direction_input], spacing=16, run_spacing=12),
+            ft.ResponsiveRow(
+                [
+                    sort_input,
+                    ft.Column(
+                        [
+                            Note("DIRECTION"),
+                            Segmented(
+                                ["Descending", "Ascending"],
+                                direction_state["value"],
+                                on_change=change_direction,
+                            ),
+                        ],
+                        spacing=4,
+                        tight=True,
+                    ),
+                ],
+                spacing=16,
+                run_spacing=12,
+            ),
             filter_summary,
             filter_chips,
             ft.ResponsiveRow([saved_name_input], spacing=16, run_spacing=12),
@@ -879,7 +906,12 @@ def screener_page(page: ft.Page | None, state: AppState) -> PageView:
             status,
         ],
     )
-    screen_results_card = GlassCard("Screen results", body=[results_holder])
+    screen_results_card = GlassCard(
+        "Screen results",
+        note=f"{result[0].total_matched} of {result[0].total_input} local instruments shown",
+        body=[results_holder],
+    )
+    results_card_ref["card"] = screen_results_card
     distribution_card = GlassCard(f"Distribution of {_human(initial_sort)}", body=[distribution_holder])
     quality_card = GlassCard("Quality vs. risk friction", body=[quality_holder])
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping, Sequence
 
 import flet as ft
@@ -33,9 +34,11 @@ from etf_cockpit.app.components.kit import (
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
 from etf_cockpit.app.formatting import format_number
 from etf_cockpit.application.alerts import read_local_alerts
+from etf_cockpit.application.digest import contradiction_digest_records  # noqa: F401
 from etf_cockpit.application.instrument_detail_view import (
     InstrumentDetailViewModel,
     _valuation_panel,
+    build_etf_structure_panel,
     build_instrument_detail,
 )
 from etf_cockpit.application.ui_facade import bitemporal_history_summary, load_market_series_projection
@@ -80,7 +83,49 @@ def _render_evidence_section(
         summary: ft.Control = Note("Evidence details are available in the local result.")
     else:
         summary = KpiTile(title, None, _reason(value, title))
-    body = [summary, *_provenance_tags(value), *extra, Disclosure("Evidence details", _payload(value), expanded=expanded)]
+    record_lines: list[str] = []
+
+    def collect_records(node: Mapping[str, object], prefix: str = "") -> None:
+        for name, child in node.items():
+            path = f"{prefix} / {name}" if prefix else str(name)
+            if isinstance(child, Mapping):
+                collect_records(child, path)
+                continue
+            if not isinstance(child, Sequence) or isinstance(child, (str, bytes)):
+                continue
+            if not child:
+                record_lines.append(f"{path}: unavailable")
+                continue
+            for index, item in enumerate(child, start=1):
+                row_path = f"{path} [{index}]" if " / " in path else f"{path} {index}"
+                if isinstance(item, Mapping):
+                    scalar = [
+                        (field, field_value)
+                        for field, field_value in item.items()
+                        if not isinstance(field_value, Mapping)
+                        and not isinstance(field_value, Sequence)
+                        or isinstance(field_value, (str, bytes))
+                    ]
+                    if scalar and " / " not in path:
+                        record_lines.append(f"{row_path}: " + ", ".join(f"{field}={field_value}" for field, field_value in scalar))
+                    elif scalar:
+                        record_lines.extend(f"{row_path} / {field}: {field_value}" for field, field_value in scalar)
+                    for field, field_value in item.items():
+                        if isinstance(field_value, Mapping):
+                            collect_records(field_value, f"{row_path} / {field}")
+                        elif isinstance(field_value, Sequence) and not isinstance(field_value, (str, bytes)):
+                            if not field_value:
+                                record_lines.append(f"{row_path} / {field}: unavailable")
+                            else:
+                                nested = {str(field): field_value}
+                                collect_records(nested, row_path)
+                else:
+                    record_lines.append(f"{row_path}: {item}")
+
+    if isinstance(value, Mapping):
+        collect_records(value)
+    structured_rows = [ft.Text(line, color=theme.MUTED, selectable=True, size=11) for line in record_lines]
+    body = [summary, *_provenance_tags(value), *extra, *structured_rows, Disclosure("Evidence details", _payload(value), expanded=expanded)]
     return GlassCard(title, note=subtitle, body=body, key=key)
 
 
@@ -165,6 +210,227 @@ def render_etf_disclosure_panel(model: InstrumentDetailViewModel) -> ft.Control:
     )
 
 
+def render_etf_structure_panel(model: InstrumentDetailViewModel) -> ft.Control:
+    """Render ETF structure claims with document provenance and explicit limitations."""
+
+    structure = build_etf_structure_panel(model)
+    fields = structure.get("fields", {})
+    fields = fields if isinstance(fields, Mapping) else {}
+    documents = structure.get("documents", {})
+    documents = documents if isinstance(documents, Mapping) else {}
+    field_lines: list[str] = []
+    for field_name, field in fields.items():
+        if not isinstance(field, Mapping):
+            continue
+        field_lines.append(
+            f"{field_name}: status={field.get('status', 'unknown')} | value={field.get('value', 'unavailable')} | "
+            f"document={field.get('document_id', 'unavailable')} | date={field.get('document_date', 'unavailable')} | "
+            f"page={field.get('page', 'unavailable')} | confidence={field.get('confidence', 0.0)} | "
+            f"known_at={field.get('known_at', 'unavailable')} | checksum={field.get('checksum', 'unavailable')}"
+        )
+        if field.get("status") == "conflict":
+            candidates = field.get("candidates", ())
+            for index, candidate in enumerate(candidates, start=1):
+                if not isinstance(candidate, Mapping):
+                    continue
+                field_lines.append(
+                    f"{field_name} conflict candidate {index}: value={candidate.get('value', 'unavailable')} | "
+                    f"source_id={candidate.get('source_id', 'unavailable')} | "
+                    f"document_id={candidate.get('document_id', candidate.get('source_id', 'unavailable'))} | "
+                    f"date={candidate.get('document_date', 'unavailable')} | page={candidate.get('page', 'unavailable')} | "
+                    f"confidence={candidate.get('confidence', 0.0)} | known_at={candidate.get('known_at', 'unavailable')} | "
+                    f"checksum={candidate.get('checksum', 'unavailable')}"
+                )
+    document_lines = [
+        f"{family}: status={value.get('status', 'unknown')} | source_id={value.get('source_id', 'unavailable')} | "
+        f"date={value.get('document_date', 'unavailable')} | version={value.get('version', 'unavailable')} | "
+        f"checksum={value.get('checksum', 'unavailable')}"
+        for family, value in documents.items()
+        if isinstance(value, Mapping)
+    ]
+    versions = structure.get("versions", ())
+    version_lines = [
+        f"version {row.get('family', 'document')}: {row.get('version', 'unavailable')} | date={row.get('document_date', 'unavailable')} | source_id={row.get('source_id', 'unavailable')}"
+        for row in versions
+        if isinstance(row, Mapping)
+    ] if isinstance(versions, Sequence) and not isinstance(versions, (str, bytes)) else []
+    stress = structure.get("stress", {})
+    stress = stress if isinstance(stress, Mapping) else {}
+    lines = [
+        f"status={structure.get('status', 'unavailable')} | evidence_confidence_cap={structure.get('evidence_confidence_cap', 0.0)} | confidence_version={structure.get('confidence_version', 'unavailable')}",
+        f"flags={structure.get('flags', [])} | conflicts={structure.get('conflict_fields', [])} | limitations={structure.get('confidence_limitation', 'unavailable')}",
+        f"stress: status={stress.get('status', 'unavailable')} | unsecured={stress.get('unsecured', 'unavailable')} | concentration={stress.get('concentration', 'unavailable')} | formula={stress.get('formula_version', 'unavailable')}",
+        "Legal and sustainability labels are context-only; no alpha or expected return is derived from them.",
+        "execution_allowed=false",
+        *document_lines,
+        *version_lines,
+        *field_lines,
+    ]
+    details = ft.Column([ft.Text(line, color=theme.MUTED, selectable=True, size=11) for line in lines], spacing=4)
+    return GlassCard(
+        "ETF Structure & Documents",
+        note="Document-bound structural and legal evidence",
+        body=Disclosure("Structure evidence", details),
+        key="instrument-detail.etf-structure",
+    )
+
+
+def render_news_context_panel(model: InstrumentDetailViewModel) -> ft.Control:
+    """Render dated news and manual-note credibility with source provenance."""
+
+    news = model.sections.get("news")
+    news = news if isinstance(news, Mapping) else {"status": "unavailable", "items": []}
+    items = news.get("items", ())
+    item_rows: list[ft.Control] = []
+    provenance: list[ft.Control] = []
+    if news.get("status") == "available" and isinstance(items, Sequence) and not isinstance(items, (str, bytes)):
+        for index, item in enumerate(items):
+            if not isinstance(item, Mapping):
+                continue
+            headline = str(item.get("headline", "Headline unavailable"))
+            source = " | ".join(
+                (
+                    f"source_url={item.get('source_url', 'unavailable')}",
+                    f"published_at={item.get('published_at', 'unavailable')}",
+                    f"ingested_at={item.get('ingested_at', 'unavailable')}",
+                    f"provider_name={item.get('provider_name', 'unavailable')}",
+                    f"credibility={item.get('credibility', 'unverified')}",
+                    f"credibility_flag_status={item.get('credibility_flag_status', 'unavailable')}",
+                    f"credibility_flags={item.get('credibility_flags', 'unknown')}",
+                    f"credibility_reason_codes={item.get('credibility_reason_codes', 'unknown')}",
+                    f"instrument_mapping_method={item.get('instrument_mapping_method', 'unavailable')}",
+                    f"available_at_decision_time={bool(item.get('available_at_decision_time', False))}",
+                    f"timestamp_status={item.get('timestamp_status', 'unavailable')}",
+                    "context_only=true",
+                    "executable_authority=false",
+                )
+            )
+            item_rows.append(
+                ListRow(
+                    theme.MUTED,
+                    headline,
+                    f"{item.get('published_at', 'Date unavailable')} · {item.get('provider_name', 'Source unavailable')}",
+                    tag=Tag(str(item.get("direction", "context")), "mute"),
+                    last=index == len(items) - 1,
+                )
+            )
+            provenance.append(ft.Text(f"{headline} | {source}", color=theme.MUTED, selectable=True, size=11))
+    if not item_rows:
+        body: list[ft.Control] = [
+            EmptyState("No point-in-time news", str(news.get("message", "News unavailable for this instrument.")))
+        ]
+    else:
+        body = [*item_rows, Disclosure("News source and credibility details", ft.Column(provenance, spacing=4))]
+    return GlassCard(
+        "News & context",
+        note="Dated evidence · context only",
+        body=body,
+        key="instrument-detail.news-context",
+    )
+
+
+def render_news_contradiction_panel(model: InstrumentDetailViewModel) -> ft.Control:
+    """Render only validated point-in-time contradiction records from the selector."""
+
+    news = model.sections.get("news")
+    news = news if isinstance(news, Mapping) else {}
+    supplied = news.get("contradictions")
+    cutoff = news.get("contradiction_cutoff")
+
+    def valid_record(item: object) -> bool:
+        if not isinstance(item, Mapping) or item.get("status") not in {"available", "manual_review", "unavailable"}:
+            return False
+        contradiction = item.get("contradiction")
+        return (
+            isinstance(contradiction, Mapping)
+            and bool(contradiction.get("rule"))
+            and item.get("rule_status") == contradiction.get("status")
+            and contradiction.get("execution_allowed") is False
+        )
+
+    results = [item for item in supplied if valid_record(item)] if isinstance(supplied, (list, tuple)) and cutoff else []
+    rows: list[ft.Control] = []
+    details: list[ft.Control] = []
+    for index, result in enumerate(results):
+        status = str(result.get("rule_status", result.get("status", "unavailable")))
+        kind = "ok" if status == "clear" else "warn" if status == "manual_review" else "mute"
+        dot = theme.GREEN if status == "clear" else theme.AMBER if status == "manual_review" else theme.MUTED
+        title = str(result.get("title", "contradiction"))
+        detail = str(result.get("detail", "unavailable"))
+        rows.append(ListRow(dot, title, detail, tag=Tag(status, kind), last=index == len(results) - 1))
+        details.append(ft.Text(f"{title}: status={status} | {detail}", color=theme.MUTED, selectable=True, size=11))
+    if not rows:
+        rows = [ListRow(theme.MUTED, "No contradiction rule results are available.", last=True)]
+    body = list(rows)
+    if details:
+        body.append(Disclosure("Contradiction evidence", ft.Column(details, spacing=4)))
+    return GlassCard(
+        "News/macro contradictions",
+        note="Point-in-time · informational",
+        body=body,
+        key="instrument-detail.news-contradictions",
+    )
+
+
+def render_event_calendar_panel(model: InstrumentDetailViewModel) -> ft.Control:
+    """Render event dates with source and availability metadata as context only."""
+
+    events = model.sections.get("events")
+    events = events if isinstance(events, Mapping) else {"status": "unavailable", "events": []}
+    records = events.get("events", ())
+    rows: list[ft.Control] = []
+    details: list[ft.Control] = []
+    if events.get("status") == "available" and isinstance(records, Sequence) and not isinstance(records, (str, bytes)):
+        valid_records = [item for item in records if isinstance(item, Mapping)]
+        for index, item in enumerate(valid_records):
+            risk = str(item.get("risk_level", "unknown"))
+            high_risk = risk.casefold() in {"high", "critical"}
+            rows.append(
+                ListRow(
+                    theme.AMBER if high_risk else theme.MUTED,
+                    f"{item.get('event_type', 'event')} · {item.get('event_date', 'unavailable')}",
+                    str(item.get("title") or "Event title unavailable"),
+                    tag=Tag(risk, "warn" if high_risk else "mute"),
+                    last=index == len(valid_records) - 1,
+                )
+            )
+            details.append(
+                ft.Text(
+                    " | ".join(
+                        (
+                            f"{item.get('event_type', 'event')}={item.get('event_date', 'unavailable')}",
+                            f"title={item.get('title') or 'unavailable'}",
+                            f"risk={risk}",
+                            f"source={item.get('source_id', 'unavailable')}",
+                            f"authority={item.get('source_authority', 'unavailable')}",
+                            f"source_url={item.get('source_url', 'unavailable')}",
+                            f"timezone_name={item.get('timezone_name', 'unavailable')}",
+                            f"available_at={item.get('available_at', 'unavailable')}",
+                            f"available_at_decision_time={item.get('available_at_decision_time', False)}",
+                            f"decision_time={item.get('decision_time', events.get('decision_time', 'unavailable'))}",
+                            f"precision={item.get('precision', 'unavailable')}",
+                            "context_only=true",
+                            "execution_allowed=false",
+                        )
+                    ),
+                    color=theme.MUTED,
+                    selectable=True,
+                    size=11,
+                )
+            )
+    if not rows:
+        rows = [EmptyState("Unavailable", str(events.get("message", "Event calendar unavailable.")))]
+    body = list(rows)
+    if details:
+        body.append(Disclosure("Event source and timing details", ft.Column(details, spacing=4)))
+    return GlassCard(
+        "Event calendar",
+        note="Dated events · context only",
+        body=body,
+        key="instrument-detail.event-calendar",
+    )
+
+
 def _instrument_id(page: ft.Page | None, state: object) -> str:
     route = str(getattr(page, "route", "") or "") if page is not None else ""
     if route.startswith("/instrument/") or route.startswith("/etf/"):
@@ -230,11 +496,6 @@ def _price_chart(
     range_name: str,
     mode: str,
 ) -> ft.Control:
-    if mode == "Candles":
-        return EmptyState(
-            "Unavailable",
-            "The chart kit has no candlestick and volume chart.",
-        )
     snapshot = getattr(state, "snapshot", None)
     local_currency = str(model.identity.get("currency") or "")
     projection = load_market_series_projection(
@@ -259,6 +520,57 @@ def _price_chart(
             frame = frame.loc[dates >= latest - pd.DateOffset(months=months)]
     rows = frame.to_dict(orient="records")
     x_values = [str(row.get("date", "")) for row in rows]
+    if mode == "Candles":
+        price_rows = getattr(snapshot, "prices", None)
+        if isinstance(price_rows, pd.DataFrame):
+            identifier = "etf_id" if "etf_id" in price_rows.columns else "instrument_id"
+            if identifier in price_rows.columns:
+                price_rows = price_rows.loc[
+                    price_rows[identifier].astype(str).eq(model.instrument_id)
+                ]
+            else:
+                price_rows = pd.DataFrame()
+        else:
+            price_rows = pd.DataFrame()
+        if price_rows.empty or not {"date", "open", "high", "low", "close", "volume"}.issubset(price_rows.columns):
+            return EmptyState(
+                "Unavailable",
+                "Daily OHLC and volume are unavailable in the local price evidence.",
+            )
+        candle_rows = price_rows.set_index(price_rows["date"].astype(str)).reindex(x_values)
+        candle_dates = list(candle_rows["date"].astype(str)) if "date" in candle_rows else []
+        if not candle_dates or candle_rows["volume"].isna().all():
+            return EmptyState(
+                "Unavailable",
+                "Daily OHLC or volume observations are unavailable for the selected range.",
+            )
+        price_series = [
+            ck.Series(name.title(), pd.to_numeric(candle_rows[name], errors="coerce").where(pd.notna(candle_rows[name]), None).tolist(), color=color)
+            for name, color in (("open", theme.INK2), ("high", theme.GREEN), ("low", theme.RED), ("close", theme.CYAN))
+        ]
+        return ft.Column(
+            [
+                Note("Daily OHLC values shown as lines; the chart kit has no candlestick primitive."),
+                ck.line_chart(
+                    candle_dates,
+                    price_series,
+                    x_name="Date",
+                    y_name=f"Price ({local_currency or 'local currency'})",
+                    insight="Daily raw open, high, low and close from local price evidence.",
+                ),
+                ck.bar_chart(
+                    candle_dates,
+                    pd.to_numeric(candle_rows["volume"], errors="coerce").where(pd.notna(candle_rows["volume"]), None).tolist(),
+                    x_name="Date",
+                    y_name="Volume (shares)",
+                    unit="shares",
+                    unavailable_reason="Daily volume observations are unavailable for the selected range."
+                    if candle_rows["volume"].isna().all()
+                    else None,
+                ),
+            ],
+            spacing=8,
+        )
     values = [row.get("series_value") for row in rows]
     valid = [value for value in values if isinstance(value, (int, float)) and value == value]
     if not x_values or not valid:
@@ -340,7 +652,11 @@ def _price_card(
         card = card_ref.get("card")
         note = getattr(card, "data", {}).get("note_control") if card is not None else None
         if note is not None:
-            note.value = f"{settings['currency']} · {settings['basis']} close"
+            note.value = (
+                f"{local_currency or 'local currency'} · raw OHLC and volume"
+                if settings["mode"] == "Candles"
+                else f"{settings['currency']} · {settings['basis']} close"
+            )
         if page is not None and callable(getattr(page, "update", None)):
             page.update()
 
@@ -416,7 +732,7 @@ def _identity_card(
     authority = identity.get("source_authority", identity.get("authority"))
     conflict = identity.get("conflict_id", identity.get("conflict_status"))
     rows = [
-        {"field": label, "value": _value(identity.get(key))}
+        {"field": label, "value": "—" if key == "exchange" and _value(identity.get(key)).casefold() == "unavailable" else _value(identity.get(key))}
         for key, label in (
             ("instrument_id", "instrument_id"),
             ("ticker", "ticker"),
@@ -490,6 +806,11 @@ def _identity_card(
                 empty_title="Unavailable",
                 empty_reason="Identity fields are unavailable.",
             ),
+            *(
+                [Note("Exchange is unavailable in local identity evidence.")]
+                if _value(identity.get("exchange")).casefold() in {"unavailable", "—"}
+                else []
+            ),
             Button.secondary(
                 "Export audit evidence",
                 on_click=export_instrument_evidence,
@@ -548,11 +869,10 @@ def _score_card(model: InstrumentDetailViewModel, page: ft.Page | None) -> ft.Co
                 _reason(score, "Evidence score") if raw_score is None else "Canonical score evidence.",
             ),
             *bars,
-            ListRow(
-                "info",
+            Button.secondary(
                 "Open in Scores",
-                "View canonical score evidence for this instrument.",
                 on_click=open_scores,
+                key="instrument-detail.open-scores",
             ),
         ],
         expand=True,
@@ -597,8 +917,276 @@ def _alerts_card(model: InstrumentDetailViewModel, state: object) -> ft.Control:
     )
 
 
+def _instrument_alerts_panel(model: InstrumentDetailViewModel, state: object) -> ft.Control:
+    """Keep the page-level alert seam pointed at its canonical card renderer."""
+
+    return _alerts_card(model, state)
+
+
 def _section_card(title: str, value: object, key: str | None = None) -> ft.Control:
     return _render_evidence_section(title, value, key=key)
+
+
+def _driver_value(value: object, *, missing: str = "unavailable") -> str:
+    if value is None:
+        return missing
+    if isinstance(value, float) and not math.isfinite(value):
+        return missing
+    text = str(value).strip()
+    if text.casefold() in {"", "nan", "none", "<na>", "inf", "+inf", "-inf", "infinity", "+infinity", "-infinity"}:
+        return missing
+    return text
+
+
+def _driver_table(label: str, rows: list[dict[str, object]]) -> ft.Control:
+    columns = [
+        "Component", "Score", "Direction", "Peer group", "Peer percentile", "Historical contribution",
+        "Coverage", "Uncertainty", "Interaction", "Counterfactual sensitivity",
+        "Authority", "Source authority", "Freshness", "Source span", "Source vintage hash", "Claim hash", "Missingness", "Conflict", "Contribution", "Driver",
+    ]
+    if not rows:
+        return ft.Column(
+            [ft.Text(label, color=theme.TEXT, weight=ft.FontWeight.BOLD, size=12), Note("Unavailable")],
+            spacing=4,
+        )
+    table_rows = [
+        ft.DataRow(
+            cells=[
+                ft.DataCell(ft.Text(_driver_value(row.get("component")), color=theme.TEXT)),
+                ft.DataCell(ft.Text(_driver_value(row.get("normalised_score"), missing="N/A"), color=theme.CYAN)),
+                ft.DataCell(ft.Text(_driver_value(row.get("direction")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("peer_group")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("peer_percentile")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("historical_contribution")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("coverage")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("uncertainty")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("interaction")), color=theme.MUTED, selectable=True)),
+                ft.DataCell(ft.Text(_driver_value(row.get("counterfactual_sensitivity")), color=theme.MUTED, selectable=True)),
+                ft.DataCell(ft.Text(_driver_value(row.get("authority")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("source_authority")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("freshness_status")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("source_span")), color=theme.MUTED, selectable=True)),
+                ft.DataCell(ft.Text(_driver_value(row.get("source_vintage_hash")), color=theme.MUTED, selectable=True)),
+                ft.DataCell(ft.Text(_driver_value(row.get("claim_hash")), color=theme.MUTED, selectable=True)),
+                ft.DataCell(ft.Text(_driver_value(row.get("missingness")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("conflict")), color=theme.MUTED, selectable=True)),
+                ft.DataCell(ft.Text(_driver_value(row.get("contribution")), color=theme.MUTED)),
+                ft.DataCell(ft.Text(_driver_value(row.get("driver_text")), color=theme.MUTED, selectable=True)),
+            ]
+        )
+        for row in rows
+    ]
+    return ft.Column(
+        [
+            ft.Text(label, color=theme.TEXT, weight=ft.FontWeight.BOLD, size=12),
+            ft.Row(
+                [ft.DataTable(columns=[ft.DataColumn(ft.Text(column, color=theme.TEXT)) for column in columns], rows=table_rows)],
+                scroll=ft.ScrollMode.AUTO,
+            ),
+        ],
+        spacing=4,
+    )
+
+
+def _render_sparebank_workspace(workspace: object) -> ft.Control:
+    """Render the facade's Sparebank analysis without adding UI-side calculations."""
+
+    if not isinstance(workspace, Mapping) or workspace.get("status") != "available":
+        return ft.Container()
+    scorecard = workspace.get("scorecard")
+    scorecard = scorecard if isinstance(scorecard, Mapping) else {}
+    underwriting = workspace.get("underwriting_horizon")
+    underwriting = underwriting if isinstance(underwriting, Mapping) else {}
+    tactical = workspace.get("tactical_horizon")
+    tactical = tactical if isinstance(tactical, Mapping) else {}
+    axes = scorecard.get("axes")
+    axes = axes if isinstance(axes, Mapping) else {}
+    grouped: dict[str, list[ft.Control]] = {}
+    for axis_id, axis in axes.items():
+        if not isinstance(axis, Mapping):
+            continue
+        group = str(axis.get("group") or "Scorecard")
+        grouped.setdefault(group, []).append(
+            ft.Column(
+                [
+                    ft.Text(
+                        f"{axis.get('label', axis_id)}: {axis.get('status', 'UNAVAILABLE')} | rating={axis.get('rating_10', 'unavailable')} | coverage={axis.get('coverage', 'unavailable')}",
+                        selectable=True,
+                    ),
+                    _render_evidence_section(f"{axis.get('label', axis_id)} inputs", axis.get("inputs", ())),
+                ],
+                spacing=4,
+            )
+        )
+    body: list[ft.Control] = [
+        Note("Bank soundness, EC owner value, and purchase-price attractiveness are separate conclusions; no automatic buy/sell rule is produced."),
+        ft.Text(
+            f"Underwriting horizon — {underwriting.get('horizon', 'multi-year owner economics')} | status={underwriting.get('status', 'UNAVAILABLE')} | composite={underwriting.get('composite_10', 'unavailable')} | coverage={underwriting.get('overall_coverage', 'unavailable')}",
+            selectable=True,
+        ),
+        ft.Text(f"Underwriting gate reasons: {underwriting.get('gate_reasons', ())}", selectable=True),
+    ]
+    body.extend(ft.Column([ft.Text(group, weight=ft.FontWeight.BOLD), *items], spacing=4) for group, items in grouped.items())
+    body.extend(
+        [
+            _render_evidence_section("Ownership passport — What this EC owns", workspace.get("ownership_passport")),
+            _render_evidence_section("Bank economics", workspace.get("bank_economics")),
+            _render_evidence_section("Valuation and expectations", workspace.get("valuation_expectations")),
+            _render_evidence_section("Structural transition", workspace.get("structural_transition")),
+            _render_evidence_section("Marketability and implementation", workspace.get("marketability_implementation")),
+            _render_evidence_section("Decision card", workspace.get("decision_card")),
+            ft.Text(f"Tactical horizon — {tactical.get('horizon', '1-3 months')} | status={tactical.get('status', 'UNAVAILABLE')}", selectable=True),
+            _render_evidence_section("Tactical evidence (separate; does not affect underwriting)", tactical.get("evidence", {})),
+            _render_evidence_section("Evidence and coverage", workspace.get("evidence_and_coverage")),
+            _render_evidence_section("Generic stock modules", workspace.get("generic_stock_modules")),
+        ]
+    )
+    return ft.ExpansionTile(
+        title=ft.Text("Sparebank EC workspace"),
+        subtitle=ft.Text(f"Scorecard {scorecard.get('formula_version', 'unavailable')} | execution_allowed=false"),
+        controls=[ft.Column(body, spacing=8)],
+        expanded=False,
+        key="instrument-detail.sparebank-workspace",
+    )
+
+
+def _render_opportunity_card(value: object) -> ft.Control:
+    opportunity = value if isinstance(value, Mapping) else {}
+    percentile = opportunity.get("percentile")
+    percentile_text = f"{float(percentile):.1f}%" if isinstance(percentile, (int, float)) else "unavailable"
+    domain_scores = opportunity.get("domain_scores", ())
+    domain_line = ", ".join(
+        f"{row[0]}={row[1] if row[1] is not None else 'unavailable'}"
+        for row in domain_scores
+        if isinstance(row, (tuple, list)) and len(row) == 2
+    ) or "unavailable"
+    driver_lines = []
+    for label, field in (("Positive drivers", "positive_drivers"), ("Negative drivers", "negative_drivers")):
+        rows = opportunity.get(field, ())
+        summaries = [
+            f"{row.get('metric_id', 'unavailable')} (z={row.get('z_score', 'unavailable')})"
+            for row in rows
+            if isinstance(row, Mapping)
+        ]
+        driver_lines.append(Note(f"{label}: {', '.join(summaries) or 'unavailable'}"))
+    content = ft.Column(
+        [
+            Tag(str(opportunity.get("status", "Insufficient Evidence")), "mute"),
+            Note(f"Universe rank: {opportunity.get('universe_rank', 'unavailable')}/{opportunity.get('universe_support', 'unavailable')} | Percentile: {percentile_text}"),
+            Note(f"Peer: {opportunity.get('peer_id', 'unavailable')} | Peer rank: {opportunity.get('peer_rank', 'unavailable')}/{opportunity.get('peer_support', 'unavailable')} | Peer percentile: {opportunity.get('peer_percentile', 'unavailable')}"),
+            Note(f"Domains: {domain_line}"),
+            Note(f"Confidence: {opportunity.get('confidence', 'unavailable')} | Coverage: {opportunity.get('coverage', 'unavailable')}"),
+            *driver_lines,
+            Note(f"Timing: {opportunity.get('timing', 'Insufficient')}"),
+            Note(str(opportunity.get("explanation", "Domain evidence is unavailable."))),
+            Disclosure("Opportunity evidence", _payload(value)),
+        ],
+        key="instrument-detail.opportunity",
+        spacing=5,
+    )
+    card = GlassCard(
+        "Opportunity",
+        note="Point-in-time universe and peer rank; timing remains separate",
+        body=content,
+        key="instrument-detail.opportunity-card",
+    )
+    if card.content is not None:
+        card.content.key = "instrument-detail.opportunity"
+    return card
+
+
+def _feature_driver_chart(value: object) -> ft.Control:
+    rows = value.get("rows", ()) if isinstance(value, Mapping) else ()
+    rows = [row for row in rows if isinstance(row, Mapping)] if isinstance(rows, Sequence) else []
+    chart_rows = [
+        row for row in rows
+        if isinstance(row.get("contribution"), (int, float))
+        and pd.notna(row.get("contribution"))
+    ]
+    chart: ft.Control
+    if chart_rows:
+        chart_rows = chart_rows[:12]
+        chart = ck.bar_chart(
+            [str(row.get("component") or "—") for row in chart_rows],
+            [float(row["contribution"]) for row in chart_rows],
+            x_name="Feature driver",
+            y_name="Contribution (score points)",
+            unit="score points",
+            unavailable_reason="No numeric feature driver contributions are available.",
+        )
+    else:
+        chart = EmptyState("Unavailable", _reason(value, "Feature driver chart"))
+    categories = (
+        ("Top positive", "top_positive", theme.GREEN, "ok"),
+        ("Top negative", "top_negative", theme.RED, "bad"),
+        ("Missing / N/A", "missing_or_na", theme.MUTED, "mute"),
+        ("Low authority", "low_authority", theme.AMBER, "warn"),
+        ("Stale / partial", "stale_or_partial", theme.AMBER, "warn"),
+    )
+    category_rows: list[ft.Control] = []
+    for label, key, dot, tag_kind in categories:
+        entries = value.get(key, ()) if isinstance(value, Mapping) else ()
+        entries = [entry for entry in entries if isinstance(entry, Mapping)] if isinstance(entries, Sequence) else []
+        category_rows.append(SectionHeader(label, f"{len(entries)} stored rows"))
+        if entries:
+            category_rows.extend(
+                ListRow(
+                    dot,
+                    _driver_value(entry.get("component")),
+                    _driver_value(entry.get("driver_text"), missing="Evidence detail unavailable"),
+                    tag=Tag(label, tag_kind),
+                    last=index == len(entries) - 1,
+                )
+                for index, entry in enumerate(entries)
+            )
+        else:
+            category_rows.append(Note("No evidence rows in this category."))
+    return GlassCard(
+        "Feature drivers",
+        note="Diverging contribution and evidence quality",
+        body=[
+            chart,
+            *category_rows,
+            Disclosure("Complete driver fields", _driver_table("Feature driver rows", rows)),
+            Disclosure("Feature driver provenance", _payload(value)),
+        ],
+        key="instrument-detail.feature-drivers",
+    )
+
+
+def _render_feature_driver_panel(panel_data: object) -> ft.Control:
+    """Compatibility name for the canonical feature-driver card renderer."""
+
+    return _feature_driver_chart(panel_data)
+
+
+def _score_history_chart(value: object) -> ft.Control:
+    rows = value.get("rows", ()) if isinstance(value, Mapping) else ()
+    rows = [row for row in rows if isinstance(row, Mapping)] if isinstance(rows, Sequence) else []
+    date_key = next((key for key in ("run_completed_at", "run_started_at", "data_as_of_date") if any(row.get(key) for row in rows)), None)
+    score_key = next((key for key in ("final_combined_score_10", "evidence_score_10") if any(isinstance(row.get(key), (int, float)) and pd.notna(row.get(key)) for row in rows)), None)
+    chart_rows = [row for row in rows if date_key and score_key and row.get(date_key) and isinstance(row.get(score_key), (int, float)) and pd.notna(row.get(score_key))]
+    if not chart_rows:
+        return GlassCard(
+            "Score history",
+            body=EmptyState("Unavailable", _reason(value, "Score history chart")),
+            key="instrument-detail.score-history",
+        )
+    return GlassCard(
+        "Score history",
+        note="Stored score history",
+        body=[
+            ck.line_chart(
+                [str(row[date_key]) for row in chart_rows],
+                [ck.Series("Score", [float(row[score_key]) for row in chart_rows], color=theme.CYAN, glow=True)],
+                x_name="Run date",
+                y_name="Score (0–10)",
+                insight=f"{len(chart_rows)} stored score observations.",
+            ),
+            Disclosure("Score history evidence", _payload(value)),
+        ],
+        key="instrument-detail.score-history",
+    )
 
 
 def _valuation_card(model: InstrumentDetailViewModel, page: ft.Page | None, state: object) -> ft.Control:
@@ -749,18 +1337,18 @@ def _section_rows(
 
     sections = model.sections
     overview = [
-        _section_card("Feature drivers", sections.get("feature_drivers")),
+        _render_feature_driver_panel(sections.get("feature_drivers")),
         _render_crowding_attribution_panel(
             {"scores": sections.get("scores"), "attribution": sections.get("attribution")}
         ),
         _section_card("Alpha, beta and correlation", sections.get("attribution")),
-        _section_card("Opportunity", sections.get("opportunity")),
+        _render_opportunity_card(sections.get("opportunity")),
         _section_card("Peer cohort and adapter lineage", sections.get("peer_cohort")),
         _section_card("Classification context", model.identity),
         _section_card("Market clock and session", sections.get("market_clock")),
     ]
     fund = [
-        _section_card("ETF Structure & Documents", sections.get("etf_structure")),
+        render_etf_structure_panel(model),
         render_etf_disclosure_panel(model),
         _section_card("ETF holdings and exposure", sections.get("etf_holdings")),
         _section_card("ETF direct overlap", sections.get("etf_overlap"), "instrument-detail.etf-overlap"),
@@ -769,6 +1357,14 @@ def _section_rows(
             "ETF order-preview capacity meter",
             note="Order value and horizon capacity are unavailable without a stored preview result.",
             body=[
+                ft.ResponsiveRow(
+                    [
+                        Field("Order value (EUR)", control=ft.TextField(**field_input_style())),
+                        Field("Horizon (days)", control=ft.TextField(**field_input_style())),
+                    ],
+                    spacing=8,
+                    run_spacing=8,
+                ),
                 KpiTile("Capacity preview", None, "No capacity preview result is available for this instrument."),
                 Disclosure("Capacity evidence", _payload(sections.get("etf_liquidity"))),
                 Button.primary(
@@ -785,7 +1381,13 @@ def _section_rows(
     fundamentals = [
         _section_card("Fundamentals", sections.get("fundamentals"), "instrument-detail.fundamentals"),
         _valuation_card(model, page, state),
-        _section_card("Financial Institutions", sections.get("financial_institutions")),
+        _render_evidence_section(
+            "Financial Institutions",
+            sections.get("financial_institutions"),
+            subtitle="Bank and insurer evidence with the separate Sparebank EC workspace.",
+            key="instrument-detail.financial-institutions",
+            extra=[_render_sparebank_workspace(sections.get("sparebank_workspace"))],
+        ),
         _section_card("Real Assets", sections.get("real_assets")),
         _section_card("Cyclicals", sections.get("cyclicals")),
         _section_card("Innovation and Healthcare", sections.get("innovation")),
@@ -814,18 +1416,18 @@ def _section_rows(
         _section_card("Backtest trust", sections.get("backtests")),
         _section_card("Operational evidence", operational),
         _section_card("Evidence Score", sections.get("scores")),
-        _section_card("News/macro contradictions", sections.get("news")),
+        render_news_contradiction_panel(model),
     ]
     history = [
-        _section_card("Score history", sections.get("history"), "instrument-detail.score-history"),
+        _score_history_chart(sections.get("history")),
         _section_card("Score-component metric history", sections.get("metric_history"), "instrument-detail.metric-history"),
         _section_card("Point-in-time vintage history", vintage),
         _section_card("What changed since the last run", sections.get("run_changes")),
         _section_card("Paper-trade history", sections.get("paper_trades")),
         _section_card("Decision journal", sections.get("journal")),
         _section_card("LLM thesis diary", sections.get("thesis_diary"), "instrument-detail.thesis-diary"),
-        _section_card("News & context", sections.get("news")),
-        _section_card("Event calendar", sections.get("events")),
+        render_news_context_panel(model),
+        render_event_calendar_panel(model),
     ]
     return {
         "Overview": overview,
@@ -863,7 +1465,7 @@ def _body(
         body=Well(_forecast_chart(model.sections.get("forecasts")), expand=True),
         expand=True,
     )
-    alerts = _alerts_card(model, state)
+    alerts = _instrument_alerts_panel(model, state)
     kind = _section_kind(model.identity)
     options = ["Overview", kind, "Risk & forecasts", "History"]
     if active_section not in options:

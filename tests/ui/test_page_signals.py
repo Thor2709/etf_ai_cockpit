@@ -48,6 +48,9 @@ def test_renders_with_sample_data() -> None:
     assert "POSITIVE EVIDENCE" in text
     assert "WATCH/MIXED" in text
     assert "MANUAL REVIEW" in text
+    assert "formula " in text
+    assert "forecast source " in text
+    assert "SCORE \u25bc" in text
     assert "Traceback" not in text
 
 

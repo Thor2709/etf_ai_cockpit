@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import flet as ft
+
 from etf_cockpit.app.components.shell.page_view import PageView
 from etf_cockpit.app.pages.strategy_builder import strategy_builder_page
 
@@ -57,3 +59,42 @@ def test_empty_data_shows_unavailable() -> None:
                 str(getattr(item, "value", "")) != "0"
                 for item in _walk(control)
             )
+
+
+def test_strategy_cards_have_controls_with_bounded_layout() -> None:
+    state = SimpleNamespace(snapshot=SimpleNamespace(signals=[]))
+    page = strategy_builder_page(None, state)
+    cards = {
+        control.data["title"]: control
+        for control in _walk(page.body)
+        if isinstance(getattr(control, "data", None), dict)
+        and control.data.get("kit") == "GlassCard"
+    }
+    templates = cards["Strategy templates"]
+    coverage = cards["Stage coverage"]
+    template_controls = list(_walk(templates))
+    coverage_controls = list(_walk(coverage))
+
+    assert templates.expand is False
+    assert coverage.expand is False
+    assert any(
+        isinstance(control, ft.Container)
+        and isinstance(getattr(control, "data", None), dict)
+        and control.data.get("kit") == "Toggle"
+        for control in template_controls
+    )
+    assert any(
+        isinstance(control, ft.Container)
+        and control.width == 28
+        and control.height == 28
+        for control in coverage_controls
+    )
+    for control in (templates, coverage):
+        descendants = list(_walk(control))
+        assert not any(isinstance(item, ft.ListView) for item in descendants)
+        assert not any(
+            isinstance(item, ft.Column)
+            and item.scroll == ft.ScrollMode.AUTO
+            and item.expand
+            for item in descendants
+        )
