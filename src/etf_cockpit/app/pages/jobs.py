@@ -138,6 +138,7 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
     recovered_count = 0
     table_slot = ft.Container(expand=True)
     timeline_slot = ft.Container(expand=True)
+    audit_slot = ft.Container(expand=True)
     workflow_details = ft.Column([], spacing=8)
 
     def update_page() -> None:
@@ -209,6 +210,33 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
             expand=True,
         )
 
+    def build_audit_events() -> ft.Control:
+        scheduler = getattr(api, "_scheduler", None)
+        list_events = getattr(scheduler, "list_events", None)
+        if not callable(list_events):
+            return EmptyState("Unavailable", "The local job view does not expose audit event rows.")
+        try:
+            events = list_events(limit=25)
+        except Exception as exc:
+            return EmptyState("Unavailable", f"Local audit events could not be read ({type(exc).__name__}).")
+        if not events:
+            return EmptyState("Unavailable", "No hash-chained job events are recorded in the local store.")
+        return ft.Column(
+            [
+                ListRow(
+                    "info",
+                    format_timestamp(getattr(event, "occurred_at", None), unavailable="—"),
+                    sub=str(getattr(event, "event_type", "") or "—"),
+                    tag=Tag(str(getattr(event, "event_hash", ""))[:8] or "—", "mute"),
+                    last=index == len(events) - 1,
+                )
+                for index, event in enumerate(events)
+            ],
+            spacing=0,
+            scroll=ft.ScrollMode.AUTO,
+            expand=True,
+        )
+
     def filtered_workflows() -> tuple[object, ...]:
         if current_filter["value"] == "All":
             return workflow_rows
@@ -264,6 +292,7 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
             status_message.value = "Unable to read durable workflows from the local job store."
             action_details.value = f"{type(exc).__name__}: {redact_text(str(exc))}"
         update_workflow_views()
+        audit_slot.content = Well(build_audit_events(), expand=True)
         update_page()
 
     def run_cache_cleanup(action_id: str) -> None:
@@ -387,6 +416,7 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
 
     table_slot.content = build_workflow_table(())
     timeline_slot.content = Well(build_timeline(()), expand=True)
+    audit_slot.content = Well(build_audit_events(), expand=True)
     refresh()
 
     workflow_card = GlassCard(
@@ -397,9 +427,9 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
                 ft.Row(
                     [
                         workflow_note,
-                        Button.secondary("Refresh", on_click=refresh, key="jobs.refresh"),
-                        Button.secondary("Recover expired leases", on_click=refresh, key="jobs.recover"),
-                        Button.primary("Run durable self-check", on_click=run_self_check, key="jobs.self-check"),
+                        ft.TextButton("Refresh", on_click=refresh, key="jobs.refresh"),
+                        ft.TextButton("Recover expired leases", on_click=refresh, key="jobs.recover"),
+                        Button.secondary("Run durable self-check", on_click=run_self_check, key="jobs.self-check"),
                     ],
                     spacing=12,
                     wrap=True,
@@ -427,7 +457,7 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
                 Note(quota_note),
                 ft.Row(
                     [
-                        Button.secondary("Clean generated cache", on_click=clean_generated_cache, key="jobs.resource-cache-cleanup"),
+                        ft.TextButton("Clean generated cache", on_click=clean_generated_cache, key="jobs.resource-cache-cleanup"),
                         cleanup_message,
                     ],
                     spacing=12,
@@ -450,15 +480,12 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
     audit_card = GlassCard(
         "Audit events",
         note="hash-chained local events",
-        body=Well(
-            EmptyState("Unavailable", "The available job view does not provide audit event rows."),
-            expand=True,
-        ),
+        body=audit_slot,
         expand=True,
     )
 
-    row_a = ft.Row([workflow_card, resource_card], spacing=24, expand=6)
-    row_b = ft.Row([timeline_card, audit_card], spacing=24, expand=4)
+    row_a = ft.Row([workflow_card, resource_card], spacing=24)
+    row_b = ft.Row([timeline_card, audit_card], spacing=24)
     body = ft.Column(
         [row_a, row_b, Note("Local job activity only. No broker or execution authority is enabled."), Disclosure("Raw authority flag", "execution_allowed=false")],
         spacing=24,

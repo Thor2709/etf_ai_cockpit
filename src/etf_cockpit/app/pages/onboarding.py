@@ -234,9 +234,10 @@ def onboarding_page(
         **field_input_style(multiline=True, placeholder="Enter tickers separated by commas"),
     )
     tickers = Field("Initial tickers (comma separated)", control=tickers_control, multiline=True, expand=True)
-    validation = Toggle(
-        disabled=validator is None,
-        disabled_reason="No ticker validator is configured",
+    validation = ft.Checkbox(
+        label="Online validation unavailable (no validator configured)",
+        value=False,
+        disabled=True,
         key="onboarding.online-validation",
     )
 
@@ -523,10 +524,10 @@ def onboarding_page(
         body=ft.Column(
             [
                 Note("Setup stores preferences only. It never grants broker or provider write authority or starts execution."),
-                ListRow("bad", "Execution authority", sub="Off", tag=Tag("off", "bad")),
-                ListRow("bad", "Staged execution", sub="Off", tag=Tag("off", "bad")),
-                ListRow("bad", "Paper trading", sub="Off", tag=Tag("off", "bad")),
-                ListRow("bad", "Broker write access", sub="Off", tag=Tag("off", "bad"), last=True),
+                ListRow("bad", "execution_allowed", sub="Off", tag=Tag("off", "bad")),
+                ListRow("bad", "staged_execution_enabled", sub="Off", tag=Tag("off", "bad")),
+                ListRow("bad", "paper_enabled", sub="Off", tag=Tag("off", "bad")),
+                ListRow("bad", "broker_write_enabled", sub="Off", tag=Tag("off", "bad"), last=True),
                 Disclosure("Raw authority flags", "execution_allowed=false; staged_execution_enabled=false; paper_enabled=false; broker_write_enabled=false"),
             ],
             spacing=8,
@@ -591,13 +592,11 @@ def onboarding_page(
     row_a = ft.Row(
         [setup_steps, active_card],
         spacing=24,
-        expand=6,
         vertical_alignment=ft.CrossAxisAlignment.STRETCH,
     )
     row_b = ft.Row(
         [authority, readiness, policy],
         spacing=24,
-        expand=4,
         vertical_alignment=ft.CrossAxisAlignment.STRETCH,
     )
     body = ft.Column([row_a, row_b], spacing=24, expand=True, scroll=ft.ScrollMode.AUTO)

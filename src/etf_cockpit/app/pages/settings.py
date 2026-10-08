@@ -108,14 +108,6 @@ def _field(
     return Field(label, control=control, expand=True)
 
 
-def _credential_management_marker() -> ft.Control:
-    """Evidence row kept from the staged placeholder: bulk credential management stays tracked under ISSUE-0176."""
-    marker = Note("Credential actions replace the unavailable credentials management placeholder.", key="settings.manage-credentials")
-    marker.disabled = True
-    marker.tooltip = "Bulk credential management remains unavailable until ISSUE-0176."
-    return marker
-
-
 def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
     settings_bundle, migration_issues = load_settings_bundle_with_issues(ROOT)
     config = state.snapshot.config if state is not None and getattr(state, "snapshot", None) is not None else None
@@ -567,7 +559,7 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
                 ft.Row(
                     [
                         Button.primary("Save credential", on_click=save_provider_credential, key="settings.credential-save"),
-                        Button.secondary("Delete credential", on_click=delete_provider_credential, key="settings.credential-delete"),
+                        ft.TextButton("Delete credential", on_click=delete_provider_credential, key="settings.credential-delete"),
                     ],
                     spacing=12,
                     wrap=True,
@@ -577,7 +569,6 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
                 credential_recovery,
                 Disclosure("Credential vault details", credential_details),
                 Disclosure("Provider definitions and URLs", provider_details),
-                _credential_management_marker(),
             ],
             spacing=12,
             expand=True,
@@ -822,8 +813,8 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
 
     general_view = ft.Column(
         [
-            ft.Row([settings_centre, change_preview], spacing=24, expand=6),
-            ft.Row([guardrails, portfolio_targets], spacing=24, expand=4),
+            ft.Row([settings_centre, change_preview], spacing=24),
+            ft.Row([guardrails, portfolio_targets], spacing=24),
         ],
         spacing=24,
         expand=True,
@@ -831,12 +822,10 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
     )
     data_view = ft.Column(
         [
-            ft.Row([data_providers, model_settings_card], spacing=24, expand=6),
-            ft.Row([universe_manager, primary_universe], spacing=24, expand=4),
-            ft.Row([secondary_groups, asset_support], spacing=24, expand=4),
-            ft.Row([release_metadata, config_folder], spacing=24, expand=4),
-            ft.Row([offline_update, legal_terms], spacing=24, expand=4),
-            ft.Row([supply_chain, GlassCard("Settings status", body=ft.Column([status_note, Disclosure("Settings action details", status_details)], spacing=12), expand=True)], spacing=24, expand=4),
+            ft.Row([data_providers, model_settings_card], spacing=24),
+            ft.Row([universe_manager, primary_universe], spacing=24),
+            ft.Row([secondary_groups, asset_support], spacing=24),
+            ft.Row([config_folder], spacing=24),
         ],
         spacing=24,
         expand=True,
@@ -915,7 +904,7 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
                         recovery_key_field,
                         ft.Row(
                             [
-                                Button.primary("Create encrypted backup", on_click=create_backup, key="settings.backup-create"),
+                                Button.secondary("Create encrypted backup", on_click=create_backup, key="settings.backup-create"),
                                 Button.secondary("Validate latest backup", on_click=validate_backup, key="settings.backup-validate"),
                                 Button.secondary("Run recovery drill", on_click=recovery_drill, key="settings.recovery-drill"),
                             ],
@@ -924,13 +913,12 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
                         ),
                         Note("Backup destination is stored locally."),
                         deletion_field,
-                        Button.secondary("Delete private data", on_click=delete_private, key="settings.delete-private"),
+                        ft.TextButton("Delete private data", on_click=delete_private, key="settings.delete-private"),
                         privacy_note,
                         Disclosure("Backup destination and recovery details", ft.Column([ft.Text(str(backup_archive)), privacy_details], spacing=8)),
                     ],
                     spacing=16,
                 ),
-                expand=True,
             ),
         ],
         spacing=24,
@@ -938,7 +926,20 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
         scroll=ft.ScrollMode.AUTO,
     )
 
-    views = {"General": general_view, "Data & models": data_view, "Privacy": privacy_view}
+    about_view = ft.Column(
+        [
+            ft.Row([release_metadata, offline_update], spacing=24),
+            ft.Row([legal_terms, supply_chain], spacing=24),
+            ft.Row(
+                [GlassCard("Settings status", body=ft.Column([status_note, Disclosure("Settings action details", status_details)], spacing=12))],
+                spacing=24,
+            ),
+        ],
+        spacing=24,
+        expand=True,
+        scroll=ft.ScrollMode.AUTO,
+    )
+    views = {"General": general_view, "Data & models": data_view, "Privacy": privacy_view, "About": about_view}
     body_slot = ft.Container(content=general_view, expand=True)
 
     def select_view(value: str) -> None:
@@ -949,11 +950,11 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
     return PageView(
         chrome=PageChrome(
             title="Settings",
-            subtitle="Local preferences, credentials and release metadata - no provider, broker or live authority",
+            subtitle="Local preferences, credentials and release metadata · no provider, broker or live authority",
             segment_groups=(
                 SegmentGroup(
                     "settings",
-                    ("General", "Data & models", "Privacy"),
+                    ("General", "Data & models", "Privacy", "About"),
                     "General",
                     on_change=select_view,
                 ),

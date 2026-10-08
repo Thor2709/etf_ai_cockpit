@@ -37,7 +37,7 @@ def test_renders_with_sample_data():
     result = settings_page(None, _state())
     assert isinstance(result, PageView)
     visible_text = [_text(result.body)]
-    for view_name in ("Data & models", "Privacy"):
+    for view_name in ("Data & models", "Privacy", "About"):
         result.chrome.segment_groups[0].on_change(view_name)
         visible_text.append(_text(result.body))
     text = "\n".join(visible_text)
@@ -63,7 +63,8 @@ def test_renders_with_sample_data():
             "Privacy, backup and recovery",
         )
     )
-    assert "About" not in text
+    assert result.chrome.segment_groups[0].items == ("General", "Data & models", "Privacy", "About")
+    assert result.chrome.segment_groups[0].on_change is not None
     assert "Traceback" not in text
 
 

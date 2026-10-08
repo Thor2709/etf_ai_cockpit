@@ -32,6 +32,7 @@ def test_renders_with_sample_data():
     result = onboarding_page(None, _sample_state())
     assert isinstance(result, PageView)
     text = _text(result)
+    assert all(title in text for title in ("Data source", "Watchlist", "Review & save"))
     assert all(
         title in text
         for title in (
@@ -49,3 +50,39 @@ def test_empty_data_shows_unavailable():
     result = onboarding_page(None, None)
     assert "Unavailable" in _text(result)
     assert not any(getattr(control, "value", None) == "0" for control in _walk(result.body))
+
+
+def test_setup_cards_build_with_bounded_scroll_layout():
+    result = onboarding_page(None, _sample_state())
+    controls = list(_walk(result.body))
+    cards = {
+        (getattr(control, "data", None) or {}).get("title")
+        for control in controls
+        if (getattr(control, "data", None) or {}).get("kit") == "GlassCard"
+    }
+    assert {"Setup steps", "Authority boundary", "Hardware and resource readiness", "Data source policy"} <= cards
+    for control in controls:
+        if isinstance(control, ft.Column) and control.scroll == ft.ScrollMode.AUTO:
+            assert all(not getattr(child, "expand", False) for child in control.controls)
+            assert not any(type(child).__name__ == "ListView" for child in control.controls)
+
+    stepper = next(
+        control for control in controls
+        if isinstance(getattr(control, "data", None), dict) and control.data.get("kit") == "Stepper"
+    )
+    watchlist_step = [
+        control for control in _walk(stepper)
+        if isinstance(getattr(control, "data", None), dict)
+        and control.data.get("kit") == "StepperStep"
+        and control.data.get("index") == 2
+    ][0]
+    open_watchlist = next(
+        control for control in _walk(watchlist_step)
+        if isinstance(getattr(control, "data", None), dict)
+        and control.data.get("kit") == "Button"
+        and control.data.get("text") == "Open"
+    )
+    open_watchlist.on_click(None)
+    checkbox = next(control for control in _walk(result.body) if isinstance(control, ft.Checkbox))
+    assert checkbox.disabled is True
+    assert checkbox.value is False

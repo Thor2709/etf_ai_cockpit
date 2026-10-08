@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+import flet as ft
+
 from etf_cockpit.app.components.shell.page_view import PageView
 from etf_cockpit.app.pages.diagnostics import diagnostics_page
 from etf_cockpit.app.state import AppState
@@ -30,6 +32,11 @@ def _text(control):
     )
 
 
+def _metadata(control):
+    data = getattr(control, "data", None)
+    return data if isinstance(data, dict) else {}
+
+
 def test_renders_with_sample_data():
     result = diagnostics_page(None, _state())
     assert isinstance(result, PageView)
@@ -55,3 +62,23 @@ def test_empty_data_shows_unavailable():
             for cell in _walk(control):
                 value = getattr(cell, "value", None) or getattr(cell, "text", None)
                 assert value != "0"
+
+
+def test_performance_card_builds_with_bounded_layout_and_axis_names():
+    result = diagnostics_page(None, _state())
+    controls = list(_walk(result.body))
+    card = next(
+        control for control in controls
+        if _metadata(control).get("title") == "Performance and recovery"
+    )
+    tile_titles = {
+        _metadata(control).get("label")
+        for control in _walk(card)
+        if _metadata(control).get("kit") == "KpiTile"
+    }
+    assert {"Durations", "Slow steps", "Cache hits", "Misses", "Invalidations"} <= tile_titles
+    assert any("Step (name)" in str(getattr(control, "value", "")) for control in controls)
+    for control in controls:
+        if isinstance(control, ft.Column) and control.scroll == ft.ScrollMode.AUTO:
+            assert all(not getattr(child, "expand", False) for child in control.controls)
+            assert not any(type(child).__name__ == "ListView" for child in control.controls)
