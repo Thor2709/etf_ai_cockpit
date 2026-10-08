@@ -1077,7 +1077,7 @@ def backtests_page(page: ft.Page, state: AppState) -> PageView:
             frame["date"].tolist() if not frame.empty else [],
             series,
             [value * 100 if value is not None else None for value in frame["drawdown"].tolist()] if "drawdown" in frame else [],
-            price_name="Equity (start = 100)",
+            price_name="Equity (index pts)",
             unavailable_reason="No saved equity and drawdown series are available." if not series or frame.empty else None,
             insight=equity_insight,
         )
@@ -1094,13 +1094,34 @@ def backtests_page(page: ft.Page, state: AppState) -> PageView:
         ("turnover", "Turnover"),
         ("cost_drag", "Cost drag"),
     )
+    strategy_columns = [TableColumn(key, label, numeric=label != "Strategy") for key, label in strategy_keys]
+    def normalized_strategy_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+        normalized = []
+        for row in rows:
+            cells = {}
+            for key, _ in strategy_keys:
+                value = row.get(key)
+                if value is None or (isinstance(value, str) and value.strip().casefold() in {"", "none", "null", "nan", "nat"}):
+                    cells[key] = None
+                    continue
+                try:
+                    cells[key] = None if pd.isna(value) else value
+                except (TypeError, ValueError):
+                    cells[key] = value
+            normalized.append(cells)
+        return normalized
+
+    strategy_rows = sorted(
+        normalized_strategy_rows(strategy_rows),
+        key=lambda row: str(row.get("strategy_name") or "").casefold(),
+    )
     strategy_table = DataTable(
-        [TableColumn(key, label, numeric=label != "Strategy") for key, label in strategy_keys],
-        [{key: row.get(key) for key, _ in strategy_keys} for row in strategy_rows],
+        strategy_columns,
+        strategy_rows,
+        sort_key="strategy_name",
         empty_title="No strategy results",
         empty_reason="No saved strategy results are available for this snapshot.",
     )
-    strategy_columns = [TableColumn(key, label, numeric=label != "Strategy") for key, label in strategy_keys]
     export_status = Note("CSV export status is unavailable.")
     strategy_body = ft.Column(spacing=8)
 
@@ -1116,7 +1137,8 @@ def backtests_page(page: ft.Page, state: AppState) -> PageView:
             search_field,
             DataTable(
                 strategy_columns,
-                filtered_rows,
+                sorted(normalized_strategy_rows(filtered_rows), key=lambda row: str(row.get("strategy_name") or "").casefold()),
+                sort_key="strategy_name",
                 empty_title="No matching strategy results",
                 empty_reason="No saved strategy row matches this search.",
             ),
@@ -1154,8 +1176,8 @@ def backtests_page(page: ft.Page, state: AppState) -> PageView:
     comparison_chart = ck.scatter_bubble(
         scatter_points,
         groups=[("strategy", theme.CHART_PRIMARY)],
-        x_name="Max drawdown",
-        y_name="CAGR",
+        x_name="Max drawdown (%)",
+        y_name="CAGR (%)",
         x_unit="%",
         y_unit="%",
         unavailable_reason="No saved strategy rows contain both CAGR and maximum drawdown." if not scatter_points else None,
@@ -1173,8 +1195,8 @@ def backtests_page(page: ft.Page, state: AppState) -> PageView:
         tail_categories,
         tail_values,
         kinds=["neg" if value is not None else "blue" for value in tail_values],
-        x_name="Window",
-        y_name="Return",
+        x_name="Window length (days)",
+        y_name="Return (%)",
         unit="%",
         unavailable_reason="No saved worst-window return metrics are available." if not any(value is not None for value in tail_values) else None,
         insight=tail_insight,
@@ -1326,7 +1348,7 @@ def backtests_page(page: ft.Page, state: AppState) -> PageView:
 
     strategy_row = ft.Row(
         [
-            GlassCard("Equity and drawdown", note="After costs · next-session execution", insight=equity_insight, menu=CardMenu([("Export equity/drawdown CSV", export_backtest)]), body=ft.Column([equity_chart_holder, Button.secondary("Export equity/drawdown CSV", export_backtest, key="backtests.export-equity-drawdown"), Disclosure("Export status", export_status)], spacing=8), expand=True),
+            GlassCard("Equity and drawdown", note="After costs · index starts at 100 · next-session execution", insight=equity_insight, menu=CardMenu([("Export equity/drawdown CSV", export_backtest)]), body=ft.Column([equity_chart_holder, Button.secondary("Export equity/drawdown CSV", export_backtest, key="backtests.export-equity-drawdown"), Disclosure("Export status", export_status)], spacing=8), expand=True),
             GlassCard("Strategy diagnostics", note="After-cost results vs. baselines", menu=CardMenu([("Export strategy results CSV", export_strategy_results)]), body=strategy_body, expand=True),
         ],
         spacing=16,
@@ -1388,7 +1410,7 @@ def backtests_page(page: ft.Page, state: AppState) -> PageView:
                 ],
                 spacing=16,
             ),
-            Disclosure("Backtest logs", "Backtest logs are written to data/backtests/ for audit. Diagnostics are local deterministic estimates, not proof of future performance."),
+            Note("Backtest logs are written to data/backtests/ for audit. Diagnostics are local deterministic estimates, not proof of future performance."),
             Disclosure("Operational execution evidence", str(latest_operational_rows) if latest_operational_rows else "No exact operational evidence is available."),
         ],
         spacing=16,

@@ -56,3 +56,13 @@ def test_empty_data_shows_unavailable(monkeypatch) -> None:
     values = _text(rendered)
     assert "Unavailable" in " ".join(values)
     assert not any(value.strip() == "0" for value in values)
+
+
+def test_missing_preview_values_are_dashes_and_coverage_card_is_bounded(monkeypatch) -> None:
+    source = pd.DataFrame({"decision_timestamp": ["null"], "feature-a": [float("nan")]})
+    rendered = _render(monkeypatch, source)
+    values = _text(rendered)
+    assert "—" in values
+    assert not any(value.strip().casefold() in {"nan", "null", "0.0"} for value in values)
+    assert "Training data preview" in values and "Feature coverage" in values
+    assert not any(isinstance(item, ft.ListView) and item.expand for item in _walk(rendered.body))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import flet as ft
+import pandas as pd
 
 from etf_cockpit.app.components import chartkit as ck
 from etf_cockpit.app.components.kit import (
@@ -32,8 +33,13 @@ def feature_catalogue_page(page: ft.Page, state: AppState) -> PageView:
     def display_value(value: object) -> str:
         if value is None:
             return "—"
+        try:
+            if pd.isna(value):
+                return "—"
+        except (TypeError, ValueError):
+            pass
         text = str(value).strip()
-        return text if text.casefold() not in {"", "none", "nan", "nat"} else "—"
+        return text if text.casefold() not in {"", "none", "null", "nan", "nat"} else "—"
 
     feature_rows = [
         {
@@ -61,17 +67,18 @@ def feature_catalogue_page(page: ft.Page, state: AppState) -> PageView:
         raw_coverage = coverage.get("coverage", {})
         coverage_values = raw_coverage if isinstance(raw_coverage, dict) else {}
         preview_reason = "No feature preview rows are available in the local snapshot."
-        preview_columns = [TableColumn("decision_timestamp", "Decision timestamp"), *[TableColumn(str(item.feature_id), str(item.feature_id)) for item in catalogue]]
+        preview_columns = [TableColumn("decision_timestamp", "Decision time"), *[TableColumn(str(item.feature_id), str(item.feature_id)) for item in catalogue]]
         preview_rows = []
         if hasattr(source, "empty") and not source.empty:
             preview_rows = [
-                {key: row.get(key) for key in ("decision_timestamp", *(item.feature_id for item in catalogue))}
+                {key: display_value(row.get(key)) for key in ("decision_timestamp", *(item.feature_id for item in catalogue))}
                 for row in source.head(8).to_dict(orient="records")
             ]
     coverage_items = sorted(coverage_values.items())
-    coverage_values_ordered = [value * 100 if value is not None else None for _, value in coverage_items]
-    coverage_kinds = ["gold" if value is not None and value < 80 else "blue" for value in coverage_values_ordered]
-    available_coverage = [(name, value) for name, value in coverage_items if value is not None and format_percent(value, unavailable="")]
+    coverage_values_ordered = [value * 100 if value is not None and not pd.isna(value) else None for _, value in coverage_items]
+    covered_values = [value if value is not None and value >= 80 else None for value in coverage_values_ordered]
+    low_coverage_values = [value if value is not None and value < 80 else None for value in coverage_values_ordered]
+    available_coverage = [(name, value) for name, value in coverage_items if value is not None and not pd.isna(value) and format_percent(value, unavailable="")]
     lowest_name, lowest_value = min(available_coverage, key=lambda item: item[1]) if available_coverage else (None, None)
     lowest_insight = (
         f"{lowest_name} has the lowest coverage ({format_percent(lowest_value, unavailable='—')})."
@@ -113,13 +120,16 @@ def feature_catalogue_page(page: ft.Page, state: AppState) -> PageView:
     coverage_card = GlassCard(
         "Feature coverage",
         insight=lowest_insight,
-        body=ck.bar_chart(
+        body=ck.grouped_bar_chart(
             [name for name, _ in coverage_items],
-            coverage_values_ordered,
-            kinds=coverage_kinds,
+            [
+                ck.BarSeries("Coverage at least 80%", covered_values, kind="blue"),
+                ck.BarSeries("Coverage below 80%", low_coverage_values, kind="gold"),
+            ],
             x_name="Feature",
-            y_name="Coverage",
+            y_name="Coverage (%)",
             unit="%",
+            label_size=9,
             unavailable_reason="No feature coverage result is available from the current snapshot." if not available_coverage else None,
             insight=lowest_insight,
         ),

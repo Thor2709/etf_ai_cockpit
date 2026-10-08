@@ -400,8 +400,8 @@ def training_centre_page(page: ft.Page, state: object) -> PageView:
             ck.line_chart(
                 steps,
                 metric_series,
-                x_name="Step",
-                y_name=metric_name,
+                x_name="Step (count)",
+                y_name=f"{metric_name} (reported unit)",
                 unavailable_reason=load_reason or ("No metrics have been recorded." if not metrics else "No recorded metric values include a step.") if not metric_series else None,
                 empty_title="No metrics have been recorded.",
                 insight=metric_insight,
@@ -412,8 +412,8 @@ def training_centre_page(page: ft.Page, state: object) -> PageView:
             ck.line_chart(
                 [],
                 [],
-                x_name="Step",
-                y_name="Metric",
+                x_name="Step (count)",
+                y_name="Metric (reported unit)",
                 unavailable_reason=load_reason or "No metrics have been recorded.",
                 empty_title="No metrics have been recorded.",
                 insight="Unavailable: no saved training metrics are available.",
@@ -507,7 +507,7 @@ def training_centre_page(page: ft.Page, state: object) -> PageView:
             ft.Row(
                 [
                     Button.secondary("Retain trial evidence", on_click=retain, disabled=not can_retain, disabled_reason="Local price history is unavailable." if not can_retain else None, key="training-centre.record-evidence"),
-                    Button.secondary("Refresh validation report", on_click=refresh, key="training-centre.validation-refresh"),
+                    ft.TextButton("Refresh validation report", on_click=refresh, key="training-centre.validation-refresh"),
                 ],
                 spacing=8,
             ),
@@ -531,8 +531,10 @@ def training_centre_page(page: ft.Page, state: object) -> PageView:
     optimisation_chart = ck.scatter_bubble(
         trial_points,
         groups=[("completed", theme.CHART_POS), ("pruned", theme.MUTED), ("failed", theme.CHART_NEG)],
-        x_name="Trial",
-        y_name="Objective",
+        x_name="Trial (count)",
+        y_name="Objective (reported unit)",
+        x_unit="trials",
+        y_unit="reported unit",
         unavailable_reason="No bounded optimisation rows with recorded trial and objective values are available." if not trial_points else None,
         insight=optimisation_insight,
     )
@@ -597,37 +599,25 @@ def training_centre_page(page: ft.Page, state: object) -> PageView:
     )
     runs_row = ft.Row(
         [
-            GlassCard("Run list", note="Queued, running, completed, failed, cancelled", body=ft.Column([Button.secondary("Refresh", on_click=refresh, key="training-centre.refresh"), run_table], spacing=8), expand=True),
+            GlassCard("Run list", note="Queued, running, completed, failed, cancelled", body=ft.Column([ft.TextButton("Refresh", on_click=refresh, key="training-centre.refresh"), run_table], spacing=8), expand=True),
             GlassCard("Live metrics", insight=metrics_insight, body=metrics_chart, expand=True),
         ],
         spacing=16,
-        vertical_alignment=ft.CrossAxisAlignment.START,
+        vertical_alignment=ft.CrossAxisAlignment.STRETCH,
     )
-    validation_row = ft.Row(
-        [GlassCard("Validation Designer", insight=f"Retained report contains {len(fold_rows)} walk-forward folds." if fold_chart_ready else "Unavailable: retained validation fold data are incomplete.", body=validation_body, expand=True)],
+    validation_card = GlassCard("Validation Designer", insight=f"Retained report contains {len(fold_rows)} walk-forward folds." if fold_chart_ready else "Unavailable: retained validation fold data are incomplete.", body=validation_body, expand=True)
+    optimisation_card = GlassCard("Bounded optimisation", insight=optimisation_insight, body=ft.Column([optimisation_chart, Disclosure("Trial and resource details", str(opt_summaries[-1]) if opt_summaries else "No bounded optimisation runs have been recorded.")], spacing=8), expand=True)
+    detail_row = ft.Row(
+        [validation_card, optimisation_card],
         spacing=16,
-        vertical_alignment=ft.CrossAxisAlignment.START,
-        visible=False,
+        vertical_alignment=ft.CrossAxisAlignment.STRETCH,
     )
-    optimisation_row = ft.Row(
-        [GlassCard("Bounded optimisation", insight=optimisation_insight, body=ft.Column([optimisation_chart, Disclosure("Trial and resource details", str(opt_summaries[-1]) if opt_summaries else "No bounded optimisation runs have been recorded.")], spacing=8), expand=True)],
-        spacing=16,
-        visible=False,
-    )
-
-    def show_view(value: str) -> None:
-        runs_row.visible = value == "Runs"
-        validation_row.visible = value == "Validation"
-        optimisation_row.visible = value == "Optimisation"
-        if callable(getattr(page, "update", None)):
-            page.update()
 
     body = ft.Column(
         [
             kpi,
             runs_row,
-            validation_row,
-            optimisation_row,
+            detail_row,
             ft.Row(
                 [
                     synthetic,
@@ -635,7 +625,7 @@ def training_centre_page(page: ft.Page, state: object) -> PageView:
                     GlassCard("Final reports and replay", body=Disclosure("Final report details", str(latest_report_lines) if latest_report_lines else "No completion reports are available."), expand=True),
                 ],
                 spacing=16,
-                vertical_alignment=ft.CrossAxisAlignment.START,
+                vertical_alignment=ft.CrossAxisAlignment.STRETCH,
             ),
             Note("execution_allowed=false · promotion requires recorded human approval"),
         ],
@@ -643,6 +633,13 @@ def training_centre_page(page: ft.Page, state: object) -> PageView:
         expand=True,
         scroll=ft.ScrollMode.AUTO,
     )
+
+    def show_view(value: str) -> None:
+        detail_row.controls = [optimisation_card, validation_card] if value == "Optimisation" else [validation_card, optimisation_card]
+        body.controls[1:3] = [detail_row, runs_row] if value in {"Validation", "Optimisation"} else [runs_row, detail_row]
+        if callable(getattr(page, "update", None)):
+            page.update()
+
     return PageView(
         chrome=PageChrome("Training Centre", "Experiments, runs, metrics and model cards · promotion needs recorded human approval", (SegmentGroup("training-centre", ("Runs", "Validation", "Optimisation"), "Runs", on_change=show_view),)),
         body=body,

@@ -59,3 +59,19 @@ def test_empty_data_shows_unavailable(monkeypatch) -> None:
     values = _text(rendered)
     assert "Unavailable" in " ".join(values)
     assert not any(value.strip() == "0" for value in values)
+
+
+def test_cards_are_side_by_side_and_refresh_controls_are_text_buttons(monkeypatch) -> None:
+    data = {key: () for key in ("training.run", "training.model", "training.metric", "validation.report", "validation.trial", "validation.researcher_decision", "validation.promotion_result")}
+    rendered = _render(monkeypatch, data)
+    values = _text(rendered)
+    buttons = [item for item in _walk(rendered.body) if isinstance(item, ft.TextButton)]
+    assert {item.key for item in buttons} >= {"training-centre.refresh", "training-centre.validation-refresh"}
+    assert "Validation Designer" in values and "Bounded optimisation" in values
+    rows = [item for item in _walk(rendered.body) if isinstance(item, ft.Row) and len(item.controls) == 2 and all(isinstance(child, ft.Container) for child in item.controls)]
+    assert any(item.vertical_alignment == ft.CrossAxisAlignment.STRETCH for item in rows)
+    rendered.chrome.segment_groups[0].on_change("Validation")
+    assert _text(rendered).index("Validation Designer") < _text(rendered).index("Run list")
+    rendered.chrome.segment_groups[0].on_change("Optimisation")
+    assert _text(rendered).index("Bounded optimisation") < _text(rendered).index("Validation Designer")
+    assert not any(isinstance(item, ft.ListView) and item.expand for item in _walk(rendered.body))
