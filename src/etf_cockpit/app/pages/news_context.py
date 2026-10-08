@@ -67,7 +67,7 @@ def news_context_page(page: ft.Page, state: AppState) -> PageView:
         for row in contradictions
     ]
     contradiction_card = kit.GlassCard(
-        "News contradictions",
+        "News/macro contradictions",
         "context rules",
         body=(
             ft.Column(contradiction_rows, spacing=8)
@@ -77,19 +77,19 @@ def news_context_page(page: ft.Page, state: AppState) -> PageView:
     )
 
     inventory_columns = (
-        ("published_at", "Published"),
-        ("available_at_decision_time", "Available at decision time"),
+        ("published_at", "Date"),
+        ("instrument_id", "Instrument"),
         ("title", "Headline"),
         ("provider_name", "Source"),
-        ("credibility", "Credibility"),
-        ("instrument_mapping_method", "Instrument mapping"),
-        ("timestamp_status", "Timestamp status"),
+        ("instrument_mapping_method", "Mapping confidence"),
+        ("direction", "Direction"),
     )
     inventory_rows = [
         {
             field: (
-                kit.Tag(display_value(row.get(source)).replace("_", " ").title(), "warn")
-                if source == "timestamp_status" and display_value(row.get(source)) != "—"
+                kit.Tag(display_value(row.get(source)).replace("_", " ").title(), "mute")
+                if field == "direction" and display_value(row.get(source)) != "—"
+                else "—" if field == "instrument_mapping_method"
                 else display_value(row.get(source)) if source in row else "—"
             )
             for field, source in inventory_columns
@@ -97,7 +97,7 @@ def news_context_page(page: ft.Page, state: AppState) -> PageView:
         for row in frame.to_dict(orient="records")
     ]
     inventory = kit.GlassCard(
-        "News inventory",
+        "News/context inventory",
         "point-in-time context",
         body=(
             kit.DataTable(
@@ -108,6 +108,12 @@ def news_context_page(page: ft.Page, state: AppState) -> PageView:
             else kit.EmptyState("Unavailable", "No local news or context rows are registered.")
         ),
     )
+    filter_note = kit.Note("Showing all news and context")
+
+    def select_filter(value: str) -> None:
+        filter_note.value = f"Showing {value.casefold()} news and context"
+        if getattr(page, "update", None):
+            page.update()
     note_review = legacy_action_panel(
         page,
         trust_evidence._news_context_extra(state, page),
@@ -153,17 +159,18 @@ def news_context_page(page: ft.Page, state: AppState) -> PageView:
     return PageView(
         PageChrome(
             "News & Context",
-            "Free and manual news context evidence. News is non-executable and cannot directly change scores or actions.",
+            "Dated news and context evidence · never changes scores or actions",
             segment_groups=(
                 SegmentGroup(
                     "news_filter",
                     ("All", "Positive", "Negative", "Contradictions"),
                     "All",
+                    on_change=select_filter,
                 ),
             ),
         ),
         ft.Column(
-            [timeline_card, contradiction_card, inventory, note_review, evidence],
+            [filter_note, timeline_card, contradiction_card, inventory, note_review, evidence],
             spacing=16,
             expand=True,
             scroll=ft.ScrollMode.AUTO,

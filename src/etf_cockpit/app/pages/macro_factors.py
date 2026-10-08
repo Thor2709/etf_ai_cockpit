@@ -48,28 +48,37 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
     breadth = macro_context.get("breadth", {})
     volatility = macro_context.get("volatility", {})
     inflation = macro_context.get("inflation_rates", {})
+    breadth_value = _numeric_value(breadth.get("pct_above_sma200"))
+    volatility_value = _numeric_value(volatility.get("median_annualised"))
+    view_state = {"view": "Regime", "horizon": "1Y"}
+    view_note = kit.Note("View: Regime · Horizon: 1Y")
+    view_sections: dict[str, ft.Control] = {}
+
+    def change_view(value: str) -> None:
+        view_state["view"] = value
+        view_note.value = f"View: {value} · Horizon: {view_state['horizon']}"
+        for name, section in view_sections.items():
+            section.visible = name == value
+        if page is not None:
+            page.update()
+
+    def change_horizon(value: str) -> None:
+        view_state["horizon"] = value
+        view_note.value = f"View: {view_state['view']} · Horizon: {value}"
+        if page is not None:
+            page.update()
 
     regime_rows = [
-        kit.ListRow(
-            "info",
-            "Regime",
-            sub=str(regime.get("label") or "Unavailable"),
-            tag=kit.Tag(
-                "Available" if regime.get("label") else "Unavailable",
-                "ok" if regime.get("label") else "warn",
-            ),
-        ),
-        kit.ListRow(
-            "info",
+        kit.Headline(str(regime.get("label") or "Unavailable"), 54),
+        kit.KpiTile(
             "Breadth above SMA200",
-            sub=_format_metric(breadth.get("pct_above_sma200")),
-            tag=kit.Tag("Context only", "mute"),
+            _format_metric(breadth_value) if breadth_value is not None else None,
+            "Local breadth observation unavailable." if breadth_value is None else "Context only",
         ),
-        kit.ListRow(
-            "info",
-            "Median annualised volatility",
-            sub=_format_metric(volatility.get("median_annualised")),
-            tag=kit.Tag("Context only", "mute"),
+        kit.KpiTile(
+            "Median annualised vol",
+            _format_metric(volatility_value) if volatility_value is not None else None,
+            "Local volatility observation unavailable." if volatility_value is None else "Context only",
         ),
     ]
     proxy_details = [
@@ -87,7 +96,7 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
                 *regime_rows,
                 kit.Disclosure(
                     "Proxy details",
-                    "\n".join(proxy_details) if proxy_details else unavailable,
+                    "\r\n".join(proxy_details) if proxy_details else unavailable,
                 ),
                 kit.Note("Context only. No score, forecast or execution authority is created."),
             ],
@@ -133,8 +142,8 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
                     ck.line_chart(
                         dates,
                         chart_series,
-                        x_name="Observation period",
-                        y_name="Observed value",
+                        x_name="Date",
+                        y_name=f"Value ({unit})",
                         unavailable_reason=(
                             None
                             if has_values
@@ -153,6 +162,8 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
                 ck.line_chart(
                     [],
                     [],
+                    x_name="Date",
+                    y_name="Value (unit unavailable)",
                     unavailable_reason=str(unavailable),
                     empty_title="Unavailable",
                     insight="Local macro and factor observations available at the recorded decision time.",
@@ -161,14 +172,14 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
             )
         ]
     series_card = kit.GlassCard(
-        "Macro series chart",
+        "Macro series",
         "point-in-time observations grouped by unit",
         body=ft.Column(chart_wells, spacing=8),
     )
 
     curve_status = str(curve_coverage.get("status") or "unavailable")
     curve_card = kit.GlassCard(
-        "Risk-free curves and benchmarks",
+        "Risk-free curves and lawful benchmarks",
         "coverage",
         body=ft.Column(
             [
@@ -181,7 +192,7 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
                 ),
                 kit.Disclosure(
                     "Curve and benchmark detail",
-                    "\n".join(
+                    "\r\n".join(
                         (
                             f"Decision time: {curve_coverage.get('decision_time') or decision_time}",
                             f"Curve identifiers: {', '.join(curve_coverage.get('curve_ids') or ()) or 'Unavailable'}",
@@ -205,6 +216,9 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
                 "series": str(row.series_id),
                 "period": str(row.period_start),
                 "value": display_value(row.value),
+                "observed": display_value(row.observed_at),
+                "available_at": display_value(row.available_at),
+                "vintage": display_value(row.revision),
                 "unit": str(row.unit or "—"),
                 "freshness": kit.Tag(
                     display_value(row.freshness_status).replace("_", " ").title(),
@@ -212,7 +226,7 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
                 ),
                 "detail": kit.Disclosure(
                     "Observation provenance",
-                    "\n".join(
+                    "\r\n".join(
                         (
                             f"Source: {row.source_id or 'Unavailable'}",
                             f"Authority: {row.source_authority or 'Unavailable'}",
@@ -228,18 +242,17 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
             }
         )
     observations_card = kit.GlassCard(
-        "Latest observations",
+        "Latest local observations",
         "selected local values",
         body=(
             kit.DataTable(
                 [
-                    kit.TableColumn("dataset", "Dataset"),
                     kit.TableColumn("series", "Series"),
-                    kit.TableColumn("period", "Period"),
                     kit.TableColumn("value", "Value", numeric=True),
                     kit.TableColumn("unit", "Unit"),
-                    kit.TableColumn("freshness", "Freshness"),
-                    kit.TableColumn("detail", "Provenance", sortable=False),
+                    kit.TableColumn("observed", "Observed"),
+                    kit.TableColumn("available_at", "Available at"),
+                    kit.TableColumn("vintage", "Vintage"),
                 ],
                 latest_rows,
             )
@@ -296,7 +309,7 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
             ),
             "detail": kit.Disclosure(
                 "Scenario evidence",
-                "\n".join(
+                "\r\n".join(
                     (
                         f"Evidence: {row.get('evidence_id') or 'Unavailable'}",
                         f"Source: {row.get('source_id') or 'Unavailable'}",
@@ -329,17 +342,24 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
             else kit.EmptyState("Unavailable", "No local macro scenario links are available.")
         ),
     )
+    view_sections.update(
+        {
+            "Regime": ft.Column([regime_card, series_card], spacing=8),
+            "Rates & inflation": ft.Column([curve_card, rates_card, observations_card], spacing=8),
+            "Scenarios": scenarios_card,
+        }
+    )
+    for name, section in view_sections.items():
+        section.visible = name == "Regime"
     body = ft.Column(
         [
+            view_note,
             kit.Button.secondary(
                 "Refresh local macro/news context",
                 on_click=refresh_context if page is not None else None,
                 key="macro.refresh-context",
             ),
-            ft.Column([regime_card, series_card], spacing=8),
-            ft.Column([curve_card, rates_card], spacing=8),
-            observations_card,
-            scenarios_card,
+            *view_sections.values(),
         ],
         spacing=16,
         expand=True,
@@ -348,10 +368,10 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
     return PageView(
         PageChrome(
             "Macro and Factors",
-            "Local, versioned macro, factor, risk-free and benchmark snapshots. Values are point-in-time context with no remote fetch or execution authority.",
+            "Local versioned macro, factor, risk-free and benchmark snapshots",
             segment_groups=(
-                SegmentGroup("macro_view", ("Regime", "Rates & inflation", "Scenarios"), "Regime"),
-                SegmentGroup("macro_horizon", ("3M", "1Y", "5Y"), "1Y"),
+                SegmentGroup("macro_view", ("Regime", "Rates & inflation", "Scenarios"), "Regime", on_change=change_view),
+                SegmentGroup("macro_horizon", ("3M", "1Y", "5Y"), "1Y", on_change=change_horizon),
             ),
         ),
         body,
@@ -361,6 +381,11 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
 def _format_metric(value: object) -> str:
     if value is None:
         return "Unavailable"
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return "Unavailable"
+    return f"{parsed:.2%}" if math.isfinite(parsed) else "Unavailable"
 
 
 def _numeric_value(value: object) -> float | None:
@@ -369,10 +394,6 @@ def _numeric_value(value: object) -> float | None:
     except (TypeError, ValueError):
         return None
     return parsed if math.isfinite(parsed) else None
-    try:
-        return f"{float(value):.2%}"
-    except (TypeError, ValueError):
-        return "Unavailable"
 
 
 __all__ = ["macro_factors_page"]

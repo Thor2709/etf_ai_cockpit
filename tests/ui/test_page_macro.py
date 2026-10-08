@@ -35,19 +35,22 @@ def test_renders_with_sample_data() -> None:
     rendered = macro_factors.macro_factors_page(None, _state())
 
     assert isinstance(rendered, PageView)
-    text = "\n".join(_texts(rendered))
+    text = "\r\n".join(_texts(rendered))
     assert all(
         title in text
         for title in (
             "Regime and proxy context",
-            "Macro series chart",
-            "Risk-free curves and benchmarks",
-            "Latest observations",
+            "Macro series",
+            "Risk-free curves and lawful benchmarks",
+            "Latest local observations",
             "Rates and inflation",
             "Scenario-linked macro evidence",
         )
     )
     assert "Traceback" not in text
+    rendered.chrome.segment_groups[0].on_change("Scenarios")
+    rendered.chrome.segment_groups[1].on_change("5Y")
+    assert "View: Scenarios · Horizon: 5Y" in "\r\n".join(_texts(rendered))
 
 
 def test_empty_data_shows_unavailable(monkeypatch) -> None:

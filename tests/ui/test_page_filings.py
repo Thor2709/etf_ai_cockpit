@@ -36,7 +36,7 @@ def test_renders_with_sample_data() -> None:
     rendered = filings.filings_page(None, _state())
 
     assert isinstance(rendered, PageView)
-    text = "\n".join(_texts(rendered))
+    text = "\r\n".join(_texts(rendered))
     assert all(
         title in text
         for title in (
@@ -47,6 +47,11 @@ def test_renders_with_sample_data() -> None:
         )
     )
     assert "Traceback" not in text
+    assert rendered.chrome.subtitle == "Official SEC, ESEF and national filing evidence · missing filings stay missing"
+    group = rendered.chrome.segment_groups[0]
+    assert callable(group.on_change)
+    group.on_change("Manual")
+    assert "Manual import controls" in "\r\n".join(_texts(rendered))
 
 
 def test_empty_data_shows_unavailable(monkeypatch) -> None:

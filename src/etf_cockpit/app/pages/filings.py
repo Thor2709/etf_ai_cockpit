@@ -41,7 +41,7 @@ def filings_page(page: ft.Page, state: AppState) -> PageView:
         )
     inventory = kit.GlassCard(
         "Filings inventory",
-        "official filing evidence",
+        f"{len(table_rows)} filings" if table_rows else "Unavailable",
         body=(
             kit.DataTable(
                 [kit.TableColumn(field, label) for field, label in inventory_columns],
@@ -78,7 +78,7 @@ def filings_page(page: ft.Page, state: AppState) -> PageView:
     )
     coverage_card = kit.GlassCard(
         "Jurisdiction coverage",
-        "matched and queued / unmatched",
+        "filings per jurisdiction",
         body=kit.Well(coverage_chart, expand=True),
     )
 
@@ -144,14 +144,21 @@ def filings_page(page: ft.Page, state: AppState) -> PageView:
         title="Filing evidence",
         key="filings.evidence",
     )
+    source_note = kit.Note("SEC import controls")
+
+    def select_source(value: str) -> None:
+        source_note.value = f"{value} import controls"
+        if getattr(page, "update", None):
+            page.update()
+
     actions = legacy_action_panel(
         page,
         trust_evidence._filing_import_controls(page, state),
         "Official filing import",
-        "SEC, ESEF, national OAM and manual official filing actions.",
+        "Network, entitlement and timing gaps stay explicit.",
     )
     body = ft.Column(
-        [actions, inventory, coverage_card, evidence],
+        [source_note, actions, inventory, coverage_card, evidence],
         spacing=16,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
@@ -159,9 +166,14 @@ def filings_page(page: ft.Page, state: AppState) -> PageView:
     return PageView(
         PageChrome(
             "Filings & Statements",
-            "Official SEC, ESEF and national filing evidence. Missing filings remain missing; vendor fundamentals cannot outrank official matched filings.",
+            "Official SEC, ESEF and national filing evidence · missing filings stay missing",
             segment_groups=(
-                SegmentGroup("filing_source", ("SEC", "ESEF", "National OAM", "Manual"), "SEC"),
+                SegmentGroup(
+                    "filing_source",
+                    ("SEC", "ESEF", "National OAM", "Manual"),
+                    "SEC",
+                    on_change=select_source,
+                ),
             ),
         ),
         body,

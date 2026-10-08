@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import flet as ft
 
+from etf_cockpit.app.components import chartkit as ck
 from etf_cockpit.app.components import kit
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
 from etf_cockpit.app.pages._l2_common import (
@@ -25,7 +26,7 @@ def etf_disclosures_page(page: ft.Page, state: AppState) -> PageView:
         ("source_id", "Source"),
         ("source_authority", "Authority"),
         ("as_of_date", "As of"),
-        ("coverage_status", "Coverage"),
+        ("coverage_status", "Status"),
     )
     rows = [
         {
@@ -44,7 +45,7 @@ def etf_disclosures_page(page: ft.Page, state: AppState) -> PageView:
     ]
     inventory = kit.GlassCard(
         "ETF disclosure inventory",
-        "registered document evidence",
+        f"{len(rows)} documents" if rows else "Unavailable",
         body=(
             kit.DataTable(
                 [kit.TableColumn(key, label) for key, label in fields],
@@ -61,10 +62,53 @@ def etf_disclosures_page(page: ft.Page, state: AppState) -> PageView:
         "ETF disclosure import",
         "Local factsheets, holdings, KIDs, reports, methodologies and SFDR evidence.",
     )
+    document_types = ("Factsheet", "KID", "Methodology", "SFDR", "Prospectus", "Annual", "Half-year", "Holdings")
+    raw_records = registry.to_dict(orient="records")
+    typed_records = {
+        label: [
+            row for row in raw_records
+            if str(row.get("document_type") or "").casefold().replace("_", " ") in _type_aliases(label)
+        ]
+        for label in document_types
+    }
+    available_counts = [
+        sum(str(row.get("coverage_status") or "").casefold() not in {"missing", "unavailable", "none"} for row in typed_records[label])
+        if typed_records[label] else None
+        for label in document_types
+    ]
+    missing_counts = [
+        sum(str(row.get("coverage_status") or "").casefold() == "missing" for row in typed_records[label])
+        if any(str(row.get("coverage_status") or "").casefold() == "missing" for row in typed_records[label])
+        else None
+        for label in document_types
+    ]
+    coverage_chart = ck.grouped_bar_chart(
+        document_types,
+        [
+            ck.BarSeries("Available", available_counts, kind="pos"),
+            ck.BarSeries("Missing", missing_counts, kind="neg"),
+        ],
+        x_name="Document type",
+        y_name="ETFs (count)",
+        unit="ETFs",
+        unavailable_reason="No ETF document coverage is registered locally." if not raw_records else None,
+        empty_title="Unavailable",
+    )
+    coverage = kit.GlassCard(
+        "Coverage by document type",
+        "ETFs with each document",
+        body=kit.Well(coverage_chart),
+    )
+    view_note = kit.Note("Documents import controls")
+
+    def select_view(value: str) -> None:
+        view_note.value = f"{value} import controls"
+        if getattr(page, "update", None):
+            page.update()
     evidence = kit.EvidenceTableSwitcher(
         [
             evidence_table(
-                "ETF report evidence",
+                "ETF report evidence (prospectus / annual / half-year)",
                 trust_evidence.ETF_REPORT_RECORDS_PATH,
                 ("instrument_id", "document_kind", "fund_name", "isin", "document_date", "reporting_period_end", "legal_structure", "securities_lending", "collateral_policy", "ongoing_costs", "holdings_count", "operational_risks", "source_authority", "extraction_status", "verification_status", "evidence_eligible", "score_eligible", "execution_allowed"),
                 technical=("source_sha256", "extraction_sha256", "execution_allowed"),
@@ -88,7 +132,7 @@ def etf_disclosures_page(page: ft.Page, state: AppState) -> PageView:
                 technical=("eligibility_rules", "weighting_rules", "caps", "source_pages", "warnings", "source_sha256"),
             ),
             evidence_table(
-                "SFDR disclosure evidence",
+                "Parsed SFDR disclosure evidence",
                 trust_evidence.SFDR_RECORDS_PATH,
                 ("instrument_id", "classification", "document_type", "document_date", "sustainable_characteristics", "taxonomy_alignment_pct", "source_authority", "manual_review", "score_eligible", "execution_allowed"),
                 technical=("warnings", "source_sha256", "execution_allowed"),
@@ -127,7 +171,7 @@ def etf_disclosures_page(page: ft.Page, state: AppState) -> PageView:
         key="disclosures.sfdr",
     )
     body = ft.Column(
-        [importer, inventory, sfdr_note, evidence],
+        [view_note, importer, inventory, coverage, sfdr_note, evidence],
         spacing=16,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
@@ -135,9 +179,9 @@ def etf_disclosures_page(page: ft.Page, state: AppState) -> PageView:
     return PageView(
         PageChrome(
             "ETF Disclosures",
-            "ETF factsheets, holdings, PRIIPs KIDs, SFDR disclosures, reports and index methodology inventory. Disclosure reviews are advisory only; score eligibility and execution authority remain disabled.",
+            "Factsheets, holdings, KIDs, SFDR, reports and methodology · advisory only",
             segment_groups=(
-                SegmentGroup("disclosure_view", ("Documents", "Reports", "Holdings", "SFDR"), "Documents"),
+                SegmentGroup("disclosure_view", ("Documents", "Reports", "Holdings", "SFDR"), "Documents", on_change=select_view),
             ),
         ),
         body,
@@ -145,3 +189,9 @@ def etf_disclosures_page(page: ft.Page, state: AppState) -> PageView:
 
 
 __all__ = ["etf_disclosures_page"]
+
+
+def _type_aliases(label: str) -> set[str]:
+    aliases = {label.casefold()}
+    aliases.add({"kid": "priips kid", "annual": "annual report", "half-year": "half year report"}.get(label.casefold(), label.casefold()))
+    return aliases
