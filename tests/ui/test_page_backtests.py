@@ -69,3 +69,27 @@ def test_empty_data_shows_unavailable() -> None:
     values = _text(rendered)
     assert "Unavailable" in " ".join(values)
     assert not any(value.strip() == "0" for value in values)
+
+
+def test_missing_strategy_metrics_are_dashes_and_empty_cards_are_bounded() -> None:
+    rendered = _render(pd.DataFrame([{
+        "strategy_name": "quality_only",
+        "cagr": float("nan"),
+        "volatility": None,
+        "sharpe": "null",
+        "sortino": "nan",
+        "max_drawdown": None,
+        "calmar": None,
+        "turnover": None,
+        "cost_drag": None,
+    }]))
+    values = _text(rendered)
+    assert "—" in values
+    assert "▲" in values
+    assert not any(value.strip().casefold() in {"0", "0.0", "nan", "null"} for value in values)
+    assert "Backtest logs" not in values
+    assert any("Backtest logs are written to data/backtests/" in value for value in values)
+    for title in ("Equity and drawdown", "Strategy diagnostics", "CAGR vs. max drawdown", "Tail-event diagnostics"):
+        assert title in values
+    controls = tuple(_walk(rendered.body))
+    assert not any(isinstance(item, ft.ListView) and item.expand for item in controls)

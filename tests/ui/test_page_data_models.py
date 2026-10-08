@@ -74,3 +74,12 @@ def test_empty_data_shows_unavailable() -> None:
     values = _text(rendered)
     assert "Unavailable" in " ".join(values)
     assert not any(value.strip() == "0" for value in values)
+
+
+def test_empty_price_chart_and_plugin_table_are_visible_and_bounded() -> None:
+    rendered = _page(SimpleNamespace(model_status={}, model_inventory=(), prices=pd.DataFrame()))
+    values = _text(rendered)
+    assert "Latest local price data" in values
+    assert "Unified plugin capability status" in values
+    assert "Capability details" not in values
+    assert not any(isinstance(item, ft.ListView) and item.expand for item in _walk(rendered.body))

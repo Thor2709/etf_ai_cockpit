@@ -858,7 +858,7 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
                     body=ft.Column(
                         [
                             Note("Days since last price"),
-                            ck.bar_chart([], [], x_name="Instrument", y_name="Days since last price", unit="days", unavailable_reason="A precomputed local freshness series is not available.", insight="Unavailable: the snapshot has no precomputed days-since-last-price series."),
+                            ck.bar_chart([], [], x_name="Instrument", y_name="Days since last price (days)", unit="days", unavailable_reason="A precomputed local freshness series is not available.", insight="Unavailable: the snapshot has no precomputed days-since-last-price series."),
                             price_table,
                         ],
                         spacing=8,
@@ -897,13 +897,13 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
                     ),
                     expand=True,
                 ),
-                GlassCard("Unified plugin capability status", body=Disclosure("Capability details", plugin_table), expand=True),
+                GlassCard("Unified plugin capability status", body=plugin_table, expand=True),
             ],
             spacing=16,
             vertical_alignment=ft.CrossAxisAlignment.START,
         ),
         ft.Row([GlassCard("Forecast artefacts", body=Disclosure("Local artefact details", "\n".join(str(path) for path in forecast_files) or "No forecast artefacts are available."), expand=True, key="Forecast artefacts"), GlassCard("Derived evidence artefacts", body=Disclosure("Local artefact details", "\n".join(str(path) for path in derived_files) or "No derived evidence artefacts are available."), expand=True)], spacing=16),
-        ft.Row([GlassCard("Market regime", body=Disclosure("Regime details", _market_regime_text()), expand=True), GlassCard("Forecast calibration", insight="Unavailable: saved calibration summaries do not provide reliability-curve points.", body=ft.Column([ck.line_chart([], [], x_name="Predicted probability", y_name="Observed frequency", unavailable_reason="No saved calibration reliability points are available.", empty_title="Forecast calibration unavailable", insight="Unavailable: saved calibration summaries do not provide reliability-curve points."), Disclosure("Calibration details", _calibration_text())], spacing=8), expand=True)], spacing=16),
+        ft.Row([GlassCard("Market regime", body=Disclosure("Regime details", _market_regime_text()), expand=True), GlassCard("Forecast calibration", insight="Unavailable: saved calibration summaries do not provide reliability-curve points.", body=ft.Column([ck.line_chart([], [], x_name="Predicted probability (proportion)", y_name="Observed frequency (proportion)", unavailable_reason="No saved calibration reliability points are available.", empty_title="Forecast calibration unavailable", insight="Unavailable: saved calibration summaries do not provide reliability-curve points."), Disclosure("Calibration details", _calibration_text())], spacing=8), expand=True)], spacing=16),
         ft.Row([GlassCard("Strategy templates", body=ft.Column([Disclosure("Template details", _strategy_template_text()), Disclosure("Monthly decision template", monthly_detail)], spacing=8), expand=True), GlassCard("Candidate reports", body=Disclosure("Report details", "\n".join(str(path) for path in report_files) or "No candidate reports are available."), expand=True)], spacing=16),
         ft.Row(
             [
