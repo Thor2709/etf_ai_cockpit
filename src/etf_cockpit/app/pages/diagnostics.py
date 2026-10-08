@@ -166,6 +166,12 @@ def diagnostics_page(page: ft.Page, state: AppState | None) -> PageView:
         timing_note = insight
         timing_unavailable = "No timing records are available in the local trace."
     plotted_records = timing_records[-8:]
+    timing_kinds = {"gold" if bool(record.get("slow")) else "blue" for record in plotted_records}
+    timing_legend = (
+        Note("Legend: within budget (blue) · over budget (gold)")
+        if len(timing_kinds) > 1
+        else None
+    )
     timing_chart = horizontal_stacked_bar(
         [str(record.get("step") or "—") for record in plotted_records],
         [
@@ -189,6 +195,8 @@ def diagnostics_page(page: ft.Page, state: AppState | None) -> PageView:
         body=ft.Column(
             [
                 Note(insight),
+                Note("Step (name) · Duration (ms)"),
+                *([timing_legend] if timing_legend is not None else []),
                 Well(timing_chart, expand=True),
                 Disclosure(
                     "Timing trace details",
@@ -384,13 +392,12 @@ def diagnostics_page(page: ft.Page, state: AppState | None) -> PageView:
             spacing=12,
             expand=True,
         ),
-        expand=True,
     )
 
     runtime_view = ft.Column(
         [
-            ft.Row([runtime_card, step_card], spacing=24, expand=12),
-            ft.Row([performance_card, security_card, parity_card], spacing=24, expand=12),
+            ft.Row([runtime_card, step_card], spacing=24),
+            ft.Row([performance_card, security_card, parity_card], spacing=24),
             session_card,
         ],
         spacing=24,
@@ -398,7 +405,7 @@ def diagnostics_page(page: ft.Page, state: AppState | None) -> PageView:
         scroll=ft.ScrollMode.AUTO,
     )
     performance_view = ft.Column(
-        [ft.Row([step_card, performance_card], spacing=24, expand=12)],
+        [ft.Row([step_card, performance_card], spacing=24)],
         spacing=24,
         expand=True,
         scroll=ft.ScrollMode.AUTO,

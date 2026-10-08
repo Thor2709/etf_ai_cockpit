@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+import flet as ft
+
 from etf_cockpit.app.components.shell.page_view import PageView
 from etf_cockpit.app.pages.jobs import jobs_page
 from etf_cockpit.app.state import AppState
@@ -51,3 +53,32 @@ def test_empty_data_shows_unavailable():
     text = _text(result.body)
     assert "Unavailable" in text or "EmptyState" in text or "No durable workflows" in text
     assert not any(getattr(control, "value", None) == "0" for control in _walk(result.body))
+
+
+def test_audit_card_has_bounded_event_controls():
+    result = jobs_page(_Page(), None)
+    controls = list(_walk(result.body))
+    audit_card = next(
+        control for control in controls
+        if (getattr(control, "data", None) or {}).get("title") == "Audit events"
+    )
+    assert any(
+        (getattr(control, "data", None) or {}).get("kit") in {"EmptyState", "ListRow"}
+        for control in _walk(audit_card)
+    )
+    for control in controls:
+        if isinstance(control, ft.Column) and control.scroll == ft.ScrollMode.AUTO:
+            assert all(not getattr(child, "expand", False) for child in control.controls)
+            assert not any(type(child).__name__ == "ListView" for child in _walk(control))
+
+
+def test_workflow_and_resource_actions_use_text_buttons():
+    result = jobs_page(_Page(), None)
+    labels = {control.content for control in _walk(result.body) if isinstance(control, ft.TextButton)}
+    assert {"Refresh", "Recover expired leases", "Clean generated cache"} <= labels
+    buttons = [
+        control for control in _walk(result.body)
+        if (getattr(control, "data", None) or {}).get("text") == "Run durable self-check"
+    ]
+    assert len(buttons) == 1
+    assert buttons[0].data["kind"] == "secondary"

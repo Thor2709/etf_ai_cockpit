@@ -616,11 +616,11 @@ def import_export_page(page: ft.Page, state: AppState) -> PageView:
             disabled_reason="Validate a restore preview before committing." if not commit_enabled else None,
             key="import-export.restore-commit",
         )
-        restore_cancel_slot.content = Button.secondary(
+        restore_cancel_slot.content = ft.TextButton(
             "Cancel restore",
             on_click=cancel_restore_preview,
             disabled=not cancel_enabled,
-            disabled_reason="No restore preview is active." if not cancel_enabled else None,
+            tooltip="No restore preview is active." if not cancel_enabled else None,
             key="import-export.restore-cancel",
         )
 
@@ -867,7 +867,7 @@ def import_export_page(page: ft.Page, state: AppState) -> PageView:
         rollback_card = GlassCard("Portfolio source rollback", note="future source reconciliation only", body=ft.Column([
             Field("Portfolio batch ID", control=rollback_batch, expand=True),
             Field("Rollback reason", control=rollback_reason, expand=True),
-            Button.secondary("Rollback batch", on_click=rollback_portfolio, key="import-export.portfolio-rollback"),
+            ft.TextButton("Rollback batch", on_click=rollback_portfolio, key="import-export.portfolio-rollback"),
             Note("Select the control again to confirm this source rollback."), reconciliation_summary,
         ], spacing=12, expand=True), expand=True)
         return ft.Column([ft.Row([import_card, preview_card], spacing=24, expand=12),
@@ -963,6 +963,6 @@ def import_export_page(page: ft.Page, state: AppState) -> PageView:
             page.update()
     return PageView(chrome=PageChrome(
         title="Import & Export",
-        subtitle="Preview and validate local evidence before any commit Â· explicit export paths",
+        subtitle="Preview and validate local evidence before any commit · explicit export paths",
         segment_groups=(SegmentGroup("import-export", ("Import", "Reconcile", "Export", "Backup"), "Import", on_change=select_segment),),
     ), body=body_slot)
