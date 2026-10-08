@@ -243,23 +243,37 @@ def _write_financial_classification(
     evidence_id = f"norway_savings_bank_issuer_table:{instrument_id}:{row_checksum}"
     effective_at = _classification_timestamp(period)
     available_at = _classification_timestamp(known_at)
-    evidence = ClassificationEvidence(
-        evidence_id=evidence_id,
-        instrument_id=instrument_id,
-        field="sector",
-        value="financials",
-        source="verified Norwegian savings-bank issuer table",
-        authority=SourceAuthority.OFFICIAL,
-        source_id=f"norway_savings_bank_issuer_table:{instrument_id}",
-        confidence=0.95,
-        valid_from=effective_at,
-        available_at=available_at,
-        source_checksum=row_checksum,
+    # The verified issuer table establishes these facts for every row: a Norwegian savings bank whose
+    # listed instrument is an equity certificate in the financials sector.
+    table_facts = (
+        ("sector", "financials"),
+        ("issuer_type", "savings_bank"),
+        ("operating_country", "NO"),
+        ("instrument_type", "stock"),
+        ("asset_class", "equity"),
+        ("instrument_subtype", "equity_certificate"),
+    )
+    evidences = tuple(
+        ClassificationEvidence(
+            evidence_id=evidence_id if field == "sector" else f"{evidence_id}:{field}",
+            instrument_id=instrument_id,
+            field=field,
+            value=value,
+            source="verified Norwegian savings-bank issuer table",
+            authority=SourceAuthority.OFFICIAL,
+            source_id=f"norway_savings_bank_issuer_table:{instrument_id}",
+            confidence=0.95,
+            valid_from=effective_at,
+            available_at=available_at,
+            source_checksum=row_checksum,
+        )
+        for field, value in table_facts
     )
     with ClassificationStore(_classification_storage_root(output)) as store:
         current = store.classify(instrument_id, effective_at=effective_at, decision_time=available_at)
-        if evidence_id not in current.evidence_ids:
-            store.append_evidence((evidence,))
+        missing = tuple(item for item in evidences if item.evidence_id not in current.evidence_ids)
+        if missing:
+            store.append_evidence(missing)
 
 
 def _validate_units(records: Iterable[object]) -> None:

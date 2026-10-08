@@ -1038,6 +1038,8 @@ _OFFICIAL_FILING_HOSTS: dict[str, tuple[str, ...]] = {
     adapter.country: adapter.allowed_hosts for adapter in OAM_ADAPTERS_BY_COUNTRY.values()
 }
 _OFFICIAL_FILING_HOSTS["EU"] = ("filings.xbrl.org",)
+# ESEF filings by Norwegian issuers are published in the same public ESEF repository.
+_OFFICIAL_FILING_HOSTS["NO"] = tuple(dict.fromkeys((*_OFFICIAL_FILING_HOSTS.get("NO", ()), "filings.xbrl.org")))
 _MANUAL_SUFFIXES = frozenset({".csv", ".html", ".json", ".pdf", ".xbrl", ".xbri", ".xhtml", ".xml", ".zip"})
 _LOCAL_OAM_SUFFIXES = frozenset({".csv", ".json", ".xml"})
 
