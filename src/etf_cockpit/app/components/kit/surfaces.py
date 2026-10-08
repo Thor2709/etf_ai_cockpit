@@ -67,13 +67,14 @@ def GlassCard(  # noqa: N802 - kit component names are CamelCase per spec 3
     key: str | None = None,
 ) -> ft.Container:
     """Glass panel with h2 title left, note right, optional insight line, then the body (spec 3.1)."""
+    # Title at its natural width; the note takes ALL remaining width, right-aligned, and is the only part that
+    # ellipsizes (with a tooltip) when title + note do not fit.
     heading: list[ft.Control] = [
-        txt(title, 15, 600, shadow=True, tracking=0.005, trunc=True, expand=1, expand_loose=True)
+        txt(title, 15, 600, shadow=True, tracking=0.005, trunc=True, expand=None if note else 1, expand_loose=bool(not note))
     ]
-    note_text = txt(note, 12, 500, theme.INK2, opacity=0.55, text_align=ft.TextAlign.RIGHT, trunc=True,
-                    expand=1, expand_loose=True)
+    note_text = txt(note, 12, 500, theme.INK2, opacity=0.55, text_align=ft.TextAlign.RIGHT, trunc=True)
     if note:
-        heading.append(ft.Container(content=note_text, expand=2, alignment=ft.Alignment(1, 0)))
+        heading.append(ft.Container(content=note_text, expand=True, alignment=ft.Alignment(1, 0), tooltip=note))
     if menu is not None:
         heading.append(menu)
     rows: list[ft.Control] = []

@@ -182,3 +182,13 @@ def test_shell_layout_resizes_in_place(snapshot, width: int, narrow: bool) -> No
     assert label.visible is narrow
     assert view.data["relayout"](width) is True
     assert label.visible is not narrow
+
+
+@pytest.mark.parametrize("route", ["/what-changed", "/sectors"])
+@pytest.mark.parametrize("width", [1100, 1920])
+def test_pages_build_without_route_failure_at_narrow_and_wide_width(snapshot, route: str, width: int) -> None:
+    """Regression: the shell must build these routes at 1100x900 without the safe route-failure fallback."""
+    view = build_shell(SimpleNamespace(width=width, height=900, route=route), _state(snapshot), route)
+    assert isinstance(view, ft.View)
+    assert "could not be rendered safely" not in repr(view.controls)
+    assert "not registered" not in repr(view.controls)

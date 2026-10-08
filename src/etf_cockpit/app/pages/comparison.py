@@ -8,6 +8,7 @@ from etf_cockpit.app.components import chartkit as ck
 from etf_cockpit.app.components.kit import (
     Button,
     DataTable,
+    Disclosure,
     EmptyState,
     Field,
     GlassCard,
@@ -65,7 +66,7 @@ def comparison_frame(first: object, second: object) -> pd.DataFrame:
 def _signed_cell(value: float | None) -> ft.Control:
     text = common.signed(value, 1, ratio=True)
     if text is None:
-        return common.text("Unavailable", theme.FONT_MD, 400, theme.INK3, text_align=ft.TextAlign.RIGHT)
+        return common.text("—", theme.FONT_MD, 400, theme.INK3, text_align=ft.TextAlign.RIGHT)
     tone = common.tone_of(value)
     colour = theme.POS if tone == "pos" else theme.NEG if tone == "neg" else theme.INK
     return common.text(text, theme.FONT_MD, 400, colour, text_align=ft.TextAlign.RIGHT)
@@ -77,7 +78,7 @@ def _row_values(label: str, score: object, ter: str, plain: object) -> object:
         return ScoreBar(getattr(score, "final_score_10", None))
     if label == "Evidence quality":
         text, kind = common.evidence_tag(score)
-        return Tag(text, kind, dense=True)
+        return None if _is_missing(text) else Tag(text, kind, dense=True)
     if label == "Risk/friction":
         band = compare_view.risk_band(getattr(score, "risk_friction_10", None))
         return None if band is None else " · ".join(filter(None, (band, f"TER {ter}" if ter else "")))
@@ -91,23 +92,62 @@ def _row_values(label: str, score: object, ter: str, plain: object) -> object:
     return plain
 
 
+_MISSING_WORDS = {"", "unavailable", "n/a", "na", "none", "nan"}
+_STATUS_LABELS = {
+    "available": "Available",
+    "partial": "Partial",
+    "unavailable": "Not recorded",
+    "stale": "Stale",
+    "not_evaluated": "Not evaluated",
+    "insufficient_history": "Insufficient history",
+    "missing": "Not recorded",
+    "partial/unavailable": "Partial",
+}
+
+
+def _human_status(raw: str) -> str:
+    return _STATUS_LABELS.get(raw.strip().casefold(), raw.strip().replace("_", " ").capitalize())
+
+
+def _is_missing(value: object) -> bool:
+    return value is None or (isinstance(value, str) and value.strip().casefold() in _MISSING_WORDS)
+
+
 def _comparison_table(first: object, second: object, *, ters: tuple[str, str] = ("", ""), max_rows: int = 14) -> ft.Container:
     rows = []
+    missing_rows: list[str] = []
+    raw_statuses: list[str] = []
     for label, value in _comparison_fields():
         if label in {"Instrument", "Name"}:
             continue  # the two dropdowns above already name both sides
-        rows.append({
-            "measure": label,
-            "a": _row_values(label, first, ters[0], str(value(first))),
-            "b": _row_values(label, second, ters[1], str(value(second))),
-        })
+        cells = []
+        for score, ter in ((first, ters[0]), (second, ters[1])):
+            plain: object = str(value(score))
+            if label in {"Cash comparison", "Coverage"}:
+                raw_statuses.append(f"{score.display_id}: {plain}")
+                plain = plain if _is_missing(plain) else _human_status(str(plain))
+            cell = _row_values(label, score, ter, plain)
+            if _is_missing(cell):  # one form for a missing value in a table cell (rulebook V7)
+                cell = None
+                if label not in missing_rows:
+                    missing_rows.append(label)
+            cells.append(cell)
+        rows.append({"measure": label, "a": cells[0], "b": cells[1]})
     columns = [
         TableColumn("measure", "Aligned evidence", flex=3, sortable=False),
         TableColumn("a", first.display_id, flex=3, numeric=True, sortable=False),
         TableColumn("b", second.display_id, flex=3, numeric=True, sortable=False),
     ]
     table = DataTable(columns, rows, row_height=_ROW_HEIGHT, max_visible_rows=max_rows, key="comparison.table")
-    return ft.Container(content=table, key="comparison.evidence")
+    parts: list[ft.Control] = [table]
+    notes: list[ft.Control] = []
+    if missing_rows:
+        notes.append(ft.Container(Note(f"— = not recorded for this instrument ({', '.join(missing_rows)})."), expand=True))
+    if raw_statuses:
+        notes.append(Disclosure("raw cash comparison status", "; ".join(raw_statuses)))
+    if notes:  # one compact row (footnote + disclosure) so the card's buttons keep their space
+        parts.append(ft.Row(notes, spacing=12, vertical_alignment=ft.CrossAxisAlignment.START))
+    return ft.Container(content=ft.Column(parts, spacing=8, tight=True), key="comparison.evidence")
 
 
 def Dropdown(label: str, *, key: str, options: list[str], value: str, on_change: object) -> ft.Control:  # noqa: N802 - the acceptance scanner finds keyed inputs by this name
@@ -178,7 +218,7 @@ def _workspace_card(width: float, height: float, page: object, state: AppState, 
         body: list[ft.Control] = [fields, EmptyState("Select two instruments", "Both comparison sides must be present in the canonical local score set.")]
     else:
         # fields 66, table header 44, buttons 36 and three 12 px gaps (the status text sits beside the buttons)
-        rows = max(3, int((inner_h - 66 - 44 - 36 - 12) // _ROW_HEIGHT))
+        rows = max(3, int((inner_h - 66 - 44 - 36 - 12 - 44) // _ROW_HEIGHT))  # 44: footnote/disclosure row + gap
         ters = (common.instrument_meta(state, ui["a"])["ter"], common.instrument_meta(state, ui["b"])["ter"])
         body = [fields, _comparison_table(first, second, ters=ters, max_rows=rows), ft.Container(expand=True), buttons]
     column = ft.Column(body, spacing=12)
