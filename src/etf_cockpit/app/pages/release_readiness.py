@@ -133,7 +133,7 @@ def release_readiness_page(page: ft.Page | None, state: AppState) -> PageView:
     ]
     limitation_rows = [kit.ListRow("info", item, tag=("Accepted", "mute")) for item in limitation_copy]
     limitation_rows.extend(kit.ListRow("info", str(item), tag=("Accepted", "mute")) for item in certification.get("accepted_limitations", []) or [])
-    limitations_card = kit.GlassCard("Accepted limitations", body=ft.Column(limitation_rows, spacing=4, scroll=ft.ScrollMode.AUTO), expand=True)
+    limitations_card = kit.GlassCard("Accepted limitations", body=ft.Column(limitation_rows, spacing=4, expand=True, scroll=ft.ScrollMode.AUTO), expand=True)
 
     quality_card = kit.GlassCard(
         "Quality programme",

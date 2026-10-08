@@ -63,9 +63,9 @@ def errors_recovery_page(page: ft.Page, state: AppState) -> PageView:
         note="Read-only local status",
         body=ft.Column(
             [
-                kit.KpiTile("Latest published forecast date", forecast_date, "Unavailable: no published forecast date is available." if not forecast_date else ""),
-                kit.KpiTile("Loaded data as-of date", data_date, "Unavailable: no loaded data date is available." if not data_date else ""),
-                kit.KpiTile("Resumable/expired jobs", None if jobs_unavailable else "Available" if model.jobs else "None reported", "Unavailable: job status is not available from the local read API." if jobs_unavailable else "No resumable or expired jobs are reported." if not model.jobs else ""),
+                kit.ListRow("info", "Latest published forecast date", str(forecast_date) if forecast_date else "Unavailable: no published forecast date is available."),
+                kit.ListRow("info", "Loaded data as-of date", str(data_date) if data_date else "Unavailable: no loaded data date is available."),
+                kit.ListRow("info", "Resumable/expired jobs", "Unavailable: job status is not available from the local read API." if jobs_unavailable else "Available" if model.jobs else "None reported."),
                 kit.Note("Read-only status from trustworthy local read APIs; previous clean data remains unchanged after failed publication."),
                 kit.Disclosure("Recovery read details", "\n".join(model.unavailable_reasons) or "No additional recovery details are available."),
                 kit.Disclosure("Resumable and expired job details", "\n".join(model.jobs) or "No job details are available."),
@@ -76,15 +76,32 @@ def errors_recovery_page(page: ft.Page, state: AppState) -> PageView:
         expand=True,
     )
 
-    policy_rows = [
-        kit.ListRow(
-            "info",
-            policy.title,
-            f"Symptom: {policy.symptom} · Guarantee: {policy.guarantee} · Steps: {policy.steps}",
-            tag=("Policy", "mute"),
+    policy_rows = []
+    for policy in RECOVERY_POLICIES:
+        details = ft.Column(
+            [
+                ft.Text(f"Symptom: {policy.symptom}", selectable=True),
+                ft.Text(f"Guarantee: {policy.guarantee}", selectable=True),
+                ft.Text(f"Steps: {policy.steps}", selectable=True),
+            ],
+            spacing=4,
+            visible=False,
         )
-        for policy in RECOVERY_POLICIES
-    ]
+
+        def toggle_policy(_event: object, details: ft.Column = details) -> None:
+            details.visible = not details.visible
+            if hasattr(page, "update"):
+                page.update()
+
+        policy_rows.append(
+            ft.Column(
+                [
+                    kit.ListRow("info", policy.title, "Select to show recovery guidance", tag=("Policy", "mute"), on_click=toggle_policy),
+                    details,
+                ],
+                spacing=4,
+            )
+        )
     policy = kit.GlassCard(
         "Recovery policy",
         note="Declarative guidance",
