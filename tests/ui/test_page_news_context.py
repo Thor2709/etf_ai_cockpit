@@ -36,18 +36,22 @@ def test_renders_with_sample_data() -> None:
     rendered = news_context.news_context_page(None, _state())
 
     assert isinstance(rendered, PageView)
-    text = "\n".join(_texts(rendered))
+    text = "\r\n".join(_texts(rendered))
     assert all(
         title in text
         for title in (
             "News timeline",
-            "News contradictions",
-            "News inventory",
+            "News/macro contradictions",
+            "News/context inventory",
             "Manual note credibility",
             "News evidence",
         )
     )
     assert "Traceback" not in text
+    group = rendered.chrome.segment_groups[0]
+    assert callable(group.on_change)
+    group.on_change("Negative")
+    assert "Showing negative news and context" in "\r\n".join(_texts(rendered))
 
 
 def test_empty_data_shows_unavailable(monkeypatch) -> None:

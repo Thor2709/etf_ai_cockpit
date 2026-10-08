@@ -36,17 +36,23 @@ def test_renders_with_sample_data() -> None:
     rendered = etf_disclosures.etf_disclosures_page(None, _state())
 
     assert isinstance(rendered, PageView)
-    text = "\n".join(_texts(rendered))
+    text = "\r\n".join(_texts(rendered))
     assert all(
         title in text
         for title in (
             "ETF disclosure inventory",
             "ETF disclosure import",
+            "Coverage by document type",
             "SFDR disclosure",
             "Disclosure evidence",
         )
     )
     assert "Traceback" not in text
+    assert rendered.chrome.subtitle == "Factsheets, holdings, KIDs, SFDR, reports and methodology · advisory only"
+    group = rendered.chrome.segment_groups[0]
+    assert callable(group.on_change)
+    group.on_change("Holdings")
+    assert "Holdings import controls" in "\r\n".join(_texts(rendered))
 
 
 def test_empty_data_shows_unavailable(monkeypatch) -> None:
@@ -65,3 +71,19 @@ def test_empty_data_shows_unavailable(monkeypatch) -> None:
     ]
     assert "0" not in cells
     assert all("Traceback" not in value for value in texts)
+
+
+def test_disclosure_import_layout_is_bounded() -> None:
+    rendered = etf_disclosures.etf_disclosures_page(None, _state())
+    importer = next(
+        control for control in _walk(rendered.body)
+        if isinstance(getattr(control, "data", None), dict)
+        and control.data.get("kit") == "GlassCard"
+        and control.data.get("title") == "ETF disclosure import"
+    )
+    descendants = list(_walk(importer))
+    ids = [id(control) for control in descendants]
+    assert len(ids) == len(set(ids))
+    assert any(control.__class__.__name__ == "TextField" for control in descendants)
+    assert not getattr(importer, "expand", False)
+    assert not any(control.__class__.__name__ == "ListView" for control in descendants)

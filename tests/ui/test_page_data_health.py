@@ -83,3 +83,53 @@ def test_empty_data_shows_unavailable(monkeypatch) -> None:
     ]
     assert "0" not in table_cells
     assert all("Traceback" not in value for value in texts)
+
+
+def test_dataset_inventory_layout_is_bounded() -> None:
+    rendered = data_health.data_health_page(
+        SimpleNamespace(route="/data-health", update=lambda: None), _state()
+    )
+    inventory = next(
+        control for control in _walk(rendered.body)
+        if isinstance(getattr(control, "data", None), dict)
+        and control.data.get("kit") == "GlassCard"
+        and control.data.get("title") == "Dataset inventory"
+    )
+    descendants = list(_walk(inventory))
+    assert any((getattr(control, "data", None) or {}).get("kit") == "DataTable" for control in descendants)
+    assert not getattr(inventory, "expand", False)
+    tables = [control for control in descendants if (getattr(control, "data", None) or {}).get("kit") == "DataTable"]
+    assert tables and all(not getattr(table, "expand", False) for table in tables)
+    assert all(getattr(control, "height", None) is not None for control in descendants if control.__class__.__name__ == "ListView")
+
+
+def test_missing_checksum_and_counts_render_as_unavailable_dashes(monkeypatch) -> None:
+    row = SimpleNamespace(
+        dataset="missing_store",
+        status=data_health.DataHealthStatus.MISSING,
+        path="data/missing.parquet",
+        row_count=0,
+        checksum=None,
+        as_of=None,
+        freshness="",
+        provider=None,
+        last_success=None,
+        last_failure=None,
+        warnings=(),
+    )
+    monkeypatch.setattr(
+        data_health,
+        "build_data_health",
+        lambda *_args, **_kwargs: DataHealthReport("", "", (row,)),
+    )
+    rendered = data_health.data_health_page(
+        SimpleNamespace(route="/data-health", update=lambda: None), _state()
+    )
+    table_text = [
+        str(getattr(control, "value", ""))
+        for parent in _walk(rendered.body)
+        if isinstance(getattr(parent, "data", None), dict) and parent.data.get("kit") == "DataTable"
+        for control in _walk(parent)
+    ]
+    assert "—" in table_text
+    assert not any(value.casefold() in {"0", "nan", "null"} for value in table_text)

@@ -43,7 +43,7 @@ def provider_status_page(page: ft.Page, state: AppState) -> PageView:
             for key, value in values.items()
             if value is not None and value != ""
         ]
-        return kit.Disclosure("Provider detail", "\n".join(detail_lines) or "Unavailable")
+        return kit.Disclosure("Provider detail", "\r\n".join(detail_lines) or "Unavailable")
 
     capability_data: list[dict[str, object]] = []
     for row in status_rows:
@@ -98,6 +98,7 @@ def provider_status_page(page: ft.Page, state: AppState) -> PageView:
                 ),
             }
         )
+    capability_data.sort(key=lambda item: str(item.get("provider") or "").casefold())
 
     source_data: list[dict[str, object]] = []
     for row in policy_rows:
@@ -183,7 +184,8 @@ def provider_status_page(page: ft.Page, state: AppState) -> PageView:
                 kit.TableColumn("last_success", "Last success"),
                 kit.TableColumn("score", "Score eligible"),
             ],
-            capability_data,
+        capability_data,
+        sort_key="provider",
             empty_title="No capabilities",
             empty_reason="No provider capability rows are available.",
         )
@@ -225,7 +227,6 @@ def provider_status_page(page: ft.Page, state: AppState) -> PageView:
                     spacing=8,
                     scroll=ft.ScrollMode.AUTO,
                 ),
-                expand=2,
             )
         ]
 
@@ -268,6 +269,7 @@ def provider_status_page(page: ft.Page, state: AppState) -> PageView:
         unavailable_reason=chart_reason,
         empty_title="No provider health",
         insight=health_insight,
+        height=240,
     )
     plugin_tags = ft.Row(
         [
@@ -285,10 +287,9 @@ def provider_status_page(page: ft.Page, state: AppState) -> PageView:
         "by status",
         health_insight,
         body=ft.Column(
-            [kit.Well(provider_chart, expand=True), kit.Note("Built-in plugins"), plugin_tags],
+            [kit.Well(provider_chart, height=260), kit.Note("Built-in plugins"), plugin_tags],
             spacing=8,
         ),
-        expand=True,
     )
 
     def evidence_table(name: str, path: object, fields: tuple[str, ...]) -> kit.EvidenceTable:
@@ -325,7 +326,7 @@ def provider_status_page(page: ft.Page, state: AppState) -> PageView:
                         kit.Note(str(current) if current is not None else "Unavailable"),
                         kit.Disclosure(
                             "Record detail",
-                            "\n".join(f"{key}: {value}" for key, value in details.items()),
+                            "\r\n".join(f"{key}: {value}" for key, value in details.items()),
                         ),
                     ],
                     spacing=4,
@@ -392,7 +393,6 @@ def provider_status_page(page: ft.Page, state: AppState) -> PageView:
             ],
             spacing=4,
         ),
-        expand=True,
     )
     body = ft.Column(
         [

@@ -121,6 +121,8 @@ def legacy_action_panel(page: ft.Page, legacy_control: ft.Control, title: str, n
                 fields.append((control, replacement))
             return
         if name == "Dropdown":
+            if id(control) in field_map:
+                return
             options = [
                 str(getattr(option, "key", None) or getattr(option, "text", ""))
                 for option in (getattr(control, "options", None) or [])

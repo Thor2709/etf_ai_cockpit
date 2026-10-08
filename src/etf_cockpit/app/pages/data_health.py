@@ -130,7 +130,7 @@ def data_health_page(page: ft.Page, state: AppState) -> PageView:
         table_rows: list[dict[str, object]] = []
         for row in source_rows:
             warnings = "; ".join(row.warnings) if row.warnings else "—"
-            detail = "\n".join(
+            detail = "\r\n".join(
                 (
                     f"Path: {row.path}",
                     f"Checksum: {row.checksum or '—'}",
@@ -160,11 +160,9 @@ def data_health_page(page: ft.Page, state: AppState) -> PageView:
                     "freshness": row.freshness.title() if row.freshness else "—",
                     "provider": row.provider or None,
                     "history": timestamp,
-                    "checksum": "Available" if row.checksum else None,
-                    "links": ft.Column(
-                        [quick_links(), kit.Disclosure("Full record", detail)],
-                        spacing=4,
-                    ),
+                    "checksum": ft.Text(row.checksum[:8], tooltip=row.checksum) if row.checksum else None,
+                    "record_detail": detail,
+                    "links": quick_links(),
                 }
             )
         return table_rows
@@ -199,6 +197,7 @@ def data_health_page(page: ft.Page, state: AppState) -> PageView:
                     kit.TableColumn("links", "Quick links", flex=2, sortable=False),
                 ],
                 make_table_rows(tuple(visible_rows)),
+                on_select=show_record,
                 empty_title="No datasets",
                 empty_reason=data_reason,
             )
@@ -212,6 +211,25 @@ def data_health_page(page: ft.Page, state: AppState) -> PageView:
     def change_segment(value: str) -> None:
         active_segment["status"] = value
         redraw_inventory()
+
+    def show_record(index: int) -> None:
+        if not 0 <= index < len(visible_rows):
+            return
+        record = make_table_rows((visible_rows[index],))[0]
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(str(visible_rows[index].dataset)),
+            content=ft.Container(
+                content=ft.Column(
+                    [ft.Text(str(record["record_detail"]))],
+                    scroll=ft.ScrollMode.AUTO,
+                ),
+                width=480,
+                height=420,
+            ),
+            actions=[ft.TextButton("Close", key="data-health.record.close", on_click=lambda _event: page.close(dialog))],
+        )
+        page.open(dialog)
 
     def redraw(event: ft.ControlEvent) -> None:
         selected_value = str(getattr(event.control, "value", "All") or "All")
@@ -310,7 +328,6 @@ def data_health_page(page: ft.Page, state: AppState) -> PageView:
         "Dataset inventory",
         "every store, no hidden columns",
         body=inventory_body,
-        expand=2,
     )
     redraw_inventory()
 
@@ -433,7 +450,7 @@ def data_health_page(page: ft.Page, state: AppState) -> PageView:
             ),
             kit.Disclosure(
                 "Quality rule detail",
-                "\n".join(
+                "\r\n".join(
                     (
                         f"Raw status: {anomaly_summary.get('status', 'unavailable')}",
                         f"Reason: {quality_reason}",
@@ -482,7 +499,7 @@ def data_health_page(page: ft.Page, state: AppState) -> PageView:
             ),
             kit.Disclosure(
                 "Cache detail",
-                "\n".join(
+                "\r\n".join(
                     (
                         f"Raw status: {cache_status}",
                         f"Cache path: {cache_report.get('cache_path', 'Unavailable')}",
