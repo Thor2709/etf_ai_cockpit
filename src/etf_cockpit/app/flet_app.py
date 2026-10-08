@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import socket
 import sys
+import threading
 import traceback
 import urllib.request
 import webbrowser
@@ -16,9 +17,8 @@ _RUNTIME_TEMP = configure_runtime_environment()
 
 import flet as ft  # noqa: E402
 
-from etf_cockpit.app.router import relayout_shell, render_shell, shell_key_event  # noqa: E402
-from etf_cockpit.app.state import AppState  # noqa: E402
 from etf_cockpit.app import theme  # noqa: E402
+from etf_cockpit.app.components.shell.loading import build_loading_view  # noqa: E402
 from etf_cockpit.app.theme import BG  # noqa: E402
 from etf_cockpit.core.session_log import init_session_log, log_event  # noqa: E402
 
@@ -86,16 +86,73 @@ def _attach_windowed_stdio() -> None:
 
 
 def _render_route(page: ft.Page, state: AppState, route: str) -> None:
+    from etf_cockpit.app.router import render_shell
+
     render_shell(page, state, route)
 
 
-def initialise_page(page: ft.Page, state: AppState | None = None) -> AppState:
-    state = state or AppState.load()
+def _configure_page_chrome(page: ft.Page) -> None:
     page.title = "ETF AI Evidence Cockpit"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG
     page.fonts = theme.font_map()
     page.theme = ft.Theme(font_family=theme.FONT_FAMILY)
+
+
+def initialise_page(page: ft.Page, state: AppState | None = None) -> AppState | None:
+    """Wire the page and render the first route.
+
+    With a ready ``state`` the first route is rendered before returning (tests, embedding). Without one the
+    shell with a skeleton body is painted at once, and the heavy modules plus the snapshot load on a
+    background thread, after which the real first route replaces the skeleton; ``None`` is returned because
+    the state does not exist yet.
+    """
+
+    _configure_page_chrome(page)
+    if state is None:
+        _paint_loading_then_load(page)
+        return None
+    _attach_state(page, state)
+    return state
+
+
+def _paint_loading_then_load(page: ft.Page) -> None:
+    pending: dict[str, str | None] = {"route": None}
+
+    def remember(route: str) -> None:
+        pending["route"] = route  # a dock click while loading is honoured once the data is ready
+
+    loading_route = page.route or "/"
+    page.views[:] = [build_loading_view(loading_route, on_select=remember)]
+    page.update()
+
+    def load() -> None:
+        try:
+            from etf_cockpit.app.state import AppState
+
+            loaded = AppState.load()
+            _attach_state(page, loaded, requested_route=pending["route"])
+        except Exception:
+            _startup_log("background startup failed\n" + traceback.format_exc())
+            message = "The local data could not be loaded. See logs/startup.log; no data was changed."
+            page.views[:] = [build_loading_view(loading_route, message=message)]
+            page.update()
+            log_event(
+                event_type="startup",
+                severity="error",
+                route=loading_route,
+                component="startup",
+                operation="load_snapshot",
+                status="failed",
+                message=message,
+            )
+
+    threading.Thread(target=load, name="startup-load", daemon=True).start()
+
+
+def _attach_state(page: ft.Page, state: AppState, *, requested_route: str | None = None) -> None:
+    from etf_cockpit.app.router import relayout_shell, render_route_change, shell_key_event
+
     try:
         page.window.width = state.snapshot.config.ui.window_width
         page.window.height = state.snapshot.config.ui.window_height
@@ -116,7 +173,7 @@ def initialise_page(page: ft.Page, state: AppState | None = None) -> AppState:
             operation="route_change",
             status="render",
         )
-        _render_route(page, state, page.route or state.snapshot.config.ui.default_page)
+        render_route_change(page, state, page.route or state.snapshot.config.ui.default_page)
 
     def resize(event: ft.ControlEvent) -> None:
         relayout_shell(page, state, getattr(event, "width", None))
@@ -124,9 +181,11 @@ def initialise_page(page: ft.Page, state: AppState | None = None) -> AppState:
     page.on_route_change = route_change
     page.on_keyboard_event = lambda event: shell_key_event(page, event)
     page.on_resize = resize
-    initial_route = page.route or state.snapshot.config.ui.default_page
+    initial_route = requested_route or page.route or state.snapshot.config.ui.default_page
+    if requested_route and callable(getattr(page, "go", None)) and getattr(page, "route", None) != requested_route:
+        page.go(requested_route)  # the route-change handler renders it
+        return
     _render_route(page, state, initial_route)
-    return state
 
 
 def main(page: ft.Page) -> None:

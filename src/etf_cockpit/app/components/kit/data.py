@@ -206,6 +206,10 @@ def GlossaryItem(  # noqa: N802
 
 CellValue = str | float | int | None | ft.Control | tuple[str, str]
 
+INITIAL_ROWS = 200  # rows built eagerly; larger tables append ROW_CHUNK more near the end of the scroll
+ROW_CHUNK = 200
+LOAD_AHEAD_ROWS = 20
+
 
 @dataclass(frozen=True)
 class TableColumn:
@@ -296,8 +300,7 @@ def DataTable(  # noqa: N802
         spacing=0,
     )
 
-    body_rows: list[ft.Control] = []
-    for index, row in enumerate(rows):
+    def make_row(index: int, row: Mapping[str, CellValue]) -> ft.Control:
         is_selected = index == selected_index
         cells = [_sized(_cell(row.get(column.key), column), column) for column in columns]
         content: ft.Control = ft.Row(
@@ -321,7 +324,12 @@ def DataTable(  # noqa: N802
             ink_color=theme.ROW_HOVER,
         )
         line.data = {"kit": "DataTableRow", "index": index, "selected": is_selected}
-        body_rows.append(line)
+        return line
+
+    # Only the first window of rows is materialised; the rest is appended as the user scrolls
+    # (all rows stay reachable, the row order and content are unchanged).
+    materialised = max(INITIAL_ROWS, (selected_index or 0) + 1)
+    body_rows: list[ft.Control] = [make_row(index, row) for index, row in enumerate(rows[:materialised])]
     visible = min(len(rows), max_visible_rows)
     body = ft.ListView(
         body_rows,
@@ -330,6 +338,20 @@ def DataTable(  # noqa: N802
         height=None if expand else (height - 36 if height else visible * row_height),
         expand=expand,
     )
+    if len(rows) > len(body.controls):
+
+        def load_more(event: ft.OnScrollEvent) -> None:
+            loaded = len(body.controls)
+            if loaded >= len(rows) or event.pixels < event.max_scroll_extent - LOAD_AHEAD_ROWS * row_height:
+                return
+            body.controls.extend(make_row(index, rows[index]) for index in range(loaded, min(len(rows), loaded + ROW_CHUNK)))
+            try:
+                body.update()
+            except Exception:  # not mounted yet (tests / pre-mount): rows stay appended for the next paint
+                pass
+
+        body.on_scroll = load_more
+        body.on_scroll_interval = 50
     scroller: ft.Control = body
     if len(rows) > visible and not expand:
         # Overflow scrolls inside the card and the last visible row fades out (visible edge fade).

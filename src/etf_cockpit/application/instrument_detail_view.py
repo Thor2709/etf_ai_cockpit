@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date, datetime
 import math
 from numbers import Integral, Real
 from pathlib import Path
+import threading
 from typing import TYPE_CHECKING, Any, Mapping
 
 import pandas as pd
@@ -62,6 +64,7 @@ from etf_cockpit.application.ui_facade import (
     allocation_frame,
     model_zoo_frame,
 )
+from etf_cockpit.core.frame_signature import content_signature
 from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.core.paths import ETF_QUOTES_PATH
 from etf_cockpit.analysis.candles import (
@@ -423,6 +426,37 @@ def _load_parquet(path: object) -> pd.DataFrame:
     return pd.DataFrame()
 
 
+_IDENTIFIER_CACHE: OrderedDict[tuple[object, ...], pd.DataFrame] = OrderedDict()
+_IDENTIFIER_CACHE_LOCK = threading.Lock()
+_IDENTIFIER_CACHE_SIZE = 8
+
+
+def _normalised_identifiers(source: pd.DataFrame, available: list[str]) -> pd.DataFrame:
+    """Normalise the ID columns once per distinct content (many instruments scope the same frame)."""
+
+    def build() -> pd.DataFrame:
+        return pd.DataFrame(
+            {column: source[column].map(_normalise_identifier) for column in available},
+            index=source.index,
+        )
+
+    signatures = [content_signature(source[column]) for column in available] + [content_signature(source.index)]
+    if any(signature is None for signature in signatures):
+        return build()
+    key = (tuple(available), len(source), tuple(signatures))
+    with _IDENTIFIER_CACHE_LOCK:
+        cached = _IDENTIFIER_CACHE.get(key)
+        if cached is not None:
+            _IDENTIFIER_CACHE.move_to_end(key)
+            return cached
+    identifiers = build()
+    with _IDENTIFIER_CACHE_LOCK:
+        _IDENTIFIER_CACHE[key] = identifiers
+        while len(_IDENTIFIER_CACHE) > _IDENTIFIER_CACHE_SIZE:
+            _IDENTIFIER_CACHE.popitem(last=False)
+    return identifiers
+
+
 def _instrument_rows(frame: object, instrument_id: str, *, columns: tuple[str, ...] = _CANONICAL_ID_COLUMNS) -> pd.DataFrame:
     """Return rows whose populated supported IDs all resolve to ``instrument_id``.
 
@@ -431,9 +465,9 @@ def _instrument_rows(frame: object, instrument_id: str, *, columns: tuple[str, .
     instrument's identifiers, or no usable identifier, are ignored.
     """
 
-    source = _safe_frame(frame)
+    source = frame if isinstance(frame, pd.DataFrame) else pd.DataFrame()  # read-only here; results are copies
     if source.empty:
-        return source
+        return source.copy()
     if bool(source.columns.duplicated().any()):
         return source.iloc[0:0].copy()
     available = [column for column in columns if column in source.columns]
@@ -442,15 +476,10 @@ def _instrument_rows(frame: object, instrument_id: str, *, columns: tuple[str, .
     target = _normalise_identifier(instrument_id)
     if target is None:
         return source.iloc[0:0].copy()
-    identifiers = pd.DataFrame(
-        {column: source[column].map(_normalise_identifier) for column in available},
-        index=source.index,
-    )
+    identifiers = _normalised_identifiers(source, available)
     matches = identifiers.eq(target).any(axis=1)
-    contradictory = identifiers.apply(
-        lambda row: any(not _is_missing_scalar(value) and value != target for value in row),
-        axis=1,
-    )
+    # Normalised identifiers are str or None, so "populated and different" is vectorisable.
+    contradictory = (identifiers.notna() & identifiers.ne(target)).any(axis=1)
     return source.loc[matches & ~contradictory].copy()
 
 

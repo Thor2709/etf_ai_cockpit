@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import lru_cache
 import json
 import math
 from pathlib import Path
@@ -78,7 +79,13 @@ def load_stock_decision_map(
     """Load the stock-specific mapping from the canonical decision registry."""
 
     registry_path = Path(path)
-    content = registry_path.read_bytes()
+    return _stock_decision_map_for_content(registry_path.read_bytes())
+
+
+@lru_cache(maxsize=8)
+def _stock_decision_map_for_content(content: bytes) -> StockDecisionMap:
+    """Parse once per distinct file content (consumers treat the map as read-only)."""
+
     parsed = yaml.safe_load(content.decode("utf-8"))
     if not isinstance(parsed, Mapping):
         raise ValueError("decision registry must be a mapping")

@@ -228,7 +228,19 @@ def _object_dict(item: object) -> dict[str, object]:
     return {key: getattr(item, key) for key in dir(item) if not key.startswith("_") and not callable(getattr(item, key))}
 
 
+_EMPTY_FRAME_TEMPLATE: pd.DataFrame | None = None
+
+
 def _empty_frame() -> pd.DataFrame:
+    """A fresh empty statement frame (the schema is built once; each caller gets its own copy)."""
+
+    global _EMPTY_FRAME_TEMPLATE
+    if _EMPTY_FRAME_TEMPLATE is None:
+        _EMPTY_FRAME_TEMPLATE = _build_empty_frame()
+    return _EMPTY_FRAME_TEMPLATE.copy()
+
+
+def _build_empty_frame() -> pd.DataFrame:
     return pd.DataFrame(
         columns=[
             "instrument_id",

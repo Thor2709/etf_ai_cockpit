@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from functools import lru_cache
 import hashlib
 import json
 import math
@@ -51,7 +52,13 @@ def load_opportunity_policy(path: str | Path = _DEFAULT_CONFIG) -> OpportunityPo
     are policy choices, not estimated thresholds.
     """
 
-    content = Path(path).read_bytes()
+    return _opportunity_policy_for_content(Path(path).read_bytes())
+
+
+@lru_cache(maxsize=8)
+def _opportunity_policy_for_content(content: bytes) -> OpportunityPolicy:
+    """Parse once per distinct file content (frozen result; exceptions are never cached)."""
+
     parsed = yaml.safe_load(content.decode("utf-8"))
     if not isinstance(parsed, Mapping) or parsed.get("schema_version") != 1:
         raise ValueError("opportunity policy requires schema_version 1")

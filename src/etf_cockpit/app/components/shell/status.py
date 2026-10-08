@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
 from etf_cockpit.app.formatting import format_timestamp
 
@@ -104,12 +105,16 @@ def footer_values(snapshot: object, data_report: object) -> FooterValues:
     return FooterValues(quality_text, quality_kind, quality_reason, as_of, as_of_reason, forecast, forecast_reason, _uses_sample(snapshot))
 
 
+_SAMPLE_LABEL = re.compile("sample", re.IGNORECASE)
+
+
 def _uses_sample(snapshot: object) -> bool:
     """True only when every price row comes from the bundled sample generator."""
     try:
         prices = getattr(snapshot, "prices", None)
         if prices is None or prices.empty or "source" not in prices.columns:
             return False
-        return bool(prices["source"].astype(str).str.contains("sample", case=False).all())
+        # Test the distinct source labels, not every price row (same result, rebuilt on every navigation).
+        return all(_SAMPLE_LABEL.search(str(label)) for label in prices["source"].unique())
     except Exception:
         return False

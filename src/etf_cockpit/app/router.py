@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import contextmanager
+from itertools import count
+import threading
 
 import flet as ft
 
@@ -14,6 +16,7 @@ from etf_cockpit.app.components.shell._glass import glass
 from etf_cockpit.app.components.shell.depth_dialog import open_depth_dialog
 from etf_cockpit.app.components.shell.dock import DOCK_WIDTH, DOCK_WIDTH_NARROW, build_dock
 from etf_cockpit.app.components.shell.footer import Footer, build_footer
+from etf_cockpit.app.components.shell.loading import skeleton_body
 from etf_cockpit.app.components.shell.overlay import Overlay, Toast
 from etf_cockpit.app.components.shell.page_menu import PageMenu, build_page_menu, menu_routes
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView
@@ -64,7 +67,7 @@ from etf_cockpit.app.pages.sectors import sectors_page
 from etf_cockpit.app.pages.release_readiness import release_readiness_page
 from etf_cockpit.app.pages.programme_map import programme_map_page
 from etf_cockpit.app.state import AppState
-from etf_cockpit.core.navigation import ROUTE_TITLES, WORKSPACE_GROUPS
+from etf_cockpit.core.navigation import ROUTE_TITLES, WORKSPACE_GROUPS, WORKSPACE_ICONS
 from etf_cockpit.core.session_log import log_event
 
 _PAGE_RENDERERS = {
@@ -115,18 +118,6 @@ if set(_PAGE_RENDERERS) != {route for route, _title in ROUTE_TITLES}:
     raise RuntimeError("router renderers and core.navigation.ROUTE_TITLES disagree")
 PAGES = {route: (title, _PAGE_RENDERERS[route]) for route, title in ROUTE_TITLES}
 
-
-WORKSPACE_ICONS = {
-    "Home": "house",
-    "Universe": "globe",
-    "Research": "telescope",
-    "Portfolio": "briefcase",
-    "Compare": "abacus",
-    "Lab": "alembic",
-    "Map": "compass",
-    "Changes": "newspaper",
-    "Help": "bulb",
-}
 
 NARROW_LAYOUT_BREAKPOINT = 1100
 
@@ -250,11 +241,30 @@ def _toast_is_error(message: str) -> bool:
     return message.casefold().startswith(("route failure", "error", "failed", "unavailable"))
 
 
+# One page build at a time: builders share state and the (patched) page.update, and a superseded
+# background build must finish before the next starts.
+_BUILD_LOCK = threading.RLock()
+_RENDER_GENERATIONS = count(1)
+SKELETON_PATIENCE_S = 0.12  # a page that builds faster than this is painted once, without a skeleton frame
+
+
 @contextmanager
 def _deferred_page_update(page: ft.Page):
-    """Legacy builders call ``page.update()`` while building; the shell mounts the view and updates once."""
+    """Legacy builders call ``page.update()`` while building; the shell mounts the view and updates once.
+
+    Only calls made by the building thread are swallowed, so a background build never hides an update
+    requested by the UI thread (a click, a resize) meanwhile.
+    """
+    owner = threading.get_ident()
     original = page.__dict__.get("update")
-    page.update = lambda *_args, **_kwargs: None  # type: ignore[method-assign]
+    real_update = getattr(page, "update", None)  # embedded/test pages may have none
+
+    def deferred(*args: object, **kwargs: object) -> object:
+        if real_update is None or threading.get_ident() == owner:
+            return None
+        return real_update(*args, **kwargs)
+
+    page.update = deferred  # type: ignore[method-assign]
     try:
         yield
     finally:
@@ -264,25 +274,32 @@ def _deferred_page_update(page: ft.Page):
             page.update = original  # type: ignore[method-assign]
 
 
-def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
+def build_page(page: ft.Page, state: AppState, route: str) -> object:
+    """Run the route page builder and return its control or PageView (a failure control when it raises)."""
+
+    builder = PAGES.get(_page_route(route), (None, None))[1]
+    if builder is None:
+        return _route_failure_control(state, route, "The requested route is not registered.")
+    with _BUILD_LOCK:
+        try:
+            with _deferred_page_update(page):
+                return builder(page, state)
+        except Exception as exc:
+            return _route_failure_control(state, route, f"The page could not be rendered safely ({type(exc).__name__}).")
+
+
+def build_shell(page: ft.Page, state: AppState, route: str, *, built: object | None = None, show_toast: bool = True) -> ft.View:
     canonical_route = _page_route(route)
     page_entry = PAGES.get(canonical_route)
     title = page_entry[0] if page_entry is not None else "Route unavailable"
-    builder = page_entry[1] if page_entry is not None else None
     window_width, window_height = _window_size(page, state)
     narrow = uses_narrow_layout(page, state)
     active_workspace = workspace_for_route(canonical_route)
     snapshot = getattr(state, "snapshot", None)
     data_report = getattr(snapshot, "data_report", None)
 
-    if builder is None:
-        built: object = _route_failure_control(state, route, "The requested route is not registered.")
-    else:
-        try:
-            with _deferred_page_update(page):
-                built = builder(page, state)
-        except Exception as exc:
-            built = _route_failure_control(state, route, f"The page could not be rendered safely ({type(exc).__name__}).")
+    if built is None:
+        built = build_page(page, state, route)
     if isinstance(built, PageView):
         chrome, page_body = built.chrome, built.body
     else:  # legacy builder: plain control under the route's default title
@@ -459,7 +476,7 @@ def build_shell(page: ft.Page, state: AppState, route: str) -> ft.View:
     view = ft.View(route=route, controls=[root], bgcolor=theme.BG, padding=0)
 
     message = str(getattr(state, "last_message", "") or "")
-    if message and message != "Ready" and message != getattr(page, "_shell_last_toast", None):
+    if show_toast and message and message != "Ready" and message != getattr(page, "_shell_last_toast", None):
         try:
             page._shell_last_toast = message
         except Exception:
@@ -576,12 +593,93 @@ def _route_failure_control(state: AppState, route: str, detail: str) -> ft.Contr
     )
 
 
-def render_shell(page: ft.Page, state: AppState, route: str) -> None:
+def _dispose_workspace(page: ft.Page) -> None:
     dispose_workspace = getattr(page, "_valuation_workspace_dispose", None)
     if callable(dispose_workspace):
         page._valuation_workspace_dispose = None
         dispose_workspace()
         page.update()
+
+
+def _claim_render(page: ft.Page) -> int:
+    """Newest render wins: an older background build that finishes later must not repaint."""
+
+    generation = next(_RENDER_GENERATIONS)
+    try:
+        page._render_generation = generation
+    except Exception:
+        pass
+    return generation
+
+
+def render_shell(page: ft.Page, state: AppState, route: str) -> None:
+    _claim_render(page)
+    _dispose_workspace(page)
     view = build_shell(page, state, route)
     page.views[:] = [view]
     page.update()
+
+
+def render_route_change(
+    page: ft.Page,
+    state: AppState,
+    route: str,
+    *,
+    background: bool | None = None,
+    patience_s: float = SKELETON_PATIENCE_S,
+    on_done: Callable[[], None] | None = None,
+) -> None:
+    """Render a navigation without blocking the event thread on a slow page.
+
+    The page builds on a worker thread. If it finishes within ``patience_s`` the finished view is painted
+    once; otherwise the shell is painted at once with a skeleton body and the finished view replaces it when
+    the build completes. A newer navigation or render supersedes an unfinished one. ``background`` defaults
+    to real Flet pages; plain test/embedded pages render synchronously exactly like :func:`render_shell`.
+    """
+
+    if background is None:
+        background = isinstance(page, ft.Page)
+    if not background:
+        render_shell(page, state, route)
+        if on_done is not None:
+            on_done()
+        return
+    generation = _claim_render(page)
+    _dispose_workspace(page)
+    done = threading.Event()
+    gate = threading.Lock()
+    skeleton_shown = {"value": False}
+    result: dict[str, object] = {}
+
+    def paint_final() -> None:
+        if getattr(page, "_render_generation", generation) != generation:
+            return  # superseded by a newer render
+        page.views[:] = [build_shell(page, state, route, built=result["built"])]
+        page.update()
+        if on_done is not None:
+            on_done()
+
+    def work() -> None:
+        try:
+            result["built"] = build_page(page, state, route)
+        finally:
+            with gate:
+                done.set()
+                late = skeleton_shown["value"]
+        if late:
+            paint_final()
+
+    threading.Thread(target=work, name=f"page-build:{route}", daemon=True).start()
+    if done.wait(patience_s):
+        paint_final()
+        return
+    with gate:
+        pending = not done.is_set()
+        if pending:
+            title = PAGES.get(_page_route(route), ("Loading", None))[0]
+            skeleton = PageView(PageChrome(title, theme.APP_TAGLINE), skeleton_body(f"Loading {title}…"))
+            page.views[:] = [build_shell(page, state, route, built=skeleton, show_toast=False)]
+            page.update()
+            skeleton_shown["value"] = True
+    if not pending:
+        paint_final()
