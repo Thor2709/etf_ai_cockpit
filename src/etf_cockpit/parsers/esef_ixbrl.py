@@ -94,7 +94,13 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
             if total_size > MAX_UNCOMPRESSED_BYTES or any(info.file_size > MAX_MEMBER_BYTES for info in infos):
                 return _failure(source_sha, "archive_too_large", "ESEF package exceeds the uncompressed size limit")
             names = [info.filename for info in infos]
-            unsupported = [name for name in names if Path(name).suffix and Path(name).suffix.lower() not in _ALLOWED_MEMBER_SUFFIXES]
+            unsupported = [
+                name
+                for name in names
+                if not name.endswith("/")
+                and Path(name).suffix
+                and Path(name).suffix.lower() not in _ALLOWED_MEMBER_SUFFIXES
+            ]
             if unsupported:
                 return _failure(source_sha, "unsupported_member", "ESEF package contains unsupported member types")
             report_package = _first_member(names, "reportpackage.json")

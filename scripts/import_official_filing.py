@@ -13,6 +13,8 @@ from typing import Any, Iterable
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import atomic_write_json
+from etf_cockpit.data.classification import ClassificationEvidence, ClassificationStore
+from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.oam_adapters import archive_manual_official_filing
 from etf_cockpit.data.statement_normalisation import normalise_statement_facts
 from etf_cockpit.parsers.contracts import RawDocument
@@ -20,11 +22,15 @@ from etf_cockpit.parsers.esef_ixbrl import parse_esef_package
 from etf_cockpit.parsers.sec_facts import statement_facts_from_esef, write_statement_evidence
 
 
-NORWAY_INSTRUMENT = {
-    "ticker": "MING",
-    "isin": "NO0006390301",
-    "orgnr": "937901003",
-    "name": "SpareBank 1 SMN equity certificate",
+NORWAY_ISSUER_TABLE: dict[str, dict[str, str | None]] = {
+    "MING": {"ticker": "MING", "isin": "NO0006390301", "name": "SpareBank 1 SMN", "lei": "7V6Z97IO7R1SEAO84Q32", "orgnr": "937901003"},
+    "NONG": {"ticker": "NONG", "isin": "NO0006000801", "name": "SpareBank 1 Nord-Norge", "lei": "549300SXM92LQ05OJQ76", "orgnr": None},
+    "RING": {"ticker": "RING", "isin": "NO0006390400", "name": "SpareBank 1 Ringerike Hadeland", "lei": "5967007LIEEXZX73ZK25", "orgnr": None},
+    "SOAG": {"ticker": "SOAG", "isin": "NO0010285562", "name": "SpareBank 1 Østfold Akershus", "lei": "5967007LIEEXZX7D8W16", "orgnr": None},
+    "SPOL": {"ticker": "SPOL", "isin": "NO0010751910", "name": "SpareBank 1 Østlandet", "lei": "549300VRM6G42M8OWN49", "orgnr": None},
+    "MORG": {"ticker": "MORG", "isin": "NO0006390004", "name": "Sparebanken Møre", "lei": "5967007LIEEXZX5PU005", "orgnr": None},
+    "SPOG": {"ticker": "SPOG", "isin": "NO0006222009", "name": "Sparebanken Øst", "lei": "5967007LIEEXZX51WW28", "orgnr": None},
+    "AURG": {"ticker": "AURG", "isin": None, "name": "Aurskog Sparebank", "lei": "5967007LIEEXZX7H3S04", "orgnr": None},
 }
 EC_FACT_NAMES = (
     "registered_ec_count",
@@ -62,20 +68,27 @@ def import_official_filing(
 
     if str(jurisdiction).strip().upper() != "NO":
         raise ValueError("official filing importer currently supports jurisdiction NO only")
-    canonical = str(instrument_id or "").strip().upper().removeprefix("NO:").removeprefix("OSL:")
-    if canonical != NORWAY_INSTRUMENT["ticker"]:
-        raise ValueError("filing identity is ambiguous: expected the MING listing")
-    bound_ticker = str(ticker or canonical).strip().upper()
-    if bound_ticker != NORWAY_INSTRUMENT["ticker"]:
+    canonical = _normalise_ticker(str(instrument_id or "").strip().upper().removeprefix("NO:").removeprefix("OSL:"))
+    issuer = NORWAY_ISSUER_TABLE.get(canonical)
+    if issuer is None:
+        raise ValueError("filing identity is ambiguous: unknown Norwegian issuer ticker")
+    bound_ticker = _normalise_ticker(str(ticker or canonical).strip().upper())
+    if bound_ticker != canonical:
         raise ValueError("filing ticker does not match the requested listing")
-    bound_orgnr = str(orgnr or NORWAY_INSTRUMENT["orgnr"]).strip()
-    if bound_orgnr != NORWAY_INSTRUMENT["orgnr"]:
-        raise ValueError("filing organisation number does not match SpareBank 1 SMN")
+    bound_orgnr = issuer["orgnr"]
+    if orgnr:
+        supplied_orgnr = str(orgnr).strip()
+        if bound_orgnr is None:
+            raise ValueError("filing organisation number is not verified for this issuer")
+        if supplied_orgnr != bound_orgnr:
+            raise ValueError("filing organisation number does not match the issuer table")
     if not lei:
         raise ValueError("an issuer LEI (from GLEIF) is required to bind the filing; none is assumed")
     bound_lei = str(lei).strip().upper()
     if len(bound_lei) != 20 or not bound_lei.isalnum():
         raise ValueError("filing LEI must be a 20-character identifier")
+    if bound_lei != issuer["lei"]:
+        raise ValueError("filing LEI does not match the issuer table")
     expected = str(expected_period or "").strip()
     if not expected:
         raise ValueError("expected filing period is required")
@@ -157,7 +170,7 @@ def import_official_filing(
     normalised = normalise_statement_facts(facts)
     normalised_path = output / "normalised_statements.parquet"
     _append_revision_frame(normalised, normalised_path, "source_id")
-    _write_identity(output / "identity.json", canonical, bound_ticker, bound_orgnr, bound_lei, archive, expected, known_at)
+    _write_identity(output / "identity.json", canonical, bound_ticker, bound_orgnr, bound_lei, issuer["isin"], archive, expected, known_at)
     _write_ec_facts(
         supplied_facts,
         output / "ec_facts.json",
@@ -167,10 +180,11 @@ def import_official_filing(
         known_at,
         source_url,
     )
+    _write_financial_classification(output, canonical, issuer, expected, known_at)
     return {
         "status": "imported",
         "instrument_id": canonical,
-        "isin": NORWAY_INSTRUMENT["isin"],
+        "isin": issuer["isin"],
         "ticker": bound_ticker,
         "orgnr": bound_orgnr,
         "lei": bound_lei,
@@ -197,6 +211,57 @@ def _validate_identity_and_period(records: Iterable[object], expected_lei: str, 
         raise ValueError("filing report period does not match the expected period")
 
 
+def _normalise_ticker(value: str) -> str:
+    canonical = str(value or "").strip().upper()
+    return canonical[:-3] if canonical.endswith(".OL") else canonical
+
+
+def _classification_timestamp(value: str) -> str:
+    parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _classification_storage_root(output: Path) -> Path:
+    for candidate in (output, *output.parents):
+        if candidate.name.casefold() == "evidence":
+            return candidate.parent
+    return output
+
+
+def _write_financial_classification(
+    output: Path,
+    instrument_id: str,
+    issuer: dict[str, str | None],
+    period: str,
+    known_at: str,
+) -> None:
+    row_checksum = hashlib.sha256(
+        json.dumps(issuer, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    evidence_id = f"norway_savings_bank_issuer_table:{instrument_id}:{row_checksum}"
+    effective_at = _classification_timestamp(period)
+    available_at = _classification_timestamp(known_at)
+    evidence = ClassificationEvidence(
+        evidence_id=evidence_id,
+        instrument_id=instrument_id,
+        field="sector",
+        value="financials",
+        source="verified Norwegian savings-bank issuer table",
+        authority=SourceAuthority.OFFICIAL,
+        source_id=f"norway_savings_bank_issuer_table:{instrument_id}",
+        confidence=0.95,
+        valid_from=effective_at,
+        available_at=available_at,
+        source_checksum=row_checksum,
+    )
+    with ClassificationStore(_classification_storage_root(output)) as store:
+        current = store.classify(instrument_id, effective_at=effective_at, decision_time=available_at)
+        if evidence_id not in current.evidence_ids:
+            store.append_evidence((evidence,))
+
+
 def _validate_units(records: Iterable[object]) -> None:
     by_concept: dict[str, set[str]] = {}
     currencies: set[str] = set()
@@ -221,11 +286,11 @@ def _append_revision_frame(frame: pd.DataFrame, destination: Path, key: str) -> 
     combined.to_parquet(destination, index=False)
 
 
-def _write_identity(destination: Path, instrument_id: str, ticker: str, orgnr: str, lei: str, archive: object, period: str, known_at: str) -> None:
+def _write_identity(destination: Path, instrument_id: str, ticker: str, orgnr: str | None, lei: str, isin: str | None, archive: object, period: str, known_at: str) -> None:
     payload = {
         "instrument_id": instrument_id,
         "ticker": ticker,
-        "isin": NORWAY_INSTRUMENT["isin"],
+        "isin": isin,
         "lei": lei,
         "orgnr": orgnr,
         "identity_source": "Brønnøysund organisation number + Oslo Børs listing + filed ESEF issuer LEI",

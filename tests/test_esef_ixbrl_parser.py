@@ -222,6 +222,22 @@ def test_parser_rejects_unsupported_zip_member_types(tmp_path: Path) -> None:
     assert any(warning.code == "unsupported_member" for warning in result.warnings)
 
 
+def test_parser_accepts_dotted_directory_entry(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
+    source = tmp_path / "source.xbri"
+    _write_context_package(source)
+    package = tmp_path / "dotted-directory.xbri"
+    with zipfile.ZipFile(source) as original, zipfile.ZipFile(package, "w") as target:
+        for member in original.infolist():
+            target.writestr(member, original.read(member.filename))
+        target.writestr("aarsrapport.smn.no/", b"")
+
+    result = parse_esef_package(package)
+
+    assert result.success is True
+    assert result.records
+
+
 def test_parser_captures_bounded_arelle_validation_failure(monkeypatch) -> None:
     import etf_cockpit.parsers.esef_ixbrl as module
 
