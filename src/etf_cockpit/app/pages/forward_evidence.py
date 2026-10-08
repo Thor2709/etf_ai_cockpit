@@ -8,7 +8,6 @@ import json
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components import chartkit as ck
 from etf_cockpit.app.components.kit import (
     Button,
     Disclosure,
@@ -273,15 +272,10 @@ def forward_evidence_page(page: ft.Page | None, state: AppState) -> PageView:
         ),
     )
 
-    outcomes = ck.scatter_bubble(
-        [],
-        x_name="Decision date",
-        y_name="Matured excess return (%)",
-        y_unit="%",
-        insight="Matured excess returns by outcome status.",
-        unavailable_reason="No canonical matured excess-return series is provided by the local diary records.",
+    outcomes_card = GlassCard(
+        "Outcomes over time",
+        body=Well(EmptyState("No observations yet", "Record a local observation opportunity to begin.")),
     )
-    outcomes_card = GlassCard("Outcomes over time", body=Well(outcomes))
     recent_rows = []
     for row in entries[-12:]:
         status_key = str(row.outcome.status).casefold()
@@ -295,7 +289,7 @@ def forward_evidence_page(page: ft.Page | None, state: AppState) -> PageView:
             )
         )
     recent_host = ft.Column(
-        recent_rows or [Well(EmptyState("No observations yet", "Record a local observation opportunity to begin."))],
+        recent_rows or [Well(EmptyState("No diary entries yet", "Recorded local observations will appear here."))],
         spacing=theme.SPACE_2,
     )
     return PageView(

@@ -82,9 +82,14 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> PageView:
         "control": EmptyState("Frontier unavailable", "No held-out validation results are available.")
     }
     weights_by_method: dict[str, ft.Control] = {
-        "control": EmptyState(
-            "Weights unavailable",
-            "Per-method instrument weights are not present in the current comparison result.",
+        "control": ck.horizontal_stacked_bar(
+            [],
+            [],
+            x_name="Weight (%)",
+            unit="%",
+            unavailable_reason="Per-method instrument weights are not present in the comparison result.",
+            empty_title="Weights unavailable",
+            insight="Per-method instrument weights are unavailable.",
         )
     }
     audit = {"text": "", "details": ""}
@@ -101,9 +106,14 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> PageView:
             status["text"] = "Optimisation unavailable: adjusted-price returns are required."
             result_table["control"] = EmptyState("Comparison unavailable", "Adjusted-price returns are required.")
             frontier["control"] = EmptyState("Frontier unavailable", "No held-out validation results are available.")
-            weights_by_method["control"] = EmptyState(
-                "Weights unavailable",
-                "Per-method instrument weights are not present in the current comparison result.",
+            weights_by_method["control"] = ck.horizontal_stacked_bar(
+                [],
+                [],
+                x_name="Weight (%)",
+                unit="%",
+                unavailable_reason="Per-method instrument weights are not present in the comparison result.",
+                empty_title="Weights unavailable",
+                insight="Per-method instrument weights are unavailable.",
             )
             audit["text"] = ""
             audit["details"] = ""
@@ -192,9 +202,14 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> PageView:
                     unavailable_reason="No held-out method results are available.",
                 )
                 frontier_well.content = frontier["control"]
-                weights_by_method["control"] = EmptyState(
-                    "Weights unavailable",
-                    "Per-method instrument weights are not present in the current comparison result.",
+                weights_by_method["control"] = ck.horizontal_stacked_bar(
+                    [],
+                    [],
+                    x_name="Weight (%)",
+                    unit="%",
+                    unavailable_reason="Per-method instrument weights are not present in the comparison result.",
+                    empty_title="Weights unavailable",
+                    insight="Per-method instrument weights are unavailable.",
                 )
                 weights_well.content = weights_by_method["control"]
                 fingerprints = [
@@ -202,8 +217,8 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> PageView:
                     for method_id, row in comparison.iterrows()
                     if pd.notna(row.get("fingerprint"))
                 ]
-                audit["text"] = "\n".join(fingerprints)
-                audit["details"] = "\n".join(
+                audit["text"] = "\r\n".join(fingerprints)
+                audit["details"] = "\r\n".join(
                     [
                         f"Model version: {model_metadata['model_version']}",
                         f"Cash weight: {percent(cash_percent / 100)}",

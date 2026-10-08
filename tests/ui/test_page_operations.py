@@ -25,7 +25,7 @@ def _state():
 
 
 def _text(view) -> str:
-    return "\n".join(str(item.value) for item in _walk(view.body) if isinstance(item, ft.Text))
+    return "\r\n".join(str(item.value) for item in _walk(view.body) if isinstance(item, ft.Text))
 
 
 def test_renders_with_sample_data() -> None:
@@ -35,7 +35,7 @@ def test_renders_with_sample_data() -> None:
     for segment in ("Paper ledger", "Records"):
         view.chrome.segment_groups[0].on_change(segment)
         content.append(_text(view))
-    rendered = "\n".join(content)
+    rendered = "\r\n".join(content)
     assert all(
         title in rendered
         for title in (
@@ -65,3 +65,23 @@ def test_empty_data_shows_unavailable() -> None:
     content = _text(view)
     assert "Unavailable" in content
     assert all(line != "0" for line in content.splitlines())
+
+
+def test_paper_equity_has_card_and_cancel_is_text_button() -> None:
+    view = operations_page(None, _state())
+    descendants = list(_walk(view.body))
+    paper_equity = next(
+        control
+        for control in descendants
+        if isinstance(getattr(control, "data", None), dict)
+        and control.data.get("kit") == "GlassCard"
+        and control.data.get("title") == "Paper equity"
+    )
+    assert "Paper equity unavailable" in _text_from_control(paper_equity)
+    cancel = next(control for control in descendants if isinstance(control, ft.TextButton) and control.content == "Cancel workflow")
+    assert cancel.key == "operations.cancel"
+    assert all(not isinstance(control, ft.ListView) for control in _walk(paper_equity))
+
+
+def _text_from_control(control) -> str:
+    return "\r\n".join(str(item.value) for item in _walk(control) if isinstance(item, ft.Text))

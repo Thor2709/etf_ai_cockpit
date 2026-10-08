@@ -149,11 +149,14 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
 
         notify(cancel_status, cancel_details, "Workflow cancellation", unavailable)
 
-    paper_equity = Well(
-        EmptyState(
-            "Paper equity unavailable",
-            "The paper ledger does not provide a dated equity series for a chart.",
-        )
+    paper_equity = GlassCard(
+        "Paper equity",
+        body=Well(
+            EmptyState(
+                "Paper equity unavailable",
+                "The paper ledger does not provide a dated equity series for a chart.",
+            )
+        ),
     )
     tca = Well(EmptyState("Paper TCA unavailable", "Paper ledger cost attribution is not available."))
 
@@ -181,11 +184,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
                             disabled=True,
                             disabled_reason="Confirmation remains disabled until a reviewed paper proposal exists.",
                         ),
-                        Button.secondary(
-                            "Cancel workflow",
-                            key="operations.cancel",
-                            on_click=cancel,
-                        ),
+                        ft.TextButton("Cancel workflow", key="operations.cancel", on_click=cancel),
                     ],
                     wrap=True,
                 ),
@@ -572,8 +571,8 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
                 "result": Tag("Recorded", "ok"),
                 "details": Disclosure(
                     "operation record",
-                    f"ID: {getattr(item, 'operation_id', '—')}\n"
-                    f"Status: {getattr(item, 'status', 'unavailable')}\n"
+                    f"ID: {getattr(item, 'operation_id', '—')}\r\n"
+                    f"Status: {getattr(item, 'status', 'unavailable')}\r\n"
                     f"Message: {getattr(item, 'message', '—')}",
                 ),
             }

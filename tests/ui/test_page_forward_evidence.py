@@ -27,7 +27,7 @@ def _state():
 
 
 def _text(view) -> str:
-    return "\n".join(str(item.value) for item in _walk(view.body) if isinstance(item, ft.Text))
+    return "\r\n".join(str(item.value) for item in _walk(view.body) if isinstance(item, ft.Text))
 
 
 def test_renders_with_sample_data(monkeypatch) -> None:
@@ -39,7 +39,7 @@ def test_renders_with_sample_data(monkeypatch) -> None:
     for option in view.chrome.segment_groups[0].items:
         view.chrome.segment_groups[0].on_change(option)
         rendered.append(_text(view))
-    content = "\n".join(rendered)
+    content = "\r\n".join(rendered)
     assert view.body is body
     assert all(
         title in content
@@ -69,3 +69,22 @@ def test_empty_data_shows_unavailable(monkeypatch) -> None:
         data = getattr(control, "data", None)
         if isinstance(data, dict) and data.get("kit") == "DataTable":
             assert all(str(value) != "0" for row in data.get("rows", ()) for value in row.values())
+
+
+def test_missing_observations_are_shown_in_outcomes_card(monkeypatch) -> None:
+    monkeypatch.setattr(ForwardEvidenceDiary, "list_entries", lambda *_args, **_kwargs: ())
+    view = forward_evidence_page(None, _state())
+    cards = [
+        control
+        for control in _walk(view.body)
+        if isinstance(getattr(control, "data", None), dict) and control.data.get("kit") == "GlassCard"
+    ]
+    outcomes = next(card for card in cards if card.data.get("title") == "Outcomes over time")
+    recent = next(card for card in cards if card.data.get("title") == "Recent local diary entries")
+    assert "No observations yet" in _text_from_control(outcomes)
+    assert "No diary entries yet" in _text_from_control(recent)
+    assert all(not isinstance(control, ft.ListView) for control in _walk(outcomes))
+
+
+def _text_from_control(control) -> str:
+    return "\r\n".join(str(item.value) for item in _walk(control) if isinstance(item, ft.Text))

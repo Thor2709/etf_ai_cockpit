@@ -36,7 +36,7 @@ def _state(*, empty: bool = False):
 
 
 def _text(view) -> str:
-    return "\n".join(str(item.value) for item in _walk(view.body) if isinstance(item, ft.Text))
+    return "\r\n".join(str(item.value) for item in _walk(view.body) if isinstance(item, ft.Text))
 
 
 def test_renders_with_sample_data(monkeypatch) -> None:
@@ -67,3 +67,23 @@ def test_empty_data_shows_unavailable(monkeypatch) -> None:
         data = getattr(control, "data", None)
         if isinstance(data, dict) and data.get("kit") == "DataTable":
             assert all(str(value) != "0" for row in data.get("rows", ()) for value in row.values())
+
+
+def test_scenario_assumptions_controls_have_bounded_layout(monkeypatch) -> None:
+    monkeypatch.setattr(StressLabFacade, "list_saved", lambda _self: ())
+    view = stress_lab_page(None, _state())
+    card = next(
+        control
+        for control in _walk(view.body)
+        if isinstance(getattr(control, "data", None), dict)
+        and control.data.get("kit") == "GlassCard"
+        and control.data.get("title") == "Scenario assumptions"
+    )
+    descendants = list(_walk(card))
+    content = _text(view)
+    assert all(label.upper() in content for label in ("Scenario ID", "Scenario name", "Equity (%)", "Rates (%)", "FX (%)", "Credit (%)", "Commodity (%)", "Liquidity cost (%)", "Notional"))
+    assert all(not isinstance(control, ft.ListView) for control in descendants)
+    assert all(
+        not (isinstance(control, ft.Row) and any(isinstance(child, ft.TextField) for child in control.controls))
+        for control in descendants
+    )
