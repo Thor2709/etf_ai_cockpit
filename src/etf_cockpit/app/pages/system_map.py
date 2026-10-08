@@ -46,7 +46,7 @@ def system_map_page(page: ft.Page | None, state: AppState) -> PageView:
                 "capability": str(getattr(entry, "name", getattr(entry, "feature_id", "Unavailable"))),
                 "lifecycle": kit.Tag(lifecycle, "mute"),
                 "authority": kit.Tag(authority, "warn"),
-                "data": ft.Row(data_tags, wrap=True, spacing=4),
+                "data": ft.Row(data_tags, wrap=True, spacing=4, run_spacing=4),
                 "validation": "Data health evidence is local and read-only.",
                 "limitation": "; ".join(str(item) for item in (getattr(entry, "limitations", ()) or ())) or "No explicit limitation recorded.",
                 "open": TextButton(
@@ -151,16 +151,60 @@ def system_map_page(page: ft.Page | None, state: AppState) -> PageView:
         summaries = tuple(getattr(row, "stage_summary", ()) or ())
         for stage in stages:
             status = next((value.split(":", 1)[-1].strip() for value in summaries if value.casefold().startswith(f"{stage}".casefold())), None)
-            display_status = status.replace("_", " ").title() if status else None
-            stage_values[str(stage)] = kit.Tag(display_status, "ok" if status and status.casefold() in {"available", "allowed", "supported"} else "mute") if display_status else "—"
-        strategy_rows.append({"strategy": row.strategy_id, **stage_values})
-    strategy_columns = [kit.TableColumn("strategy", "Strategy")] + [kit.TableColumn(str(stage), str(stage).replace("_", " ").title()) for stage in stages]
-    stage_grid = kit.DataTable(
-        strategy_columns,
-        strategy_rows,
+            normalised = status.casefold().replace(" ", "_") if status else ""
+            if normalised in {"available", "allowed", "supported"}:
+                glyph, colour = "✓", "rgba(111,207,166,.55)"
+            elif normalised in {"supported_with_limitations", "with_limitations", "limited"}:
+                glyph, colour = "~", "rgba(230,194,122,.55)"
+            elif status:
+                glyph, colour = "–", "rgba(255,255,255,.08)"
+            else:
+                glyph, colour = "—", "rgba(255,255,255,.08)"
+            stage_values[str(stage)] = ft.Container(
+                content=ft.Text(glyph, tooltip=status or "Unavailable", text_align=ft.TextAlign.CENTER),
+                width=28,
+                height=28,
+                alignment=ft.Alignment(0, 0),
+                bgcolor=colour,
+                border_radius=6,
+            )
+        strategy_rows.append((str(row.strategy_id), stage_values))
+    if strategy_rows:
+        stage_grid_content: ft.Control = ft.Column(
+            [
+                ft.Row(
+                    [ft.Container(width=150), *(ft.Container(content=ft.Text(str(stage).replace("_", " "), size=11), width=28, alignment=ft.Alignment(0, 0)) for stage in stages)],
+                    spacing=4,
+                ),
+                *(ft.Row(
+                    [ft.Container(content=ft.Text(strategy, size=11, no_wrap=True), width=150), *(cells[str(stage)] for stage in stages)],
+                    spacing=4,
+                ) for strategy, cells in strategy_rows),
+            ],
+            spacing=4,
+            scroll=ft.ScrollMode.AUTO,
+            expand=True,
+        )
+    else:
+        stage_grid_content = kit.EmptyState(
+            "Strategy stage coverage unavailable",
+            "The local capability matrix is unavailable; stage coverage is not inferred.",
+            expand=False,
+            height=140,
+        )
+    stage_grid = ft.Column(
+        [
+            ft.Row(
+                [kit.Tag("✓ Supported", "ok"), kit.Tag("~ With limitations", "warn"), kit.Tag("– Unavailable", "mute")],
+                wrap=True,
+                spacing=6,
+                run_spacing=6,
+            ),
+            stage_grid_content,
+        ],
+        spacing=8,
         expand=True,
-        empty_title="Strategy stage coverage unavailable",
-        empty_reason="The local capability matrix is unavailable; stage coverage is not inferred.",
+        scroll=ft.ScrollMode.AUTO,
     )
     instrument_lines = [
         f"{row.asset_family} · {row.state} · {row.reason_code} · horizons={','.join(row.horizons)} · {row.prerequisite_summary} · {'; '.join(row.stage_summary)}"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import threading
@@ -7,6 +8,7 @@ import threading
 import flet as ft
 
 from etf_cockpit.app.components import kit
+from etf_cockpit.app.components import chartkit as ck
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
 from etf_cockpit.app.formatting import format_timestamp
 from etf_cockpit.app.state import AppState
@@ -343,12 +345,35 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> PageView:
         ),
         expand=True,
     )
-    timeline_rows = []
+    timeline_items = []
     for item in list(getattr(state, "recent_activity", ()) or ()):
         if not any(word in str(getattr(item, "label", "")).casefold() for word in ("export", "import")):
             continue
-        timeline_rows.append(kit.ListRow("info", item.label, getattr(item, "step", "") or "Local audit activity"))
-        timeline_rows.append(
+        label = str(getattr(item, "label", ""))
+        started_at = getattr(item, "started_at", None)
+        try:
+            event_time = started_at if isinstance(started_at, datetime) else datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            event_time = None
+        timeline_items.append((event_time, "import" if "import" in label.casefold() else "export", item))
+    timeline_items.sort(key=lambda entry: entry[0].timestamp() if entry[0] is not None else float("-inf"))
+    timeline_dates = [event_time for event_time, _kind, _item in timeline_items if event_time is not None]
+    timeline_kinds = [kind for event_time, kind, _item in timeline_items if event_time is not None]
+    timeline_chart = ck.line_chart(
+        timeline_dates,
+        [
+            ck.Series("Exports", [1 if kind == "export" else None for kind in timeline_kinds], color=ck.palette.POS, width=0, markers=10, marker_ring=True, unit="events"),
+            ck.Series("Imports", [2 if kind == "import" else None for kind in timeline_kinds], color=ck.palette.NEG, width=0, markers=10, marker_ring=True, unit="events"),
+        ],
+        x_name="Date",
+        y_name="Event type (category)",
+        unavailable_reason="No dated local audit exports or imports are recorded in this session." if not timeline_dates else None,
+        empty_title="No audit activity",
+        insight="Local exports and imports by date.",
+    )
+    timeline_details = []
+    for _event_time, _kind, item in timeline_items:
+        timeline_details.append(
             kit.Disclosure(
                 "Audit timeline details",
                 f"message={getattr(item, 'message', '') or 'Unavailable'}\nstarted_at={format_timestamp(getattr(item, 'started_at', None), unavailable='Unavailable')}\naction_id={getattr(item, 'action_id', '') or '—'}\nstatus={getattr(item, 'status', 'Unavailable')}",
@@ -358,8 +383,9 @@ def chatgpt_audit_page(page: ft.Page, state: AppState) -> PageView:
         "Audit timeline",
         note="Local exports and imports",
         body=ft.Column(
-            timeline_rows or [kit.EmptyState("No audit activity", "No local audit exports or imports are recorded in this session.")],
+            [kit.Well(timeline_chart), *(timeline_details or [kit.Note("No detailed local audit activity is available.")])],
             spacing=8,
+            expand=True,
             scroll=ft.ScrollMode.AUTO,
         ),
         expand=True,

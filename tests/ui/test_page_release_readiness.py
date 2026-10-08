@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import flet as ft
+
 from etf_cockpit.app.components.shell.page_view import PageView
 from etf_cockpit.app.pages import release_readiness
 from etf_cockpit.app.state import AppState
@@ -44,3 +46,24 @@ def test_empty_data_shows_unavailable(monkeypatch) -> None:
     assert isinstance(result, PageView)
     assert any("Unavailable" in value or "unavailable" in value.casefold() for value in texts)
     assert "0" not in texts
+
+
+def test_accepted_limitations_scroll_inside_expanding_card() -> None:
+    snapshot = build_snapshot()
+    state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+    result = release_readiness.release_readiness_page(None, state)
+    controls = _walk(result)
+    card = next(control for control in controls if isinstance(getattr(control, "data", None), dict) and control.data.get("kit") == "GlassCard" and control.data.get("title") == "Accepted limitations")
+    assert card.expand is True
+    assert any(getattr(control, "scroll", None) == ft.ScrollMode.AUTO and control.expand is True for control in _walk(card))
+    assert not any(type(control).__name__ == "ListView" for control in controls)
+
+
+def _walk(control: object):
+    yield control
+    for child in getattr(control, "controls", ()) or ():
+        yield from _walk(child)
+    for name in ("content", "body"):
+        child = getattr(control, name, None)
+        if child is not None:
+            yield from _walk(child)
