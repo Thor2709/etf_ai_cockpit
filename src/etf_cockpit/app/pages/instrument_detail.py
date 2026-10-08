@@ -230,11 +230,6 @@ def _price_chart(
     range_name: str,
     mode: str,
 ) -> ft.Control:
-    if mode == "Candles":
-        return EmptyState(
-            "Unavailable",
-            "The chart kit has no candlestick and volume chart.",
-        )
     snapshot = getattr(state, "snapshot", None)
     local_currency = str(model.identity.get("currency") or "")
     projection = load_market_series_projection(
@@ -259,6 +254,57 @@ def _price_chart(
             frame = frame.loc[dates >= latest - pd.DateOffset(months=months)]
     rows = frame.to_dict(orient="records")
     x_values = [str(row.get("date", "")) for row in rows]
+    if mode == "Candles":
+        price_rows = getattr(snapshot, "prices", None)
+        if isinstance(price_rows, pd.DataFrame):
+            identifier = "etf_id" if "etf_id" in price_rows.columns else "instrument_id"
+            if identifier in price_rows.columns:
+                price_rows = price_rows.loc[
+                    price_rows[identifier].astype(str).eq(model.instrument_id)
+                ]
+            else:
+                price_rows = pd.DataFrame()
+        else:
+            price_rows = pd.DataFrame()
+        if price_rows.empty or not {"date", "open", "high", "low", "close", "volume"}.issubset(price_rows.columns):
+            return EmptyState(
+                "Unavailable",
+                "Daily OHLC and volume are unavailable in the local price evidence.",
+            )
+        candle_rows = price_rows.set_index(price_rows["date"].astype(str)).reindex(x_values)
+        candle_dates = list(candle_rows["date"].astype(str)) if "date" in candle_rows else []
+        if not candle_dates or candle_rows["volume"].isna().all():
+            return EmptyState(
+                "Unavailable",
+                "Daily OHLC or volume observations are unavailable for the selected range.",
+            )
+        price_series = [
+            ck.Series(name.title(), pd.to_numeric(candle_rows[name], errors="coerce").where(pd.notna(candle_rows[name]), None).tolist(), color=color)
+            for name, color in (("open", theme.INK2), ("high", theme.GREEN), ("low", theme.RED), ("close", theme.CYAN))
+        ]
+        return ft.Column(
+            [
+                Note("Daily OHLC values shown as lines; the chart kit has no candlestick primitive."),
+                ck.line_chart(
+                    candle_dates,
+                    price_series,
+                    x_name="Date",
+                    y_name=f"Price ({local_currency or 'local currency'})",
+                    insight="Daily raw open, high, low and close from local price evidence.",
+                ),
+                ck.bar_chart(
+                    candle_dates,
+                    pd.to_numeric(candle_rows["volume"], errors="coerce").where(pd.notna(candle_rows["volume"]), None).tolist(),
+                    x_name="Date",
+                    y_name="Volume (shares)",
+                    unit="shares",
+                    unavailable_reason="Daily volume observations are unavailable for the selected range."
+                    if candle_rows["volume"].isna().all()
+                    else None,
+                ),
+            ],
+            spacing=8,
+        )
     values = [row.get("series_value") for row in rows]
     valid = [value for value in values if isinstance(value, (int, float)) and value == value]
     if not x_values or not valid:
@@ -340,7 +386,11 @@ def _price_card(
         card = card_ref.get("card")
         note = getattr(card, "data", {}).get("note_control") if card is not None else None
         if note is not None:
-            note.value = f"{settings['currency']} · {settings['basis']} close"
+            note.value = (
+                f"{local_currency or 'local currency'} · raw OHLC and volume"
+                if settings["mode"] == "Candles"
+                else f"{settings['currency']} · {settings['basis']} close"
+            )
         if page is not None and callable(getattr(page, "update", None)):
             page.update()
 
@@ -416,7 +466,7 @@ def _identity_card(
     authority = identity.get("source_authority", identity.get("authority"))
     conflict = identity.get("conflict_id", identity.get("conflict_status"))
     rows = [
-        {"field": label, "value": _value(identity.get(key))}
+        {"field": label, "value": "—" if key == "exchange" and _value(identity.get(key)).casefold() == "unavailable" else _value(identity.get(key))}
         for key, label in (
             ("instrument_id", "instrument_id"),
             ("ticker", "ticker"),
@@ -490,6 +540,11 @@ def _identity_card(
                 empty_title="Unavailable",
                 empty_reason="Identity fields are unavailable.",
             ),
+            *(
+                [Note("Exchange is unavailable in local identity evidence.")]
+                if _value(identity.get("exchange")).casefold() in {"unavailable", "—"}
+                else []
+            ),
             Button.secondary(
                 "Export audit evidence",
                 on_click=export_instrument_evidence,
@@ -548,11 +603,10 @@ def _score_card(model: InstrumentDetailViewModel, page: ft.Page | None) -> ft.Co
                 _reason(score, "Evidence score") if raw_score is None else "Canonical score evidence.",
             ),
             *bars,
-            ListRow(
-                "info",
+            Button.secondary(
                 "Open in Scores",
-                "View canonical score evidence for this instrument.",
                 on_click=open_scores,
+                key="instrument-detail.open-scores",
             ),
         ],
         expand=True,
@@ -599,6 +653,68 @@ def _alerts_card(model: InstrumentDetailViewModel, state: object) -> ft.Control:
 
 def _section_card(title: str, value: object, key: str | None = None) -> ft.Control:
     return _render_evidence_section(title, value, key=key)
+
+
+def _feature_driver_chart(value: object) -> ft.Control:
+    rows = value.get("rows", ()) if isinstance(value, Mapping) else ()
+    rows = [row for row in rows if isinstance(row, Mapping)] if isinstance(rows, Sequence) else []
+    chart_rows = [
+        row for row in rows
+        if isinstance(row.get("contribution"), (int, float))
+        and pd.notna(row.get("contribution"))
+    ]
+    if not chart_rows:
+        return GlassCard(
+            "Feature drivers",
+            body=EmptyState("Unavailable", _reason(value, "Feature driver chart")),
+            key="instrument-detail.feature-drivers",
+        )
+    chart_rows = chart_rows[:12]
+    return GlassCard(
+        "Feature drivers",
+        note="Stored driver contribution evidence",
+        body=[
+            ck.bar_chart(
+                [str(row.get("component") or "—") for row in chart_rows],
+                [float(row["contribution"]) for row in chart_rows],
+                x_name="Feature driver",
+                y_name="Contribution (score points)",
+                unit="score points",
+                unavailable_reason="No numeric feature driver contributions are available.",
+            ),
+            Disclosure("Feature driver evidence", _payload(value)),
+        ],
+        key="instrument-detail.feature-drivers",
+    )
+
+
+def _score_history_chart(value: object) -> ft.Control:
+    rows = value.get("rows", ()) if isinstance(value, Mapping) else ()
+    rows = [row for row in rows if isinstance(row, Mapping)] if isinstance(rows, Sequence) else []
+    date_key = next((key for key in ("run_completed_at", "run_started_at", "data_as_of_date") if any(row.get(key) for row in rows)), None)
+    score_key = next((key for key in ("final_combined_score_10", "evidence_score_10") if any(isinstance(row.get(key), (int, float)) and pd.notna(row.get(key)) for row in rows)), None)
+    chart_rows = [row for row in rows if date_key and score_key and row.get(date_key) and isinstance(row.get(score_key), (int, float)) and pd.notna(row.get(score_key))]
+    if not chart_rows:
+        return GlassCard(
+            "Score history",
+            body=EmptyState("Unavailable", _reason(value, "Score history chart")),
+            key="instrument-detail.score-history",
+        )
+    return GlassCard(
+        "Score history",
+        note="Stored score history",
+        body=[
+            ck.line_chart(
+                [str(row[date_key]) for row in chart_rows],
+                [ck.Series("Score", [float(row[score_key]) for row in chart_rows], color=theme.CYAN, glow=True)],
+                x_name="Run date",
+                y_name="Score (0–10)",
+                insight=f"{len(chart_rows)} stored score observations.",
+            ),
+            Disclosure("Score history evidence", _payload(value)),
+        ],
+        key="instrument-detail.score-history",
+    )
 
 
 def _valuation_card(model: InstrumentDetailViewModel, page: ft.Page | None, state: object) -> ft.Control:
@@ -749,7 +865,7 @@ def _section_rows(
 
     sections = model.sections
     overview = [
-        _section_card("Feature drivers", sections.get("feature_drivers")),
+        _feature_driver_chart(sections.get("feature_drivers")),
         _render_crowding_attribution_panel(
             {"scores": sections.get("scores"), "attribution": sections.get("attribution")}
         ),
@@ -769,6 +885,14 @@ def _section_rows(
             "ETF order-preview capacity meter",
             note="Order value and horizon capacity are unavailable without a stored preview result.",
             body=[
+                ft.ResponsiveRow(
+                    [
+                        Field("Order value (EUR)", control=ft.TextField(**field_input_style())),
+                        Field("Horizon (days)", control=ft.TextField(**field_input_style())),
+                    ],
+                    spacing=8,
+                    run_spacing=8,
+                ),
                 KpiTile("Capacity preview", None, "No capacity preview result is available for this instrument."),
                 Disclosure("Capacity evidence", _payload(sections.get("etf_liquidity"))),
                 Button.primary(
@@ -817,7 +941,7 @@ def _section_rows(
         _section_card("News/macro contradictions", sections.get("news")),
     ]
     history = [
-        _section_card("Score history", sections.get("history"), "instrument-detail.score-history"),
+        _score_history_chart(sections.get("history")),
         _section_card("Score-component metric history", sections.get("metric_history"), "instrument-detail.metric-history"),
         _section_card("Point-in-time vintage history", vintage),
         _section_card("What changed since the last run", sections.get("run_changes")),

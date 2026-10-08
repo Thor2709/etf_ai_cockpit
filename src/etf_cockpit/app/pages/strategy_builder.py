@@ -7,15 +7,13 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.chartkit import bar_chart
 from etf_cockpit.app.components.kit import (
-    Button,
-    DataTable,
     Disclosure,
     GateCheck,
     GlassCard,
     ListRow,
     Note,
-    TableColumn,
     Tag,
+    Toggle,
 )
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
 from etf_cockpit.app.state import AppState
@@ -72,15 +70,14 @@ def strategy_builder_page(page: ft.Page, state: AppState) -> PageView:
         )
 
         def toggle_template(
-            _event: object,
+            enabled_now: bool,
             template_id: str = template.template_id,
             status_tag: ft.Container = enabled_tag,
         ) -> None:
-            value = not facade.is_enabled(template_id)
-            facade.set_enabled(template_id, value)
-            status_tag.content.value = "Enabled" if value else "Disabled"
-            status_tag.data = {"kit": "Tag", "kind": "ok" if value else "mute", "text": status_tag.content.value}
-            tone = "ok" if value else "mute"
+            facade.set_enabled(template_id, enabled_now)
+            status_tag.content.value = "Enabled" if enabled_now else "Disabled"
+            status_tag.data = {"kit": "Tag", "kind": "ok" if enabled_now else "mute", "text": status_tag.content.value}
+            tone = "ok" if enabled_now else "mute"
             status_tag.bgcolor = theme.TAG_TONES[tone][1]
             status_tag.content.color = theme.TAG_TONES[tone][0]
             filter_templates(filter_state["selected"])
@@ -94,9 +91,9 @@ def strategy_builder_page(page: ft.Page, state: AppState) -> PageView:
                     on_click=lambda _e, template_id=template.template_id: select_template(template_id),
                     last=True,
                 ),
-                Button.secondary(
-                    "Toggle enabled",
-                    on_click=toggle_template,
+                Toggle(
+                    enabled,
+                    on_change=toggle_template,
                     key=f"strategy-builder.template.{template.template_id}",
                 ),
                 enabled_tag,
@@ -120,13 +117,11 @@ def strategy_builder_page(page: ft.Page, state: AppState) -> PageView:
             ft.Column(template_rows, spacing=8, key="strategy-builder.template.*"),
             Note("Local preferences are stored atomically; execution_allowed=false."),
         ],
-        expand=7,
         key="strategy-builder.card.templates",
     )
     detail = GlassCard(
         f"Template detail · {templates[0].name}" if templates else "Template detail",
         body=_template_detail(templates[0], by_template[templates[0].template_id]) if templates else Note("Unavailable · no strategy templates are registered."),
-        expand=5,
     )
     most_matches = (
         max((len(by_template[template.template_id]) for template in templates), default=None)
@@ -161,22 +156,26 @@ def strategy_builder_page(page: ft.Page, state: AppState) -> PageView:
             ),
             insight=match_insight,
         ),
-        expand=7,
+    )
+    stage_headers = ft.Row(
+        [Note("Template"), *[ft.Container(content=Note(label), width=40, alignment=ft.Alignment(0, 0)) for _, label in _STAGES]],
+        spacing=4,
+        wrap=False,
     )
     coverage_rows = [
-        {"template": template.name, **{key: _stage_label(template.stages.get(key)) for key, _ in _STAGES}}
+        ft.Row(
+            [
+                ft.Container(content=Note(template.name), expand=True),
+                *[_stage_cell(template.stages.get(key)) for key, _ in _STAGES],
+            ],
+            spacing=4,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
         for template in templates
     ]
     coverage_card = GlassCard(
         "Stage coverage",
-        body=DataTable(
-            [TableColumn("template", "Template"), *[TableColumn(key, label) for key, label in _STAGES]],
-            coverage_rows,
-            max_visible_rows=8,
-            empty_title="Unavailable",
-            empty_reason="No strategy stage coverage is registered.",
-        ),
-        expand=5,
+        body=[stage_headers, *(coverage_rows or [Note("Unavailable · no strategy stage coverage is registered.")])],
     )
 
     def filter_templates(option: str) -> None:
@@ -193,8 +192,8 @@ def strategy_builder_page(page: ft.Page, state: AppState) -> PageView:
 
     body = ft.Column(
         [
-            ft.Row([templates_card, detail], spacing=16, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
-            ft.Row([matches_card, coverage_card], spacing=16, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
+            ft.Row([templates_card, detail], spacing=16, vertical_alignment=ft.CrossAxisAlignment.START),
+            ft.Row([matches_card, coverage_card], spacing=16, vertical_alignment=ft.CrossAxisAlignment.START),
         ],
         spacing=16,
         expand=True,
@@ -239,7 +238,24 @@ def _template_detail(template: object, matches: list[object]) -> ft.Control:
             *(matched or [Note("Unavailable · no instruments match this template.")]),
         ],
         spacing=8,
-        scroll=ft.ScrollMode.AUTO,
+    )
+
+
+def _stage_cell(value: object) -> ft.Control:
+    if value == "supported":
+        symbol, color = "✓", theme.rgba(111, 207, 166, 0.55)
+    elif value == "supported_with_limitations":
+        symbol, color = "~", theme.rgba(230, 194, 122, 0.55)
+    else:
+        symbol, color = "–", theme.rgba(255, 255, 255, 0.08)
+    return ft.Container(
+        content=ft.Text(symbol, size=13, text_align=ft.TextAlign.CENTER),
+        width=28,
+        height=28,
+        alignment=ft.Alignment(0, 0),
+        bgcolor=color,
+        border_radius=6,
+        tooltip=str(value or "unavailable"),
     )
 
 

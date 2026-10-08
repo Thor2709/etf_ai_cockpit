@@ -3,7 +3,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from etf_cockpit.app.components.shell.page_view import PageView
+from etf_cockpit.app.pages import instrument_detail
 from etf_cockpit.app.pages.instrument_detail import instrument_detail_page
+from etf_cockpit.application.instrument_detail_view import InstrumentDetailViewModel
 from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
@@ -102,3 +104,19 @@ def test_empty_data_shows_unavailable() -> None:
                 str(getattr(item, "value", "") or "") != "0"
                 for item in _walk(control)
             )
+
+
+def test_missing_exchange_is_dash_with_reason() -> None:
+    model = InstrumentDetailViewModel(
+        instrument_id="ETF-1",
+        display_name="ETF-1",
+        status="available",
+        identity={"exchange": "unavailable"},
+        sections={},
+    )
+    card = instrument_detail._identity_card(model, SimpleNamespace(), None, [], None)
+    text = _text(card)
+
+    assert "—" in text
+    assert "Exchange is unavailable in local identity evidence." in text
+    assert not any(value.casefold() in {"0", "nan", "null"} for value in text.split())

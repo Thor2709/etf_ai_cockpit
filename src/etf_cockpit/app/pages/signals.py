@@ -216,7 +216,7 @@ def _score_table(scores: Sequence[object], selected: object | None, on_select) -
         [
             TableColumn("rank", "#", numeric=True),
             TableColumn("instrument", "Instrument"),
-            TableColumn("score", "Score", numeric=True),
+            TableColumn("score", "Score ▼", numeric=True, sortable=False),
             TableColumn("label", "Label"),
             TableColumn("action", "Action"),
             TableColumn("quality", "Quality", numeric=True),
@@ -468,6 +468,15 @@ def _body(
 ) -> ft.Control:
     counts = _counts(scores)
     missing = not scores
+    formula_version = next(
+        (
+            str(_read(_read(score, "canonical_score"), "formula_version"))
+            for score in scores
+            if _read(_read(score, "canonical_score"), "formula_version")
+        ),
+        "none loaded",
+    )
+    forecast_label = str(forecast_source or "none loaded")
     items = [
         ("Strong evidence", str(counts["strong"]) if not missing else None, "score, quality and friction all pass", None),
         ("Positive evidence", str(counts["positive"]) if not missing else None, "usable evidence with enough quality", None),
@@ -477,7 +486,7 @@ def _body(
     strip = KpiStrip(
         "Canonical scores",
         f"{len(scores)} instruments scored" if not missing else "Unavailable",
-        "Formula and forecast-source details are available in the score-table disclosure.",
+        f"formula {formula_version} · forecast source {forecast_label}",
         items,
     )
     groups = []
