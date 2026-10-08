@@ -10,8 +10,10 @@ explicit ``known_at`` is no later than that cutoff.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from functools import lru_cache
 import hashlib
 import json
 import math
@@ -152,7 +154,13 @@ def load_rank_validation_policy(
     rule.  These settings are versioned and hashed with each replay.
     """
 
-    content = Path(path).read_bytes()
+    return _rank_validation_policy_for_content(Path(path).read_bytes())
+
+
+@lru_cache(maxsize=8)
+def _rank_validation_policy_for_content(content: bytes) -> RankValidationPolicy:
+    """Parse once per distinct file content (frozen result; exceptions are never cached)."""
+
     parsed = yaml.safe_load(content.decode("utf-8"))
     if not isinstance(parsed, Mapping) or parsed.get("schema_version") != 1:
         raise ValueError("rank validation policy requires schema_version 1")
@@ -763,6 +771,25 @@ def metric_rank_authority_record(
     }
 
 
+@lru_cache(maxsize=8)
+def _parsed_rank_cutover(text: str) -> tuple[bool, object]:
+    parsed = yaml.safe_load(text)
+    control = parsed.get("rank_cutover") if isinstance(parsed, Mapping) else None
+    if not isinstance(control, Mapping):
+        raise ValueError("decision domain config lacks rank_cutover control")
+    configured_enabled = control.get("enabled")
+    if not isinstance(configured_enabled, bool):
+        raise ValueError("rank cutover enabled flag must be boolean")
+    return configured_enabled, control.get("promotion_record")
+
+
+def _configured_rank_cutover(text: str) -> tuple[bool, object]:
+    """Parse the cutover control once per distinct config text; the record is returned as a private copy."""
+
+    enabled, record = _parsed_rank_cutover(text)
+    return enabled, deepcopy(record)
+
+
 def resolve_rank_cutover(
     *,
     cutover_enabled: bool | None = None,
@@ -774,14 +801,9 @@ def resolve_rank_cutover(
 
     try:
         load_rank_validation_policy(policy_path)
-        parsed = yaml.safe_load(Path(domain_config_path).read_text(encoding="utf-8"))
-        control = parsed.get("rank_cutover") if isinstance(parsed, Mapping) else None
-        if not isinstance(control, Mapping):
-            raise ValueError("decision domain config lacks rank_cutover control")
-        configured_enabled = control.get("enabled")
-        if not isinstance(configured_enabled, bool):
-            raise ValueError("rank cutover enabled flag must be boolean")
-        configured_record = control.get("promotion_record")
+        configured_enabled, configured_record = _configured_rank_cutover(
+            Path(domain_config_path).read_text(encoding="utf-8")
+        )
         selected_record = promotion_record if promotion_record is not None else configured_record
     except (OSError, UnicodeError, ValueError, yaml.YAMLError):
         return RankCutover(False, False, "v3", "v3", None, "cutover_config_unavailable")

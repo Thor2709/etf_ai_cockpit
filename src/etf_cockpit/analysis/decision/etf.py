@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import date, datetime, time, timezone
+from functools import lru_cache
 import hashlib
 import json
 import math
@@ -292,7 +293,15 @@ def compose_etf_decision(
 def _load_etf_registries(
     path: str | Path,
 ) -> tuple[DomainRegistry, DomainRegistry, str]:
-    content = Path(path).read_bytes()
+    return _etf_registries_for_content(Path(path).read_bytes())
+
+
+@lru_cache(maxsize=8)
+def _etf_registries_for_content(
+    content: bytes,
+) -> tuple[DomainRegistry, DomainRegistry, str]:
+    """Parse once per distinct file content (frozen result; exceptions are never cached)."""
+
     parsed = yaml.safe_load(content.decode("utf-8"))
     graph = parsed.get("etf_decision_graph") if isinstance(parsed, Mapping) else None
     if not isinstance(graph, Mapping):

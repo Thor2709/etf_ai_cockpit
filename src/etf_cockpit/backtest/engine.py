@@ -81,6 +81,10 @@ class BacktestReport:
         rows = self.metadata.get("operational_evidence_rows", [])
         if not isinstance(rows, list):
             return pd.DataFrame()
+        # Built once per rows list (callers ask once per instrument); each caller gets its own copy.
+        cached = self.__dict__.get("_operational_evidence_cache")
+        if cached is not None and cached[0] is rows and cached[1] == len(rows):
+            return cached[2].copy()
         if any(not isinstance(row, Mapping) for row in rows):
             return pd.DataFrame()
         frame = pd.DataFrame([dict(row) for row in rows])
@@ -94,6 +98,7 @@ class BacktestReport:
                     [row.get(field_name) for row in rows],
                     dtype=object,
                 )
+        self.__dict__["_operational_evidence_cache"] = (rows, len(rows), frame.copy())
         return frame
 
 

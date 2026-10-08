@@ -1,12 +1,21 @@
 """Opportunity assessment, rank routing, score-metric history and screen-row read models (application; ADR-0002)."""
 
 from collections.abc import Mapping
+from copy import deepcopy
+from functools import lru_cache
 import json
 from pathlib import Path
 import pandas as pd
 
 from etf_cockpit.core.paths import LOG_DIR
 from etf_cockpit.application.screening_data import build_screen_rows as _build_screen_rows_v3
+
+
+@lru_cache(maxsize=32)
+def _parsed_artifact(text: str) -> object:
+    """Parse an artifact once per distinct text; callers copy what they keep."""
+
+    return json.loads(text)
 
 
 def load_opportunity_assessment(
@@ -49,7 +58,7 @@ def load_opportunity_assessment(
         return unavailable
     for path in paths:
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload = _parsed_artifact(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError):
             continue
         if (
@@ -77,7 +86,7 @@ def load_opportunity_assessment(
             continue
         result = next(
             (
-                dict(item)
+                item
                 for item in rows
                 if isinstance(item, Mapping)
                 and str(item.get("instrument", "")) == instrument
@@ -87,11 +96,12 @@ def load_opportunity_assessment(
         )
         if result is None:
             continue
+        result = deepcopy(dict(result))  # private copy: the parsed payload is shared across calls
         result.update(
             {
                 "artifact_status": str(payload.get("status", "unavailable")),
                 "run_id": str(payload.get("run_id", "")),
-                "config_hashes": dict(hashes),
+                "config_hashes": deepcopy(dict(hashes)),
             }
         )
         records.append((timestamp, str(payload.get("run_id", "")), result))

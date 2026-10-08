@@ -72,6 +72,20 @@ WORKSPACE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
+# Package icon (assets/icons/<name>.png) of each dock workspace; shared by the shell and its loading view.
+WORKSPACE_ICONS: dict[str, str] = {
+    "Home": "house",
+    "Universe": "globe",
+    "Research": "telescope",
+    "Portfolio": "briefcase",
+    "Compare": "abacus",
+    "Lab": "alembic",
+    "Map": "compass",
+    "Changes": "newspaper",
+    "Help": "bulb",
+}
+
+
 @dataclass(frozen=True)
 class PaletteCommand:
     route: str
@@ -138,4 +152,4 @@ def search_commands(
     )[:limit]
 
 
-__all__ = ["PaletteCommand", "ROUTE_TITLES", "WORKSPACE_GROUPS", "all_commands", "search_commands"]
+__all__ = ["PaletteCommand", "ROUTE_TITLES", "WORKSPACE_GROUPS", "WORKSPACE_ICONS", "all_commands", "search_commands"]

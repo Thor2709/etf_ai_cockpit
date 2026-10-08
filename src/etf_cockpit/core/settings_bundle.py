@@ -7,6 +7,8 @@ never stores credentials, performs provider I/O or grants execution authority.
 
 from __future__ import annotations
 
+from copy import deepcopy
+from functools import lru_cache
 import hashlib
 import json
 from pathlib import Path
@@ -250,11 +252,17 @@ def _is_secret_field_name(name: str) -> bool:
     return any(normalised.endswith(suffix) for suffix in _SECRET_FIELD_SUFFIXES)
 
 
+@lru_cache(maxsize=32)
+def _parse_yaml_text(text: str) -> object:
+    return yaml.safe_load(text)
+
+
 def _read_yaml(path: Path) -> dict[str, object]:
     if not path.is_file():
         return {}
     try:
-        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        # Parsed once per distinct file text; every caller gets a private copy.
+        payload = deepcopy(_parse_yaml_text(path.read_text(encoding="utf-8"))) or {}
     except (OSError, yaml.YAMLError) as exc:
         raise SettingsError("SETTINGS_SCHEMA_INVALID", f"cannot read {path}: {exc}") from exc
     if not isinstance(payload, dict):
