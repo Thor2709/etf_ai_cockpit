@@ -291,11 +291,10 @@ def stress_lab_page(page: ft.Page | None, state: AppState) -> PageView:
                     spacing=theme.SPACE_2,
                     wrap=True,
                 ),
-                ft.Row([fields[name] for name in ("scenario_id", "name", "historical_date")], spacing=theme.SPACE_2, wrap=True),
-                ft.Row(
-                    [fields[name] for name in ("equity", "rates", "fx", "credit", "commodity", "liquidity", "notional")],
+                ft.Column(
+                    [fields[name] for name in ("scenario_id", "name", "historical_date", "equity", "rates", "fx", "credit", "commodity", "liquidity", "notional")],
                     spacing=theme.SPACE_2,
-                    wrap=True,
+                    tight=True,
                 ),
                 ft.Row(
                     [

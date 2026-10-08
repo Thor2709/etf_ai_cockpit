@@ -7,7 +7,7 @@ from uuid import uuid4
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.chartkit import Slice, donut_chart
+from etf_cockpit.app.components.chartkit import Series, Slice, donut_chart, line_chart
 from etf_cockpit.app.components.kit import (
     Button,
     Disclosure,
@@ -118,6 +118,7 @@ def decision_journal_page(page: ft.Page | None, state: AppState) -> PageView:
             review_rows.append(
                 (
                     review,
+                    state_key,
                     ListRow(
                         _STATE_DOTS.get(state_key, "info"),
                         f"{review.isoformat()} · {getattr(entry, 'decision', 'Decision')}",
@@ -129,7 +130,31 @@ def decision_journal_page(page: ft.Page | None, state: AppState) -> PageView:
             )
         review_rows.sort(key=lambda item: item[0])
         if review_rows:
-            calendar_host.content = ft.Column([row for _, row in review_rows], spacing=theme.SPACE_2)
+            review_dates = [review for review, _state_key, _row in review_rows]
+            state_series = [
+                Series(
+                    _STATE_LABELS[state_key],
+                    [float(index + 1) if row_state == state_key else None for _review, row_state, _row in review_rows],
+                    theme.CATEGORICAL[index % len(theme.CATEGORICAL)],
+                    width=0,
+                    markers=8,
+                    unit="state index",
+                )
+                for index, state_key in enumerate(_STATES)
+            ]
+            calendar_host.content = line_chart(
+                review_dates,
+                state_series,
+                x_name="Review date",
+                y_name="Decision state (index)",
+                y_min=0,
+                y_max=len(_STATES) + 1,
+                nice=False,
+                today=today,
+                unavailable_reason=None,
+                empty_title="No review dates",
+                insight="Review dates by decision state.",
+            )
             calendar_note.value = f"{format_number(due_count, decimals=0)} reviews are due in the next 30 days."
         elif dated_entries:
             calendar_host.content = EmptyState("No review dates", "No valid review dates are available.")

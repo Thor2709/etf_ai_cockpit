@@ -43,7 +43,17 @@ def _text(view) -> str:
         if isinstance(item, ft.Dropdown):
             values.append(str(item.value))
             values.extend(str(option.text) for option in item.options)
-    return "\n".join(values)
+    return "\r\n".join(values)
+
+
+def _card(view, title: str):
+    return next(
+        control
+        for control in _walk(view.body)
+        if isinstance(getattr(control, "data", None), dict)
+        and control.data.get("kit") == "GlassCard"
+        and control.data.get("title") == title
+    )
 
 
 def test_renders_with_sample_data() -> None:
@@ -73,3 +83,13 @@ def test_empty_data_shows_unavailable() -> None:
         data = getattr(control, "data", None)
         if isinstance(data, dict) and data.get("kit") == "DataTable":
             assert all(str(value) != "0" for row in data.get("rows", ()) for value in row.values())
+
+
+def test_weights_by_method_uses_bounded_chart_with_unavailable_reason() -> None:
+    view = portfolio_optimiser_page(None, _state(with_prices=False))
+    card = _card(view, "Weights by method")
+    descendants = list(_walk(card))
+    chart = next(control for control in descendants if hasattr(getattr(control, "data", None), "scene"))
+    assert chart.width and chart.height
+    assert "Weights unavailable" in _text(view)
+    assert all(not isinstance(control, ft.ListView) for control in descendants)

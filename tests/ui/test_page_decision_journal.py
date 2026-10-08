@@ -20,7 +20,7 @@ def _walk(control):
 
 
 def _text(view) -> str:
-    return "\n".join(str(item.value) for item in _walk(view.body) if isinstance(item, ft.Text))
+    return "\r\n".join(str(item.value) for item in _walk(view.body) if isinstance(item, ft.Text))
 
 
 def _state():
@@ -71,3 +71,29 @@ def test_empty_data_shows_unavailable(monkeypatch) -> None:
         data = getattr(control, "data", None)
         if isinstance(data, dict) and data.get("kit") == "DataTable":
             assert all(str(value) != "0" for row in data.get("rows", ()) for value in row.values())
+
+
+def test_review_calendar_is_a_bounded_dot_timeline(monkeypatch) -> None:
+    entry = JournalEntry(
+        journal_entry_id="calendar-entry",
+        created_at="2026-10-06T09:00:00+00:00",
+        thesis="Calendar test",
+        decision="Review item",
+        outcome="pending",
+        decision_state="pending",
+        confidence=0.5,
+        review_date="2026-10-20",
+    )
+    monkeypatch.setattr(DecisionJournal, "list_entries", lambda *_args, **_kwargs: [entry])
+    view = decision_journal_page(None, _state())
+    card = next(
+        control
+        for control in _walk(view.body)
+        if isinstance(getattr(control, "data", None), dict)
+        and control.data.get("kit") == "GlassCard"
+        and control.data.get("title") == "Review calendar"
+    )
+    descendants = list(_walk(card))
+    charts = [control for control in descendants if hasattr(getattr(control, "data", None), "scene")]
+    assert charts
+    assert all(not isinstance(control, ft.ListView) for control in descendants)
