@@ -1018,7 +1018,17 @@ def _control_text(control: ft.Control) -> str:
     return "\n".join(values)
 
 
-def backtests_page(page: ft.Page, state: AppState) -> PageView:
+def backtests_page(page: ft.Page, state: AppState, *, _deferred: bool = False) -> PageView:
+    if not _deferred and (isinstance(page, ft.Page) or bool(getattr(page, "_shell_defer_render", False))):
+        placeholder = ft.Container(content=Note("Loading backtest evidence..."), expand=True)
+        placeholder.data = {"shell.deferred-update": lambda: backtests_page(page, state, _deferred=True)}
+        return PageView(
+            PageChrome(
+                "Backtests",
+                "Historical results with their universe, dates, benchmark, rebalance and cost assumptions",
+            ),
+            placeholder,
+        )
     """Present saved backtest results as descriptive, non-authoritative evidence."""
     snapshot = getattr(state, "snapshot", None)
     report = getattr(snapshot, "backtest", None)

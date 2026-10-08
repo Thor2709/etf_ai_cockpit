@@ -351,7 +351,17 @@ def _underlying_holdings_card(holdings: pd.DataFrame, allocation: pd.DataFrame) 
     )
 
 
-def risk_page(page: ft.Page | None, state: AppState) -> PageView:
+def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False) -> PageView:
+    if not _deferred and page is not None and (isinstance(page, ft.Page) or bool(getattr(page, "_shell_defer_render", False))):
+        placeholder = ft.Container(content=Note("Loading risk evidence..."), expand=True)
+        placeholder.data = {"shell.deferred-update": lambda: risk_page(page, state, _deferred=True)}
+        return PageView(
+            PageChrome(
+                "Risk Evidence",
+                "Exposure, volatility, drawdown, liquidity and cost evidence for the selected holdings",
+            ),
+            placeholder,
+        )
     snapshot = state.snapshot
     allocation = allocation_frame(snapshot.config, snapshot.holdings)
     limits = (

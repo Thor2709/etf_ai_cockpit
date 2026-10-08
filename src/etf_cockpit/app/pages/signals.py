@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -605,14 +606,30 @@ def _body(
     )
 
 
-def signals_page(page: ft.Page | None, state: AppState) -> PageView:
+def signals_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False) -> PageView:
+    if not _deferred and page is not None and (isinstance(page, ft.Page) or bool(getattr(page, "_shell_defer_render", False))):
+        placeholder = ft.Container(content=Note("Loading score evidence..."), expand=True)
+        placeholder.data = {
+            "shell.deferred-update": lambda: signals_page(page, state, _deferred=True)
+        }
+        return PageView(
+            PageChrome(
+                "Scores",
+                "Canonical score components, gates and reasons \u00b7 research context, not instructions",
+            ),
+            placeholder,
+        )
     scores = _scores(getattr(state, "snapshot", None))
     snapshot = getattr(state, "snapshot", None)
     forecast_source = _forecast_source(snapshot)
     filter_state: dict[str, object] = {"tier": _requested_tier(page), "label": "All", "selected": None}
-    view_holder: dict[str, PageView] = {}
+    body_holder = ft.Container(key="signals.body", expand=True)
+    generation = [0]
+    render_lock = threading.Lock()
+    pending_render: list[int | None] = [None]
+    render_worker = [False]
 
-    def render() -> None:
+    def render_body(expected: int | None = None) -> None:
         filtered = [
             score
             for score in scores
@@ -635,32 +652,45 @@ def signals_page(page: ft.Page | None, state: AppState) -> PageView:
 
         on_scorecard_click = open_sparebanken if page is not None and callable(getattr(page, "go", None)) else None
         body = _body(filtered, current, state, page, forecast_source, select_row, on_scorecard_click)
-        chrome = PageChrome(
-            "Scores",
-            "Canonical score components, gates and reasons · research context, not instructions",
-            [
-                SegmentGroup(
-                    "score-tier",
-                    ["All", "Primary", "Secondary", "Sparebanken"],
-                    str(filter_state["tier"]),
-                    on_change=change_tier,
-                ),
-                SegmentGroup(
-                    "score-label",
-                    ["All", "Strong", "Good", "Watch", "Review"],
-                    str(filter_state["label"]),
-                    on_change=change_label,
-                ),
-            ],
-        )
-        current_view = view_holder.get("view")
-        if current_view is None:
-            view_holder["view"] = PageView(chrome, body)
-        else:
-            current_view.chrome = chrome
-            current_view.body = body
-        if page is not None and callable(getattr(page, "update", None)):
-            page.update()
+        if expected is not None and expected != generation[0]:
+            return
+        body_holder.content = body
+        if callable(getattr(body_holder, "update", None)):
+            try:
+                body_holder.update()
+            except Exception:
+                if page is not None and callable(getattr(page, "update", None)):
+                    page.update()
+
+    def render() -> None:
+        if page is None or (not isinstance(page, ft.Page) and not hasattr(page, "views")):
+            render_body()
+            return
+        generation[0] += 1
+        expected = generation[0]
+        body_holder.content = Note("Updating score evidence...")
+        if callable(getattr(body_holder, "update", None)):
+            try:
+                body_holder.update()
+            except Exception:
+                if callable(getattr(page, "update", None)):
+                    page.update()
+        with render_lock:
+            pending_render[0] = expected
+            if render_worker[0]:
+                return
+            render_worker[0] = True
+        threading.Thread(target=render_pending, name="signals-segment-render", daemon=True).start()
+
+    def render_pending() -> None:
+        while True:
+            with render_lock:
+                expected = pending_render[0]
+                pending_render[0] = None
+                if expected is None:
+                    render_worker[0] = False
+                    return
+            render_body(expected)
 
     def change_tier(value: str) -> None:
         filter_state["tier"] = value
@@ -669,11 +699,34 @@ def signals_page(page: ft.Page | None, state: AppState) -> PageView:
     def change_label(value: str) -> None:
         filter_state["label"] = value
         render()
-    render()
-    view = view_holder.get("view")
-    if view is None:
-        raise RuntimeError("Scores view could not be built.")
-    return view
+
+    chrome = PageChrome(
+        "Scores",
+        "Canonical score components, gates and reasons \u00b7 research context, not instructions",
+        [
+            SegmentGroup(
+                "score-tier",
+                ["All", "Primary", "Secondary", "Sparebanken"],
+                str(filter_state["tier"]),
+                on_change=change_tier,
+            ),
+            SegmentGroup(
+                "score-label",
+                ["All", "Strong", "Good", "Watch", "Review"],
+                str(filter_state["label"]),
+                on_change=change_label,
+            ),
+        ],
+    )
+    deferred = not _deferred and page is not None and (
+        isinstance(page, ft.Page) or bool(getattr(page, "_shell_defer_render", False))
+    )
+    if not deferred:
+        render_body()
+    else:
+        body_holder.content = Note("Loading score evidence...")
+        body_holder.data = {"shell.deferred-update": render_body}
+    return PageView(chrome, body_holder)
 
 
 __all__ = ["signals_page"]

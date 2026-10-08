@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import math
 import json
+import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -1583,8 +1584,17 @@ def _candidate_chips() -> ft.Control:
 # ---------------------------------------------------------------------------
 
 
-def portfolio_page(page: ft.Page | None, state: AppState) -> PageView:
+def portfolio_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False) -> PageView:
     """Render editable research candidates without creating executable intent."""
+
+    if not _deferred and page is not None and (isinstance(page, ft.Page) or bool(getattr(page, "_shell_defer_render", False))):
+        placeholder = ft.Container(content=Note("Loading portfolio evidence..."), expand=True)
+        placeholder.data = {"shell.deferred-update": lambda: portfolio_page(page, state, _deferred=True)}
+        return common.page_view(
+            "Portfolio Sandbox",
+            "Account snapshot \u00b7 analysis only, no orders",
+            placeholder,
+        )
 
     layout = common.make_layout(page)
     ready = [False]
@@ -1828,13 +1838,17 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> PageView:
         risk_chart_host.content = GlassCard("Risk contribution vs. weight", "% of portfolio · by holding", insight or reason, body=Well(chart, width=width, height=height), width=layout.span_width(5), height=layout.row_heights[1])
         common.refresh(risk_chart_host)
 
+    def fill_derived_hosts() -> None:
+        analysis = current_analysis[0]
+        services_host.content = _service_evidence_card(analysis, width=below_width)
+        optimiser_host.content = _optimiser_card(analysis, width=below_width)
+        monthly_host.content = _monthly_card(analysis, registry, width=below_width)
+
     def render_derived() -> None:
         analysis = current_analysis[0]
         tiles_host.content = _candidate_tiles(analysis)
         overlap_line.value = f"ETF overlap status: {analysis.overlap_status}"
-        services_host.content = _service_evidence_card(analysis, width=below_width)
-        optimiser_host.content = _optimiser_card(analysis, width=below_width)
-        monthly_host.content = _monthly_card(analysis, registry, width=below_width)
+        fill_derived_hosts()
         render_targets()
         render_account()
         render_risk_chart()
@@ -2126,19 +2140,20 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> PageView:
     )
     result_card = _card("Candidate result", "advisory context", result_body, width=layout.span_width(5), height=layout.row_heights[1])
 
-    def view_row(cells: list[tuple[ft.Control, int]], visible: bool) -> ft.Control:
+    def view_row(name: str, cells: list[tuple[ft.Control, int]], visible: bool) -> ft.Control:
         if layout.narrow:
             column = ft.Column([ft.Container(card, height=layout.row_heights[1]) for card, _ in cells], spacing=common.GAP)
             column.visible = visible
+            column.key = f"portfolio.view.{name}"
             return column
         row = ft.Row([card for card, _ in cells], spacing=common.GAP, vertical_alignment=ft.CrossAxisAlignment.START)
-        host = ft.Container(row, height=layout.row_heights[1], visible=visible)
+        host = ft.Container(row, height=layout.row_heights[1], visible=visible, key=f"portfolio.view.{name}")
         return host
 
     views = {
-        "Holdings": view_row([(holdings_card, 7), (risk_chart_host, 5)], True),
-        "Policy": view_row([(risk_profiles.card, 6), (goals_card, 6)], False),
-        "Candidates": view_row([(weights_card, 7), (result_card, 5)], False),
+        "Holdings": view_row("Holdings", [(holdings_card, 7), (risk_chart_host, 5)], True),
+        "Policy": view_row("Policy", [(risk_profiles.card, 6), (goals_card, 6)], False),
+        "Candidates": view_row("Candidates", [(weights_card, 7), (result_card, 5)], False),
     }
 
     def select_view(label: str) -> None:
@@ -2148,29 +2163,38 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> PageView:
             common.refresh(control)
 
     # --- below the fold ---------------------------------------------------------------------------------------------
-    render_derived_holders = (services_host, optimiser_host, monthly_host)
-    services_host.content = _service_evidence_card(initial_analysis, width=below_width)
-    optimiser_host.content = _optimiser_card(initial_analysis, width=below_width)
-    monthly_host.content = _monthly_card(initial_analysis, registry, width=below_width)
-    forecast_card = _portfolio_forecast_block(page, state, current_analysis, width=below_width)
-    calendar_card = _portfolio_calendar_block(page, state, initial_analysis, width=below_width)
-    fixed_card = _portfolio_fixed_income_returns_block(state, width=below_width)
-    ladder_card = _portfolio_maturity_ladder_block(state, initial_analysis, width=below_width)
+    for host in (services_host, optimiser_host, monthly_host):
+        host.content = Note("Loading local evidence…")
 
     def pair(left: ft.Control, right: ft.Control) -> ft.Control:
         if layout.narrow:
             return ft.Column([left, right], spacing=common.GAP)
         return ft.Row([left, right], spacing=common.GAP, vertical_alignment=ft.CrossAxisAlignment.START)
 
-    below = [
-        *views.values(),
-        pair(forecast_card, calendar_card),
-        pair(fixed_card, ladder_card),
-        pair(services_host, optimiser_host),
-        pair(monthly_host, ft.Container(width=below_width)),
-    ]
-    del render_derived_holders
-    grid = common.grid(layout, [[(account_card, 4), (performance.card, 8)]], below=below)
+    below_host = ft.Container(content=Note("Loading portfolio evidence…"), expand=True)
+
+    def fill_below_fold() -> None:
+        forecast_card = _portfolio_forecast_block(page, state, current_analysis, width=below_width)
+        calendar_card = _portfolio_calendar_block(page, state, current_analysis[0], width=below_width)
+        fixed_card = _portfolio_fixed_income_returns_block(state, width=below_width)
+        ladder_card = _portfolio_maturity_ladder_block(state, current_analysis[0], width=below_width)
+        fill_derived_hosts()
+        below_host.content = ft.Column(
+            [
+                *views.values(),
+                pair(forecast_card, calendar_card),
+                pair(fixed_card, ladder_card),
+                pair(services_host, optimiser_host),
+                pair(monthly_host, ft.Container(width=below_width)),
+            ],
+            spacing=common.GAP,
+        )
+
+    if page is None or not (isinstance(page, ft.Page) or bool(getattr(page, "_shell_defer_render", False))):
+        fill_below_fold()
+    else:
+        below_host.data = {"shell.deferred-update": fill_below_fold}
+    grid = common.grid(layout, [[(account_card, 4), (performance.card, 8)]], below=[below_host])
 
     # --- range segments and the custom-range popover -----------------------------------------------------------------
     def apply_custom(_event: object = None) -> None:
@@ -2198,6 +2222,8 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> PageView:
         ),
         width=300, top=0, right=0,
     )
+    range_generation = [0]
+    range_lock = threading.Lock()
 
     def select_range(label: str) -> None:
         if label == "Custom":
@@ -2205,13 +2231,29 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> PageView:
                 custom_popover.toggle()
             return
         ui["range"] = label
-        performance.set_range(label)
-        holdings_refresh()
-        render_account()
-        _safe_update(page)
+
+        def apply_range(expected: int | None = None) -> None:
+            with range_lock:
+                if expected is not None and expected != range_generation[0]:
+                    return
+                performance.set_range(label)
+                holdings_refresh()
+                render_account()
+                _safe_update(page)
+
+        if isinstance(page, ft.Page) or hasattr(page, "views"):
+            range_generation[0] += 1
+            expected = range_generation[0]
+            threading.Thread(
+                target=apply_range,
+                args=(expected,),
+                name="portfolio-range-render",
+                daemon=True,
+            ).start()
+        else:
+            apply_range()
 
     ready[0] = True
-    render_derived()
     body = ft.Stack([grid, custom_popover.control], expand=True)
     groups = (SegmentGroup("view", _VIEWS, ui["view"], select_view), SegmentGroup("range", _RANGES, "1Y", select_range))
     return common.page_view("Portfolio Sandbox", "Account snapshot · analysis only, no orders", body, groups)

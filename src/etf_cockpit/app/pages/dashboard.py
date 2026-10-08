@@ -231,25 +231,81 @@ def _home_view(state: AppState) -> tuple[HomeView, list[SimpleInstrumentScore]]:
     ), scores)
 
 
-def dashboard_page(page: ft.Page, state: AppState) -> PageView:
+def dashboard_page(page: ft.Page, state: AppState, *, _deferred: bool = False) -> PageView:
+    if not _deferred and (isinstance(page, ft.Page) or bool(getattr(page, "_shell_defer_render", False))):
+        placeholder = ft.Container(content=Note("Loading local score evidence..."), expand=True)
+        placeholder.data = {"shell.deferred-update": lambda: dashboard_page(page, state, _deferred=True)}
+        return PageView(
+            PageChrome("Simple Scores", "Today's evidence across your local universe"),
+            placeholder,
+        )
     view, scores = _home_view(state)
     selection = {"tier": "All", "sort": "Score"}
     layout = make_layout(page)
     holder = ft.Container(expand=True)
+    card_holders = {
+        name: ft.Container(key=f"home.card.{name}", expand=True)
+        for name in ("scores", "rank-change", "distribution")
+    }
+    paint_generation = [0]
 
-    def paint() -> None:
-        holder.content = _home_body(page, state, view, scores, layout, selection["tier"], selection["sort"])
-        refresh(holder)
+    def paint(*, tier_changed: bool = False, expected: int | None = None) -> None:
+        rows = filter_tier(view.scores, selection["tier"])
+        scores_card = _scores_card(
+            page, state, view, sort_rows(rows, selection["sort"]), selection["tier"], layout, selection["sort"]
+        )
+        rank_card = distribution_card = None
+        if tier_changed:
+            card_layout = layout.with_row(300) if layout.medium else layout
+            span = 6 if layout.medium else 5
+            rank_card = _rank_change_card(
+                card_layout, rows, view.changes_reason, span
+            )
+            distribution_card = _distribution_card(
+                card_layout, rows, 6 if layout.medium else 4
+            )
+        if expected is not None and expected != paint_generation[0]:
+            return
+        card_holders["scores"].content = scores_card
+        refresh(card_holders["scores"])
+        if tier_changed and rank_card is not None and distribution_card is not None:
+            card_holders["rank-change"].content = rank_card
+            card_holders["distribution"].content = distribution_card
+            refresh(card_holders["rank-change"])
+            refresh(card_holders["distribution"])
+
+    def queue_paint(*, tier_changed: bool = False) -> None:
+        if not (isinstance(page, ft.Page) or hasattr(page, "views")):
+            paint(tier_changed=tier_changed)
+            return
+        paint_generation[0] += 1
+        expected = paint_generation[0]
+        threading.Thread(
+            target=paint,
+            kwargs={"tier_changed": tier_changed, "expected": expected},
+            name="dashboard-segment-render",
+            daemon=True,
+        ).start()
 
     def choose_tier(value: str) -> None:
         selection["tier"] = value
-        paint()
+        queue_paint(tier_changed=True)
 
     def choose_sort(value: str) -> None:
         selection["sort"] = value
-        paint()
+        queue_paint()
 
-    holder.content = _home_body(page, state, view, scores, layout, "All", "Score")
+    holder.content = _home_body(
+        page,
+        state,
+        view,
+        scores,
+        layout,
+        "All",
+        "Score",
+        card_holders=card_holders,
+        defer_below_fold=isinstance(page, ft.Page) or bool(getattr(page, "_shell_defer_render", False)),
+    )
     return PageView(
         chrome=PageChrome(
             "Simple Scores",
@@ -276,21 +332,31 @@ def _home_body(
     layout: GridLayout,
     tier: str,
     sort: str,
+    *,
+    card_holders: dict[str, ft.Container] | None = None,
+    defer_below_fold: bool = False,
 ) -> ft.Control:
     rows = filter_tier(view.scores, tier)
     ordered = sort_rows(rows, sort)
     stacked = layout.narrow or layout.medium
+    def card(name: str, control: ft.Control) -> ft.Control:
+        if card_holders is None:
+            return control
+        host = card_holders[name]
+        host.content = control
+        return host
+
     first = [
         (_what_matters_card(page, state, view, layout), 5),
-        (_scores_card(page, state, view, ordered, tier, layout, sort), 7),
+        (card("scores", _scores_card(page, state, view, ordered, tier, layout, sort)), 7),
     ]
     if layout.medium:  # 1100-1300px: the Evidence state card gets its own full-width row
         layout = layout.with_row(300)
         cards = [
             first,
             [
-                (_rank_change_card(layout, rows, view.changes_reason, 6), 6),
-                (_distribution_card(layout, rows, 6), 6),
+                (card("rank-change", _rank_change_card(layout, rows, view.changes_reason, 6)), 6),
+                (card("distribution", _distribution_card(layout, rows, 6)), 6),
             ],
             [(_evidence_state_card(page, state, view, wide=True), 12)],
         ]
@@ -298,12 +364,22 @@ def _home_body(
         cards = [
             first,
             [
-                (_rank_change_card(layout, rows, view.changes_reason, 5), 5),
-                (_distribution_card(layout, rows, 4), 4),
+                (card("rank-change", _rank_change_card(layout, rows, view.changes_reason, 5)), 5),
+                (card("distribution", _distribution_card(layout, rows, 4)), 4),
                 (_evidence_state_card(page, state, view, wide=stacked, layout=layout), 3),
             ],
         ]
-    return grid(layout, cards, below=_below_the_fold(page, state, scores))
+    if defer_below_fold:
+        below_holder = ft.Container(content=Note("Loading score details and local audit context…"), expand=True)
+
+        def fill_below_fold() -> None:
+            below_holder.content = ft.Column(_below_the_fold(page, state, scores), spacing=12)
+
+        below_holder.data = {"shell.deferred-update": fill_below_fold}
+        below = [below_holder]
+    else:
+        below = _below_the_fold(page, state, scores)
+    return grid(layout, cards, below=below)
 
 
 def _what_matters_card(page: ft.Page, state: AppState, view: HomeView, layout: GridLayout) -> ft.Control:

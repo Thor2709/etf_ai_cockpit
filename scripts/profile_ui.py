@@ -56,7 +56,7 @@ class _TimedPage(SimpleNamespace):
 
 
 def measure_staged_routes(state, routes: list[str]) -> dict[str, dict]:
-    """Event-thread time of a navigation (render_route_change) versus the time until the final page is painted."""
+    """Measure initial shell paint while deferred route sections are scheduled after the placeholder."""
 
     import threading
 
@@ -65,6 +65,7 @@ def measure_staged_routes(state, routes: list[str]) -> dict[str, dict]:
     rows: dict[str, dict] = {}
     for route in routes:
         page = _TimedPage(width=1920, height=1200, route=route, views=[], updates=0)
+        page._shell_defer_render = True
         done = threading.Event()
         t0 = time.perf_counter()
         router.render_route_change(page, state, route, background=True, on_done=done.set)
@@ -79,10 +80,29 @@ def measure_staged_routes(state, routes: list[str]) -> dict[str, dict]:
 
 
 def measure_segments(state, routes: list[str]) -> dict[str, dict]:
-    """Time every top-bar segment change (``on_change``) of every page: the in-place filter/segment path."""
+    """Time actual top-bar segment clicks, including shell state and page callback updates."""
 
+    import threading
+
+    import flet as ft
     from etf_cockpit.app import router
     from etf_cockpit.app.components.shell.page_view import PageView
+
+    render_thread_names = {
+        "dashboard-segment-render",
+        "signals-segment-render",
+        "instrument-segment-render",
+        "portfolio-range-render",
+    }
+
+    def walk(control):
+        yield control
+        for child in getattr(control, "controls", ()) or ():
+            if isinstance(child, ft.Control):
+                yield from walk(child)
+        content = getattr(control, "content", None)
+        if isinstance(content, ft.Control):
+            yield from walk(content)
 
     rows: dict[str, dict] = {}
     for route in routes:
@@ -90,18 +110,41 @@ def measure_segments(state, routes: list[str]) -> dict[str, dict]:
         built = router.build_page(page, state, route)
         if not isinstance(built, PageView):
             continue
+        view = router.build_shell(page, state, route, built=built)
         samples: list[float] = []
         failures = 0
         for group in built.chrome.segment_groups:
             if group.on_change is None:
                 continue
             for item in group.items:
+                key = f"shell.view.{group.key}"
+                track = next((control for control in walk(view) if getattr(control, "key", None) == key), None)
+                data = getattr(track, "data", None)
+                if track is None or not isinstance(data, dict) or item not in data.get("items", ()):
+                    continue
+                if item == data.get("state", {}).get("selected"):
+                    continue
+                segment = next(
+                    (
+                        control
+                        for control in walk(track)
+                        if isinstance(getattr(control, "data", None), dict)
+                        and control.data.get("kit") == "Segment"
+                        and control.data.get("value") == item
+                    ),
+                    None,
+                )
+                if segment is None:
+                    continue
                 t0 = time.perf_counter()
                 try:
-                    group.on_change(item)
+                    segment.on_click(None)
                 except Exception:
                     failures += 1
                 samples.append(time.perf_counter() - t0)
+                for thread in threading.enumerate():
+                    if thread is not threading.current_thread() and thread.name in render_thread_names:
+                        thread.join(timeout=30)
         if samples or failures:
             rows[route] = {"changes": len(samples), "max_ms": _ms(max(samples, default=0.0)), "failures": failures}
     return rows
@@ -130,6 +173,7 @@ def measure(repeat: int, profile_top: int, json_path: Path | None) -> dict:
 
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     page = SimpleNamespace(width=1920, height=1200, route="/")
+    page._shell_defer_render = True
     routes = list(router.PAGES)
     rows: dict[str, dict] = {}
     for route in routes:
@@ -146,8 +190,8 @@ def measure(repeat: int, profile_top: int, json_path: Path | None) -> dict:
 
     ranked = sorted(rows, key=lambda r: rows[r]["median_ms"], reverse=True)
     cold_start = measure_cold_start()
-    staged = measure_staged_routes(state, routes)
     segments = measure_segments(state, routes)
+    staged = measure_staged_routes(state, routes)
     profiles = {}
     for route in ranked[:profile_top]:
         profiler = cProfile.Profile()
@@ -176,13 +220,15 @@ def render(result: dict) -> str:
     lines = [
         "# UI performance report",
         "",
+        "Route build timings measure the initial shell with deferred sections pending; deferred fillers run after the placeholder is painted.",
+        "",
         f"- import flet + router: {result['import_ms']} ms",
         f"- build_snapshot: {result['snapshot_ms']} ms",
         f"- AppState.load (migrations + snapshot + settings): {result['state_load_ms']} ms",
         "",
         f"- cold start to painted loading shell (fresh interpreter, no Flet server): {result['cold_start']}",
         "",
-        "| rank | route | first ms | median ms | best-warm ms | event-thread ms (staged) | final paint ms (staged) | skeleton frame |",
+        "| rank | route | first shell ms | median shell ms | best-warm shell ms | event-thread ms (staged) | initial paint ms (staged) | skeleton frame |",
         "|---|---|---|---|---|---|---|---|",
     ]
     for index, route in enumerate(result["ranked"], 1):
@@ -192,7 +238,7 @@ def render(result: dict) -> str:
             f"| {index} | `{route}` | {row['first_ms']} | {row['median_ms']} | {row['warm_ms']} | "
             f"{staged.get('event_thread_ms')} | {staged.get('final_paint_ms')} | {staged.get('skeleton_frame')} |"
         )
-    lines += ["", "## Segment / filter changes (page chrome on_change, max per route)", "", "| route | changes | max ms | failures |", "|---|---|---|---|"]
+    lines += ["", "## Segment / filter changes (top-bar click path, max per route)", "", "| route | changes | max ms | failures |", "|---|---|---|---|"]
     for route, row in sorted(result["segments"].items(), key=lambda item: -item[1]["max_ms"]):
         lines.append(f"| `{route}` | {row['changes']} | {row['max_ms']} | {row['failures']} |")
     total = sum(result["routes"][r]["median_ms"] for r in result["ranked"])
@@ -215,7 +261,7 @@ def main() -> int:
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(text, encoding="utf-8")
-    print("\n".join(text.splitlines()[:70]))
+    print("\n".join(text.splitlines()[:100]))
     return 0
 
 

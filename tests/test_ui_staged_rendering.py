@@ -167,6 +167,63 @@ def test_fast_page_is_painted_once_without_a_skeleton_frame(snapshot) -> None:
     assert _texts(page.views[0]) == _texts(reference.views[0])  # same output as the synchronous path
 
 
+def test_deferred_section_is_filled_after_the_placeholder_is_painted(snapshot, monkeypatch) -> None:
+    page = FakePage()
+    state = _state(snapshot)
+    filled = threading.Event()
+    observed_updates: list[int] = []
+    placeholder = ft.Container(content=ft.Text("Loading section", key="lazy.placeholder"))
+
+    def fill() -> None:
+        observed_updates.append(len(page.updates))
+        placeholder.content = ft.Text("Section ready", key="lazy.ready")
+        filled.set()
+
+    placeholder.data = {"shell.deferred-update": fill}
+    monkeypatch.setitem(
+        router.PAGES,
+        "/lazy-test",
+        ("Lazy test", lambda _page, _state: PageView(PageChrome("Lazy test", "built"), placeholder)),
+    )
+
+    router.render_shell(page, state, "/lazy-test")
+
+    assert filled.wait(WAIT)
+    assert observed_updates == [1]
+    assert _has_key(page.views[0], "lazy.ready")
+
+
+def test_deferred_pageview_rebuilds_shell_after_the_placeholder(snapshot, monkeypatch) -> None:
+    class ReadyPage(FakePage):
+        def __init__(self) -> None:
+            super().__init__()
+            self.route_ready = threading.Event()
+
+        def update(self, *_args: object) -> None:
+            super().update(*_args)
+            if self.views and _has_key(self.views[0], "lazy.route-ready"):
+                self.route_ready.set()
+
+    page = ReadyPage()
+    state = _state(snapshot)
+    placeholder = ft.Container(content=ft.Text("Loading route", key="lazy.route-placeholder"))
+
+    def fill():
+        return PageView(PageChrome("Ready route", "loaded"), ft.Text("Route ready", key="lazy.route-ready"))
+
+    placeholder.data = {"shell.deferred-update": fill}
+    monkeypatch.setitem(
+        router.PAGES,
+        "/lazy-route-test",
+        ("Lazy route", lambda _page, _state: PageView(PageChrome("Loading route", "loading"), placeholder)),
+    )
+
+    router.render_shell(page, state, "/lazy-route-test")
+    assert page.route_ready.wait(WAIT)
+    assert _has_key(page.views[0], "lazy.route-ready")
+    assert "Ready route" in _texts(page.views[0])
+
+
 def test_a_newer_render_supersedes_an_unfinished_background_build(snapshot, monkeypatch) -> None:
     release, started = threading.Event(), threading.Event()
     route = _slow_route(monkeypatch, release, started)

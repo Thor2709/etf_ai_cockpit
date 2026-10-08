@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 from collections.abc import Mapping, Sequence
 
 import flet as ft
@@ -1515,10 +1516,23 @@ def instrument_detail_page(page: ft.Page | None, state: object) -> PageView:
     snapshot = getattr(state, "snapshot", None)
     selected = _instrument_id(page, state)
     options = _instrument_ids(snapshot, selected)
-    holder: dict[str, PageView] = {}
+    body_holder = ft.Container(key="instrument-detail.body", expand=True)
+    chrome_holder: list[PageChrome] = []
+    rendered: dict[str, object] = {"instrument": None, "section_controls": {}}
+    generation = [0]
+    instrument_lock = threading.Lock()
+    pending_instrument: list[tuple[int, str] | None] = [None]
+    instrument_worker = [False]
 
-    def render(instrument_id: str, section: str) -> None:
-        model = _model_for(state, instrument_id)
+    def update_body() -> None:
+        try:
+            mounted_page = getattr(body_holder, "page", None)
+        except Exception:
+            mounted_page = None
+        if mounted_page is not None:
+            body_holder.update()
+
+    def chrome_for(instrument_id: str, section: str, model: InstrumentDetailViewModel) -> PageChrome:
         identity = model.identity
         display_name = _value(model.display_name)
         asset_type = _value(identity.get("asset_type", identity.get("asset_class")))
@@ -1527,14 +1541,7 @@ def instrument_detail_page(page: ft.Page | None, state: object) -> PageView:
         kind = _section_kind(identity)
         groups = []
         if options:
-            groups.append(
-                SegmentGroup(
-                    "instrument",
-                    options,
-                    instrument_id,
-                    on_change=lambda value: render(value, section),
-                )
-            )
+            groups.append(SegmentGroup("instrument", options, instrument_id, on_change=change_instrument))
         section_options = ["Overview", kind, "Risk & forecasts", "History"]
         if section not in section_options:
             section = "Overview"
@@ -1546,30 +1553,114 @@ def instrument_detail_page(page: ft.Page | None, state: object) -> PageView:
                 on_change=lambda value: render(instrument_id, value),
             )
         )
-        chrome = PageChrome(
-            f"Instrument Detail · {instrument_id or 'Unavailable'}",
-            f"{display_name} · {asset_type} · {isin} · {currency}",
+        return PageChrome(
+            f"Instrument Detail \u00b7 {instrument_id or 'Unavailable'}",
+            f"{display_name} \u00b7 {asset_type} \u00b7 {isin} \u00b7 {currency}",
             groups,
         )
-        def on_instrument_change(value: str) -> None:
-            state.selected_etf = value
-            render(value, "Overview")
 
-        body = _body(model, state, page, section, options, on_instrument_change)
-        current = holder.get("view")
-        if current is None:
-            holder["view"] = PageView(chrome=chrome, body=body)
+    def render_model(
+        instrument_id: str,
+        section: str,
+        model: InstrumentDetailViewModel,
+        chrome: PageChrome,
+        expected: int | None = None,
+    ) -> PageChrome:
+        kind = _section_kind(model.identity)
+        if rendered["instrument"] == instrument_id and isinstance(body_holder.content, ft.Column):
+            for name, section_control in rendered["section_controls"].items():
+                section_control.visible = name == section
+            rendered["section"] = section
         else:
-            current.chrome = chrome
-            current.body = body
-        if page is not None and callable(getattr(page, "update", None)):
-            page.update()
+            def on_instrument_change(value: str) -> PageChrome:
+                return change_instrument(value)
+
+            body = _body(model, state, page, section, options, on_instrument_change)
+            if expected is not None and expected != generation[0]:
+                return chrome
+            body_holder.content = body
+            rendered["instrument"] = instrument_id
+            rendered["model"] = model
+            rendered["section"] = section
+            rendered["section_controls"] = (
+                dict(zip(["Overview", kind, "Risk & forecasts", "History"], body.controls[2:], strict=True))
+                if isinstance(body, ft.Column)
+                else {}
+            )
+            if not chrome_holder:
+                chrome_holder.append(chrome)
+        update_body()
+        return chrome
+
+    def render(instrument_id: str, section: str) -> PageChrome:
+        model = (
+            rendered["model"]
+            if rendered["instrument"] == instrument_id and isinstance(rendered.get("model"), InstrumentDetailViewModel)
+            else _model_for(state, instrument_id)
+        )
+        chrome = chrome_for(instrument_id, section, model)
+        return render_model(instrument_id, section, model, chrome)
+
+    def load_instrument(expected: int, instrument_id: str) -> PageChrome | None:
+        try:
+            if expected != generation[0]:
+                return None
+            model = _model_for(state, instrument_id)
+            chrome = chrome_for(instrument_id, "Overview", model)
+            if expected != generation[0]:
+                return None
+            render_model(instrument_id, "Overview", model, chrome, expected)
+            refresh_chrome = getattr(page, "_shell_chrome_update", None)
+            if callable(refresh_chrome):
+                refresh_chrome(chrome)
+            return chrome
+        except Exception as exc:
+            if expected != generation[0]:
+                return None
+            body_holder.content = Note(f"Instrument detail is unavailable ({type(exc).__name__}).")
+            update_body()
+            return None
+
+    def load_pending_instruments() -> None:
+        while True:
+            with instrument_lock:
+                request = pending_instrument[0]
+                pending_instrument[0] = None
+                if request is None:
+                    instrument_worker[0] = False
+                    return
+            load_instrument(*request)
+
+    def change_instrument(value: str) -> PageChrome:
+        state.selected_etf = value
+        with instrument_lock:
+            generation[0] += 1
+            expected = generation[0]
+        if page is None:
+            return render(value, "Overview")
+        loading_chrome = PageChrome(
+            f"Instrument Detail \\u00b7 {value or 'Unavailable'}",
+            "Loading instrument evidence...",
+            [SegmentGroup("instrument", options, value, on_change=change_instrument)] if options else (),
+        )
+        body_holder.content = Note("Loading instrument evidence...")
+        update_body()
+        if not isinstance(page, ft.Page) and not hasattr(page, "views"):
+            return load_instrument(expected, value) or loading_chrome
+        with instrument_lock:
+            pending_instrument[0] = (expected, value)
+            if instrument_worker[0]:
+                return loading_chrome
+            instrument_worker[0] = True
+        worker = threading.Timer(0.01, load_pending_instruments)
+        worker.name = "instrument-segment-render"
+        worker.daemon = True
+        worker.start()
+        return loading_chrome
 
     render(selected, "Overview")
-    view = holder["view"]
-    if view is None:
+    if not chrome_holder:
         raise RuntimeError("Instrument detail view could not be built.")
-    return view
-
+    return PageView(chrome_holder[0], body_holder)
 
 __all__ = ["instrument_detail_page", "render_etf_disclosure_panel"]

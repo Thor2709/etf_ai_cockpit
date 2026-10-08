@@ -670,8 +670,19 @@ def _lineage(query: object) -> str:
     )
 
 
-def screener_page(page: ft.Page | None, state: AppState) -> PageView:
+def screener_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False) -> PageView:
     """Render reproducible local screens and saved selection evidence."""
+
+    if not _deferred and page is not None and (isinstance(page, ft.Page) or bool(getattr(page, "_shell_defer_render", False))):
+        placeholder = ft.Container(content=Note("Loading screener evidence..."), expand=True)
+        placeholder.data = {"shell.deferred-update": lambda: screener_page(page, state, _deferred=True)}
+        return PageView(
+            PageChrome(
+                "Fundamentals Screener",
+                "Reproducible local screens on loaded evidence \\u00b7 context only",
+            ),
+            placeholder,
+        )
 
     frame = load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
     frame = frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()

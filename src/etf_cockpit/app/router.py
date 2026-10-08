@@ -19,7 +19,7 @@ from etf_cockpit.app.components.shell.footer import Footer, build_footer
 from etf_cockpit.app.components.shell.loading import skeleton_body
 from etf_cockpit.app.components.shell.overlay import Overlay, Toast
 from etf_cockpit.app.components.shell.page_menu import PageMenu, build_page_menu, menu_routes
-from etf_cockpit.app.components.shell.page_view import PageChrome, PageView
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
 from etf_cockpit.app.components.shell.search import Search, build_search
 from etf_cockpit.app.components.shell.status import footer_values, material_change_count
 from etf_cockpit.app.components.shell.topbar import build_topbar
@@ -246,6 +246,57 @@ def _toast_is_error(message: str) -> bool:
 _BUILD_LOCK = threading.RLock()
 _RENDER_GENERATIONS = count(1)
 SKELETON_PATIENCE_S = 0.08  # a page that builds faster than this is painted once, without a skeleton frame
+_DEFERRED_UPDATE_KEY = "shell.deferred-update"
+
+
+def _schedule_deferred_updates(page: ft.Page, view: ft.View, generation: int, state: AppState, route: str) -> None:
+    """Run tagged section fillers after the placeholder shell has been painted."""
+
+    pending: list[tuple[ft.Control, Callable[[], object]]] = []
+
+    def walk(control: ft.Control) -> None:
+        data = getattr(control, "data", None)
+        if isinstance(data, dict):
+            callback = data.pop(_DEFERRED_UPDATE_KEY, None)
+            if callable(callback):
+                pending.append((control, callback))
+        for child in getattr(control, "controls", ()) or ():
+            if isinstance(child, ft.Control):
+                walk(child)
+        content = getattr(control, "content", None)
+        if isinstance(content, ft.Control):
+            walk(content)
+
+    for control in view.controls:
+        walk(control)
+
+    for control, callback in pending:
+        def fill(target=control, build=callback) -> None:
+            if getattr(page, "_render_generation", generation) != generation:
+                return
+            try:
+                with _deferred_page_update(page):
+                    result = build()
+            except Exception:
+                return
+            if isinstance(result, PageView):
+                if getattr(page, "_render_generation", generation) != generation:
+                    return
+                replacement = build_shell(page, state, route, built=result)
+                page.views[:] = [replacement]
+                page.update()
+                _schedule_deferred_updates(page, replacement, generation, state, route)
+                return
+            if callable(getattr(target, "update", None)):
+                try:
+                    target.update()
+                    return
+                except Exception:
+                    pass
+            if callable(getattr(page, "update", None)):
+                page.update()
+
+        threading.Thread(target=fill, name="deferred-page-section", daemon=True).start()
 
 
 @contextmanager
@@ -374,16 +425,68 @@ def build_shell(page: ft.Page, state: AppState, route: str, *, built: object | N
         menu_state["menu"] = menu
         overlay.show("menu", menu.panel, left_edge() + 8, margin() + 80 + 8, on_hide=lambda: menu_state.clear())
 
-    topbar = build_topbar(
-        chrome,
-        has_menu=len(workspace_routes) > 1,
-        on_open_menu=open_page_menu,
-        search=search,
-        overlay=overlay,
-        badge_count=material_change_count(state),
-        on_what_changed=None if canonical_route == "/what-changed" else (lambda: go("/what-changed")),
-        width=window_width,
-    )
+    def walk_controls(control: ft.Control):
+        yield control
+        for child in getattr(control, "controls", ()) or ():
+            if isinstance(child, ft.Control):
+                yield from walk_controls(child)
+        content = getattr(control, "content", None)
+        if isinstance(content, ft.Control):
+            yield from walk_controls(content)
+
+    topbar_holder: dict[str, object] = {}
+    column_holder: dict[str, ft.Column] = {}
+    active_segment_groups = {group.key: group for group in chrome.segment_groups}
+
+    def wrap_group(group: SegmentGroup) -> SegmentGroup:
+        def on_segment_change(value: str, key=group.key) -> PageChrome | None:
+            current = active_segment_groups.get(key, group)
+            updated = current.on_change(value) if current.on_change is not None else None
+            if isinstance(updated, PageChrome):
+                refresh_chrome(updated)
+                return updated
+            return None
+
+        return SegmentGroup(group.key, group.items, group.selected, on_segment_change)
+
+    def build_chrome_topbar(updated: PageChrome):
+        return build_topbar(
+            PageChrome(updated.title, updated.subtitle, [wrap_group(group) for group in updated.segment_groups]),
+            has_menu=len(workspace_routes) > 1,
+            on_open_menu=open_page_menu,
+            search=search,
+            overlay=overlay,
+            badge_count=material_change_count(state),
+            on_what_changed=None if canonical_route == "/what-changed" else (lambda: go("/what-changed")),
+            width=window_width,
+        )
+
+    topbar = build_chrome_topbar(chrome)
+    topbar_holder["control"] = topbar.control
+
+    def refresh_chrome(updated: PageChrome) -> None:
+        active_segment_groups.clear()
+        active_segment_groups.update((group.key, group) for group in updated.segment_groups)
+        replacement = build_chrome_topbar(updated)
+        topbar.control = replacement.control
+        topbar.title_left = replacement.title_left
+        topbar.set_width = replacement.set_width
+        topbar_holder["control"] = topbar.control
+        if column_holder:
+            column_holder["column"].controls[0] = topbar.control
+            update()
+
+    render_generation = getattr(page, "_render_generation", None)
+
+    def update_chrome_later(updated: PageChrome) -> None:
+        if render_generation is not None and getattr(page, "_render_generation", render_generation) != render_generation:
+            return
+        refresh_chrome(updated)
+
+    try:
+        page._shell_chrome_update = update_chrome_later
+    except Exception:
+        pass
 
     # Footer
     def make_footer() -> Footer:
@@ -454,6 +557,7 @@ def build_shell(page: ft.Page, state: AppState, route: str, *, built: object | N
         expand=True,
         spacing=22,
     )
+    column_holder["column"] = column
     shell_row = ft.Row(
         [dock.control, column],
         expand=True,
@@ -613,11 +717,12 @@ def _claim_render(page: ft.Page) -> int:
 
 
 def render_shell(page: ft.Page, state: AppState, route: str) -> None:
-    _claim_render(page)
+    generation = _claim_render(page)
     _dispose_workspace(page)
     view = build_shell(page, state, route)
     page.views[:] = [view]
     page.update()
+    _schedule_deferred_updates(page, view, generation, state, route)
 
 
 def render_route_change(
@@ -654,8 +759,10 @@ def render_route_change(
     def paint_final() -> None:
         if getattr(page, "_render_generation", generation) != generation:
             return  # superseded by a newer render
-        page.views[:] = [build_shell(page, state, route, built=result["built"])]
+        view = build_shell(page, state, route, built=result["built"])
+        page.views[:] = [view]
         page.update()
+        _schedule_deferred_updates(page, view, generation, state, route)
         if on_done is not None:
             on_done()
 

@@ -21,7 +21,7 @@ class SegmentGroup:
     key: str
     items: Sequence[str]
     selected: str
-    on_change: Callable[[str], None] | None = None  # page updates its own body in place, never navigates
+    on_change: Callable[[str], PageChrome | None] | None = None  # page updates its body or returns refreshed chrome
 
 
 @dataclass(frozen=True)
