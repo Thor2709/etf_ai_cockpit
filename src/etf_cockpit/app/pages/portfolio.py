@@ -1588,7 +1588,27 @@ def portfolio_page(page: ft.Page | None, state: AppState) -> PageView:
 
     layout = common.make_layout(page)
     ready = [False]
-    initial = draft_portfolio_candidate(state.snapshot)
+    try:
+        initial = draft_portfolio_candidate(state.snapshot)
+    except ValueError:
+        current = select_holdings_view(state.snapshot.holdings, "combined")
+        targets: dict[str, float] = {}
+        for _, row in current.iterrows():
+            instrument_id = str(row.get("etf_id", row.get("instrument_id", ""))).strip()
+            if instrument_id:
+                targets[instrument_id] = targets.get(instrument_id, 0.0) + float(row.get("current_weight", 0.0))
+        cash_weight = 1.0 - math.fsum(targets.values())
+        holdings = state.snapshot.holdings
+        notional = float(holdings["market_value_eur"].sum()) if "market_value_eur" in holdings else 0.0
+        if notional <= 0.0:
+            notional = 100_000.0
+        initial = build_portfolio_candidate(
+            state.snapshot,
+            name="Portfolio candidate",
+            analysis_notional_eur=notional,
+            target_weights=targets,
+            cash_weight=cash_weight,
+        )
     saved_revision = [0]
     saved_candidate_id: list[str | None] = [None]
     universe = {str(item.id): item for item in state.snapshot.config.universe.etfs if bool(item.enabled)}

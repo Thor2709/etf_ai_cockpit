@@ -290,7 +290,7 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
                 )
             else:
                 removed_count = len(result.get("removed", ()))
-                cleanup_message.value = f"Generated-cache cleanup completed; {format_count(removed_count)} files removed."
+                cleanup_message.value = f"Generated-cache cleanup completed; {format_count(removed_count)} reproducible file(s) removed."
                 cleanup_details.value = redact_text(str(result))
                 state.update_activity("Cache cleanup complete", completed_units=1, total_units=1, expected_action_id=action_id)
                 state.finish_activity(cleanup_message.value, output_path=result.get("cache_path"), label=label, expected_action_id=action_id)
@@ -417,7 +417,7 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
 
     resource_card = GlassCard(
         "Resource readiness",
-        note="local limits · no telemetry",
+        note="limits are local · no telemetry",
         body=ft.Column(
             [
                 KpiTile("Profile", profile_value, sub=resource_reason if profile_value is None else "Selected local profile"),

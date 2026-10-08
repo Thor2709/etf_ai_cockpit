@@ -273,7 +273,11 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> PageView:
             body=ft.Column(
                 [
                     Disclosure("model and constraint details", audit["details"] or "Comparison details are unavailable."),
-                    Disclosure("solver fingerprints", audit["text"] or "Solver fingerprints are unavailable."),
+                    Disclosure(
+                        "solver fingerprints",
+                        f"solver_fingerprints={audit['text'] or 'Unavailable'}",
+                    ),
+                    Disclosure("Authority boundary", "execution_allowed=false"),
                 ],
                 spacing=theme.SPACE_2,
             ),

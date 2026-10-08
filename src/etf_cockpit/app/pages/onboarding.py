@@ -334,6 +334,14 @@ def onboarding_page(
             [
                 Note(f"Registry checksum: {checksum}"),
                 Note("Data source provider identifiers and raw policy status are shown in the table below."),
+                Note(
+                    "\n".join(
+                        f"network={row.get('network')} for mandatory-compatible provider={row.get('provider_id')}"
+                        for row in policy_rows
+                        if row.get("optionality") == "mandatory-compatible" and row.get("network") == "not required"
+                    )
+                    or "Mandatory-compatible offline source policy is unavailable."
+                ),
             ],
             spacing=8,
         ),

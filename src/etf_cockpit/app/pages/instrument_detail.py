@@ -107,7 +107,7 @@ def _provenance_tags(value: object) -> list[ft.Control]:
                 Tag(f"Conflict {metadata('conflict_id', 'conflict_status')}", "mute", dense=True),
             ],
             wrap=True,
-            spacing=6,
+            spacing=theme.SPACE_2,
         )
     ]
 
@@ -562,6 +562,8 @@ def _score_card(model: InstrumentDetailViewModel, page: ft.Page | None) -> ft.Co
 def _alerts_card(model: InstrumentDetailViewModel, state: object) -> ft.Control:
     snapshot = getattr(state, "snapshot", None)
     as_of = getattr(getattr(snapshot, "data_report", None), "as_of_date", None)
+    if as_of is not None and len(str(as_of)) == 10:
+        as_of = f"{as_of}T23:59:59+00:00"
     readback = read_local_alerts(ROOT, subject_id=model.instrument_id, as_of=as_of)
     records = readback.records
     rows = [
@@ -573,12 +575,24 @@ def _alerts_card(model: InstrumentDetailViewModel, state: object) -> ft.Control:
         )
         for index, item in enumerate(records)
     ]
+    details = [
+        Disclosure(
+            "Alert audit",
+            f"type={item.alert.alert_type.value}\nseverity={item.alert.severity.value}\n"
+            f"execution_allowed={str(item.alert.execution_allowed).lower()}",
+        )
+        for item in records
+    ]
     if readback.status != "available":
-        rows = [Note("Unavailable · Local alert data could not be read.")]
+        rows = [Note("Alerts unavailable · manual review required.")]
+        details = []
+    elif not records:
+        rows = [Note("No local alerts or review reminders for this instrument.")]
+    content = ft.Column([*rows, *details], spacing=theme.SPACE_2)
     return GlassCard(
         "Alerts & review reminders",
         note="instrument-scoped · informational",
-        body=rows or [Note("No local alerts or review reminders for this instrument.")],
+        body=content,
         expand=True,
     )
 

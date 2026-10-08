@@ -243,7 +243,7 @@ def diagnostics_page(page: ft.Page, state: AppState | None) -> PageView:
                     spacing=12,
                     wrap=True,
                 ),
-                ft.Row([Note("Versioned budgets"), budget_tag], spacing=8, wrap=True),
+                ft.Row([Note("Versioned budgets:"), budget_tag], spacing=8, wrap=True),
                 Note(f"Controlled errors: {format_count(len(errors))} recent records."),
                 Note("A local workflow is active." if active_activity is not None else "No local workflow is active."),
                 Disclosure(
@@ -251,6 +251,9 @@ def diagnostics_page(page: ft.Page, state: AppState | None) -> PageView:
                     ft.Column(
                         [
                             ft.Text(f"Budget report: {budget_report!r}"),
+                            ft.Text(
+                                f"local storage={format_count(budget_report.get('storage_bytes'), unavailable='Unavailable')} bytes"
+                            ),
                             ft.Text(f"Controlled error details: {errors!r}"),
                             ft.Text(f"Current workflow: {getattr(active_activity, 'label', None)}"),
                             ft.Text("Cache counts are unavailable until a cache event is recorded." if not cache_events else f"Cache counts: {cache_counts!r}"),
@@ -283,7 +286,20 @@ def diagnostics_page(page: ft.Page, state: AppState | None) -> PageView:
                     "Blocking severities: "
                     + (", ".join(map(str, security_report["blocking_severities"])) if security_report.get("blocking_severities") is not None else "Unavailable")
                 ),
-                Disclosure("Security policy details", ft.Text(f"Policy report: {security_report!r}")),
+                Disclosure(
+                    "Security policy details",
+                    ft.Column(
+                        [
+                            ft.Text(f"Policy report: {security_report!r}"),
+                            ft.Text(
+                                f"network_calls={str(security_report.get('network_calls')).lower()}"
+                                if isinstance(security_report.get("network_calls"), bool)
+                                else "network_calls=unavailable"
+                            ),
+                        ],
+                        spacing=8,
+                    ),
+                ),
             ],
             spacing=12,
             expand=True,

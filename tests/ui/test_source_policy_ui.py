@@ -39,7 +39,9 @@ def test_onboarding_shows_source_policy_before_any_online_validation() -> None:
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
 
-    text = _text(onboarding_page(None, state))
+    page = onboarding_page(None, state)
+    next(control for control in _walk(page) if getattr(control, "key", None) == "onboarding.step.1").on_click(None)
+    text = _text(page)
 
     assert "Data source policy" in text
     assert "network=not required" in text

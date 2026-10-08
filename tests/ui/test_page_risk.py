@@ -101,4 +101,5 @@ def test_empty_data_shows_unavailable(monkeypatch) -> None:
     for control in _walk(view.body):
         data = getattr(control, "data", None)
         if isinstance(data, dict) and data.get("kit") == "DataTable":
-            assert all(str(value) != "0" for row in data.get("rows", ()) for value in row.values())
+            values = [getattr(item, "value", None) for item in _walk(control)]
+            assert all(str(value) != "0" for value in values if value is not None)
