@@ -85,10 +85,13 @@ def _attach_windowed_stdio() -> None:
         _STDIO_HANDLES.append(stderr_handle)
 
 
-def _render_route(page: ft.Page, state: AppState, route: str) -> None:
-    from etf_cockpit.app.router import render_shell
+def _refresh_static_trust_artifacts(state: AppState) -> None:
+    try:
+        from etf_cockpit.application.scoreboard_publication import refresh_static_trust_artifacts
 
-    render_shell(page, state, route)
+        refresh_static_trust_artifacts(state.snapshot.config)
+    except Exception:
+        pass
 
 
 def _configure_page_chrome(page: ft.Page) -> None:
@@ -128,9 +131,25 @@ def _paint_loading_then_load(page: ft.Page) -> None:
 
     def load() -> None:
         try:
+            router_ready = threading.Event()
+            router_failure: list[Exception] = []
+
+            def prepare_router() -> None:
+                try:
+                    from etf_cockpit.app import router  # noqa: F401
+                except Exception as exc:
+                    router_failure.append(exc)
+                finally:
+                    router_ready.set()
+
+            threading.Thread(target=prepare_router, name="startup-router-import", daemon=True).start()
+
             from etf_cockpit.app.state import AppState
 
             loaded = AppState.load()
+            router_ready.wait()
+            if router_failure:
+                raise router_failure[0]
             _attach_state(page, loaded, requested_route=pending["route"])
         except Exception:
             _startup_log("background startup failed\n" + traceback.format_exc())
@@ -153,6 +172,21 @@ def _paint_loading_then_load(page: ft.Page) -> None:
 def _attach_state(page: ft.Page, state: AppState, *, requested_route: str | None = None) -> None:
     from etf_cockpit.app.router import relayout_shell, render_route_change, shell_key_event
 
+    trust_refresh_started = threading.Event()
+    trust_refresh_lock = threading.Lock()
+
+    def after_first_paint() -> None:
+        with trust_refresh_lock:
+            if trust_refresh_started.is_set():
+                return
+            trust_refresh_started.set()
+        threading.Thread(
+            target=_refresh_static_trust_artifacts,
+            args=(state,),
+            name="startup-trust-refresh",
+            daemon=True,
+        ).start()
+
     try:
         page.window.width = state.snapshot.config.ui.window_width
         page.window.height = state.snapshot.config.ui.window_height
@@ -173,7 +207,12 @@ def _attach_state(page: ft.Page, state: AppState, *, requested_route: str | None
             operation="route_change",
             status="render",
         )
-        render_route_change(page, state, page.route or state.snapshot.config.ui.default_page)
+        render_route_change(
+            page,
+            state,
+            page.route or state.snapshot.config.ui.default_page,
+            on_done=after_first_paint,
+        )
 
     def resize(event: ft.ControlEvent) -> None:
         relayout_shell(page, state, getattr(event, "width", None))
@@ -185,7 +224,7 @@ def _attach_state(page: ft.Page, state: AppState, *, requested_route: str | None
     if requested_route and callable(getattr(page, "go", None)) and getattr(page, "route", None) != requested_route:
         page.go(requested_route)  # the route-change handler renders it
         return
-    _render_route(page, state, initial_route)
+    render_route_change(page, state, initial_route, background=True, on_done=after_first_paint)
 
 
 def main(page: ft.Page) -> None:

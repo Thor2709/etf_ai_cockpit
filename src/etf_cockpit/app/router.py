@@ -385,13 +385,14 @@ def build_shell(page: ft.Page, state: AppState, route: str, *, built: object | N
     def select_workspace(workspace: str) -> None:
         go(dict(WORKSPACE_GROUPS)[workspace][0])
 
+    badge_count = {"value": 0}
     dock = build_dock(
         [workspace for workspace, _routes in WORKSPACE_GROUPS],
         active=active_workspace,
         narrow=narrow,
         icons=WORKSPACE_ICONS,
         tooltips=_workspace_tooltips(),
-        badge_count=material_change_count(state),
+        badge_count=badge_count["value"],
         on_select=select_workspace,
     )
 
@@ -456,7 +457,7 @@ def build_shell(page: ft.Page, state: AppState, route: str, *, built: object | N
             on_open_menu=open_page_menu,
             search=search,
             overlay=overlay,
-            badge_count=material_change_count(state),
+            badge_count=badge_count["value"],
             on_what_changed=None if canonical_route == "/what-changed" else (lambda: go("/what-changed")),
             width=window_width,
         )
@@ -564,6 +565,29 @@ def build_shell(page: ft.Page, state: AppState, route: str, *, built: object | N
         spacing=margin(),
         vertical_alignment=ft.CrossAxisAlignment.STRETCH,
     )
+
+    def refresh_badges() -> None:
+        nonlocal dock, topbar
+
+        count = material_change_count(state)
+        badge_count["value"] = count
+        dock = build_dock(
+            [workspace for workspace, _routes in WORKSPACE_GROUPS],
+            active=active_workspace,
+            narrow=narrow,
+            icons=WORKSPACE_ICONS,
+            tooltips=_workspace_tooltips(),
+            badge_count=count,
+            on_select=select_workspace,
+        )
+        shell_row.controls[0] = dock.control
+        replacement = build_chrome_topbar(chrome)
+        topbar.control = replacement.control
+        topbar.title_left = replacement.title_left
+        topbar.set_width = replacement.set_width
+        topbar_holder["control"] = topbar.control
+        column.controls[0] = topbar.control
+
     shell_content = ft.Container(content=shell_row, padding=margin(), expand=True)
     background = ft.Image(src="background/bg_3200.jpg", fit=ft.BoxFit.COVER, left=-12, top=-12, right=-12, bottom=-12,
                           exclude_from_semantics=True)
@@ -577,6 +601,7 @@ def build_shell(page: ft.Page, state: AppState, route: str, *, built: object | N
         expand=True,
         key="shell.backdrop",
     )
+    root.data = {_DEFERRED_UPDATE_KEY: refresh_badges}
     view = ft.View(route=route, controls=[root], bgcolor=theme.BG, padding=0)
 
     message = str(getattr(state, "last_message", "") or "")
