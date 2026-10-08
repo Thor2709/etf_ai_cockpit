@@ -245,7 +245,7 @@ def _toast_is_error(message: str) -> bool:
 # background build must finish before the next starts.
 _BUILD_LOCK = threading.RLock()
 _RENDER_GENERATIONS = count(1)
-SKELETON_PATIENCE_S = 0.12  # a page that builds faster than this is painted once, without a skeleton frame
+SKELETON_PATIENCE_S = 0.08  # a page that builds faster than this is painted once, without a skeleton frame
 
 
 @contextmanager

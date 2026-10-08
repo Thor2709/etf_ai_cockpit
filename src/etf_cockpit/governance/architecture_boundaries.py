@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from importlib.util import resolve_name
 from pathlib import Path
 
@@ -32,7 +33,14 @@ class BoundaryViolation:
 
 
 def _imports(path: Path) -> list[tuple[int, str, str]]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return list(_imports_of_source(path.read_text(encoding="utf-8"), str(path)))
+
+
+@lru_cache(maxsize=512)
+def _imports_of_source(source: str, filename: str) -> tuple[tuple[int, str, str], ...]:
+    """Parse once per distinct source text (Diagnostics rebuilds this report on every visit)."""
+
+    tree = ast.parse(source, filename=filename)
     result: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -44,7 +52,7 @@ def _imports(path: Path) -> list[tuple[int, str, str]]:
                 if node.level and not node.module:
                     imported_module += alias.name
                 result.append((node.lineno, imported_module, alias.name))
-    return result
+    return tuple(result)
 
 
 def find_violations(root: Path) -> tuple[BoundaryViolation, ...]:

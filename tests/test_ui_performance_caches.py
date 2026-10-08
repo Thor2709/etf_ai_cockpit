@@ -479,3 +479,74 @@ def test_price_binding_with_mixed_date_types_is_not_memoised() -> None:
     prices.loc[0, "date"] = pd.Timestamp("2024-01-01")
     reference.adjusted_price_snapshot_binding(prices, calculation_window=_WINDOW)
     assert not reference._BINDING_CACHE
+
+
+def test_knowledge_claims_resolve_once_per_distinct_value_with_identical_results() -> None:
+    from datetime import date, datetime, timezone
+
+    from etf_cockpit.application import portfolio_sandbox as sandbox
+
+    values = pd.Series(
+        ["2024-01-02", "2024-01-02", "2024-01-02T10:00:00Z", "2024-01-02T10:00:00", date(2024, 1, 3),
+         datetime(2024, 1, 3, tzinfo=timezone.utc), datetime(2024, 1, 3), None, np.nan, 7, "", "garbage", "2024-01-02"] * 5,
+        dtype=object,
+    )
+    expected = values.map(lambda value: sandbox._temporal_claim(value, end_of_day=True))
+    actual = sandbox._temporal_claims(values)
+    left = pd.to_datetime(actual, errors="coerce", utc=True)
+    right = pd.to_datetime(expected, errors="coerce", utc=True)
+    assert left.equals(right)
+    unhashable = pd.Series([["2024-01-02"], "2024-01-02"], dtype=object)  # falls back to the row-wise definition
+    assert pd.to_datetime(sandbox._temporal_claims(unhashable), errors="coerce", utc=True).notna().tolist() == [False, True]
+
+
+def test_prices_checksum_is_memoised_on_content_and_equals_the_uncached_value(monkeypatch) -> None:
+    from etf_cockpit.application import portfolio_sandbox as sandbox
+
+    sandbox._CHECKSUM_CACHE.clear()
+    prices = _price_frame()
+    expected = sandbox._prices_checksum_uncached(prices.reset_index(drop=True).sort_index(axis=1))
+    builds = {"n": 0}
+    real = sandbox._prices_checksum_uncached
+
+    def counting(frame):
+        builds["n"] += 1
+        return real(frame)
+
+    monkeypatch.setattr(sandbox, "_prices_checksum_uncached", counting)
+    assert sandbox._prices_checksum(prices) == expected
+    assert sandbox._prices_checksum(prices.copy()) == expected
+    assert builds["n"] == 1
+    edited = prices.copy()
+    edited.loc[2, "adjusted_close"] += 0.5
+    assert sandbox._prices_checksum(edited) != expected  # new content -> new checksum, never stale
+    assert builds["n"] == 2
+    assert sandbox._prices_checksum("not a frame") == sandbox._prices_checksum(None)
+
+
+def test_architecture_report_parses_each_source_once_and_follows_edits(tmp_path, monkeypatch) -> None:
+    import ast
+
+    from etf_cockpit.governance import architecture_boundaries as boundaries
+
+    boundaries._imports_of_source.cache_clear()
+    pages = tmp_path / "src" / "etf_cockpit" / "app" / "pages"
+    pages.mkdir(parents=True)
+    for directory in ("components", "selectors"):
+        (tmp_path / "src" / "etf_cockpit" / "app" / directory).mkdir(parents=True)
+    page = pages / "demo.py"
+    page.write_text("import pandas\nfrom etf_cockpit.application import ui_facade\n", encoding="utf-8")
+    parses = {"n": 0}
+    real = ast.parse
+
+    def counting(*args, **kwargs):
+        parses["n"] += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(boundaries.ast, "parse", counting)
+    first = boundaries.build_report(tmp_path)
+    assert boundaries.build_report(tmp_path) == first and first["status"] == "passed"
+    assert parses["n"] == 1
+    page.write_text("from etf_cockpit.data import market_calendar\n", encoding="utf-8")
+    report = boundaries.build_report(tmp_path)
+    assert report["status"] == "failed" and report["violation_count"] == 1  # an edit is never served stale
