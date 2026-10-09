@@ -254,6 +254,7 @@ class DataService:
                         f"Clean data: {reference_commit.clean_path}.{warning_suffix}"
                     )
                 )
+        messages.append(_refresh_stock_fundamentals(self.config, publish_guard))
         self.last_operation_succeeded = True
         return "\n".join(messages)
 
@@ -732,3 +733,17 @@ def _carry_forward_failed_instruments(result: ProviderResult, *, clean_path: Pat
     )
     metadata = dataclasses.replace(result.metadata, checksum=sha256_dataframe(data)) if result.metadata else None
     return ProviderResult(result.provider_name, result.dataset_type, "ok", message, data, metadata)
+
+
+def _refresh_stock_fundamentals(config: AppConfig, publish_guard: PublicationScopeFactory | None) -> str:
+    """Normal-stock fundamentals ride along with the price refresh; a failure never blocks prices."""
+
+    from etf_cockpit.application.stock_service import refresh_universe_stock_fundamentals
+
+    try:
+        with publication_scope(publish_guard):
+            report = refresh_universe_stock_fundamentals(config)
+    except Exception as exc:  # read-only, best-effort source; the reason is shown, prices stand
+        return f"Stock fundamentals not refreshed: {type(exc).__name__}: {redact_text(str(exc))[:200]}"
+    missing = f" Without data: {', '.join(sorted(report.failures))}." if report.failures else ""
+    return f"Stock fundamentals refreshed: {report.rows_added} new rows.{missing}"

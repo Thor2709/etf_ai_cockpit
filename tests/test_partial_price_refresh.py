@@ -39,3 +39,22 @@ def test_complete_or_empty_results_are_unchanged(tmp_path):
     empty = ProviderResult("yfinance", "prices", "error", "no rows", None)
     assert _carry_forward_failed_instruments(ok, clean_path=tmp_path / "x.parquet") is ok
     assert _carry_forward_failed_instruments(empty, clean_path=tmp_path / "x.parquet") is empty
+
+
+def test_stock_fundamentals_refresh_failure_is_reported_not_raised(monkeypatch):
+    from etf_cockpit.application import data_service, stock_service
+
+    def boom(_config):
+        raise OSError("offline")
+
+    monkeypatch.setattr(stock_service, "refresh_universe_stock_fundamentals", boom)
+    assert data_service._refresh_stock_fundamentals(object(), None) == "Stock fundamentals not refreshed: OSError: offline"
+
+
+def test_stock_fundamentals_refresh_reports_rows_and_gaps(monkeypatch):
+    from types import SimpleNamespace
+
+    from etf_cockpit.application import data_service, stock_service
+
+    monkeypatch.setattr(stock_service, "refresh_universe_stock_fundamentals", lambda _c: SimpleNamespace(rows_added=3, failures={"X": "none"}))
+    assert data_service._refresh_stock_fundamentals(object(), None) == "Stock fundamentals refreshed: 3 new rows. Without data: X."
