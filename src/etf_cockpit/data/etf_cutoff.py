@@ -16,9 +16,15 @@ def etf_decision_cutoff(value: object) -> pd.Timestamp:
     return cutoff
 
 
-def snapshot_etf_cutoff(snapshot: object) -> pd.Timestamp:
-    """Use the snapshot decision, falling back to its report's calendar date."""
+def snapshot_etf_cutoff(snapshot: object, *, now: object = None) -> pd.Timestamp:
+    """Knowledge cutoff for the live view of the current snapshot.
+
+    The snapshot's market-data decision time is when its last prices became available; ETF facts
+    (TER, holdings, ...) fetched later that day are still known when the owner looks at the page, so
+    the live view uses the later of that time and now. Nothing after now can be known, so this is
+    point-in-time correct; replays pass an explicit ``as_of`` and never use this."""
     report = getattr(snapshot, "data_report", None)
+    current = pd.Timestamp.now(tz="UTC") if now is None else pd.to_datetime(now, utc=True)
     for value in (
         getattr(snapshot, "decision_time", None),
         getattr(report, "decision_time", None),
@@ -26,5 +32,6 @@ def snapshot_etf_cutoff(snapshot: object) -> pd.Timestamp:
         getattr(report, "as_of_date", None),
     ):
         if value is not None:
-            return etf_decision_cutoff(value)
-    return pd.NaT
+            cutoff = etf_decision_cutoff(value)
+            return max(cutoff, current) if pd.notna(cutoff) else current
+    return current

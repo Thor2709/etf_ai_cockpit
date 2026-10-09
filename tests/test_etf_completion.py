@@ -340,3 +340,18 @@ def test_yfinance_metadata_fetcher_offline_preserves_aum(monkeypatch):
     validated = validate_etf_metadata(result.data, known_etfs=["VWCE"])
     assert validated.ok and validated.frame.iloc[0]["aum"] == 100_000_000
     assert validated.frame.iloc[0]["aum_currency"] == ""
+
+
+def test_live_view_cutoff_includes_facts_fetched_after_the_market_data_time():
+    from types import SimpleNamespace
+
+    import pandas as pd
+
+    from etf_cockpit.data.etf_cutoff import snapshot_etf_cutoff
+
+    snapshot = SimpleNamespace(benchmark_reference_decision_time="2026-10-09T00:00:00+00:00", data_report=None)
+    now = "2026-10-09T20:15:00+00:00"
+    assert snapshot_etf_cutoff(snapshot, now=now) == pd.Timestamp(now)
+    # an explicit later market decision time is never pulled back
+    later = SimpleNamespace(decision_time="2026-10-10T08:00:00+00:00", data_report=None)
+    assert snapshot_etf_cutoff(later, now=now) == pd.Timestamp("2026-10-10T08:00:00+00:00")
