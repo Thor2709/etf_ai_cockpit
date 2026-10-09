@@ -40,6 +40,8 @@ _COMPARISON_ROW = 78
 _CALIBRATION_NOTE = "Calibration compares the stored conformal coverage interval with its 90% target."
 
 
+GOVERNANCE_SCROLL_KEY = "forecast-lab.governance-anchor"
+
 def _pct(value: object, decimals: int = 0) -> str | None:
     if value is None or pd.isna(value):
         return None
@@ -419,7 +421,7 @@ def forecast_lab_page(page: ft.Page, state: AppState) -> PageView:
 
         async def go() -> None:
             try:
-                await scroll_to(scroll_key="forecast-lab.governance", duration=300)
+                await scroll_to(scroll_key=ft.ScrollKey(GOVERNANCE_SCROLL_KEY), duration=300)
                 feedback.value = "Governance section opened below."
             except Exception:
                 feedback.value = "Governance section navigation failed; scroll to Governance and availability."
@@ -468,7 +470,8 @@ def forecast_lab_page(page: ft.Page, state: AppState) -> PageView:
                 _runs_card(layout, report["runs"], report["walk_forward_evaluation"]),
                 _horizon_card(layout, models),
                 governance_feedback,
-                _governance_card(layout, state, report, ids, catalogue, models),
+                # Flet scrolls only to controls keyed with a ScrollKey; the card keeps its string key.
+                ft.Container(_governance_card(layout, state, report, ids, catalogue, models), key=ft.ScrollKey(GOVERNANCE_SCROLL_KEY)),
                 _cards_card(layout, catalogue, models),
             ],
         )

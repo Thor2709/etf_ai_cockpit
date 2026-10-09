@@ -356,14 +356,29 @@ def test_what_changed_detail_uses_places_gained_sign_convention() -> None:
     assert "+20" in _text(row)
 
 
-def test_forecast_lab_governance_action_scrolls_to_section_and_reports_feedback(_snapshot) -> None:
+def test_forecast_lab_governance_action_scrolls_to_section_and_reports_feedback(_snapshot, monkeypatch) -> None:
+    import flet as ft
+
+    scrolled: list[tuple[object, object]] = []
+
+    async def fake_scroll_to(self, *, scroll_key=None, **_kwargs):
+        scrolled.append((self, scroll_key))
+
+    # The Flet page itself does not scroll in this app: the page grid's own column must be scrolled,
+    # and Flet only scrolls to a control whose key is a ScrollKey (a plain string key is ignored).
+    monkeypatch.setattr(ft.Column, "scroll_to", fake_scroll_to)
     page = _NavigablePage("/forecasts")
     view = forecast_lab.forecast_lab_page(page, _state(_snapshot))
     button = next(control for control in _walk(view.body) if getattr(control, "key", None) == "forecast-lab.open-governance")
 
     button.on_click(None)
 
-    assert page.last_scroll_key == "forecast-lab.governance"
+    assert len(scrolled) == 1
+    column, key = scrolled[0]
+    assert isinstance(column, ft.Column) and column.scroll is not None
+    assert isinstance(key, ft.ScrollKey)
+    anchors = [c for c in _walk(column) if isinstance(getattr(c, "key", None), ft.ScrollKey)]
+    assert [a.key.value for a in anchors] == [key.value]
     assert "Governance section opened below." in _text(view.body)
 
 
