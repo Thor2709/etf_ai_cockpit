@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 import re
 
 from etf_cockpit.app.formatting import format_timestamp
@@ -99,15 +98,18 @@ def footer_values(snapshot: object, data_report: object) -> FooterValues:
     forecast, forecast_reason = UNAVAILABLE, "No forecast source is available in the current snapshot."
     if forecasts is not None and not getattr(forecasts, "empty", True):
         columns = getattr(forecasts, "columns", ())
+        usable = forecasts[forecasts["status"].astype(str).eq("ok")] if "status" in columns else forecasts
         models: list[str] = []
         for column in ("model", "model_id", "model_name", "forecast_model"):
             if column in columns:
-                models = sorted({str(item) for item in forecasts[column].dropna().unique() if str(item).strip()})
+                models = sorted({str(item) for item in usable[column].dropna().unique() if str(item).strip()})
                 break
-        if not models and "source_file" in columns:
-            models = [Path(str(forecasts["source_file"].iloc[0])).stem]
-        if models:
-            forecast, forecast_reason = "baseline + " + ", ".join(models) + " (exp.)", None
+        # Only models that produced usable rows are named; placeholders for unavailable models are not.
+        extra = [name for name in models if "baseline" not in name.casefold()]
+        if usable.empty:
+            forecast, forecast_reason = UNAVAILABLE, "Forecast rows exist but none is usable (all unavailable)."
+        elif extra:
+            forecast, forecast_reason = "baseline + " + ", ".join(extra) + " (exp.)", None
         else:
             forecast, forecast_reason = "baseline", None
     return FooterValues(quality_text, quality_kind, quality_reason, as_of, as_of_reason, forecast, forecast_reason, _uses_sample(snapshot))

@@ -98,3 +98,25 @@ def snapshot_state():
 
     snapshot = build_snapshot()
     return AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
+
+
+def test_footer_forecast_names_only_models_with_usable_rows():
+    from types import SimpleNamespace
+
+    import pandas as pd
+
+    from etf_cockpit.app.components.shell.status import footer_values
+
+    rows = pd.DataFrame(
+        {
+            "model_name": ["baseline_drift", "timesfm", "toto"],
+            "status": ["ok", "unavailable", "unavailable"],
+        }
+    )
+    values = footer_values(SimpleNamespace(forecasts=rows), None)
+    assert values.forecast == "baseline"
+    rows.loc[1, "status"] = "ok"
+    assert footer_values(SimpleNamespace(forecasts=rows), None).forecast == "baseline + timesfm (exp.)"
+    rows["status"] = "unavailable"
+    unusable = footer_values(SimpleNamespace(forecasts=rows), None)
+    assert unusable.forecast_reason == "Forecast rows exist but none is usable (all unavailable)."
