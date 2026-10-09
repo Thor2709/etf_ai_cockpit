@@ -100,7 +100,7 @@ class SignalService:
         )
         if supplied_matches and features is not None:
             feature_frame = features.copy()
-            if reference_context.benchmark_data_id is None:
+            if features.attrs.get("relative_strength_anchor") is None:
                 _sanitize_unavailable_relative_features(feature_frame)
         elif not cached_features.empty:
             feature_frame = cached_features

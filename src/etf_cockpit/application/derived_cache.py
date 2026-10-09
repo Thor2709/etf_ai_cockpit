@@ -42,6 +42,10 @@ from etf_cockpit.portfolio.benchmark_reference import (
 )
 
 
+# Broad-market anchor for relative strength when the canonical benchmark has no imported
+# total-return evidence (FTSE All-World tracker, accumulating). Part of the feature cache identity.
+RELATIVE_STRENGTH_FALLBACK_ANCHOR = "VWCE"
+
 def _universe_cache_meta_path(path: Path) -> Path:
     return Path(f"{path}.meta.json")
 
@@ -374,6 +378,7 @@ def _reference_binding(reference_context: CanonicalReferenceContext) -> dict[str
     strategy_identity = {
         "strategy": strategy,
         "benchmark_data_id": reference_context.benchmark_data_id,
+        "relative_strength_fallback_anchor": RELATIVE_STRENGTH_FALLBACK_ANCHOR,
         "reference_identity_hash": identity_hash,
     }
     return {

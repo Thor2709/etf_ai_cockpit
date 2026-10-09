@@ -26,12 +26,23 @@ from etf_cockpit.portfolio.benchmark_reference import (
     unavailable_reference_projection,
 )
 from etf_cockpit.application.derived_cache import (
+    RELATIVE_STRENGTH_FALLBACK_ANCHOR,
     _calculation_window,
     _current_universe_revision,
     _price_snapshot_binding,
     _reference_identity_hash,
 )
 
+
+
+# Relative strength is a momentum signal against the broad market, not a benchmark-performance
+# claim; without canonical benchmark evidence it is measured against RELATIVE_STRENGTH_FALLBACK_ANCHOR.
+
+def relative_strength_anchor(context: object, available_ids: set[str]) -> str | None:
+    canonical = getattr(context, "benchmark_data_id", None) if context is not None else None
+    if canonical is not None and canonical in available_ids:
+        return str(canonical)
+    return RELATIVE_STRENGTH_FALLBACK_ANCHOR if RELATIVE_STRENGTH_FALLBACK_ANCHOR in available_ids else None
 
 class FeatureService:
     def __init__(self, config: AppConfig, *, reference_context: CanonicalReferenceContext | None = None):
@@ -70,11 +81,10 @@ class FeatureService:
         price_binding = _price_snapshot_binding(frame, calculation_window=calculation_window)
         if price_binding is None:
             raise ValueError("adjusted-price snapshot identity is unavailable")
-        benchmark = context.benchmark_data_id if context is not None else None
         available_ids = set(frame["etf_id"].astype(str)) if "etf_id" in frame.columns else set()
-        if benchmark is None or benchmark not in available_ids:
-            benchmark = None
+        benchmark = relative_strength_anchor(context, available_ids)
         features = compute_features(frame, benchmark_etf_id=benchmark)
+        features.attrs["relative_strength_anchor"] = benchmark
         if benchmark is None:
             for column in ("relative_strength_60d", "relative_strength_120d"):
                 if column in features.columns:
