@@ -159,6 +159,8 @@ def donut_chart(
             mid = (a0 + a1) / 2
             ex, ey = cx + r1 * math.cos(mid), cy + r1 * math.sin(mid)
             lx, ly = cx + (r1 + 14) * math.cos(mid), cy + (r1 + 14) * math.sin(mid)
+            if show_legend:
+                ly = min(max(ly, 20.0), max(20.0, h - 46.0))
             right = math.cos(mid) >= 0
             sc.add(line(ex, ey, lx, ly, pal.AXIS, 1),
                    txt(lx + (4 if right else -4), ly, f"{s.name}\n{fmt(s.value, 0, unit=unit)}", size=13,

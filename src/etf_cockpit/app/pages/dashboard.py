@@ -249,14 +249,60 @@ def _home_view(state: AppState) -> tuple[HomeView, list[SimpleInstrumentScore]]:
     ), scores)
 
 
+def _dashboard_render_cache(state: AppState) -> dict[str, object]:
+    cache = getattr(state, "_dashboard_render_cache", None)
+    if not isinstance(cache, dict) or cache.get("snapshot") is not state.snapshot:
+        cache = {"snapshot": state.snapshot}
+        state._dashboard_render_cache = cache
+    return cache
+
+
+def _score_history_for_snapshot(state: AppState) -> pd.DataFrame:
+    cache = _dashboard_render_cache(state)
+    if "score_history" not in cache:
+        cache["score_history"] = score_history_frame()
+    return cache["score_history"]  # type: ignore[return-value]
+
+
+def _home_loading_summary(state: AppState) -> ft.Control:
+    snapshot = state.snapshot
+    config = getattr(snapshot, "config", None)
+    universe = getattr(config, "universe", None)
+    configured_ids = tuple(getattr(universe, "enabled_ids", ()) or ())
+    data_report = getattr(snapshot, "data_report", None)
+    data_status = str(getattr(data_report, "status", None) or "Unavailable")
+    as_of = str(getattr(data_report, "as_of_date", None) or "Unavailable")
+    return ft.Column(
+        [
+            SectionHeader("Snapshot loaded", "The local snapshot is ready; score history and audit context are being prepared."),
+            ft.Row(
+                [
+                    KpiTile("Configured instruments", str(len(configured_ids)), "Source: active local universe configuration"),
+                    KpiTile("Data health", data_status, f"Source: snapshot data report · as of {as_of}"),
+                ],
+                spacing=12,
+                wrap=True,
+            ),
+            Note("Detailed score rows and local audit context will appear here when their evidence is ready."),
+        ],
+        spacing=12,
+        expand=True,
+    )
+
+
 def dashboard_page(page: ft.Page, state: AppState, *, _deferred: bool = False) -> PageView:
-    if not _deferred and (isinstance(page, ft.Page) or bool(getattr(page, "_shell_defer_render", False))):
-        placeholder = ft.Container(content=Note("Loading local score evidence..."), expand=True)
+    if not _deferred and (
+        isinstance(page, ft.Page)
+        or bool(getattr(page, "_shell_defer_render", False))
+        or callable(getattr(page, "run_thread", None))
+    ):
+        placeholder = ft.Container(content=_home_loading_summary(state), expand=True)
         placeholder.data = {"shell.deferred-update": lambda: dashboard_page(page, state, _deferred=True)}
         return PageView(
             PageChrome("Simple Scores", "Today's evidence across your local universe"),
             placeholder,
         )
+    state._dashboard_render_cache = {"snapshot": state.snapshot}
     view, scores = _home_view(state)
     selection = {"tier": "All", "sort": "Score"}
     layout = make_layout(page)
@@ -665,9 +711,9 @@ def _below_the_fold(page: ft.Page, state: AppState, scores: list[SimpleInstrumen
         GlassCard("Activity log", "", body=_activity_panel(state, page=page)),
         _alerts_digest(page, state),
         SectionHeader("Digest details", "Sources, provenance and run, news and macro context behind What matters today."),
-        _run_changes_digest(page, state),
-        _news_digest(page, state),
-        Disclosure("what-matters detail", _what_matters_today(state)),
+        _run_changes_digest(page, state, scores),
+        _news_digest(page, state, scores),
+        Disclosure("what-matters detail", _what_matters_today(state, scores=scores)),
     ]
 
 
@@ -771,9 +817,14 @@ def _what_matters_today(state: AppState, *, scores: list[SimpleInstrumentScore] 
 
 def _digest_parts(state: AppState, scores: list[SimpleInstrumentScore] | None = None):
     """Return (as_of, digest records, run-change report) from the existing local evidence readers."""
+    cache = _dashboard_render_cache(state)
+    cached = cache.get("digest_parts")
+    if isinstance(cached, tuple):
+        return cached
     as_of = str(getattr(getattr(state.snapshot, "data_report", None), "as_of_date", "") or "") or None
     cutoff = normalise_event_decision_time(as_of)
-    report = _latest_run_change_report(cutoff)
+    history = _score_history_for_snapshot(state)
+    report = _latest_run_change_report(cutoff, history)
     records: dict[str, list[dict[str, object]] | None] = {
         "score_changes": _score_change_record(report, as_of=as_of),
         "warning_changes": _warning_change_record(report, as_of=as_of),
@@ -787,10 +838,12 @@ def _digest_parts(state: AppState, scores: list[SimpleInstrumentScore] | None = 
     records["model_failures"] = _model_failure_record(alerts, as_of=as_of)
     records["manual_review"] = _manual_review_record(report, scores or (), as_of=as_of)
     records["stale_data"] = _stale_data_record(state, alerts, as_of=as_of)
-    records["contradictions"] = _contradiction_record(state, as_of=as_of, cutoff=cutoff)
+    records["contradictions"] = _contradiction_record(state, as_of=as_of, cutoff=cutoff, history=history)
     records["upcoming_events"] = _event_record(as_of=as_of, cutoff=cutoff)
     records["audit_export"] = _audit_export_record(state, as_of=as_of)
-    return as_of, records, report
+    result = (as_of, records, report)
+    cache["digest_parts"] = result
+    return result
 
 
 def _dashboard_digest(state: AppState, *, scores: list[SimpleInstrumentScore] | None = None) -> DashboardDigest:
@@ -798,8 +851,8 @@ def _dashboard_digest(state: AppState, *, scores: list[SimpleInstrumentScore] | 
     return build_digest(records, as_of=as_of)
 
 
-def _latest_run_change_report(cutoff: object):
-    history = score_history_frame()
+def _latest_run_change_report(cutoff: object, history: pd.DataFrame | None = None):
+    history = score_history_frame() if history is None else history
     selected = score_run_pair_as_of(history, cutoff)
     if selected is None:
         return None
@@ -929,9 +982,14 @@ def _contradiction_record(
     *,
     as_of: str | None,
     cutoff: object | None = None,
+    history: pd.DataFrame | None = None,
 ) -> list[dict[str, object]]:
     try:
-        news = sort_news_items(load_news_items(NEWS_CLEAN_PATH))
+        cache = _dashboard_render_cache(state)
+        news = cache.get("news_frame")
+        if not isinstance(news, pd.DataFrame):
+            news = sort_news_items(load_news_items(NEWS_CLEAN_PATH))
+            cache["news_frame"] = news
         prices = getattr(getattr(state, "snapshot", None), "prices", pd.DataFrame())
         filtered_inputs = filter_news_contradiction_inputs(
             news,
@@ -958,7 +1016,7 @@ def _contradiction_record(
         except Exception:
             pass
         fundamentals = load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
-        history = score_history_frame()
+        history = _score_history_for_snapshot(state) if history is None else history
         exposures = [
             {
                 "instrument_id": getattr(item, "id", None),
@@ -1020,33 +1078,20 @@ def _audit_export_record(state: AppState, *, as_of: str | None) -> list[dict[str
     return [{"title": "No recent audit/export in this session", "detail": "No local audit packet export has been recorded; export status is informational and does not change authority.", "status": "available", "severity": "info", "as_of": as_of, "provenance": "session_activity"}]
 
 
-def _run_changes_digest(_page: ft.Page, _state: AppState) -> ft.Control:
+def _run_changes_digest(_page: ft.Page, _state: AppState, scores: list[SimpleInstrumentScore] | None = None) -> ft.Control:
     """Show a deterministic, informational summary of the latest run delta."""
 
-    history = score_history_frame()
-    if history.empty or "run_id" not in history.columns or "run_completed_at" not in history.columns:
+    try:
+        _as_of, _records, report = _digest_parts(_state, scores)
+    except Exception:
+        report = None
+    if report is None:
         body: ft.Control = ft.Text("Run changes unavailable; complete two dated score runs to populate the digest.", color=theme.MUTED, selectable=True)
     else:
-        as_of = getattr(getattr(getattr(_state, "snapshot", None), "data_report", None), "as_of_date", None)
-        cutoff = pd.to_datetime(as_of, errors="coerce", utc=True)
-        if pd.isna(cutoff):
-            history = history.iloc[0:0]
-        else:
-            cutoff = cutoff.normalize() + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
-            completed_at = pd.to_datetime(history["run_completed_at"], errors="coerce", utc=True)
-            history = history.loc[completed_at.notna() & completed_at.le(cutoff)].copy()
-        if history.empty:
-            body = ft.Text("Run changes unavailable; no dated score runs exist within the snapshot cutoff.", color=theme.MUTED, selectable=True)
-        else:
-            history = history.sort_values(["run_completed_at", "run_id"], kind="stable")
-            runs = list(dict.fromkeys(history["run_id"].astype(str).tolist()))
-            current = runs[-1]
-            previous = runs[-2] if len(runs) > 1 else None
-            report = compare_runs(history, current, previous)
-            lines = [ft.Text(report.summary, color=theme.MUTED, selectable=True)]
-            for change in report.changes[:5]:
-                lines.append(ft.Text(f"{change.instrument_id}: {change.summary}", color=theme.MUTED, selectable=True, size=theme.FONT_XS))
-            body = ft.Column(lines, spacing=4)
+        lines = [ft.Text(report.summary, color=theme.MUTED, selectable=True)]
+        for change in report.changes[:5]:
+            lines.append(ft.Text(f"{change.instrument_id}: {change.summary}", color=theme.MUTED, selectable=True, size=theme.FONT_XS))
+        body = ft.Column(lines, spacing=4)
     return panel(
         ft.Column(
             [
@@ -1059,10 +1104,14 @@ def _run_changes_digest(_page: ft.Page, _state: AppState) -> ft.Control:
     )
 
 
-def _news_digest(page: ft.Page, state: AppState) -> ft.Control:
+def _news_digest(page: ft.Page, state: AppState, scores: list[SimpleInstrumentScore] | None = None) -> ft.Control:
     """Show the latest canonical news context without granting authority."""
 
-    frame = sort_news_items(load_news_items(NEWS_CLEAN_PATH))
+    cache = _dashboard_render_cache(state)
+    frame = cache.get("news_frame")
+    if not isinstance(frame, pd.DataFrame):
+        frame = sort_news_items(load_news_items(NEWS_CLEAN_PATH))
+        cache["news_frame"] = frame
     if frame.empty:
         body: ft.Control = ft.Text("News unavailable; no timestamp-validated local context is registered.", color=theme.MUTED, selectable=True)
     else:
@@ -1075,11 +1124,11 @@ def _news_digest(page: ft.Page, state: AppState) -> ft.Control:
                 size=theme.FONT_XS,
             ))
         body = ft.Column(rows, spacing=4)
-    contradiction_records = _contradiction_record(
-        state,
-        as_of=str(getattr(getattr(getattr(state, "snapshot", None), "data_report", None), "as_of_date", "") or "") or None,
-        cutoff=normalise_event_decision_time(getattr(getattr(getattr(state, "snapshot", None), "data_report", None), "as_of_date", None)),
-    )
+    try:
+        _as_of, digest_records, _report = _digest_parts(state, scores)
+        contradiction_records = digest_records.get("contradictions") or []
+    except Exception:
+        contradiction_records = []
     contradiction_lines = [
         ft.Text(
             f"{record['title']}: {record['detail']} (status={record.get('rule_status', record['status'])})",
@@ -1252,17 +1301,18 @@ def _summary_cards(
     *,
     narrow: bool,
 ) -> ft.Control:
-    total_count = configured_count + candidate_count + sparebanken_count
     data_status = state.snapshot.data_report.status
     mode = "Manual review" if data_status == "Blocked" else "Caution" if data_status == "Warning" else "Normal"
     best_score = None if best is None else best.final_score_10
     top_score_value = "N/A" if best_score is None else f"{best_score:.1f}/10"
     top_score_subtitle = "No scores yet" if best is None or best_score is None else f"{best.display_id} - {best.decision}"
     card_controls = [
-        kpi_tile("Instruments", str(total_count), f"{configured_count} primary, {candidate_count} secondary, {sparebanken_count} Sparebanken", key="dashboard.kpi.instruments"),
+        kpi_tile("Primary instruments", str(configured_count), "Source: configured local universe", key="dashboard.kpi.primary-instruments"),
+        kpi_tile("Secondary candidates", str(candidate_count), "Source: local candidate universe", key="dashboard.kpi.secondary-candidates"),
+        kpi_tile("Sparebanken scorecards", str(sparebanken_count), "Source: Sparebanken scorecard rows", key="dashboard.kpi.sparebanken-scorecards"),
         kpi_tile("Top score", top_score_value, top_score_subtitle, key="dashboard.kpi.top-score"),
         kpi_tile("Data health", data_status, "as-of date in the strip above", key="dashboard.kpi.data-health"),
-        kpi_tile("Model rows", str(model_pairs), "valid baseline/Toto/TimesFM pairs", key="dashboard.kpi.model-rows"),
+        kpi_tile("Model rows", str(model_pairs), "Source: filtered local forecast rows; valid model/instrument pairs", key="dashboard.kpi.model-rows"),
         kpi_tile(
             "Regime",
             "N/A" if best is None else best.market_regime_label,

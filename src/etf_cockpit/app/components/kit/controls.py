@@ -139,7 +139,7 @@ def Toggle(  # noqa: N802
     disabled_reason: str | None = None,
     key: str | None = None,
 ) -> ft.Container:
-    """40x22 switch with a 200 ms knob slide (spec 3.9). The control keeps its own state."""
+    """40x24 switch with a 200 ms knob slide (spec 3.9). The control keeps its own state."""
     state = {"on": bool(on)}
     knob = ft.Container(
         width=18,
@@ -167,8 +167,8 @@ def Toggle(  # noqa: N802
         content=knob,
         width=40,
         height=22,
-        padding=sym(2, 0),
-        border_radius=11,  # nested: knob radius 9 = track 11 - padding 2
+        padding=ft.Padding(left=3, top=2, right=3, bottom=2),
+        border_radius=12,  # the 18px knob sits in a symmetric 3px inset
         border=ring(theme.rgba(0, 0, 0, 0.25)),
         animate=_ANIMATION,
         on_click=None if disabled else click,

@@ -250,7 +250,10 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
         selected = filtered_workflows()
         table_slot.content = build_workflow_table(selected)
         timeline_slot.content = Well(build_timeline(selected), expand=True)
-        workflow_note.value = f"{format_count(len(workflow_rows))} workflows · recovered leases {format_count(recovered_count)}"
+        workflow_note.value = (
+            f"Workflows (local job store): {format_count(len(workflow_rows))} · "
+            f"Recovered leases (scheduler recovery): {format_count(recovered_count)}"
+        )
         workflow_details.controls = [
             Disclosure(
                 "Workflow record",

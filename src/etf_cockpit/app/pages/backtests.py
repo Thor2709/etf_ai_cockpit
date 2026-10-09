@@ -67,6 +67,28 @@ def _format_number(value: object, *, percent: bool = False, money: bool = False,
     return f"{number:.{decimals}f}"
 
 
+def _format_source_metric(value: object, *, percent: bool = False) -> str | None:
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    if number == 0.0:
+        return "0"
+    return format_percent(number, decimals=2, unavailable="—") if percent else format_number(number, decimals=2, unavailable="—")
+
+
+def _source_metric_cell(value: object, key: str, *, percent: bool = False) -> str | ft.Text:
+    rendered = _format_source_metric(value, percent=percent)
+    if rendered is not None:
+        return rendered
+    reason = f"Unavailable: the saved backtest result has no finite {key.replace('_', ' ')} value."
+    return ft.Text("Unavailable", tooltip=reason)
+
+
 def _strategy_label(value: object) -> str:
     return " ".join(str(value or "").replace("_", " ").split()).title()
 
@@ -1097,14 +1119,14 @@ def backtests_page(page: ft.Page, state: AppState, *, _deferred: bool = False) -
         else "Training-period count is unavailable for this snapshot."
     )
     cagr = signal.get("cagr")
-    cagr_text = format_percent(cagr, unavailable="")
+    cagr_text = _format_source_metric(cagr, percent=True) or ""
     try:
         cagr_number = float(cagr)
     except (TypeError, ValueError):
         cagr_number = None
     cagr_tone = "neg" if cagr_number is not None and math.isfinite(cagr_number) and cagr_number < 0 else "pos" if cagr_number is not None and math.isfinite(cagr_number) and cagr_number > 0 else None
-    drawdown_text = format_percent(signal.get("max_drawdown"), unavailable="")
-    turnover_text = format_number(signal.get("turnover"), unavailable="")
+    drawdown_text = _format_source_metric(signal.get("max_drawdown"), percent=True) or ""
+    turnover_text = _format_source_metric(signal.get("turnover")) or ""
     added_value = getattr(report, "ai_added_value", None)
     added_value_text = "Yes" if added_value is True else "No" if added_value is False else None
     kpi = KpiStrip(
@@ -1162,10 +1184,10 @@ def backtests_page(page: ft.Page, state: AppState, *, _deferred: bool = False) -
         row["strategy_name"] = _strategy_label(row.get("strategy_name"))
         for key in _STRATEGY_RATE_FIELDS:
             if key in row:
-                row[key] = format_percent(row[key], decimals=2, unavailable="—")
+                row[key] = _source_metric_cell(row[key], key, percent=True)
         for key in ("sharpe", "sortino", "calmar", "turnover"):
             if key in row:
-                row[key] = format_number(row[key], decimals=2, unavailable="—")
+                row[key] = _source_metric_cell(row[key], key)
         strategy_rows.append(row)
     strategy_rows.sort(key=lambda row: str(row.get("strategy_name") or "").casefold())
     strategy_table = DataTable(

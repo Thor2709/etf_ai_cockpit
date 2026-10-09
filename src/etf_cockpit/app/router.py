@@ -118,6 +118,18 @@ if set(_PAGE_RENDERERS) != {route for route, _title in ROUTE_TITLES}:
     raise RuntimeError("router renderers and core.navigation.ROUTE_TITLES disagree")
 PAGES = {route: (title, _PAGE_RENDERERS[route]) for route, title in ROUTE_TITLES}
 
+_DEFERRED_RENDER_ROUTES = {
+    "/chatgpt",
+    "/comparison",
+    "/diagnostics",
+    "/evidence",
+    "/etf",
+    "/instrument",
+    "/settings",
+    "/stock-research",
+    "/what-changed",
+}
+
 
 NARROW_LAYOUT_BREAKPOINT = 1100
 
@@ -355,9 +367,28 @@ def _deferred_page_update(page: ft.Page):
 def build_page(page: ft.Page, state: AppState, route: str) -> object:
     """Run the route page builder and return its control or PageView (a failure control when it raises)."""
 
-    builder = PAGES.get(_page_route(route), (None, None))[1]
+    canonical_route = _page_route(route)
+    builder = PAGES.get(canonical_route, (None, None))[1]
     if builder is None:
         return _route_failure_control(state, route, "The requested route is not registered.")
+
+    if canonical_route in _DEFERRED_RENDER_ROUTES and (
+        isinstance(page, ft.Page) or callable(getattr(page, "run_thread", None))
+    ):
+        title = PAGES[canonical_route][0]
+
+        def render_deferred() -> object:
+            try:
+                with _BUILD_LOCK:
+                    with _deferred_page_update(page):
+                        return builder(page, state)
+            except Exception as exc:
+                return _route_failure_control(state, route, f"The page could not be rendered safely ({type(exc).__name__}).")
+
+        placeholder = ft.Container(content=ft.Text("Preparing local evidence…"), expand=True)
+        placeholder.data = {_DEFERRED_UPDATE_KEY: render_deferred}
+        return PageView(PageChrome(title, "Preparing local evidence…"), placeholder)
+
     with _BUILD_LOCK:
         try:
             with _deferred_page_update(page):

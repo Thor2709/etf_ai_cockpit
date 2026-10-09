@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import flet as ft
 
 from etf_cockpit.app import theme
@@ -119,7 +121,7 @@ def etf_detail_page(page: ft.Page, state: AppState) -> ft.Control:
                         on_select=change_etf,
                         width=220,
                     ),
-                    ft.Text(f"{etf.name} | {etf.ticker} | {etf.isin or 'No ISIN'} | {etf.exchange} | TER {etf.ter or 0:.2%}", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD),
+                    ft.Text(f"{etf.name} | {etf.ticker} | {etf.isin or 'No ISIN'} | {etf.exchange} | {_ter_label(etf)}", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD),
                     _decision_badge(evidence_score),
                 ],
                 spacing=14,
@@ -196,6 +198,20 @@ def etf_detail_page(page: ft.Page, state: AppState) -> ft.Control:
         spacing=14,
         scroll=ft.ScrollMode.AUTO,
     )
+
+
+def _ter_label(instrument: object) -> str:
+    value = getattr(instrument, "ter", None)
+    if value is None:
+        reason = str(getattr(instrument, "ter_reason", None) or "TER is not supplied in the local instrument configuration.")
+        return f"TER unavailable: {reason}"
+    try:
+        rate = float(value)
+    except (TypeError, ValueError):
+        return "TER unavailable: the local instrument configuration contains no numeric TER."
+    if not math.isfinite(rate):
+        return "TER unavailable: the local instrument configuration contains no finite TER."
+    return f"TER {rate:.2%}"
 
 
 def _fundamentals_panel(instrument_id: str) -> ft.Control:

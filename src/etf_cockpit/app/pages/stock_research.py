@@ -826,28 +826,34 @@ def stock_research_page(page: ft.Page, state: AppState) -> PageView:
         ])
         return common.below_fold(g, [first, second, _fundamentals_section(page, state, key, meta)])
 
-    def select_instrument(label: str) -> None:
-        ui["key"] = label if label in by_key else ui["key"]
+    def chrome_for_selection() -> PageChrome:
+        current = by_key[ui["key"]]
+        meta = common.instrument_meta(state, ui["key"])
+        return PageChrome(
+            f"Stock Research · {current.display_id}",
+            f"{meta['name']} · {meta['currency']} · {meta['venue']}",
+            (
+                SegmentGroup("instrument", ids, current.display_id, select_instrument),
+                SegmentGroup("range", _RANGES, ui["range"], select_range),
+            ),
+        )
+
+    def select_instrument(label: str) -> PageChrome | None:
+        if label not in by_key:
+            return None
+        ui["key"] = label
         holder.content = build()
         common.update(page)
+        return chrome_for_selection()
 
-    def select_range(label: str) -> None:
+    def select_range(label: str) -> PageChrome:
         ui["range"] = label
         holder.content = build()
         common.update(page)
+        return chrome_for_selection()
 
     holder.content = build()
-    current = by_key[ui["key"]]
-    meta = common.instrument_meta(state, ui["key"])
-    chrome = PageChrome(
-        f"Stock Research · {current.display_id}",
-        f"{meta['name']} · {meta['currency']} · {meta['venue']}",
-        (
-            SegmentGroup("instrument", ids, current.display_id, select_instrument),
-            SegmentGroup("range", _RANGES, ui["range"], select_range),
-        ),
-    )
-    return PageView(chrome, holder)
+    return PageView(chrome_for_selection(), holder)
 
 
 def _fundamentals_section(page: object, state: AppState, key: str, meta: dict[str, str]) -> ft.Control:
