@@ -1249,7 +1249,7 @@ def load_sparebank_records(
     return tuple(
         record
         for record in records
-        if record.asset_type in {"equity_certificate", "certificate"}
+        if record.asset_type == "equity_certificate"
         and (record.enabled or not enabled_only)
     )
 
