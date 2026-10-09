@@ -342,16 +342,15 @@ def test_yfinance_metadata_fetcher_offline_preserves_aum(monkeypatch):
     assert validated.frame.iloc[0]["aum_currency"] == ""
 
 
-def test_live_view_cutoff_includes_facts_fetched_after_the_market_data_time():
+def test_live_snapshot_cutoff_is_its_build_time_and_replays_keep_their_decision_time():
     from types import SimpleNamespace
 
     import pandas as pd
 
     from etf_cockpit.data.etf_cutoff import snapshot_etf_cutoff
 
-    snapshot = SimpleNamespace(benchmark_reference_decision_time="2026-10-09T00:00:00+00:00", data_report=None)
-    now = "2026-10-09T20:15:00+00:00"
-    assert snapshot_etf_cutoff(snapshot, now=now) == pd.Timestamp(now)
-    # an explicit later market decision time is never pulled back
-    later = SimpleNamespace(decision_time="2026-10-10T08:00:00+00:00", data_report=None)
-    assert snapshot_etf_cutoff(later, now=now) == pd.Timestamp("2026-10-10T08:00:00+00:00")
+    built = "2026-10-09T20:15:00+00:00"
+    live = SimpleNamespace(benchmark_reference_decision_time="2026-10-09T00:00:00+00:00", facts_known_at=built, data_report=None)
+    assert snapshot_etf_cutoff(live) == pd.Timestamp(built)
+    replay = SimpleNamespace(decision_time="2026-10-01T08:00:00+00:00", facts_known_at=built, data_report=None)
+    assert snapshot_etf_cutoff(replay) == pd.Timestamp("2026-10-01T08:00:00+00:00")

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from collections.abc import Mapping
 from dataclasses import (
     dataclass,
@@ -100,6 +102,9 @@ class CockpitSnapshot:
     benchmark_reference_start_date: str | None = None
     benchmark_reference_end_date: str | None = None
     benchmark_reference_decision_time: str | None = None
+    # When this live snapshot was built: facts fetched before it (e.g. ETF TER/holdings fetched after
+    # the last price) are known to its views. Replays set an explicit decision time instead.
+    facts_known_at: str | None = None
     benchmark_reference_portfolio_ids: tuple[str, ...] = ()
     vwce_anchor_evidence: VwceAnchorEvidence | None = None
     vwce_listing_id: str | None = None
@@ -276,6 +281,7 @@ def _build_snapshot(
         benchmark_reference_start_date=benchmark_reference["start_date"],  # type: ignore[arg-type]
         benchmark_reference_end_date=benchmark_reference["end_date"],  # type: ignore[arg-type]
         benchmark_reference_decision_time=benchmark_reference["decision_time"],  # type: ignore[arg-type]
+        facts_known_at=datetime.now(timezone.utc).isoformat(),
         benchmark_reference_portfolio_ids=benchmark_reference["reference_ids"],  # type: ignore[arg-type]
         vwce_anchor_evidence=benchmark_reference["anchor"],  # type: ignore[arg-type]
         vwce_listing_id=benchmark_reference["listing_id"],  # type: ignore[arg-type]

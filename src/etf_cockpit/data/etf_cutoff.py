@@ -16,22 +16,20 @@ def etf_decision_cutoff(value: object) -> pd.Timestamp:
     return cutoff
 
 
-def snapshot_etf_cutoff(snapshot: object, *, now: object = None) -> pd.Timestamp:
-    """Knowledge cutoff for the live view of the current snapshot.
+def snapshot_etf_cutoff(snapshot: object) -> pd.Timestamp:
+    """Knowledge cutoff for one snapshot.
 
-    The snapshot's market-data decision time is when its last prices became available; ETF facts
-    (TER, holdings, ...) fetched later that day are still known when the owner looks at the page, so
-    the live view uses the later of that time and now. Nothing after now can be known, so this is
-    point-in-time correct; replays pass an explicit ``as_of`` and never use this."""
+    An explicit decision time (replays) is honoured exactly. A live snapshot records when it was
+    built (``facts_known_at``): every fact fetched before that is known when the owner looks at it,
+    even when it arrived after the last price. Otherwise the report's calendar date is used."""
     report = getattr(snapshot, "data_report", None)
-    current = pd.Timestamp.now(tz="UTC") if now is None else pd.to_datetime(now, utc=True)
     for value in (
         getattr(snapshot, "decision_time", None),
         getattr(report, "decision_time", None),
+        getattr(snapshot, "facts_known_at", None),
         getattr(snapshot, "benchmark_reference_decision_time", None),
         getattr(report, "as_of_date", None),
     ):
         if value is not None:
-            cutoff = etf_decision_cutoff(value)
-            return max(cutoff, current) if pd.notna(cutoff) else current
-    return current
+            return etf_decision_cutoff(value)
+    return pd.NaT
