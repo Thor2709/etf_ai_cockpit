@@ -109,6 +109,37 @@ def test_unreported_input_stays_none_not_zero(tmp_path: Path) -> None:
     assert fact["value"] is None
 
 
+def test_gavefond_uses_cited_equity_pool_and_not_gifts_allocation(tmp_path: Path) -> None:
+    provision_fact = _extract_ec_facts(
+        (_record("GiftsAllocation", "896000000"),),
+        instrument_id="MING",
+        period=PERIOD,
+        sha256=SHA256,
+    )
+    assert "gavefond" not in provision_fact
+    unavailable_payload = _write(tmp_path / "unavailable_ec_facts.json", provision_fact)
+    unavailable = unavailable_payload["facts"]["gavefond"]
+    assert unavailable["available"] is False
+    assert unavailable["value"] is None
+    assert "not substituted" in unavailable["unavailable_reason"]
+
+    equity_pool_fact = {
+        "gavefond": {
+            "value": "25",
+            "source_locator": "synthetic:equity-statement-gavefond-pool",
+            "concept": "synthetic:equity-statement-gavefond-pool",
+            "context": "synthetic-equity-statement-context",
+            "unit": "NOK",
+            "period": PERIOD,
+        }
+    }
+    payload = _write(tmp_path / "ec_facts.json", equity_pool_fact)
+    fact = payload["facts"]["gavefond"]
+    assert fact["available"] is True
+    assert fact["value"] == "25"
+    assert fact["source_locator"] == "synthetic:equity-statement-gavefond-pool"
+
+
 def test_synthetic_pool_import_resolves_claim(tmp_path: Path) -> None:
     pools = {
         "ec_capital": "10",

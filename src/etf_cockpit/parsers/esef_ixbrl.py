@@ -105,15 +105,48 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
             if unsupported:
                 return _failure(source_sha, "unsupported_member", "ESEF package contains unsupported member types")
             report_package = _first_member(names, "reportpackage.json")
-            xhtml_name = next((name for name in names if name.lower().endswith((".xhtml", ".html"))), None)
-            if report_package is None or xhtml_name is None:
-                return _failure(source_sha, "unsupported_package", "ESEF package lacks reportPackage.json or XHTML report")
-            try:
-                metadata = json.loads(archive.read(report_package).decode("utf-8"))
-            except (KeyError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-                return _failure(source_sha, "malformed_archive", f"Could not parse ESEF package metadata: {type(exc).__name__}")
-            if not isinstance(metadata, dict):
-                return _failure(source_sha, "malformed_archive", "ESEF reportPackage.json must contain an object")
+            if report_package is None:
+                catalog_suffix = "meta-inf/catalog.xml"
+                taxonomy_suffix = "meta-inf/taxonomypackage.xml"
+                catalog_roots = {
+                    name[:-len(catalog_suffix)].lower()
+                    for name in names
+                    if name.lower().endswith(catalog_suffix)
+                }
+                taxonomy_roots = {
+                    name[:-len(taxonomy_suffix)].lower()
+                    for name in names
+                    if name.lower().endswith(taxonomy_suffix)
+                }
+                layout_roots = catalog_roots & taxonomy_roots
+                xhtml_name = next(
+                    (
+                        name
+                        for name in names
+                        for root in layout_roots
+                        if name.lower().startswith(f"{root}reports/")
+                        and "/" not in name[len(root) + len("reports/"):]
+                        and name.lower().endswith(".xhtml")
+                    ),
+                    None,
+                )
+                if xhtml_name is None:
+                    return _failure(
+                        source_sha,
+                        "unsupported_package",
+                        "ESEF package lacks reportPackage.json or the catalog/taxonomy/report layout",
+                    )
+                metadata: dict[str, object] = {}
+            else:
+                xhtml_name = next((name for name in names if name.lower().endswith((".xhtml", ".html"))), None)
+                if xhtml_name is None:
+                    return _failure(source_sha, "unsupported_package", "ESEF package lacks an XHTML report")
+                try:
+                    metadata = json.loads(archive.read(report_package).decode("utf-8"))
+                except (KeyError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    return _failure(source_sha, "malformed_archive", f"Could not parse ESEF package metadata: {type(exc).__name__}")
+                if not isinstance(metadata, dict):
+                    return _failure(source_sha, "malformed_archive", "ESEF reportPackage.json must contain an object")
             if not any(name.lower().endswith("taxonomypackage.xml") for name in names):
                 warnings.append(ParseWarning("missing_taxonomy_package", "ESEF taxonomyPackage.xml is missing; facts remain retained with bounded local parsing", "warning", report_package))
             xhtml_payload = archive.read(xhtml_name)

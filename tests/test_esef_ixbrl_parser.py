@@ -75,6 +75,37 @@ def test_parser_extracts_context_period_unit_and_decimals_and_deduplicates(
     assert any(warning.code == "unmapped_extension" for warning in result.warnings)
 
 
+def test_catalog_only_layout_is_accepted_and_traversal_is_still_rejected(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
+    package = tmp_path / "catalog-only.xbri"
+    xhtml = """<?xml version='1.0'?>
+    <html xmlns='http://www.w3.org/1999/xhtml' xmlns:ix='http://www.xbrl.org/2013/inlineXBRL'
+      xmlns:xbrli='http://www.xbrl.org/2003/instance' xmlns:ifrs-full='https://xbrl.ifrs.org/taxonomy/2024-03-27/ifrs-full'>
+      <body><xbrli:context id='c'><xbrli:entity><xbrli:identifier>549300TESTLEI00000001</xbrli:identifier></xbrli:entity>
+        <xbrli:period><xbrli:startDate>2025-01-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period></xbrli:context>
+        <ix:nonFraction name='ifrs-full:Revenue' contextRef='c' unitRef='EUR'>100</ix:nonFraction></body></html>"""
+    with zipfile.ZipFile(package, "w") as archive:
+        archive.writestr("report-root/META-INF/catalog.xml", "<catalog />")
+        archive.writestr("report-root/META-INF/taxonomyPackage.xml", "<taxonomyPackage />")
+        archive.writestr("report-root/reports/report.xhtml", xhtml)
+
+    result = parse_esef_package(package)
+
+    assert result.success is True
+    assert result.records
+
+    traversal = tmp_path / "catalog-traversal.xbri"
+    with zipfile.ZipFile(traversal, "w") as archive:
+        archive.writestr("report-root/META-INF/catalog.xml", "<catalog />")
+        archive.writestr("report-root/META-INF/taxonomyPackage.xml", "<taxonomyPackage />")
+        archive.writestr("report-root/reports/report.xhtml", xhtml)
+        archive.writestr("../escape.xhtml", "<html />")
+
+    rejected = parse_esef_package(traversal)
+    assert rejected.success is False
+    assert any(warning.code == "unsafe_archive" for warning in rejected.warnings)
+
+
 def _write_context_package(path: Path) -> None:
     xhtml = """<?xml version='1.0'?>
     <html xmlns='http://www.w3.org/1999/xhtml' xmlns:ix='http://www.xbrl.org/2013/inlineXBRL'

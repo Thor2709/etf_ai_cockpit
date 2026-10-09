@@ -7,6 +7,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -46,6 +47,16 @@ EC_FACT_NAMES = (
     "eierbrok",
     "ec_attributable_result",
     "major_foundation_holdings",
+    "cet1_ratio_pct",
+    "lcr_pct",
+    "nsfr_pct",
+    "deposit_to_loan_ratio_pct",
+    "deposit_coverage_pct",
+    "stage3_pct_gross_loans",
+    "net_defaulted_pct_gross_loans",
+    "defaulted_pct_gross_loans",
+    "net_impaired_pct",
+    "net_stage3_pct_net_loans",
 )
 
 # SpareBank 1 SMN's own ESEF extension taxonomy.  Extension concepts are
@@ -53,6 +64,8 @@ EC_FACT_NAMES = (
 # namespace.  Names outside this table remain retained and unmapped.
 MING_EXTENSION_PREFIX = "sb1smn"
 MING_EXTENSION_NAMESPACE = "http://aarsrapport.smn.no/2024"
+# GiftsAllocation is not evidence of an equity-pool Gavefond; without a
+# separately cited pool fact, gavefond remains unavailable.
 MING_EXTENSION_CONCEPT_MAP: dict[str, dict[str, str]] = {
     "OtherInterestIncome": {"canonical_metric": "other_interest_income"},
     "ProfitLossBeforeTaxAndImpairment": {"canonical_metric": "profit_before_tax_and_impairment"},
@@ -74,7 +87,6 @@ MING_EXTENSION_CONCEPT_MAP: dict[str, dict[str, str]] = {
     "SubordinatedLoanCapital": {"canonical_metric": "subordinated_debt"},
     "DividendEqualizationFund": {"canonical_metric": "utjevningsfond", "ec_fact": "utjevningsfond"},
     "DividendAllocation": {"canonical_metric": "dividend_allocation"},
-    "GiftsAllocation": {"canonical_metric": "gavefond", "ec_fact": "gavefond"},
     "OwnerlessCapital": {"canonical_metric": "sparebankens_fond", "ec_fact": "sparebankens_fond"},
     "UnrealisedGainsReserve": {"canonical_metric": "unrealised_gains_reserve"},
     "AdditionalTier1Capital": {"canonical_metric": "additional_tier_1_capital"},
@@ -482,6 +494,77 @@ def _load_fact_sheet(source: Path | None) -> dict[str, Any]:
     return supplied
 
 
+def _bank_economics_evidence(supplied: Mapping[str, object]) -> dict[str, object]:
+    """Route cited percent facts to the ratio inputs consumed by the scorecard."""
+
+    def ratio(name: str) -> float | None:
+        item = supplied.get(name)
+        if not isinstance(item, Mapping) or str(item.get("unit") or "").casefold() != "percent":
+            return None
+        value = item.get("value")
+        if isinstance(value, bool):
+            return None
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number / 100.0 if math.isfinite(number) else None
+
+    def citation(name: str) -> dict[str, object]:
+        item = supplied.get(name)
+        if not isinstance(item, Mapping):
+            return {}
+        return {
+            key: item[key]
+            for key in (
+                "source_locator",
+                "source_url",
+                "sha256",
+                "document_title",
+                "page",
+                "printed_text",
+                "page_note",
+                "source_citations",
+            )
+            if key in item
+        }
+
+    evidence: dict[str, object] = {}
+    cet1 = ratio("cet1_ratio_pct")
+    if cet1 is not None:
+        evidence["cet1_ratio"] = cet1
+        evidence["cet1_ratio_provenance"] = citation("cet1_ratio_pct")
+
+    funding: dict[str, object] = {}
+    funding_provenance: dict[str, object] = {}
+    for output_name, fact_name in (
+        ("lcr", "lcr_pct"),
+        ("nsfr", "nsfr_pct"),
+    ):
+        value = ratio(fact_name)
+        if value is not None:
+            funding[output_name] = value
+            funding_provenance[output_name] = citation(fact_name)
+    deposit_fact = next(
+        (name for name in ("deposit_to_loan_ratio_pct", "deposit_coverage_pct") if ratio(name) is not None),
+        None,
+    )
+    if deposit_fact is not None:
+        funding["deposit_to_loan_ratio"] = ratio(deposit_fact)
+        funding_provenance["deposit_to_loan_ratio"] = citation(deposit_fact)
+    if funding:
+        funding["provenance"] = funding_provenance
+        evidence["funding"] = funding
+
+    stage3 = ratio("stage3_pct_gross_loans")
+    if stage3 is not None:
+        evidence["credit"] = {
+            "stage_3_ratio_pct": stage3,
+            "provenance": {"stage_3_ratio_pct": citation("stage3_pct_gross_loans")},
+        }
+    return evidence
+
+
 def _write_ec_facts(
     supplied: dict[str, Any],
     destination: Path,
@@ -511,8 +594,10 @@ def _write_ec_facts(
                 "instrument_id": instrument_id,
             }
             continue
+        fact_source_url = str(item.get("source_url") or source_url)
+        source_is_filing = fact_source_url == source_url
         facts[name] = {
-            "available": True,
+            "available": item.get("value") is not None,
             "value": item.get("value"),
             "source_locator": str(item["source_locator"]),
             "concept": item.get("concept"),
@@ -521,13 +606,21 @@ def _write_ec_facts(
             "period": str(item["period"]),
             "start": item.get("start"),
             "end": item.get("end", item.get("period")),
-            "sha256": archive.sha256,
-            "known_at": known_at,
-            "effective_at": period,
-            "source_url": source_url,
-            "filing_version": archive.sha256,
+            "sha256": item.get("sha256", archive.sha256 if source_is_filing else None),
+            "known_at": item.get("known_at", known_at),
+            "effective_at": item.get("effective_at", period),
+            "source_url": fact_source_url,
+            "filing_version": item.get("filing_version", archive.sha256 if source_is_filing else None),
             "instrument_id": instrument_id,
         }
+        for citation_field in ("document_title", "page", "printed_text", "page_note", "source_citations"):
+            if citation_field in item:
+                facts[name][citation_field] = item[citation_field]
+    if isinstance(facts.get("gavefond"), dict) and not facts["gavefond"].get("available"):
+        facts["gavefond"]["unavailable_reason"] = (
+            "No cited equity-pool Gavefond fact was supplied; GiftsAllocation is not substituted."
+        )
+    bank_economics_evidence = _bank_economics_evidence(supplied)
     revision = {
         "instrument_id": instrument_id,
         "filing_version": archive.sha256,
@@ -536,6 +629,7 @@ def _write_ec_facts(
         "known_at": known_at,
         "effective_at": period,
         "facts": facts,
+        "bank_economics_evidence": bank_economics_evidence,
     }
     revisions: list[dict[str, object]] = []
     if destination.exists():
@@ -558,6 +652,7 @@ def _write_ec_facts(
             "effective_at": period,
             "filing_version": archive.sha256,
             "instrument_id": instrument_id,
+            "bank_economics_evidence": bank_economics_evidence,
             "revisions": revisions,
             "execution_allowed": False,
         },
