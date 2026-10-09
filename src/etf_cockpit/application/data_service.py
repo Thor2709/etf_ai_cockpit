@@ -220,11 +220,12 @@ class DataService:
         )
 
         if include_reference_data:
+            from etf_cockpit.data.etf_e1_fetch import fetch_etf_e1_reference_data
+
             context = self._reference_context()
-            for dataset_type, reference_result in (
-                ("etf_metadata", provider.fetch_etf_metadata([])),
-                ("etf_holdings", provider.fetch_etf_holdings([])),
-            ):
+            reference_results, source_messages = fetch_etf_e1_reference_data(self.config, provider)
+            messages.extend(redact_text(message) for message in source_messages)
+            for dataset_type, reference_result in reference_results:
                 if not reference_result.ok or reference_result.data is None:
                     messages.append(f"{dataset_type}: {redact_text(str(reference_result.message))}")
                     continue

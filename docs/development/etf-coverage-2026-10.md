@@ -1,7 +1,11 @@
 # ETF coverage audit, 2026-10-09 (ETF1)
 
-Status: implementation resumed after the owner authorised the AUM normaliser repair.
-The baseline inventory below is retained; resumed implementation evidence is appended.
+Status: implementation complete with offline acquisition tests. The sandbox's
+direct HTTP request failed with WinError 10061; live acquisition remains
+UNVERIFIED. Both correction-pass decisions are resolved: source acquisition is
+wired into refresh, and the existing Comparison page remains unchanged.
+The baseline inventory below is retained as historical evidence; the final
+correction-pass observations and current handoff supersede its earlier blockers.
 The current worker handoff is docs/development/etf-HANDOFF.md.
 Worktree: `C:/dev/etf-UI-ETF`, branch `ui/etf`, inspected head
 `0ee9a96eb876c7db1bf74bd216cecf8ac850282f`. The worktree was clean before this audit.
@@ -318,7 +322,78 @@ remain UNVERIFIED. No live endpoint or discarded value was invented.
 Resumed broad validation ran 511 tests at its initial checkpoint: 510 passed,
 one failed because the new ETF renderer omitted the existing "ETF holdings and
 exposure" heading. The heading was restored; all 13 affected Instrument Detail
-and new ETF tests then passed. The final handoff reports the two actual remaining
-write-set decisions: live issuer/public refresh wiring in data_service.py and
-owner E2's existing side-by-side Comparison page/routing. No out-of-scope file
-was edited to resolve either decision.
+and new ETF tests then passed. Those were the prior pass's observations.
+The owner subsequently authorised refresh wiring and explicitly instructed
+that the existing Comparison page remain unchanged; neither decision is open.
+
+## Final correction pass (base 0c240bc8)
+
+The canonical loader and the copied scoreboard/reference artifacts were read
+again in this session. All 16 scores and canonical coverage percentages in
+the baseline table are unchanged; no copied artifact was rewritten. Current
+E1 display evidence at `2026-10-09T02:36:31.529191+00:00` is below. This is a
+local readback, not a live fetch. Configuration policy values in the historical
+baseline table do not become dated distribution-policy evidence.
+
+| ETF | TER | Tracking difference | Disclosed holdings | Country split | Sector split | AUM | Distribution policy |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| VWCE | Unavailable [TER] | Unavailable [TD] | 10 [H] | 100% Other/unclassified [H] | 100% Other/unclassified [H] | Unavailable [AUM] | Unavailable [POLICY] |
+| LYP6 | 0.0700% [M] | Unavailable [TD] | 10 [H] | 100% Other/unclassified [H] | 100% Other/unclassified [H] | Unavailable [AUM] | Unavailable [POLICY] |
+| SPYK | 0.1800% [M] | Unavailable [TD] | 10 [H] | 100% Other/unclassified [H] | 100% Other/unclassified [H] | Unavailable [AUM] | Unavailable [POLICY] |
+| SXRJ_EMU_SMALL | 0.5800% [M] | Unavailable [TD] | 10 [H] | 100% Other/unclassified [H] | 100% Other/unclassified [H] | Unavailable [AUM] | Unavailable [POLICY] |
+| EXX1 | 0.5100% [M] | Unavailable [TD] | 10 [H] | 100% Other/unclassified [H] | 100% Other/unclassified [H] | Unavailable [AUM] | Unavailable [POLICY] |
+| FLXI | 0.1900% [M] | Unavailable [TD] | 10 [H] | 100% Other/unclassified [H] | 100% Other/unclassified [H] | Unavailable [AUM] | Unavailable [POLICY] |
+| H4ZT | 0.5000% [M] | Unavailable [TD] | 10 [H] | 100% Other/unclassified [H] | 100% Other/unclassified [H] | Unavailable [AUM] | Unavailable [POLICY] |
+| EUNK | 0.2000% [M] | Unavailable [TD] | 10 [H] | 100% Other/unclassified [H] | 100% Other/unclassified [H] | Unavailable [AUM] | Unavailable [POLICY] |
+| SPCX | 0.0800% [M] | Unavailable [TD] | 10 [H] | 100% Other/unclassified [H] | 100% Other/unclassified [H] | Unavailable [AUM] | Unavailable [POLICY] |
+| SXRV_NASDAQ100 | 0.3000% [M] | Unavailable [TD] | 10 [H] | 100% Other/unclassified [H] | 100% Other/unclassified [H] | Unavailable [AUM] | Unavailable [POLICY] |
+| VFEM | Unavailable [TER] | Unavailable [TD] | 10 [H] | 100% Other/unclassified [H] | 100% Other/unclassified [H] | Unavailable [AUM] | Unavailable [POLICY] |
+| VUSA | Unavailable [TER] | Unavailable [TD] | 10 [H] | 100% Other/unclassified [H] | 100% Other/unclassified [H] | Unavailable [AUM] | Unavailable [POLICY] |
+| EUDF | 0.4000% [M] | Unavailable [TD] | 10 [H] | 100% Other/unclassified [H] | 100% Other/unclassified [H] | Unavailable [AUM] | Unavailable [POLICY] |
+| XAIX | 0.3500% [M] | Unavailable [TD] | 10 [H] | 100% Other/unclassified [H] | 100% Other/unclassified [H] | Unavailable [AUM] | Unavailable [POLICY] |
+| EXUS | 0.1500% [M] | Unavailable [TD] | 10 [H] | 100% Other/unclassified [H] | 100% Other/unclassified [H] | Unavailable [AUM] | Unavailable [POLICY] |
+| XDWU | 0.2500% [M] | Unavailable [TD] | 10 [H] | 100% Other/unclassified [H] | 100% Other/unclassified [H] | Unavailable [AUM] | Unavailable [POLICY] |
+
+- [M]: yfinance metadata, as-of 2026-10-09; matching manifest acquisition
+  `2026-10-09T02:36:31.352762+00:00`. Small vendor floating-point differences
+  are displayed to four decimal places in percent.
+- [H]: yfinance_top_holdings, as-of 2026-10-09, known-at
+  `2026-10-09T02:36:31.529191+00:00`. Ten partial rows per fund, with the
+  original disclosed fractions retained in the baseline. All classifications
+  are missing; Other/unclassified conserves the entire NAV denominator and
+  does not claim that every asset actually belongs to an economic sector.
+- [TER]: `ter_missing_all_sources`; no dated fee in the copy for the three
+  Vanguard ETFs. The new live readers can now attempt document/public fallback.
+- [AUM]: `aum_missing_all_sources`; old acquisition discarded fund size.
+  The already committed normaliser repair preserves it on the next refresh.
+- [POLICY]: `distribution_policy_missing_all_sources`; no dated source policy.
+- [TD]: canonical missing list is `benchmark_currency, benchmark_identity,
+  benchmark_total_return, closure_policy, currency, fund_economics,
+  fund_total_return, matched_total_return`. Price history alone is insufficient
+  to supply a bound same-window fund/index total-return pair.
+
+`DataService.refresh_yfinance_data` now attempts issuer documents, public
+profiles, then the existing yfinance readers. GETs have ten-second timeouts,
+size/redirect bounds and offline HTTP tests. Each source's effective/known-at
+dates and failure reasons survive the existing reference importer; all source
+values are retained as alternates. Issuer allocations can fill classifications
+missing from partial holdings. Unsupported formats remain unavailable.
+
+The public endpoint was verified at
+[the VWCE profile](https://www.justetf.com/en/etf-profile.html?isin=IE00BK5BQT80).
+The one fixed issuer binding was verified against
+[Vanguard's VWCE factsheet](https://fund-docs.vanguard.com/FTSE_All-World_UCITS_ETF_USD_Accumulating_9679_EU_INT_EN.pdf).
+Other document addresses come from registry bindings or discovered factsheet
+links. Web-tool retrieval is not the sandbox's acquisition environment and
+does not authorize importing those remotely observed values as local data.
+
+Direct sandbox GETs to both justETF and Vanguard failed:
+`URLError <urlopen error [WinError 10061] Kan geen verbinding maken omdat de doelcomputer de verbinding actief heeft geweigerd>`.
+Consequently no live refresh was run, and live values for each ETF remain
+UNVERIFIED. The exact command to run outside this network restriction and the
+final validation counts are in etf-HANDOFF.md.
+
+Validation completed: the prescribed run passed 521 tests (0 failed, 311
+warnings). After the final bounded reader corrections, all 19 affected ETF
+regressions passed again (0 failed, 7 warnings), including all six numbered
+required tests. Exact commands and evidence timing are in etf-HANDOFF.md.

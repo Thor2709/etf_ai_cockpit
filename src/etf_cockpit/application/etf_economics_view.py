@@ -68,6 +68,10 @@ def build_etf_economics_panel(
     metadata = getattr(snapshot, "etf_metadata", None)
     if not isinstance(metadata, pd.DataFrame):
         metadata = load_etf_reference_context("etf_metadata")
+    else:
+        from etf_cockpit.data.etf_e1_fetch import decode_e1_reference_context
+
+        metadata = decode_e1_reference_context(metadata)
     rows = metadata.to_dict("records")
     issuer_rows = [row for row in rows if row.get("source_authority") == "issuer_document"]
     public_rows = [row for row in rows if row.get("source_authority") == "public_page"]
@@ -106,7 +110,9 @@ def build_etf_economics_panel(
         splits["reason"] = evidence.attrs["unavailable_reason"]
     for dimension in ("country", "sector"):
         name = f"{dimension}_split"
-        if splits[dimension]:
+        labels = selected.get(dimension, pd.Series(dtype=str)).fillna("").astype(str).str.strip().str.casefold()
+        classified = (~labels.isin({"", "unknown", "unknown/unmapped", "unclassified", "nan", "none"})).any()
+        if splits[dimension] and (classified or fields[name]["value"] is None):
             fields[name] = {"value": splits[dimension], "as_of": splits["as_of"], "known_at": splits["known_at"], "source": ", ".join(sorted(set(selected.get("source_id", selected.get("source", pd.Series(dtype=str))).dropna().astype(str)))), "reason": None}
         elif fields[name]["value"] is not None:
             values = fields[name]["value"]

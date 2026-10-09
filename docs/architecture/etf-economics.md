@@ -31,9 +31,25 @@ public-page and yfinance precedence. Only observations with a source, effective
 date and known-at time at or before the decision are eligible. Lower-priority
 values remain alternates, and disagreements are visible. Missing fields carry
 reason codes. These display fields do not promote vendor data into canonical
-tracking or scoring evidence. Explicit source readers in
-`fetch_etf_economics_sources` support offline fixtures; issuer/public acquisition
-requires real source bindings and does not construct URLs from identifiers.
+tracking or scoring evidence. `DataService.refresh_yfinance_data` calls the
+offline-testable `fetch_etf_e1_reference_data` source chain before reference
+publication. Its HTTP readers use bounded, timed GET requests. Issuer URLs
+come from the document registry, a verified VWCE factsheet binding, or a
+factsheet link discovered on the exact ISIN's public profile. The public
+profile uses justETF's verified ISIN query endpoint. Unsupported documents,
+identity/date mismatches and HTTP failures fall through, with reasons recorded.
+The existing yfinance provider remains the final reader. There are no new
+dependencies, score authorities or stores.
+
+The existing reference importer retains each source in its `field_name`/`value`
+provenance columns as `etf_e1_context_v1`. The canonical reference loader decodes
+that context, preserving effective dates, acquisition `known_at`, policy,
+splits, alternates and failure reasons without extending the shared normaliser.
+Undated current public facts use an explicitly labelled acquisition snapshot;
+dated composition and issuer documents retain their supplied effective dates.
+CSV holdings require an explicit fund ISIN, dated decimal NAV weights and
+labelled columns. Unsupported formats remain unavailable. Disclosed public
+top holdings do not acquire constituent countries or sectors by inference.
 
 Legacy reference rows can obtain their acquisition time from a matching
 reference-import manifest, checked against the frame checksum. A retrieval date
@@ -50,7 +66,7 @@ tracking result, even when ETF prices are available.
 Holdings select one effective, known vintage and source. Country and sector
 weights derive from that snapshot, with undisclosed/unclassified weight shown
 as `Other/unclassified`; unusable weights remain unavailable. Issuer splits
-are the fallback when holdings are unavailable. ETF pages render E1 tiles,
+are the fallback when holdings or their classifications are unavailable. ETF pages render E1 tiles,
 the top 25 disclosed holdings with a count, labelled split charts and a
 deterministic summary through the existing kit.
 

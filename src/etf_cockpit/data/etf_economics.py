@@ -973,7 +973,9 @@ def load_etf_reference_context(dataset_type: str, *, root: Path | None = None) -
         frame["known_at"] = known.where(known.ge(acquired), acquired).map(lambda value: value.isoformat())
         if "source" not in frame:
             frame["source"] = provider
-    return frame
+    from etf_cockpit.data.etf_e1_fetch import decode_e1_reference_context
+
+    return decode_e1_reference_context(frame)
 
 
 def load_etf_e1_fields(
@@ -1048,7 +1050,11 @@ def load_etf_e1_fields(
             selected["reason"] = None
             result[field_name] = selected
         else:
-            result[field_name] = {"value": None, "source": None, "as_of": None, "known_at": None, "alternates": [], "difference": False, "reason": f"{field_name}_no_dated_source" if rejected else f"{field_name}_missing_all_sources"}
+            failures = {key: value for _, row in candidates for key, value in (row.get("source_failures") or {}).items()}
+            reason = f"{field_name}_no_dated_source" if rejected else f"{field_name}_missing_all_sources"
+            if failures:
+                reason += ": " + "; ".join(f"{key}={value}" for key, value in sorted(failures.items()))
+            result[field_name] = {"value": None, "source": None, "as_of": None, "known_at": None, "alternates": [], "difference": False, "reason": reason}
     return result
 
 

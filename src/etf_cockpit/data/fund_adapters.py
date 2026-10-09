@@ -53,15 +53,18 @@ def fetch_etf_economics_sources(
 
     records = []
     failures = {}
+    failure_details = {}
     for name, reader in (("issuer", issuer_reader), ("public_page", public_reader), ("yfinance", vendor_reader)):
         try:
             rows = reader(instrument_id) if callable(reader) else ()
             records.append(list(rows))
-        except (OSError, TypeError, ValueError) as exc:
+        except Exception as exc:
             records.append([])
             failures[name] = type(exc).__name__
-    fields = load_etf_e1_fields(instrument_id, decision_time=decision_time, issuer_records=records[0], public_records=records[1], vendor_records=records[2])
-    return {"fields": fields, "records": records, "failures": failures, "execution_allowed": False}
+            failure_details[name] = redact_text(f"{type(exc).__name__}: {exc}")
+    cutoff = decision_time() if callable(decision_time) else decision_time
+    fields = load_etf_e1_fields(instrument_id, decision_time=cutoff, issuer_records=records[0], public_records=records[1], vendor_records=records[2])
+    return {"fields": fields, "records": records, "failures": failures, "failure_details": failure_details, "execution_allowed": False}
 
 
 @dataclass(frozen=True)
