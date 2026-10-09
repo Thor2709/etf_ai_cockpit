@@ -1,0 +1,128 @@
+tests.bughunt.test_repro_s10::test_s10_05_save_uses_current_controls | AttributeError: <module 'etf_cockpit.app.pages.stress_lab' from '/home/thor2/etf-gate-lx/src/etf_cockpit/app/pages/stress_lab.py'> has no attribute '_result_view'
+tests.bughunt.test_repro_s10::test_s10_08_strategy_can_toggle_twice_without_navigation | AttributeError: 'list' object has no attribute 'values'
+tests.bughunt.test_repro_s11::test_s11_01_operation_worker_is_scoped_to_its_workflow | AttributeError: <module 'etf_cockpit.app.pages.operations' from '/home/thor2/etf-gate-lx/src/etf_cockpit/app/pages/operations.py'> does not have the attribute 'load_operation_records'
+tests.bughunt.test_repro_s11::test_s11_02_failed_job_is_not_recorded_completed | AttributeError: <module 'etf_cockpit.app.pages.operations' from '/home/thor2/etf-gate-lx/src/etf_cockpit/app/pages/operations.py'> does not have the attribute 'load_operation_records'
+tests.bughunt.test_repro_s11::test_s11_03_portfolio_context_includes_all_holdings | AttributeError: <module 'etf_cockpit.app.pages.operations' from '/home/thor2/etf-gate-lx/src/etf_cockpit/app/pages/operations.py'> does not have the attribute 'load_operation_records'
+tests.bughunt.test_repro_s11::test_s11_04_cancelled_worker_preserves_new_preview | AttributeError: module 'etf_cockpit.app.pages.operations' has no attribute 'ApiStatus'. Did you mean: 'AppState'?
+tests.bughunt.test_repro_s11::test_s11_05_comparison_workspace_save_accepts_snapshot_date | AttributeError: 'types.SimpleNamespace' object has no attribute 'universe'
+tests.bughunt.test_repro_s11::test_s11_06_browser_import_uses_selected_bytes | AttributeError: 'PageView' object has no attribute 'controls'
+tests.bughunt.test_repro_s11::test_s11_07_completed_llm_audit_is_not_shown_as_unrun | AttributeError: 'PageView' object has no attribute 'controls'
+tests.bughunt.test_repro_s1::test_s1_07_equal_partial_fill_actions_not_silently_dropped | KeyError: 'operations.paper-order-id'
+tests.issue0014.test_browser_workflows::test_real_loopback_http_startup_uses_offline_source_smoke | RuntimeError: packaged offline smoke was not runnable (1): smoke_port requested=35655 selected=35655 reason=port 35655 is free
+tests.refactor_parity.test_backtest_golden::test_backtest_matches_golden | AssertionError: backtest.json: 340 difference(s); first ones:
+tests.refactor_parity.test_clock_independence::test_goldens_do_not_depend_on_the_wall_clock[backtest] | AssertionError: backtest.json: 340 difference(s); first ones:
+tests.refactor_parity.test_clock_independence::test_goldens_do_not_depend_on_the_wall_clock[persisted_schema] | AssertionError: persisted_schema.json: 46 difference(s); first ones:
+tests.refactor_parity.test_clock_independence::test_goldens_do_not_depend_on_the_wall_clock[scoreboard] | AssertionError: scoreboard.json: 28 difference(s); first ones:
+tests.refactor_parity.test_clock_independence::test_goldens_do_not_depend_on_the_wall_clock[snapshot] | AssertionError: snapshot.json: 276 difference(s); first ones:
+tests.refactor_parity.test_persisted_schema_golden::test_persisted_schema_golden_covers_the_required_families | AssertionError: data/derived/run_manifests/backtest__s54eb00f2a924.json
+tests.refactor_parity.test_persisted_schema_golden::test_persisted_schemas_match_golden | AssertionError: persisted_schema.json: 46 difference(s); first ones:
+tests.refactor_parity.test_scoreboard_golden::test_scoreboard_golden_is_not_vacuous | assert [1, 2, 3, 6, 7, 9, ...] == [1, 2, 3, 4, 5, 6, ...]
+tests.refactor_parity.test_scoreboard_golden::test_scoreboard_matches_golden | AssertionError: scoreboard.json: 28 difference(s); first ones:
+tests.refactor_parity.test_snapshot_golden::test_snapshot_digest_matches_golden | AssertionError: snapshot.json: 276 difference(s); first ones:
+tests.release.test_frozen_layout::test_no_module_derives_configs_from_file_parents | AssertionError: module-derived configs paths remain: ['src/etf_cockpit/data/esef_extensions.py', 'src/etf_cockpit/data/stock_fundamentals.py']
+tests.test_accessible_tables::test_backtests_page_connects_real_chart_and_accessible_table_helpers | assert 'Search strategies' in 'def backtests_page(page: ft.Page, state: AppState, *, _deferred: bool = False) -> PageView:\n    if not _deferred and...ge", ("1Y", "3Y", "5Y", "All"), "All", on_change=
+tests.test_accessible_tables::test_settings_page_documents_issue_0044_packaged_update_workflow | AssertionError: assert 'packaged-app update workflow' in 'def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:\n    settings_bundle, migration_issues =...                   on_
+tests.test_application_api::test_jobs_page_consumes_application_api_view_models | assert 'state.application_api' in 'def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:\n    api = getattr(state, "application_api",...ng", "Failed", "Completed"), "All", on_change
+tests.test_b00_control_plane::test_completion_document_check_is_offline_and_fresh | AssertionError: STALE: docs/product-completion/reconciliation/2026-07-21-2337f69/current-state-diff.md, docs/product-completion/reconciliation/2026-07-21-2337f69/package-discrepancies.md
+tests.test_backtest_lab::test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving | assert None is not None
+tests.test_backtest_lab::test_backtest_service_reuses_mixed_availability_integer_diagnostics | AssertionError: valid cache must not be recomputed
+tests.test_backtest_lab::test_backtest_service_reuses_quality_momentum_cache_after_persistence | assert None is not None
+tests.test_backtest_lab::test_backtest_service_round_trips_genuinely_unavailable_operational_rows | assert None is not None
+tests.test_backup_restore::test_commit_restore_rechecks_companions_after_preview | AssertionError: assert True is False
+tests.test_backup_restore::test_encrypted_partial_preview_checks_destination_consistency | AssertionError: assert True is False
+tests.test_backup_restore::test_settings_revision_mismatch_is_rejected_before_writes | AssertionError: assert True is False
+tests.test_candles::test_instrument_detail_renders_candle_evidence_section | AttributeError: <module 'etf_cockpit.app.pages.instrument_detail' from '/home/thor2/etf-gate-lx/src/etf_cockpit/app/pages/instrument_detail.py'> has no attribute '_valuation_workspace'
+tests.test_credentials::test_settings_saves_resolves_and_deletes_credentials_by_active_provider_id | StopIteration
+tests.test_cyclical_sector_adapters::test_default_facade_selector_state_render_and_ui_metadata | AssertionError: assert ('Cyclicals' in '')
+tests.test_data_health::test_data_health_export_failure_is_visible_and_refreshes_page | AttributeError: 'NoneType' object has no attribute 'on_click'
+tests.test_data_health::test_data_health_ui_names_cache_provenance_and_failure_columns | AssertionError: assert {'Checksum', ...cess', 'Path'} <= set()
+tests.test_documentation_integrity::test_data_dictionary_version_matches_project_release | AssertionError: assert 'Release vers...1.0-beta.1`).' == 'Release version: `1.1.0b1`.'
+tests.test_documentation_integrity::test_generated_documentation_has_no_drift | AssertionError: ('generate_data_dictionary.py', 'STALE: /home/thor2/etf-gate-lx/docs/reference/data-dictionary.md
+tests.test_e2e_advanced::test_portfolio_import_and_reconcile_source_controls | StopIteration
+tests.test_e2e_advanced::test_settings_page_previews_and_saves_local_settings | StopIteration
+tests.test_etf_economics::test_etf_economics_ui_renders_scalar_tracking_coverage | assert 'coverage: 4/4 business_daily observations' in 'ETF Economics\nCanonical local evidence and explicit limitations.\nEvidence details are available in the local result...otal-return evidence",\n 
+tests.test_etf_economics::test_instrument_detail_exposes_etf_liquidity_and_order_preview | AssertionError: assert 'ETF Liquidity' in ''
+tests.test_financial_sector_adapters::test_verified_available_projection_flows_facade_selector_and_page_contract | AssertionError: assert 'Financial Institutions' in ''
+tests.test_fixed_income_market_data::test_selector_and_page_expose_non_executable_market_data | AssertionError: assert 'instrument-detail.fixed-income-market-data' in {}
+tests.test_flet_startup::test_native_queued_navigation_has_one_render_owner | AssertionError: assert 3 == 4
+tests.test_frontend_design_system::test_dashboard_summary_cards_are_inherently_responsive | AssertionError: assert 8 == 6
+tests.test_frontend_design_system::test_shell_command_palette_filters_and_navigates | assert False
+tests.test_import_export::test_settings_references_actual_version_and_changelog_files | AssertionError: assert 'CHANGELOG.md' in 'def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:\n    settings_bundle, migration_issues =...                   on_change=select_vi
+tests.test_import_layering::test_no_new_layering_violations | AssertionError: new layer-boundary violations (ADR-0002); route them through the proper layer:
+tests.test_innovation_sector_adapters::test_formula_registry_and_verified_ui_projection_are_versioned_and_fail_closed | AssertionError: assert 'Innovation and Healthcare' in ''
+tests.test_issue0010_instrument_detail::test_issue0010_instrument_detail_exposes_non_executable_thesis_diary | StopIteration
+tests.test_issue0032_broker_architecture::test_system_map_exposes_future_only_architecture_without_action_control | AssertionError: future execution
+tests.test_issue_0045_ui_smoke::test_export_controls_are_present_and_non_authoritative | AssertionError: assert {'dashboard.e...ealth.export'} <= {'dashboard.e...-import', ...}
+tests.test_issue_0046_monthly_decision_template::test_actual_ui_consumers_render_the_monthly_projection | AssertionError: assert 'Monthly decision template' in ''
+tests.test_issue_0053_digest::test_dashboard_generation_keeps_each_accepted_category_visible | TypeError: test_dashboard_generation_keeps_each_accepted_category_visible.<locals>.<lambda>() takes 1 positional argument but 2 were given
+tests.test_issue_0053_digest::test_dashboard_uses_one_cutoff_and_complete_alert_population | TypeError: test_dashboard_uses_one_cutoff_and_complete_alert_population.<locals>.capture_report() takes 1 positional argument but 2 were given
+tests.test_issue_0104_corrections::test_real_260_session_backtest_accepts_structural_holdings | AssertionError: assert 'unavailable' == 'fd8282338925...6914ae4b0f2f7'
+tests.test_macro_factors_ui::test_macro_factors_workspace_is_registered_and_declares_safe_boundaries | assert 'Decision-time vintages' in 'def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:\n    def refresh_context(event: ft.Control...cro_horizon", ("3M", "1Y", "5Y"), "1Y", on_c
+tests.test_macro_factors_ui::test_macro_page_binds_every_producer_to_snapshot_cutoff_and_renders_lineage | AssertionError: assert 'source=fixture.csv' in ''
+tests.test_macro_factors_ui::test_macro_page_fails_closed_with_explicit_unavailable_when_cutoff_missing | AssertionError: assert 'snapshot decision time is unavailable' in ''
+tests.test_news_ui::test_dashboard_news_digest_shows_unavailable_or_canonical_context | AttributeError: 'types.SimpleNamespace' object has no attribute 'snapshot'
+tests.test_norway_official_filing::test_wrong_issuer_and_orgnr_are_rejected | Failed: DID NOT RAISE ValueError
+tests.test_onboarding::test_onboarding_save_reloads_active_state | AttributeError: 'NoneType' object has no attribute 'get'
+tests.test_onboarding::test_onboarding_ui_exposes_opt_in_online_validator_seam | TypeError: 'NoneType' object is not subscriptable
+tests.test_onboarding::test_online_toggle_is_disabled_without_validator | AttributeError: 'Checkbox' object has no attribute 'on_click'
+tests.test_onboarding::test_ui_typed_quota_result_is_visible_and_saves_offline_setup | AttributeError: 'Checkbox' object has no attribute 'on_click'
+tests.test_operations_workspace::test_cancelled_paper_preview_stays_cancelled | AttributeError: <module 'etf_cockpit.app.pages.operations' from '/home/thor2/etf-gate-lx/src/etf_cockpit/app/pages/operations.py'> has no attribute 'save_operation_record'
+tests.test_operations_workspace::test_operations_explicit_policy_disables_confirmation_on_missing_calendar | AttributeError: <module 'etf_cockpit.app.pages.operations' from '/home/thor2/etf-gate-lx/src/etf_cockpit/app/pages/operations.py'> has no attribute 'save_operation_record'
+tests.test_operations_workspace::test_operations_workspace_can_open_local_paper_account | StopIteration
+tests.test_operations_workspace::test_operations_workspace_exposes_paper_live_training_and_audit_states | AssertionError: assert 'Paper environment' in ''
+tests.test_operations_workspace::test_paper_preview_starts_once_and_reaches_a_durable_result | AttributeError: <module 'etf_cockpit.app.pages.operations' from '/home/thor2/etf-gate-lx/src/etf_cockpit/app/pages/operations.py'> has no attribute 'save_operation_record'
+tests.test_operations_workspace::test_proposal_review_records_manual_review_until_immutable_evidence_exists | StopIteration
+tests.test_portfolio_import_ui::test_portfolio_import_controls_are_registered_and_non_executable | assert 'value="portfolio_history"' in 'def import_export_page(page: ft.Page, state: AppState) -> PageView:\n    picker = ft.FilePicker(key="import-export.im...export", ("Import", "Reconcile", "Export"
+tests.test_real_asset_sector_adapters::test_projection_flows_through_selector_state_and_page | AssertionError: assert ('Real Assets' in '')
+tests.test_responsive_summary_pages::test_summary_cards_reflow_natively_and_keep_session[/screener] | StopIteration
+tests.test_responsive_summary_pages::test_summary_cards_reflow_natively_and_keep_session[/signals] | StopIteration
+tests.test_robust_risk::test_risk_workspace_surfaces_robust_risk_evidence | assert 'build_robust_risk_report' in 'def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False) -> PageView:\n    if not _deferred a...",\n                    select_dimension,\
+tests.test_settings_run_publication::test_feature_service_does_not_use_first_enabled_instrument_as_benchmark | AssertionError: assert ['VWCE'] == [None]
+tests.test_startup_lazy::test_backtest_route_loads_on_worker_behind_loading_shell | assert False
+tests.test_startup_lazy::test_snapshot_defers_backtest_and_lazy_result_matches_eager_result | AssertionError: assert BacktestReport(results=     strategy_name input_marker\n0  signal_strategy  :2026-10-09, equity_curves=            sign...026-10-09'], metadata={'input_marker': ':2026-10-09'}, 
+tests.test_statement_normalisation::test_fundamentals_surface_exposes_reported_and_restated_statement_history | assert 'statement_history' in 'def _render_evidence_section(\n    title: str,\n    value: object,\n    *,\n    subtitle: str = "Canonical local evid...dence details", _payload(value), expanded=expande
+tests.test_supply_chain_scan::test_settings_page_exposes_update_verification_and_notices | AssertionError: assert 'settings.update-verification' in 'def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:\n    settings_bundle, migration_issues =...                   on_
+tests.test_task17_ui_contracts::test_what_changed_exposes_instrument_search_and_dimension_filters | AssertionError: assert 'Search instrument' in {''}
+tests.test_task17_ui_contracts::test_what_changed_uses_compact_responsive_instrument_cards_without_horizontal_table | assert False
+tests.test_task18_ui::test_instrument_detail_friction_non_finite_values_are_unavailable | StopIteration
+tests.test_task18_ui::test_instrument_detail_renders_cost_edge_fields | AssertionError: assert 'Gross edge' in ''
+tests.test_task18_ui::test_risk_crowding_counts_distinct_explicit_warning_cluster_ids | AttributeError: <module 'etf_cockpit.app.pages.risk' from '/home/thor2/etf-gate-lx/src/etf_cockpit/app/pages/risk.py'> has no attribute 'CORRELATION_CLUSTERS_PATH'
+tests.test_task18_ui::test_risk_friction_panel_formats_non_finite_edge_values_as_unavailable | AttributeError: <module 'etf_cockpit.app.pages.risk' from '/home/thor2/etf-gate-lx/src/etf_cockpit/app/pages/risk.py'> has no attribute 'SCOREBOARD_PATH'
+tests.test_task18_ui::test_risk_page_renders_cost_edge_fields_and_unavailable_state | AttributeError: <module 'etf_cockpit.app.pages.risk' from '/home/thor2/etf-gate-lx/src/etf_cockpit/app/pages/risk.py'> has no attribute 'SCOREBOARD_PATH'
+tests.test_task19_instrument_detail::test_crowding_attribution_renders_canonical_broad_alpha_value | assert 'alpha 0.11' in 'Crowding and attribution\nInstrument-scoped attribution and crowding evidence.\nALPHA\n0.11\nStored attribution value...r_alpha_proxy": 0.42,\n    "status": "available"\n  },\n
+tests.test_task19_instrument_detail::test_detail_disclosure_keeps_every_record_and_bounds_scroll | AssertionError: assert False
+tests.test_task19_instrument_detail::test_fundamentals_panel_renders_complete_five_section_provenance | assert 'valuation=7.0' in 'Fundamentals\nCanonical local evidence and explicit limitations.\nEvidence details are available in the local result....age": 5.0,\n    "profitability": 8.0,\n    "sharehold
+tests.test_task19_instrument_detail::test_instrument_detail_exposes_functional_export_control_and_disabled_state | StopIteration
+tests.test_task19_instrument_detail::test_instrument_detail_reads_holdings_csv_mirror_when_parquet_is_unavailable | AssertionError: assert 'unavailable' == 'available'
+tests.test_task19_instrument_detail::test_instrument_detail_registers_visible_fundamentals_acceptance_surface | StopIteration
+tests.test_task19_instrument_detail::test_metric_history_local_route_preserves_all_scoped_components[VWCE] | AssertionError: assert 'Score-component metric history' in ''
+tests.test_task19_instrument_detail::test_metric_history_local_route_preserves_all_scoped_components[metric-stock] | AssertionError: assert 'Score-component metric history' in ''
+tests.test_task19_instrument_detail::test_normal_detail_route_reads_verified_scoped_journal[VWCE] | AssertionError: assert 'selected-journal' in ''
+tests.test_task19_instrument_detail::test_normal_detail_route_reads_verified_scoped_journal[journal-stock] | AssertionError: assert 'selected-journal' in ''
+tests.test_task19_instrument_detail::test_score_panel_nullable_scoreboard_and_signal_values_fail_closed | TypeError: boolean value of NA is ambiguous
+tests.test_task19_instrument_detail::test_valuation_invalid_selected_evidence_blocks_panel[available_at-0000-not-a-date] | AssertionError: assert 'unavailable' in 'Canonical statement store is missing; import point-in-time statements before valuation.'
+tests.test_task19_instrument_detail::test_valuation_invalid_selected_evidence_blocks_panel[available_at-2026-07-01T08:00:00] | AssertionError: assert 'unavailable' in 'Canonical statement store is missing; import point-in-time statements before valuation.'
+tests.test_task19_instrument_detail::test_valuation_invalid_selected_evidence_blocks_panel[available_at-None] | AssertionError: assert 'unavailable' in 'Canonical statement store is missing; import point-in-time statements before valuation.'
+tests.test_task19_instrument_detail::test_valuation_invalid_selected_evidence_blocks_panel[end-bad_value6] | AssertionError: assert 'unavailable' in 'Canonical statement store is missing; import point-in-time statements before valuation.'
+tests.test_task19_instrument_detail::test_valuation_invalid_selected_evidence_blocks_panel[end-not-a-date] | AssertionError: assert 'unavailable' in 'Canonical statement store is missing; import point-in-time statements before valuation.'
+tests.test_task19_instrument_detail::test_valuation_invalid_selected_evidence_blocks_panel[value-True] | AssertionError: assert 'unavailable' in 'Canonical statement store is missing; import point-in-time statements before valuation.'
+tests.test_task19_instrument_detail::test_valuation_invalid_selected_evidence_blocks_panel[value-inf] | AssertionError: assert 'unavailable' in 'Canonical statement store is missing; import point-in-time statements before valuation.'
+tests.test_task19_instrument_detail::test_valuation_invalid_selected_evidence_blocks_panel[value-nan] | AssertionError: assert 'unavailable' in 'Canonical statement store is missing; import point-in-time statements before valuation.'
+tests.test_task19_instrument_detail::test_valuation_scenario_controls_are_local_and_invalidate | ImportError: cannot import name '_render_valuation_scenarios' from 'etf_cockpit.app.pages.instrument_detail' (/home/thor2/etf-gate-lx/src/etf_cockpit/app/pages/instrument_detail.py)
+tests.test_task19_instrument_detail::test_valuation_visible_in_detail_for_stock_and_etf[etf] | AssertionError: assert 'Stock valuation and scenarios' in ''
+tests.test_task19_instrument_detail::test_valuation_visible_in_detail_for_stock_and_etf[stock] | AssertionError: assert 'Stock valuation and scenarios' in ''
+tests.test_task19_instrument_detail::test_valuation_workspace_native_dialog_session_and_focus | ImportError: cannot import name '_valuation_workspace' from 'etf_cockpit.app.pages.instrument_detail' (/home/thor2/etf-gate-lx/src/etf_cockpit/app/pages/instrument_detail.py)
+tests.test_trust_critical_artifacts::test_diagnostics_ui_displays_redacted_exception_fingerprint | AssertionError: assert 'fingerprint=' in ''
+tests.test_u1_home_pages::test_onboarding_leads_with_setup_and_discloses_details | AttributeError: 'PageView' object has no attribute 'key'
+tests.test_u1_home_pages::test_summary_kpis_have_stable_keys_and_no_inline_as_of | AssertionError: assert {'dashboard.k...didates', ...} == {'dashboard.k...pi.top-score'}
+tests.test_u7_lab_pages::test_panel_uses_kit_glass_with_key_and_label | AttributeError: module 'etf_cockpit.app.components.kit' has no attribute 'theme'
+tests.test_ui_staged_rendering::test_deferred_pageview_rebuilds_shell_after_the_placeholder | assert False
+tests.test_ui_staged_rendering::test_deferred_section_is_filled_after_the_placeholder_is_painted | assert False
+tests.test_user_documentation::test_documentation_release_stamps_match_project_version | AssertionError: README.md
+tests.test_user_documentation::test_documented_on_screen_labels_exist_in_application_source | AssertionError: ('TUTORIALS.md', ['Dry-run validate', 'Export decision journal', 'Export scoreboard', 'Export watchlist', 'Stage import', 'Validate tickers online (optional)'])
+tests.test_user_documentation::test_methodology_index_links_every_architecture_and_sdd_page | AssertionError: ['architecture/sparebank-book-gap-2026-10.md']
+tests.test_valuation_workspace_lifecycle::test_real_shell_render_discards_only_owned_workspace[/instrument/NEW] | StopIteration
+tests.test_valuation_workspace_lifecycle::test_real_shell_render_discards_only_owned_workspace[/instrument/OLD] | StopIteration
+tests.test_valuation_workspace_lifecycle::test_repeated_workspace_dismissal_releases_sessions[False] | AttributeError: module 'etf_cockpit.app.pages.instrument_detail' has no attribute '_valuation_workspace'
+tests.test_valuation_workspace_lifecycle::test_repeated_workspace_dismissal_releases_sessions[True] | AttributeError: module 'etf_cockpit.app.pages.instrument_detail' has no attribute '_valuation_workspace'
+tests.test_workflow_runtime::test_primary_dashboard_workflows_are_keyboard_operable_buttons | assert False
