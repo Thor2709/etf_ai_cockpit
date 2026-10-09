@@ -196,9 +196,9 @@ def _run_card(
     available = ", ".join(sorted(_display_name(name, report["model_catalogue"]) for name, ok in status.items() if ok and name in known_models)) or "none"
     tiles = common.tile_grid(
         (
-            ("Forecast rows", None if forecast_rows is None else format_count(forecast_rows), f"{len(models)} models" if forecast_rows is not None else "No local forecast rows are stored", None),
-            ("Matured outcomes", None if matured is None else format_count(matured), share, None),
-            ("Walk-forward splits", format_count(len(splits)) if report["status"] == "ok" else None, "expanding folds" if report["status"] == "ok" else "Not enough forecast dates", None),
+            ("Forecast rows", None if forecast_rows is None else format_count(forecast_rows), f"Source: stored local forecast rows · {len(models)} model summary rows" if forecast_rows is not None else "Source: local forecast store · no rows are stored", None),
+            ("Matured outcomes", None if matured is None else format_count(matured), f"Source: stored model outcome rows · {share}", None),
+            ("Walk-forward splits", format_count(len(splits)) if report["status"] == "ok" else None, "Source: stored walk-forward splits · expanding folds" if report["status"] == "ok" else "Source: walk-forward evaluation · not enough forecast dates", None),
             ("Promotion", "Shadow only", "execution off", "attention"),
         )
     )
@@ -220,7 +220,7 @@ def _run_card(
             ft.Row([run, open_governance], spacing=12),
             _run_status(state),
             tiles,
-            Note(f"Conformal intervals are diagnostic until enough matured samples exist. Cached model status: {available}."),
+            Note(f"Conformal intervals are diagnostic until enough matured samples exist. Model availability source: snapshot model-status registry. Cached model status: {available}."),
         ],
         spacing=12,
         scroll=ft.ScrollMode.AUTO,

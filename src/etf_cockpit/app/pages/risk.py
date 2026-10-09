@@ -83,6 +83,18 @@ def _current_weight_availability(holdings: object) -> dict[str, bool]:
     return available
 
 
+def _source_percent(value: object, reason: str, *, decimals: int = 1, source_present: bool = False) -> str | ft.Text:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return ft.Text("Unavailable", tooltip=f"Unavailable: {reason}")
+    if not math.isfinite(number):
+        return ft.Text("Unavailable", tooltip=f"Unavailable: {reason}")
+    if number == 0.0:
+        return "0" if source_present else ft.Text("Unavailable", tooltip=f"Unavailable: {reason}")
+    return format_percent(number, decimals=decimals, unavailable="Unavailable")
+
+
 def _bucket_weight_available(
     allocation: pd.DataFrame,
     dimension: str,
@@ -315,8 +327,16 @@ def _direct_overlap_card(overlap: object) -> ft.Control:
             "coverage": str(item.status),
             "freshness": str(item.freshness),
             "as_of": str(item.as_of or "—"),
-            "resolved": format_percent(item.resolved_weight, unavailable="—"),
-            "unresolved": format_percent(item.unresolved_weight, unavailable="—"),
+            "resolved": _source_percent(
+                item.resolved_weight,
+                "the direct-overlap evidence record has no finite resolved weight.",
+                source_present=item.status != "missing" and item.source_id is not None,
+            ),
+            "unresolved": _source_percent(
+                item.unresolved_weight,
+                "the direct-overlap evidence record has no finite unresolved weight.",
+                source_present=item.status != "missing" and item.source_id is not None,
+            ),
             "source": str(item.source_id or "—"),
             "authority": str(getattr(item, "authority", None) or "—"),
         }
@@ -357,7 +377,7 @@ def _underlying_holdings_card(holdings: pd.DataFrame, allocation: pd.DataFrame) 
     for label, dimension in (("Sector", "sector"), ("Region", "region"), ("Currency", "currency")):
         frame = underlying_holdings_exposure(allocation, holdings, dimension)
         rows = [
-            {"bucket": str(row.iloc[0]), "current": format_percent(row.get("current_weight"), unavailable="—")}
+            {"bucket": str(row.iloc[0]), "current": _source_percent(row.get("current_weight"), "the underlying holdings evidence has no finite current weight for this bucket.", source_present=True)}
             for _, row in frame.head(8).iterrows()
         ]
         tables.append(
@@ -550,8 +570,8 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
             item.tooltip = "Saves a CSV to the local exports folder - local file only, nothing is uploaded."
         return card_menu
 
-    def percent_cell(value: object) -> str:
-        return format_percent(value, unavailable="—")
+    def percent_cell(value: object, reason: str) -> str | ft.Text:
+        return _source_percent(value, reason, source_present=True)
 
     def numeric_cell(value: object) -> str:
         return format_number(value, unavailable="—")
@@ -567,8 +587,14 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
         exposure_rows = [
             {
                 "bucket": str(row.get(bucket_column, "—")) if pd.notna(row.get(bucket_column)) else "—",
-                "current": percent_cell(row.get("current_weight")) if is_available else "—",
-                "target": percent_cell(row.get("target_weight")),
+                "current": percent_cell(
+                    row.get("current_weight"),
+                    "the selected holdings source has no finite current weight for this bucket.",
+                ) if is_available else ft.Text("Unavailable", tooltip="Unavailable: current weight is missing from the selected holdings source."),
+                "target": percent_cell(
+                    row.get("target_weight"),
+                    "the selected exposure source has no finite target weight for this bucket.",
+                ),
             }
             for (_, row), is_available in zip(exposure.iterrows(), exposure_availability, strict=True)
         ]
@@ -685,9 +711,18 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
             {
                 "type": str(row.get("risk_type", "—")),
                 "bucket": str(row.get("bucket", "—")),
-                "current": percent_cell(row.get("current_weight")) if source_value_available else "—",
-                "limit": percent_cell(row.get("limit")),
-                "headroom": percent_cell(headroom) if source_value_available else "—",
+                "current": percent_cell(
+                    row.get("current_weight"),
+                    "the selected holdings source has no finite current weight for this guardrail.",
+                ) if source_value_available else ft.Text("Unavailable", tooltip="Unavailable: current weight is missing from the selected holdings source."),
+                "limit": percent_cell(
+                    row.get("limit"),
+                    "the guardrail source has no finite configured limit.",
+                ),
+                "headroom": percent_cell(
+                    headroom,
+                    "the selected holdings source has no finite headroom for this guardrail.",
+                ) if source_value_available else ft.Text("Unavailable", tooltip="Unavailable: headroom cannot be derived without a current holding weight."),
                 "status": Tag(display_status, status_kind),
             }
         )
@@ -851,7 +886,7 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
                 {
                     "date": str(row.get("date", "—")) if pd.notna(row.get("date")) else "—",
                     "factor": str(row.get("factor", "—")) if pd.notna(row.get("factor")) else "—",
-                    "return": format_percent(row.get("factor_return"), decimals=2, unavailable="—"),
+                    "return": _source_percent(row.get("factor_return"), "the historical factor return source has no finite value for this row.", decimals=2, source_present=True),
                     "se": format_number(row.get("standard_error"), decimals=4, unavailable="—"),
                     "n": format_count(row.get("sample_count"), unavailable="—"),
                 }

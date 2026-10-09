@@ -1177,8 +1177,14 @@ def _portfolio_holdings_block(
         row_host.controls = [
             DataTable(
                 [TableColumn(key, label, flex=flex, numeric=numeric, sortable=key == "weight") for key, label, flex, numeric in columns],
-                table_rows, sort_key="weight" if str(sort.value or "weight:desc") == "weight:desc" else None, descending=True, row_height=46, max_visible_rows=8, height=table_height, empty_title="No holdings",
-                empty_reason=str(reason or "No holdings match the selected snapshot and filters."), key="portfolio.holdings.table",
+                table_rows, sort_key="weight" if str(sort.value or "weight:desc") == "weight:desc" else None, descending=True, row_height=46, max_visible_rows=8, height=table_height,
+                empty_title="No holdings registered" if state.snapshot.holdings.empty else "No holdings match",
+                empty_reason=(
+                    "No current holdings are registered in the selected snapshot. Next step: set candidate weights below, then select Analyse candidate."
+                    if state.snapshot.holdings.empty
+                    else str(reason or "No holdings match the selected snapshot and filters.")
+                ),
+                key="portfolio.holdings.table",
             )
         ]
 
@@ -1672,7 +1678,7 @@ def portfolio_page(page: ft.Page | None, state: AppState, *, _deferred: bool = F
     holdings_refresh_callbacks: list[Callable[[ft.ControlEvent | None], None]] = []
     initial_status = "Unsaved candidate. Edit weights and select Analyse candidate."
     if state.snapshot.holdings.empty:
-        initial_status = "No current holdings are available. Candidate targets can still be analysed from a zero-current baseline."
+        initial_status = "No current holdings are available because none are registered. Next step: set candidate weights below, then select Analyse candidate."
     status = common.text(initial_status, 12.5, 400, theme.INK2, max_lines=3, key="portfolio.status")
     result_host = ft.Column([_analysis_view(initial_analysis, benchmark_registry=registry)], key="portfolio.results", spacing=12)
     rebalance_host = ft.Column([Note("Select Validate rebalance preview to compare local alternatives.")], key="portfolio.rebalance-results", spacing=12)

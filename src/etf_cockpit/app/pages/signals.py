@@ -607,7 +607,11 @@ def _body(
 
 
 def signals_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False) -> PageView:
-    if not _deferred and page is not None and (isinstance(page, ft.Page) or bool(getattr(page, "_shell_defer_render", False))):
+    if not _deferred and page is not None and (
+        isinstance(page, ft.Page)
+        or bool(getattr(page, "_shell_defer_render", False))
+        or callable(getattr(page, "run_thread", None))
+    ):
         placeholder = ft.Container(content=Note("Loading score evidence..."), expand=True)
         placeholder.data = {
             "shell.deferred-update": lambda: signals_page(page, state, _deferred=True)

@@ -97,7 +97,7 @@ def feature_catalogue_page(page: ft.Page, state: AppState) -> PageView:
         )
     feature_count = len(catalogue) if catalogue else None
     target_count = len(targets) if targets else None
-    preview_available = source is not None and hasattr(source, "empty") and not source.empty and coverage is not None
+    preview_available = source is not None and hasattr(source, "empty") and coverage is not None
     preview_count = coverage.get("rows") if preview_available else None
     missing_count = coverage.get("missing_rows") if preview_available else None
     feature_value = format_count(feature_count, unavailable="") or None
@@ -107,12 +107,12 @@ def feature_catalogue_page(page: ft.Page, state: AppState) -> PageView:
     kpi = KpiStrip(
         "FEATURES REGISTERED",
         feature_value or "Unavailable",
-        "definitions and built-in baselines" if feature_value else "No feature definitions are registered.",
+        "Source: local feature catalogue" if feature_value else "No feature definitions are registered in the local feature catalogue.",
         [
-            KpiStripItem("Registered features", feature_value, "No feature definitions are registered." if not feature_value else ""),
-            KpiStripItem("Targets", target_value, "No target definitions are registered." if not target_value else "Stored separately from features."),
-            KpiStripItem("Preview rows", preview_value, "No feature snapshot rows are available." if not preview_value else "Local feature snapshot."),
-            KpiStripItem("Missing rows", missing_value, "Missing-row count is unavailable without preview rows." if not missing_value else "Visible, never silently imputed."),
+            KpiStripItem("Registered features", feature_value, "No feature definitions are registered in the local feature catalogue." if not feature_value else "Source: local feature catalogue."),
+            KpiStripItem("Targets", target_value, "No target definitions are registered in the target catalogue." if not target_value else "Source: local target catalogue; stored separately from features."),
+            KpiStripItem("Preview rows", preview_value, "No feature snapshot is available." if not preview_value else "Source: snapshot feature rows."),
+            KpiStripItem("Missing rows", missing_value, "Missing-row count is unavailable without a feature snapshot." if not missing_value else "Source: missing flags in snapshot feature rows; visible, never silently imputed."),
         ],
     )
     definitions = GlassCard(
