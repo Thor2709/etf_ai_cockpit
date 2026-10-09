@@ -26,7 +26,6 @@ from etf_cockpit.application.api import LocalApplicationApi
 from etf_cockpit.application.sec_bulk_import import BulkImportResult  # noqa: F401 - compatibility re-export
 from etf_cockpit.application.sec_submissions_import import SubmissionsImportResult  # noqa: F401 - compatibility re-export
 from etf_cockpit.application.runtime import DurableJobScheduler
-from etf_cockpit.application.scoreboard_publication import refresh_static_trust_artifacts
 if TYPE_CHECKING:
     from etf_cockpit.data.instrument_identity import CanonicalIdentity
     from etf_cockpit.parsers.contracts import RawDocument
@@ -385,10 +384,6 @@ class AppState:
             run_startup_migrations()
         with timed_step("startup", "snapshot"):
             snapshot = build_snapshot()
-        try:
-            refresh_static_trust_artifacts(snapshot.config)
-        except Exception:
-            pass
         state = cls(
             snapshot=snapshot,
             selected_etf=snapshot.config.ui.default_etf,
@@ -438,6 +433,7 @@ class AppState:
         self.snapshot.config = config
         self.snapshot.universe_revision = revision
         self.universe_cache_revision = revision
+        self.snapshot._backtest_loader = None
         enabled = set(config.universe.enabled_ids)
         for attribute in ("prices", "holdings", "features", "latest_features"):
             frame = getattr(self.snapshot, attribute, None)
@@ -462,6 +458,11 @@ class AppState:
             except (AttributeError, TypeError):
                 # Lightweight embedding snapshots may not carry a full report.
                 self.snapshot.backtest = None
+
+    def ensure_backtest(self):
+        """Return the snapshot's cached backtest, calculating it on demand once."""
+
+        return self.snapshot.ensure_backtest()
 
     @property
     def shared_activity_id(self) -> str | None:
@@ -1085,7 +1086,7 @@ class AppState:
             self.snapshot.holdings,
             self.snapshot.features,
             self.snapshot.signals,
-            self.snapshot.backtest,
+            self.ensure_backtest(),
             self.snapshot.data_report,
             publish_guard=self.activity_publication,
         )

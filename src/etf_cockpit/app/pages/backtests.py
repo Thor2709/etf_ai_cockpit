@@ -121,7 +121,14 @@ def _normalized_strategy_rows(
 
 @lab_page("backtests")
 def _legacy_backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
-    report = state.snapshot.backtest
+    report = state.ensure_backtest()
+    if report is None:
+        return ft.Column(
+            [panel(ft.Column([section_header("Backtests", "Backtest data is unavailable for the current snapshot.")]))],
+            expand=True,
+            spacing=16,
+            scroll=ft.ScrollMode.AUTO,
+        )
     news_warning = _news_validation_warning()
     reference_context = context_from_snapshot(
         state.snapshot,

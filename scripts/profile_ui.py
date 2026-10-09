@@ -33,6 +33,19 @@ def _top_functions(profile: cProfile.Profile, limit: int = 12) -> str:
     return stream.getvalue()
 
 
+def _top_function_rows(profile: cProfile.Profile, limit: int = 5) -> list[dict[str, object]]:
+    stats = pstats.Stats(profile).stats
+    ranked = sorted(stats.items(), key=lambda item: item[1][3], reverse=True)[:limit]
+    return [
+        {
+            "function": f"{Path(filename).name}:{line}({name})",
+            "calls": calls,
+            "cumulative_ms": _ms(cumulative),
+        }
+        for (filename, line, name), (calls, _primitive, _total, cumulative, _callers) in ranked
+    ]
+
+
 def measure_cold_start() -> dict:
     """First painted shell in a fresh interpreter: imports + loading view (Flet server start-up excluded)."""
 
@@ -53,6 +66,95 @@ def measure_cold_start() -> dict:
 class _TimedPage(SimpleNamespace):
     def update(self, *_args: object) -> None:
         self.updates = getattr(self, "updates", 0) + 1
+
+
+def measure_startup_to_data_ready(*, profile_startup: bool = False) -> dict[str, object]:
+    """Measure a cold AppState load through the first painted real route."""
+
+    import threading
+
+    started = time.perf_counter()
+    profiler = cProfile.Profile()
+    if profile_startup:
+        profiler.enable()
+    import etf_cockpit.app.flet_app  # noqa: F401
+
+    router_ready = threading.Event()
+    router_holder: dict[str, object] = {}
+    router_failure: list[Exception] = []
+    router_import_ms = {"value": 0.0}
+
+    def load_router() -> None:
+        import_started = time.perf_counter()
+        try:
+            from etf_cockpit.app import router
+
+            router_holder["router"] = router
+        except Exception as exc:
+            router_failure.append(exc)
+        finally:
+            router_import_ms["value"] = _ms(time.perf_counter() - import_started)
+            router_ready.set()
+
+    threading.Thread(target=load_router, name="startup-router-import", daemon=True).start()
+    from etf_cockpit.app.state import AppState
+
+    state = AppState.load()
+    if profile_startup:
+        profiler.disable()
+    state_loaded = time.perf_counter()
+    if not router_ready.wait(120):
+        raise RuntimeError("timed out importing the route registry")
+    if router_failure:
+        raise router_failure[0]
+    router = router_holder["router"]
+    page = _TimedPage(width=1920, height=1200, route=state.snapshot.config.ui.default_page, views=[], updates=0)
+    page._shell_defer_render = True
+    paint_profiler = cProfile.Profile() if profile_startup else None
+    if paint_profiler is not None:
+        paint_profiler.enable()
+    router.render_shell(page, state, page.route)
+    if paint_profiler is not None:
+        paint_profiler.disable()
+    data_ready = time.perf_counter()
+    return {
+        "state_load_ms": _ms(state_loaded - started),
+        "router_import_ms": router_import_ms["value"],
+        "first_page_paint_ms": _ms(data_ready - state_loaded),
+        "data_ready_ms": _ms(data_ready - started),
+        "route": page.route,
+        "paint_updates": page.updates,
+        "profiled": profile_startup,
+        "top_costs": _top_function_rows(profiler) if profile_startup else [],
+        "profile": _top_functions(profiler, 25) if profile_startup else "",
+        "paint_top_costs": _top_function_rows(paint_profiler) if paint_profiler is not None else [],
+        "paint_profile": _top_functions(paint_profiler, 25) if paint_profiler is not None else "",
+    }
+
+
+def render_startup_report(result: dict[str, object]) -> str:
+    lines = [
+        "# UI startup to data-ready",
+        "",
+        f"- AppState.load: {result['state_load_ms']} ms",
+        f"- route registry import (overlapped with AppState.load): {result['router_import_ms']} ms",
+        f"- first page paint ({result['route']}): {result['first_page_paint_ms']} ms",
+        f"- launch to data-ready: {result['data_ready_ms']} ms",
+        f"- paint updates: {result['paint_updates']}",
+        "",
+    ]
+    if result["profiled"]:
+        lines.extend(["", "## Top 5 startup costs", "", "| rank | function | calls | cumulative ms |", "|---|---|---:|---:|"])
+        for index, row in enumerate(result["top_costs"], 1):
+            lines.append(f"| {index} | `{row['function']}` | {row['calls']} | {row['cumulative_ms']} |")
+    else:
+        lines.extend(["", "Top 5 costs are emitted with `--profile-startup`; that instrumentation is excluded from this wall-clock measurement."])
+    lines.extend(["", "## First page paint costs", "", "| rank | function | calls | cumulative ms |", "|---|---|---:|---:|"])
+    for index, row in enumerate(result["paint_top_costs"], 1):
+        lines.append(f"| {index} | `{row['function']}` | {row['calls']} | {row['cumulative_ms']} |")
+    if result["profiled"]:
+        lines.extend(["", "## Startup cProfile", "```", str(result["profile"]), "```", "", "## First page paint cProfile", "```", str(result["paint_profile"]), "```", ""])
+    return "\n".join(lines)
 
 
 def measure_staged_routes(state, routes: list[str]) -> dict[str, dict]:
@@ -255,7 +357,17 @@ def main() -> int:
     parser.add_argument("--json", type=Path, default=None)
     parser.add_argument("--repeat", type=int, default=3)
     parser.add_argument("--profile-top", type=int, default=5)
+    parser.add_argument("--startup-only", action="store_true", help="measure cold startup through first real page paint")
+    parser.add_argument("--profile-startup", action="store_true", help="include cProfile data; this adds measurement overhead")
     args = parser.parse_args()
+    if args.startup_only:
+        result = measure_startup_to_data_ready(profile_startup=args.profile_startup)
+        text = render_startup_report(result)
+        if args.out:
+            args.out.parent.mkdir(parents=True, exist_ok=True)
+            args.out.write_text(text, encoding="utf-8")
+        print(text)
+        return 0
     result = measure(max(1, args.repeat), args.profile_top, args.json)
     text = render(result)
     if args.out:

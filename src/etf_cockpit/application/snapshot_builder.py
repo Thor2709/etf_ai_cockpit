@@ -7,9 +7,12 @@ from dataclasses import (
     dataclass,
     field,
 )
+import threading
+from typing import TYPE_CHECKING, Callable
 import pandas as pd
 
-from etf_cockpit.backtest.engine import BacktestReport
+if TYPE_CHECKING:
+    from etf_cockpit.backtest.engine import BacktestReport
 from etf_cockpit.core.config import (
     AppConfig,
     load_config,
@@ -58,12 +61,10 @@ from etf_cockpit.application.reference_context import (
 )
 from etf_cockpit.application.economics_inputs import _etf_economics_snapshot_inputs
 from etf_cockpit.application.feature_service import FeatureService
-from etf_cockpit.application.backtest_service import (
-    _empty_backtest_report,
-    BacktestService,
-)
 from etf_cockpit.application.data_service import DataService
 from etf_cockpit.application.signal_service import _run_decision_shadow_guard
+
+_STARTUP_WRITE_LOCK = threading.RLock()
 
 
 @dataclass
@@ -76,9 +77,11 @@ class CockpitSnapshot:
     data_report: DataQualityReport
     signals: list[SignalResult]
     forecasts: pd.DataFrame
-    backtest: BacktestReport
+    backtest: BacktestReport | None
     model_status: dict[str, bool]
     model_inventory: list[LocalModelStatus]
+    _backtest_loader: Callable[[], BacktestReport] | None = field(default=None, repr=False, compare=False)
+    _backtest_lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
     candidate_price_binding: Mapping[str, object] | None = None
     # Revision of the canonical universe used to build cached derived data.
     universe_revision: str = ""
@@ -98,14 +101,26 @@ class CockpitSnapshot:
     vwce_listing_id: str | None = None
     vwce_conversion_evidence: Mapping[str, object] | None = None
 
+    def ensure_backtest(self) -> BacktestReport | None:
+        """Load the persisted report or calculate it once when a consumer needs it."""
+
+        if self.backtest is not None:
+            return self.backtest
+        with _STARTUP_WRITE_LOCK:
+            with self._backtest_lock:
+                if self.backtest is None and self._backtest_loader is not None:
+                    self.backtest = self._backtest_loader()
+                return self.backtest
+
 
 def build_snapshot(
     force_sample: bool = False,
     *,
     publish_guard: PublicationScopeFactory | None = None,
 ) -> CockpitSnapshot:
-    with timed_step("snapshot", "build"):
-        return _build_snapshot(force_sample=force_sample, publish_guard=publish_guard)
+    with _STARTUP_WRITE_LOCK:
+        with timed_step("snapshot", "build"):
+            return _build_snapshot(force_sample=force_sample, publish_guard=publish_guard)
 
 
 def _build_snapshot(
@@ -199,18 +214,18 @@ def _build_snapshot(
         latest_features=latest,
         price_history=features,
     )
-    backtest = (
-        _empty_backtest_report("Backtest skipped because no clean prices exist for the current two-tier universe yet.")
-        if prices.empty
-        else BacktestService(
+    def load_backtest() -> BacktestReport:
+        from etf_cockpit.application.backtest_service import _empty_backtest_report, BacktestService
+
+        if prices.empty:
+            return _empty_backtest_report(
+                "Backtest skipped because no clean prices exist for the current two-tier universe yet."
+            )
+        return BacktestService(
             config,
             universe_revision=universe_revision,
             reference_context=reference_context,
-        ).load_or_run_backtest(
-            data_report.as_of_date,
-            publish_guard=publish_guard,
-        )
-    )
+        ).load_or_run_backtest(data_report.as_of_date, publish_guard=publish_guard)
     (
         etf_economics_records,
         etf_fund_total_return,
@@ -226,9 +241,10 @@ def _build_snapshot(
         data_report=data_report,
         signals=signals,
         forecasts=forecasts,
-        backtest=backtest,
+        backtest=None,
         model_status=status,
         model_inventory=inventory,
+        _backtest_loader=load_backtest,
         candidate_price_binding=load_candidate_price_binding(),
         universe_revision=universe_revision,
         etf_economics_records=etf_economics_records,
