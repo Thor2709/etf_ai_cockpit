@@ -19,6 +19,9 @@ from .models import (
 
 _OWNER_FACTS = ("ec_capital", "overkursfond", "utjevningsfond")
 _SELF_FACTS = ("sparebankens_fond", "gavefond", "kompensasjonsfond")
+# Optional ownerless pools: a bank may simply hold none. A missing figure is flagged, and the reconstructed eierbrok is
+# still cross-checked against the reported one, so an omission that matters shows as REPORTED_RECONSTRUCTED_EIERBROK_DIFFER.
+_OPTIONAL_SELF_FACTS = ("gavefond", "kompensasjonsfond")
 _REQUIRED_ROUTING_EC_TOKENS = {"equity_certificate", "certificate", "ec", "egenkapitalbevis"}
 _NO_TOKENS = {"no", "norway", "norge", "norwegian"}
 _SAVINGS_BANK_TOKENS = {
@@ -176,6 +179,8 @@ def build_claim_state(
     count_reasons = _count_reconciliation_reasons(registered, outstanding, treasury, foundation_count)
     if compensation_not_reported:
         reasons.append("KOMPENSASJONSFOND_NOT_REPORTED")
+    if "gavefond" in values and _fact_number(values, "gavefond") is None:
+        reasons.append("GAVEFOND_NOT_REPORTED")
     if missing_pool_components:
         reasons.append("POOL_COMPONENT_EVIDENCE_MISSING")
     reasons.extend(count_reasons)
@@ -339,19 +344,23 @@ def owner_per_ec_figures(
                 "owner_pe": "weighted_average_ec_count",
             },
         }
-    book = _divide(claim_state.owner_attributable_book, claim_state.period_end_ec_count)
-    eps = _divide(claim_state.owner_attributable_earnings, claim_state.weighted_average_ec_count)
+    # One canonical path: the matched-claim valuation owns the count fallbacks (period-end, outstanding,
+    # registered less treasury; weighted average, else period-end as a stated proxy).
+    from .valuation import owner_valuation
+
+    owner = owner_valuation(claim_state, price=price, allow_partial=True)
     result: dict[str, object] = {
-        "owner_book_per_ec": book,
-        "owner_eps": eps,
-        "owner_pb": _divide(price, book),
-        "owner_pe": _divide(price, eps),
+        "owner_book_per_ec": owner.get("owner_book_per_ec"),
+        "owner_eps": owner.get("owner_eps"),
+        "owner_pb": owner.get("owner_pb"),
+        "owner_pe": owner.get("owner_pe"),
         "count_conventions": {
             "owner_book_per_ec": "period_end_ec_count",
             "owner_eps": "weighted_average_ec_count",
             "owner_pb": "period_end_ec_count",
             "owner_pe": "weighted_average_ec_count",
         },
+        "count_sources": owner.get("count_sources", {}),
     }
     return result
 
@@ -384,13 +393,18 @@ def analyse_sparebank_ec(
     )
     if generic_reason:
         reasons.append("GENERIC_BANK_VALUATION_INAPPLICABLE")
-    from .bank_economics import build_bank_economics
+    from .bank_economics import build_bank_economics, owner_normalisation
     from .events import analyse_events
     from .valuation import valuation
     from .scorecard import build_sparebank_scorecard
-    bank_economics = build_bank_economics(bank_economics_evidence, bank_metrics=bank_metrics)
+    bank_economics = owner_normalisation(build_bank_economics(bank_economics_evidence, bank_metrics=bank_metrics), claim)
     event_analysis = analyse_events(events, decision_time=decision_time)
-    valuation_section = valuation(claim, price=price, assumptions=valuation_assumptions)
+    # The sustainable ROE of the owner claim feeds the justified-value and reverse-valuation models once.
+    assumptions = dict(valuation_assumptions or {})
+    sustainable = bank_economics.normalised.get("normalised_roe") if isinstance(bank_economics.normalised, Mapping) else None
+    if sustainable is not None:
+        assumptions.setdefault("sustainable_roe", sustainable)
+    valuation_section = valuation(claim, price=price, assumptions=assumptions)
     analysis = SparebankAnalysis(
         contract=CONTRACT_ID,
         routing=routed,
@@ -416,7 +430,7 @@ def analyse_sparebank_ec(
             analysis,
             decision_time=decision_time,
             decision_price=price,
-            valuation_assumptions=valuation_assumptions,
+            valuation_assumptions=assumptions,
             tactical_evidence=tactical_evidence,
         ),
     )
@@ -486,7 +500,7 @@ def _available_pool_values(values: Mapping[str, object], names: Iterable[str]) -
 def _missing_pool_components(values: Mapping[str, object]) -> tuple[str, ...]:
     missing: list[str] = []
     for name in (*_OWNER_FACTS, *_SELF_FACTS):
-        if name == "kompensasjonsfond":
+        if name in _OPTIONAL_SELF_FACTS:
             continue
         if name in values and _fact_number(values, name) is None:
             missing.append(name)

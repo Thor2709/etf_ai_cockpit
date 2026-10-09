@@ -62,7 +62,7 @@ def test_ec_uses_sparebank_scorecard_and_never_reaches_generic_etf_fallback(monk
 
     analysis = analyse_sparebank_ec(_teaching_bank(), decision_time="2025-01-02T00:00:00Z")
     assert analysis.routing.applies
-    assert analysis.scorecard.formula_version == "sparebank-scorecard-v1.1.0"
+    assert analysis.scorecard.formula_version == "sparebank-scorecard-v1.2.0"
     assert original("STOCK").asset_type == "STOCK"
     assert original("OTHER").groups == original("ETF").groups
 

@@ -1,0 +1,28 @@
+# Reviewed mappings of issuer-specific ESEF extension concepts and equity-component members (SB2).
+#
+# Extension concepts are NOT promoted automatically (parsers/esef_ixbrl.py): each entry below was read in the
+# issuer's own filing and is applied only to that issuer, in the issuer's own extension namespace.
+# `magnitude: true` stores the absolute value for expense lines that the issuer presents with a negative sign.
+issuers:
+  RING:
+    namespace_prefix: http://sparebank1ringerikehadeland
+    concepts:
+      SumOperatingExpenses: {metric: operating_expenses, magnitude: true}
+  SOAG:
+    namespace_prefix: http://www.sparebank1.no/nb/ostfold-akershus
+    concepts:
+      NettoRenteinntekter: {metric: net_interest_income}
+      OperatingExpensesBeforeTaxAndImpairment: {metric: operating_expenses, magnitude: true}
+  HELG:
+    namespace_prefix: http://sparebank1helgeland
+    concepts:
+      ProfitLossAttributableToPrimaryCapitalReserve: {metric: ownerless_result}
+
+# Equity components reported as members of ifrs-full:ComponentsOfEquityAxis (instant, consolidated, no other
+# dimension). A member whose local name matches exactly one rule feeds that EC pool fact; aggregate members that
+# match several rules or are longer than 70 characters are ignored. Rules are generic (any issuer).
+equity_member_rules:
+  utjevningsfond: '(?i)(equalis|equaliz|utjevning)'
+  sparebankens_fond: '(?i)(primarycapital|primary capital|grunnfond|ownerless|sparebankensfond|savingsbankreserve)'
+  gavefond: '(?i)(giftfoundation|giftfond|gavefond)'
+  kompensasjonsfond: '(?i)(compensationfund|kompensasjonsfond)'

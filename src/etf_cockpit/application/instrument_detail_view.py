@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 
 import pandas as pd
 
-from etf_cockpit.core.paths import REPORTS_DIR
+from etf_cockpit.core.paths import REPORTS_DIR, ROOT
 from etf_cockpit.core.session_log import log_event
 from etf_cockpit.application.ui_facade import (
     DecisionJournal,
@@ -2774,7 +2774,13 @@ def _tactical_scorecard_evidence(signal: object, candidate_score: object) -> dic
     }
 
 
-def _sparebank_workspace(financial_institutions: object) -> dict[str, object]:
+def _sparebank_workspace(
+    financial_institutions: object,
+    *,
+    instrument_id: str | None = None,
+    score_history: pd.DataFrame | None = None,
+    decision_time: object = None,
+) -> dict[str, object]:
     """Project the facade's native analysis into the one Sparebank workspace."""
 
     if not isinstance(financial_institutions, Mapping):
@@ -2788,7 +2794,20 @@ def _sparebank_workspace(financial_institutions: object) -> dict[str, object]:
     scorecard = analysis.get("scorecard")
     scorecard = scorecard if isinstance(scorecard, Mapping) else {}
     claim = analysis.get("claim_state")
+    context: dict[str, object] = {}
+    if instrument_id:
+        from etf_cockpit.application.sparebank_peers import load_peer_rows, picked_peers, quarterly_score_history
+        from etf_cockpit.data.pillar3_queue import load_queue
+
+        context = {
+            "instrument_id": instrument_id,
+            "history": quarterly_score_history(score_history, instrument_id),
+            "peers": load_peer_rows(ROOT, instrument_id, decision_time),
+            "picked_peers": picked_peers(ROOT, instrument_id),
+            "pillar3": load_queue(ROOT, instrument_id),
+        }
     return {
+        **context,
         "status": "available",
         "contract": analysis.get("contract"),
         "ownership_passport": claim,
@@ -2806,6 +2825,8 @@ def _sparebank_workspace(financial_institutions: object) -> dict[str, object]:
         "scorecard": scorecard,
         "underwriting_horizon": scorecard.get("underwriting", {"label": "Underwriting", "status": "UNAVAILABLE"}),
         "tactical_horizon": scorecard.get("tactical", {"label": "Tactical", "status": "UNAVAILABLE", "horizon": "1-3 months"}),
+        "dividends": analysis.get("dividends"),
+        "decision_price": analysis.get("decision_price"),
         "evidence_and_coverage": {
             "coverage": analysis.get("coverage"),
             "reason_codes": analysis.get("reason_codes", ()),
@@ -3078,7 +3099,12 @@ def build_instrument_detail(
             "fixed_income_risk": fixed_income_risk,
             "peer_cohort": peer_cohort,
             "financial_institutions": financial_institutions,
-            "sparebank_workspace": _sparebank_workspace(financial_institutions),
+            "sparebank_workspace": _sparebank_workspace(
+                financial_institutions,
+                instrument_id=instrument_id,
+                score_history=score_history,
+                decision_time=projection_time or None,
+            ),
             "real_assets": real_assets,
             "cyclicals": cyclicals,
             "innovation": innovation,

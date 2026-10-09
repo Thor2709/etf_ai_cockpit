@@ -195,7 +195,10 @@ def test_missing_optional_fields_lower_coverage_without_zero_fill() -> None:
     evidence = _fixture("teaching_bank.json")
     evidence["facts"].pop("weighted_average_ec_count")
     result = analyse_sparebank_ec(evidence)
-    assert result.owner_eps is None
+    # SB2: without a reported weighted average the EPS uses the period-end certificate count and says so
+    # (a labelled, conservative stand-in; it is never a fabricated or zero-filled count).
+    assert result.owner_eps == pytest.approx(result.claim_state.owner_attributable_earnings / result.claim_state.period_end_ec_count)
+    assert result.claim_state.weighted_average_ec_count is None
     assert result.claim_state.coverage < 1.0
     assert "weighted_average_ec_count" in result.claim_state.unavailable_fields
 

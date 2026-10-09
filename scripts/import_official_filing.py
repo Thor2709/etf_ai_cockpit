@@ -16,6 +16,7 @@ import pandas as pd
 from etf_cockpit.core.atomic_io import atomic_write_json
 from etf_cockpit.data.classification import ClassificationEvidence, ClassificationStore
 from etf_cockpit.data.contracts import SourceAuthority
+from etf_cockpit.data.esef_extensions import equity_member_facts, issuer_extension
 from etf_cockpit.data.oam_adapters import archive_manual_official_filing
 from etf_cockpit.data.statement_normalisation import normalise_statement_facts
 from etf_cockpit.data.universe_store import UniverseRecord, load_sparebank_records
@@ -171,6 +172,10 @@ def import_official_filing(
         if name in filing_facts and str(filing_facts[name].get("value")) != str(item.get("value")):
             raise ValueError(f"EC fact sheet conflicts with the filing-mapped fact: {name}")
         filing_facts.setdefault(name, item)
+    # Equity-component members (reviewed generic rules in configs/esef_extension_concepts.yaml) fill pools the
+    # fact sheet and the IFRS concepts do not supply; a supplied or directly tagged fact always wins.
+    for name, item in equity_member_facts(parsed.records, expected).items():
+        filing_facts.setdefault(name, item)
 
     output.mkdir(parents=True, exist_ok=True)
     archive = archive_manual_official_filing(
@@ -185,17 +190,26 @@ def import_official_filing(
         queue_path=output / "manual_filing_queue.parquet",
     )
 
+    issuer_namespace, issuer_rules = issuer_extension(canonical, parsed.records)
+    if issuer_rules:
+        extension_namespace = issuer_namespace
+        extension_mappings = {concept: str(rule["metric"]) for concept, rule in issuer_rules.items()}
+    else:
+        extension_namespace = SMN_EXTENSION_NAMESPACE
+        extension_mappings = {concept: values["canonical_metric"] for concept, values in SMN_EXTENSION_CONCEPT_MAP.items()}
     facts = statement_facts_from_esef(
         parsed.records,
         instrument_id=canonical,
         source_sha256=archive.sha256,
         source_provider="esef_local_import",
-        extension_namespace=SMN_EXTENSION_NAMESPACE,
-        extension_mappings={concept: values["canonical_metric"] for concept, values in SMN_EXTENSION_CONCEPT_MAP.items()},
+        extension_namespace=extension_namespace,
+        extension_mappings=extension_mappings,
     )
+    magnitude = {concept for concept, rule in issuer_rules.items() if rule.get("magnitude")}
     facts = tuple(
         replace(
             fact,
+            value=_magnitude(fact.value) if fact.concept in magnitude and fact.canonical_metric else fact.value,
             filed=known_at[:10],
             available_at=known_at,
             known_at=known_at,
@@ -258,6 +272,13 @@ def import_official_filing(
         "normalised_path": str(normalised_path),
         "execution_allowed": False,
     }
+
+
+def _magnitude(value: object) -> object:
+    """Absolute value of an expense line the issuer presents with a negative sign."""
+
+    text = str(value).strip()
+    return text[1:] if text.startswith("-") else value
 
 
 def _resolve_published_at(source_path: Path, source_url: str, explicit: str | None) -> str:
@@ -675,15 +696,34 @@ def _write_ec_facts(
         "bank_economics_evidence": bank_economics_evidence,
     }
     revisions: list[dict[str, object]] = []
+    prior_top_facts: dict[str, object] = {}
     if destination.exists():
         try:
             prior = json.loads(destination.read_text(encoding="utf-8"))
+            if isinstance(prior, dict) and isinstance(prior.get("facts"), dict) and prior.get("sha256") == archive.sha256:
+                prior_top_facts = prior["facts"]
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("Existing EC fact evidence is unreadable") from exc
         if isinstance(prior, dict) and isinstance(prior.get("revisions"), list):
             revisions = [item for item in prior["revisions"] if isinstance(item, dict)]
-    if not any(item.get("instrument_id") == instrument_id and item.get("sha256") == archive.sha256 for item in revisions):
+    same = [item for item in revisions if item.get("instrument_id") == instrument_id and item.get("sha256") == archive.sha256]
+    if not same:
         revisions.append(revision)
+    else:
+        # Re-import of the same package: only facts that were unavailable before may be filled (new mapping rules);
+        # a fact that was already available is never overwritten.
+        for item in same:
+            stored = item.get("facts")
+            if not isinstance(stored, dict):
+                continue
+            for name, fact in facts.items():
+                if fact.get("available") and not (isinstance(stored.get(name), dict) and stored[name].get("available")):
+                    stored[name] = fact
+        if prior_top_facts:
+            for name, fact in facts.items():
+                if fact.get("available") and not (isinstance(prior_top_facts.get(name), dict) and prior_top_facts[name].get("available")):
+                    prior_top_facts[name] = fact
+            facts = prior_top_facts
     atomic_write_json(
         destination,
         {

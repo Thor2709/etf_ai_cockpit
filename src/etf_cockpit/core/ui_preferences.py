@@ -12,7 +12,8 @@ from etf_cockpit.core.atomic_io import atomic_write_json
 from etf_cockpit.core.paths import ROOT
 
 MISSING_DATA_PENALTY = "missing_data_penalty"
-_DEFAULTS: dict[str, object] = {MISSING_DATA_PENALTY: False}
+SPAREBANK_PEERS = "sparebank_peers"  # {instrument_id: [owner-picked peer ids]}
+_DEFAULTS: dict[str, object] = {MISSING_DATA_PENALTY: False, SPAREBANK_PEERS: {}}
 _CACHE: dict[str, object] = {}
 
 

@@ -46,7 +46,8 @@ def test_marketability_rates_from_price_volume_parquet(tmp_path: Path) -> None:
 
     assert assumptions["marketability"]["median_volume_60d"] == pytest.approx(2000)
     assert assumptions["marketability"]["days_to_trade"] == pytest.approx(3)
-    assert inputs["median_volume_60d"]["status"] == "rated"
+    assert assumptions["marketability"]["median_turnover_nok_60d"] == pytest.approx(200000)  # close x volume, SB2 NOK turnover
+    assert inputs["median_turnover_nok_60d"]["status"] == "rated"
     assert inputs["days_to_trade"]["status"] == "rated"
 
 
@@ -70,9 +71,11 @@ def test_valuation_rates_book_multiple_from_filing_pool_facts_and_price() -> Non
     assert standalone["owner_pe"] == pytest.approx(100 / 12)
     assert standalone["count_sources"]["book"] == "owner_pool_total"
     assert standalone["count_sources"]["book_count"] == "registered_ec_count"
-    assert inputs["owner_pb"]["status"] == "rated"
+    # v1.2.0: P/B and P/E are shown with their value but not rated (book eq. 5.23, p. 107: P/B is not the thesis).
+    assert inputs["owner_pb"]["status"] == "shown"
     assert inputs["owner_pb"]["value"] == pytest.approx(1)
-    assert inputs["owner_pe"]["status"] == "rated"
+    assert inputs["owner_pb"]["rating_10"] is None
+    assert inputs["owner_pe"]["status"] == "shown"
 
 
 def test_filing_amount_unit_supplies_price_currency_when_assumptions_are_absent() -> None:

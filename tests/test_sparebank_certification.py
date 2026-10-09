@@ -103,14 +103,19 @@ def test_manifest_requirements_have_existing_file_function_and_test_locators() -
     equations = manifest["equations"]
     expected = [
         f"BOOK-EQ-{chapter}.{equation}"
-        for chapter, maximum in ((1, 7), (2, 4), (3, 5), (4, 3), (5, 10), (6, 4), (7, 5), (8, 3))
+        # The owner's book: 7 chapters, equations numbered 1.1 to 7.49 (SB2 numbering).
+        for chapter, maximum in ((1, 30), (2, 25), (3, 43), (4, 73), (5, 64), (6, 54), (7, 49))
         for equation in range(1, maximum + 1)
     ]
     assert [row["id"] for row in equations] == expected
-    assert len({row["id"] for row in equations}) == 41
+    assert len({row["id"] for row in equations}) == 338
     assert {item["table_reference"] for item in manifest["analytical_tables"]} == {
-        "table 2.1", "table 2.2", "table 3.2", "table 4.1", "table 4.2", "table 5.2",
-        "table 6.1", "table 6.2", "table 7.1", "table 7.2", "table 8.2", "table 9.2",
+        f"table {chapter}.{number}"
+        for chapter, maximum in ((1, 3), (2, 4), (3, 3), (4, 4), (5, 4), (6, 8), (7, 1))
+        for number in range(1, maximum + 1)
+    }
+    assert {row["status"] for row in [*equations, *manifest["requirements"], *manifest["analytical_tables"]]} <= {
+        "implemented", "partial", "unimplemented", "background",
     }
 
     rows = [*equations, *manifest["requirements"], *manifest["analytical_tables"]]
@@ -172,7 +177,7 @@ def test_teaching_bank_production_route_exposes_scorecard_and_workspace(tmp_path
     identity = projection["share_class_identity"]
     assert identity["native_suite"] == "sparebank-analysis-suite.v1"
     analysis = identity["sparebank_analysis"]
-    assert analysis["scorecard"]["formula_version"] == "sparebank-scorecard-v1.1.0"
+    assert analysis["scorecard"]["formula_version"] == "sparebank-scorecard-v1.2.0"
     assert analysis["scorecard"]["composite_10"] is not None
     assert analysis["decision_price"] == {
         "status": "available", "price": 100.0, "date": "2025-02-28", "currency": "NOK",

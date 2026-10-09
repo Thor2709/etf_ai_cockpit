@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
 import math
@@ -34,6 +34,8 @@ class SparebankScorecardPolicy:
     hard_gates: Mapping[str, object]
     scorecard: Mapping[str, object]
     axes: Mapping[str, object]
+    # Assumptions (not evidence) the book itself uses in its worked examples; labelled wherever shown.
+    valuation_defaults: Mapping[str, object] = field(default_factory=dict)
 
 
 def load_sparebank_scorecard_policy(path: Path = SCORECARD_CONFIG_PATH) -> SparebankScorecardPolicy:
@@ -72,6 +74,7 @@ def load_sparebank_scorecard_policy(path: Path = SCORECARD_CONFIG_PATH) -> Spare
         hard_gates=dict(payload["hard_gates"]),
         scorecard=dict(scorecard),
         axes=dict(axes),
+        valuation_defaults=dict(payload.get("valuation_defaults") or {}),
     )
 
 
@@ -130,17 +133,25 @@ def build_sparebank_scorecard(
         for input_rule in axis.get("inputs", []):
             row = dict(input_rule)
             value = _input_value(row, context)
-            rating = None if value is None else _rating(value, row["anchors"])
+            scored = not bool(row.get("display_only"))
+            rating = None if value is None or not scored else _rating(value, row["anchors"])
+            bank_reasons = _field(bank, "reasons", {})
+            reason_text = None
+            if value is None:
+                reason_text = (bank_reasons.get(str(row["id"])) if isinstance(bank_reasons, Mapping) else None) or row.get("missing_reason")
             row.update(
                 value=value,
                 rating_10=rating,
-                status="rated" if value is not None else "UNAVAILABLE",
+                scored=scored,
+                status=("rated" if scored else "shown") if value is not None else "UNAVAILABLE",
                 reason_code=None if value is not None else "SCORECARD_INPUT_UNAVAILABLE",
+                reason=reason_text,
             )
             rated_inputs.append(row)
             raw_values[str(row["id"])] = value
-        available = [row for row in rated_inputs if row["rating_10"] is not None]
-        defined_count = len(rated_inputs)
+        scored_inputs = [row for row in rated_inputs if row["scored"]]
+        available = [row for row in scored_inputs if row["rating_10"] is not None]
+        defined_count = len(scored_inputs)
         coverage = len(available) / defined_count if defined_count else 0.0
         rating = None if not available else round(sum(float(row["rating_10"]) for row in available) / len(available), 6)
         axis.update(
@@ -148,7 +159,7 @@ def build_sparebank_scorecard(
             rating_10=rating,
             coverage=coverage,
             inputs=tuple(rated_inputs),
-            missing_inputs=tuple(str(row["id"]) for row in rated_inputs if row["rating_10"] is None),
+            missing_inputs=tuple(str(row["id"]) for row in scored_inputs if row["rating_10"] is None),
             calculation_ids=tuple(dict.fromkeys(str(row["calculation_id"]) for row in rated_inputs)),
             rule_version=selected.judgement_version,
             threshold_label="judgement",

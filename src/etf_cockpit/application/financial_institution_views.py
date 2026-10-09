@@ -21,6 +21,12 @@ from etf_cockpit.signals.feature_drivers import _source_vintage_hash
 from etf_cockpit.analysis.bank_metric_facts import (
     _financial_metric_facts,
 )
+from etf_cockpit.application.sparebank_evidence import (
+    merge_bank_economics_evidence,
+    pillar3_evidence,
+    statement_series,
+    with_derived_owner_earnings,
+)
 
 
 def load_financial_institution_projection(
@@ -152,6 +158,9 @@ def _build_financial_projection_from_evidence(
     ec_payload = _read_json_artifact(root, "ec_facts.json", instrument_id=instrument_id) or {}
     ec_revision = _select_ec_revision(ec_payload, instrument_id, decision)
     ec_facts = ec_revision.get("facts", {}) if isinstance(ec_revision, Mapping) else {}
+    statements = statement_series(rows, target_period=requested_period)
+    if isinstance(ec_facts, Mapping) and ec_facts:
+        ec_facts = with_derived_owner_earnings(ec_facts, statements)
     from etf_cockpit.analysis.sparebank import analyse_sparebank_ec
     route_evidence = {
         "facts": ec_facts,
@@ -178,6 +187,11 @@ def _build_financial_projection_from_evidence(
     }
     valuation_assumptions = ec_revision.get("valuation_assumptions")
     valuation_assumptions = valuation_assumptions if isinstance(valuation_assumptions, Mapping) else None
+    bank_economics_evidence = merge_bank_economics_evidence(
+        ec_revision.get("bank_economics_evidence") if isinstance(ec_revision, Mapping) else None,
+        statements,
+        pillar3_evidence(root, instrument_id, cutoff),
+    )
     valuation_currency = _valuation_currency(valuation_assumptions, context, ec_facts)
     price_path = root / "data" / "clean" / "prices.parquet"
     decision_price = None
@@ -247,14 +261,17 @@ def _build_financial_projection_from_evidence(
         decision_time=cutoff,
         price=decision_price,
         bank_metrics=result.metrics,
-        bank_economics_evidence=(ec_revision.get("bank_economics_evidence") if isinstance(ec_revision, Mapping) else None),
+        bank_economics_evidence=bank_economics_evidence or None,
         events=(ec_revision.get("events", ()) if isinstance(ec_revision, Mapping) else ()),
-        valuation_assumptions=_with_local_marketability(
-            root,
-            instrument_id,
-            decision,
-            market_data_prices,
-            valuation_assumptions,
+        valuation_assumptions=_with_policy_defaults(
+            _with_local_marketability(
+                root,
+                instrument_id,
+                decision,
+                market_data_prices,
+                valuation_assumptions,
+                price=decision_price,
+            )
         ),
         tactical_evidence=tactical_evidence,
     )
@@ -278,6 +295,9 @@ def _build_financial_projection_from_evidence(
         }
         sparebank_payload = asdict(sparebank_analysis)
         sparebank_payload["decision_price"] = decision_price_projection
+        from etf_cockpit.analysis.sparebank.dividends import dividend_history
+
+        sparebank_payload["dividends"] = dividend_history(_market_prices_as_of(market_data_prices, instrument_id, decision), decision_price)
         source_vintage_hash = _source_vintage_hash(route_evidence.get("sha256")) or "unavailable"
         sparebank_payload["source_vintage_hash"] = source_vintage_hash
         scorecard = sparebank_analysis.scorecard
@@ -428,12 +448,30 @@ def _financial_rows_for_instrument(
     return rows
 
 
+def _with_policy_defaults(assumptions: Mapping[str, object]) -> dict[str, object]:
+    """Add the book's illustrative cost of equity and growth only where the evidence supplies none."""
+
+    from etf_cockpit.analysis.sparebank import load_sparebank_scorecard_policy
+
+    defaults = load_sparebank_scorecard_policy().valuation_defaults
+    result = dict(assumptions)
+    if "cost_of_equity" not in result and "cost_of_equity_pct" not in result and defaults.get("cost_of_equity") is not None:
+        result["cost_of_equity"] = defaults["cost_of_equity"]
+        result["assumption_source"] = defaults.get("assumption_source")
+    if "long_run_growth" not in result and "g" not in result and defaults.get("long_run_growth") is not None:
+        result["long_run_growth"] = defaults["long_run_growth"]
+        result.setdefault("assumption_source", defaults.get("assumption_source"))
+    return result
+
+
 def _with_local_marketability(
     root: Path,
     instrument_id: str,
     decision: object,
     prices: pd.DataFrame | None,
     assumptions: Mapping[str, object] | None,
+    *,
+    price: float | None = None,
 ) -> dict[str, object]:
     result = dict(assumptions or {})
     marketability = dict(result.get("marketability", {})) if isinstance(result.get("marketability"), Mapping) else {}
@@ -455,6 +493,11 @@ def _with_local_marketability(
 
     policy = load_sparebank_scorecard_policy()
     policy_marketability = policy.scorecard.get("marketability", {})
+    reference_position = _finite_number(policy_marketability.get("reference_position_nok")) if isinstance(policy_marketability, Mapping) else None
+    if (quantity is None or quantity <= 0) and reference_position is not None and price is not None and price > 0:
+        # No candidate position: use the documented reference position (NOK) at the decision price.
+        quantity = reference_position / price
+        marketability["reference_position_nok"] = reference_position
     participation = _finite_number(policy_marketability.get("participation_rate")) if isinstance(policy_marketability, Mapping) else None
     days = None
     if quantity is not None and quantity > 0 and volume is not None and volume > 0 and participation is not None:
@@ -465,6 +508,12 @@ def _with_local_marketability(
         marketability["days_to_trade"] = days
     if volume is not None:
         marketability["median_volume_60d"] = volume
+    if not price_rows.empty and {"close", "volume"}.issubset(price_rows.columns):
+        turnover = (
+            pd.to_numeric(price_rows["close"], errors="coerce") * pd.to_numeric(price_rows["volume"], errors="coerce")
+        ).dropna()
+        if not turnover.empty:
+            marketability["median_turnover_nok_60d"] = float(turnover.tail(60).median())
     if report_name is not None:
         marketability["candidate_report"] = report_name
     if not price_rows.empty:

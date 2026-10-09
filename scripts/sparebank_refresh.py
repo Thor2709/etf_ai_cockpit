@@ -215,6 +215,10 @@ def _rescore(record: UniverseRecord, data_root: Path, universe_root: Path, decis
     identity = projection.get("share_class_identity") if isinstance(projection, Mapping) else None
     analysis = identity.get("sparebank_analysis") if isinstance(identity, Mapping) else None
     scorecard = analysis.get("scorecard") if isinstance(analysis, Mapping) else None
+    if isinstance(analysis, Mapping) and isinstance(scorecard, Mapping):
+        from etf_cockpit.application.sparebank_peers import peer_row, record_peer_row
+
+        record_peer_row(data_root, peer_row(record.instrument_id, record.name, analysis, decision_time))
     if not isinstance(scorecard, Mapping):
         reason = str(projection.get("reason_code") or projection.get("status") or "scorecard_unavailable")
         return None, None, reason
@@ -235,8 +239,12 @@ def refresh_sparebanks(
     decision_time: str | None = None,
     importer: Callable = import_official_filing,
     rescorer: Callable = _rescore,
+    fetch: bool = True,
 ) -> tuple[dict[str, object], ...]:
-    """Refresh each enabled configured certificate independently and write a summary."""
+    """Refresh each enabled configured certificate independently and write a summary.
+
+    With ``fetch=False`` no network request is made: the retained evidence is only rescored.
+    """
 
     root = Path(data_root).resolve()
     source_root = Path(universe_root or ROOT).resolve()
@@ -251,9 +259,16 @@ def refresh_sparebanks(
         filing_date = ""
         reason = ""
         try:
-            lei = _resolve_lei(record, bank_evidence, official, now=now)
-            filing = _latest_filing(tuple(official.filings_for_lei(lei)), lei)
-            if filing is None:
+            if not fetch:
+                lei = record.lei or ""
+                filing = None
+                reason = "not_fetched"
+            else:
+                lei = _resolve_lei(record, bank_evidence, official, now=now)
+                filing = _latest_filing(tuple(official.filings_for_lei(lei)), lei)
+            if not fetch:
+                pass
+            elif filing is None:
                 reason = "no_filing_found"
             else:
                 filing_date = str(filing["date_added"])
@@ -320,12 +335,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT, help="data root to update")
     parser.add_argument("--universe-root", type=Path, default=ROOT, help="root containing the universe store or configs")
+    parser.add_argument("--rescore-only", action="store_true", help="make no network request; rescore the retained evidence")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    rows = refresh_sparebanks(args.root, universe_root=args.universe_root)
+    rows = refresh_sparebanks(args.root, universe_root=args.universe_root, fetch=not args.rescore_only)
     print("id\tLEI\tfiling date\tcomposite\tcoverage\treason")
     for row in rows:
         print("\t".join(str(row.get(key) if row.get(key) is not None else "") for key in ("id", "lei", "filing_date", "composite", "coverage", "reason")))

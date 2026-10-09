@@ -1,21 +1,37 @@
 schema_version: 1
-formula_version: sparebank-scorecard-v1.1.0
+formula_version: sparebank-scorecard-v1.2.0
+# v1.2.0 (SB2): every anchor and weight is tied to a page of the owner's book
+# (docs/architecture/sparebank-book-gap-2026-10.md). The book prints NO numeric weights or rating
+# anchors: it asks for a causal judgement supported by quantified sub-metrics (p. 64, 3.12.1), so
+# equal axis weights and the anchor values below are judgement defaults. `book` names the page that
+# defines the metric or gives the interpretation the anchor rests on. Inputs marked display_only are
+# shown with their value but are not rated (the book warns that they are not quality measures).
 horizons:
   underwriting: multi-year owner economics
   tactical: 1-3 months
 judgement:
   status: judgement-v1-provisional
   version: judgement-v1-provisional
-  source: orchestrator judgement anchored on regulatory minimums and book principles; not tuned to historical cases; owner review pending
+  source: orchestrator judgement anchored on regulatory minimums and book principles; the book prints no numeric anchors; owner review pending
   rating_method: linear_interpolation_between_anchors_clamped_to_0_and_10
   threshold_label: judgement
+# Assumptions, not evidence. The book's own worked examples use a 10 % cost of equity and 3 % long-run
+# growth (p. 16, p. 111, eq. 1.26 and 5.35-5.36); the cost of equity is bank-specific and should be tested
+# as a range (p. 15). Everything derived from these is labelled "assumption" wherever it is shown.
+valuation_defaults:
+  cost_of_equity: 0.10
+  long_run_growth: 0.03
+  assumption_source: book worked-example defaults (p. 16 and p. 111); owner may override per bank
 hard_gates:
+  # Flag-only gates keep the claim/point-in-time/denominator problems visible without capping (owner 2026-10-09).
   unresolved_claim: flag_only
   failed_pit_check: flag_only
   invalid_valuation_denominator: flag_only
+  # Regulatory floors: headroom below the requirement (eq. 1.17, p. 10), LCR/NSFR below 100 % (eq. 4.28-4.29, p. 78).
   cap_headroom_below_requirement: 3
   cap_lcr_below_minimum: 3
   cap_nsfr_below_minimum: 3
+  # A position that needs more than 20 days to exit (5.3.3, p. 105) caps the score.
   cap_days_to_trade_above_limit: 5
   cet1_headroom_minimum_pp: 0
   lcr_minimum_pct: 100
@@ -24,181 +40,372 @@ hard_gates:
 scorecard:
   min_coverage_for_composite: 0.25
   axis_weights:
-    # v1.1: data-coverage axes are shown but not scored (missing data is handled by the
-    # global missing-data toggle, never counted twice); the owner-claim gate still applies.
+    # Equal weights: the book gives none (p. 64). Data-coverage axes are shown but not scored (missing data is
+    # handled once, by the global missing-data toggle). Portfolio context is a property of the owner's portfolio,
+    # not of the bank (quality is judged with the price and the portfolio hidden, 3.12, p. 63), so it is shown, not scored.
+    # Capital allocation is shown, not scored: the book calls its allocation ladder "deliberately non-doctrinal"
+    # (5.8.1, p. 114: high payout is not automatically good, high retention is not automatically prudent), so it
+    # gives no direction to rate. It is computed and displayed for the owner.
     owner_claim_integrity: 0.0
     funding_deposit_franchise: 1.0
     lending_economics: 1.0
     credit_concentration: 1.0
     capital_liquidity_resilience: 1.0
     efficiency_normalised_earnings: 1.0
-    capital_allocation: 1.0
+    capital_allocation: 0.0
     owner_valuation_expectations: 1.0
     structural_transition: 1.0
     marketability_implementation: 1.0
     evidence_quality: 0.0
-    portfolio_context: 1.0
+    portfolio_context: 0.0
   marketability:
+    # Fraction of median daily volume a private investor can take without moving the price (5.3.3, p. 105).
     participation_rate: 0.1
+    # Reference position used for days-to-trade when no candidate position exists. Conservative default for a
+    # monthly private buyer; the owner can change it.
+    reference_position_nok: 100000
 axes:
   owner_claim_integrity:
     label: Owner-claim integrity
     group: Claim and franchise
     critical: true
+    explain: Whether the EC owner claim (owner capital pools, eierbrok, certificate count) is fully reconstructed from the filing. Book 1.5, p. 12-14 and eq. 5.2-5.5, p. 101.
     inputs:
       - id: claim_coverage_x10
+        label: Owner-claim coverage
         source: claim_state.coverage
         transform: coverage_x10
         unit: score_input
         calculation_id: sparebank.claim.build_claim_state
+        book: "p. 13 (owner-matching rule), eq. 5.2-5.5 p. 101"
         anchors: [{value: 0, rating: 0}, {value: 5, rating: 5}, {value: 10, rating: 10}]
   funding_deposit_franchise:
     label: Funding/deposit franchise
     group: Claim and franchise
     critical: false
+    explain: Whether funding is cheap, stable and not outrunning deposits. Book 3.2 p. 47-49 and 4.4 p. 75-79.
     inputs:
       - id: deposit_to_loan_ratio_pct
+        label: Deposit-to-loan ratio
         source: bank_economics.funding.deposit_to_loan_ratio
         transform: ratio_to_percent
         unit: percent
         calculation_id: financial-sector-adapter.loan_deposit_ratio
-        # v1.1: Norwegian banks fund mortgages via covered-bond companies; ~60% is the sector norm
-        # (SSB 2008: 62% all banks), so it rates neutral instead of weak.
+        book: "p. 48 (3.2.2: a funding-quantity measure, not franchise quality), p. 6 (covered-bond funding)"
+        # Norwegian banks fund mortgages via covered-bond companies; ~60 % is the sector norm (SSB 2008: 62 %).
+        # The book says a high ratio is not proof of a good franchise, so this is the weakest funding input.
         anchors: [{value: 40, rating: 0}, {value: 60, rating: 5}, {value: 80, rating: 10}]
+        missing_reason: Deposit coverage is printed in the annual report or Pillar 3; it is not tagged in the filing.
+      - id: loan_minus_deposit_growth_pp
+        label: Loan growth minus deposit growth
+        source: bank_economics.lending.loan_minus_deposit_growth
+        transform: ratio_to_percent
+        unit: percentage_points
+        calculation_id: sparebank.bank_economics.lending_economics
+        book: "p. 96 (divergence 1: loan growth above deposit growth), p. 79 (the right to remain patient)"
+        anchors: [{value: 8, rating: 0}, {value: 3, rating: 5}, {value: 0, rating: 8}, {value: -5, rating: 10}]
+        missing_reason: Needs customer loans and deposits for two consecutive year-ends in the filing.
+      - id: deposit_beta
+        label: Deposit beta
+        source: bank_economics.funding.deposit_beta
+        transform: identity
+        unit: ratio
+        display_only: true
+        calculation_id: sparebank.bank_economics.deposit_beta
+        book: "eq. 1.7 p. 4 and eq. 4.23 p. 77: a low beta is only favourable if balances stay (eq. 4.24)"
+        anchors: [{value: 0, rating: 10}, {value: 1, rating: 0}]
+        missing_reason: Needs the deposit interest cost for two periods and the reference-rate move; deposit cost is only in the notes, not tagged in the filing.
+      - id: wholesale_maturing_12m
+        label: Wholesale funding maturing within 12 months
+        source: bank_economics.funding.wholesale_maturing_12m
+        transform: ratio_to_percent
+        unit: percent
+        display_only: true
+        calculation_id: sparebank.book_calcs.refinancing_concentration
+        book: "eq. 4.25 p. 77"
+        anchors: [{value: 40, rating: 0}, {value: 20, rating: 10}]
+        missing_reason: The maturity ladder of wholesale funding is only in the annual-report notes; extract and confirm it in the Pillar 3 queue when disclosed.
   lending_economics:
     label: Lending economics
     group: Bank economics
     critical: false
-    producer: unavailable
-    inputs: []
+    explain: Whether lending earns a real margin after credit losses, and whether income is keeping up with volume. Book 1.2-1.3 p. 4-9 and 4.2 p. 69-72.
+    inputs:
+      - id: risk_adjusted_margin_pct
+        label: Net interest margin minus cost of risk
+        source: bank_economics.lending.risk_adjusted_margin
+        transform: ratio_to_percent
+        unit: percent
+        calculation_id: sparebank.book_calcs.risk_adjusted_lending_spread
+        book: "eq. 1.14 p. 9 (risk-adjusted spread); NIM reference points 1.9-2.6 % on p. 4 and p. 7"
+        anchors: [{value: 1.5, rating: 0}, {value: 2.0, rating: 5}, {value: 2.6, rating: 10}]
+        missing_reason: Needs net interest income, impairment losses, loans and total assets for two consecutive year-ends.
+      - id: nii_minus_loan_growth_pp
+        label: Net interest income growth minus loan growth
+        source: bank_economics.lending.nii_minus_loan_growth
+        transform: ratio_to_percent
+        unit: percentage_points
+        calculation_id: sparebank.book_calcs.growth_gap
+        book: "p. 96 (divergence 2: NII down while volumes rise), p. 7 (Trondelag margin compression)"
+        anchors: [{value: -6, rating: 0}, {value: 0, rating: 5}, {value: 6, rating: 10}]
+        missing_reason: Needs net interest income and customer loans for two consecutive year-ends in the filing.
   credit_concentration:
     label: Credit/concentration
     group: Bank economics
     critical: false
+    explain: Cost of risk and the Stage 3 share, the realised and the revealed credit cost. Book 1.3 p. 7-9 and 4.7 p. 87-89.
     inputs:
       - id: cost_of_risk_bps
+        label: Cost of risk
         source: bank_economics.reported.metrics.cost_of_risk
         transform: ratio_to_basis_points
         unit: basis_points
         calculation_id: financial-sector-adapter.cost_of_risk
+        book: "eq. 4.59 p. 88; p. 9 (2 bp in a benign year is not better than 15 bp)"
         anchors: [{value: 100, rating: 0}, {value: 30, rating: 5}, {value: 10, rating: 10}]
+        missing_reason: Needs impairment losses and loans in two consecutive annual statements.
       - id: stage_3_ratio_pct
+        label: Stage 3 share of gross loans
         source: bank_economics.credit.stage_3_ratio_pct
         transform: ratio_to_percent
         unit: percent
         calculation_id: sparebank.bank_economics.credit_reconciliation
+        book: "p. 8-9 (IFRS 9 staging as a pipeline); stock must be read with flows (eq. 4.60 p. 89)"
         anchors: [{value: 3, rating: 0}, {value: 1, rating: 5}, {value: 0.3, rating: 10}]
+        missing_reason: The Stage 3 share is only printed in the notes or Pillar 3 report; confirm it in the Pillar 3 queue.
+      - id: stage_2_ratio_pct
+        label: Stage 2 share of gross loans
+        source: bank_economics.credit.stage_2_ratio_pct
+        transform: ratio_to_percent
+        unit: percent
+        display_only: true
+        calculation_id: sparebank.book_calcs.stage_share
+        book: "eq. 4.54 p. 87: Stage 2 is a map of where credit information will matter, not a default forecast"
+        anchors: [{value: 20, rating: 0}, {value: 8, rating: 5}, {value: 3, rating: 10}]
+        missing_reason: The Stage 2 share is only printed in the notes or Pillar 3 report; confirm it in the Pillar 3 queue.
+      - id: stage_3_coverage
+        label: Stage 3 provision coverage
+        source: bank_economics.credit.stage_3_coverage
+        transform: ratio_to_percent
+        unit: percent
+        display_only: true
+        calculation_id: sparebank.book_calcs.stage3_coverage
+        book: "eq. 1.13 p. 8 and eq. 4.57 p. 88: coverage depends on collateral, so it is not rated on its own"
+        anchors: [{value: 10, rating: 0}, {value: 40, rating: 10}]
+        missing_reason: Stage 3 allowance and exposure are only in the notes; confirm them in the Pillar 3 queue.
   capital_liquidity_resilience:
     label: Capital/liquidity resilience
     group: Bank economics
     critical: true
+    explain: How far CET1 sits above its full requirement and whether liquidity is above the regulatory floor. Book 1.4 p. 9-12, 4.4.6 p. 78 and 4.8 p. 89-92.
     inputs:
       - id: cet1_headroom_pp
+        label: CET1 headroom to requirement
         source: bank_economics.resilience
         transform: headroom_percentage_points
         unit: percentage_points
         calculation_id: sparebank.bank_economics.capital_resilience
+        book: "eq. 1.17 p. 10; distance to the management target p. 90 (eq. 4.66); a 1.75 pp stress hit p. 90"
         anchors: [{value: 0, rating: 0}, {value: 2, rating: 5}, {value: 5, rating: 10}]
+        missing_reason: Needs the bank's CET1 requirement (legal minimum plus buffers and Pillar 2) from its Pillar 3 or annual report; confirm it in the Pillar 3 queue.
       - id: lcr_pct
+        label: Liquidity coverage ratio
         source: bank_economics.funding.lcr
         transform: ratio_to_percent
         unit: percent
         calculation_id: financial-sector-adapter.liquidity_coverage_ratio
+        book: "eq. 4.28 p. 78 (necessary, not complete); regulatory floor 100 %"
         anchors: [{value: 100, rating: 0}, {value: 150, rating: 5}, {value: 200, rating: 10}]
+        missing_reason: LCR is printed in the Pillar 3 or annual report only; confirm it in the Pillar 3 queue.
       - id: nsfr_pct
+        label: Net stable funding ratio
         source: bank_economics.funding.nsfr
         transform: ratio_to_percent
         unit: percent
         calculation_id: financial-sector-adapter.net_stable_funding_ratio
+        book: "eq. 4.29 p. 78; regulatory floor 100 %"
         anchors: [{value: 100, rating: 0}, {value: 110, rating: 5}, {value: 120, rating: 10}]
+        missing_reason: NSFR is printed in the Pillar 3 or annual report only; confirm it in the Pillar 3 queue.
+      - id: leverage_ratio_pct
+        label: Leverage ratio
+        source: bank_economics.resilience.leverage_ratio
+        transform: ratio_to_percent
+        unit: percent
+        display_only: true
+        calculation_id: sparebank.bank_economics.build_bank_economics
+        book: "p. 11 and p. 90: the unweighted cross-check on a CET1 ratio helped by lower risk weights"
+        anchors: [{value: 3, rating: 0}, {value: 5, rating: 5}, {value: 8, rating: 10}]
+        missing_reason: The leverage ratio is printed in the Pillar 3 report; confirm it in the Pillar 3 queue.
   efficiency_normalised_earnings:
     label: Efficiency/normalised earnings
     group: Bank economics
     critical: false
+    explain: Whether the cost base is competitive and whether sustainable ROE clears the cost of equity. Book 3.6 p. 54 and 3.10 p. 60-61, 5.2-5.3 p. 102-106.
     inputs:
       - id: cost_income_pct
+        label: Cost/income
         source: bank_economics.reported.metrics.cost_income_ratio
         transform: ratio_to_percent
         unit: percent
         calculation_id: financial-sector-adapter.cost_income_ratio
+        book: "eq. 3.22 p. 54 (a fraction with two moving parts; read with cost-to-assets)"
         anchors: [{value: 70, rating: 0}, {value: 50, rating: 5}, {value: 35, rating: 10}]
+        missing_reason: Needs operating expenses and income lines for the same period in the filing.
+      - id: cost_to_assets_pct
+        label: Cost-to-assets
+        source: bank_economics.lending.cost_to_average_assets
+        transform: ratio_to_percent
+        unit: percent
+        calculation_id: sparebank.book_calcs.cost_to_assets
+        book: "p. 54 (cost-to-assets sits beside C/I because the margin cycle does not distort it)"
+        anchors: [{value: 2.5, rating: 0}, {value: 1.6, rating: 5}, {value: 1.0, rating: 10}]
+        missing_reason: Needs operating expenses and total assets for two consecutive year-ends in the filing.
       - id: normalised_roe_minus_cost_of_equity_pp
+        label: Sustainable ROE minus cost of equity (assumption)
         source: bank_economics.normalised.normalised_roe
         transform: normalised_roe_spread_percentage_points
         unit: percentage_points
         calculation_id: sparebank.bank_economics.normalisation_bridge
+        book: "eq. 3.42 p. 61 (quality spread); ROE = COE gives about one times book (eq. 1.25 p. 15)"
         anchors: [{value: -5, rating: 0}, {value: 0, rating: 5}, {value: 5, rating: 10}]
+        missing_reason: Needs the EC-attributable result and the owner capital pools from the filing.
   capital_allocation:
     label: Capital allocation
     group: Owner value and change
     critical: false
-    producer: unavailable
-    inputs: []
+    explain: Whether capital is being built at least as fast as the balance sheet grows, and what excess capital and payouts look like. Book 3.9 p. 58-60, 5.7 p. 112-113, 5.8 p. 113-114.
+    inputs:
+      - id: capital_self_funding_gap_pp
+        label: Equity growth minus asset growth
+        source: bank_economics.allocation.capital_self_funding_gap
+        transform: ratio_to_percent
+        unit: percentage_points
+        display_only: true
+        calculation_id: sparebank.book_calcs.growth_gap
+        book: "eq. 5.42 p. 112 (capital self-funding; total assets stand in for RWA until Pillar 3 RWA is confirmed). A merger or share issue raises equity without internal generation, so it is shown, not rated."
+        anchors: [{value: -6, rating: 0}, {value: -1, rating: 5}, {value: 3, rating: 10}]
+        missing_reason: Needs total assets and equity for two consecutive year-ends in the filing.
+      - id: cet1_surplus_nok
+        label: Surplus CET1 above requirement (NOK)
+        source: bank_economics.resilience.surplus_cet1_nok
+        transform: identity
+        unit: nok
+        display_only: true
+        calculation_id: sparebank.book_calcs.surplus_cet1
+        book: "eq. 3.40 p. 59 and eq. 5.39 p. 112; capital headroom is a regulatory capacity, not a pile of cash (p. 12)"
+        anchors: [{value: 0, rating: 0}, {value: 100000000, rating: 10}]
+        missing_reason: Needs the CET1 requirement and RWA from the Pillar 3 report; confirm them in the Pillar 3 queue.
+      - id: payout_symmetry_gap
+        label: Payout symmetry gap (owner minus ownerless payout)
+        source: bank_economics.allocation.payout_symmetry_gap
+        transform: ratio_to_percent
+        unit: percentage_points
+        display_only: true
+        calculation_id: sparebank.book_calcs.payout_symmetry_gap
+        book: "eq. 5.45 p. 113; a positive gap lets the eierbrok fall over time"
+        anchors: [{value: 30, rating: 0}, {value: 0, rating: 10}]
+        missing_reason: Needs the dividend on the EC pool and the distribution of the ownerless pool from the annual report; not tagged in the filing.
   owner_valuation_expectations:
     label: Owner valuation/expectations
     group: Owner value and change
     critical: true
+    explain: What the EC is worth on its own claim and what its price already requires. Book 5.1-5.6 p. 100-112. Cost of equity and growth are assumptions.
     inputs:
       - id: owner_value_vs_decision_price_pct
+        label: Justified value per EC versus price (assumption)
         source: valuation.central_owner_value_per_ec
         transform: owner_value_vs_decision_price_percent
         unit: percent
         calculation_id: sparebank.valuation.owner_valuation
+        book: "eq. 5.22 p. 107 (justified P/B = (ROE - g)/(COE - g)); margin of safety eq. 5.54 p. 117"
         anchors: [{value: -30, rating: 0}, {value: 0, rating: 5}, {value: 30, rating: 10}]
+        missing_reason: Needs the sustainable ROE, owner book per EC and a decision price.
+      - id: expectations_gap_pp
+        label: Expectations gap (assumption)
+        source: valuation.reverse.expectations_gap
+        transform: ratio_to_percent
+        unit: percentage_points
+        calculation_id: sparebank.valuation.owner_valuation
+        book: "eq. 5.32-5.34 p. 110-111 (implied ROE and expectations gap)"
+        anchors: [{value: -4, rating: 0}, {value: 0, rating: 5}, {value: 4, rating: 10}]
+        missing_reason: Needs the sustainable ROE and owner price-to-book.
       - id: owner_pb
+        label: Owner price-to-book
         source: valuation.standalone.owner_pb
         transform: identity
         unit: ratio
+        display_only: true
         calculation_id: sparebank.valuation.owner_valuation
+        book: "eq. 1.21 p. 14 and eq. 5.23 p. 107: P/B is not the valuation thesis, ROE relative to COE is"
         anchors: [{value: 0, rating: 10}, {value: 1, rating: 8}, {value: 2, rating: 4}, {value: 3, rating: 0}]
+        missing_reason: Needs the owner capital pools, the certificate count and a decision price.
       - id: owner_pe
+        label: Owner price-to-earnings
         source: valuation.standalone.owner_pe
         transform: identity
         unit: ratio
+        display_only: true
         calculation_id: sparebank.valuation.owner_valuation
+        book: "eq. 1.23 p. 14: P/E = P/B / ROE when both belong to the same owner claim"
         anchors: [{value: 0, rating: 10}, {value: 10, rating: 8}, {value: 20, rating: 5}, {value: 30, rating: 0}]
+        missing_reason: Needs the EC-attributable result and the certificate count.
   structural_transition:
     label: Structural transition
     group: Owner value and change
     critical: false
+    explain: Value per existing EC after a merger, conversion or sell-down. Book 6.2-6.4 p. 125-131 and 7.11 p. 170-174.
     inputs:
       - id: owner_value_accretion_pct
+        label: Value accretion per existing EC
         source: events
         transform: event_value_accretion_percent
         unit: percent
         calculation_id: sparebank.events.merger_bridge
+        book: "eq. 6.6 p. 128 (value per legacy EC after versus standalone), eq. 7.37 p. 172"
         anchors: [{value: -10, rating: 0}, {value: 0, rating: 5}, {value: 10, rating: 10}]
+        missing_reason: No merger, conversion or sell-down event is recorded for this bank; add one under Events when announced.
   marketability_implementation:
     label: Marketability/implementation
     group: Owner value and change
     critical: false
+    explain: How many days a realistic position takes to exit and how much trades. Book 5.3.3 p. 105 and 6.7 p. 138-139.
     inputs:
       - id: days_to_trade
+        label: Days to trade the reference position
         source: valuation.marketability.days_to_trade
         transform: days_to_trade
         unit: days
         calculation_id: sparebank.valuation.days_to_trade
+        book: "p. 105 (days required to exit a realistic position); eq. 6.40 p. 139"
         anchors: [{value: 20, rating: 0}, {value: 5, rating: 5}, {value: 1, rating: 10}]
-      - id: median_volume_60d
-        source: valuation.marketability.median_volume_60d
+        missing_reason: Needs the median daily volume and a reference position size.
+      - id: median_turnover_nok_60d
+        label: Median daily turnover (NOK)
+        source: valuation.marketability.median_turnover_nok_60d
         transform: identity
-        unit: shares_per_day
+        unit: nok_per_day
         calculation_id: sparebank.valuation.marketability_liquidity
-        anchors: [{value: 0, rating: 0}, {value: 10000, rating: 5}, {value: 50000, rating: 10}]
+        book: "p. 105 (turnover and trading frequency are the evidence for an illiquidity adjustment)"
+        anchors: [{value: 0, rating: 0}, {value: 250000, rating: 5}, {value: 2000000, rating: 10}]
+        missing_reason: Needs 60 trading days of price and volume history.
   evidence_quality:
     label: Evidence quality
     group: Evidence
     critical: true
+    explain: How much of the analysis rests on observed evidence. Shown, not scored.
     inputs:
       - id: overall_coverage_x10
+        label: Overall evidence coverage
         source: analysis.coverage
         transform: coverage_x10
         unit: score_input
         calculation_id: sparebank.claim.build_claim_state
+        book: "p. 101 (owner bridge before any multiple)"
         anchors: [{value: 0, rating: 0}, {value: 5, rating: 5}, {value: 10, rating: 10}]
   portfolio_context:
     label: Portfolio context
     group: Evidence
     critical: false
+    explain: How the position fits the owner's own portfolio. It is a property of the portfolio, not of the bank, so it is not scored (book 3.12, p. 63).
     producer: unavailable
     inputs: []

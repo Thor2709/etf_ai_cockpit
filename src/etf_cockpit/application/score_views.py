@@ -101,6 +101,14 @@ def score_coverage(score: object) -> float | None:
     return min(max(coverage, 0.0), 1.0) if isfinite(coverage) else None
 
 
+def sparebank_score_context(score: object) -> dict[str, object] | None:
+    """What the stored scorecard says about one bank: composite, coverage, gate reasons, axes without evidence."""
+
+    from etf_cockpit.application.sparebank_peers import load_peer_row
+
+    return load_peer_row(None, str(getattr(score, "display_id", "")))
+
+
 def apply_missing_data_penalty(score: object) -> object:
     """Pull a score toward neutral 5 by its missing evidence: 5 + (score - 5) x coverage."""
 
