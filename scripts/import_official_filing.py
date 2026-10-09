@@ -145,8 +145,8 @@ def import_official_filing(
 
     output = Path(output_dir or Path("evidence") / "norway" / f"{canonical}-{expected[:4]}").resolve()
     now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-    known_at = str(published_at or now).strip()
     source = Path(source_path)
+    known_at = _resolve_published_at(source, source_url, published_at)
     try:
         payload = source.read_bytes()
     except OSError as exc:
@@ -271,6 +271,57 @@ def import_official_filing(
         "normalised_path": str(normalised_path),
         "execution_allowed": False,
     }
+
+
+def _resolve_published_at(source_path: Path, source_url: str, explicit: str | None) -> str:
+    """Use an adjacent filings.xbrl.org API record, or require an explicit date."""
+
+    candidates: list[tuple[str, bool]] = []
+    try:
+        sidecars = sorted(source_path.resolve().parent.glob("*.json"))
+    except OSError:
+        sidecars = []
+    for sidecar in sidecars:
+        try:
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        serialized = json.dumps(payload, ensure_ascii=False)
+        linked = source_url in serialized or source_path.name in serialized
+        for record in _nested_mappings(payload):
+            date_added = record.get("date_added")
+            if date_added is not None and str(date_added).strip():
+                candidates.append((str(date_added).strip(), linked))
+    linked_dates = {date for date, linked in candidates if linked}
+    if len(linked_dates) == 1:
+        selected = next(iter(linked_dates))
+    elif len(linked_dates) > 1:
+        raise ValueError("adjacent filing metadata has conflicting date_added values")
+    else:
+        unlinked_dates = {date for date, linked in candidates if not linked}
+        if len(unlinked_dates) == 1:
+            selected = next(iter(unlinked_dates))
+        elif len(unlinked_dates) > 1:
+            raise ValueError("adjacent filing metadata has ambiguous date_added values")
+        else:
+            selected = str(explicit or "").strip()
+    if not selected:
+        raise ValueError("filing publication date is required when adjacent API metadata has no date_added")
+    try:
+        datetime.fromisoformat(selected.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("filing publication date must be an ISO date or timestamp") from exc
+    return selected
+
+
+def _nested_mappings(value: object) -> Iterable[Mapping[str, object]]:
+    if isinstance(value, Mapping):
+        yield value
+        for child in value.values():
+            yield from _nested_mappings(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _nested_mappings(child)
 
 
 def _map_issuer_extension_qname(
@@ -671,7 +722,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--orgnr")
     parser.add_argument("--lei")
     parser.add_argument("--ticker")
-    parser.add_argument("--published-at")
+    parser.add_argument("--published-at", help="required if no adjacent filings.xbrl.org API record has date_added")
     parser.add_argument("--expected-sha256")
     parser.add_argument("--fact-sheet", type=Path)
     parser.add_argument("--output-dir", type=Path)

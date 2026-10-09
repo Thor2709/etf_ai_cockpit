@@ -29,7 +29,7 @@ def owner_valuation(
     count_convention: Mapping[str, str] | None = None,
     allow_partial: bool = False,
 ) -> dict[str, object]:
-    """Value the resolved claim using matched period-end and weighted counts."""
+    """Value the claim with each available matched filing input."""
 
     state = _state(claim)
     resolved = state.get("claim_status") == "resolved"
@@ -42,22 +42,40 @@ def owner_valuation(
     }))
     if conventions.get("book") != "period_end_ec_count" or conventions.get("earnings") != "weighted_average_ec_count":
         raise ValueError("owner book and earnings require their matched count conventions")
-    book, earnings = _num(state.get("owner_attributable_book")), _num(state.get("owner_attributable_earnings"))
-    period_count, weighted_count = _num(state.get("period_end_ec_count")), _num(state.get("weighted_average_ec_count"))
-    if None in (book, earnings, period_count, weighted_count) or period_count <= 0 or weighted_count <= 0:
+    book = _num(state.get("owner_attributable_book"))
+    book_source = "owner_attributable_book"
+    if book is None:
+        book = _num(state.get("owner_pool_total"))
+        book_source = "owner_pool_total"
+    earnings = _num(state.get("owner_attributable_earnings"))
+    period_count = _num(state.get("period_end_ec_count"))
+    count_source = "period_end_ec_count"
+    if period_count is None:
+        period_count = _num(state.get("outstanding_ec_count"))
+        count_source = "outstanding_ec_count"
+    if period_count is None:
+        registered = _num(state.get("registered_ec_count"))
+        treasury = _num(state.get("treasury_ec_count"))
+        if registered is not None:
+            period_count = registered - treasury if treasury is not None else registered
+            count_source = "registered_ec_count_less_treasury" if treasury is not None else "registered_ec_count"
+    weighted_count = _num(state.get("weighted_average_ec_count"))
+    if book is None or period_count is None or period_count <= 0:
         return {"status": "unavailable", "reason_code": "OWNER_VALUATION_EVIDENCE_MISSING", "execution_allowed": False}
-    book_per_ec, eps = book / period_count, earnings / weighted_count
+    book_per_ec = book / period_count
+    eps = earnings / weighted_count if earnings is not None and weighted_count is not None and weighted_count > 0 else None
     px = _num(price)
     if px is not None and px <= 0:
         px = None
     tangible_book = _num(state.get("owner_attributable_tangible_book", state.get("tangible_owner_book")))
     result: dict[str, object] = {
-        "status": "resolved" if resolved else "partial", "owner_book_per_ec": book_per_ec, "owner_eps": eps,
+        "status": "resolved" if resolved and eps is not None else "partial", "owner_book_per_ec": book_per_ec, "owner_eps": eps,
         "owner_pb": None if px is None or book_per_ec <= 0 else px / book_per_ec,
-        "owner_pe": None if px is None or eps <= 0 else px / eps,
-        "roe": earnings / book if book else None,
+        "owner_pe": None if px is None or eps is None or eps <= 0 else px / eps,
+        "roe": earnings / book if earnings is not None and book else None,
         "rote": earnings / tangible_book if tangible_book else None,
         "count_conventions": conventions,
+        "count_sources": {"book": book_source, "book_count": count_source, "earnings_count": "weighted_average_ec_count"},
         "execution_allowed": False,
     }
     return result
