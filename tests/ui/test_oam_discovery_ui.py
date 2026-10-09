@@ -53,12 +53,14 @@ def test_filings_page_exposes_national_oam_discovery_control() -> None:
         if item.__class__.__name__ == "PopupMenuItem"
     }
     assert options == {"DK", "FI", "FR", "GB", "NL", "NO", "SE"}
-    api_key = next(
+    api_key_field = next(
         item
         for item in controls
-        if item.__class__.__name__ == "TextField"
-        and getattr(item, "label", None) == "Companies House API key"
+        if isinstance(getattr(item, "data", None), dict)
+        and item.data.get("kit") == "Field"
+        and item.data.get("label") == "Companies House API key"
     )
+    api_key = next(item for item in _walk(api_key_field) if item.__class__.__name__ == "TextField")
     assert api_key.password is True
     assert api_key.can_reveal_password is False
 

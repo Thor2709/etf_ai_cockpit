@@ -47,7 +47,7 @@ def system_map_page(page: ft.Page | None, state: AppState) -> PageView:
                 "capability": str(getattr(entry, "name", getattr(entry, "feature_id", "Unavailable"))),
                 "lifecycle": kit.Tag(lifecycle, "mute"),
                 "authority": kit.Tag(authority, "warn"),
-                "data": ft.Row(data_tags, wrap=True, spacing=4, run_spacing=4),
+                "data": ft.Row(data_tags, wrap=True, spacing=4, run_spacing=4, expand=True),
                 "validation": "Data health evidence is local and read-only.",
                 "limitation": "; ".join(str(item) for item in (getattr(entry, "limitations", ()) or ())) or "No explicit limitation recorded.",
                 "open": TextButton(
@@ -62,17 +62,25 @@ def system_map_page(page: ft.Page | None, state: AppState) -> PageView:
             }
         )
 
+    max_data_tag_lines = max(
+        1,
+        max(
+            ((len(tuple(getattr(entry, "required_data", ()) or ())) + 1) // 2 for entry in entries),
+            default=1,
+        ),
+    )
     capability_table = kit.DataTable(
         [
             kit.TableColumn("capability", "Capability"),
             kit.TableColumn("lifecycle", "Lifecycle"),
             kit.TableColumn("authority", "Authority"),
-            kit.TableColumn("data", "Data readiness"),
+            kit.TableColumn("data", "Data readiness", flex=2, sortable=False),
             kit.TableColumn("validation", "Validation"),
             kit.TableColumn("limitation", "Limitation"),
             kit.TableColumn("open", "Open"),
         ],
         capability_rows,
+        row_height=max(44, 24 * max_data_tag_lines + 16),
         expand=True,
         empty_title="Capability map unavailable",
         empty_reason="The local feature registry is unavailable or requires manual review.",

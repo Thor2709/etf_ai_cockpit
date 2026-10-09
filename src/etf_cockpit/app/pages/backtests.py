@@ -79,9 +79,56 @@ def _negative_contributions_label(value: object) -> str:
     return "; ".join(records) if records else "unavailable"
 
 
+_STRATEGY_RATE_FIELDS = frozenset({"cagr", "volatility", "max_drawdown"})
+
+
+def _normalized_strategy_rows(
+    rows: list[dict[str, object]], strategy_keys: tuple[tuple[str, str], ...]
+) -> list[dict[str, object]]:
+    normalized: list[dict[str, object]] = []
+    metric_keys = [key for key, _label in strategy_keys if key != "strategy_name"]
+    for row in rows:
+        cells: dict[str, object] = {}
+        for key, _label in strategy_keys:
+            value = row.get(key)
+            if value is None or (isinstance(value, str) and value.strip().casefold() in {"", "none", "null", "nan", "nat"}):
+                cells[key] = None
+                continue
+            try:
+                cells[key] = None if pd.isna(value) else value
+            except (TypeError, ValueError):
+                cells[key] = value
+
+        metric_values = [cells.get(key) for key in metric_keys]
+        complete_zero_row = bool(metric_values) and all(
+            value is not None
+            and not isinstance(value, bool)
+            and isinstance(value, (int, float))
+            and math.isfinite(float(value))
+            and float(value) == 0.0
+            for value in metric_values
+        )
+        if complete_zero_row:
+            for key in metric_keys:
+                cells[key] = None
+        else:
+            for key in _STRATEGY_RATE_FIELDS & cells.keys():
+                value = cells[key]
+                cells[key] = format_percent(value, decimals=2, unavailable="—") if value is not None else None
+        normalized.append(cells)
+    return normalized
+
+
 @lab_page("backtests")
 def _legacy_backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
-    report = state.snapshot.backtest
+    report = state.ensure_backtest()
+    if report is None:
+        return ft.Column(
+            [panel(ft.Column([section_header("Backtests", "Backtest data is unavailable for the current snapshot.")]))],
+            expand=True,
+            spacing=16,
+            scroll=ft.ScrollMode.AUTO,
+        )
     news_warning = _news_validation_warning()
     reference_context = context_from_snapshot(
         state.snapshot,
@@ -1035,7 +1082,8 @@ def backtests_page(page: ft.Page, state: AppState, *, _deferred: bool = False) -
     results = getattr(report, "results", None)
     if not isinstance(results, pd.DataFrame):
         results = pd.DataFrame()
-    strategy_rows = results.to_dict(orient="records") if not results.empty else []
+    source_strategy_rows = results.to_dict(orient="records") if not results.empty else []
+    strategy_rows = source_strategy_rows
     signal = next((row for row in strategy_rows if row.get("strategy_name") == "signal_strategy"), {})
     equal_weight = next((row for row in strategy_rows if row.get("strategy_name") == "equal_weight"), {})
     quality = getattr(report, "quality_label", None)
@@ -1105,24 +1153,8 @@ def backtests_page(page: ft.Page, state: AppState, *, _deferred: bool = False) -
         ("cost_drag", "Cost drag"),
     )
     strategy_columns = [TableColumn(key, label, numeric=label != "Strategy") for key, label in strategy_keys]
-    def normalized_strategy_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
-        normalized = []
-        for row in rows:
-            cells = {}
-            for key, _ in strategy_keys:
-                value = row.get(key)
-                if value is None or (isinstance(value, str) and value.strip().casefold() in {"", "none", "null", "nan", "nat"}):
-                    cells[key] = None
-                    continue
-                try:
-                    cells[key] = None if pd.isna(value) else value
-                except (TypeError, ValueError):
-                    cells[key] = value
-            normalized.append(cells)
-        return normalized
-
     strategy_rows = sorted(
-        normalized_strategy_rows(strategy_rows),
+        _normalized_strategy_rows(source_strategy_rows, strategy_keys),
         key=lambda row: str(row.get("strategy_name") or "").casefold(),
     )
     strategy_table = DataTable(
@@ -1147,7 +1179,7 @@ def backtests_page(page: ft.Page, state: AppState, *, _deferred: bool = False) -
             search_field,
             DataTable(
                 strategy_columns,
-                sorted(normalized_strategy_rows(filtered_rows), key=lambda row: str(row.get("strategy_name") or "").casefold()),
+                sorted(_normalized_strategy_rows(filtered_rows, strategy_keys), key=lambda row: str(row.get("strategy_name") or "").casefold()),
                 sort_key="strategy_name",
                 empty_title="No matching strategy results",
                 empty_reason="No saved strategy row matches this search.",
@@ -1172,7 +1204,7 @@ def backtests_page(page: ft.Page, state: AppState, *, _deferred: bool = False) -
         key="backtests.strategy-results.search",
     )
     scatter_points = []
-    for row in strategy_rows:
+    for row in source_strategy_rows:
         drawdown = row.get("max_drawdown")
         cagr = row.get("cagr")
         if drawdown is None or cagr is None:

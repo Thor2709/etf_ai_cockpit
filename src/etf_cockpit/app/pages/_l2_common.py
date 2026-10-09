@@ -105,7 +105,6 @@ def legacy_action_panel(page: ft.Page, legacy_control: ft.Control, title: str, n
             key = id(control)
             if key not in field_map:
                 replacement = ft.TextField(
-                    label=getattr(control, "label", None),
                     value=getattr(control, "value", None),
                     key=getattr(control, "key", None),
                     password=bool(getattr(control, "password", False)),
@@ -211,7 +210,16 @@ def legacy_action_panel(page: ft.Page, legacy_control: ft.Control, title: str, n
 
     collect(legacy_control)
 
-    field_controls = [new for old, new in fields]
+    field_controls = [
+        new
+        if isinstance(getattr(new, "data", None), dict) and new.data.get("kit") == "Field"
+            else kit.Field(
+                str(getattr(old, "label", None) or "Input"),
+                control=new,
+                width=getattr(old, "width", None),
+            )
+        for old, new in fields
+    ]
     rendered: list[ft.Control] = [
         ft.Row(field_controls, spacing=8, wrap=True),
         ft.Row(buttons, spacing=8, wrap=True),
@@ -222,7 +230,7 @@ def legacy_action_panel(page: ft.Page, legacy_control: ft.Control, title: str, n
     return kit.GlassCard(
         title,
         note,
-        body=ft.Column(rendered, spacing=8),
+        body=ft.Column(rendered, spacing=16),
     )
 
 

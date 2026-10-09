@@ -102,7 +102,7 @@ def data_health_page(page: ft.Page, state: AppState) -> PageView:
     table_slot = ft.Column(spacing=0)
     visible_rows = list(rows)
 
-    def quick_links() -> ft.Row:
+    def quick_links() -> ft.Control:
         from etf_cockpit.app.router import navigate_to
 
         routes = (
@@ -111,19 +111,22 @@ def data_health_page(page: ft.Page, state: AppState) -> PageView:
             ("ETF", "/etf", "navigation.etf"),
             ("Errors", "/errors", "navigation.errors"),
         )
-        return ft.Row(
-            [
-                kit.Button.secondary(
-                    label,
-                    on_click=lambda event, destination=route: navigate_to(
-                        page, state, destination
-                    ),
-                    key=key,
-                )
-                for label, route, key in routes
-            ],
-            spacing=4,
-            wrap=True,
+        return kit.Disclosure(
+            "Quick links",
+            ft.Row(
+                [
+                    kit.Button.secondary(
+                        label,
+                        on_click=lambda event, destination=route: navigate_to(
+                            page, state, destination
+                        ),
+                        key=key,
+                    )
+                    for label, route, key in routes
+                ],
+                spacing=4,
+                wrap=True,
+            ),
         )
 
     def make_table_rows(source_rows: tuple[object, ...]) -> list[dict[str, object]]:
@@ -240,44 +243,56 @@ def data_health_page(page: ft.Page, state: AppState) -> PageView:
             selected["provider"] = selected_value
         redraw_inventory()
 
-    filters = ft.Row(
+    filters = ft.ResponsiveRow(
         [
-            kit.Field(
-                "Filter status",
-                control=ft.Dropdown(
-                    value="All",
-                    options=[ft.dropdown.Option(value) for value in ("All", *(status.value for status in DataHealthStatus))],
-                    on_select=redraw,
-                    key="data-health.filter.status",
+            ft.Container(
+                content=kit.Field(
+                    "Filter status",
+                    control=ft.Dropdown(
+                        value="All",
+                        options=[ft.dropdown.Option(value) for value in ("All", *(status.value for status in DataHealthStatus))],
+                        on_select=redraw,
+                        key="data-health.filter.status",
+                    ),
+                    expand=True,
                 ),
+                col={"xs": 12, "md": 4},
             ),
-            kit.Field(
-                "Filter dataset",
-                control=ft.Dropdown(
-                    value="All",
-                    options=[ft.dropdown.Option(value) for value in ("All", *(row.dataset for row in rows))],
-                    on_select=redraw,
-                    key="data-health.filter.dataset",
+            ft.Container(
+                content=kit.Field(
+                    "Filter dataset",
+                    control=ft.Dropdown(
+                        value="All",
+                        options=[ft.dropdown.Option(value) for value in ("All", *(row.dataset for row in rows))],
+                        on_select=redraw,
+                        key="data-health.filter.dataset",
+                    ),
+                    expand=True,
                 ),
+                col={"xs": 12, "md": 4},
             ),
-            kit.Field(
-                "Filter provider",
-                control=ft.Dropdown(
-                    value="All",
-                    options=[
-                        ft.dropdown.Option(value)
-                        for value in (
-                            "All",
-                            *sorted({row.provider for row in rows if row.provider}),
-                        )
-                    ],
-                    on_select=redraw,
-                    key="data-health.filter.provider",
+            ft.Container(
+                content=kit.Field(
+                    "Filter provider",
+                    control=ft.Dropdown(
+                        value="All",
+                        options=[
+                            ft.dropdown.Option(value)
+                            for value in (
+                                "All",
+                                *sorted({row.provider for row in rows if row.provider}),
+                            )
+                        ],
+                        on_select=redraw,
+                        key="data-health.filter.provider",
+                    ),
+                    expand=True,
                 ),
+                col={"xs": 12, "md": 4},
             ),
         ],
         spacing=8,
-        wrap=True,
+        run_spacing=12,
     )
 
     export_feedback = ft.Column([kit.Note("")], spacing=0)

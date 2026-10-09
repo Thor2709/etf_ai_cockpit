@@ -1153,7 +1153,7 @@ def _portfolio_holdings_block(
                 row.update(
                     value=_short(item.get("value"), currency=output_currency),
                     ret=_return_cell(realised),
-                    risk=None if share is None else f"{share * 100:.0f}%",
+                    risk=None if share is None or weight is None or weight == 0 else f"{share * 100:.0f}%",
                 )
             table_rows.append(row)
             weights.append(-1.0 if weight is None else weight)
@@ -1221,6 +1221,18 @@ _REASON_LABELS = {"performance_snapshot_unavailable": "performance history unava
 def _return_cell(value: float | None) -> ft.Control | None:
     text = _signed(value, 1)
     return None if text is None else common.text(text, 13.5, 400, _tone_colour(value), text_align=ft.TextAlign.RIGHT)
+
+
+def _risk_chart_unavailable_reason(
+    lines: list[portfolio_view.HoldingLine], shares_reason: str | None
+) -> str | None:
+    if not lines:
+        return "No holdings are available for the selected view."
+    if not any(line.weight is not None and line.weight != 0 for line in lines):
+        return "Current holding weights are unavailable; risk contribution is not inferred."
+    if not any(line.risk_share is not None for line in lines):
+        return shares_reason or "Risk contributions are unavailable for the selected holdings."
+    return None
 
 
 def _as_of_date(value: object) -> date | None:
@@ -1819,11 +1831,7 @@ def portfolio_page(page: ft.Page | None, state: AppState, *, _deferred: bool = F
 
     def render_risk_chart() -> None:
         shown = lines()[: portfolio_view.MAX_BARS]
-        reason = None
-        if not shown:
-            reason = "No holdings are available for the selected view."
-        elif not any(line.risk_share is not None for line in shown):
-            reason = current_shares()[1] or "Risk contributions are unavailable for the selected holdings."
+        reason = _risk_chart_unavailable_reason(shown, current_shares()[1])
         insight = portfolio_view.risk_insight(shown)
         width, height = layout.card_body(5, 1, insight=True)
         chart = ck.grouped_bar_chart(

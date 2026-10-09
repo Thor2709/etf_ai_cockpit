@@ -107,6 +107,7 @@ def _field(
     options: Sequence[tuple[str, str]],
     value: str,
     on_change=None,
+    columns: int = 4,
 ) -> tuple[ft.Control, ft.Dropdown]:
     control = ft.Dropdown(
         key=key,
@@ -115,12 +116,21 @@ def _field(
         dense=True,
     )
     control.on_change = on_change
-    return Field(label, control=control), control
+    return (
+        ft.Container(
+            content=Field(label, control=control, expand=True),
+            col={"xs": 12, "md": columns},
+        ),
+        control,
+    )
 
 
-def _text_field(label: str, key: str, placeholder: str = "") -> ft.Control:
+def _text_field(label: str, key: str, placeholder: str = "", *, columns: int = 4) -> ft.Control:
     control = ft.TextField(key=key, **field_input_style(placeholder=placeholder))
-    return Field(label, control=control)
+    return ft.Container(
+        content=Field(label, control=control, expand=True),
+        col={"xs": 12, "md": columns},
+    )
 
 
 def _screen_table(result: object, sort_key: str | None, descending: bool, on_sort) -> ft.Control:
@@ -726,10 +736,11 @@ def screener_page(page: ft.Page | None, state: AppState, *, _deferred: bool = Fa
         "screener.sort.field",
         [(value, _human(value)) for value in available_fields],
         initial_sort,
+        columns=6,
     )
     direction_state = {"value": "Descending"}
     results_card_ref: dict[str, ft.Control | None] = {"card": None}
-    saved_name_input = _text_field("Saved screen name", "screener.saved.name")
+    saved_name_input = _text_field("Saved screen name", "screener.saved.name", columns=6)
 
     def render_screen() -> None:
         sort_field = str(sort_control.value or "")
@@ -895,13 +906,16 @@ def screener_page(page: ft.Page | None, state: AppState, *, _deferred: bool = Fa
             ft.ResponsiveRow(
                 [
                     sort_input,
-                    ft.Column(
-                        [
-                            Note("DIRECTION"),
-                            direction_control,
-                        ],
-                        spacing=4,
-                        tight=True,
+                    ft.Container(
+                        content=ft.Column(
+                            [
+                                Note("DIRECTION"),
+                                direction_control,
+                            ],
+                            spacing=4,
+                            tight=True,
+                        ),
+                        col={"xs": 12, "md": 6},
                     ),
                 ],
                 spacing=16,
