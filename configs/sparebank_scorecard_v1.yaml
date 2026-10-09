@@ -10,9 +10,9 @@ judgement:
   rating_method: linear_interpolation_between_anchors_clamped_to_0_and_10
   threshold_label: judgement
 hard_gates:
-  unresolved_claim: BLOCKED
-  failed_pit_check: BLOCKED
-  invalid_valuation_denominator: BLOCKED
+  unresolved_claim: flag_only
+  failed_pit_check: flag_only
+  invalid_valuation_denominator: flag_only
   cap_headroom_below_requirement: 3
   cap_lcr_below_minimum: 3
   cap_nsfr_below_minimum: 3
@@ -21,6 +21,23 @@ hard_gates:
   lcr_minimum_pct: 100
   nsfr_minimum_pct: 100
   days_to_trade_limit: 20
+scorecard:
+  min_coverage_for_composite: 0.25
+  axis_weights:
+    owner_claim_integrity: 1.0
+    funding_deposit_franchise: 1.0
+    lending_economics: 1.0
+    credit_concentration: 1.0
+    capital_liquidity_resilience: 1.0
+    efficiency_normalised_earnings: 1.0
+    capital_allocation: 1.0
+    owner_valuation_expectations: 1.0
+    structural_transition: 1.0
+    marketability_implementation: 1.0
+    evidence_quality: 1.0
+    portfolio_context: 1.0
+  marketability:
+    participation_rate: 0.1
 axes:
   owner_claim_integrity:
     label: Owner-claim integrity
@@ -124,6 +141,18 @@ axes:
         unit: percent
         calculation_id: sparebank.valuation.owner_valuation
         anchors: [{value: -30, rating: 0}, {value: 0, rating: 5}, {value: 30, rating: 10}]
+      - id: owner_pb
+        source: valuation.standalone.owner_pb
+        transform: identity
+        unit: ratio
+        calculation_id: sparebank.valuation.owner_valuation
+        anchors: [{value: 0, rating: 10}, {value: 1, rating: 8}, {value: 2, rating: 4}, {value: 3, rating: 0}]
+      - id: owner_pe
+        source: valuation.standalone.owner_pe
+        transform: identity
+        unit: ratio
+        calculation_id: sparebank.valuation.owner_valuation
+        anchors: [{value: 0, rating: 10}, {value: 10, rating: 8}, {value: 20, rating: 5}, {value: 30, rating: 0}]
   structural_transition:
     label: Structural transition
     group: Owner value and change
@@ -146,6 +175,12 @@ axes:
         unit: days
         calculation_id: sparebank.valuation.days_to_trade
         anchors: [{value: 20, rating: 0}, {value: 5, rating: 5}, {value: 1, rating: 10}]
+      - id: median_volume_60d
+        source: valuation.marketability.median_volume_60d
+        transform: identity
+        unit: shares_per_day
+        calculation_id: sparebank.valuation.marketability_liquidity
+        anchors: [{value: 0, rating: 0}, {value: 10000, rating: 5}, {value: 50000, rating: 10}]
   evidence_quality:
     label: Evidence quality
     group: Evidence

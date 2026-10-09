@@ -1,6 +1,7 @@
 """Financial-institution (bank) evidence read model for Instrument Detail (application; ADR-0002)."""
 
 from collections.abc import Mapping
+import json
 import math
 from numbers import Real
 from pathlib import Path
@@ -144,6 +145,7 @@ def _build_financial_projection_from_evidence(
     ).strip().upper()
     price_path = root / "data" / "clean" / "prices.parquet"
     decision_price = None
+    market_data_prices = None
     decision_price_projection: dict[str, object] = {
         "status": "unavailable",
         "reason_code": "decision_price_store_missing",
@@ -154,10 +156,12 @@ def _build_financial_projection_from_evidence(
             from etf_cockpit.data.duckdb_store import load_prices
 
             prices = load_prices(price_path)
-            if not {"instrument_id", "date", "close", "currency"}.issubset(prices.columns):
+            instrument_column = "instrument_id" if "instrument_id" in prices.columns else "etf_id" if "etf_id" in prices.columns else None
+            if instrument_column is None or not {"date", "close", "currency"}.issubset(prices.columns):
                 decision_price_projection["reason_code"] = "decision_price_store_invalid"
             else:
-                eligible = prices.loc[prices["instrument_id"].astype(str).eq(str(instrument_id))].copy()
+                market_data_prices = prices
+                eligible = prices.loc[prices[instrument_column].astype(str).eq(str(instrument_id))].copy()
                 eligible["_price_date"] = pd.to_datetime(eligible["date"], errors="coerce", utc=True)
                 available_at = eligible["_price_date"].where(
                     eligible["_price_date"].ne(eligible["_price_date"].dt.normalize()),
@@ -209,7 +213,13 @@ def _build_financial_projection_from_evidence(
         bank_metrics=result.metrics,
         bank_economics_evidence=(ec_revision.get("bank_economics_evidence") if isinstance(ec_revision, Mapping) else None),
         events=(ec_revision.get("events", ()) if isinstance(ec_revision, Mapping) else ()),
-        valuation_assumptions=valuation_assumptions,
+        valuation_assumptions=_with_local_marketability(
+            root,
+            instrument_id,
+            decision,
+            market_data_prices,
+            valuation_assumptions,
+        ),
         tactical_evidence=tactical_evidence,
     )
     if sparebank_analysis.routing.applies or (isinstance(ec_facts, Mapping) and ec_facts):
@@ -375,3 +385,126 @@ def _financial_rows_for_instrument(
         row["_effective"] = effective
         rows.append(row)
     return rows
+
+
+def _with_local_marketability(
+    root: Path,
+    instrument_id: str,
+    decision: object,
+    prices: pd.DataFrame | None,
+    assumptions: Mapping[str, object] | None,
+) -> dict[str, object]:
+    result = dict(assumptions or {})
+    marketability = dict(result.get("marketability", {})) if isinstance(result.get("marketability"), Mapping) else {}
+    report, report_name = _candidate_report_as_of(root, instrument_id, decision)
+    price_rows = _market_prices_as_of(prices, instrument_id, decision)
+    volume: float | None = None
+    if not price_rows.empty and "volume" in price_rows.columns:
+        volume_values = pd.to_numeric(price_rows["volume"], errors="coerce").dropna()
+        if not volume_values.empty:
+            volume = float(volume_values.tail(60).median())
+    if volume is None and report is not None:
+        volume = _finite_number(report.get("median_volume_60d"))
+
+    quantity = _finite_number(report.get("shares")) if report is not None else None
+    if quantity is None or quantity <= 0:
+        quantity = _finite_number(marketability.get("order_quantity", marketability.get("quantity")))
+    from etf_cockpit.analysis.sparebank import load_sparebank_scorecard_policy
+    from etf_cockpit.analysis.sparebank.valuation import days_to_trade
+
+    policy = load_sparebank_scorecard_policy()
+    policy_marketability = policy.scorecard.get("marketability", {})
+    participation = _finite_number(policy_marketability.get("participation_rate")) if isinstance(policy_marketability, Mapping) else None
+    days = None
+    if quantity is not None and quantity > 0 and volume is not None and volume > 0 and participation is not None:
+        calculated = days_to_trade(quantity, volume, participation)
+        days = _finite_number(calculated)
+    marketability.update(order_quantity=quantity, participation_rate=participation)
+    if days is not None:
+        marketability["days_to_trade"] = days
+    if volume is not None:
+        marketability["median_volume_60d"] = volume
+    if report_name is not None:
+        marketability["candidate_report"] = report_name
+    if not price_rows.empty:
+        marketability["market_data_as_of"] = price_rows["_price_date"].max().date().isoformat()
+    result["marketability"] = marketability
+    return result
+
+
+def _candidate_report_as_of(
+    root: Path, instrument_id: str, decision: object
+) -> tuple[Mapping[str, object] | None, str | None]:
+    reports = root / "data" / "reports"
+    if not reports.is_dir():
+        return None, None
+    cutoff = pd.Timestamp(decision)
+    selected: tuple[pd.Timestamp, Mapping[str, object], str] | None = None
+    for path in reports.glob("yfinance_trade_candidate_analysis_*"):
+        suffix = path.stem.removeprefix("yfinance_trade_candidate_analysis_")
+        generated = pd.to_datetime(suffix, format="%Y%m%dT%H%M%SZ", errors="coerce", utc=True)
+        if pd.isna(generated) or generated > cutoff:
+            continue
+        try:
+            if path.suffix.casefold() == ".json":
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                rows = payload if isinstance(payload, list) else payload.get("candidates", payload.get("rows", ())) if isinstance(payload, Mapping) else ()
+            elif path.suffix.casefold() == ".csv":
+                rows = pd.read_csv(path).to_dict("records")
+            else:
+                continue
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(rows, (tuple, list)):
+            continue
+        for row in rows:
+            if not isinstance(row, Mapping) or str(row.get("instrument_id") or "") != str(instrument_id):
+                continue
+            latest = pd.to_datetime(row.get("latest_date"), errors="coerce", utc=True)
+            if pd.isna(latest) or latest.normalize() + pd.Timedelta(days=1) - pd.Timedelta(seconds=1) > cutoff:
+                continue
+            candidate = (generated, dict(row), path.name)
+            if selected is None or candidate[0] > selected[0]:
+                selected = candidate
+    if selected is None:
+        return None, None
+    return selected[1], selected[2]
+
+
+def _market_prices_as_of(
+    prices: pd.DataFrame | None, instrument_id: str, decision: object
+) -> pd.DataFrame:
+    if prices is None or prices.empty:
+        return pd.DataFrame()
+    instrument_column = "instrument_id" if "instrument_id" in prices.columns else "etf_id" if "etf_id" in prices.columns else None
+    if instrument_column is None or not {"date", "volume"}.issubset(prices.columns):
+        return pd.DataFrame()
+    eligible = prices.loc[prices[instrument_column].astype(str).eq(str(instrument_id))].copy()
+    if eligible.empty:
+        return eligible
+    eligible["_price_date"] = pd.to_datetime(eligible["date"], errors="coerce", utc=True)
+    available_at = eligible["_price_date"].where(
+        eligible["_price_date"].ne(eligible["_price_date"].dt.normalize()),
+        eligible["_price_date"].dt.normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59),
+    )
+    if "known_at" in eligible.columns:
+        known_at = pd.to_datetime(eligible["known_at"], errors="coerce", utc=True)
+        available_at = pd.concat([available_at, known_at], axis=1).max(axis=1, skipna=False)
+    cutoff = pd.Timestamp(decision)
+    eligible = eligible.loc[
+        eligible["_price_date"].notna()
+        & available_at.notna()
+        & eligible["_price_date"].le(cutoff)
+        & available_at.le(cutoff)
+    ]
+    return eligible.sort_values("_price_date", kind="stable")
+
+
+def _finite_number(value: object) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None

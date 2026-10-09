@@ -27,11 +27,13 @@ def owner_valuation(
     *,
     price: float | None = None,
     count_convention: Mapping[str, str] | None = None,
+    allow_partial: bool = False,
 ) -> dict[str, object]:
     """Value the resolved claim using matched period-end and weighted counts."""
 
     state = _state(claim)
-    if state.get("claim_status") != "resolved":
+    resolved = state.get("claim_status") == "resolved"
+    if not resolved and not allow_partial:
         return {"status": "unavailable", "reason_code": "OWNER_VALUATION_CLAIM_NOT_RESOLVED", "execution_allowed": False}
     supplied_conventions = state.get("count_conventions")
     conventions = dict(count_convention or (supplied_conventions if isinstance(supplied_conventions, Mapping) else {
@@ -46,11 +48,13 @@ def owner_valuation(
         return {"status": "unavailable", "reason_code": "OWNER_VALUATION_EVIDENCE_MISSING", "execution_allowed": False}
     book_per_ec, eps = book / period_count, earnings / weighted_count
     px = _num(price)
+    if px is not None and px <= 0:
+        px = None
     tangible_book = _num(state.get("owner_attributable_tangible_book", state.get("tangible_owner_book")))
     result: dict[str, object] = {
-        "status": "resolved", "owner_book_per_ec": book_per_ec, "owner_eps": eps,
-        "owner_pb": None if px is None or book_per_ec == 0 else px / book_per_ec,
-        "owner_pe": None if px is None or eps == 0 else px / eps,
+        "status": "resolved" if resolved else "partial", "owner_book_per_ec": book_per_ec, "owner_eps": eps,
+        "owner_pb": None if px is None or book_per_ec <= 0 else px / book_per_ec,
+        "owner_pe": None if px is None or eps <= 0 else px / eps,
         "roe": earnings / book if book else None,
         "rote": earnings / tangible_book if tangible_book else None,
         "count_conventions": conventions,
@@ -322,8 +326,8 @@ def executable_order(quantity: float, asks: Iterable[Mapping[str, object]] | Non
 def valuation(claim: ECClaimState | Mapping[str, object], *, price: float | None = None, assumptions: Mapping[str, object] | None = None) -> dict[str, object]:
     """Build the explicit valuation section used by the suite entry point."""
 
-    standalone = owner_valuation(claim, price=price)
-    if standalone.get("status") != "resolved":
+    standalone = owner_valuation(claim, price=price, allow_partial=True)
+    if standalone.get("status") not in {"resolved", "partial"}:
         return {"status": "unavailable", "standalone": standalone, "reverse": {"status": "unavailable"}, "execution_allowed": False}
     assumptions = assumptions or {}
     if not isinstance(assumptions, Mapping):
@@ -369,12 +373,13 @@ def valuation(claim: ECClaimState | Mapping[str, object], *, price: float | None
     if isinstance(marketability_inputs, Mapping):
         with_value = _num(marketability_inputs.get("with_marketability"))
         without_value = _num(marketability_inputs.get("without_marketability"))
-        marketability = {
-            "status": "resolved" if None not in (with_value, without_value) else "unavailable",
-            "with_marketability": with_value,
-            "without_marketability": without_value,
-            "reason_code": None if None not in (with_value, without_value) else "MARKETABILITY_VALUES_MISSING",
-        }
+        marketability = dict(marketability_inputs)
+        marketability.update(
+            status="resolved" if None not in (with_value, without_value) else "partial",
+            with_marketability=with_value,
+            without_marketability=without_value,
+            reason_code=None if None not in (with_value, without_value) else "MARKETABILITY_VALUES_MISSING",
+        )
     else:
         marketability = {"status": "unavailable", "reason_code": "MARKETABILITY_ASSUMPTIONS_MISSING"}
 
