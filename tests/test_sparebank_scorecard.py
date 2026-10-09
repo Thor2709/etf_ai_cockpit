@@ -80,7 +80,7 @@ def test_score_engine_hash_is_shared_and_sparebank_policy_is_separate() -> None:
     assert policy.judgement_status == "judgement-v1-provisional"
 
 
-def test_hard_gates_block_without_composite() -> None:
+def test_evidence_gates_flag_and_insufficient_coverage_has_no_composite() -> None:
     unresolved = _teaching_bank()
     unresolved["facts"].pop("sparebankens_fond")
     unresolved_result = analyse_sparebank_ec(unresolved, decision_time="2025-01-02T00:00:00Z")
@@ -93,7 +93,7 @@ def test_hard_gates_block_without_composite() -> None:
     )
 
     for result in (unresolved_result.scorecard, pit_result.scorecard, denominator_result.scorecard):
-        assert result.status == "BLOCKED"
+        assert result.status == "partial"
         assert result.composite_10 is None
     assert "OWNER_CLAIM_UNRESOLVED" in unresolved_result.scorecard.gate_reasons
     assert "PIT_CHECK_FAILED" in pit_result.scorecard.gate_reasons

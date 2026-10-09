@@ -166,6 +166,8 @@ class SparebankScorecard:
     composite_before_gate_cap_10: float | None = None
     gate_cap_10: float | None = None
     overall_coverage: float = 0.0
+    composite_coverage: float = 0.0
+    missing_axes: tuple[str, ...] = ()
     gate_reasons: tuple[str, ...] = ()
     underwriting: Mapping[str, object] = field(default_factory=dict)
     tactical: Mapping[str, object] = field(default_factory=dict)

@@ -153,6 +153,7 @@ def build_claim_state(
     owner_pools = _available_pool_values(values, _OWNER_FACTS)
     self_owned_pools = _available_pool_values(values, _SELF_FACTS)
     missing_pool_components = _missing_pool_components(values)
+    compensation_not_reported = _fact_number(values, "kompensasjonsfond") is None
     owner_total = _pool_total(owner_pools) if not any(name in missing_pool_components for name in _OWNER_FACTS) else None
     self_total = _pool_total(self_owned_pools) if not any(name in missing_pool_components for name in _SELF_FACTS) else None
     reconstructed = reconstruct_eierbrok(owner_pools, self_owned_pools) if not missing_pool_components else None
@@ -173,6 +174,8 @@ def build_claim_state(
     voting_share = _fact_number(values, "voting_share")
     accounting_equity = _fact_number(values, "accounting_equity")
     count_reasons = _count_reconciliation_reasons(registered, outstanding, treasury, foundation_count)
+    if compensation_not_reported:
+        reasons.append("KOMPENSASJONSFOND_NOT_REPORTED")
     if missing_pool_components:
         reasons.append("POOL_COMPONENT_EVIDENCE_MISSING")
     reasons.extend(count_reasons)
@@ -196,7 +199,7 @@ def build_claim_state(
     if reconstructed is not None:
         field_provenance["reconstructed_eierbrok"] = "reconstructed"
     unavailable = tuple(dict.fromkeys(
-        (*missing_pool_components, *(name for name, value in (
+        (*missing_pool_components, *(('kompensasjonsfond',) if compensation_not_reported else ()), *(name for name, value in (
             ("eierbrok", reconstructed),
             ("period_end_ec_count", period_end),
             ("weighted_average_ec_count", weighted),
@@ -227,7 +230,7 @@ def build_claim_state(
     else:
         status = "partial"
     observed_fields = sum(value is not None for value in (reconstructed, reported, period_end, weighted, owner_book, owner_earnings))
-    coverage = observed_fields / 6.0
+    coverage = min(observed_fields / 6.0, 5.0 / 6.0) if compensation_not_reported else observed_fields / 6.0
     return ECClaimState(
         effective_at=effective_at,
         known_at=known_at,
@@ -483,6 +486,8 @@ def _available_pool_values(values: Mapping[str, object], names: Iterable[str]) -
 def _missing_pool_components(values: Mapping[str, object]) -> tuple[str, ...]:
     missing: list[str] = []
     for name in (*_OWNER_FACTS, *_SELF_FACTS):
+        if name == "kompensasjonsfond":
+            continue
         if name in values and _fact_number(values, name) is None:
             missing.append(name)
     return tuple(missing)

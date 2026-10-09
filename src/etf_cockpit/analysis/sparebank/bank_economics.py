@@ -321,6 +321,13 @@ def build_bank_economics(evidence: Mapping[str, object] | None = None, *, bank_m
     reported_input = merged.get("reported_earnings", merged.get("earnings"))
     bridge = normalisation_bridge(reported_input, merged.get("normalisation_adjustments", ()), equity_denominator=merged.get("average_common_equity", merged.get("equity")), reported_pre_tax=merged.get("reported_pre_tax"), pre_tax_adjustments=merged.get("pre_tax_adjustments", ()), ec_share=merged.get("ec_share"), ec_count=merged.get("ec_count")) if reported_input is not None else None
     capital = capital_resilience(merged.get("cet1"), merged.get("ppp"), merged.get("credit_loss"), merged.get("rwa"), merged.get("target_ratio")) if any(key in merged for key in ("cet1", "ppp", "credit_loss", "rwa", "target_ratio")) else None
+    resilience = dict(capital.__dict__) if capital else {}
+    cet1_ratio = _number(merged.get("cet1_ratio"))
+    if cet1_ratio is not None:
+        resilience["cet1_ratio"] = cet1_ratio
+        cet1_provenance = merged.get("cet1_ratio_provenance")
+        if cet1_provenance is not None:
+            resilience["provenance"] = {"cet1_ratio": cet1_provenance}
     credit_input = dict(merged.get("credit")) if isinstance(merged.get("credit"), Mapping) else None
     if credit_input is None:
         credit_aliases = ("opening_stage3", "new_stage3", "cured_stage3", "repaid_stage3", "written_off_stage3", "closing_stage3", "opening_allowance", "allowance_expense", "allowance_releases", "allowance_used_writeoffs", "closing_allowance", "loans_open", "loans_close", "stage2_open", "stage2_close")
@@ -331,14 +338,21 @@ def build_bank_economics(evidence: Mapping[str, object] | None = None, *, bank_m
         credit = credit_reconciliation(**{key: value for key, value in credit_input.items() if key in credit_fields}).__dict__
     else:
         credit = {}
+    stage3_ratio = _number((credit_input or {}).get("stage_3_ratio_pct", merged.get("stage_3_ratio_pct")))
+    if stage3_ratio is not None:
+        credit["stage_3_ratio_pct"] = stage3_ratio
+        if (credit_input or {}).get("provenance") is not None:
+            credit["provenance"] = (credit_input or {})["provenance"]
     funding_input = merged.get("funding") if isinstance(merged.get("funding"), Mapping) else {}
     funding = {
         "deposit_beta": funding_input.get("deposit_beta", metrics.get("deposit_beta", UNAVAILABLE)),
+        "deposit_to_loan_ratio": funding_input.get("deposit_to_loan_ratio", UNAVAILABLE),
         "lcr": funding_input.get("lcr", metrics.get("liquidity_coverage_ratio", UNAVAILABLE)),
         "nsfr": funding_input.get("nsfr", metrics.get("net_stable_funding_ratio", UNAVAILABLE)),
         "reference_rate": funding_input.get("reference_rate", UNAVAILABLE),
         "window": funding_input.get("window", UNAVAILABLE),
         "population": funding_input.get("population", UNAVAILABLE),
+        "provenance": funding_input.get("provenance", {}),
     }
     concentration = dict(merged.get("concentration")) if isinstance(merged.get("concentration"), Mapping) else {}
     if not concentration:
@@ -353,13 +367,31 @@ def build_bank_economics(evidence: Mapping[str, object] | None = None, *, bank_m
         evidence_values.extend(item.evidence_locator for item in bridge.adjustments if item.evidence_locator)
     if isinstance(funding_input, Mapping):
         evidence_values.extend(str(funding_input[key]) for key in ("evidence_id", "source_id") if funding_input.get(key))
+        funding_provenance = funding_input.get("provenance")
+        if isinstance(funding_provenance, Mapping):
+            for item in funding_provenance.values():
+                if isinstance(item, Mapping):
+                    evidence_values.extend(str(item[key]) for key in ("source_locator", "source_url") if item.get(key))
+                    citations = item.get("source_citations")
+                    if isinstance(citations, (tuple, list)):
+                        for citation in citations:
+                            if isinstance(citation, Mapping):
+                                evidence_values.extend(str(citation[key]) for key in ("source_locator", "source_url") if citation.get(key))
+    credit_provenance = (credit_input or {}).get("provenance")
+    if isinstance(credit_provenance, Mapping):
+        for item in credit_provenance.values():
+            if isinstance(item, Mapping):
+                evidence_values.extend(str(item[key]) for key in ("source_locator", "source_url") if item.get(key))
+    cet1_provenance = merged.get("cet1_ratio_provenance")
+    if isinstance(cet1_provenance, Mapping):
+        evidence_values.extend(str(cet1_provenance[key]) for key in ("source_locator", "source_url") if cet1_provenance.get(key))
     if isinstance(concentration, Mapping):
         evidence_values.extend(str(concentration[key]) for key in ("evidence_id", "source_id") if concentration.get(key))
     evidence_ids = tuple(dict.fromkeys(evidence_values))
-    calculation_ids = tuple(name for name in ("normalisation_bridge" if bridge and bridge.status == "resolved" else None, "capital_resilience" if capital and capital.status == "resolved" else None, "credit_reconciliation" if credit else None, "funding_evidence" if any(value not in (None, UNAVAILABLE) for value in funding.values()) else None, "concentration_interpretation" if concentration else None) if name)
+    calculation_ids = tuple(name for name in ("normalisation_bridge" if bridge and bridge.status == "resolved" else None, "capital_resilience" if capital and capital.status == "resolved" else None, "credit_reconciliation" if credit else None, "funding_evidence" if any(funding.get(key) not in (None, UNAVAILABLE) for key in ("deposit_beta", "deposit_to_loan_ratio", "lcr", "nsfr")) else None, "concentration_interpretation" if concentration else None) if name)
     complete = bool(evidence_ids and calculation_ids and (not capital or capital.status == "resolved"))
     status = "resolved" if complete else "partial"
-    return BankEconomics(status=status, reported={"metrics": metrics}, normalised=bridge.__dict__ if bridge else {}, resilience=capital.__dict__ if capital else {}, credit=credit, funding=funding, concentration=concentration, evidence_ids=evidence_ids, unavailable_fields=unavailable, coverage=(1.0 if complete else 0.5 if bridge or capital or credit else 0.0), calculation_ids=calculation_ids)
+    return BankEconomics(status=status, reported={"metrics": metrics}, normalised=bridge.__dict__ if bridge else {}, resilience=resilience, credit=credit, funding=funding, concentration=concentration, evidence_ids=evidence_ids, unavailable_fields=unavailable, coverage=(1.0 if complete else 0.5 if bridge or capital or credit else 0.0), calculation_ids=calculation_ids)
 
 
 analyse_bank_economics = build_bank_economics
