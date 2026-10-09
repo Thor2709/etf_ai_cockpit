@@ -14,7 +14,7 @@ controls:
   risk_profile: medium
   rss_sources: []
 execution_allowed: false
-revision: 14371d81701e6020a77549489adbc534ad1db7311ee68778c4da2cea8cd17e95
+revision: e48cdf37e88523818663e57321327ef7d11fbd0971747055a4ee8abaf4048ab8
 schema_version: settings_bundle.v1
 semantic_version: 1.0.0
 settings_version: 0

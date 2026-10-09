@@ -354,7 +354,7 @@ etfs:
     enabled: true
   - id: AIR
     name: Airbus SE
-    isin: needs_verification
+    isin: NL0000235190
     ticker: AIR.PA
     provider_symbol: AIR.PA
     exchange: unverified
@@ -367,7 +367,7 @@ etfs:
     sector: Industrials
     theme: Aerospace
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: BA
     name: BAE Systems plc
@@ -388,7 +388,7 @@ etfs:
     enabled: true
   - id: BRK_B
     name: Berkshire Hathaway Inc Class B
-    isin: needs_verification
+    isin: US0846707026
     ticker: BRK-B
     provider_symbol: BRK-B
     exchange: unverified
@@ -401,7 +401,7 @@ etfs:
     sector: Financials
     theme: Diversified financials
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: AM
     name: Dassault Aviation SA
@@ -422,7 +422,7 @@ etfs:
     enabled: true
   - id: IDR
     name: Indra Sistemas SA
-    isin: needs_verification
+    isin: ES0118594417
     ticker: IDR.MC
     provider_symbol: IDR.MC
     exchange: unverified
@@ -435,11 +435,11 @@ etfs:
     sector: Technology
     theme: Defence technology
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: KOG
     name: Kongsberg Gruppen ASA
-    isin: needs_verification
+    isin: NO0013536151
     ticker: KOG.OL
     provider_symbol: KOG.OL
     exchange: unverified
@@ -452,7 +452,7 @@ etfs:
     sector: Industrials
     theme: Defence technology
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: KMAR
     name: Kongsberg Maritime ASA
@@ -473,7 +473,7 @@ etfs:
     enabled: true
   - id: LDO
     name: Leonardo SpA
-    isin: needs_verification
+    isin: IT0003856405
     ticker: LDO.MI
     provider_symbol: LDO.MI
     exchange: unverified
@@ -486,11 +486,11 @@ etfs:
     sector: Industrials
     theme: Defence technology
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: MSFT
     name: Microsoft Corp
-    isin: needs_verification
+    isin: US5949181045
     ticker: MSFT
     provider_symbol: MSFT
     exchange: unverified
@@ -503,11 +503,11 @@ etfs:
     sector: Technology
     theme: Software and cloud
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: RR
     name: Rolls-Royce Holdings plc
-    isin: needs_verification
+    isin: GB00B63H8491
     ticker: RR.L
     provider_symbol: RR.L
     exchange: unverified
@@ -520,11 +520,11 @@ etfs:
     sector: Industrials
     theme: Aerospace
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: SAAB_B
     name: Saab AB ser. B
-    isin: needs_verification
+    isin: SE0021921269
     ticker: SAAB-B.ST
     provider_symbol: SAAB-B.ST
     exchange: unverified
@@ -537,11 +537,11 @@ etfs:
     sector: Industrials
     theme: Defence technology
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: SBNOR
     name: Sparebanken Norge
-    isin: needs_verification
+    isin: NO0006000900
     ticker: SBNOR.OL
     provider_symbol: SBNOR.OL
     exchange: unverified
@@ -554,7 +554,7 @@ etfs:
     sector: Banks
     theme: Nordic financials
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: HO
     name: Thales SA
@@ -575,7 +575,7 @@ etfs:
     enabled: true
   - id: TKA
     name: thyssenkrupp AG
-    isin: needs_verification
+    isin: DE0007500001
     ticker: TKA.DE
     provider_symbol: TKA.DE
     exchange: unverified
@@ -588,7 +588,7 @@ etfs:
     sector: Industrials
     theme: Materials and engineering
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: TKMS
     name: thyssenkrupp Marine Systems GmbH
@@ -695,7 +695,7 @@ etfs:
     enabled: true
   - id: SXRV_NASDAQ100
     name: iShares NASDAQ 100 UCITS ETF
-    isin: needs_verification
+    isin: IE00B53SZB19
     ticker: SXRV.DE
     provider_symbol: SXRV.DE
     exchange: unverified
@@ -708,7 +708,7 @@ etfs:
     sector: Broad
     theme: Nasdaq 100
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: VFEM
     name: Vanguard FTSE Emerging Markets UCITS ETF
@@ -763,7 +763,7 @@ etfs:
     enabled: true
   - id: XAIX
     name: Xtrackers Artificial Intelligence and Big Data UCITS ETF
-    isin: needs_verification
+    isin: IE00BGV5VN51
     ticker: XAIX.DE
     provider_symbol: XAIX.DE
     exchange: unverified
@@ -776,7 +776,7 @@ etfs:
     sector: Technology
     theme: Artificial intelligence
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: EXUS
     name: Xtrackers MSCI World ex USA UCITS ETF
@@ -797,7 +797,7 @@ etfs:
     enabled: true
   - id: XDWU
     name: Xtrackers MSCI World UCITS ETF
-    isin: needs_verification
+    isin: IE00BM67HQ30
     ticker: XDWU.DE
     provider_symbol: XDWU.DE
     exchange: unverified
@@ -810,7 +810,7 @@ etfs:
     sector: Broad
     theme: Global developed equity
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: RABO
     name: Rabobank Certificaten
@@ -832,7 +832,7 @@ etfs:
     enabled: true
   - id: AURG
     name: Aurskog Sparebank
-    isin: needs_verification
+    isin: NO0006001601
     lei: 5967007LIEEXZX7H3S04  # GLEIF exact legal-name match 2026-10-09
     ticker: AURG.OL
     provider_symbol: AURG.OL
@@ -846,7 +846,7 @@ etfs:
     sector: Banks
     theme: Norwegian savings-bank equity certificates
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: HELG
     name: Helgeland Sparebank
@@ -884,7 +884,7 @@ etfs:
     enabled: true
   - id: SOGN
     name: Sogn Sparebank
-    isin: needs_verification
+    isin: NO0006000603
     lei: 5967007LIEEXZXAXC017  # GLEIF exact legal-name match 2026-10-09
     ticker: SOGN.OL
     provider_symbol: SOGN.OL
@@ -898,7 +898,7 @@ etfs:
     sector: Banks
     theme: Norwegian savings-bank equity certificates
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: JAEREN
     name: Jæren Sparebank
@@ -919,7 +919,7 @@ etfs:
     enabled: true
   - id: MELG
     name: Melhus Sparebank
-    isin: needs_verification
+    isin: NO0006001908
     lei: 5967007LIEEXZXI0QG32  # GLEIF exact legal-name match 2026-10-09
     ticker: MELG.OL
     provider_symbol: MELG.OL
@@ -933,7 +933,7 @@ etfs:
     sector: Banks
     theme: Norwegian savings-bank equity certificates
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: SADG
     name: Sandnes Sparebank
@@ -955,7 +955,7 @@ etfs:
     enabled: false
   - id: SKUE
     name: Skue Sparebank
-    isin: needs_verification
+    isin: NO0006001809
     lei: 5967007LIEEXZX850W58  # GLEIF exact legal-name match 2026-10-09
     ticker: SKUE.OL
     provider_symbol: SKUE.OL
@@ -969,7 +969,7 @@ etfs:
     sector: Banks
     theme: Norwegian savings-bank equity certificates
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: NONG
     name: SpareBank 1 Nord-Norge
@@ -1058,7 +1058,7 @@ etfs:
     enabled: true
   - id: MORG
     name: Sparebanken Møre
-    isin: NO0006390004
+    isin: NO0012483207
     lei: 5967007LIEEXZX5PU005  # GLEIF exact legal-name match 2026-10-09
     ticker: MORG.OL
     provider_symbol: MORG.OL

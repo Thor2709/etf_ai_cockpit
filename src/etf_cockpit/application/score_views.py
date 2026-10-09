@@ -52,8 +52,34 @@ def snapshot_scores(snapshot: object, universe_revision: str = "", *, penalise_m
             peer_member_ids=getattr(reference, "peer_member_ids", ()),
             cash_observation_time=getattr(snapshot, "benchmark_reference_decision_time", None),
         )
+        scores = _without_superseded_candidates(scores)
         _CACHE.update(snapshot=snapshot, key=key, scores=scores)
         return _presented(scores, penalise)
+
+
+def _without_superseded_candidates(scores: list[object]) -> list[object]:
+    """A stale candidate-report row never duplicates an instrument that is configured and scored."""
+
+    def is_candidate(score: object) -> bool:
+        return str(getattr(score, "instrument_key", "")).startswith("candidate:")
+
+    configured = {
+        value.upper()
+        for score in scores
+        if not is_candidate(score)
+        for value in (str(getattr(score, "display_id", "") or ""), str(getattr(score, "yahoo_symbol", "") or ""))
+        if value
+    }
+    return [
+        score for score in scores
+        if not (
+            is_candidate(score)
+            and (
+                str(getattr(score, "display_id", "") or "").upper() in configured
+                or str(getattr(score, "yahoo_symbol", "") or "").upper() in configured
+            )
+        )
+    ]
 
 
 def _presented(scores: list[object], penalise: bool) -> list[object]:

@@ -108,7 +108,8 @@ SPAREBANKEN_IDS = {
 
 # Disabled in configs/universe.yaml: JEDI delisted, SADG merged into SBNOR, RABO has no Yahoo history.
 DISABLED_IDS = {"JEDI", "RABO", "SADG"}
-SPAREBANKEN_NEEDS_VERIFICATION = {"AURG", "SOGN", "MELG", "SADG", "SKUE"}
+# AURG, SOGN, MELG and SKUE were verified from the owner holdings file on 2026-10-09.
+SPAREBANKEN_NEEDS_VERIFICATION = {"SADG"}
 
 
 def test_raw_score_conversion_to_x_out_of_ten() -> None:
@@ -1078,7 +1079,8 @@ def test_simple_scores_show_all_two_tier_instruments_as_pending_without_refresh(
     assert by_id["NONG"].source_group == "Sparebanken"
     assert by_id["NONG"].analysis_tier == "sparebanken"
     assert by_id["NONG"].asset_type == "Equity certificate"
-    assert by_id["AURG"].isin == "needs_verification"
+    assert by_id["CBUK"].isin == "needs_verification"
+    assert by_id["AURG"].isin == "NO0006001601"
 
 
 def test_mixed_universe_routes_sparebank_ec_to_native_scorecard(monkeypatch) -> None:
@@ -1144,8 +1146,8 @@ def test_scoreboard_frame_preserves_needs_verification_isin_status() -> None:
     scores = build_simple_instrument_scores(config, [], pd.DataFrame(), pd.DataFrame())
     frame = simple_scoreboard_frame(scores).set_index("instrument_id")
 
-    assert frame.loc["AURG", "isin"] == "needs_verification"
-    assert frame.loc["AURG", "isin_status"] == "needs_verification"
+    assert frame.loc["CBUK", "isin"] == "needs_verification"
+    assert frame.loc["CBUK", "isin_status"] == "needs_verification"
     assert frame.loc["NONG", "isin_status"] == "verified"
 
 

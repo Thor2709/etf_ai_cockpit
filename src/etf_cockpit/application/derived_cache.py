@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from etf_cockpit.features.feature_pipeline import RELATIVE_STRENGTH_FALLBACK_ANCHOR
+
 from collections.abc import (
     Callable,
     Mapping,
@@ -41,10 +43,6 @@ from etf_cockpit.portfolio.benchmark_reference import (
     adjusted_price_snapshot_binding,
 )
 
-
-# Broad-market anchor for relative strength when the canonical benchmark has no imported
-# total-return evidence (FTSE All-World tracker, accumulating). Part of the feature cache identity.
-RELATIVE_STRENGTH_FALLBACK_ANCHOR = "VWCE"
 
 def _universe_cache_meta_path(path: Path) -> Path:
     return Path(f"{path}.meta.json")

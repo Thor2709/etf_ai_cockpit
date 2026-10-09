@@ -97,9 +97,11 @@ ETF_EVIDENCE_WEIGHTS = {
     "risk": 0.14,
     "liquidity_cost": 0.10,
     "etf_exposure": 0.10,
-    "baseline": 0.02,
-    "timesfm": 0.015,
-    "toto": 0.015,
+    # Owner rule F5: forecasts stay separate from scores. The forecast components are still
+    # shown with their evidence but carry no weight in the composite.
+    "baseline": 0.0,
+    "timesfm": 0.0,
+    "toto": 0.0,
 }
 
 STOCK_EVIDENCE_WEIGHTS = {
@@ -111,9 +113,11 @@ STOCK_EVIDENCE_WEIGHTS = {
     "stock_value": 0.12,
     "stock_quality": 0.13,
     "analyst_revision": 0.05,
-    "baseline": 0.02,
-    "timesfm": 0.015,
-    "toto": 0.015,
+    # Owner rule F5: forecasts stay separate from scores. The forecast components are still
+    # shown with their evidence but carry no weight in the composite.
+    "baseline": 0.0,
+    "timesfm": 0.0,
+    "toto": 0.0,
 }
 
 COMPONENT_LABELS = {
@@ -693,7 +697,10 @@ def _generate_missing_price_signals(
     missing_ids = enabled_ids - signal_ids
     if not missing_ids or prices.empty or not {"etf_id", "date"}.issubset(prices.columns):
         return signals, {}
-    frame = prices.loc[prices["etf_id"].astype(str).isin(missing_ids)].copy()
+    from etf_cockpit.features.feature_pipeline import RELATIVE_STRENGTH_FALLBACK_ANCHOR
+
+    anchor = RELATIVE_STRENGTH_FALLBACK_ANCHOR if prices["etf_id"].astype(str).eq(RELATIVE_STRENGTH_FALLBACK_ANCHOR).any() else None
+    frame = prices.loc[prices["etf_id"].astype(str).isin(missing_ids | ({anchor} if anchor else set()))].copy()
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce").dt.date
     frame = frame.loc[frame["date"].notna()]
     if frame.empty:
@@ -717,15 +724,17 @@ def _generate_missing_price_signals(
         from etf_cockpit.features.feature_pipeline import compute_features, latest_features
         from etf_cockpit.signals.signal_pipeline import generate_signals
 
-        features = compute_features(frame)
+        features = compute_features(frame, benchmark_etf_id=anchor)
         latest = latest_features(features, decision_date)
+        latest = latest.loc[latest["etf_id"].astype(str).isin(missing_ids)]
         if latest.empty:
             return signals, failures
-        # Without a bound benchmark reference, relative strength is unavailable;
-        # the price series itself is not a peer benchmark.
-        for column in ("relative_strength_60d", "relative_strength_120d"):
-            if column in latest.columns:
-                latest[column] = pd.NA
+        # Relative strength is measured against the broad-market anchor; without its prices
+        # it stays unavailable (the instrument's own series is not a benchmark).
+        if anchor is None:
+            for column in ("relative_strength_60d", "relative_strength_120d"):
+                if column in latest.columns:
+                    latest[column] = pd.NA
         holdings = pd.DataFrame(columns=["etf_id", "current_weight", "market_value_eur"])
         data_report = validate_prices(frame, as_of_date=decision_date)
         generated = generate_signals(

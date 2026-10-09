@@ -18,7 +18,7 @@ from etf_cockpit.data.duckdb_store import (
     write_features,
 )
 from etf_cockpit.features.feature_store import LocalFeatureStore as LocalFeatureStore
-from etf_cockpit.features.feature_pipeline import compute_features
+from etf_cockpit.features.feature_pipeline import RELATIVE_STRENGTH_FALLBACK_ANCHOR, compute_features
 from etf_cockpit.portfolio.benchmark_reference_contract import CanonicalBenchmarkRegistry
 from etf_cockpit.portfolio.benchmark_reference import (
     CanonicalReferenceContext,
@@ -26,7 +26,6 @@ from etf_cockpit.portfolio.benchmark_reference import (
     unavailable_reference_projection,
 )
 from etf_cockpit.application.derived_cache import (
-    RELATIVE_STRENGTH_FALLBACK_ANCHOR,
     _calculation_window,
     _current_universe_revision,
     _price_snapshot_binding,

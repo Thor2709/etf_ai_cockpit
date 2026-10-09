@@ -72,3 +72,26 @@ def test_depth_dialog_offers_the_penalty_tickbox(tmp_path) -> None:
     box.value = True
     box.on_change(SimpleNamespace(control=box))
     assert saved == [True]
+
+
+def test_candidate_rows_never_duplicate_configured_instruments():
+    from types import SimpleNamespace
+
+    from etf_cockpit.application.score_views import _without_superseded_candidates
+
+    rows = [
+        SimpleNamespace(instrument_key="SU", display_id="SU"),
+        SimpleNamespace(instrument_key="candidate:SU", display_id="SU"),
+        SimpleNamespace(instrument_key="SXRJ_EMU_SMALL", display_id="SXRJ_EMU_SMALL", yahoo_symbol="SXRJ.DE"),
+        SimpleNamespace(instrument_key="candidate:SXRJ", display_id="SXRJ", yahoo_symbol="SXRJ.DE"),
+        SimpleNamespace(instrument_key="candidate:NEW", display_id="NEW", yahoo_symbol="NEW.DE"),
+    ]
+    kept = [r.instrument_key for r in _without_superseded_candidates(rows)]
+    assert kept == ["SU", "SXRJ_EMU_SMALL", "candidate:NEW"]
+
+
+def test_forecasts_carry_no_score_weight_owner_rule_f5():
+    from etf_cockpit.signals.simple_scores import ETF_EVIDENCE_WEIGHTS, STOCK_EVIDENCE_WEIGHTS
+
+    for weights in (ETF_EVIDENCE_WEIGHTS, STOCK_EVIDENCE_WEIGHTS):
+        assert all(weights[key] == 0.0 for key in ("baseline", "timesfm", "toto"))
