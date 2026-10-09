@@ -35,3 +35,7 @@ class PageChrome:
 class PageView:
     chrome: PageChrome
     body: ft.Control
+
+    @property
+    def content(self) -> ft.Control:
+        return self.body
