@@ -210,7 +210,7 @@ def _issuer_records(payload: bytes, instrument, known_at: str, url: str, kind: s
     date_match = re.search(r"(?:Factsheet\s*\||Data as at|As at|as of)\s*(\d{1,2}\s+[A-Za-z]+\s+20\d{2})", text, re.I)
     if date_match is None:
         raise ValueError("issuer_document_date_missing")
-    effective = datetime.strptime(date_match[1], "%d %B %Y").date().isoformat()
+    effective = _document_date(date_match[1])
     if pd.Timestamp(effective, tz="UTC") > pd.Timestamp(known_at):
         raise ValueError("issuer_document_future_date")
     row = _parse_fields(" ".join(text.split()), dict(instrument_id=instrument.id, as_of=effective, known_at=known_at, source_id=url, source_authority="issuer_document"))
@@ -378,3 +378,14 @@ def fetch_etf_e1_reference_data(config, provider, *, http_get=None, now=None, re
     for dataset, rows in (("etf_metadata", metadata_rows), ("etf_holdings", holding_rows)):
         results.append((dataset, ProviderResult("etf_e1_sources", dataset, "ok" if rows else "unavailable", f"ETF source chain acquired {len(rows)} {dataset} rows.", pd.DataFrame(rows) if rows else None)))
     return results, messages
+
+
+def _document_date(text: str) -> str:
+    """Issuer documents write '31 August 2026' or '31 Aug 2026'."""
+
+    for pattern in ("%d %B %Y", "%d %b %Y"):
+        try:
+            return datetime.strptime(text.strip(), pattern).date().isoformat()
+        except ValueError:
+            continue
+    raise ValueError(f"issuer_document_date_unparsed: {text!r}")

@@ -272,3 +272,14 @@ def test_e1_acquisition_stops_at_the_checkpoint_before_any_network_call():
     with pytest.raises(RuntimeError, match="cancelled"):
         fetch_etf_e1_reference_data(config, SimpleNamespace(), http_get=lambda *a, **k: calls.append(a), registry=pd.DataFrame(), checkpoint=cancelled)
     assert calls == []
+
+
+def test_issuer_document_dates_accept_full_and_abbreviated_months():
+    import pytest
+
+    from etf_cockpit.data.etf_e1_fetch import _document_date
+
+    assert _document_date("31 August 2026") == "2026-08-31"
+    assert _document_date("31 Aug 2026") == "2026-08-31"
+    with pytest.raises(ValueError, match="unparsed"):
+        _document_date("Q3 2026")
