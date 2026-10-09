@@ -172,7 +172,7 @@ def test_teaching_bank_production_route_exposes_scorecard_and_workspace(tmp_path
     identity = projection["share_class_identity"]
     assert identity["native_suite"] == "sparebank-analysis-suite.v1"
     analysis = identity["sparebank_analysis"]
-    assert analysis["scorecard"]["formula_version"] == "sparebank-scorecard-v1.1.0"
+    assert analysis["scorecard"]["formula_version"] == "sparebank-scorecard-v1.2.0"
     assert analysis["scorecard"]["composite_10"] is not None
     assert analysis["decision_price"] == {
         "status": "available", "price": 100.0, "date": "2025-02-28", "currency": "NOK",

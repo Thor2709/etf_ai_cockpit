@@ -135,6 +135,11 @@ class BankEconomics:
     warnings: tuple[str, ...] = ()
     coverage: float = 0.0
     execution_allowed: bool = False
+    # SB2: book calculations that feed the lending and capital-allocation axes, and the plain-language
+    # reason each missing figure is missing (input id -> reason).
+    lending: Mapping[str, object] = field(default_factory=dict)
+    allocation: Mapping[str, object] = field(default_factory=dict)
+    reasons: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
