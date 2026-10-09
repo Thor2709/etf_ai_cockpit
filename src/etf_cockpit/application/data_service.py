@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
-from etf_cockpit.core.paths import FORECASTS_DIR
+from etf_cockpit.core.paths import FORECASTS_DIR, ROOT
 from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.core.timing import record_cache_event
 from etf_cockpit.core.types import DataQualityReport
@@ -194,10 +194,22 @@ class DataService:
         result = provider.fetch_prices([], start_date, end_date)
         if not result.ok or result.data is None:
             return redact_text(str(result.message))
+        result, quarantined = _quarantine_invalid_ohlc(result)
         report = validate_prices(result.data, as_of_date=end_date)
-        block_issues = [issue.message for issue in report.issues if issue.severity == "block"]
+        # Vendor OHLC glitches are quarantined row by row above, and a short history is a per-instrument
+        # signal gate the snapshot re-applies; neither should block committing every other instrument.
+        commit_tolerated = {"insufficient_history"}
+        block_issues = [
+            f"{issue.etf_id}: {issue.message}" for issue in report.issues
+            if issue.severity == "block" and issue.code not in commit_tolerated
+        ]
         if block_issues:
             return "Yahoo Finance prices fetched but not committed because validation blocked them: " + "; ".join(block_issues)
+        if quarantined is not None and not quarantined.empty:
+            quarantine_path = ROOT / "data" / "quality" / f"price_quarantine_{end_date.isoformat()}.parquet"
+            quarantine_path.parent.mkdir(parents=True, exist_ok=True)
+            quarantined.to_parquet(quarantine_path, index=False)
+            messages.append(f"Quarantined {len(quarantined)} invalid OHLC rows to {quarantine_path.name}.")
         with publication_scope(publish_guard):
             commit_result = commit_price_import(result)
         messages.append(
@@ -664,3 +676,25 @@ class DataService:
             f"Rolled back prices to {rollback.restored_snapshot_path}. "
             f"Rows: {rollback.rows}. Current replaced copy: {rollback.current_snapshot_path or 'none'}."
         )
+
+
+def _quarantine_invalid_ohlc(result):
+    """Split vendor rows with impossible OHLC values off the import; return (clean result, quarantined rows)."""
+    import dataclasses
+
+    frame = result.data
+    needed = {"open", "high", "low", "close"}
+    if frame is None or not needed.issubset(frame.columns):
+        return result, None
+    bad = (
+        (frame["open"] <= 0)
+        | (frame["close"] <= 0)
+        | (frame["high"] < frame["low"])
+        | (frame["high"] < frame[["open", "close"]].max(axis=1))
+        | (frame["low"] > frame[["open", "close"]].min(axis=1))
+    )
+    if not bad.any():
+        return result, None
+    quarantined = frame.loc[bad].copy()
+    quarantined["quarantine_reason"] = "invalid_ohlc"
+    return dataclasses.replace(result, data=frame.loc[~bad].reset_index(drop=True)), quarantined

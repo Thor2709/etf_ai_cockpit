@@ -37,9 +37,9 @@ SPAREBANKEN_ROWS: tuple[tuple[str, str, str, str], ...] = (
     ("Helgeland Sparebank", "HELG", "HELG.OL", "NO0010029804"),
     ("Høland og Setskog Sparebank", "HSPG", "HSPG.OL", "NO0010012636"),
     ("Sogn Sparebank", "SOGN", "SOGN.OL", "needs_verification"),
-    ("Jæren Sparebank", "JAEREN", "JAEREN.OL", "NO0010359433"),
+    ("Jæren Sparebank", "JAEREN", "JAREN.OL", "NO0010359433"),  # Oslo Børs symbol is JAREN
     ("Melhus Sparebank", "MELG", "MELG.OL", "needs_verification"),
-    ("Sandnes Sparebank", "SADG", "SADG.OL", "needs_verification"),
+    # Sandnes Sparebank (SADG) merged into Sparebanken Norge (SBNOR) in 2024 and is no longer listed.
     ("Skue Sparebank", "SKUE", "SKUE.OL", "needs_verification"),
     ("SpareBank 1 Nord-Norge", "NONG", "NONG.OL", "NO0006000801"),
     ("SpareBank 1 Ringerike Hadeland", "RING", "RING.OL", "NO0006390400"),

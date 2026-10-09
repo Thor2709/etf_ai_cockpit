@@ -657,7 +657,8 @@ etfs:
     theme: Branded beverages
     role: watchlist
     isin_status: needs_verification
-    enabled: true
+    # disabled: delisted after 2025 takeover by Keurig Dr Pepper; no Yahoo quote (2026-10-09)
+    enabled: false
   - id: EUNK
     name: iShares Core MSCI Europe UCITS ETF
     isin: needs_verification
@@ -678,8 +679,8 @@ etfs:
   - id: SPCX
     name: SPDR MSCI Europe UCITS ETF
     isin: needs_verification
-    ticker: SPCX.DE
-    provider_symbol: SPCX.DE
+    ticker: SPYE.DE
+    provider_symbol: SPYE.DE
     exchange: unverified
     currency: EUR
     asset_class: equity
@@ -827,7 +828,8 @@ etfs:
     theme: Nordic financials
     role: watchlist
     isin_status: needs_verification
-    enabled: true
+    # disabled: Rabobank certificates trade on Euronext Amsterdam; Yahoo RABO.AS has 1 row in 12 months (2026-10-09)
+    enabled: false
   - id: AURG
     name: Aurskog Sparebank
     isin: needs_verification
@@ -899,8 +901,8 @@ etfs:
   - id: JAEREN
     name: Jæren Sparebank
     isin: NO0010359433
-    ticker: JAEREN.OL
-    provider_symbol: JAEREN.OL
+    ticker: JAREN.OL
+    provider_symbol: JAREN.OL
     exchange: OSE
     currency: NOK
     asset_class: equity
@@ -946,7 +948,8 @@ etfs:
     theme: Norwegian savings-bank equity certificates
     role: watchlist
     isin_status: needs_verification
-    enabled: true
+    # disabled: merged into Sparebanken Norge (SBNOR) in 2024; no Yahoo quote (2026-10-09)
+    enabled: false
   - id: SKUE
     name: Skue Sparebank
     isin: needs_verification
