@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -131,6 +131,9 @@ def universe_values(resolution: instrument_lookup.Resolution, existing_ids: Sequ
         raise ValueError(resolution.reason or "the identifier is not resolved to one listing")
     if not chosen.currency:
         raise ValueError(f"{chosen.symbol}: Yahoo returned no currency; use Add record and enter it by hand")
+    asset_type = instrument_lookup.SUPPORTED_QUOTE_TYPES.get(chosen.quote_type)
+    if asset_type is None:
+        raise ValueError(f"{chosen.symbol}: unsupported quote type {chosen.quote_type or '(missing)'}")
     verified = resolution.isin_status == "verified"
     return {
         "instrument_id": instrument_lookup.suggest_instrument_id(chosen.symbol, existing_ids),
@@ -138,7 +141,7 @@ def universe_values(resolution: instrument_lookup.Resolution, existing_ids: Sequ
         "isin": resolution.isin if verified else "needs_verification",
         "isin_status": "verified" if verified else "needs_verification",
         "ticker": chosen.symbol,
-        "asset_type": instrument_lookup.SUPPORTED_QUOTE_TYPES.get(chosen.quote_type, "stock"),
+        "asset_type": asset_type,
         "tier": "secondary",
         "data_policy": "yfinance_only",
         "currency": chosen.currency,

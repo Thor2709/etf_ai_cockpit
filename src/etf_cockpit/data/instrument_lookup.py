@@ -53,6 +53,9 @@ class Resolution:
     isin_status: str = "needs_verification"
     isin_note: str = ""
     sources: list[str] = field(default_factory=list)
+    isin_ticker: str = ""
+    isin_exchange: str = ""
+    isin_name: str = ""
 
 
 def isin_checksum_ok(value: str) -> bool:
@@ -125,16 +128,22 @@ def yahoo_search(query: str, get_json: GetJson = _http_get_json) -> list[Candida
     return out
 
 
-def openfigi_name(isin: str, post_json: PostJson = _http_post_json) -> tuple[str | None, str]:
-    """(registered name, note): OpenFIGI's record for the ISIN, or None with the reason."""
+def openfigi_name(isin: str, post_json: PostJson = _http_post_json) -> tuple[str | None, str, str, str]:
+    """Registered name, note, ticker and exchange returned for the exact ISIN."""
 
     payload = post_json(OPENFIGI_URL, [{"idType": "ID_ISIN", "idValue": isin}])
     first = payload[0] if isinstance(payload, list) and payload else {}
     data = first.get("data") if isinstance(first, Mapping) else None
     if not data:
         warning = first.get("warning") if isinstance(first, Mapping) else None
-        return None, f"OpenFIGI has no record for {isin}" + (f" ({warning})" if warning else "")
-    return str(data[0].get("name") or ""), f"OpenFIGI: {data[0].get('name')} ({data[0].get('ticker')}, {data[0].get('exchCode')})"
+        return None, f"OpenFIGI has no record for {isin}" + (f" ({warning})" if warning else ""), "", ""
+    record = data[0]
+    return (
+        str(record.get("name") or ""),
+        f"OpenFIGI: {record.get('name')} ({record.get('ticker')}, {record.get('exchCode')})",
+        str(record.get("ticker") or "").upper(),
+        str(record.get("exchCode") or "").upper(),
+    )
 
 
 def _name_tokens(name: str) -> list[str]:
@@ -143,10 +152,14 @@ def _name_tokens(name: str) -> list[str]:
 
 
 def names_agree(left: str, right: str) -> bool:
-    """True when the first distinctive word of both names matches (MICROSOFT CORP / Microsoft Corporation)."""
+    """True for matching issuer names, including matching explicit share-class labels."""
 
     a, b = _name_tokens(left), _name_tokens(right)
-    return bool(a) and bool(b) and a[0] == b[0]
+    if not a or not b or a[0] != b[0]:
+        return False
+    left_class = re.findall(r"\b(?:class|series)\s+([a-z0-9]+)", left.casefold())
+    right_class = re.findall(r"\b(?:class|series)\s+([a-z0-9]+)", right.casefold())
+    return left_class == right_class
 
 
 def _profile(candidate: Candidate, ticker_factory: TickerFactory | None) -> tuple[Candidate, str]:
@@ -198,16 +211,28 @@ def resolve(
         result.reason = f"Yahoo search failed ({type(exc).__name__}: {str(exc)[:100]}); nothing was added. Try again later."
         return result
     figi_name: str | None = None
+    figi_ticker = ""
+    figi_exchange = ""
     if kind == "isin":
         result.isin = normalised
         result.sources.append("OpenFIGI")
         try:
-            figi_name, result.isin_note = openfigi_name(normalised, post_json)
+            figi_name, result.isin_note, figi_ticker, figi_exchange = openfigi_name(normalised, post_json)
+            result.isin_ticker = figi_ticker
+            result.isin_exchange = figi_exchange
+            result.isin_name = figi_name or ""
         except Exception as exc:
             result.isin_note = f"OpenFIGI could not be reached ({type(exc).__name__}); the ISIN stays unverified"
+    ticker_exact = False
     if kind == "ticker":
         exact = [item for item in found if item.symbol.upper() == normalised]
-        found = exact or found
+        ticker_exact = bool(exact)
+        if exact:
+            found = exact
+    elif kind == "isin" and figi_ticker:
+        exact = [item for item in found if item.symbol.upper() == figi_ticker]
+        if exact and len(found) == 1:
+            found = exact
     if not found:
         known = f"; {result.isin_note}" if kind == "isin" and figi_name else ""
         result.reason = f"Yahoo search lists no equity or ETF for {normalised}{known}. Check the identifier, or try the Yahoo ticker with its exchange suffix (for example ASML.AS)."
@@ -216,10 +241,25 @@ def resolve(
     notes: list[str] = []
     for item in found[:6]:
         profiled, note = _profile(item, ticker_factory)
+        if profiled.quote_type not in SUPPORTED_QUOTE_TYPES:
+            notes.append(f"{item.symbol}: unsupported enriched quote type {profiled.quote_type or '(missing)'}")
+            continue
         enriched.append(profiled)
         if note:
             notes.append(note)
     result.candidates = tuple(enriched)
+    if not enriched:
+        result.status = "unsupported"
+        result.reason = "; ".join(notes) or "no supported equity or ETF listing remains after profile validation"
+        return result
+    if kind == "ticker" and not ticker_exact:
+        result.status = "ambiguous"
+        result.reason = f"Yahoo returned no exact symbol match for {normalised}; pick one of the candidate listings."
+        return result
+    if kind == "isin" and (not figi_ticker or all(item.symbol.upper() != figi_ticker for item in enriched)):
+        result.status = "ambiguous"
+        result.reason = f"OpenFIGI did not identify an exact Yahoo listing for {normalised}; pick the listing to use."
+        return result
     if len(enriched) > 1:
         result.status = "ambiguous"
         result.reason = f"{len(enriched)} listings match {normalised}; pick the one you trade."
@@ -227,7 +267,13 @@ def resolve(
     result.chosen = enriched[0]
     result.status = "ok"
     result.reason = "; ".join(notes)
-    if kind == "isin" and figi_name and names_agree(figi_name, result.chosen.name):
+    if (
+        kind == "isin"
+        and figi_name
+        and figi_ticker == result.chosen.symbol.upper()
+        and figi_exchange
+        and names_agree(figi_name, result.chosen.name)
+    ):
         result.isin_status = "verified"
         result.isin_note = f"{result.isin_note}; the name agrees with the Yahoo listing"
     elif kind == "isin":
@@ -241,8 +287,26 @@ def choose(resolution: Resolution, symbol: str) -> Resolution:
     pick = next((item for item in resolution.candidates if item.symbol == symbol), None)
     if pick is None:
         return Resolution(resolution.identifier, resolution.kind, "invalid", f"{symbol} is not one of the offered listings", resolution.candidates)
+    verified = (
+        resolution.kind == "isin"
+        and resolution.isin_ticker == pick.symbol.upper()
+        and bool(resolution.isin_exchange)
+        and names_agree(resolution.isin_name, pick.name)
+    )
     return Resolution(
-        resolution.identifier, resolution.kind, "ok", resolution.reason, resolution.candidates, pick, resolution.isin, resolution.isin_status, resolution.isin_note, list(resolution.sources)
+        resolution.identifier,
+        resolution.kind,
+        "ok",
+        resolution.reason,
+        resolution.candidates,
+        pick,
+        resolution.isin,
+        "verified" if verified else resolution.isin_status,
+        resolution.isin_note,
+        list(resolution.sources),
+        resolution.isin_ticker,
+        resolution.isin_exchange,
+        resolution.isin_name,
     )
 
 

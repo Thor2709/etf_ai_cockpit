@@ -47,6 +47,7 @@ class StockRecord:
     currency: str
     region: str
     sector: str
+    lifecycle_date: date | None = None
 
 
 @dataclass
@@ -65,9 +66,32 @@ class UniverseEvidence:
 
 
 def stock_records(universe_rows: Iterable[Mapping[str, Any]], config: Mapping[str, Any]) -> list[StockRecord]:
+    """Analysis membership retains historical stocks; only the refresh path applies current flags."""
+
     excluded = (config.get("scope", {}) or {}).get("excluded_sectors", [])
-    targets = store.targets_from_universe(universe_rows, excluded_sectors=excluded)
-    return [StockRecord(t.instrument_id, t.name, t.yahoo_symbol, t.currency, t.region, t.sector) for t in targets]
+    blocked = {str(item).casefold() for item in excluded}
+    records = []
+    for row in universe_rows:
+        kind = str(row.get("instrument_type") or row.get("asset_type") or "").casefold()
+        if kind != "stock" or str(row.get("sector") or "").casefold() in blocked:
+            continue
+        instrument_id = str(row.get("id") or "")
+        if not instrument_id:
+            continue
+        records.append(
+            StockRecord(
+                instrument_id,
+                str(row.get("name") or instrument_id),
+                str(row.get("provider_symbol") or row.get("ticker") or "").strip(),
+                str(row.get("currency") or ""),
+                str(row.get("region") or ""),
+                str(row.get("sector") or ""),
+                (sm.as_utc(row.get("lifecycle_date")) or datetime.max.replace(tzinfo=timezone.utc)).date()
+                if row.get("lifecycle_date")
+                else None,
+            )
+        )
+    return records
 
 
 def _price_frame(prices: pd.DataFrame, instrument_id: str) -> pd.DataFrame:
@@ -106,12 +130,20 @@ def market_inputs(
     if reporting_currency and quote:
         reporting_major, _ = sm.minor_unit(reporting_currency, minor)
         if reporting_major != quote_major:
-            fx_rate, _day = store.fx_rate(f"{quote_major}{reporting_major}", price_date, fx)
+            fx_rate, _day = store.fx_rate(f"{quote_major}{reporting_major}", price_date, fx, decision_time=decision_time)
     dividends = None
-    if "dividends" in known.columns and known["dividends"].notna().any():
-        window = known[known["date"] > pd.Timestamp(price_date) - pd.Timedelta(days=365)]
-        if (price_date - known["date"].iloc[0].date()).days >= 365:
-            dividends = float(pd.to_numeric(window["dividends"], errors="coerce").fillna(0.0).sum())
+    dividend_reason = "no dividend history is stored for this instrument"
+    if "dividends" in known.columns:
+        start = pd.Timestamp(price_date) - pd.Timedelta(days=365)
+        window = known[(known["date"] > start) & (known["date"].dt.date <= price_date)]
+        history_complete = bool(not known.empty and known["date"].iloc[0] <= start and not window.empty)
+        values = pd.to_numeric(window["dividends"], errors="coerce")
+        if history_complete and values.notna().all():
+            dividends = float(values.sum())
+        else:
+            dividend_reason = "incomplete_dividend_year: stored dividend rows do not cover the full trailing year"
+    else:
+        dividend_reason = "incomplete_dividend_year: no complete trailing-year dividend observations are stored"
     month_ends = known.set_index("date")["close"].resample("ME").last().dropna()
     series = tuple((index.date(), float(value)) for index, value in month_ends.items())
     shares = sm._finite((snapshot or {}).get("shares_outstanding"))
@@ -122,26 +154,27 @@ def market_inputs(
         price_date=price_date,
         fx_to_reporting=fx_rate,
         dividends_per_share_12m=dividends,
+        dividend_reason=dividend_reason,
         price_series=series,
         shares_fallback=shares,
         shares_fallback_known_at=snap_time,
     )
 
 
-def analyst_inputs(snapshot: Mapping[str, Any] | None) -> AnalystInputs | None:
-    if not snapshot:
+def analyst_inputs(row: Mapping[str, Any] | None) -> AnalystInputs | None:
+    if not row:
         return None
     return AnalystInputs(
-        eps_current=sm._finite(snapshot.get("eps_current")),
-        eps_90d_ago=sm._finite(snapshot.get("eps_90d_ago")),
-        revisions_up_30d=sm._finite(snapshot.get("revisions_up_30d")),
-        revisions_down_30d=sm._finite(snapshot.get("revisions_down_30d")),
-        known_at=sm.as_utc(snapshot.get("known_at")),
-        source=str(snapshot.get("source") or "yfinance"),
+        eps_current=sm._finite(row.get("eps_current")),
+        eps_90d_ago=sm._finite(row.get("eps_90d_ago")),
+        revisions_up_30d=sm._finite(row.get("revisions_up_30d")),
+        revisions_down_30d=sm._finite(row.get("revisions_down_30d")),
+        known_at=sm.as_utc(row.get("known_at")),
+        source=str(row.get("source") or "yfinance"),
     )
 
 
-def _profile(record: StockRecord, snapshot: Mapping[str, Any] | None, fx: pd.DataFrame, config: Mapping[str, Any], today: date) -> PeerProfile:
+def _profile(record: StockRecord, snapshot: Mapping[str, Any] | None, fx: pd.DataFrame, config: Mapping[str, Any], decision_time: datetime) -> PeerProfile:
     minor = (config.get("reporting", {}) or {}).get("minor_currency_units", {}) or {}
     cap = sm._finite((snapshot or {}).get("market_cap_provider"))
     cap_eur = None
@@ -150,7 +183,7 @@ def _profile(record: StockRecord, snapshot: Mapping[str, Any] | None, fx: pd.Dat
         if quote_major == "EUR":
             cap_eur = cap / 1e9
         else:
-            rate, _day = store.fx_rate(f"{quote_major}EUR", today, fx, max_age_days=30)
+            rate, _day = store.fx_rate(f"{quote_major}EUR", decision_time.date(), fx, decision_time=decision_time, max_age_days=30)
             cap_eur = None if rate is None else cap * rate / 1e9
     return PeerProfile(
         record.instrument_id,
@@ -170,9 +203,10 @@ def build_universe_evidence(
     root: Path | None = None,
     config: Mapping[str, Any] | None = None,
 ) -> UniverseEvidence:
+    records = [record for record in records if record.lifecycle_date is None or decision_time.date() <= record.lifecycle_date]
     cfg = dict(config) if config is not None else store.load_stock_config(root)
     chain = list((cfg.get("sources", {}) or {}).get("chain", ["sec_edgar", "yfinance"]))
-    periods_frame = store.read_periods(root)
+    periods_frame = store.read_fundamentals(root)
     snapshots = store.read_snapshots(root)
     fx = store.read_fx(root)
     result = UniverseEvidence(decision_time, config=cfg)
@@ -186,6 +220,7 @@ def build_universe_evidence(
         iid = record.instrument_id
         periods = store.periods_for(iid, periods_frame, chain)
         snapshot = store.latest_snapshot(iid, snapshots, decision_time)
+        analyst = store.latest_analyst(iid, periods_frame, decision_time)
         reporting = None
         known = sm.known_periods(periods, decision_time)
         if known:
@@ -201,8 +236,8 @@ def build_universe_evidence(
         result.periods[iid] = sm.known_periods(periods, decision_time)
         result.prices[iid] = market
         result.names[iid] = (snapshot or {}).get("long_name") if iid.startswith("peer:") and snapshot else record.name
-        first[iid] = build_stock_evidence(iid, periods, decision_time, market, analyst_inputs(snapshot), cfg, no_data_reason=reason)
-        result.profiles[iid] = _profile(record, snapshot, fx, cfg, decision_time.date())
+        first[iid] = build_stock_evidence(iid, periods, decision_time, market, analyst_inputs(analyst), cfg, no_data_reason=reason)
+        result.profiles[iid] = _profile(record, snapshot, fx, cfg, decision_time)
     peer_values = {key: {iid: ev.metrics[key].value for iid, ev in first.items() if key in ev.metrics and ev.metrics[key].available} for key in PEER_METRIC_KEYS}
     candidates = [result.profiles[r.instrument_id] for r in records]
     for record in records:
@@ -218,7 +253,7 @@ def build_universe_evidence(
         periods = store.periods_for(iid, periods_frame, chain)
         snapshot = store.latest_snapshot(iid, snapshots, decision_time)
         result.evidence[iid] = build_stock_evidence(
-            iid, periods, decision_time, result.prices[iid], analyst_inputs(snapshot), cfg,
+            iid, periods, decision_time, result.prices[iid], analyst_inputs(analyst), cfg,
             peer_values=scoped, no_data_reason=store.no_data_reason(iid, snapshots, decision_time, bool(sm.known_periods(periods, decision_time))),
         )
     for pid, evidence in first.items():
@@ -259,7 +294,7 @@ def get_universe_evidence(
     stamps += (picks_path.stat().st_mtime_ns if picks_path.is_file() else 0,)
     config_stamp = store.config_path(root).stat().st_mtime_ns
     last_price = str(prices["date"].max()) if prices is not None and not prices.empty and "date" in prices else ""
-    key = repr((str(root or ROOT), stamps, config_stamp, tuple(r.instrument_id for r in records), last_price, len(prices) if prices is not None else 0, decision_time.date().isoformat(), decision_time.hour))
+    key = repr((str(root or ROOT), stamps, config_stamp, tuple((r.instrument_id, r.lifecycle_date) for r in records), last_price, len(prices) if prices is not None else 0, decision_time.isoformat()))
     with _LOCK:
         if _CACHE.get("key") == key:
             return _CACHE["value"]

@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pandas as pd
-import pytest
 
 from etf_cockpit.data import stock_sources as src
 from etf_cockpit.data.stock_fundamentals import load_stock_config
@@ -118,6 +117,45 @@ def test_edgar_balance_items_sum_parts_and_attach_cover_page_shares() -> None:
     fy = next(r for r in rows if r["period_end"] == "2025-12-31" and r["period_type"] == "FY")
     assert fy["cash_sti"] == 55.0 and fy["ib_debt"] == 100.0 and fy["equity_parent"] == 560.0
     assert fy["shares_outstanding"] == 1000.0 and fy["currency"] == "USD" and fy["source"] == "sec_edgar"
+
+
+def test_edgar_cash_and_investments_are_known_at_the_later_filing() -> None:
+    payload = _companyfacts()
+    gaap = payload["facts"]["us-gaap"]
+    gaap["CashAndCashEquivalentsAtCarryingValue"]["units"]["USD"][0]["filed"] = "2026-02-10"
+    gaap["ShortTermInvestments"]["units"]["USD"][0]["filed"] = "2026-03-10"
+    fy = next(row for row in src.parse_edgar_companyfacts(payload, CONFIG, source_ref="test") if row["period_type"] == "FY")
+    assert fy["cash_sti"] == 55.0
+    assert fy["known_at"] == "2026-03-10"
+
+
+def test_edgar_keeps_each_field_currency_instead_of_labeling_every_value_with_one_unit() -> None:
+    payload = _companyfacts()
+    payload["facts"]["us-gaap"]["NetIncomeLoss"] = {
+        "units": {"EUR": [_fact("2025-01-01", "2025-12-31", 90.0, "2026-02-10")]}
+    }
+    fy = next(row for row in src.parse_edgar_companyfacts(payload, CONFIG, source_ref="test") if row["period_type"] == "FY")
+    assert fy["revenue_currency"] == "USD" and fy["net_income_parent_currency"] == "EUR"
+
+
+def test_edgar_debt_adds_disjoint_borrowings_and_normalizes_lease_inclusive_total() -> None:
+    payload = _companyfacts()
+    gaap = payload["facts"]["us-gaap"]
+    concepts = {**CONFIG["sec_edgar_concepts"], "debt_total": ["LongTermDebt"], "debt_parts": ["ShortTermBorrowings"]}
+    debt_config = {**CONFIG, "sec_edgar_concepts": concepts}
+    gaap["LongTermDebt"] = {"units": {"USD": [_fact(None, "2025-12-31", 100.0, "2026-02-10")]}}
+    gaap["ShortTermBorrowings"] = {"units": {"USD": [_fact(None, "2025-12-31", 50.0, "2026-02-10")]}}
+    row = next(row for row in src.parse_edgar_companyfacts(payload, debt_config, source_ref="test") if row["period_type"] == "FY")
+    assert row["ib_debt"] == 150.0
+
+    lease_payload = _companyfacts()
+    lease_gaap = lease_payload["facts"]["us-gaap"]
+    lease_config = {**CONFIG, "sec_edgar_concepts": {**CONFIG["sec_edgar_concepts"], "debt_total": ["DebtAndCapitalLeaseObligations"]}}
+    lease_gaap["DebtAndCapitalLeaseObligations"] = {"units": {"USD": [_fact(None, "2025-12-31", 125.0, "2026-02-10")]}}
+    lease_gaap["FinanceLeaseLiabilityNoncurrent"] = {"units": {"USD": [_fact(None, "2025-12-31", 25.0, "2026-02-10")]}}
+    lease_gaap["FinanceLeaseLiabilityCurrent"] = {"units": {"USD": [_fact(None, "2025-12-31", 0.0, "2026-02-10")]}}
+    lease_row = next(row for row in src.parse_edgar_companyfacts(lease_payload, lease_config, source_ref="test") if row["period_type"] == "FY")
+    assert lease_row["ib_debt"] == 100.0 and lease_row["lease_liabilities"] == 25.0
 
 
 def test_edgar_without_user_agent_is_unavailable_with_the_exact_step() -> None:

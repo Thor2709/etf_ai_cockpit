@@ -2,8 +2,8 @@
 
 Three small tables live under ``data/clean``:
 
-* ``stock_fundamentals.parquet`` - one row per (instrument, period, source, known_at version)
-* ``stock_snapshots.parquet``    - one row per fetch: profile, analyst fields, status and reason
+* ``stock_fundamentals.parquet`` - statement and analyst evidence, by source and known_at version
+* ``stock_snapshots.parquet``    - one row per fetch: profile, status and reason
 * ``stock_fx.parquet``           - daily FX closes needed to compare a quote currency with the statements
 
 Rows are only ever appended (a value that did not change is not re-appended), so ``known_at`` keeps
@@ -13,11 +13,10 @@ Source order comes from ``configs/stock_fundamentals_v1.yaml``: filings first, t
 
 from __future__ import annotations
 
-import json
 import os
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -30,11 +29,15 @@ from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data import stock_sources as src
 
 CONFIG_NAME = "stock_fundamentals_v1.yaml"
-PERIOD_COLUMNS = ["instrument_id", "period_end", "period_type", "fiscal_year", "currency", "source", "source_ref", "known_at", *PERIOD_FIELDS]
+ANALYST_FIELDS = ("eps_current", "eps_90d_ago", "revisions_up_30d", "revisions_down_30d")
+FIELD_CURRENCY_COLUMNS = tuple(f"{name}_currency" for name in PERIOD_FIELDS)
+PERIOD_COLUMNS = [
+    "instrument_id", "period_end", "period_type", "fiscal_year", "currency", "source", "source_ref", "known_at",
+    *PERIOD_FIELDS, *FIELD_CURRENCY_COLUMNS, *ANALYST_FIELDS,
+]
 SNAPSHOT_COLUMNS = [
     "instrument_id", "known_at", "source", "status", "reason", "quote_currency", "financial_currency", "long_name",
-    "sector", "industry", "country", "quote_type", "market_cap_provider", "shares_outstanding", "eps_current",
-    "eps_90d_ago", "revisions_up_30d", "revisions_down_30d", "cik",
+    "sector", "industry", "country", "quote_type", "market_cap_provider", "shares_outstanding", "cik",
 ]
 FX_COLUMNS = ["pair", "date", "rate", "known_at"]
 _CONFIG_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -108,6 +111,13 @@ def _write(path: Path, frame: pd.DataFrame) -> None:
 
 
 def read_periods(root: Path | None = None) -> pd.DataFrame:
+    frame = read_fundamentals(root)
+    return frame[frame["period_type"].astype(str) != "ANALYST"].copy()
+
+
+def read_fundamentals(root: Path | None = None) -> pd.DataFrame:
+    """Read every canonical fundamentals row, including point-in-time analyst evidence."""
+
     return _read(store_paths(root)["periods"], PERIOD_COLUMNS)
 
 
@@ -150,7 +160,10 @@ def append_period_rows(existing: pd.DataFrame, instrument_id: str, rows: Iterabl
         previous = latest.get(key)
         record = {column: row.get(column) for column in PERIOD_COLUMNS}
         record["instrument_id"] = instrument_id
-        if previous is not None and all(_same(previous.get(name), record.get(name)) for name in (*PERIOD_FIELDS, "currency")):
+        if previous is not None and all(
+            _same(previous.get(name), record.get(name))
+            for name in (*PERIOD_FIELDS, *FIELD_CURRENCY_COLUMNS, *ANALYST_FIELDS, "currency")
+        ):
             continue
         added.append(record)
         latest[key] = pd.Series(record)
@@ -171,7 +184,11 @@ def _row_period(row: Mapping[str, Any], fields: Mapping[str, str]) -> Period | N
     end = as_utc(row.get("period_end"))
     if known is None or end is None:
         return None
-    values = {name: float(row[name]) for name in PERIOD_FIELDS if name in row and pd.notna(row.get(name))}
+    values: dict[str, Any] = {name: float(row[name]) for name in PERIOD_FIELDS if name in row and pd.notna(row.get(name))}
+    for name in PERIOD_FIELDS:
+        field_currency = row.get(f"_{name}_currency", row.get(f"{name}_currency"))
+        if field_currency is not None and not pd.isna(field_currency):
+            values[f"__currency_{name}"] = str(field_currency)
     return Period(
         period_end=end.date(),
         period_type=str(row.get("period_type")),
@@ -196,7 +213,7 @@ def periods_for(instrument_id: str, frame: pd.DataFrame, chain: Sequence[str], *
     if mine.empty:
         return []
     rank = {name: index for index, name in enumerate(chain)}
-    rows = [dict(row) for _, row in mine.iterrows()]
+    rows = [dict(row) for _, row in mine.iterrows() if str(row.get("period_type")) != "ANALYST"]
     for row in rows:
         row["_rank"] = rank.get(str(row.get("source")), len(rank))
         row["_end"] = as_utc(row.get("period_end"))
@@ -236,7 +253,16 @@ def periods_for(instrument_id: str, frame: pd.DataFrame, chain: Sequence[str], *
                     if name not in values and name in row and pd.notna(row.get(name)):
                         values[name] = row[name]
                         field_sources[name] = str(row["source"])
-            signature = (tuple(sorted((k, float(v)) for k, v in values.items())), str(primary.get("currency")))
+                        field_currency = row.get(f"{name}_currency")
+                        if field_currency is not None and not pd.isna(field_currency):
+                            values[f"_{name}_currency"] = str(field_currency)
+                    elif f"__currency_{name}" not in values and str(row.get(f"{name}_currency") or "") == "currency_mismatch":
+                        values[f"_{name}_currency"] = "currency_mismatch"
+            signature = (
+                tuple(sorted((k, float(v)) for k, v in values.items() if k in PERIOD_FIELDS)),
+                tuple(sorted((k, str(v)) for k, v in values.items() if k.startswith("_") and k.endswith("_currency"))),
+                str(primary.get("currency")),
+            )
             if signature == last:
                 continue
             last = signature
@@ -262,6 +288,23 @@ def latest_snapshot(instrument_id: str, snapshots: pd.DataFrame, decision_time: 
     return best
 
 
+def latest_analyst(instrument_id: str, periods: pd.DataFrame, decision_time: datetime) -> dict[str, Any] | None:
+    """Latest analyst evidence from the canonical fundamentals store, known by the decision time."""
+
+    mine = periods[(periods["instrument_id"].astype(str) == str(instrument_id)) & (periods["period_type"].astype(str) == "ANALYST")]
+    best: dict[str, Any] | None = None
+    best_time: datetime | None = None
+    for _, row in mine.iterrows():
+        known = as_utc(row.get("known_at"))
+        if known is None or known > decision_time:
+            continue
+        if best_time is None or known >= best_time:
+            best = {name: (None if pd.isna(row.get(name)) else row.get(name)) for name in ANALYST_FIELDS}
+            best.update(known_at=known.isoformat(), source=str(row.get("source") or "yfinance"))
+            best_time = known
+    return best
+
+
 def no_data_reason(instrument_id: str, snapshots: pd.DataFrame, decision_time: datetime, periods_present: bool) -> str | None:
     """Why an instrument has no usable fundamentals: the newest fetch outcome, or 'never fetched'."""
 
@@ -276,20 +319,31 @@ def no_data_reason(instrument_id: str, snapshots: pd.DataFrame, decision_time: d
     return None
 
 
-def fx_rate(pair: str, on_date: date, fx: pd.DataFrame, *, max_age_days: int = 7) -> tuple[float | None, str | None]:
-    """Latest stored close of ``pair`` on or before ``on_date`` (never a later one)."""
+def fx_rate(
+    pair: str,
+    on_date: date,
+    fx: pd.DataFrame,
+    *,
+    decision_time: datetime | None = None,
+    max_age_days: int = 7,
+) -> tuple[float | None, str | None]:
+    """Latest stored close known by ``decision_time`` and dated on or before ``on_date``."""
 
     rows = fx[fx["pair"].astype(str) == pair]
-    best: tuple[date, float] | None = None
+    best: tuple[date, datetime, float] | None = None
     for _, row in rows.iterrows():
         when = as_utc(row.get("date"))
         if when is None or when.date() > on_date:
             continue
-        if best is None or when.date() >= best[0]:
-            best = (when.date(), float(row["rate"]))
+        known = as_utc(row.get("known_at"))
+        if decision_time is not None and (known is None or known > decision_time):
+            continue
+        observed = known or datetime.min.replace(tzinfo=timezone.utc)
+        if best is None or (when.date(), observed) >= (best[0], best[1]):
+            best = (when.date(), observed, float(row["rate"]))
     if best is None or (on_date - best[0]).days > max_age_days:
         return None, None
-    return best[1], best[0].isoformat()
+    return best[2], best[0].isoformat()
 
 
 # ---------------------------------------------------------------------------------------------
@@ -318,8 +372,28 @@ def refresh_stock_fundamentals(
     chain = list((cfg.get("sources", {}) or {}).get("chain", ["sec_edgar", "yfinance"]))
     agent = src.sec_user_agent(cfg, env)
     paths = store_paths(root)
-    periods = read_periods(root)
+    periods = read_fundamentals(root)
     snapshots = read_snapshots(root)
+    for _, legacy in snapshots.iterrows():
+        analyst = {name: legacy.get(name) for name in ANALYST_FIELDS if name in snapshots.columns}
+        if not any(value is not None and not pd.isna(value) for value in analyst.values()):
+            continue
+        known_at = legacy.get("known_at")
+        known_day = as_utc(known_at)
+        if known_day is None:
+            continue
+        source = str(legacy.get("source") or "yfinance")
+        migrated = {
+            "period_end": known_day.date().isoformat(),
+            "period_type": "ANALYST",
+            "fiscal_year": known_day.year,
+            "currency": legacy.get("financial_currency") or "",
+            "source": source,
+            "source_ref": "",
+            "known_at": known_at,
+            **analyst,
+        }
+        periods, _migrated = append_period_rows(periods, str(legacy.get("instrument_id") or ""), [migrated])
     fx = read_fx(root)
     report = RefreshReport()
     snapshot_rows: list[dict[str, Any]] = []
@@ -345,6 +419,23 @@ def refresh_stock_fundamentals(
                 continue
             periods, added = append_period_rows(periods, target.instrument_id, result.rows)
             report.rows_added += added
+            if result.source == "yfinance":
+                analyst = {name: result.snapshot.get(name) for name in ANALYST_FIELDS}
+                if any(value is not None and not pd.isna(value) for value in analyst.values()):
+                    known_at = result.snapshot.get("known_at") or stamp.isoformat()
+                    known_day = as_utc(known_at)
+                    if known_day is not None:
+                        analyst_row = {
+                                "period_end": known_day.date().isoformat(),
+                                "period_type": "ANALYST",
+                                "fiscal_year": known_day.year,
+                                "currency": result.snapshot.get("financial_currency") or "",
+                                "source": result.source,
+                                "source_ref": "",
+                                "known_at": known_at,
+                                **analyst,
+                            }
+                        periods, _analyst_added = append_period_rows(periods, target.instrument_id, [analyst_row])
             if result.status != "ok":
                 notes.append(f"{result.source}: {result.reason or result.status}")
             if result.snapshot:

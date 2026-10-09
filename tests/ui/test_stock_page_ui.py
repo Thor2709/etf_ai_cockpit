@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
 
+from etf_cockpit.analysis import stock_metrics as sm
+from etf_cockpit.analysis import stock_text as tx
 from etf_cockpit.analysis.stock_peers import PeerPick
 from etf_cockpit.analysis.stock_universe import UniverseEvidence
 from etf_cockpit.app.pages import stock_page as sp
@@ -140,3 +143,23 @@ def test_stock_research_keeps_the_legacy_panels_for_uncovered_instruments(monkey
     monkeypatch.setattr(sp, "build_model", lambda *_a: _model(numbers=[("Valuation", [NumberRow("pe", "P/E", "29.0x", "TTM", None, "", True)])]))
     texts = "\n".join(_texts(stock_research._stock_statements(state, "T", SimpleNamespace(final_label="watchlist"))))
     assert "Peer comparison" in texts and "Your notes" in texts and "29.0x" in texts
+
+
+def test_fiscal_table_uses_the_canonical_fcf_calculation(monkeypatch: pytest.MonkeyPatch) -> None:
+    period = _period(2025)
+    monkeypatch.setattr(sm, "free_cash_flow", lambda _cfo, _capex: 123.0)
+    row = sv._fiscal_rows([period], "EUR")[0]
+    assert row["fcf"] == tx.money(123.0, None)
+
+
+def test_missing_fiscal_cells_and_identity_fields_show_reasons() -> None:
+    period = _period(2025)
+    missing = replace(period, values={"cfo": 80.0})
+    fiscal = sv._fiscal_rows([missing], None)[0]
+    assert "revenue is not reported" in fiscal["revenue"] and "needs capital expenditure" in fiscal["fcf"]
+
+    card = sp.identity_card(_model(), {}, [], None)
+    rendered = "\n".join(_texts(card))
+    assert "listing currency is not recorded" in rendered
+    assert "listing region is not recorded" in rendered
+    assert "sector is not recorded" in rendered

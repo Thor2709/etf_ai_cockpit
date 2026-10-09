@@ -384,9 +384,9 @@ def identity_card(
         {"field": "Ticker", "value": str(identity.get("ticker") or _DASH), "why": "" if identity.get("ticker") else "no provider symbol is configured"},
         {"field": "ISIN", "value": isin if not unverified else _DASH, "why": verify_hint if unverified else ""},
         {"field": "Exchange", "value": _clean(identity.get("exchange")), "why": "" if _clean(identity.get("exchange")) != _DASH else "exchange is not verified; resolving the instrument fills it"},
-        {"field": "Currency", "value": str(identity.get("currency") or _DASH), "why": ""},
-        {"field": "Region", "value": str(identity.get("region") or _DASH), "why": ""},
-        {"field": "Sector", "value": str(identity.get("sector") or _DASH), "why": ""},
+        {"field": "Currency", "value": _clean(identity.get("currency")), "why": "" if _clean(identity.get("currency")) != _DASH else "listing currency is not recorded in the universe"},
+        {"field": "Region", "value": _clean(identity.get("region")), "why": "" if _clean(identity.get("region")) != _DASH else "listing region is not recorded in the universe"},
+        {"field": "Sector", "value": _clean(identity.get("sector")), "why": "" if _clean(identity.get("sector")) != _DASH else "sector is not recorded in the universe"},
         *[{"field": label, "value": value, "why": reason or ""} for label, value, reason in model.identity],
     ]
     options = list(instrument_ids)

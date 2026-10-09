@@ -70,6 +70,24 @@ def test_failures_state_their_reason_and_never_invent_a_listing() -> None:
     assert bond.status == "not_found"  # unsupported types are filtered out, not guessed
 
 
+def test_unmatched_ticker_stays_unresolved_with_candidates() -> None:
+    result = lk.resolve("MSF", **_sources([QUOTE]))
+    assert result.status == "ambiguous" and result.chosen is None
+    assert [candidate.symbol for candidate in result.candidates] == ["MSFT"]
+
+
+def test_share_class_name_mismatch_does_not_verify_an_isin() -> None:
+    class_b = {**QUOTE, "longname": "Acme Class B"}
+    figi = [{"data": [{"name": "Acme Class A", "ticker": "MSFT", "exchCode": "US"}]}]
+    result = lk.resolve(MSFT_ISIN, **_sources([class_b], figi=figi, info={**INFO, "longName": "Acme Class B"}))
+    assert result.chosen.symbol == "MSFT" and result.isin_status == "needs_verification"
+
+
+def test_unsupported_enriched_quote_type_is_rejected() -> None:
+    result = lk.resolve("MSFT", **_sources([QUOTE], info={**INFO, "quoteType": "OPTION"}))
+    assert result.status == "unsupported" and result.chosen is None and not result.candidates
+
+
 def test_universe_values_never_default_the_currency_and_keep_unverified_isins_unverified() -> None:
     result = lk.resolve("ASML.AS", **_sources([{**QUOTE, "symbol": "ASML.AS"}], info={**INFO, "currency": "EUR", "country": "Netherlands"}))
     values = stock_service.universe_values(result, ["ASML_AS_OLD"])

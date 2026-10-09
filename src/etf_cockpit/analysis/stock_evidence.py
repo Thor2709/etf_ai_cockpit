@@ -27,6 +27,7 @@ class MarketInputs:
     price_date: date | None = None
     fx_to_reporting: float | None = None  # reporting-currency units per one major quote-currency unit at ``price_date``
     dividends_per_share_12m: float | None = None  # quote-currency units, trailing 12 months
+    dividend_reason: str | None = None
     price_series: tuple[tuple[date, float], ...] = ()  # month-end closes for the valuation history
     shares_fallback: float | None = None
     shares_fallback_known_at: datetime | None = None
@@ -199,7 +200,17 @@ class _Builder:
     # ----- windows ---------------------------------------------------------------------
 
     def window(self, *fields: str) -> sm.Window | None:
-        return sm.flow_window(self.known, fields, span_days=self.span)  # type: ignore[arg-type]
+        window = sm.flow_window(self.known, fields, span_days=self.span)  # type: ignore[arg-type]
+        if window is None:
+            return None
+        currencies = {
+            str(period.values.get(f"__currency_{name}") or period.currency)
+            for period in window.periods
+            for name in fields
+        }
+        if "currency_mismatch" in currencies or len(currencies) != 1:
+            return None
+        return sm.Window(window.basis, window.end, window.periods, next(iter(currencies)), window.known_at)
 
     def _flow(self, window: sm.Window | None, name: str) -> float | None:
         return None if window is None else sm.window_sum(window, name)
@@ -207,6 +218,17 @@ class _Builder:
     def _no_window(self, what: str, fields: Sequence[str] = ()) -> str:
         if not self.known:
             return self.no_data_reason or NO_PERIODS_REASON
+        currencies: set[str] = set()
+        for period in self.known:
+            for name in fields:
+                if not period.has(name):
+                    continue
+                currency = str(period.values.get(f"__currency_{name}") or period.currency)
+                if currency == "currency_mismatch":
+                    return "currency_mismatch between reported fields"
+                currencies.add(currency)
+        if len(currencies) > 1:
+            return "currency_mismatch between reported fields"
         missing = [name for name in fields if not any(p.has(name) for p in self.known)]
         if missing:
             return "not reported by the source: " + ", ".join(name.replace("_", " ") for name in missing)
@@ -354,7 +376,10 @@ class _Builder:
                 None if opening is None else opening.values["equity_parent"],
                 None if close is None else close.values["equity_parent"],
             )
-            if close is not None and opening is not None and (close.currency != window.currency or opening.currency != window.currency):
+            if close is not None and opening is not None and (
+                self._period_currency_mismatch(close, ("equity_parent",), window.currency)
+                or self._period_currency_mismatch(opening, ("equity_parent",), window.currency)
+            ):
                 base = _missing("roe", "currency_mismatch between income and equity")
             self.metrics["roe"] = _from("roe", base, **self._ctx(window))
         window = self.window("ebit", "income_tax", "pretax_income")
@@ -364,6 +389,12 @@ class _Builder:
         names = ["equity_parent", "ib_debt", "cash_sti"]
         close = sm.balance_near(self.known, window.end, names, tolerance_days=45)
         opening = sm.opening_balance(self.known, window.end, names)
+        if close is not None and opening is not None and (
+            self._period_currency_mismatch(close, names + ["lease_liabilities"], window.currency)
+            or self._period_currency_mismatch(opening, names + ["lease_liabilities"], window.currency)
+        ):
+            self.metrics["roic"] = _missing("roic", "currency_mismatch between NOPAT and invested capital")
+            return
         rate = sm.effective_tax_rate(sm.window_sum(window, "income_tax"), sm.window_sum(window, "pretax_income"))
         nopat = sm.nopat(sm.window_sum(window, "ebit"), rate)
 
@@ -379,6 +410,16 @@ class _Builder:
 
         self.metrics["roic"] = _from("roic", sm.roic(nopat, capital(opening), capital(close)), **self._ctx(window))
 
+    @staticmethod
+    def _period_currency_mismatch(period: Period, fields: Sequence[str], expected: str) -> bool:
+        currencies = {str(period.values.get(f"__currency_{name}") or period.currency) for name in fields}
+        return "currency_mismatch" in currencies or len(currencies) != 1 or next(iter(currencies)) != expected
+
+    @staticmethod
+    def _period_currency(period: Period, fields: Sequence[str]) -> str | None:
+        currencies = {str(period.values.get(f"__currency_{name}") or period.currency) for name in fields}
+        return next(iter(currencies)) if len(currencies) == 1 and "currency_mismatch" not in currencies else None
+
     def growth(self) -> None:
         years = int((self.config.get("growth", {}) or {}).get("years", 3))  # type: ignore[union-attr]
         annual = sorted((p for p in self.known if p.period_type == "FY"), key=lambda item: item.period_end)
@@ -393,6 +434,13 @@ class _Builder:
                 )
                 continue
             last, first = series[-1], series[-1 - years]
+            currencies = {
+                str(period.values.get(f"__currency_{name}") or period.currency)
+                for period in series[-1 - years :]
+            }
+            if "currency_mismatch" in currencies or len(currencies) != 1:
+                self.metrics[key] = _missing(key, "currency_mismatch across fiscal reporting periods", "(end / start)^(1 / years) - 1")
+                continue
             span_years = round((last.period_end - first.period_end).days / 365.25)
             base = sm.cagr(first.values[name], last.values[name], float(span_years or years), key=key, label=label)
             self.metrics[key] = _from(
@@ -400,16 +448,32 @@ class _Builder:
                 base,
                 basis="FY",
                 as_of=last.period_end.isoformat(),
-                currency=last.currency,
+                currency=next(iter(currencies)),
                 source=f"FY{first.period_end.year}->FY{last.period_end.year} ({last.source})",
             )
 
     def balance_metrics(self) -> None:
         latest = sm.latest_balance(self.known, ["ib_debt", "cash_sti"])
         if latest is None:
-            reason = "no balance sheet with interest-bearing debt and cash is known at the decision time"
+            mismatch = any(
+                str(period.values.get(f"__currency_{name}") or "") == "currency_mismatch"
+                for period in self.known for name in ("ib_debt", "cash_sti")
+            )
+            reason = "currency_mismatch between reported debt and cash" if mismatch else "no balance sheet with interest-bearing debt and cash is known at the decision time"
             self.metrics["net_debt"] = _missing("net_debt", reason, "debt + leases - cash and short-term investments")
         else:
+            balance_fields = ["ib_debt", "cash_sti"]
+            balance_currency = self._period_currency(latest, balance_fields)
+            if balance_currency is None:
+                self.metrics["net_debt"] = _missing("net_debt", "currency_mismatch between debt, leases and cash", "debt + leases - cash and short-term investments")
+                latest = None
+        if latest is not None:
+            lease = latest.values.get("lease_liabilities")
+            lease_currency_mismatch = str(latest.values.get("__currency_lease_liabilities") or "") == "currency_mismatch"
+            if lease_currency_mismatch or (lease is not None and self._period_currency_mismatch(latest, ("lease_liabilities",), balance_currency)):
+                self.metrics["net_debt"] = _missing("net_debt", "currency_mismatch between debt and lease liabilities")
+                latest = None
+        if latest is not None:
             lease = latest.values.get("lease_liabilities")
             value = sm.net_debt(latest.values.get("ib_debt"), lease, latest.values.get("cash_sti"))
             note = "" if lease is not None else " (leases not reported separately)"
@@ -419,22 +483,31 @@ class _Builder:
                 status=sm.OK,
                 basis="latest balance",
                 as_of=latest.period_end.isoformat(),
-                currency=latest.currency,
+                currency=balance_currency,
                 source=latest.source,
                 formula="interest-bearing debt + lease liabilities - cash and short-term investments" + note,
             )
         equity = sm.latest_balance(self.known, ["equity_parent", "ib_debt"])
         if equity is None:
-            self.metrics["debt_to_equity"] = _missing("debt_to_equity", "no balance sheet with parent equity and debt is known at the decision time")
+            mismatch = any(
+                str(period.values.get(f"__currency_{name}") or "") == "currency_mismatch"
+                for period in self.known for name in ("equity_parent", "ib_debt")
+            )
+            reason = "currency_mismatch between debt and equity" if mismatch else "no balance sheet with parent equity and debt is known at the decision time"
+            self.metrics["debt_to_equity"] = _missing("debt_to_equity", reason)
         else:
-            self.metrics["debt_to_equity"] = _from(
+            equity_currency = self._period_currency(equity, ("equity_parent", "ib_debt"))
+            if equity_currency is None:
+                self.metrics["debt_to_equity"] = _missing("debt_to_equity", "currency_mismatch between debt and equity")
+            else:
+                self.metrics["debt_to_equity"] = _from(
                 "debt_to_equity",
                 sm.debt_to_equity(equity.values.get("ib_debt"), equity.values.get("equity_parent")),
                 basis="latest balance",
                 as_of=equity.period_end.isoformat(),
-                currency=equity.currency,
+                currency=equity_currency,
                 source=equity.source,
-            )
+                )
         window = self.window("ebit", "da")
         net = self.metrics["net_debt"]
         if window is None or not net.available:
@@ -458,10 +531,24 @@ class _Builder:
         self.metrics["market_cap"] = _metric("market_cap", value=mcap, status=sm.OK, currency=self.reporting_currency, formula="decision-time price x shares of the latest known filing", **ctx)
         net = self.metrics["net_debt"]
         minority = sm.latest_balance(self.known, ["minority_interest"])
-        minority_value = minority.values["minority_interest"] if minority is not None else 0.0
-        ev = sm.enterprise_value(mcap, net.value if net.available else None, minority_value)
+        if minority is None:
+            ev = None
+            ev_reason = (
+                "currency_mismatch for minority interest"
+                if any(str(period.values.get("__currency_minority_interest") or "") == "currency_mismatch" for period in self.known)
+                else "missing_minority_interest: no reported non-controlling interest value (report zero explicitly when none exists)"
+            )
+        elif self._period_currency_mismatch(minority, ("minority_interest",), self.reporting_currency or ""):
+            ev = None
+            ev_reason = "currency_mismatch between market cap and minority interest"
+        elif net.available and net.currency != self.reporting_currency:
+            ev = None
+            ev_reason = "currency_mismatch between market cap and net debt"
+        else:
+            ev = sm.enterprise_value(mcap, net.value if net.available else None, minority.values["minority_interest"])
+            ev_reason = f"needs net debt: {net.reason}"
         if ev is None:
-            self.metrics["ev"] = _missing("ev", f"needs net debt: {net.reason}", "market cap + net debt + minority interest")
+            self.metrics["ev"] = _missing("ev", ev_reason, "market cap + net debt + minority interest")
         else:
             self.metrics["ev"] = _metric("ev", value=ev, status=sm.OK, currency=self.reporting_currency, formula="market cap + net debt + minority interest", basis="spot", as_of=net.as_of, source=f"market cap + {net.source}")
         ni_window = self.window("net_income_parent")
@@ -473,7 +560,7 @@ class _Builder:
         equity = sm.latest_balance(self.known, ["equity_parent"])
         if equity is None:
             self.metrics["pb"] = _missing("pb", "no parent equity is known at the decision time", "market cap / parent equity")
-        elif equity.currency != self.reporting_currency:
+        elif self._period_currency_mismatch(equity, ("equity_parent",), self.reporting_currency or ""):
             self.metrics["pb"] = _missing("pb", "currency_mismatch between market cap and equity")
         else:
             base = sm.multiple("pb", "P/B", mcap, equity.values["equity_parent"], formula="market cap / parent equity", denominator_name="parent equity")
@@ -488,7 +575,8 @@ class _Builder:
         if ebit.available and ev is not None and ev > 0 and ebit.currency == self.reporting_currency:
             self.metrics["ebit_ev_yield"] = _from("ebit_ev_yield", sm.yield_of("ebit_ev_yield", "EBIT / EV", ebit.value, ev, formula="EBIT / enterprise value"), basis=ebit.basis, as_of=ebit.as_of, source=ebit.source)
         else:
-            self.metrics["ebit_ev_yield"] = _missing("ebit_ev_yield", "needs EBIT and a positive enterprise value", "EBIT / enterprise value")
+            reason = self.metrics["ev"].reason if ev is None else "needs EBIT and a positive enterprise value"
+            self.metrics["ebit_ev_yield"] = _missing("ebit_ev_yield", str(reason), "EBIT / enterprise value")
         self.dividend_yield()
         self.history(mcap)
         self.peer_context()
@@ -508,7 +596,8 @@ class _Builder:
             self.metrics[key] = _missing(key, "currency_mismatch between statements and market cap", formula)
             return
         if numerator is None:
-            self.metrics[key] = _missing(key, "needs enterprise value (net debt unavailable)" if key.startswith("ev") else "needs market cap", formula)
+            reason = str(self.metrics["ev"].reason) if key.startswith("ev") and self.metrics.get("ev") is not None else "needs market cap"
+            self.metrics[key] = _missing(key, reason, formula)
             return
         base = sm.multiple(key, METRIC_LABELS[key][0], numerator, sm.window_sum(window, item), formula=formula, denominator_name=denominator_name)
         self.metrics[key] = _from(key, base, **self._ctx(window))
@@ -517,7 +606,7 @@ class _Builder:
         market = self.market
         base = sm.dividend_yield(market.dividends_per_share_12m, market.price)
         if market.dividends_per_share_12m is None and market.price is not None:
-            base = _missing("dividend_yield", "no dividend history is stored for this instrument", base.formula)
+            base = _missing("dividend_yield", market.dividend_reason or "no dividend history is stored for this instrument", base.formula)
         self.metrics["dividend_yield"] = _from(
             "dividend_yield", base, basis="12 months", as_of=market.price_date.isoformat() if market.price_date else None, source="price file dividends"
         )

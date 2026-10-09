@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from etf_cockpit.analysis import stock_metrics as sm
 from etf_cockpit.analysis import stock_text as tx
 from etf_cockpit.analysis.stock_evidence import METRIC_LABELS, StockEvidence
 from etf_cockpit.analysis.stock_metrics import Metric
@@ -181,17 +182,26 @@ def _fiscal_rows(periods: list[Any], currency: str | None) -> list[dict[str, str
     rows = []
     for period in sorted((p for p in periods if p.period_type == "FY"), key=lambda p: p.period_end, reverse=True)[:6]:
         values = period.values
-        fcf = values.get("cfo") - abs(values["capex"]) if "cfo" in values and "capex" in values else None
+        cfo, capex = values.get("cfo"), values.get("capex")
+        fcf = sm.free_cash_flow(cfo, capex)
+
+        def cell(name: str, value: object) -> str:
+            shown = tx.money(value, None)
+            return shown if value is not None else f"{shown} · {name} is not reported in this fiscal year"
+
+        missing_fcf = [name for name, value in (("cash from operations", cfo), ("capital expenditure", capex)) if value is None]
+        fcf_cell = tx.money(fcf, None) if fcf is not None else f"— · needs {' and '.join(missing_fcf)}"
+        row_currency = period.currency or (currency or "")
         rows.append(
             {
                 "period": f"FY {period.period_end.isoformat()}",
-                "revenue": tx.money(values.get("revenue"), None),
-                "ebit": tx.money(values.get("ebit"), None),
-                "net_income": tx.money(values.get("net_income_parent"), None),
-                "fcf": tx.money(fcf, None),
-                "equity": tx.money(values.get("equity_parent"), None),
+                "revenue": cell("revenue", values.get("revenue")),
+                "ebit": cell("EBIT", values.get("ebit")),
+                "net_income": cell("net income", values.get("net_income_parent")),
+                "fcf": fcf_cell,
+                "equity": cell("parent equity", values.get("equity_parent")),
                 "source": period.source,
-                "currency": period.currency or (currency or ""),
+                "currency": row_currency or "— · reporting currency is not available",
             }
         )
     return rows

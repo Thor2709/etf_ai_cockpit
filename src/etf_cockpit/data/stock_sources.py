@@ -258,46 +258,47 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
     dei = (payload.get("facts", {}) or {}).get("dei", {}) or {}
     currency = ""
     flow_cumulative: dict[str, dict[tuple[str, str], tuple[float, str]]] = defaultdict(dict)
-    instants: dict[str, dict[str, tuple[float, str]]] = defaultdict(dict)
-
-    def collect_flow(name: str, concept_names: Sequence[str]) -> dict[tuple[str, str], tuple[float, str]]:
+    def collect_flow(name: str, concept_names: Sequence[str]) -> dict[tuple[str, str], tuple[float, str, str]]:
         nonlocal currency
-        merged: dict[tuple[str, str], tuple[float, str]] = {}
+        merged: dict[tuple[str, str], tuple[float, str, str]] = {}
         for concept_name in concept_names:  # higher-priority concept wins per period
             concept = gaap.get(concept_name)
             if not concept:
                 continue
             unit, entries = _unit_values(concept, shares=False)
-            local: dict[tuple[str, str], tuple[float, str]] = {}
+            local: dict[tuple[str, str], tuple[float, str, str]] = {}
             for entry in entries:
                 start, end, filed, value = entry.get("start"), entry.get("end"), entry.get("filed"), _number(entry.get("val"))
                 if not (start and end and filed) or value is None:
                     continue
                 key = (start, end)
                 if key not in local or filed < local[key][1]:
-                    local[key] = (value, filed)
+                    local[key] = (value, filed, unit)
             for key, item in local.items():
                 merged.setdefault(key, item)
             currency = currency or unit
         return merged
 
-    def collect_instant(concept_names: Sequence[str], *, shares: bool = False, source: Mapping[str, Any] | None = None) -> dict[str, tuple[float, str]]:
-        merged: dict[str, tuple[float, str]] = {}
+    def collect_instant(concept_names: Sequence[str], *, shares: bool = False, source: Mapping[str, Any] | None = None) -> dict[str, tuple[float, str, str]]:
+        nonlocal currency
+        merged: dict[str, tuple[float, str, str]] = {}
         facts = gaap if source is None else source
         for concept_name in concept_names:
             concept = facts.get(concept_name)
             if not concept:
                 continue
-            _unit, entries = _unit_values(concept, shares=shares)
-            local: dict[str, tuple[float, str]] = {}
+            unit, entries = _unit_values(concept, shares=shares)
+            local: dict[str, tuple[float, str, str]] = {}
             for entry in entries:
                 end, filed, value = entry.get("end"), entry.get("filed"), _number(entry.get("val"))
                 if not (end and filed) or value is None:
                     continue
                 if end not in local or filed < local[end][1]:
-                    local[end] = (value, filed)
+                    local[end] = (value, filed, unit)
             for end, item in local.items():
                 merged.setdefault(end, item)
+            if not shares:
+                currency = currency or unit
         return merged
 
     for name in FLOW_FIELDS:
@@ -306,9 +307,14 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
             main = collect_flow(name, names)
             extra = collect_flow(name, list(concepts.get("capex_extra", [])))
             combined = dict(main)
-            for key, (value, filed) in extra.items():
+            for key, (value, filed, unit) in extra.items():
                 base = combined.get(key)
-                combined[key] = (value + (base[0] if base else 0.0), max(filed, base[1]) if base else filed)
+                if base is None:
+                    combined[key] = (value, filed, unit)
+                elif unit != base[2]:
+                    combined[key] = (0.0, max(filed, base[1]), "currency_mismatch")
+                else:
+                    combined[key] = (value + base[0], max(filed, base[1]), unit)
             flow_cumulative[name] = combined if main else {}
         else:
             flow_cumulative[name] = collect_flow(name, names)
@@ -324,25 +330,33 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
         return entry
 
     for name, cumulative in flow_cumulative.items():
-        chains: dict[str, list[tuple[str, float, str]]] = defaultdict(list)
-        for (start, end), (value, filed) in cumulative.items():
-            chains[start].append((end, value, filed))
+        chains: dict[str, list[tuple[str, float, str, str]]] = defaultdict(list)
+        for (start, end), (value, filed, unit) in cumulative.items():
+            chains[start].append((end, value, filed, unit))
         for start, links in chains.items():
             links.sort()
-            previous_end, previous_value, previous_filed = None, 0.0, ""
-            for end, value, filed in links:
+            previous_end, previous_value, previous_filed, previous_unit = None, 0.0, "", ""
+            for end, value, filed, unit in links:
                 length = _days(start, end)
                 if 345 <= length <= 385:
                     entry = row(end, "FY")
-                    entry[name] = value
+                    if unit == "currency_mismatch":
+                        entry[f"{name}_currency"] = unit
+                    else:
+                        entry[name] = value
+                        entry[f"{name}_currency"] = unit
                     entry["_filed"].append(filed)
                 if previous_end is None:
                     expected_first = 75 <= length <= 110
                     if expected_first:
                         entry = row(end, "Q")
-                        entry[name] = value
+                        if unit == "currency_mismatch":
+                            entry[f"{name}_currency"] = unit
+                        else:
+                            entry[name] = value
+                            entry[f"{name}_currency"] = unit
                         entry["_filed"].append(filed)
-                        previous_end, previous_value, previous_filed = end, value, filed
+                        previous_end, previous_value, previous_filed, previous_unit = end, value, filed, unit
                     else:
                         previous_end = ""  # chain does not start with a quarter (cannot difference)
                     continue
@@ -350,17 +364,25 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                     step = (date.fromisoformat(end) - date.fromisoformat(previous_end)).days
                     if 75 <= step <= 110:
                         entry = row(end, "Q")
-                        entry[name] = value - previous_value
+                        if unit != previous_unit or unit == "currency_mismatch":
+                            entry[f"{name}_currency"] = "currency_mismatch"
+                        elif unit != "currency_mismatch":
+                            entry[name] = value - previous_value
+                            entry[f"{name}_currency"] = unit
                         entry["_filed"].extend([filed, previous_filed])
-                        previous_end, previous_value, previous_filed = end, value, filed
+                        previous_end, previous_value, previous_filed, previous_unit = end, value, filed, unit
                     else:
                         previous_end = ""
                 # direct discrete quarters reported on their own (3-month facts with a later start)
-        for (start, end), (value, filed) in cumulative.items():
+        for (start, end), (value, filed, unit) in cumulative.items():
             if 75 <= _days(start, end) <= 110:
                 entry = row(end, "Q")
                 if name not in entry:
-                    entry[name] = value
+                    if unit == "currency_mismatch":
+                        entry[f"{name}_currency"] = unit
+                    else:
+                        entry[name] = value
+                        entry[f"{name}_currency"] = unit
                     entry["_filed"].append(filed)
 
     # ----- balance sheet items ---------------------------------------------------------------
@@ -369,48 +391,91 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
     total_assets = collect_instant(concepts.get("total_assets", []))
     cash = collect_instant(concepts.get("cash", []))
     sti = collect_instant(concepts.get("short_term_investments", []))
-    debt_total = collect_instant(concepts.get("debt_total", []))
-    debt_parts = [collect_instant([part]) for part in concepts.get("debt_parts", [])]
-    lease_parts = [collect_instant([part]) for part in concepts.get("lease_parts", [])]
+    debt_total_names = list(concepts.get("debt_total", []))
+    debt_totals = {name: collect_instant([name]) for name in debt_total_names}
+    debt_parts = {name: collect_instant([name]) for name in concepts.get("debt_parts", [])}
+    lease_parts = {name: collect_instant([name]) for name in concepts.get("lease_parts", [])}
     shares = collect_instant(concepts.get("shares_outstanding", []), shares=True)
     cover = collect_instant(["EntityCommonStockSharesOutstanding"], shares=True, source=dei)
 
-    ends = {end for (end, _t) in rows} | set(equity)
     for (end, ptype), entry in list(rows.items()):
-        def pick(series: Mapping[str, tuple[float, str]]) -> tuple[float, str] | None:
+        def pick(series: Mapping[str, tuple[float, str, str]]) -> tuple[float, str, str] | None:
             return series.get(end)
 
         for name, series in (("equity_parent", equity), ("minority_interest", minority), ("total_assets", total_assets), ("shares_outstanding", shares)):
             item = pick(series)
             if item is not None:
                 entry[name] = item[0]
+                entry[f"{name}_currency"] = item[2]
                 entry["_filed"].append(item[1])
         if "shares_outstanding" not in entry:
-            for cover_end, (value, filed) in cover.items():
+            for cover_end, (value, filed, _unit) in cover.items():
                 # cover-page count of the filing that reports this period: filed within 120 days after the period end
                 if 0 <= (date.fromisoformat(filed) - date.fromisoformat(end)).days <= 120 and (date.fromisoformat(cover_end) >= date.fromisoformat(end)):
                     entry["shares_outstanding"] = value
                     entry["_filed"].append(filed)
                     break
         cash_item, sti_item = pick(cash), pick(sti)
-        if cash_item is not None:
-            entry["cash_sti"] = cash_item[0] + (sti_item[0] if sti_item else 0.0)
-            entry["_filed"].append(cash_item[1])
-        debt = pick(debt_total)
-        if debt is not None:
-            entry["ib_debt"] = debt[0]
-            entry["_filed"].append(debt[1])
-        else:
-            parts = [item for item in (pick(series) for series in debt_parts) if item is not None]
-            if parts:
-                entry["ib_debt"] = sum(item[0] for item in parts)
-                entry["_filed"].extend(item[1] for item in parts)
-        lease_found = [item for item in (pick(series) for series in lease_parts) if item is not None]
-        if lease_found:
-            entry["lease_liabilities"] = sum(item[0] for item in lease_found)
-            entry["_filed"].extend(item[1] for item in lease_found)
-    del ends
+        if cash_item is not None and sti_item is not None:
+            if cash_item[2] == sti_item[2]:
+                entry["cash_sti"] = cash_item[0] + sti_item[0]
+                entry["cash_sti_currency"] = cash_item[2]
+            else:
+                entry["cash_sti_currency"] = "currency_mismatch"
+            entry["_filed"].extend([cash_item[1], sti_item[1]])
 
+        lease_found = [(name, pick(series)) for name, series in lease_parts.items()]
+        lease_found = [(name, item) for name, item in lease_found if item is not None]
+        lease_currency: str | None = None
+        lease_value = 0.0
+        if lease_found:
+            currencies = {item[2] for _, item in lease_found}
+            if len(currencies) == 1:
+                lease_currency = next(iter(currencies))
+                lease_value = sum(item[0] for _, item in lease_found)
+                entry["lease_liabilities"] = lease_value
+                entry["lease_liabilities_currency"] = lease_currency
+            else:
+                entry["lease_liabilities_currency"] = "currency_mismatch"
+            entry["_filed"].extend(item[1] for _, item in lease_found)
+
+        debt_item = next(((name, pick(series)) for name, series in debt_totals.items() if pick(series) is not None), None)
+        if debt_item is not None:
+            debt_name, debt = debt_item
+            assert debt is not None
+            extra_names = [] if debt_name == "DebtAndCapitalLeaseObligations" else [name for name in debt_parts if name != "LongTermDebtNoncurrent"]
+            extras = [(name, pick(debt_parts[name])) for name in extra_names]
+            extras = [(name, item) for name, item in extras if item is not None]
+            debt_items = [debt, *(item for _, item in extras)]
+            comprehensive = debt_name == "DebtAndCapitalLeaseObligations"
+            if comprehensive and lease_currency == debt[2]:
+                finance_leases = [item for name, item in lease_found if "FinanceLease" in name]
+                debt_value = debt[0] - sum(item[0] for item in finance_leases)
+            else:
+                debt_value = debt[0] + sum(item[0] for _, item in extras)
+            if len({item[2] for item in debt_items}) != 1 or (comprehensive and lease_found and lease_currency != debt[2]):
+                entry["ib_debt_currency"] = "currency_mismatch"
+            else:
+                entry["ib_debt"] = debt_value
+                entry["ib_debt_currency"] = debt[2]
+            entry["_filed"].extend([debt[1], *(item[1] for _, item in extras)])
+        else:
+            parts = [(name, pick(series)) for name, series in debt_parts.items()]
+            parts = [(name, item) for name, item in parts if item is not None]
+            if parts:
+                if len({item[2] for _, item in parts}) == 1:
+                    entry["ib_debt"] = sum(item[0] for _, item in parts)
+                    entry["ib_debt_currency"] = parts[0][1][2]
+                else:
+                    entry["ib_debt_currency"] = "currency_mismatch"
+                entry["_filed"].extend(item[1] for _, item in parts)
+        reported_currencies = [
+            str(entry.get(f"{name}_currency"))
+            for name in FLOW_FIELDS + BALANCE_FIELDS
+            if name != "shares_outstanding" and name in entry and entry.get(f"{name}_currency") not in (None, "currency_mismatch")
+        ]
+        if reported_currencies:
+            entry["currency"] = max(reported_currencies, key=reported_currencies.count)
     output = []
     for entry in rows.values():
         filed = [item for item in entry.pop("_filed") if item]

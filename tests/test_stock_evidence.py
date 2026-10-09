@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+from dataclasses import replace
 
+import pandas as pd
 import pytest
 
 from etf_cockpit.analysis import stock_metrics as sm
+from etf_cockpit.analysis import stock_universe as su
 from etf_cockpit.analysis.stock_evidence import AnalystInputs, MarketInputs, build_stock_evidence
+from etf_cockpit.data import stock_fundamentals as store
 from etf_cockpit.data.stock_fundamentals import load_stock_config
 
 UTC = timezone.utc
@@ -173,3 +177,83 @@ def test_peer_sentence_needs_enough_peers_like_the_metric_does() -> None:
     assert any(line.startswith("P/E versus peers: unavailable") and "only 1 peer with" in line for line in one_peer)
     three = describe_stock(_evidence(peer_values={"pe": {"P1": 20.0, "P2": 22.0, "P3": 24.0}}), CONFIG.get("text", {}), 5)
     assert any("peer median" in line and "3 peers" in line for line in three)
+
+
+def test_mixed_currency_roic_growth_and_ev_are_unavailable_and_minority_is_required() -> None:
+    periods = [_period(y) for y in (2021, 2022, 2023, 2024, 2025)]
+    opening = periods[3]
+    periods[3] = replace(opening, values={**opening.values, "__currency_equity_parent": "USD"})
+    roic = _evidence(periods=periods).metrics["roic"]
+    assert roic.value is None and "currency_mismatch" in roic.reason
+
+    changed = [_period(y) for y in (2022, 2023, 2024, 2025)]
+    changed[0] = replace(changed[0], values={**changed[0].values, "__currency_revenue": "USD"})
+    assert "currency_mismatch" in _evidence(periods=changed).metrics["revenue_cagr"].reason
+
+    minority_mixed = [_period(y) for y in (2022, 2023, 2024, 2025)]
+    minority_mixed[-1] = replace(minority_mixed[-1], values={**minority_mixed[-1].values, "__currency_minority_interest": "USD"})
+    ev = _evidence(periods=minority_mixed).metrics["ev"]
+    assert ev.value is None and "currency_mismatch" in ev.reason
+
+    unreported = [replace(period, values={key: value for key, value in period.values.items() if key != "minority_interest"}) for period in changed]
+    assert "missing_minority_interest" in _evidence(periods=unreported).metrics["ev"].reason
+    explicit_zero = [replace(period, values={**period.values, "minority_interest": 0.0}) for period in unreported]
+    assert _evidence(periods=explicit_zero).metrics["ev"].available
+
+
+def test_dividend_yield_is_unavailable_when_the_trailing_year_is_incomplete() -> None:
+    prices = pd.DataFrame(
+        {
+            "etf_id": ["T"] * 3,
+            "date": pd.to_datetime(["2025-10-08", "2026-02-01", "2026-10-08"]),
+            "close": [48.0, 49.0, 50.0],
+            "currency": ["EUR"] * 3,
+            "dividends": [0.0, None, 0.0],
+        }
+    )
+    market = su.market_inputs(prices, None, "EUR", DECISION, pd.DataFrame(columns=store.FX_COLUMNS), CONFIG)
+    assert market.dividends_per_share_12m is None
+    metric = _evidence(market=market).metrics["dividend_yield"]
+    assert metric.value is None and "incomplete_dividend_year" in metric.reason
+
+
+def test_universe_evidence_cache_uses_the_complete_decision_timestamp(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    built = []
+
+    def build(_records, _prices, decision_time, *, root=None):
+        built.append(decision_time)
+        return su.UniverseEvidence(decision_time)
+
+    monkeypatch.setattr(su, "build_universe_evidence", build)
+    su._CACHE.clear()
+    records = []
+    prices = pd.DataFrame()
+    later = datetime(2026, 10, 9, 12, 50, tzinfo=UTC)
+    earlier = datetime(2026, 10, 9, 12, 10, tzinfo=UTC)
+    assert su.get_universe_evidence(records, prices, later, root=tmp_path).decision_time == later
+    replay = su.get_universe_evidence(records, prices, earlier, root=tmp_path)
+    assert replay.decision_time == earlier and built == [later, earlier]
+
+
+def test_disabled_delisted_stock_keeps_historical_fundamentals_and_peer_contribution(monkeypatch: pytest.MonkeyPatch) -> None:
+    rows = [
+        {"id": "OLD", "instrument_type": "stock", "enabled": False, "lifecycle": "delisted", "lifecycle_date": "2026-06-30", "ticker": "OLD", "sector": "Industrials"},
+        {"id": "T", "instrument_type": "stock", "enabled": True, "ticker": "T", "sector": "Industrials"},
+    ]
+    records = su.stock_records(rows, CONFIG)
+    assert [record.instrument_id for record in records] == ["OLD", "T"]
+    period_map = {instrument_id: [_period(year) for year in (2022, 2023, 2024, 2025)] for instrument_id in ("OLD", "T")}
+    empty = pd.DataFrame(columns=store.PERIOD_COLUMNS)
+    monkeypatch.setattr(store, "read_fundamentals", lambda _root: empty)
+    monkeypatch.setattr(store, "read_snapshots", lambda _root: pd.DataFrame(columns=store.SNAPSHOT_COLUMNS))
+    monkeypatch.setattr(store, "read_fx", lambda _root: pd.DataFrame(columns=store.FX_COLUMNS))
+    monkeypatch.setattr(store, "periods_for", lambda instrument_id, _frame, _chain: period_map.get(instrument_id, []))
+    monkeypatch.setattr(su, "load_user_peers", lambda _root: {"T": ["OLD"]})
+    decision = datetime(2026, 3, 1, tzinfo=UTC)
+    prices = pd.DataFrame(
+        {"etf_id": ["OLD", "T"], "date": pd.to_datetime(["2026-02-27", "2026-02-27"]), "close": [50.0, 50.0], "currency": ["EUR", "EUR"], "dividends": [0.0, 0.0]}
+    )
+    evidence = su.build_universe_evidence(records, prices, decision, config=CONFIG)
+    assert evidence.evidence["OLD"].metrics["revenue_cagr"].available
+    assert evidence.peers["T"][0].instrument_id == "OLD"
+    assert evidence.evidence["T"].peer_stats["revenue_cagr"].count == 1
