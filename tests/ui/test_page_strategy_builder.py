@@ -75,8 +75,8 @@ def test_strategy_cards_have_controls_with_bounded_layout() -> None:
     template_controls = list(_walk(templates))
     coverage_controls = list(_walk(coverage))
 
-    assert templates.expand is False
-    assert coverage.expand is False
+    assert not templates.expand
+    assert not coverage.expand
     assert any(
         isinstance(control, ft.Container)
         and isinstance(getattr(control, "data", None), dict)

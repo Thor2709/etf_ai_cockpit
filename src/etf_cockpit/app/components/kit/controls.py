@@ -70,7 +70,8 @@ def _button(
         content=txt(text, 13.5, 700, ink, text_align=ft.TextAlign.CENTER, trunc=True),
         height=36,
         padding=sym(20, 0),
-        alignment=ft.Alignment(0, 0),
+        # Centring alignment makes a Container take all available width; only an expanding button wants that.
+        alignment=ft.Alignment(0, 0) if expand else None,
         border_radius=theme.RADIUS_CTA,
         gradient=vgradient(theme.PRIMARY_FILL) if primary else vgradient(theme.RAISED_FILL),
         # Uniform 1px rim in the highlight colour replaces the CSS inset top highlight.
@@ -83,7 +84,7 @@ def _button(
         ink=not disabled,
         ink_color=theme.HOVER_OVERLAY,
         animate_offset=ft.Animation(90, ft.AnimationCurve.EASE_OUT),
-        expand=expand,
+        expand=expand or None,
     )
     tag_semantics(button, key=key, label=None)
     button.data = {"kit": "Button", "kind": kind, "text": text, "disabled": disabled}
@@ -273,7 +274,7 @@ def _field_surface(content: ft.Control, *, height: float, expand: bool | int, wi
         content=content,
         height=height,
         width=width,
-        expand=expand,
+        expand=expand or None,
         padding=sym(16, 0),
         alignment=ft.Alignment(-1, 0) if height == 40 else ft.Alignment(-1, -1),
         bgcolor=theme.FIELD_FILL,
@@ -316,7 +317,7 @@ def Field(  # noqa: N802
     """Uppercase label, 5px gap, 40px inset input (96px text area). Pass ``control`` or ``options``/``value`` (spec 3.8)."""
     height = 96.0 if multiline else 40.0
     if control is not None:
-        surface = _field_surface(control, height=height, expand=expand, width=width)
+        surface = _field_surface(control, height=height, expand=expand or None, width=width)
     elif options is not None:
         surface = _dropdown(options, value, placeholder, on_change, width, expand)
     else:
@@ -325,7 +326,7 @@ def Field(  # noqa: N802
         [txt(label, 11, 600, theme.INK3, tracking=0.08, upper=True, trunc=True), surface],
         spacing=4,
         tight=True,
-        expand=expand,
+        expand=expand or None,
         width=width,
     )
     tag_semantics(column, key=key, label=None)
@@ -361,7 +362,7 @@ def _dropdown(
         shape=ft.RoundedRectangleBorder(radius=16),
         menu_padding=6,
     )
-    return _field_surface(menu, height=40, expand=expand, width=width)
+    return _field_surface(menu, height=40, expand=expand or None, width=width)
 
 
 # ---------------------------------------------------------------------------

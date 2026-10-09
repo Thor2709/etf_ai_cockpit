@@ -122,12 +122,11 @@ def test_local_screen_card_controls_have_bounded_layout(monkeypatch, _snapshot) 
     )
     descendants = list(_walk(card))
 
-    assert card.expand is False
+    assert not card.expand  # None or False: not expanded
     assert any(isinstance(control, ft.TextField) for control in descendants)
     assert any(isinstance(control, ft.Dropdown) for control in descendants)
     assert any(
-        isinstance(control, ft.TextButton)
-        and control.key == "screener.filter.clear"
+        getattr(control, "key", None) == "screener.filter.clear"  # kit Button
         for control in descendants
     )
     assert not any(isinstance(control, ft.ListView) for control in descendants)

@@ -122,14 +122,14 @@ def GlassCard(  # noqa: N802 - kit component names are CamelCase per spec 3
         rows.append(
             ft.Container(
                 margin=pad(top=12 if rows else 0),
-                content=ft.Column(children, spacing=12, expand=filled),
-                expand=filled,
+                content=ft.Column(children, spacing=12, expand=filled or None),
+                expand=filled or None,
             )
         )
     top, side, bottom = theme.CARD_PADDING_QUIET if quiet else theme.CARD_PADDING
     radius = theme.CARD_RADIUS
     panel = ft.Container(
-        content=ft.Column(rows, spacing=0, expand=filled),
+        content=ft.Column(rows, spacing=0, expand=filled or None),
         gradient=None if reduce_effects else diagonal_gradient(theme.GLASS_FILL),
         bgcolor=theme.GLASS_FILL_SOLID if reduce_effects else None,
         blur=None if reduce_effects else theme.GLASS_PANEL_BLUR,
@@ -137,7 +137,7 @@ def GlassCard(  # noqa: N802 - kit component names are CamelCase per spec 3
         border_radius=radius,
         shadow=drops(theme.GLASS_DROP_SHADOWS),
         padding=pad(side, top, side, bottom),
-        expand=filled,
+        expand=filled or None,
     )
     sheen = ft.Container(
         left=0,
@@ -156,7 +156,7 @@ def GlassCard(  # noqa: N802 - kit component names are CamelCase per spec 3
     layers: list[ft.Control] = [panel, sheen]
     if not reduce_effects:
         layers.append(_rim_overlay(radius))
-    holder = ft.Container(content=ft.Stack(layers, expand=filled), width=width, height=height, expand=expand)
+    holder = ft.Container(content=ft.Stack(layers, expand=filled or None), width=width, height=height, expand=expand or None)
     tag_semantics(holder, key=key, label=None)
     holder.data = {"kit": "GlassCard", "title": title, "quiet": quiet, "note_control": note_text}
     return holder
@@ -181,7 +181,7 @@ def Well(  # noqa: N802
         border_radius=theme.RADIUS_WELL,
         padding=padding,
         clip_behavior=ft.ClipBehavior.HARD_EDGE,
-        expand=expand,
+        expand=expand or None,
         width=width,
         height=height,
         alignment=alignment,
@@ -220,7 +220,7 @@ def EmptyState(  # noqa: N802
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         alignment=ft.MainAxisAlignment.CENTER,
     )
-    well = Well(inner, padding=sym(24, 16), expand=expand, height=height, alignment=ft.Alignment(0, 0), key=key)
+    well = Well(inner, padding=sym(24, 16), expand=expand or None, height=height, alignment=ft.Alignment(0, 0), key=key)
     well.data = {"kit": "EmptyState", "title": title}
     return well
 

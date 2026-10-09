@@ -114,11 +114,13 @@ def _field(
         value=value,
         options=[ft.DropdownOption(option, caption) for option, caption in options],
         dense=True,
+        expand=True,
+        border=ft.InputBorder.NONE,  # the Field surface draws the single frame
     )
     control.on_change = on_change
     return (
         ft.Container(
-            content=Field(label, control=control, expand=True),
+            content=Field(label, control=control),
             col={"xs": 12, "md": columns},
         ),
         control,
@@ -128,7 +130,7 @@ def _field(
 def _text_field(label: str, key: str, placeholder: str = "", *, columns: int = 4) -> ft.Control:
     control = ft.TextField(key=key, **field_input_style(placeholder=placeholder))
     return ft.Container(
-        content=Field(label, control=control, expand=True),
+        content=Field(label, control=control),
         col={"xs": 12, "md": columns},
     )
 
@@ -898,7 +900,7 @@ def screener_page(page: ft.Page | None, state: AppState, *, _deferred: bool = Fa
             ft.Row(
                 [
                     Button.secondary("Add filter", on_click=add_filter, key="screener.filter.add"),
-                    ft.TextButton("Clear filters", key="screener.filter.clear", on_click=clear_filters),
+                    Button.secondary("Clear filters", on_click=clear_filters, key="screener.filter.clear"),
                 ],
                 spacing=8,
                 wrap=True,

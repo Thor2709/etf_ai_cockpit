@@ -104,7 +104,7 @@ def ScoreBar(  # noqa: N802
         alignment=ft.Alignment(1, 0),
     )
     row = ft.Row([track, value_slot], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                 expand=expand, width=width)
+                 expand=expand or None, width=width)
     tag_semantics(row, key=key, label=None)
     row.data = {"kit": "ScoreBar", "value": shown, "maximum": maximum, "label": label}
     return row
@@ -274,7 +274,7 @@ def DataTable(  # noqa: N802
     the caller re-sorts and rebuilds. Selected row shows the left accent bar and fill.
     """
     if not rows:
-        return EmptyState(empty_title, empty_reason, expand=expand, height=height, key=key)
+        return EmptyState(empty_title, empty_reason, expand=expand or None, height=height, key=key)
     header_cells: list[ft.Control] = []
     for column in columns:
         active = column.key == sort_key
@@ -336,7 +336,7 @@ def DataTable(  # noqa: N802
         item_extent=row_height,
         spacing=0,
         height=None if expand else (height - 36 if height else visible * row_height),
-        expand=expand,
+        expand=expand or None,
     )
     if len(rows) > len(body.controls):
 
@@ -364,7 +364,7 @@ def DataTable(  # noqa: N802
             ignore_interactions=True,
         )
         scroller = ft.Stack([body, fade], height=visible * row_height)
-    table = ft.Column([header, scroller], spacing=8, tight=not expand, expand=expand)
+    table = ft.Column([header, scroller], spacing=8, tight=not expand, expand=expand or None)
     tag_semantics(table, key=key, label=None)
     table.data = {"kit": "DataTable", "columns": [column.key for column in columns], "rows": len(rows),
                   "sort": (sort_key, descending)}

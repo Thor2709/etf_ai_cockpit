@@ -149,3 +149,13 @@ def _walk(node):
     content = getattr(node, "content", None)
     if content is not None:
         yield from _walk(content)
+
+
+def test_kit_controls_never_send_expand_false() -> None:
+    """Flet 0.85 renders a grey error box for expand=False inside a wrapping Row; kit sends None instead."""
+    from etf_cockpit.app.components.kit import Button, GlassCard
+
+    button = Button.secondary("Add filter")
+    assert button.expand is None and button.alignment is None  # not stretched to the full width
+    assert Button.secondary("Wide", expand=True).expand is True
+    assert GlassCard("Card", body=[ft.Text("x")]).expand is None

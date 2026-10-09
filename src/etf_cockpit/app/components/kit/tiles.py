@@ -49,7 +49,7 @@ def KpiTile(  # noqa: N802
         border_radius=theme.RADIUS_KPI,
         gradient=vgradient((theme.rgba(0, 0, 0, 0.26), theme.KPI_TILE_FILL)),
         border=ring(theme.rgba(255, 255, 255, 0.05)),
-        expand=expand,
+        expand=expand or None,
         width=width,
     )
     tag_semantics(tile, key=key, label=None)
@@ -121,7 +121,7 @@ def StatTile(  # noqa: N802
         border_radius=theme.RADIUS_KPI,
         gradient=vgradient((theme.rgba(0, 0, 0, 0.36), theme.STAT_TILE_FILL)),
         border=ring(theme.rgba(255, 255, 255, 0.05)),
-        expand=expand,
+        expand=expand or None,
         width=width,
     )
     tag_semantics(tile, key=key, label=None)

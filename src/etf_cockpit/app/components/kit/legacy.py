@@ -41,7 +41,7 @@ def _well(content: ft.Control, *, expand: bool = False, padding: int = 14) -> ft
         border_radius=theme.INNER_RADIUS,
         shadow=[_shadow("#47000000", blur=12, y=3)],
         padding=padding,
-        expand=expand,
+        expand=expand or None,
     )
 
 
@@ -63,7 +63,7 @@ def glass_panel(
             border_radius=theme.CARD_RADIUS,
             shadow=[_shadow("#59020614", blur=30, y=14)],
             padding=padding,
-            expand=expand,
+            expand=expand or None,
         ),
         key=key,
         label=label,
