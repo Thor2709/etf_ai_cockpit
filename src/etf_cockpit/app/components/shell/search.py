@@ -66,11 +66,15 @@ def build_search(
     palette_invocations: dict[str, UIInvocationResult] = {}
     status = {"focused": False}
 
+    def navigate_target(route: str) -> None:
+        state.last_message = ""  # type: ignore[attr-defined]
+        navigate(route)
+
     def navigate_palette_command(event: ft.ControlEvent) -> None:
         route = str(getattr(getattr(event, "control", None), "data", "") or "")
         if not route:
             raise ValueError("selected command has no registered route")
-        navigate(route)
+        navigate_target(route)
 
     def show_palette_message(message: str) -> None:
         state.last_message = message  # type: ignore[attr-defined]
@@ -153,13 +157,13 @@ def build_search(
             if needle in f"{instrument_id} {name}".casefold():
                 label = f"{instrument_id} · {name}" if name else instrument_id
                 rows.append(
-                    plain_row(ft.Icons.SHOW_CHART, label, "Instrument", lambda _e, i=instrument_id: navigate(f"/instrument/{i}"))
+                    plain_row(ft.Icons.SHOW_CHART, label, "Instrument", lambda _e, i=instrument_id: navigate_target(f"/instrument/{i}"))
                 )
         for term in _glossary_terms():
             if len(rows) >= MAX_RESULTS:
                 break
             if needle in term.casefold():
-                rows.append(plain_row(ft.Icons.MENU_BOOK_OUTLINED, term, "Glossary", lambda _e, t=term: navigate(f"/help#{_slug(t)}")))
+                rows.append(plain_row(ft.Icons.MENU_BOOK_OUTLINED, term, "Glossary", lambda _e, t=term: navigate_target(f"/help#{_slug(t)}")))
         rows = rows[:MAX_RESULTS]
         if not rows:
             rows = [
@@ -187,9 +191,21 @@ def build_search(
             return
         matches = search_commands(pages, workspace_groups, query, limit=1)
         if matches:
-            navigate(matches[0].route)
-        else:
-            show_palette_message("No matching workspace")
+            navigate_target(matches[0].route)
+            return
+        universe = getattr(getattr(getattr(state, "snapshot", None), "config", None), "universe", None)
+        needle = query.strip().casefold()
+        for item in getattr(universe, "etfs", ()) or ():
+            instrument_id = str(getattr(item, "id", "") or "")
+            name = str(getattr(item, "name", "") or "")
+            if needle and needle in f"{instrument_id} {name}".casefold():
+                navigate_target(f"/instrument/{instrument_id}")
+                return
+        for term in _glossary_terms():
+            if needle and needle in term.casefold():
+                navigate_target(f"/help#{_slug(term)}")
+                return
+        show_palette_message("No matching page, instrument or term")
 
     def on_focus(_event: object) -> None:
         status["focused"] = True

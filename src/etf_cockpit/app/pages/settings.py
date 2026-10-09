@@ -162,13 +162,18 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
             candidate = candidate_bundle()
             report = preview_settings(candidate, expected_revision=settings_bundle.revision, root=ROOT)
             last_preview["revision"] = report.after_revision
-            current_values = settings_bundle.controls.model_dump()
-            next_values = candidate.controls.model_dump()
+
+            def setting_value(bundle: object, path: str) -> object:
+                value = bundle
+                for part in path.split("."):
+                    value = _value(value, part)
+                return value
+
             changes = [
                 {
-                    "setting": _label(name),
-                    "previous": _display_setting(current_values.get(name)),
-                    "proposed": _display_setting(next_values.get(name)),
+                    "setting": _label(name.rsplit(".", 1)[-1]),
+                    "previous": _display_setting(setting_value(settings_bundle, name)),
+                    "proposed": _display_setting(setting_value(candidate, name)),
                 }
                 for name in report.changed_fields
             ]

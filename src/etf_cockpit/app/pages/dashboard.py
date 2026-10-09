@@ -44,6 +44,7 @@ from etf_cockpit.application.ui_views.home import (
     ScoreRow,
     band_insight,
     build_checks,
+    data_health_label,
     filter_tier,
     rank_change_bars,
     rank_insight,
@@ -83,6 +84,7 @@ from etf_cockpit.application.ui_facade import (
     MacroWarehouse,
     MacroWarehouseError,
     SimpleInstrumentScore,
+    build_data_health,
     build_simple_instrument_scores,
     compare_runs,
     events_available_as_of,
@@ -200,10 +202,26 @@ def _home_view(state: AppState) -> tuple[HomeView, list[SimpleInstrumentScore]]:
         for change in (report.changes if report is not None else ())
     }
     data_report = state.snapshot.data_report
-    status = str(data_report.status or "")
+    try:
+        health_report = build_data_health(
+            state.snapshot.config,
+            ROOT,
+            as_of_date=data_report.as_of_date,
+        )
+        status = data_health_label(health_report.rows)
+    except Exception:
+        status = "Unavailable"
     flagged = set(getattr(data_report, "blocked_etfs", ()) or ()) | set(getattr(data_report, "warning_etfs", ()) or ())
     best = scores[0] if scores else None
-    mode = "Manual review" if status == "Blocked" else "Caution" if status == "Warning" else "Normal"
+    mode = (
+        "Manual review"
+        if status == "Failed"
+        else "Caution"
+        if status == "Review"
+        else "Normal"
+        if status == "Clean"
+        else "Unavailable"
+    )
     forecasts = getattr(state.snapshot, "forecasts", None)
     extra_models: tuple[str, ...] = ()
     if isinstance(forecasts, pd.DataFrame) and {"model_name", "status"} <= set(forecasts.columns):

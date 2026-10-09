@@ -67,6 +67,10 @@ def _format_number(value: object, *, percent: bool = False, money: bool = False,
     return f"{number:.{decimals}f}"
 
 
+def _strategy_label(value: object) -> str:
+    return " ".join(str(value or "").replace("_", " ").split()).title()
+
+
 def _negative_contributions_label(value: object) -> str:
     if not isinstance(value, (list, tuple)):
         return "unavailable" if value is None else str(value)
@@ -1083,9 +1087,8 @@ def backtests_page(page: ft.Page, state: AppState, *, _deferred: bool = False) -
     if not isinstance(results, pd.DataFrame):
         results = pd.DataFrame()
     source_strategy_rows = results.to_dict(orient="records") if not results.empty else []
-    strategy_rows = source_strategy_rows
-    signal = next((row for row in strategy_rows if row.get("strategy_name") == "signal_strategy"), {})
-    equal_weight = next((row for row in strategy_rows if row.get("strategy_name") == "equal_weight"), {})
+    signal = next((row for row in source_strategy_rows if row.get("strategy_name") == "signal_strategy"), {})
+    equal_weight = next((row for row in source_strategy_rows if row.get("strategy_name") == "equal_weight"), {})
     quality = getattr(report, "quality_label", None)
     train_periods = format_count(signal.get("train_periods"), unavailable="Unavailable")
     quality_subtitle = (
@@ -1153,10 +1156,18 @@ def backtests_page(page: ft.Page, state: AppState, *, _deferred: bool = False) -
         ("cost_drag", "Cost drag"),
     )
     strategy_columns = [TableColumn(key, label, numeric=label != "Strategy") for key, label in strategy_keys]
-    strategy_rows = sorted(
-        _normalized_strategy_rows(source_strategy_rows, strategy_keys),
-        key=lambda row: str(row.get("strategy_name") or "").casefold(),
-    )
+    strategy_rows = []
+    for source_row in source_strategy_rows:
+        row = {key: source_row.get(key) for key, _label in strategy_keys}
+        row["strategy_name"] = _strategy_label(row.get("strategy_name"))
+        for key in _STRATEGY_RATE_FIELDS:
+            if key in row:
+                row[key] = format_percent(row[key], decimals=2, unavailable="—")
+        for key in ("sharpe", "sortino", "calmar", "turnover"):
+            if key in row:
+                row[key] = format_number(row[key], decimals=2, unavailable="—")
+        strategy_rows.append(row)
+    strategy_rows.sort(key=lambda row: str(row.get("strategy_name") or "").casefold())
     strategy_table = DataTable(
         strategy_columns,
         strategy_rows,
@@ -1179,7 +1190,7 @@ def backtests_page(page: ft.Page, state: AppState, *, _deferred: bool = False) -
             search_field,
             DataTable(
                 strategy_columns,
-                sorted(_normalized_strategy_rows(filtered_rows, strategy_keys), key=lambda row: str(row.get("strategy_name") or "").casefold()),
+                sorted(filtered_rows, key=lambda row: str(row.get("strategy_name") or "").casefold()),
                 sort_key="strategy_name",
                 empty_title="No matching strategy results",
                 empty_reason="No saved strategy row matches this search.",
@@ -1209,7 +1220,7 @@ def backtests_page(page: ft.Page, state: AppState, *, _deferred: bool = False) -
         cagr = row.get("cagr")
         if drawdown is None or cagr is None:
             continue
-        scatter_points.append(Bubble(str(row.get("strategy_name", "Strategy")), float(drawdown) * 100, float(cagr) * 100, group="strategy"))
+        scatter_points.append(Bubble(_strategy_label(row.get("strategy_name", "Strategy")), float(drawdown) * 100, float(cagr) * 100, group="strategy"))
     comparison_insight = (
         f"{signal.get('strategy_name', 'Strategy')}: CAGR {format_percent(signal.get('cagr'), unavailable='—')} and maximum drawdown {format_percent(signal.get('max_drawdown'), unavailable='—')}."
         if signal and signal.get("cagr") is not None and signal.get("max_drawdown") is not None

@@ -457,8 +457,19 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
         ),
     )
 
+    export_status = Note("No risk CSV export has been requested.")
+
     def export_frame(table_id: str, frame: pd.DataFrame, file_name: str) -> None:
-        export_table(table_id, frame if not frame.empty else None, EXPORTS_DIR / file_name)
+        try:
+            result = export_table(table_id, frame if not frame.empty else None, EXPORTS_DIR / file_name)
+            if result.ok:
+                export_status.value = f"CSV saved locally: {result.destination} ({result.rows} rows)."
+            else:
+                export_status.value = f"CSV export unavailable: {result.error or result.status}; no file was written."
+        except Exception as exc:
+            export_status.value = f"CSV export failed safely: {type(exc).__name__}; no file was uploaded."
+        if callable(getattr(page, "update", None)):
+            page.update()
 
     def export_limits(_event: ft.ControlEvent | None) -> None:
         export_frame("risk_limits", limits, "risk_limits.csv")
@@ -1008,7 +1019,7 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
                 correlation_card,
                 regimes_tail_card,
             ]
-        body.controls = [risk_kpis, *cards, *below_fold]
+        body.controls = [risk_kpis, export_status, *cards, *below_fold]
         if page is not None:
             page.update()
 

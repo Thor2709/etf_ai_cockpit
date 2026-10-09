@@ -1545,12 +1545,21 @@ def instrument_detail_page(page: ft.Page | None, state: object) -> PageView:
         section_options = ["Overview", kind, "Risk & forecasts", "History"]
         if section not in section_options:
             section = "Overview"
+
+        def change_section(value: str) -> PageChrome | None:
+            state.selected_instrument_section = value
+            refresh_page = getattr(page, "_shell_refresh", None)
+            if callable(refresh_page):
+                refresh_page()
+                return None
+            return render(instrument_id, value)
+
         groups.append(
             SegmentGroup(
                 "instrument-section",
                 section_options,
                 section,
-                on_change=lambda value: render(instrument_id, value),
+                on_change=change_section,
             )
         )
         return PageChrome(
@@ -1633,6 +1642,7 @@ def instrument_detail_page(page: ft.Page | None, state: object) -> PageView:
 
     def change_instrument(value: str) -> PageChrome:
         state.selected_etf = value
+        state.selected_instrument_section = "Overview"
         with instrument_lock:
             generation[0] += 1
             expected = generation[0]
@@ -1658,7 +1668,8 @@ def instrument_detail_page(page: ft.Page | None, state: object) -> PageView:
         worker.start()
         return loading_chrome
 
-    render(selected, "Overview")
+    selected_section = str(getattr(state, "selected_instrument_section", "Overview") or "Overview")
+    render(selected, selected_section)
     if not chrome_holder:
         raise RuntimeError("Instrument detail view could not be built.")
     return PageView(chrome_holder[0], body_holder)
