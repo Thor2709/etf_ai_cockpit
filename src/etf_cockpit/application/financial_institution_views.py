@@ -221,6 +221,9 @@ def _build_financial_projection_from_evidence(
                 "value": value.get("value") if isinstance(value, Mapping) else None,
                 "unit": value.get("unit") if isinstance(value, Mapping) else None,
                 "period": value.get("period") if isinstance(value, Mapping) else None,
+                "concept": value.get("concept") if isinstance(value, Mapping) else None,
+                "context": value.get("context") if isinstance(value, Mapping) else None,
+                "sha256": value.get("sha256") if isinstance(value, Mapping) else None,
                 "known_at": value.get("known_at") if isinstance(value, Mapping) else None,
                 "source": value.get("source_url") if isinstance(value, Mapping) else None,
             }

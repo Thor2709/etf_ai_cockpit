@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
@@ -47,6 +47,42 @@ EC_FACT_NAMES = (
     "ec_attributable_result",
     "major_foundation_holdings",
 )
+
+# SpareBank 1 SMN's own ESEF extension taxonomy.  Extension concepts are
+# mapped by exact local name and only when the filing resolves to this issuer
+# namespace.  Names outside this table remain retained and unmapped.
+MING_EXTENSION_PREFIX = "sb1smn"
+MING_EXTENSION_NAMESPACE = "http://aarsrapport.smn.no/2024"
+MING_EXTENSION_CONCEPT_MAP: dict[str, dict[str, str]] = {
+    "OtherInterestIncome": {"canonical_metric": "other_interest_income"},
+    "ProfitLossBeforeTaxAndImpairment": {"canonical_metric": "profit_before_tax_and_impairment"},
+    "ProfitLossAttributableToAdditionalTier1CapitalHolders": {"canonical_metric": "at1_attributable_result"},
+    "EgenkapitalbeviseiernesAndelAvPeriodensResultat": {
+        "canonical_metric": "ec_attributable_result",
+        "ec_fact": "ec_attributable_result",
+    },
+    "GrunnfondskapitalensAndelAvPeriodensResultat": {"canonical_metric": "foundation_attributable_result"},
+    "ComprehensiveIncomeAttributableToAdditionalTier1CapitalHolders": {
+        "canonical_metric": "at1_attributable_comprehensive_income"
+    },
+    "ComprehensiveIncomeAttributableToEquityCapitalCertificateHolders": {
+        "canonical_metric": "ec_attributable_comprehensive_income"
+    },
+    "ComprehensiveIncomeAttributableToTheSavingBankReserve": {
+        "canonical_metric": "foundation_attributable_comprehensive_income"
+    },
+    "SubordinatedLoanCapital": {"canonical_metric": "subordinated_debt"},
+    "DividendEqualizationFund": {"canonical_metric": "utjevningsfond", "ec_fact": "utjevningsfond"},
+    "DividendAllocation": {"canonical_metric": "dividend_allocation"},
+    "GiftsAllocation": {"canonical_metric": "gavefond", "ec_fact": "gavefond"},
+    "OwnerlessCapital": {"canonical_metric": "sparebankens_fond", "ec_fact": "sparebankens_fond"},
+    "UnrealisedGainsReserve": {"canonical_metric": "unrealised_gains_reserve"},
+    "AdditionalTier1Capital": {"canonical_metric": "additional_tier_1_capital"},
+}
+MING_IFRS_EC_FACT_MAP = {
+    "IssuedCapital": "ec_capital",
+    "SharePremium": "overkursfond",
+}
 
 
 def import_official_filing(
@@ -116,6 +152,16 @@ def import_official_filing(
         raise ValueError("filing consolidation scope is incomplete")
     _validate_units(parsed.records)
     supplied_facts = _load_fact_sheet(fact_sheet)
+    filing_facts = _extract_ec_facts(
+        parsed.records,
+        instrument_id=canonical,
+        period=expected,
+        sha256=digest,
+    )
+    for name, item in supplied_facts.items():
+        if name in filing_facts and str(filing_facts[name].get("value")) != str(item.get("value")):
+            raise ValueError(f"EC fact sheet conflicts with the filing-mapped fact: {name}")
+        filing_facts.setdefault(name, item)
 
     output.mkdir(parents=True, exist_ok=True)
     archive = archive_manual_official_filing(
@@ -135,6 +181,15 @@ def import_official_filing(
         instrument_id=canonical,
         source_sha256=archive.sha256,
         source_provider="esef_local_import",
+        extension_namespace=MING_EXTENSION_NAMESPACE if canonical == "MING" else None,
+        extension_mappings=(
+            {
+                concept: values["canonical_metric"]
+                for concept, values in MING_EXTENSION_CONCEPT_MAP.items()
+            }
+            if canonical == "MING"
+            else {}
+        ),
     )
     facts = tuple(
         replace(
@@ -172,7 +227,7 @@ def import_official_filing(
     _append_revision_frame(normalised, normalised_path, "source_id")
     _write_identity(output / "identity.json", canonical, bound_ticker, bound_orgnr, bound_lei, issuer["isin"], archive, expected, known_at)
     _write_ec_facts(
-        supplied_facts,
+        filing_facts,
         output / "ec_facts.json",
         archive,
         canonical,
@@ -193,11 +248,99 @@ def import_official_filing(
         "effective_at": expected,
         "sha256": archive.sha256,
         "facts": len(facts),
-        "warnings": [warning.message for warning in parsed.warnings if warning.severity == "warning"],
+        "warnings": [
+            warning.message
+            for warning in parsed.warnings
+            if warning.severity == "warning" and not _mapped_ming_extension_warning(warning, canonical)
+        ],
         "facts_path": str(facts_path),
         "normalised_path": str(normalised_path),
         "execution_allowed": False,
     }
+
+
+def _map_issuer_extension_qname(
+    qname: str,
+    *,
+    output_key: str = "canonical_metric",
+) -> str | None:
+    """Map one explicit MING extension QName, rejecting foreign prefixes."""
+
+    prefix, separator, local_name = str(qname or "").partition(":")
+    if not separator or prefix != MING_EXTENSION_PREFIX:
+        return None
+    entry = MING_EXTENSION_CONCEPT_MAP.get(local_name)
+    return entry.get(output_key) if entry else None
+
+
+def _mapped_ming_extension_warning(warning: object, instrument_id: str) -> bool:
+    if instrument_id != "MING" or str(getattr(warning, "code", "")) != "unmapped_extension":
+        return False
+    message = str(getattr(warning, "message", ""))
+    return any(f"{MING_EXTENSION_PREFIX}:{concept}" in message for concept in MING_EXTENSION_CONCEPT_MAP)
+
+
+def _extract_ec_facts(
+    records: Iterable[object],
+    *,
+    instrument_id: str,
+    period: str,
+    sha256: str,
+) -> dict[str, dict[str, object]]:
+    """Select exact consolidated ESEF facts for the native claim inputs."""
+
+    if instrument_id != "MING":
+        return {}
+    candidates: dict[str, list[tuple[object, str]]] = {}
+    for record in records:
+        concept = str(getattr(record, "concept", "") or "")
+        namespace = str(getattr(record, "namespace", "") or "")
+        if namespace == MING_EXTENSION_NAMESPACE:
+            ec_name = _map_issuer_extension_qname(
+                f"{MING_EXTENSION_PREFIX}:{concept}", output_key="ec_fact"
+            )
+            qname = f"{MING_EXTENSION_PREFIX}:{concept}"
+        elif "ifrs" in namespace.casefold():
+            ec_name = MING_IFRS_EC_FACT_MAP.get(concept)
+            qname = f"ifrs-full:{concept}"
+        else:
+            continue
+        if not ec_name or not getattr(record, "is_numeric", True):
+            continue
+        if str(getattr(record, "period_end", "") or "") != period:
+            continue
+        if str(getattr(record, "consolidation_scope", "") or "").casefold() != "consolidated":
+            continue
+        if getattr(record, "context_dimensions", ()):
+            continue
+        if not str(getattr(record, "unit", "") or "").strip():
+            continue
+        candidates.setdefault(ec_name, []).append((record, qname))
+
+    extracted: dict[str, dict[str, object]] = {}
+    for name, matches in candidates.items():
+        if len(matches) != 1:
+            continue
+        record, qname = matches[0]
+        context_id = str(getattr(record, "context_id", "") or "") or None
+        start = str(getattr(record, "period_start", "") or "") or None
+        end = str(getattr(record, "period_end", "") or "") or None
+        source_location = str(getattr(record, "source_location", "") or "")
+        locator = f"{source_location}#fact={qname};context={context_id or 'unavailable'}"
+        extracted[name] = {
+            "value": getattr(record, "value", None),
+            "source_locator": locator,
+            "concept": qname,
+            "context": context_id,
+            "unit": str(getattr(record, "unit", "")),
+            "period": end or period,
+            "start": start,
+            "end": end,
+            "sha256": sha256,
+            "dimensions": getattr(record, "context_dimensions", ()),
+            "consolidation_scope": str(getattr(record, "consolidation_scope", "")),
+        }
+    return extracted
 
 
 def _validate_identity_and_period(records: Iterable[object], expected_lei: str, expected_period: str) -> None:
@@ -356,6 +499,8 @@ def _write_ec_facts(
                 "available": False,
                 "value": None,
                 "source_locator": None,
+                "concept": None,
+                "context": None,
                 "unit": None,
                 "period": period,
                 "known_at": known_at,
@@ -370,12 +515,16 @@ def _write_ec_facts(
             "available": True,
             "value": item.get("value"),
             "source_locator": str(item["source_locator"]),
+            "concept": item.get("concept"),
+            "context": item.get("context"),
             "unit": str(item["unit"]),
             "period": str(item["period"]),
+            "start": item.get("start"),
+            "end": item.get("end", item.get("period")),
+            "sha256": archive.sha256,
             "known_at": known_at,
             "effective_at": period,
             "source_url": source_url,
-            "sha256": archive.sha256,
             "filing_version": archive.sha256,
             "instrument_id": instrument_id,
         }
