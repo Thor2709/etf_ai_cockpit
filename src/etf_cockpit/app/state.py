@@ -281,6 +281,35 @@ def _read_recent_activity(limit: int = 8) -> list[ActivityEntry]:
     return entries[-limit:]
 
 
+_SHARED_SNAPSHOT: dict[str, object] = {}
+_SHARED_SNAPSHOT_LOCK = threading.Lock()
+
+
+def _data_fingerprint() -> tuple[object, ...]:
+    """Cheap change detector for the inputs of a snapshot (file and folder modification times)."""
+
+    paths = (
+        ROOT / "configs",
+        ROOT / "configs" / "universe.yaml",
+        ROOT / "data" / "clean",
+        ROOT / "data" / "clean" / "prices.parquet",
+        ROOT / "data" / "forecasts",
+        ROOT / "data" / "derived",
+    )
+    return tuple(path.stat().st_mtime_ns if path.exists() else None for path in paths)
+
+
+def _shared_snapshot():
+    """One snapshot per process for unchanged data: every browser session reuses it instead of rebuilding."""
+
+    with _SHARED_SNAPSHOT_LOCK:
+        key = _data_fingerprint()
+        if _SHARED_SNAPSHOT.get("key") != key or _SHARED_SNAPSHOT.get("snapshot") is None:
+            _SHARED_SNAPSHOT["snapshot"] = build_snapshot()
+            _SHARED_SNAPSHOT["key"] = _data_fingerprint()
+        return _SHARED_SNAPSHOT["snapshot"]
+
+
 @dataclass
 class AppState:
     snapshot: CockpitSnapshot
@@ -346,7 +375,7 @@ class AppState:
                     selected,
                     storage_root=ROOT,
                     decision_time=None,  # live view decides as of now
-                    effective_at=cutoff,
+                    effective_at=None,  # latest reported period; an as-of date is not a reporting period
                 )
             except Exception as exc:
                 log_event(
@@ -393,6 +422,24 @@ class AppState:
         self.last_message = theme.EVIDENCE_MODE_LABELS[value]
         return value
 
+    def set_missing_data_penalty(self, enabled: bool) -> bool:
+        """Save the global missing-data penalty preference; every score list follows it."""
+
+        from etf_cockpit.core.ui_preferences import MISSING_DATA_PENALTY, save_preference
+
+        value = bool(enabled)
+        try:
+            save_preference(MISSING_DATA_PENALTY, value, root=self.settings_root)
+            saved = ""
+        except (OSError, ValueError) as exc:
+            saved = f" (not saved: {exc})"
+        self.last_message = (
+            "Missing-data penalty on: thin-evidence scores are pulled toward neutral 5"
+            if value
+            else "Missing-data penalty off: scores use the available evidence only"
+        ) + saved
+        return value
+
     def set_analysis_depth(self, depth: str) -> str:
         """Select the analysis-depth profile; workload semantics stay in the application layer."""
 
@@ -436,7 +483,7 @@ class AppState:
         with timed_step("startup", "migrations"):
             run_startup_migrations()
         with timed_step("startup", "snapshot"):
-            snapshot = build_snapshot()
+            snapshot = _shared_snapshot()
         state = cls(
             snapshot=snapshot,
             selected_etf=snapshot.config.ui.default_etf,

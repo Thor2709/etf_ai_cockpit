@@ -187,28 +187,10 @@ def instrument_meta(state: object, key: str) -> dict[str, str]:
 
 
 def scores_for(state: object) -> list[object]:
-    """Canonical score rows for the current snapshot, computed once per snapshot revision."""
-    snapshot = state.snapshot
-    revision = str(getattr(snapshot, "universe_revision", "") or getattr(state, "universe_cache_revision", ""))
-    key = f"{revision}:{len(getattr(snapshot, 'signals', ()) or ())}"
-    if _SCORE_CACHE.get("snapshot") is snapshot and _SCORE_CACHE.get("key") == key:
-        return list(_SCORE_CACHE["scores"])  # type: ignore[arg-type]
-    reference = context_from_snapshot(snapshot, purpose="comparison", analysis_id=f"p3:{revision or 'unknown'}")
-    scores = build_simple_instrument_scores(
-        snapshot.config,
-        snapshot.signals,
-        snapshot.forecasts,
-        snapshot.prices,
-        universe_revision=revision,
-        benchmark_data_id=reference.benchmark_data_id,
-        benchmark_reference=reference.projection,
-        benchmark_registry=reference.registry,
-        reference_identity=reference.identity,
-        peer_member_ids=reference.peer_member_ids,
-        cash_observation_time=snapshot.benchmark_reference_decision_time,
-    )
-    _SCORE_CACHE.update(snapshot=snapshot, key=key, scores=scores)
-    return list(scores)
+    """Canonical score rows for the current snapshot (shared cache in application.score_views)."""
+    from etf_cockpit.application.score_views import snapshot_scores
+
+    return snapshot_scores(state.snapshot, str(getattr(state, "universe_cache_revision", "") or ""))
 
 
 def remember_instrument(state: object, instrument_id: str) -> list[str]:
@@ -223,9 +205,14 @@ def remember_instrument(state: object, instrument_id: str) -> list[str]:
 
 
 def segment_ids(state: object, current: str, known: Sequence[str]) -> list[str]:
-    """Current instrument plus the two most recently viewed other ones."""
+    """Current instrument plus recently viewed ones, topped up from the list so there is always a choice."""
     others = [item for item in getattr(state, "recent_instruments", []) if item != current and item in known]
-    return [current, *others[:2]]
+    for item in known:
+        if len(others) >= 3:
+            break
+        if item != current and item not in others:
+            others.append(item)
+    return [current, *others[:3]]
 
 
 def update(page: object) -> None:

@@ -77,6 +77,8 @@ def _scorecard_reason(score: object) -> str | None:
     final_label = str(getattr(score, "final_label", "") or "").casefold()
     if "sparebanken" not in source_group or final_label != "scorecard_owned":
         return None
+    if getattr(score, "final_score_10", None) is not None:  # native scorecard score shows as a bar
+        return None
     return str(getattr(score, "one_line_reason", "") or "")
 
 

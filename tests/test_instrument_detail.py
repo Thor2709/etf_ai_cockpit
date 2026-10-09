@@ -1219,8 +1219,8 @@ def test_detail_summary_stays_outside_research_scroll(monkeypatch):
         monkeypatch.setattr(detail, name, lambda *_: ft.Text("Preserved evidence"))
     state = SimpleNamespace(snapshot=SimpleNamespace(data_report=SimpleNamespace(as_of_date="2026-07-01")), selected_etf="ACME")
     rendered = detail.instrument_detail_page(SimpleNamespace(route="/instrument/ACME"), state)
-    summary = rendered.body.controls[0]
-    research = rendered.body
+    research = rendered.body.content if isinstance(rendered.body, ft.Container) else rendered.body  # in-place section holder
+    summary = research.controls[0]
     assert any(getattr(control, "key", None) == "instrument-detail.export-evidence" for control in _walk_controls(summary))
     assert research.expand is True and research.scroll == ft.ScrollMode.AUTO
     titles = []

@@ -209,7 +209,7 @@ def _rescore(record: UniverseRecord, data_root: Path, universe_root: Path, decis
         storage_root=data_root,
         universe_root=universe_root,
         decision_time=decision_time,
-        effective_at=decision_time[:10],
+        effective_at=None,  # latest reported period known at decision_time
         record_history=True,
     )
     identity = projection.get("share_class_identity") if isinstance(projection, Mapping) else None

@@ -1440,6 +1440,7 @@ def build_universe_simple_scores(
 
     enabled_ids = set(config.universe.enabled_ids)
     seen_ids: set[str] = set()
+    pending_sparebank: set[str] = set()
 
     for signal in signals:
         identity = etf_lookup.get(signal.etf_id)
@@ -1448,19 +1449,22 @@ def build_universe_simple_scores(
         seen_ids.add(signal.etf_id)
         asset_type = _display_asset_type(identity)
         if _is_sparebank_ec_asset_type(asset_type):
-            output.append(
-                _sparebank_scorecard_status(
-                    instrument_key=f"configured:{identity.id}",
-                    display_id=identity.id,
-                    name=identity.name,
-                    yahoo_symbol=symbol_map.get(identity.id, identity.ticker),
-                    asset_type=asset_type,
-                    instrument_currency=identity.currency,
-                    isin=identity.isin or "needs_verification",
-                    data_policy=str(_config_extra(identity, "data_policy", "yfinance_now_multi_provider_later")),
-                )
+            native = _sparebank_scorecard_status(
+                instrument_key=f"configured:{identity.id}",
+                display_id=identity.id,
+                name=identity.name,
+                yahoo_symbol=symbol_map.get(identity.id, identity.ticker),
+                asset_type=asset_type,
+                instrument_currency=identity.currency,
+                isin=identity.isin or "needs_verification",
+                data_policy=str(_config_extra(identity, "data_policy", "yfinance_now_multi_provider_later")),
             )
-            continue
+            if native.final_score_10 is not None:
+                output.append(native)
+                continue
+            # Owner 2026-10-09: every instrument gets a score; below the scorecard evidence floor the
+            # generic stock score is shown, labelled as pending the Sparebank scorecard.
+            pending_sparebank.add(identity.id)
         price_info = latest_prices.get(signal.etf_id, {})
         quality_info = price_quality.get(signal.etf_id, {})
         liquidity_info = liquidity.get(signal.etf_id, {})
@@ -1674,7 +1678,23 @@ def build_universe_simple_scores(
                     else f"Signal processing returned no result for {etf_id} despite local price history."
                 )
             output.append(_pending_configured_score(identity, symbol_map.get(etf_id, identity.ticker), reason=reason))
+    output = [_as_sparebank_pending(score) if score.display_id in pending_sparebank else score for score in output]
     return [_with_canonical_score(score) for score in output]
+
+
+def _as_sparebank_pending(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
+    """Generic stock score for a Sparebank EC whose native scorecard is below its evidence floor."""
+
+    return replace(
+        score,
+        source_group=SPAREBANKEN_TIER_LABEL,
+        analysis_tier="sparebanken",
+        decision="Sparebank scorecard pending",
+        one_line_reason=(
+            "Generic stock score shown: the Sparebank scorecard is pending (not enough filing evidence for a "
+            f"composite yet). {score.one_line_reason}"
+        ).strip(),
+    )
 
 
 def build_candidate_simple_scores(

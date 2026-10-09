@@ -62,7 +62,7 @@ def test_ec_uses_sparebank_scorecard_and_never_reaches_generic_etf_fallback(monk
 
     analysis = analyse_sparebank_ec(_teaching_bank(), decision_time="2025-01-02T00:00:00Z")
     assert analysis.routing.applies
-    assert analysis.scorecard.formula_version == "sparebank-scorecard-v1.0.0"
+    assert analysis.scorecard.formula_version == "sparebank-scorecard-v1.1.0"
     assert original("STOCK").asset_type == "STOCK"
     assert original("OTHER").groups == original("ETF").groups
 
@@ -112,12 +112,15 @@ def test_axes_without_producers_are_unavailable_and_lower_overall_coverage() -> 
 
 def test_composite_reproduces_from_breakdown_and_is_capped_by_gates() -> None:
     scorecard = _complete_scorecard().scorecard
+    weights = load_sparebank_scorecard_policy().scorecard["axis_weights"]
     rated_axes = [
-        axis["rating_10"]
-        for axis in scorecard.axes.values()
-        if axis["rating_10"] is not None
+        (weights[axis_id], axis["rating_10"])
+        for axis_id, axis in scorecard.axes.items()
+        if axis["rating_10"] is not None and weights[axis_id] > 0
     ]
-    assert scorecard.composite_before_gate_cap_10 == pytest.approx(sum(rated_axes) / len(rated_axes)), {
+    assert scorecard.composite_before_gate_cap_10 == pytest.approx(
+        sum(weight * rating for weight, rating in rated_axes) / sum(weight for weight, _ in rated_axes)
+    ), {
         "gate_reasons": scorecard.gate_reasons,
         "axes": {key: (value["status"], value["rating_10"], value["coverage"]) for key, value in scorecard.axes.items()},
     }

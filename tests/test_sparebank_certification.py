@@ -47,7 +47,8 @@ def _production_fixture(tmp_path: Path, *, price_rows: list[dict[str, object]] |
         "credit_loss": 0.0,
         "rwa": 1000.0,
         "target_ratio": 0.1,
-        "funding": {"lcr": 2.0, "nsfr": 1.2},
+        # v1.1 scores only bank axes: funding evidence keeps the fixture above the coverage floor.
+        "funding": {"lcr": 2.0, "nsfr": 1.2, "deposit_to_loan_ratio": 0.8},
     }
     ec_payload["valuation_assumptions"] = {
         "central_owner_value_per_ec": 130.0,
@@ -171,7 +172,7 @@ def test_teaching_bank_production_route_exposes_scorecard_and_workspace(tmp_path
     identity = projection["share_class_identity"]
     assert identity["native_suite"] == "sparebank-analysis-suite.v1"
     analysis = identity["sparebank_analysis"]
-    assert analysis["scorecard"]["formula_version"] == "sparebank-scorecard-v1.0.0"
+    assert analysis["scorecard"]["formula_version"] == "sparebank-scorecard-v1.1.0"
     assert analysis["scorecard"]["composite_10"] is not None
     assert analysis["decision_price"] == {
         "status": "available", "price": 100.0, "date": "2025-02-28", "currency": "NOK",

@@ -214,6 +214,7 @@ def VerdictRing(  # noqa: N802
     size: float = 128,
     caption: str = "of 100",
     key: str | None = None,
+    value_text: str | None = None,
 ) -> ft.Stack:
     """128px disc with a 270 degree gauge, thickness 24, round caps (spec 3.16). ``None`` shows an em dash."""
     thickness = 24.0 * size / 128
@@ -277,7 +278,7 @@ def VerdictRing(  # noqa: N802
     centre = ft.Container(
         content=ft.Column(
             [
-                txt("—" if clamped is None else f"{clamped:.0f}", value_size, 700, tracking=0),
+                txt("—" if clamped is None else value_text or f"{clamped:.0f}", value_size, 700, tracking=0),
                 txt(caption, max(9.0, 11 * scale), 400, theme.CHART_T2, trunc=True),
             ],
             spacing=0,

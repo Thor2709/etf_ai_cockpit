@@ -78,6 +78,14 @@ def footer_values(snapshot: object, data_report: object) -> FooterValues:
     else:
         quality_text, quality_kind = _QUALITY_STATES.get(status.casefold(), (status, "warn"))
         quality_reason = None
+        blocks = [issue for issue in getattr(data_report, "issues", ()) or () if getattr(issue, "severity", "") == "block"]
+        if blocks and all(str(getattr(issue, "etf_id", "ALL")) != "ALL" for issue in blocks):
+            # Instrument-level blocks only affect those instruments; the rest of the data is usable.
+            names = sorted({str(issue.etf_id) for issue in blocks})
+            quality_text, quality_kind = f"Review ({len(names)} blocked)", "warn"
+            quality_reason = "Blocked instruments: " + "; ".join(
+                f"{issue.etf_id}: {getattr(issue, 'message', '')}" for issue in blocks
+            )
     as_of_raw = _text(getattr(snapshot, "as_of_time", getattr(data_report, "as_of_time", None)))
     as_of_date = _text(getattr(data_report, "as_of_date", None))
     if as_of_raw is not None:

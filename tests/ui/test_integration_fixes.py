@@ -106,3 +106,46 @@ def test_desktop_and_web_launch_use_the_same_main_and_assets(monkeypatch) -> Non
     desktop, web = calls[0][0], calls[1][0]
     assert desktop["target"] is web["target"] is flet_app.main
     assert desktop["assets_dir"] == web["assets_dir"] == str(flet_app.theme.ASSETS_DIR)
+
+
+def test_sparebank_native_score_shows_bar_not_pending_tag() -> None:
+    score = _scorecard()
+    score.final_score_10 = 5.65
+    row = score_rows([score], {})[0]
+    assert row.scorecard_reason is None and row.rank == 1
+    assert dashboard._score_cell(None, SimpleNamespace(), row, 80).data["kit"] != "Tag"
+    assert signals._score_rows([score])[0]["score"].data["kit"] != "Tag"
+    assert comparison._row_values("Final score", score, "", "—").data["kit"] != "Tag"
+
+
+def test_score_ring_and_headline_use_list_scale() -> None:
+    ring = signals._score_ring(5.65)
+    assert ring.data["score"] == 56.5
+    assert "5.7" in str(ring.controls) or any("5.7" in str(c) for c in ring.controls)
+    scored, pending = _scorecard(), _scorecard()
+    scored.final_score_10 = 5.65
+    assert signals._scored_headline([scored, pending]) == "1 of 2 instruments scored"
+
+
+def test_detail_headline_uses_canonical_list_score(monkeypatch) -> None:
+    from etf_cockpit.app.pages import instrument_detail
+    from etf_cockpit.application.instrument_detail_view import InstrumentDetailViewModel
+
+    model = InstrumentDetailViewModel("NONG", "Bank", "available", {"instrument_id": "NONG"}, {"scores": {"evidence_score": None}})
+    listed = _scorecard()
+    listed.final_score_10 = 7.08
+    listed.one_line_reason = "Sparebank scorecard 7.1/10 from 30% of axis evidence."
+    monkeypatch.setattr(instrument_detail, "_listed_score", lambda _state, _iid: listed)
+    card = instrument_detail._score_card(model, None, SimpleNamespace())
+    ring = next(c for c in _walk(card) if isinstance(getattr(c, "data", None), dict) and c.data.get("kit") == "VerdictRing")
+    assert ring.data["score"] == 70.8
+    assert any("Generic components do not apply" in str(getattr(c, "value", "")) for c in _walk(card))
+
+
+def _walk(node):
+    yield node
+    for child in getattr(node, "controls", None) or []:
+        yield from _walk(child)
+    content = getattr(node, "content", None)
+    if content is not None:
+        yield from _walk(content)

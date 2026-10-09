@@ -7,6 +7,7 @@ import pytest
 
 from etf_cockpit.app import router
 from etf_cockpit.app.pages import screener, signals
+from etf_cockpit.application import score_views
 
 
 def _walk(node):
@@ -25,7 +26,7 @@ def test_summary_cards_reflow_natively_and_keep_session(monkeypatch, route):
     def scores(*args, **kwargs):
         calls.append("scores")
         return []
-    monkeypatch.setattr(signals, "build_simple_instrument_scores", scores)
+    monkeypatch.setattr(score_views, "build_simple_instrument_scores", scores)
     monkeypatch.setattr(signals, "simple_score_grouped_sections", lambda *args, **kwargs: ft.Text("Evidence rows"))
     state = SimpleNamespace(snapshot=SimpleNamespace(config=SimpleNamespace(ui=SimpleNamespace(window_width=1280)),
         data_report=SimpleNamespace(as_of_date="2026-07-01"), signals=[], forecasts=pd.DataFrame(), prices=pd.DataFrame(),

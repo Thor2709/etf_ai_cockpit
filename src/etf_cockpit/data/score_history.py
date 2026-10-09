@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -310,16 +311,36 @@ def append_score_run(
     return ScoreHistoryWriteResult(path, len(frame), run_id, snapshot_hash)
 
 
+_FRAME_CACHE: dict[str, object] = {}
+_FRAME_CACHE_LOCK = threading.Lock()
+
+
+def _mtime(path: Path) -> int | None:
+    return path.stat().st_mtime_ns if path.exists() else None
+
+
 def score_history_frame(*, root: Path | None = None) -> pd.DataFrame:
+    """Normalised, classification-projected history; cached per (history file, classification store) version."""
+
     root = Path(root) if root is not None else ROOT
     path = root / "data" / "derived" / "score_history.parquet"
     if not path.exists():
         return pd.DataFrame(columns=_COLUMNS)
-    try:
-        frame = _normalise_history_frame(pd.read_parquet(path))
-    except Exception:
-        return pd.DataFrame(columns=_COLUMNS)
-    return project_classification_score_frame(frame.reindex(columns=_COLUMNS), root=root)
+    from etf_cockpit.data.local_storage import storage_layout
+
+    store = storage_layout(root).transactional_path
+    key = (str(path.resolve()), _mtime(path), _mtime(store), _mtime(store.with_name(store.name + "-wal")))
+    with _FRAME_CACHE_LOCK:
+        cached = _FRAME_CACHE.get(key[0])
+        if isinstance(cached, tuple) and cached[0] == key:
+            return cached[1].copy()
+        try:
+            frame = _normalise_history_frame(pd.read_parquet(path))
+        except Exception:
+            return pd.DataFrame(columns=_COLUMNS)
+        projected = project_classification_score_frame(frame.reindex(columns=_COLUMNS), root=root)
+        _FRAME_CACHE[key[0]] = (key, projected)
+        return projected.copy()
 
 
 _CLASSIFICATION_DEPENDENT_NUMERIC_COLUMNS = (
@@ -677,6 +698,15 @@ def _normalise_history_frame(frame: pd.DataFrame) -> pd.DataFrame:
 _SPAREBANK_CACHE: dict[str, object] = {}
 
 
+def _current_sparebank_formula_version() -> str | None:
+    try:
+        from etf_cockpit.analysis.sparebank import load_sparebank_scorecard_policy
+
+        return str(load_sparebank_scorecard_policy().formula_version)
+    except Exception:  # an unreadable policy leaves the history unfiltered rather than hiding every score
+        return None
+
+
 def latest_sparebank_scores(*, root: Path | None = None) -> dict[str, dict[str, object]]:
     """Latest native Sparebank scorecard row per instrument (run ids ``sparebank:<id>:<time>``)."""
 
@@ -684,10 +714,23 @@ def latest_sparebank_scores(*, root: Path | None = None) -> dict[str, dict[str, 
     key = (str(path), path.stat().st_mtime_ns if path.exists() else None)
     if _SPAREBANK_CACHE.get("key") == key:
         return _SPAREBANK_CACHE["value"]  # type: ignore[return-value]
-    frame = score_history_frame(root=root)
+    if not path.exists():
+        return {}
+    wanted = ["instrument_id", "run_id", "final_combined_score_10", "coverage", "missing_components", "data_as_of_date", "formula_version"]
+    try:
+        import pyarrow.parquet as pq
+
+        available = set(pq.read_schema(path).names)
+        frame = pd.read_parquet(path, columns=[column for column in wanted if column in available])
+    except (OSError, ValueError):
+        return {}
     if frame.empty or "run_id" not in frame.columns:
         return {}
     native = frame[frame["run_id"].astype(str).str.startswith("sparebank:")]
+    current = _current_sparebank_formula_version()
+    if current and "formula_version" in native.columns:
+        # A score from an older scorecard formula is superseded, never shown as current.
+        native = native[native["formula_version"].astype(str).eq(current)]
     latest: dict[str, dict[str, object]] = {}
     for row in native.sort_values("run_id", kind="stable").to_dict("records"):
         latest[str(row["instrument_id"])] = row

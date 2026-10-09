@@ -88,7 +88,8 @@ def _state(snapshot) -> AppState:
 
 
 @pytest.mark.parametrize("section", ["Risk & forecasts", "History"])
-def test_instrument_section_uses_router_refresh_path(_snapshot, section: str) -> None:
+def test_instrument_section_switches_in_place(_snapshot, section: str) -> None:
+    """Owner click test 2: full rebuilds took 8-75 s per segment click; sections now toggle in place."""
     state = _state(_snapshot)
     route = f"/instrument/{state.selected_etf}"
     page = _Page(route)
@@ -104,7 +105,7 @@ def test_instrument_section_uses_router_refresh_path(_snapshot, section: str) ->
 
     segment.on_click(None)
 
-    assert page.views[-1] is not initial
+    assert page.views[-1] is initial
     assert state.selected_instrument_section == section
     assert page.views[-1].route == route
     assert _encode(page.views[-1])

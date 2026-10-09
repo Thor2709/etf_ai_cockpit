@@ -103,6 +103,31 @@ def open_depth_dialog(page: ft.Page, state: object, *, on_changed: Callable[[], 
         key="shell.evidence-mode",
     )
 
+    from etf_cockpit.core.ui_preferences import missing_data_penalty
+
+    def penalty_changed(event: ft.ControlEvent) -> None:
+        setter = getattr(state, "set_missing_data_penalty", None)
+        if callable(setter):
+            setter(bool(event.control.value))
+            status.value = state.last_message  # type: ignore[attr-defined]
+            on_changed()
+            refresh_page = getattr(page, "_shell_refresh", None)  # scores on the open page follow at once
+            if callable(refresh_page):
+                refresh_page()
+            page.update()
+
+    try:
+        penalty_on = missing_data_penalty(getattr(state, "settings_root", None))
+    except Exception:
+        penalty_on = False
+    penalty = ft.Checkbox(
+        label="Penalise missing data (all pages)",
+        tooltip="Pulls scores with thin evidence toward neutral 5: 5 + (score - 5) x coverage.",
+        value=penalty_on,
+        on_change=penalty_changed,
+        key="shell.missing-data-penalty",
+    )
+
     def close(_event: object | None = None) -> None:
         page.pop_dialog()
 
@@ -114,6 +139,8 @@ def open_depth_dialog(page: ft.Page, state: object, *, on_changed: Callable[[], 
             txt("Evidence mode", 15, 600, theme.INK, shadow=True),
             evidence_mode,
             hint,
+            txt("Scoring", 15, 600, theme.INK, shadow=True),
+            penalty,
             status,
             ft.Row([ft.Container(expand=True), Button.secondary("Close", close, key="shell.depth-dialog.close")]),
         ],

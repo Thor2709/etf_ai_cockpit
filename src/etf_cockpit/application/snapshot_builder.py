@@ -69,6 +69,7 @@ from etf_cockpit.application.data_service import DataService
 from etf_cockpit.application.signal_service import _run_decision_shadow_guard
 
 _STARTUP_WRITE_LOCK = threading.RLock()
+_BACKTEST_LOCK = threading.Lock()  # module-level so snapshots stay deep-copyable
 
 
 @dataclass
@@ -85,7 +86,6 @@ class CockpitSnapshot:
     model_status: dict[str, bool]
     model_inventory: list[LocalModelStatus]
     _backtest_loader: Callable[[], BacktestReport] | None = field(default=None, repr=False, compare=False)
-    _backtest_lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
     candidate_price_binding: Mapping[str, object] | None = None
     # Revision of the canonical universe used to build cached derived data.
     universe_revision: str = ""
@@ -111,7 +111,7 @@ class CockpitSnapshot:
         if self.backtest is not None:
             return self.backtest
         with _STARTUP_WRITE_LOCK:
-            with self._backtest_lock:
+            with _BACKTEST_LOCK:
                 if self.backtest is None and self._backtest_loader is not None:
                     self.backtest = self._backtest_loader()
                 return self.backtest

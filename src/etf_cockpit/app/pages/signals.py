@@ -100,34 +100,9 @@ def _action(score: object) -> tuple[str, str]:
 
 
 def _scores(snapshot: object) -> list[object]:
-    if snapshot is None:
-        return []
-    config = getattr(snapshot, "config", None)
-    signals = getattr(snapshot, "signals", ())
-    forecasts = getattr(snapshot, "forecasts", pd.DataFrame())
-    prices = getattr(snapshot, "prices", pd.DataFrame())
-    try:
-        reference = context_from_snapshot(
-            snapshot,
-            purpose="comparison",
-            analysis_id=f"signals:{getattr(snapshot, 'universe_revision', 'unknown')}",
-        )
-    except (AttributeError, TypeError, ValueError):
-        reference = None
-    return list(
-        build_simple_instrument_scores(
-            config,
-            signals,
-            forecasts,
-            prices,
-            benchmark_data_id=getattr(reference, "benchmark_data_id", None),
-            benchmark_reference=getattr(reference, "projection", None),
-            benchmark_registry=getattr(reference, "registry", None),
-            reference_identity=getattr(reference, "identity", None),
-            peer_member_ids=getattr(reference, "peer_member_ids", ()),
-            cash_observation_time=getattr(snapshot, "benchmark_reference_decision_time", None),
-        )
-    )
+    from etf_cockpit.application.score_views import snapshot_scores
+
+    return snapshot_scores(snapshot)
 
 
 def _forecast_source(snapshot: object) -> str:
@@ -163,6 +138,8 @@ def _requested_tier(page: object | None) -> str:
 
 def _scorecard_reason(score: object) -> str | None:
     if _tier(score) != "Sparebanken" or str(_read(score, "final_label", "") or "").casefold() != "scorecard_owned":
+        return None
+    if _read(score, "final_score_10") is not None:  # native scorecard score shows as a bar
         return None
     return str(_read(score, "one_line_reason", "") or "")
 
@@ -288,6 +265,15 @@ def _score_detail(score: object | None, page: ft.Page | None, state: object) -> 
         )
         for field, label in component_specs
     ]
+    if tier == "Sparebanken":
+        # Banks are scored by the Sparebank scorecard axes, not the generic ETF/stock components.
+        components = [
+            Note(
+                "Generic components do not apply: banks are scored on the Sparebank scorecard axes "
+                "(valuation, capital, credit quality, lending economics, ...). "
+                "Open instrument detail for the per-axis breakdown and coverage."
+            )
+        ]
     authority = _read(score, "authority_decision")
     gates = _read(authority, "gates", ()) or ()
     gate_controls = []
@@ -349,11 +335,7 @@ def _score_detail(score: object | None, page: ft.Page | None, state: object) -> 
     body: list[ft.Control] = [
         ft.Row(
             [
-                VerdictRing(
-                    _number(_read(score, "final_score_10")) * 10
-                    if _number(_read(score, "final_score_10")) is not None
-                    else None
-                ),
+                _score_ring(_number(_read(score, "final_score_10"))),
                 Tag(*_label(score)),
                 Tag(*_action(score)),
             ],
@@ -408,6 +390,20 @@ def _score_detail(score: object | None, page: ft.Page | None, state: object) -> 
         body=body,
         expand=True,
     )
+
+
+def _scored_headline(scores: Sequence[object]) -> str:
+    scored = sum(_number(_read(score, "final_score_10")) is not None for score in scores)
+    if scored == len(scores):
+        return f"{scored} instruments scored"
+    return f"{scored} of {len(scores)} instruments scored"
+
+
+def _score_ring(score_10: float | None) -> ft.Control:
+    """Ring on the same 0-10 scale the score lists show."""
+    if score_10 is None:
+        return VerdictRing(None, caption="of 10")
+    return VerdictRing(score_10 * 10, caption="of 10", value_text=f"{score_10:.1f}")
 
 
 def _bubble_chart(scores: Sequence[object]) -> tuple[ft.Control, str]:
@@ -545,7 +541,7 @@ def _body(
     ]
     strip = KpiStrip(
         "Canonical scores",
-        f"{len(scores)} instruments scored" if not missing else "Unavailable",
+        _scored_headline(scores) if not missing else "Unavailable",
         f"formula {formula_version} · forecast source {forecast_label}",
         items,
     )

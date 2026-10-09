@@ -170,6 +170,7 @@ def score_rows(
                     scorecard_reason
                     if tier_label(item.source_group) == "Sparebanken"
                     and str(item.final_label or "").casefold() == "scorecard_owned"
+                    and item.final_score_10 is None  # native scorecard score shows as a bar
                     else None
                 ),
             )

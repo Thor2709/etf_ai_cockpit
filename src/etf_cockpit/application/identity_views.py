@@ -315,7 +315,19 @@ def _seed_universe_classification(
         )
         with ClassificationStore(root) as store:
             store.append_evidence(evidence)
-    except (ClassificationSchemaError, OSError, TypeError, ValueError) as exc:
+    except ClassificationSchemaError as exc:
+        # The same configured fields were already seeded earlier (only the timestamp differs): nothing to do.
+        if "already exists" not in str(exc):
+            log_event(
+                event_type="data_write_failed",
+                severity="warning",
+                component="classification_projection",
+                operation="seed_universe_classification",
+                instrument_id=str(instrument_id),
+                exception_type=type(exc).__name__,
+                exception_message_redacted=str(exc),
+            )
+    except (OSError, TypeError, ValueError) as exc:
         log_event(
             event_type="data_write_failed",
             severity="warning",

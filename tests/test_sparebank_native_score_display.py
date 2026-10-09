@@ -37,10 +37,13 @@ def test_missing_native_composite_stays_unscored_with_reason(monkeypatch) -> Non
 
 
 def test_latest_sparebank_scores_takes_latest_native_run(tmp_path: Path) -> None:
+    current = score_history._current_sparebank_formula_version()
     rows = pd.DataFrame(
         [
-            {"instrument_id": "MING", "run_id": "sparebank:MING:2026-10-08T00:00:00Z", "final_combined_score_10": 5.0},
-            {"instrument_id": "MING", "run_id": "sparebank:MING:2026-10-09T00:00:00Z", "final_combined_score_10": 5.5},
+            {"instrument_id": "MING", "run_id": "sparebank:MING:2026-10-08T00:00:00Z", "final_combined_score_10": 5.0, "formula_version": current},
+            {"instrument_id": "MING", "run_id": "sparebank:MING:2026-10-09T00:00:00Z", "final_combined_score_10": 5.5, "formula_version": current},
+            # A later row from a superseded scorecard formula is never shown as current.
+            {"instrument_id": "MING", "run_id": "sparebank:MING:2026-10-10T00:00:00Z", "final_combined_score_10": 9.9, "formula_version": "sparebank-scorecard-v0"},
             {"instrument_id": "VWCE", "run_id": "generic:2026-10-09", "final_combined_score_10": 7.9},
         ]
     )
@@ -49,3 +52,13 @@ def test_latest_sparebank_scores_takes_latest_native_run(tmp_path: Path) -> None
     latest = score_history.latest_sparebank_scores(root=tmp_path)
     assert set(latest) == {"MING"}
     assert float(latest["MING"]["final_combined_score_10"]) == 5.5
+
+
+def test_below_floor_bank_keeps_generic_score_labelled_pending(monkeypatch) -> None:
+    _history(monkeypatch, {})
+    generic = simple_scores.replace(_status("HELG"), final_score_10=6.1, source_group="Primary", one_line_reason="Momentum strong.")
+    pending = simple_scores._as_sparebank_pending(generic)
+    assert pending.final_score_10 == 6.1
+    assert pending.source_group == simple_scores.SPAREBANKEN_TIER_LABEL
+    assert pending.decision == "Sparebank scorecard pending"
+    assert pending.one_line_reason.startswith("Generic stock score shown") and "Momentum strong." in pending.one_line_reason

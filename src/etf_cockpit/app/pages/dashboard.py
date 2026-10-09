@@ -172,27 +172,9 @@ def _dashboard_action_message(
 
 def _home_view(state: AppState) -> tuple[HomeView, list[SimpleInstrumentScore]]:
     """Fetch the local evidence once and project it into the read-only Home view model."""
-    reference_context = context_from_snapshot(
-        state.snapshot,
-        purpose="comparison",
-        analysis_id=f"dashboard:{getattr(state.snapshot, 'universe_revision', 'unknown')}",
-    )
-    scores = build_simple_instrument_scores(
-        state.snapshot.config,
-        state.snapshot.signals,
-        state.snapshot.forecasts,
-        state.snapshot.prices,
-        universe_revision=str(
-            getattr(state.snapshot, "universe_revision", "")
-            or getattr(state, "universe_cache_revision", "")
-        ),
-        benchmark_data_id=reference_context.benchmark_data_id,
-        benchmark_reference=reference_context.projection,
-        benchmark_registry=reference_context.registry,
-        reference_identity=reference_context.identity,
-        peer_member_ids=reference_context.peer_member_ids,
-        cash_observation_time=state.snapshot.benchmark_reference_decision_time,
-    )
+    from etf_cockpit.application.score_views import snapshot_scores
+
+    scores = snapshot_scores(state.snapshot, str(getattr(state, "universe_cache_revision", "") or ""))
     try:
         _as_of, records, report = _digest_parts(state, scores)
     except Exception:
@@ -275,14 +257,8 @@ def _home_loading_summary(state: AppState) -> ft.Control:
     return ft.Column(
         [
             SectionHeader("Snapshot loaded", "The local snapshot is ready; score history and audit context are being prepared."),
-            ft.Row(
-                [
-                    KpiTile("Configured instruments", str(len(configured_ids)), "Source: active local universe configuration"),
-                    KpiTile("Data health", data_status, f"Source: snapshot data report · as of {as_of}"),
-                ],
-                spacing=12,
-                wrap=True,
-            ),
+            # Plain text only: the KPI tiles in an unbounded wrap row rendered as a grey error box.
+            Note(f"{len(configured_ids)} configured instruments · data health {data_status} · as of {as_of}."),
             Note("Detailed score rows and local audit context will appear here when their evidence is ready."),
         ],
         spacing=12,

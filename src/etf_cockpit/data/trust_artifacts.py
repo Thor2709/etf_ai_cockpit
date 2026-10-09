@@ -1308,10 +1308,13 @@ def write_optional_source_inventories(config: AppConfig, identity: pd.DataFrame)
 
 
 def load_score_history_summary() -> dict[str, list[dict[str, Any]]]:
-    history = project_classification_score_frame(
-        _safe_read_parquet(SCORE_HISTORY_PATH, SCORE_HISTORY_COLUMNS),
-        root=ROOT,
-    )
+    from etf_cockpit.data.score_history import score_history_frame
+
+    # One shared, cached projection of the history file (it is expensive and every page needs it).
+    if SCORE_HISTORY_PATH.resolve() == (ROOT / "data" / "derived" / "score_history.parquet").resolve():
+        history = score_history_frame(root=ROOT)
+    else:
+        history = project_classification_score_frame(_safe_read_parquet(SCORE_HISTORY_PATH, SCORE_HISTORY_COLUMNS), root=ROOT)
     if history.empty:
         return {}
     if "run_completed_at" in history.columns:

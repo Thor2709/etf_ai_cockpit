@@ -508,6 +508,19 @@ def _price_chart(
         decision_time=getattr(getattr(snapshot, "data_report", None), "as_of_date", None),
     )
     frame = projection.get("frame")
+    fallback_note = None
+    if basis != "raw" and projection.get("reason_code") == "corporate_action_coverage_unavailable":
+        # The adjusted basis needs verified corporate-action coverage; show the raw close instead of nothing.
+        projection = load_market_series_projection(
+            getattr(snapshot, "prices", None),
+            model.instrument_id,
+            basis="raw",
+            local_currency=local_currency,
+            output_currency=currency or local_currency,
+            decision_time=getattr(getattr(snapshot, "data_report", None), "as_of_date", None),
+        )
+        frame = projection.get("frame")
+        fallback_note = "Showing raw close: the adjusted series needs verified corporate-action coverage."
     if projection.get("status") != "available" or frame is None or frame.empty:
         return EmptyState(
             "Unavailable",
@@ -583,13 +596,17 @@ def _price_chart(
             unavailable_reason="No numeric observations are available for the selected price series.",
             insight="Price history is unavailable.",
         )
-    return ck.line_chart(
-        x_values,
-        [ck.Series("Adjusted close", values, color=theme.CYAN, glow=True, area=True)],
+    parsed = pd.to_datetime(pd.Series(x_values), errors="coerce")
+    # Real dates give a time axis with short, spaced labels instead of overlapping timestamp strings.
+    chart_x = [value.date() for value in parsed] if parsed.notna().all() else x_values
+    chart = ck.line_chart(
+        chart_x,
+        [ck.Series("Raw close" if fallback_note else "Adjusted close", values, color=theme.CYAN, glow=True, area=True)],
         x_name="Date",
         y_name=f"Price ({currency})",
         insight=f"Price history across {len(valid)} stored observations.",
     )
+    return ft.Column([Note(fallback_note), chart], spacing=8) if fallback_note else chart
 
 
 def _forecast_chart(forecasts: object) -> ft.Control:
@@ -830,10 +847,27 @@ def _identity_card(
     )
 
 
-def _score_card(model: InstrumentDetailViewModel, page: ft.Page | None) -> ft.Control:
+def _listed_score(state: object, instrument_id: str) -> object | None:
+    """The instrument's row in the canonical score list, so the headline matches every other page."""
+
+    from etf_cockpit.application.score_views import snapshot_scores
+
+    try:
+        rows = snapshot_scores(getattr(state, "snapshot", None))
+    except Exception:  # the card falls back to the detail model's own score
+        return None
+    return next((row for row in rows if str(getattr(row, "display_id", "")) == str(instrument_id)), None)
+
+
+def _score_card(model: InstrumentDetailViewModel, page: ft.Page | None, state: object = None) -> ft.Control:
     score = model.sections.get("scores")
     score = score if isinstance(score, Mapping) else {}
     raw_score = score.get("evidence_score")
+    listed = _listed_score(state, model.instrument_id) if state is not None else None
+    listed_score = getattr(listed, "final_score_10", None)
+    if isinstance(listed_score, (int, float)):
+        raw_score = float(listed_score)
+    scorecard_owned = str(getattr(listed, "final_label", "") or "").casefold() == "scorecard_owned"
     ring_score = raw_score * 10 if isinstance(raw_score, (int, float)) else None
     component_keys = (
         ("canonical_attractiveness_10", "Attractiveness"),
@@ -852,6 +886,13 @@ def _score_card(model: InstrumentDetailViewModel, page: ft.Page | None) -> ft.Co
         )
         for key, label in component_keys
     ]
+    if scorecard_owned:
+        bars = [
+            Note(
+                "Generic components do not apply: banks are scored on the Sparebank scorecard axes. "
+                "See the bank workspace below for the per-axis breakdown and coverage."
+            )
+        ]
 
     def open_scores(_event: ft.ControlEvent | None = None) -> None:
         if page is not None and callable(getattr(page, "go", None)):
@@ -861,13 +902,15 @@ def _score_card(model: InstrumentDetailViewModel, page: ft.Page | None) -> ft.Co
         "Evidence score",
         note="Canonical score evidence",
         body=[
-            VerdictRing(ring_score),
+            VerdictRing(ring_score, caption="of 10", value_text=None if ring_score is None else f"{raw_score:.1f}"),
             KpiTile(
                 "Evidence score",
                 format_number(raw_score, decimals=1, unavailable="Unavailable")
                 if raw_score is not None
                 else None,
-                _reason(score, "Evidence score") if raw_score is None else "Canonical score evidence.",
+                _reason(score, "Evidence score")
+                if raw_score is None
+                else str(getattr(listed, "one_line_reason", "") or "Canonical score evidence."),
             ),
             *bars,
             Button.secondary(
@@ -1459,7 +1502,7 @@ def _body(
 ) -> ft.Control:
     identity = _identity_card(model, state, page, instrument_ids, on_instrument_change)
     price = _price_card(model, state, page)
-    score = _score_card(model, page)
+    score = _score_card(model, page, state)
     forecast = GlassCard(
         "Expected-return range",
         note="q10 / q50 / q90 by horizon",
@@ -1515,6 +1558,14 @@ def _body(
 def instrument_detail_page(page: ft.Page | None, state: object) -> PageView:
     snapshot = getattr(state, "snapshot", None)
     selected = _instrument_id(page, state)
+    if selected:
+        # Opening an instrument makes it the current one for every page (Stock Research follows it).
+        state.selected_etf = selected
+        recent = [item for item in getattr(state, "recent_instruments", []) if item != selected]
+        try:
+            state.recent_instruments = [selected, *recent][:5]
+        except AttributeError:
+            pass
     options = _instrument_ids(snapshot, selected)
     body_holder = ft.Container(key="instrument-detail.body", expand=True)
     chrome_holder: list[PageChrome] = []
@@ -1549,7 +1600,15 @@ def instrument_detail_page(page: ft.Page | None, state: object) -> PageView:
         def change_section(value: str) -> PageChrome | None:
             # Sections are already built: switching only toggles visibility (no full page rebuild).
             state.selected_instrument_section = value
-            chrome = render(instrument_id, value)
+            try:
+                chrome = render(instrument_id, value)
+            except RuntimeError:
+                # A frozen/unmounted body cannot be toggled in place: fall back to a full rebuild.
+                refresh_page = getattr(page, "_shell_refresh", None)
+                if callable(refresh_page):
+                    refresh_page()
+                    return None
+                raise
             refresh_chrome = getattr(page, "_shell_chrome_update", None)
             if callable(refresh_chrome):
                 refresh_chrome(chrome)

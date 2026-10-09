@@ -1813,15 +1813,16 @@ def _score_panel(
     reason_valid = reason is not None
     reason = reason or "Score reason unavailable."
     if label == "scorecard_owned" and evidence_score is None and financial_projection is not None:
-        if str(financial_projection.get("status") or "").casefold() != "available":
+        # The native Sparebank scorecard is independent of the generic adapter status: use it whenever present.
+        identity = financial_projection.get("share_class_identity")
+        analysis = identity.get("sparebank_analysis") if isinstance(identity, Mapping) else None
+        analysis = analysis if isinstance(analysis, Mapping) else {}
+        scorecard = analysis.get("scorecard")
+        scorecard = scorecard if isinstance(scorecard, Mapping) else {}
+        if not scorecard and str(financial_projection.get("status") or "").casefold() != "available":
             projection_reason = _safe_text(financial_projection.get("reason_code")) or "financial_projection_unavailable"
             reason = f"Score unavailable at score routing: financial-institution projection failed ({projection_reason})."
         else:
-            identity = financial_projection.get("share_class_identity")
-            analysis = identity.get("sparebank_analysis") if isinstance(identity, Mapping) else None
-            analysis = analysis if isinstance(analysis, Mapping) else {}
-            scorecard = analysis.get("scorecard")
-            scorecard = scorecard if isinstance(scorecard, Mapping) else {}
             composite = _safe_float(scorecard.get("composite_10"))
             if composite is not None:
                 evidence_score = composite
@@ -3031,9 +3032,9 @@ def build_instrument_detail(
     financial_institutions = load_financial_institution_projection(
         instrument_id,
         projection=financial_projection,
-        # Live view: decide as of now; the snapshot date only bounds the evidence period.
+        # Live view: decide as of now on the latest reported period (an as-of date is not a reporting period).
         decision_time=None,
-        effective_at=projection_time or None,
+        effective_at=None,
         tactical_evidence=_tactical_scorecard_evidence(signal, candidate),
     )
     real_assets = load_real_asset_projection(

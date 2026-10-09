@@ -6,6 +6,7 @@ import pandas as pd
 
 from etf_cockpit.app.components.shell.page_view import PageView
 from etf_cockpit.app.pages import signals
+from etf_cockpit.application import score_views
 from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
@@ -55,7 +56,7 @@ def test_renders_with_sample_data() -> None:
 
 
 def test_empty_data_shows_unavailable(monkeypatch) -> None:
-    monkeypatch.setattr(signals, "build_simple_instrument_scores", lambda *args, **kwargs: [])
+    monkeypatch.setattr(score_views, "build_simple_instrument_scores", lambda *args, **kwargs: [])
     snapshot = SimpleNamespace(
         config=SimpleNamespace(),
         signals=(),

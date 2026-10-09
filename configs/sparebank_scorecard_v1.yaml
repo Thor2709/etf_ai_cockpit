@@ -1,5 +1,5 @@
 schema_version: 1
-formula_version: sparebank-scorecard-v1.0.0
+formula_version: sparebank-scorecard-v1.1.0
 horizons:
   underwriting: multi-year owner economics
   tactical: 1-3 months
@@ -24,7 +24,9 @@ hard_gates:
 scorecard:
   min_coverage_for_composite: 0.25
   axis_weights:
-    owner_claim_integrity: 1.0
+    # v1.1: data-coverage axes are shown but not scored (missing data is handled by the
+    # global missing-data toggle, never counted twice); the owner-claim gate still applies.
+    owner_claim_integrity: 0.0
     funding_deposit_franchise: 1.0
     lending_economics: 1.0
     credit_concentration: 1.0
@@ -34,7 +36,7 @@ scorecard:
     owner_valuation_expectations: 1.0
     structural_transition: 1.0
     marketability_implementation: 1.0
-    evidence_quality: 1.0
+    evidence_quality: 0.0
     portfolio_context: 1.0
   marketability:
     participation_rate: 0.1
@@ -60,7 +62,9 @@ axes:
         transform: ratio_to_percent
         unit: percent
         calculation_id: financial-sector-adapter.loan_deposit_ratio
-        anchors: [{value: 50, rating: 0}, {value: 70, rating: 5}, {value: 90, rating: 10}]
+        # v1.1: Norwegian banks fund mortgages via covered-bond companies; ~60% is the sector norm
+        # (SSB 2008: 62% all banks), so it rates neutral instead of weak.
+        anchors: [{value: 40, rating: 0}, {value: 60, rating: 5}, {value: 80, rating: 10}]
   lending_economics:
     label: Lending economics
     group: Bank economics
