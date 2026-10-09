@@ -386,7 +386,7 @@ def _below_the_fold(view: ChangesView, report: object, context: dict | None) -> 
         entry: dict[str, object] = {
             "instrument": text(change.instrument_id, 13.5, 700, trunc=True),
             "score": None if change.score_delta is None else f"{change.score_delta:+.1f}",
-            "rank": None if change.score_rank_delta is None else f"{change.score_rank_delta:+.0f}",
+            "rank": None if change.score_rank_delta is None else f"{-change.score_rank_delta:+.0f}",
             "action": change.current_action or None,
         }
         for key, _label in labels:

@@ -63,6 +63,21 @@ class HomeView:
     extras: Mapping[str, str] = field(default_factory=dict)
 
 
+def data_health_label(rows: Iterable[object]) -> str:
+    """Use the same aggregate label for Home and the Data Health inventory page."""
+    statuses = {
+        str(getattr(getattr(row, "status", None), "value", getattr(row, "status", ""))).casefold()
+        for row in rows
+    }
+    if not statuses:
+        return "Unavailable"
+    if "corrupt" in statuses:
+        return "Failed"
+    if statuses != {"healthy"}:
+        return "Review"
+    return "Clean"
+
+
 def tier_label(source_group: str) -> str:
     text = str(source_group or "").strip()
     lowered = text.lower()

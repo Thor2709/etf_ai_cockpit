@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import math
 
@@ -925,8 +926,24 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
     def jump_to(value: str) -> None:
         scroll_key = {"Models": "Model availability", "Data": "Latest local price data", "Artefacts": "Forecast artefacts"}.get(value)
         scroll_to = getattr(page, "scroll_to", None)
-        if scroll_key is not None and callable(scroll_to):
+        runner = getattr(page, "run_task", None)
+        if scroll_key is None or not callable(scroll_to):
+            return
+        if callable(runner):
+            async def scroll() -> None:
+                await scroll_to(scroll_key=scroll_key, duration=300)
+
+            try:
+                runner(scroll)
+            except Exception:
+                state.last_message = f"Could not jump to the {value.lower()} section."
+        elif not inspect.iscoroutinefunction(scroll_to):
             scroll_to(scroll_key=scroll_key)
+        else:
+            state.last_message = f"Jump to the {value.lower()} section is unavailable in this view."
+            update = getattr(page, "update", None)
+            if callable(update):
+                update()
 
     return PageView(
         chrome=PageChrome("Data & Models", "Model availability, local data freshness and derived artefacts", (SegmentGroup("data-models", ("Models", "Data", "Artefacts"), "Models", on_change=jump_to),)),

@@ -516,6 +516,17 @@ def build_shell(page: ft.Page, state: AppState, route: str, *, built: object | N
     except Exception:
         pass
 
+    def refresh_page() -> None:
+        current_route = str(getattr(page, "route", None) or route)
+        if _page_route(current_route) == canonical_route:
+            render_shell(page, state, current_route)
+
+    if hasattr(page, "views"):
+        try:
+            page._shell_refresh = refresh_page
+        except Exception:
+            pass
+
     # Footer
     def make_footer() -> Footer:
         values = footer_values(snapshot, data_report)

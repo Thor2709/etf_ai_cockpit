@@ -10,6 +10,7 @@ from etf_cockpit.app.components import kit
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
 from etf_cockpit.app.formatting import format_count, format_date, format_timestamp
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.ui_views.home import data_health_label
 from etf_cockpit.application.ui_facade import (
     AnomalyLedger,
     DataHealthReport,
@@ -57,12 +58,7 @@ def data_health_page(page: ft.Page, state: AppState) -> PageView:
     data_reason = "No data health rows are available."
 
     if rows:
-        if any(row.status is DataHealthStatus.CORRUPT for row in rows):
-            health_label = "Failed"
-        elif any(row.status is not DataHealthStatus.HEALTHY for row in rows):
-            health_label = "Review"
-        else:
-            health_label = "Clean"
+        health_label = data_health_label(rows)
         attention = len(rows) - status_counts[DataHealthStatus.HEALTHY]
         headline_sub = f"{format_count(attention)} of {format_count(len(rows))} stores need attention"
         dataset_value = format_count(len(rows))

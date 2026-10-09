@@ -59,7 +59,7 @@ def _metric(value: object) -> str:
 
 
 def _net_value(row: pd.Series) -> str:
-    status = str(row["net_value_status"])
+    status = " ".join(str(row["net_value_status"]).replace("_", " ").split()).capitalize()
     value = row["net_forward_value"]
     return status if value is None or pd.isna(value) else f"{float(value):+.4f} ({status})"
 
@@ -175,7 +175,15 @@ def _run_status(state: AppState) -> ft.Control:
     return common.text(text, 13, 400, theme.INK2, max_lines=2)
 
 
-def _run_card(layout: common.GridLayout, page: object, state: AppState, report: dict, on_governance: object) -> ft.Control:
+def _run_card(
+    layout: common.GridLayout,
+    page: object,
+    state: AppState,
+    report: dict,
+    on_governance: object,
+    governance_feedback: ft.Control | None = None,
+) -> ft.Control:
+    governance_feedback = governance_feedback or Note("")
     models = report["models"]
     forecast_rows = int(models["forecast_rows"].sum()) if not models.empty else None
     matured = int(models["matured_rows"].sum()) if not models.empty else None
@@ -200,11 +208,16 @@ def _run_card(layout: common.GridLayout, page: object, state: AppState, report: 
         on_click=lambda _event: _run_action(page, state, "Run forecasting models", state.run_forecasting_models),
         primary=True,
     )
+    open_governance = Button.secondary(
+        "Open governance",
+        lambda _event: on_governance(governance_feedback),
+        key="forecast-lab.open-governance",
+    )
     inner_w, _inner_h = layout.card_body(4, 0)
     body = ft.Column(
         [
             Note("Optional model failures remain visible. Forecasts are low-authority and cannot rescue or upgrade weak deterministic evidence."),
-            ft.Row([run, Button.secondary("Open governance", on_governance, key="forecast-lab.open-governance")], spacing=12),
+            ft.Row([run, open_governance], spacing=12),
             _run_status(state),
             tiles,
             Note(f"Conformal intervals are diagnostic until enough matured samples exist. Cached model status: {available}."),
@@ -398,15 +411,37 @@ def forecast_lab_page(page: ft.Page, state: AppState) -> PageView:
     folds = lab_view.fold_bars(report["walk_forward_splits"], first_date)
     ui = {"model": "All models", "horizon": "1Y"}
     holder = ft.Container()
-    current: dict[str, ft.Column] = {}
+    governance_feedback = Note("", key="forecast-lab.governance-feedback")
 
-    def on_governance(_event: object) -> None:
+    def on_governance(feedback: ft.Control) -> None:
+        scroll_to = getattr(page, "scroll_to", None)
         async def go() -> None:
-            await current["body"].scroll_to(scroll_key="forecast-lab.governance", duration=300)
+            try:
+                await scroll_to(scroll_key="forecast-lab.governance", duration=300)
+                feedback.value = "Governance section opened below."
+            except Exception:
+                feedback.value = "Governance section navigation failed; scroll to Governance and availability."
+            common.refresh(feedback)
+            update = getattr(page, "update", None)
+            if callable(update):
+                update()
 
         runner = getattr(page, "run_task", None)
-        if callable(runner):
+        if not callable(runner) or not callable(scroll_to):
+            feedback.value = "Governance section navigation is unavailable in this view."
+            common.refresh(feedback)
+            update = getattr(page, "update", None)
+            if callable(update):
+                update()
+            return
+        try:
             runner(go)
+        except Exception:
+            feedback.value = "Governance section navigation is unavailable in this view."
+            common.refresh(feedback)
+            update = getattr(page, "update", None)
+            if callable(update):
+                update()
 
     def selected_ids() -> list[str]:
         if ui["model"] == "All models":
@@ -424,17 +459,17 @@ def forecast_lab_page(page: ft.Page, state: AppState) -> PageView:
         body = common.grid(
             layout,
             [
-                [(_run_card(layout, page, state, report, on_governance), 4), (_comparison_card(layout, shown, models, catalogue, reason), 8)],
+                [(_run_card(layout, page, state, report, on_governance, governance_feedback), 4), (_comparison_card(layout, shown, models, catalogue, reason), 8)],
                 [(_folds_card(layout, folds), 6), (_error_card(layout, error, names), 6)],
             ],
             below=[
                 _runs_card(layout, report["runs"], report["walk_forward_evaluation"]),
                 _horizon_card(layout, models),
+                governance_feedback,
                 _governance_card(layout, state, report, ids, catalogue, models),
                 _cards_card(layout, catalogue, models),
             ],
         )
-        current["body"] = body
         return body
 
     def rebuild() -> None:
