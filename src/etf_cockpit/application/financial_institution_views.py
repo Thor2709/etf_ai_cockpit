@@ -78,7 +78,7 @@ def _build_financial_projection_from_evidence(
 
     root = Path(storage_root or ROOT).resolve()
     identity = _read_json_artifact(root, "identity.json", instrument_id=instrument_id) or {}
-    if context is None and not decision_time and not identity.get("known_at"):
+    if context is None and not decision_time:
         from etf_cockpit.application.identity_views import load_classification_projection
 
         load_classification_projection(
@@ -86,7 +86,8 @@ def _build_financial_projection_from_evidence(
             storage_root=root,
             universe_root=universe_root,
         )
-    cutoff = str(decision_time or identity.get("known_at") or "").strip()
+    # The live view decides "as of now"; the filing's known_at only bounds which evidence is eligible.
+    cutoff = str(decision_time or "").strip()
     if not cutoff:
         from etf_cockpit.data.universe_store import load_sparebank_records
 

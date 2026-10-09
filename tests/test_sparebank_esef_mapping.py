@@ -7,11 +7,13 @@ from types import SimpleNamespace
 from etf_cockpit.analysis.sparebank.claim import build_claim_state
 from etf_cockpit.parsers.sec_facts import statement_facts_from_esef
 from scripts.import_official_filing import (
-    MING_EXTENSION_NAMESPACE,
     _extract_ec_facts,
     _map_issuer_extension_qname,
     _write_ec_facts,
 )
+
+# Fixture value: SpareBank 1 SMN 2024 ESEF extension namespace (issuer tables now live in data, not code).
+MING_EXTENSION_NAMESPACE = "http://aarsrapport.smn.no/2024"
 
 
 PERIOD = "2024-12-31"
