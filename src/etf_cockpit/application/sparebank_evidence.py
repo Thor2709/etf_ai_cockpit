@@ -33,7 +33,12 @@ _STATEMENT_SELECTORS: dict[str, tuple[str, str]] = {
     "equity": ("canonical_metric", "equity"),
     "income_before_tax": ("concept", "ProfitLossBeforeTax"),
     "income_tax": ("concept", "IncomeTaxExpenseContinuingOperations"),
+    # Profit share the issuer tags for the ownerless primary capital (extension concept, reviewed mapping).
+    "ownerless_result": ("canonical_metric", "ownerless_result"),
+    "basic_eps": ("concept", "BasicEarningsLossPerShare"),
 }
+_PER_SHARE = {"basic_eps"}
+_NOMINAL_RANGE = (1.0, 60.0)
 
 
 def _is_undimensioned(row: Mapping[str, object]) -> bool:
@@ -88,7 +93,7 @@ def statement_series(rows: Iterable[Mapping[str, object]], *, target_period: str
                 if row.get(field) == selector
                 and abs((_period(row) - wanted).days) <= tolerance
                 and str(row.get("consolidation_scope") or "consolidated").casefold() == "consolidated"
-                and str(row.get("currency") or "NOK").upper() == "NOK"
+                and (name in _PER_SHARE or str(row.get("currency") or "NOK").upper() == "NOK")
             ]
             if not matches:
                 continue
@@ -192,48 +197,79 @@ def merge_bank_economics_evidence(
     return merged
 
 
-def with_derived_owner_earnings(ec_facts: Mapping[str, object], statements: Mapping[str, object] | None) -> dict[str, object]:
-    """Fill a missing EC-attributable result by the book's simplified allocation (eq. 1.19, p. 12-13).
+def _available(facts: Mapping[str, object], name: str) -> float | None:
+    item = facts.get(name)
+    if isinstance(item, Mapping) and item.get("available") is not False:
+        return _number(item.get("value"))
+    return None
 
-    Only when the filing facts carry no EC-attributable result: EC result = eierbrok x profit attributable to the
-    owners of the parent. The fact is labelled ``derived``; the AT1 coupon is not separated (a small overstatement).
+
+def _ownership_share(facts: Mapping[str, object]) -> float | None:
+    from etf_cockpit.analysis.sparebank.claim import reconstruct_eierbrok
+
+    reported = _available(facts, "eierbrok")
+    if reported is not None:
+        return reported
+    owner = {name: _available(facts, name) for name in ("ec_capital", "overkursfond", "utjevningsfond")}
+    own = {name: _available(facts, name) for name in ("sparebankens_fond", "gavefond", "kompensasjonsfond") if _available(facts, name) is not None}
+    if any(value is None for value in owner.values()) or "sparebankens_fond" not in own:
+        return None
+    return reconstruct_eierbrok(owner, own)
+
+
+def with_derived_owner_earnings(ec_facts: Mapping[str, object], statements: Mapping[str, object] | None) -> dict[str, object]:
+    """Fill a missing EC-attributable result and EC count from the filing, each labelled ``derived``.
+
+    EC result (only when the facts carry none):
+    * if the issuer tags the ownerless primary-capital share of profit separately, the profit attributable to
+      the owners of the parent is already the EC share, accepted when owners / (owners + ownerless) is within
+      2 percentage points of the ownership fraction (otherwise ignored, the split is not trusted);
+    * otherwise the book's simplified allocation (eq. 1.19, p. 12-13): ownership fraction x profit attributable
+      to the owners (AT1 coupon not separated, a small overstatement).
+    EC count (only when the facts carry no count): EC result / reported basic EPS, accepted only when the implied
+    nominal value per certificate lies between NOK 1 and NOK 60 (a ten-fold scale error in the EPS tag fails).
     """
 
     facts = dict(ec_facts)
-    existing = facts.get("ec_attributable_result")
-    if isinstance(existing, Mapping) and existing.get("available") is not False and _number(existing.get("value")) is not None:
-        return facts
     current = statements.get("current") if isinstance(statements, Mapping) else None
-    profit = None
-    profit_name = ""
-    if isinstance(current, Mapping):
-        for name in ("profit_attributable_to_owners", "net_profit"):
-            if _number(current.get(name)) is not None:
-                profit, profit_name = _number(current.get(name)), name
-                break
-    from etf_cockpit.analysis.sparebank.claim import reconstruct_eierbrok
-
-    share = None
-    reported = facts.get("eierbrok")
-    if isinstance(reported, Mapping) and reported.get("available") is not False:
-        share = _number(reported.get("value"))
-    if share is None:
-        owner = {name: _number(facts[name].get("value")) for name in ("ec_capital", "overkursfond", "utjevningsfond") if isinstance(facts.get(name), Mapping) and _number(facts[name].get("value")) is not None}
-        own = {name: _number(facts[name].get("value")) for name in ("sparebankens_fond", "gavefond", "kompensasjonsfond") if isinstance(facts.get(name), Mapping) and _number(facts[name].get("value")) is not None}
-        share = reconstruct_eierbrok(owner, own) if len(owner) == 3 and "sparebankens_fond" in own else None
-    if profit is None or share is None or not 0.0 < share <= 1.0:
+    if not isinstance(current, Mapping):
         return facts
     template = next((item for item in facts.values() if isinstance(item, Mapping) and item.get("known_at")), {})
-    facts["ec_attributable_result"] = {
-        "available": True,
-        "value": profit * share,
-        "unit": "NOK",
-        "period": statements.get("period_end"),  # type: ignore[union-attr]
-        "effective_at": statements.get("period_end"),  # type: ignore[union-attr]
-        "known_at": template.get("known_at"),
-        "source_url": template.get("source_url"),
-        "sha256": template.get("sha256"),
-        "source_locator": f"derived: eierbrok {share:.4f} x {profit_name.replace('_', ' ')} (book eq. 1.19, p. 12-13); AT1 coupon not separated",
-        "derived": True,
-    }
+    period = statements.get("period_end")  # type: ignore[union-attr]
+
+    def derived(value: float, unit: str, locator: str) -> dict[str, object]:
+        return {
+            "available": True, "value": value, "unit": unit, "period": period, "effective_at": period,
+            "known_at": template.get("known_at"), "source_url": template.get("source_url"), "sha256": template.get("sha256"),
+            "source_locator": locator, "derived": True,
+        }
+
+    share = _ownership_share(facts)
+    if _available(facts, "ec_attributable_result") is None:
+        owners = _number(current.get("profit_attributable_to_owners"))
+        ownerless = _number(current.get("ownerless_result"))
+        result = None
+        locator = ""
+        if owners is not None and ownerless is not None and share is not None and owners + ownerless > 0 and abs(owners / (owners + ownerless) - share) <= 0.02:
+            result = owners
+            locator = f"derived: profit attributable to owners of the parent; the issuer tags the ownerless share ({ownerless:,.0f}) separately and the split {owners / (owners + ownerless):.4f} matches the ownership fraction {share:.4f}"
+        else:
+            profit = owners if owners is not None else _number(current.get("net_profit"))
+            if profit is not None and share is not None and 0.0 < share <= 1.0:
+                result = profit * share
+                name = "profit attributable to owners" if owners is not None else "net profit"
+                locator = f"derived: eierbrok {share:.4f} x {name} (book eq. 1.19, p. 12-13); AT1 coupon not separated"
+        if result is not None:
+            facts["ec_attributable_result"] = derived(result, "NOK", locator)
+    count_names = ("registered_ec_count", "outstanding_ec_count", "period_end_ec_count", "weighted_average_ec_count")
+    result_value = _available(facts, "ec_attributable_result")
+    eps = _number(current.get("basic_eps"))
+    if all(_available(facts, name) is None for name in count_names) and result_value and result_value > 0 and eps and eps > 0:
+        count = result_value / eps
+        capital = _available(facts, "ec_capital")
+        nominal = capital / count if capital else None
+        if nominal and _NOMINAL_RANGE[0] <= nominal <= _NOMINAL_RANGE[1]:
+            locator = f"derived: EC result / reported basic EPS {eps:g}; implied nominal {nominal:.2f} NOK per certificate; approximates the weighted average and is used as the outstanding count"
+            facts["weighted_average_ec_count"] = derived(count, "EC", locator)
+            facts["outstanding_ec_count"] = derived(count, "EC", locator)
     return facts
