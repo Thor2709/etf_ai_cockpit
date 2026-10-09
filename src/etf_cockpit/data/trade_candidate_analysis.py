@@ -183,18 +183,26 @@ def refresh_candidate_analysis(
     publish_guard: PublicationScopeFactory | None = None,
 ) -> CandidateAnalysisResult:
     data = fetch_candidate_prices(config, years=years, as_of_date=as_of_date, candidate_path=candidate_path)
+    # Retaining the price snapshot is best-effort: a failed binding is logged, never blocks the refresh.
     price_dates = pd.to_datetime(data.prices.get("date"), errors="coerce", utc=True).dropna()
-    if price_dates.empty:
-        raise ValueError("Candidate price history has no valid dates and cannot be retained.")
-    calculation_window = {
-        "start_date": price_dates.min().date().isoformat(),
-        "end_date": data.effective_as_of.isoformat(),
-        "decision_time": data.effective_as_of.isoformat(),
-    }
-    price_binding = adjusted_price_snapshot_binding(data.prices, calculation_window=calculation_window)
+    price_binding = None
+    if not price_dates.empty:
+        calculation_window = {
+            "start_date": price_dates.min().date().isoformat(),
+            "end_date": data.effective_as_of.isoformat(),
+            "decision_time": data.effective_as_of.isoformat(),
+        }
+        price_binding = adjusted_price_snapshot_binding(data.prices, calculation_window=calculation_window)
     if price_binding is None:
-        raise ValueError("Candidate price history could not be bound and was not retained.")
-    write_candidate_price_snapshot(data.prices, price_binding, publish_guard=publish_guard)
+        log_event(
+            event_type="data_write_skipped",
+            severity="warning",
+            component="candidate_price_snapshot",
+            operation="retain_candidate_price_history",
+            exception_message_redacted="no valid dates" if price_dates.empty else "price binding unavailable",
+        )
+    else:
+        write_candidate_price_snapshot(data.prices, price_binding, publish_guard=publish_guard)
     fundamentals = fetch_candidate_fundamentals(data.candidates)
     report = analyse_candidate_prices(data.candidates, data.prices, fundamentals=fundamentals)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

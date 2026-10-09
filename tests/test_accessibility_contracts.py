@@ -27,6 +27,7 @@ def _snapshot_template():
 def _snapshot_copy():
     assert _SNAPSHOT_TEMPLATE is not None
     snapshot = _SNAPSHOT_TEMPLATE
+    snapshot.ensure_backtest()  # backtest loads lazily since the startup-speed change
     return replace(
         snapshot,
         config=copy.deepcopy(snapshot.config),

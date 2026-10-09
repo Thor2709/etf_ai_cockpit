@@ -68,13 +68,13 @@ def test_post_paint_refresh_rebuilds_instead_of_touching_frozen_controls(monkeyp
 
 
 def test_kit_redraw_is_a_noop_for_frozen_or_unmounted_canvas() -> None:
-    frozen = _rim_overlay(12)
+    frozen = _rim_overlay(12).content  # canvas sits inside a pointer-transparent wrapper
     before = list(frozen.shapes)
     frozen._frozen = True
     frozen.on_resize(SimpleNamespace(width=120, height=80))
     assert frozen.shapes == before
 
-    unmounted = _rim_overlay(12)
+    unmounted = _rim_overlay(12).content
     before = list(unmounted.shapes)
     unmounted.on_resize(SimpleNamespace(width=120, height=80))
     assert unmounted.shapes == before

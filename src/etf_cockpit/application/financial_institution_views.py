@@ -264,7 +264,8 @@ def _build_financial_projection_from_evidence(
                     cutoff,
                     root=root,
                 )
-                history_status = {"status": "written", "reason": None}
+                # Partial scores are recorded (owner 2026-10-09); a missing decision price is kept as the reason.
+                history_status = {"status": "written", "reason": decision_price_projection.get("reason_code")}
             except Exception:
                 history_status = {"status": "not_written", "reason": "score_history_write_failed"}
         else:

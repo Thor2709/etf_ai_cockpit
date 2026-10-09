@@ -229,9 +229,12 @@ def test_sparebank_score_history_requires_price_at_decision_time(
         context=context,
     )
     analysis = projection["share_class_identity"]["sparebank_analysis"]
-    assert analysis["scorecard"]["composite_10"] is None
-    assert analysis["history_status"] == {"status": "not_written", "reason": expected_reason}
-    assert score_history_frame(root=tmp_path).empty
+    # Owner policy 2026-10-09: partial composite allowed; the price-dependent axis must stay unavailable.
+    scorecard = analysis["scorecard"]
+    assert scorecard["status"] != "complete"
+    assert scorecard["axes"]["owner_valuation_expectations"]["status"] == "UNAVAILABLE"
+    assert analysis["history_status"] == {"status": "written", "reason": expected_reason}
+    assert not score_history_frame(root=tmp_path).empty
 
 
 def test_point_in_time_selection_ignores_later_filing_facts() -> None:
