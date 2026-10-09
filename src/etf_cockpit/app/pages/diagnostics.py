@@ -242,11 +242,11 @@ def diagnostics_page(page: ft.Page, state: AppState | None) -> PageView:
             [
                 ft.Row(
                     [
-                        KpiTile("Durations", duration_count, sub="Measured local step durations" if duration_count is not None else "Unavailable: no duration samples."),
-                        KpiTile("Slow steps", slow_count, sub="Recorded over-budget steps" if slow_count is not None else "Unavailable: no duration samples."),
-                        KpiTile("Cache hits", cache_hits, sub="Local cache events" if cache_hits is not None else "Unavailable: no cache events."),
-                        KpiTile("Misses", cache_misses, sub="Local cache events" if cache_misses is not None else "Unavailable: no cache events."),
-                        KpiTile("Invalidations", cache_invalidations, sub="Local cache events" if cache_invalidations is not None else "Unavailable: no cache events."),
+                        KpiTile("Durations", format_count(duration_count, unavailable="") or None, sub="Measured local step durations" if duration_count is not None else "Unavailable: no duration samples."),
+                        KpiTile("Slow steps", format_count(slow_count, unavailable="") or None, sub="Recorded over-budget steps" if slow_count is not None else "Unavailable: no duration samples."),
+                        KpiTile("Cache hits", format_count(cache_hits, unavailable="") or None, sub="Local cache events" if cache_hits is not None else "Unavailable: no cache events."),
+                        KpiTile("Misses", format_count(cache_misses, unavailable="") or None, sub="Local cache events" if cache_misses is not None else "Unavailable: no cache events."),
+                        KpiTile("Invalidations", format_count(cache_invalidations, unavailable="") or None, sub="Local cache events" if cache_invalidations is not None else "Unavailable: no cache events."),
                     ],
                     spacing=12,
                     wrap=True,

@@ -10,6 +10,15 @@ from etf_cockpit.app.formatting import format_count
 from etf_cockpit.app.state import AppState
 
 
+def _capability_text(value: object) -> str | None:
+    if isinstance(value, str):
+        return value.strip() or None
+    if isinstance(value, (list, tuple, set, frozenset)):
+        items = [str(item).strip() for item in value if str(item).strip()]
+        return ", ".join(items) or None
+    return None
+
+
 def provider_status_page(page: ft.Page, state: AppState) -> PageView:
     from etf_cockpit.app.pages import trust_evidence
 
@@ -50,8 +59,7 @@ def provider_status_page(page: ft.Page, state: AppState) -> PageView:
         enabled = row.get("enabled")
         configured = row.get("configured")
         status = row.get("status")
-        caps = row.get("capabilities")
-        capability_value = ", ".join(str(item) for item in caps) if caps else None
+        capability_value = _capability_text(row.get("capabilities"))
         capability_data.append(
             {
                 "provider": row.get("provider_id") or None,
@@ -184,8 +192,9 @@ def provider_status_page(page: ft.Page, state: AppState) -> PageView:
                 kit.TableColumn("last_success", "Last success"),
                 kit.TableColumn("score", "Score eligible"),
             ],
-        capability_data,
-        sort_key="provider",
+            capability_data,
+            sort_key="provider",
+            row_height=60,
             empty_title="No capabilities",
             empty_reason="No provider capability rows are available.",
         )
@@ -221,7 +230,6 @@ def provider_status_page(page: ft.Page, state: AppState) -> PageView:
                 insight,
                 body=ft.Column(
                     [
-                        kit.Note(insight),
                         table,
                     ],
                     spacing=8,
@@ -265,7 +273,7 @@ def provider_status_page(page: ft.Page, state: AppState) -> PageView:
             ck.Slice("Unavailable", counts["unavailable"], theme.CHART_NEG),
             ck.Slice("Missing credentials", counts["credentials"], theme.AMBER),
         ],
-        unit="providers",
+        unit=" providers",
         unavailable_reason=chart_reason,
         empty_title="No provider health",
         insight=health_insight,
