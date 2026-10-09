@@ -18,6 +18,8 @@ from etf_cockpit.portfolio.benchmark_reference import (
     adjusted_price_binding_for_reference,
     validate_benchmark_reference,
 )
+from etf_cockpit.analysis.stock_evidence import StockEvidence
+from etf_cockpit.analysis.stock_universe import get_universe_evidence, live_decision_time, records_from_config
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import BACKTESTS_DIR, DERIVED_DIR, FORECASTS_DIR, RAW_DIR, REPORTS_DIR, ROOT
@@ -144,9 +146,9 @@ COMPONENT_EXPLANATIONS = {
     "relative_strength": "Compares the instrument with its peer set. A high score means it is leading nearby alternatives.",
     "liquidity_cost": "Estimates whether the instrument is liquid enough that spread, slippage and commission do not overwhelm the edge.",
     "etf_exposure": "Uses available Yahoo fund holdings to assess concentration and diversification. Missing fund data stays N/A.",
-    "stock_value": "Scores valuation using yfinance-derived ratios where available. Missing fundamentals stay N/A.",
-    "stock_quality": "Scores profitability, leverage and cash-flow quality where yfinance fundamentals are available.",
-    "analyst_revision": "Adds low-authority analyst estimate/revision context when Yahoo exposes usable data.",
+    "stock_value": "Scores valuation from filings (SEC EDGAR/ESEF) or yfinance fundamentals: earnings, FCF and EBIT yields, P/E versus own history and peers. Inputs that are missing stay out and are named.",
+    "stock_quality": "Scores ROE, ROIC, margin, leverage, cash conversion and growth from filings or yfinance fundamentals. Inputs that are missing stay out and are named.",
+    "analyst_revision": "Adds low-authority analyst estimate/revision context (EPS estimate change and revision direction) when Yahoo exposes usable data.",
     "baseline": "Uses a simple statistical forecast from recent adjusted-price history.",
     "timesfm": "Uses the local TimesFM time-series model when a valid forecast row exists.",
     "toto": "Uses the local Toto probabilistic model when a valid forecast row exists.",
@@ -1436,6 +1438,7 @@ def build_universe_simple_scores(
     price_quality = _price_quality_lookup(prices)
     liquidity = _price_liquidity_lookup(prices)
     etf_exposure = _etf_exposure_lookup()
+    stock_evidence, stock_evidence_error = _stock_evidence_lookup(config, signals, prices)
     symbol_map = yfinance_symbol_map_from_config(config)
     etf_lookup = config.universe.by_id()
     calibration_by_id = calibration_by_id or {}
@@ -1505,12 +1508,12 @@ def build_universe_simple_scores(
             _component(
                 "relative_strength",
                 signal.components.relative_strength,
-                f"Relative strength input is {raw_to_score_10(signal.components.relative_strength)}/10 after comparing with the configured ETF universe.",
+                _relative_strength_why(signal.components.relative_strength),
                 authority="high",
             ),
             _liquidity_component(liquidity_info),
             *(
-                _configured_stock_fundamental_components()
+                _stock_fundamental_components(stock_evidence.get(signal.etf_id), stock_evidence_error)
                 if stock_like
                 else [_etf_exposure_component(exposure_info, signal.signal_date)]
             ),
@@ -2369,6 +2372,16 @@ def _data_quality_raw_and_reason(
     return _score_10_to_raw(score), " ".join(reason)
 
 
+def _relative_strength_why(raw: float | None) -> str:
+    score = raw_to_score_10(raw)
+    if score is None:
+        return (
+            "Relative strength is unavailable: it compares 60/120-day returns with the canonical benchmark reference, "
+            "and no benchmark reference is bound to this snapshot (benchmark record missing or stale)."
+        )
+    return f"Relative strength input is {score}/10 after comparing with the canonical benchmark reference."
+
+
 def _liquidity_component(info: dict[str, object]) -> SimpleScoreComponent:
     avg_turnover = _safe_float(info.get("avg_turnover_20"))
     spread_proxy = _safe_float(info.get("spread_proxy_20"))
@@ -2548,15 +2561,37 @@ def _etf_exposure_component(
     )
 
 
-def _configured_stock_fundamental_components() -> list[SimpleScoreComponent]:
-    """Configured stocks have no fundamentals source: keep these components explicitly unavailable."""
+def _stock_evidence_lookup(
+    config: AppConfig,
+    signals: list[SignalResult],
+    prices: pd.DataFrame,
+) -> tuple[dict[str, StockEvidence], str | None]:
+    """Evidence of every normal stock from the canonical fundamentals store (one build per decision day)."""
 
-    reason = "No fundamentals source is loaded for this configured stock, so it is excluded from the evidence score."
-    return [
-        _optional_score_component("stock_value", None, f"Stock value: {reason}", authority="medium"),
-        _optional_score_component("stock_quality", None, f"Stock quality: {reason}", authority="medium"),
-        _optional_score_component("analyst_revision", None, f"Analyst revision: {reason}", authority="low"),
-    ]
+    try:
+        newest = latest_signal(signals)
+        as_of = _parse_date(newest.signal_date) if newest is not None else None
+        records = records_from_config(config)
+        if not records:
+            return {}, None
+        return get_universe_evidence(records, prices, live_decision_time(as_of)).evidence, None
+    except Exception as exc:  # a broken store must not stop scoring: the reason is shown on each component
+        return {}, f"stock fundamentals could not be evaluated ({type(exc).__name__}: {str(exc)[:100]})"
+
+
+def _stock_fundamental_components(evidence: StockEvidence | None, error: str | None = None) -> list[SimpleScoreComponent]:
+    """Value, quality and analyst-revision components of one stock; a missing one states why."""
+
+    output = []
+    for key, authority in (("stock_value", "medium"), ("stock_quality", "medium"), ("analyst_revision", "low")):
+        if evidence is None:
+            reason = error or "no fundamentals evidence was built for this instrument (it is not in the stock universe)"
+            output.append(_optional_score_component(key, None, f"{COMPONENT_LABELS[key]}: {reason}", authority=authority))
+            continue
+        part = evidence.components[key]
+        base = _optional_score_component(key, part.score_10, part.why, authority=authority)
+        output.append(replace(base, source_id=part.source_id, source_authority=None, as_of_date=part.as_of, freshness_status=part.freshness))
+    return output
 
 
 def _optional_score_component(key: str, score_10: object, why: str, *, authority: str) -> SimpleScoreComponent:

@@ -657,7 +657,6 @@ etfs:
     theme: Space
     role: watchlist
     isin_status: verified
-    # disabled: delisted after 2025 takeover by Keurig Dr Pepper; no Yahoo quote (2026-10-09)
     enabled: true
   - id: EUNK
     name: iShares Core MSCI Europe UCITS ETF
@@ -952,6 +951,7 @@ etfs:
     role: watchlist
     isin_status: needs_verification
     # disabled: merged into Sparebanken Norge (SBNOR) in 2024; no Yahoo quote (2026-10-09)
+    lifecycle: merged
     enabled: false
   - id: SKUE
     name: Skue Sparebank

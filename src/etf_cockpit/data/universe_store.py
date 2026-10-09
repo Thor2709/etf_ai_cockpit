@@ -32,6 +32,8 @@ TICKER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._=-]{0,31}$")
 _LOG = logging.getLogger(__name__)
 CURRENT_INVESTABILITY_POLICY_VERSION = "investability-v1"
 POLICY_AUTHORITIES = {"official", "user_reviewed", "manual_review"}
+# "" = trading; delisted/merged instruments keep their stored history but no new data is fetched.
+LIFECYCLES = ("", "delisted", "merged")
 @dataclass(frozen=True)
 class UniverseRecord:
     instrument_id: str
@@ -53,6 +55,7 @@ class UniverseRecord:
     leveraged: bool = False
     inverse: bool = False
     lei: str = ""
+    lifecycle: str = ""
 
 
 @dataclass(frozen=True)
@@ -202,6 +205,7 @@ def _normalise_record(record: UniverseRecord) -> UniverseRecord:
         leveraged=_as_bool(record.leveraged),
         inverse=_as_bool(record.inverse),
         lei=_text(record.lei).upper(),
+        lifecycle=_text(record.lifecycle).lower(),
     )
 
 
@@ -262,6 +266,8 @@ def validate_universe(
             warnings.append(f"research_only: {record.instrument_id}")
         elif not decision.supported:
             errors.append(f"unsupported asset type/frequency: {record.asset_type}/{record.data_policy}")
+        if record.lifecycle not in LIFECYCLES:
+            errors.append(f"invalid lifecycle: {record.lifecycle}")
         if not record.enabled:
             warnings.append(f"disabled: {record.instrument_id}")
         if isin_status != "verified":
@@ -1188,6 +1194,7 @@ def _record_from_mapping(raw: Mapping[str, object], *, default_tier: str) -> Uni
             leveraged=leveraged,
             inverse=inverse,
             lei=_field(raw, "lei", "LEI").upper(),
+            lifecycle=_field(raw, "lifecycle").lower(),
         )
     )
 

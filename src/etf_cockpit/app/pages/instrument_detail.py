@@ -34,6 +34,7 @@ from etf_cockpit.app.components.kit import (
 )
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
 from etf_cockpit.app.formatting import format_number
+from etf_cockpit.app.pages import stock_page as sp
 from etf_cockpit.application.alerts import read_local_alerts
 from etf_cockpit.application.digest import contradiction_digest_records  # noqa: F401
 from etf_cockpit.application.instrument_detail_view import (
@@ -738,6 +739,35 @@ def _price_card(
     return card
 
 
+def _export_controls(model: InstrumentDetailViewModel, state: object, page: ft.Page | None) -> tuple[ft.Control, ft.Text]:
+    """The audit-evidence export button and its status line (shared by every instrument kind)."""
+
+    can_export = model.status != "unavailable" and callable(getattr(state, "export_audit_packet", None))
+    status = Note("No audit evidence export has been created in this session.")
+
+    def export_instrument_evidence(_event: ft.ControlEvent | None = None) -> None:
+        exporter = getattr(state, "export_audit_packet", None)
+        if not can_export or not callable(exporter):
+            status.value = "Audit evidence export is unavailable for this selection."
+        else:
+            try:
+                exporter()
+                status.value = "Audit evidence export created."
+            except Exception:
+                status.value = "Audit evidence export could not be created."
+        if page is not None and callable(getattr(page, "update", None)):
+            page.update()
+
+    button = Button.secondary(
+        "Export audit evidence",
+        on_click=export_instrument_evidence,
+        disabled=not can_export,
+        disabled_reason="Canonical evidence or export capability is missing.",
+        key="instrument-detail.export-evidence",
+    )
+    return button, status
+
+
 def _identity_card(
     model: InstrumentDetailViewModel,
     state: object,
@@ -764,21 +794,7 @@ def _identity_card(
             ("theme", "theme"),
         )
     ]
-    can_export = model.status != "unavailable" and callable(getattr(state, "export_audit_packet", None))
-    status = Note("No audit evidence export has been created in this session.")
-
-    def export_instrument_evidence(_event: ft.ControlEvent | None = None) -> None:
-        exporter = getattr(state, "export_audit_packet", None)
-        if not can_export or not callable(exporter):
-            status.value = "Audit evidence export is unavailable for this selection."
-        else:
-            try:
-                exporter()
-                status.value = "Audit evidence export created."
-            except Exception:
-                status.value = "Audit evidence export could not be created."
-        if page is not None and callable(getattr(page, "update", None)):
-            page.update()
+    export_button, status = _export_controls(model, state, page)
 
     return GlassCard(
         "Identity and provenance",
@@ -829,13 +845,7 @@ def _identity_card(
                 if _value(identity.get("exchange")).casefold() in {"unavailable", "—"}
                 else []
             ),
-            Button.secondary(
-                "Export audit evidence",
-                on_click=export_instrument_evidence,
-                disabled=not can_export,
-                disabled_reason="Canonical evidence or export capability is missing.",
-                key="instrument-detail.export-evidence",
-            ),
+            export_button,
             status,
             Note("Research context only · execution_allowed=false."),
             Disclosure(
@@ -1380,6 +1390,8 @@ def _section_rows(
         return None
 
     sections = model.sections
+    valuation_workspace = _valuation_card(model, page, state)
+    score_history = _score_history_chart(sections.get("history"))
     overview = [
         _render_feature_driver_panel(sections.get("feature_drivers")),
         _render_crowding_attribution_panel(
@@ -1424,7 +1436,7 @@ def _section_rows(
     ]
     fundamentals = [
         _section_card("Fundamentals", sections.get("fundamentals"), "instrument-detail.fundamentals"),
-        _valuation_card(model, page, state),
+        valuation_workspace,
         _render_evidence_section(
             "Financial Institutions",
             sections.get("financial_institutions"),
@@ -1463,7 +1475,7 @@ def _section_rows(
         render_news_contradiction_panel(model),
     ]
     history = [
-        _score_history_chart(sections.get("history")),
+        score_history,
         _section_card("Score-component metric history", sections.get("metric_history"), "instrument-detail.metric-history"),
         _section_card("Point-in-time vintage history", vintage),
         _section_card("What changed since the last run", sections.get("run_changes")),
@@ -1480,6 +1492,9 @@ def _section_rows(
         "Fixed income": fixed_income,
         "Risk & forecasts": risk,
         "History": history,
+        # Built once and listed above; the stock page shows them outside the collapsed evidence records.
+        "_valuation_workspace": [valuation_workspace],
+        "_score_history": [score_history],
     }
 
 
@@ -1492,6 +1507,80 @@ def _section_kind(identity: Mapping[str, object]) -> str:
     return "Fundamentals"
 
 
+def _stock_model(model: InstrumentDetailViewModel, state: object) -> sp.StockPageModel | None:
+    """The stock page model for normal (non-bank) stocks; None keeps the generic page for everything else."""
+
+    listed = _listed_score(state, model.instrument_id)
+    if not sp.is_normal_stock(model.identity, listed):
+        return None
+    stock = sp.build_model(getattr(state, "snapshot", None), model.instrument_id, listed)
+    return stock if stock.available else None
+
+
+def _without(cards: Sequence[ft.Control], *shown: ft.Control) -> list[ft.Control]:
+    return [card for card in cards if not any(card is other for other in shown)]
+
+
+def _stock_layout(
+    model: InstrumentDetailViewModel,
+    stock: sp.StockPageModel,
+    state: object,
+    page: ft.Page | None,
+    instrument_ids: Sequence[str],
+    on_instrument_change: object,
+    groups: dict[str, list[ft.Control]],
+) -> tuple[list[ft.Control], dict[str, list[ft.Control]]]:
+    """Score first, then plain words, price and identity; sections hold numbers, valuation, peers and notes."""
+
+    snapshot = getattr(state, "snapshot", None)
+    config = getattr(snapshot, "config", None)
+    export_button, export_status = _export_controls(model, state, page)
+    top = [
+        ft.ResponsiveRow([sp.placed(sp.score_card(stock, page), {"xs": 12, "lg": 7}), sp.placed(sp.words_card(stock), {"xs": 12, "lg": 5})], spacing=16, run_spacing=16),
+        ft.ResponsiveRow(
+            [
+                _price_card(model, state, page),
+                sp.identity_card(stock, model.identity, instrument_ids, on_instrument_change, footer=[export_button, export_status]),
+            ],
+            spacing=16,
+            run_spacing=16,
+        ),
+    ]
+    valuation_workspace = groups["_valuation_workspace"]
+    score_history = groups["_score_history"]
+    forecast = GlassCard(
+        "Expected-return range",
+        note="q10 / q50 / q90 by horizon",
+        body=Well(_forecast_chart(model.sections.get("forecasts")), expand=True),
+    )
+    stock_groups = {
+        "Overview": [
+            *sp.numbers_cards(stock, ("Market", "Earnings and returns", "Cash and balance sheet")),
+            sp.valuation_card(stock),
+            sp.peers_card(stock, config),
+            sp.notes_card(stock),
+            _instrument_alerts_panel(model, state),
+            sp.technical_records(_without(groups["Overview"])),
+        ],
+        "Fundamentals": [
+            sp.fiscal_history_card(stock),
+            sp.definitions_card(stock),
+            *valuation_workspace,
+            sp.technical_records(_without(groups["Fundamentals"], *valuation_workspace)),
+        ],
+        "Risk & forecasts": [
+            *sp.risk_cards(snapshot, model.instrument_id),
+            forecast,
+            sp.technical_records(groups["Risk & forecasts"]),
+        ],
+        "History": [
+            *score_history,
+            sp.technical_records(_without(groups["History"], *score_history)),
+        ],
+    }
+    return top, stock_groups
+
+
 def _body(
     model: InstrumentDetailViewModel,
     state: object,
@@ -1500,16 +1589,6 @@ def _body(
     instrument_ids: Sequence[str],
     on_instrument_change: object,
 ) -> ft.Control:
-    identity = _identity_card(model, state, page, instrument_ids, on_instrument_change)
-    price = _price_card(model, state, page)
-    score = _score_card(model, page, state)
-    forecast = GlassCard(
-        "Expected-return range",
-        note="q10 / q50 / q90 by horizon",
-        body=Well(_forecast_chart(model.sections.get("forecasts")), expand=True),
-        expand=True,
-    )
-    alerts = _instrument_alerts_panel(model, state)
     kind = _section_kind(model.identity)
     options = ["Overview", kind, "Risk & forecasts", "History"]
     if active_section not in options:
@@ -1520,6 +1599,24 @@ def _body(
         else {"status": "unavailable", "message": "No instrument is selected."}
     )
     groups = _section_rows(model, vintage, page, state)
+    stock = _stock_model(model, state)
+    if stock is not None:
+        top_rows, groups = _stock_layout(model, stock, state, page, instrument_ids, on_instrument_change, groups)
+    else:
+        identity = _identity_card(model, state, page, instrument_ids, on_instrument_change)
+        price = _price_card(model, state, page)
+        score = _score_card(model, page, state)
+        forecast = GlassCard(
+            "Expected-return range",
+            note="q10 / q50 / q90 by horizon",
+            body=Well(_forecast_chart(model.sections.get("forecasts")), expand=True),
+            expand=True,
+        )
+        alerts = _instrument_alerts_panel(model, state)
+        top_rows = [
+            ft.ResponsiveRow([identity, price], spacing=16, run_spacing=16),
+            ft.ResponsiveRow([score, forecast, alerts], spacing=16, run_spacing=16),
+        ]
     section_controls = [
         ft.Column(
             [
@@ -1537,16 +1634,7 @@ def _body(
     ]
     return ft.Column(
         [
-            ft.ResponsiveRow(
-                [identity, price],
-                spacing=16,
-                run_spacing=16,
-            ),
-            ft.ResponsiveRow(
-                [score, forecast, alerts],
-                spacing=16,
-                run_spacing=16,
-            ),
+            *top_rows,
             *section_controls,
         ],
         spacing=16,

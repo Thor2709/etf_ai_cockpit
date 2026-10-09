@@ -32,6 +32,7 @@ from etf_cockpit.app.components.kit import (
 )
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
 from etf_cockpit.app.pages import _p3_common as common
+from etf_cockpit.app.pages import stock_page as sp
 from etf_cockpit.app.formatting import format_date, format_number
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.stress_lab import StressLabFacade
@@ -824,7 +825,7 @@ def stock_research_page(page: ft.Page, state: AppState) -> PageView:
             (4, lambda w, h: _rolling_card(state, w, h, page, view, score)),
             (4, lambda w, h: _factor_card(page, w, h, state, score, scores)),
         ])
-        return common.below_fold(g, [first, second, _fundamentals_section(page, state, key, meta)])
+        return common.below_fold(g, [first, second, _fundamentals_section(page, state, key, meta, score)])
 
     def chrome_for_selection() -> PageChrome:
         current = by_key[ui["key"]]
@@ -856,13 +857,37 @@ def stock_research_page(page: ft.Page, state: AppState) -> PageView:
     return PageView(chrome_for_selection(), holder)
 
 
-def _fundamentals_section(page: object, state: AppState, key: str, meta: dict[str, str]) -> ft.Control:
+def _stock_statements(state: AppState, key: str, score: object) -> ft.Control | None:
+    """Numbers, valuation, peers, reported history and notes from the same evidence as Instrument Detail.
+
+    None for instruments the stock evidence does not cover (banks, certificates, funds): they keep the
+    legacy statement panels.
+    """
+
+    if str(getattr(score, "final_label", "") or "").casefold() == "scorecard_owned":
+        return None
+    stock = sp.build_model(getattr(state, "snapshot", None), key, score)
+    if not stock.available:
+        return None
+    config = getattr(getattr(state, "snapshot", None), "config", None)
+    cards = [
+        *sp.numbers_cards(stock, ("Earnings and returns", "Cash and balance sheet")),
+        sp.valuation_card(stock),
+        sp.peers_card(stock, config),
+        sp.fiscal_history_card(stock),
+        sp.notes_card(stock),
+    ]
+    return ft.Column([ft.ResponsiveRow(cards, spacing=16, run_spacing=16)], spacing=16)
+
+
+def _fundamentals_section(page: object, state: AppState, key: str, meta: dict[str, str], score: object | None = None) -> ft.Control:
     if meta["type"] and meta["type"].casefold() != "stock":
         return ft.Column([SectionHeader("Company fundamentals", "reported facts, derived metrics and valuation assumptions stay separate"), _fund_evidence(page, state, key)], spacing=12)
-    holder = ft.Container(content=_fundamentals(page, state, key, "Statements"))
+    statements = _stock_statements(state, key, score)
+    holder = ft.Container(content=statements if statements is not None else _fundamentals(page, state, key, "Statements"))
 
     def switch(label: str) -> None:
-        holder.content = _fundamentals(page, state, key, label)
+        holder.content = (statements if label == "Statements" and statements is not None else _fundamentals(page, state, key, label))
         common.update(page)
 
     header = SectionHeader(

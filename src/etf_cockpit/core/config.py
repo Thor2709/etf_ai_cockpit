@@ -44,6 +44,7 @@ class ETFConfig(BaseModel):
     source_group: str = ""
     isin_status: str = "verified"
     notes: str = ""
+    lifecycle: str = ""  # "", "delisted" or "merged": history is kept, no new data is fetched
     # Compatibility defaults keep older YAML and persisted stores loadable.
     leveraged: bool = False
     inverse: bool = False
@@ -450,6 +451,7 @@ def _universe_config_from_records(
                 source_group=row.group,
                 isin_status=row.isin_status,
                 notes=row.notes,
+                lifecycle=getattr(row, "lifecycle", ""),
                 leveraged=row.leveraged,
                 inverse=row.inverse,
             )

@@ -6,6 +6,7 @@ analysis, scoring, forecasts or broker execution (``execution_allowed=false``).
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable, Iterable
 from datetime import datetime, timezone
 import json
@@ -32,6 +33,7 @@ from etf_cockpit.app.pages import _p2_common as dialogs
 from etf_cockpit.app.pages import _p4_common as common
 from etf_cockpit.app.pages._p4_common import workflow_button as _workflow_button
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application import stock_service
 from etf_cockpit.application.onboarding_profile import overlay_universe_config
 from etf_cockpit.application.settings import load_config
 from etf_cockpit.application.ui_views import universe as view
@@ -119,6 +121,7 @@ def records_from_config(state: AppState) -> tuple[UniverseRecord, ...]:
                 notes=str(extra.get("notes", getattr(etf, "notes", ""))),
                 leveraged=bool(extra.get("leveraged", getattr(etf, "leveraged", False))),
                 inverse=bool(extra.get("inverse", getattr(etf, "inverse", False))),
+                lifecycle=str(getattr(etf, "lifecycle", "") or ""),
             )
         )
     return tuple(rows)
@@ -290,6 +293,75 @@ def universe_manager_page(page: ft.Page, state: AppState) -> PageView:
             ],
         )
         attach(dialog)
+        dialogs.show_dialog(page, dialog)
+
+    def lookup_dialog(_event: object | None = None) -> None:
+        """Add a stock or ETF from an ISIN or ticker only: look it up (free sources), pick a listing, stage it."""
+
+        entry_field, entry = dialogs.input_field("lookup", "ISIN or ticker", "", hint="US5949181045 or ASML.AS")
+        outcome = Note("Enter an ISIN or a ticker. Nothing is stored until you save the staged change.")
+        choices = ft.Column(spacing=8)
+        found: dict[str, object] = {"resolution": None}
+
+        def show(resolution) -> None:
+            found["resolution"] = resolution
+            choices.controls = []
+            if resolution.status == "ambiguous":
+                choices.controls = [
+                    _workflow_button(f"{item.symbol} · {item.name} · {item.exchange}", key_name=f"universe.lookup-pick.{item.symbol}", on_click=lambda _e, symbol=item.symbol: pick(symbol))
+                    for item in resolution.candidates
+                ]
+                outcome.value = resolution.reason
+            elif resolution.status == "ok" and resolution.chosen is not None:
+                chosen = resolution.chosen
+                outcome.value = (
+                    f"{chosen.name} · {chosen.symbol} · {chosen.exchange} · {chosen.currency or 'currency unavailable'} · {chosen.country or 'country unavailable'}. "
+                    f"ISIN: {resolution.isin_status.replace('_', ' ')}. {resolution.isin_note or resolution.reason}"
+                ).strip()
+            else:
+                outcome.value = resolution.reason or "The identifier could not be resolved."
+            dialogs_refresh(outcome)
+            dialogs_refresh(choices)
+
+        def dialogs_refresh(control: ft.Control) -> None:
+            try:
+                control.update()
+            except RuntimeError:
+                pass
+
+        def pick(symbol: str) -> None:
+            show(stock_service.pick_listing(found["resolution"], symbol))
+
+        def search(_event: object | None = None) -> None:
+            text = entry.value or ""
+            outcome.value = "Looking up (Yahoo search, OpenFIGI)..."
+            dialogs_refresh(outcome)
+            threading.Thread(target=lambda: show(stock_service.lookup_instrument(text)), daemon=True, name="universe-lookup").start()
+
+        def stage_lookup(_event: object | None = None) -> None:
+            resolution = found["resolution"]
+            try:
+                if resolution is None:
+                    raise ValueError("look up an ISIN or ticker first")
+                values = stock_service.universe_values(resolution, [record.instrument_id for record in records])
+                _stage(f"Validated add of {values['instrument_id']} pending save.", add_record(records, UniverseRecord(**values), allow_cross_tier_duplicates=duplicates()))
+                dialogs.close_dialog(page, dialog)
+            except Exception as exc:
+                outcome.value = f"Not added: {exc}"
+                dialogs_refresh(outcome)
+
+        def cancel_lookup(_event: object) -> None:
+            dialogs.close_dialog(page, dialog)
+
+        dialog = dialogs.glass_dialog(
+            page,
+            "Add by ISIN or ticker",
+            [entry_field, _workflow_button("Look up", key_name="universe.lookup-search", on_click=search), outcome, choices],
+            [
+                _workflow_button("Cancel", key_name="universe.lookup-cancel", on_click=cancel_lookup),
+                _workflow_button("Validate and add", key_name="universe.lookup-stage", on_click=stage_lookup, primary=True),
+            ],
+        )
         dialogs.show_dialog(page, dialog)
 
     def disable_item(record: UniverseRecord) -> None:
@@ -643,8 +715,11 @@ def universe_manager_page(page: ft.Page, state: AppState) -> PageView:
         policy_state, policy_reason = policy_states.get(record.instrument_id, ("unavailable", "No versioned policy evidence is available."))
         review = view.review_tag(record, policy_state, policy_reason)
         tier_text, tier_kind = view.tier_tag(record)
-        if review.text is None:
-            review_cell: ft.Control = common.text("—", 13.5, 400, theme.INK3, tooltip=review.tooltip)
+        if record.lifecycle:  # delisted or merged: the stored history is kept, nothing new is fetched
+            review_cell: ft.Control = Tag(record.lifecycle.title(), "warn", dense=True)
+            review_cell.tooltip = f"{record.lifecycle.title()}: stored prices and fundamentals are kept; no new data is fetched."
+        elif review.text is None:
+            review_cell = common.text("—", 13.5, 400, theme.INK3, tooltip=review.tooltip)
         else:
             review_cell = Tag(review.text, review.kind, dense=True)
             review_cell.tooltip = review.tooltip
@@ -767,6 +842,7 @@ def universe_manager_page(page: ft.Page, state: AppState) -> PageView:
             [
                 Field("Search universe", control=query, expand=2),
                 Field("Tier", control=tier_filter, expand=1),
+                ft.Container(content=_workflow_button("Add by ISIN or ticker", key_name="universe.lookup", on_click=lookup_dialog, primary=True), padding=ft.Padding(left=0, top=0, right=0, bottom=0)),
                 ft.Container(content=_workflow_button("Add record", key_name="universe.add", on_click=add_dialog), padding=ft.Padding(left=0, top=0, right=0, bottom=0)),
             ],
             spacing=12,
