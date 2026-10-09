@@ -1782,6 +1782,7 @@ def _score_panel(
     friction: Mapping[str, Any],
     *,
     scoreboard_reason_code: str | None = None,
+    financial_projection: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
     if signal is None and not scoreboard:
         return _unavailable("Score evidence unavailable for this instrument.") | {
@@ -1811,6 +1812,35 @@ def _score_panel(
         reason = _safe_text(getattr(signal, "reason_long", None))
     reason_valid = reason is not None
     reason = reason or "Score reason unavailable."
+    if label == "scorecard_owned" and evidence_score is None and financial_projection is not None:
+        if str(financial_projection.get("status") or "").casefold() != "available":
+            projection_reason = _safe_text(financial_projection.get("reason_code")) or "financial_projection_unavailable"
+            reason = f"Score unavailable at score routing: financial-institution projection failed ({projection_reason})."
+        else:
+            identity = financial_projection.get("share_class_identity")
+            analysis = identity.get("sparebank_analysis") if isinstance(identity, Mapping) else None
+            analysis = analysis if isinstance(analysis, Mapping) else {}
+            scorecard = analysis.get("scorecard")
+            scorecard = scorecard if isinstance(scorecard, Mapping) else {}
+            composite = _safe_float(scorecard.get("composite_10"))
+            if composite is not None:
+                evidence_score = composite
+                reason = "Score supplied by the native Sparebank scorecard."
+            else:
+                missing_axes = [str(value) for value in _safe_sequence(scorecard.get("missing_axes")) if str(value).strip()]
+                gate_reasons = [str(value) for value in _safe_sequence(scorecard.get("gate_reasons")) if str(value).strip()]
+                history_status = analysis.get("history_status")
+                history_reason = _safe_text(history_status.get("reason")) if isinstance(history_status, Mapping) else None
+                detail = "; ".join(
+                    value
+                    for value in (
+                        f"missing axes: {', '.join(missing_axes)}" if missing_axes else None,
+                        f"scorecard reasons: {', '.join(gate_reasons)}" if gate_reasons else None,
+                        f"history: {history_reason}" if history_reason else None,
+                    )
+                    if value
+                ) or "the native scorecard returned no composite or blocking reason"
+                reason = f"Score unavailable at score: Sparebank composite unavailable; {detail}."
     if re.search(r"\bnan\b", reason, re.IGNORECASE) or "n/ad" in reason.casefold():
         reason = "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields."
     signal_score = _safe_float(getattr(signal, "total_score", None))
@@ -1846,6 +1876,12 @@ def _score_panel(
         "evidence_score": evidence_score,
         "evidence_quality": quality,
         "signal_score": signal_score,
+        "coverage": _safe_float(scoreboard.get("coverage")),
+        "missing_components": (
+            [item for item in scoreboard["missing_components"].split("|") if item]
+            if isinstance(scoreboard.get("missing_components"), str)
+            else list(_safe_sequence(scoreboard.get("missing_components")))
+        ),
         "canonical_attractiveness_10": _safe_float(scoreboard.get("canonical_attractiveness_10")) or _safe_float(canonical_payload.get("attractiveness_10")),
         "canonical_expected_return_10": _safe_float(scoreboard.get("canonical_expected_return_10")) or _safe_float(canonical_payload.get("expected_return_10")),
         "canonical_risk_implementation_10": _safe_float(scoreboard.get("canonical_risk_implementation_10")) or _safe_float(canonical_payload.get("risk_implementation_10")),
@@ -3046,7 +3082,14 @@ def build_instrument_detail(
             "innovation": innovation,
             "etf_liquidity": liquidity,
             "etf_economics": economics,
-            "scores": _score_panel(signal, scoreboard, derived, friction, scoreboard_reason_code=scoreboard_reason_code),
+            "scores": _score_panel(
+                signal,
+                scoreboard,
+                derived,
+                friction,
+                scoreboard_reason_code=scoreboard_reason_code,
+                financial_projection=financial_institutions,
+            ),
             "opportunity": opportunity,
             "feature_drivers": _feature_driver_panel(instrument_id),
             "risk": _risk_panel(features, friction, derived["crowding"]),

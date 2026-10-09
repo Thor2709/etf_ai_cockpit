@@ -46,6 +46,8 @@ _COLUMNS = [
     "evidence_quality_10",
     "risk_friction_10",
     "final_combined_score_10",
+    "coverage",
+    "missing_components",
     # Comparison dimensions are retained as informational snapshots.  They
     # deliberately do not participate in current action or authority gates.
     "rank",
@@ -256,6 +258,8 @@ def append_score_run(
         ("classification_dependency_status", "legacy_unbound"),
         ("version_registry_signature", "unavailable"),
         ("dependency_graph_hash", "unavailable"),
+        ("coverage", None),
+        ("missing_components", None),
     ):
         if column not in frame.columns:
             frame[column] = default
@@ -623,6 +627,8 @@ def _normalise_history_frame(frame: pd.DataFrame) -> pd.DataFrame:
         ("evidence_score_10", None),
         ("evidence_quality_10", None),
         ("risk_friction_10", None),
+        ("coverage", None),
+        ("missing_components", ""),
         ("final_action", None),
         ("rank", None),
         ("score_rank", None),

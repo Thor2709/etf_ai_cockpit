@@ -317,7 +317,7 @@ def test_static_trust_artifacts_cover_providers_and_identity() -> None:
     assert not yfinance_rows.empty
     assert yfinance_rows["status"].ne("ok").all()
     assert identity.shape[0] >= 45
-    assert {"VWCE", "UCG", "AIR", "MSFT", "RABO"} <= set(identity["instrument_id"])
+    assert {"VWCE", "UCG", "AIR", "MSFT", "MING"} <= set(identity["instrument_id"])
     assert identity["executable_authority"].eq(False).all()
     assert {
         "identity_decision_id",

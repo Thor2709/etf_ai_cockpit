@@ -412,6 +412,7 @@ class SimpleInstrumentScore:
     classification_version_id: str = "unavailable"
     classification_invalidation_hash: str = "unavailable"
     classification_dependency_status: str = "legacy_unbound"
+    identity_conflict_reason: str | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -531,6 +532,23 @@ class SimpleInstrumentScore:
     @property
     def total_component_count(self) -> int:
         return len(self.components)
+
+    @property
+    def score_coverage(self) -> float:
+        weights = STOCK_EVIDENCE_WEIGHTS if _is_stock_like_asset_type(self.asset_type) else ETF_EVIDENCE_WEIGHTS
+        configured_weight = sum(weights.values())
+        active_weight = sum(
+            float(weights.get(component.key, 0.0))
+            for component in self.components
+            if component.score_eligible and float(weights.get(component.key, 0.0)) > 0
+        )
+        return round(active_weight / configured_weight, 6) if configured_weight > 0 else 0.0
+
+    @property
+    def missing_components(self) -> tuple[str, ...]:
+        weights = STOCK_EVIDENCE_WEIGHTS if _is_stock_like_asset_type(self.asset_type) else ETF_EVIDENCE_WEIGHTS
+        eligible_keys = {component.key for component in self.components if component.score_eligible}
+        return tuple(key for key, weight in weights.items() if weight > 0 and key not in eligible_keys)
 
 
 @dataclass(frozen=True)
@@ -665,6 +683,74 @@ def _component_is_score_eligible(component: SimpleScoreComponent) -> bool:
     )
 
 
+def _generate_missing_price_signals(
+    config: AppConfig,
+    signals: list[SignalResult],
+    prices: pd.DataFrame,
+) -> tuple[list[SignalResult], dict[str, str]]:
+    enabled_ids = set(config.universe.enabled_ids)
+    signal_ids = {str(signal.etf_id) for signal in signals}
+    missing_ids = enabled_ids - signal_ids
+    if not missing_ids or prices.empty or not {"etf_id", "date"}.issubset(prices.columns):
+        return signals, {}
+    frame = prices.loc[prices["etf_id"].astype(str).isin(missing_ids)].copy()
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce").dt.date
+    frame = frame.loc[frame["date"].notna()]
+    if frame.empty:
+        return signals, {}
+    decision_date = max(frame["date"])
+    signal_dates = [parsed for signal in signals if (parsed := _parse_date(signal.signal_date)) is not None]
+    if signal_dates:
+        decision_date = min(decision_date, min(signal_dates))
+    frame = frame.loc[frame["date"] <= decision_date]
+    failures: dict[str, str] = {}
+    for instrument_id in missing_ids:
+        rows = frame.loc[frame["etf_id"].astype(str).eq(instrument_id)]
+        if rows.empty:
+            continue
+        failures[instrument_id] = (
+            f"Signal processing could not produce a score for {instrument_id}: "
+            "price-derived signal calculation failed."
+        )
+    try:
+        from etf_cockpit.data.validation import validate_prices
+        from etf_cockpit.features.feature_pipeline import compute_features, latest_features
+        from etf_cockpit.signals.signal_pipeline import generate_signals
+
+        features = compute_features(frame)
+        latest = latest_features(features, decision_date)
+        if latest.empty:
+            return signals, failures
+        # Without a bound benchmark reference, relative strength is unavailable;
+        # the price series itself is not a peer benchmark.
+        for column in ("relative_strength_60d", "relative_strength_120d"):
+            if column in latest.columns:
+                latest[column] = pd.NA
+        holdings = pd.DataFrame(columns=["etf_id", "current_weight", "market_value_eur"])
+        data_report = validate_prices(frame, as_of_date=decision_date)
+        generated = generate_signals(
+            config,
+            latest,
+            holdings,
+            data_report,
+            as_of_date=decision_date,
+            publish=False,
+        )
+    except Exception as exc:
+        reason = f"Signal processing failed: {type(exc).__name__}: {exc}"
+        return signals, {instrument_id: reason for instrument_id in failures}
+    generated_by_id = {str(signal.etf_id): signal for signal in generated}
+    additions = [generated_by_id[instrument_id] for instrument_id in sorted(missing_ids) if instrument_id in generated_by_id]
+    for instrument_id in missing_ids:
+        if instrument_id in generated_by_id:
+            failures.pop(instrument_id, None)
+        elif instrument_id in failures:
+            failures[instrument_id] = (
+                f"Signal processing returned no result for {instrument_id} despite local price history."
+            )
+    return [*signals, *additions], failures
+
+
 def build_simple_instrument_scores(
     config: AppConfig,
     signals: list[SignalResult],
@@ -680,6 +766,7 @@ def build_simple_instrument_scores(
     peer_member_ids: tuple[str, ...] | None = None,
     cash_observation_time: object | None = None,
 ) -> list[SimpleInstrumentScore]:
+    signals, missing_signal_reasons = _generate_missing_price_signals(config, signals, prices)
     if universe_revision is None:
         universe_revision = load_universe().revision
     price_binding = adjusted_price_binding_for_reference(prices, reference_identity)
@@ -780,6 +867,7 @@ def build_simple_instrument_scores(
         cash_comparison_lookup=cash_comparison_lookup,
         crowding=crowding,
         backtest_trust=backtest_trust,
+        missing_signal_reasons=missing_signal_reasons,
     )
     candidate_scores = build_candidate_simple_scores(
         candidate_report,
@@ -825,10 +913,85 @@ def build_simple_instrument_scores(
         )
         for index, score in enumerate(scores, start=1)
     ]
+    identity_conflicts = _identity_conflict_reasons(score.display_id for score in ranked)
     return [
-        _with_canonical_score(_attach_authority(_with_classification_dependency(score)))
+        _with_canonical_score(
+            _attach_authority(
+                _with_classification_dependency(
+                    _with_identity_conflict(score, identity_conflicts.get(score.display_id))
+                )
+            )
+        )
         for score in ranked
     ]
+
+
+def _identity_projection_conflict_reason(projection: Mapping[str, object]) -> str | None:
+    conflicts = projection.get("identity_conflicts", ())
+    if isinstance(conflicts, (list, tuple)):
+        manual_conflicts = [
+            item
+            for item in conflicts
+            if isinstance(item, Mapping) and bool(item.get("requires_manual_review"))
+        ]
+        if manual_conflicts:
+            reasons = [
+                str(item.get("reason") or "Identity conflict requires manual review.").strip()
+                for item in manual_conflicts
+            ]
+            return " ".join(dict.fromkeys(reason for reason in reasons if reason))
+    if str(projection.get("identity_resolution_state") or "").casefold() == "quarantined":
+        return "Identity resolution is quarantined and requires manual review."
+    return None
+
+
+def _identity_conflict_reasons(instrument_ids: Iterable[str]) -> dict[str, str]:
+    """Read explicit unresolved identity conflicts without making classification a score gate."""
+
+    ids = tuple(dict.fromkeys(str(value) for value in instrument_ids if str(value).strip()))
+    if not ids:
+        return {}
+    try:
+        from etf_cockpit.data.identity_master import IdentityMasterSchemaError, IdentityMasterStore, identity_master_exists
+
+        if not identity_master_exists(ROOT):
+            return {}
+        with IdentityMasterStore(ROOT, read_only=True) as store:
+            result: dict[str, str] = {}
+            for instrument_id in ids:
+                try:
+                    projection = store.projection(instrument_id)
+                except (KeyError, ValueError):
+                    continue
+                reason = _identity_projection_conflict_reason(projection)
+                if reason:
+                    result[instrument_id] = reason
+            return result
+    except (IdentityMasterSchemaError, OSError, ValueError):
+        return {}
+
+
+def _with_identity_conflict(
+    score: SimpleInstrumentScore,
+    reason: str | None,
+) -> SimpleInstrumentScore:
+    if not reason or _is_sparebank_ec_asset_type(score.asset_type):
+        return score
+    return replace(
+        score,
+        final_score_10=None,
+        evidence_score_10=None,
+        evidence_quality_10=None,
+        risk_friction_10=None,
+        rank=None,
+        score_rank=None,
+        decision="Manual Review",
+        one_line_reason=reason,
+        final_label="manual_review",
+        final_action="manual_review",
+        warnings=list(dict.fromkeys([*score.warnings, reason])),
+        identity_conflict_reason=reason,
+    )
 
 
 def _with_classification_dependency(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
@@ -836,15 +999,11 @@ def _with_classification_dependency(score: SimpleInstrumentScore) -> SimpleInstr
         return score
     state = classification_score_state(ROOT, score.display_id)
     if str(state.get("status")) == "unavailable":
+        reason = "Classification context is unavailable; available score components remain included."
         return replace(
             score,
-            final_score_10=None,
-            evidence_score_10=None,
-            evidence_quality_10=None,
-            risk_friction_10=None,
-            rank=None,
-            score_rank=None,
             warnings=list(dict.fromkeys([*score.warnings, "classification_unavailable"])),
+            one_line_reason=f"{score.one_line_reason} {reason}".strip(),
             classification_version_id=str(state.get("version_id") or "unavailable"),
             classification_invalidation_hash=str(state.get("invalidation_token") or "unavailable"),
             classification_dependency_status="classification_unavailable",
@@ -860,7 +1019,7 @@ def _with_classification_dependency(score: SimpleInstrumentScore) -> SimpleInstr
 def _with_canonical_score(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
     if (
         score.canonical_score is not None
-        or score.classification_dependency_status != "current"
+        or score.identity_conflict_reason is not None
         or _is_sparebank_ec_asset_type(score.asset_type)
     ):
         return score
@@ -1065,6 +1224,10 @@ def simple_scoreboard_frame(
             "decision": score.decision,
             "blocked_by": ", ".join(score.warnings),
             "reason_short": score.one_line_reason,
+            "final_combined_score_10": score.final_score_10,
+            "coverage": score.score_coverage,
+            "missing_components": "|".join(score.missing_components),
+            "identity_conflict_reason": score.identity_conflict_reason,
             "model_authority_label": score.model_authority_label,
             "backtest_trust_label": score.backtest_trust_label,
             "backtest_trust_score_10": score.backtest_trust_score_10,
@@ -1255,6 +1418,7 @@ def build_universe_simple_scores(
     cash_comparison_lookup: Mapping[str, Mapping[str, object]] | None = None,
     backtest_trust: dict[str, dict[str, object]] | None = None,
     crowding: ClusterReport | None = None,
+    missing_signal_reasons: Mapping[str, str] | None = None,
 ) -> list[SimpleInstrumentScore]:
     raw_forecast_scores = forecast_component_maps(forecasts)
     return_distributions = forecast_return_distributions(forecasts)
@@ -1501,7 +1665,15 @@ def build_universe_simple_scores(
                 )
             )
         else:
-            output.append(_pending_configured_score(identity, symbol_map.get(etf_id, identity.ticker)))
+            rows = prices.loc[prices.get("etf_id", pd.Series(dtype=str)).astype(str).eq(str(etf_id))] if "etf_id" in prices.columns else pd.DataFrame()
+            reason = (missing_signal_reasons or {}).get(etf_id)
+            if reason is None:
+                reason = (
+                    f"No local price history is available for {etf_id}."
+                    if rows.empty
+                    else f"Signal processing returned no result for {etf_id} despite local price history."
+                )
+            output.append(_pending_configured_score(identity, symbol_map.get(etf_id, identity.ticker), reason=reason))
     return [_with_canonical_score(score) for score in output]
 
 
@@ -1734,7 +1906,12 @@ def _latest_candidate_input_frame(directory: Path | None = None) -> pd.DataFrame
     return frame
 
 
-def _pending_configured_score(identity, yahoo_symbol: str) -> SimpleInstrumentScore:
+def _pending_configured_score(
+    identity,
+    yahoo_symbol: str,
+    *,
+    reason: str = PENDING_WORKFLOW_REASON,
+) -> SimpleInstrumentScore:
     asset_type = _display_asset_type(identity)
     analysis_tier = str(_config_extra(identity, "analysis_tier", "primary"))
     return SimpleInstrumentScore(
@@ -1752,8 +1929,8 @@ def _pending_configured_score(identity, yahoo_symbol: str) -> SimpleInstrumentSc
         data_policy=str(_config_extra(identity, "data_policy", "yfinance_now_multi_provider_later")),
         final_score_10=None,
         decision="Pending Refresh",
-        one_line_reason=PENDING_WORKFLOW_REASON,
-        components=_pending_components(asset_type),
+        one_line_reason=reason,
+        components=_pending_components(asset_type, reason=reason),
         warnings=["pending_refresh"],
         evidence_score_10=None,
         evidence_quality_10=None,
@@ -1873,17 +2050,17 @@ def _pending_candidate_score(row: pd.Series, asset_type: str) -> SimpleInstrumen
     )
 
 
-def _pending_components(asset_type: str) -> list[SimpleScoreComponent]:
+def _pending_components(asset_type: str, *, reason: str = PENDING_WORKFLOW_REASON) -> list[SimpleScoreComponent]:
     keys = ["data_quality", "momentum", "trend", "risk", "relative_strength", "liquidity_cost"]
     if asset_type == "ETF":
         keys.append("etf_exposure")
     elif _is_stock_like_asset_type(asset_type):
         keys.extend(["stock_value", "stock_quality", "analyst_revision"])
     keys.extend(["baseline", "timesfm", "toto"])
-    return [_pending_component(key) for key in keys]
+    return [_pending_component(key, reason=reason) for key in keys]
 
 
-def _pending_component(key: str) -> SimpleScoreComponent:
+def _pending_component(key: str, *, reason: str = PENDING_WORKFLOW_REASON) -> SimpleScoreComponent:
     role = "model_confirmation" if key in {"baseline", "timesfm", "toto"} else "risk_friction" if key == "risk" else "evidence"
     authority = "low" if role == "model_confirmation" else "hard" if key == "data_quality" else "medium"
     return SimpleScoreComponent(
@@ -1894,7 +2071,7 @@ def _pending_component(key: str) -> SimpleScoreComponent:
         status="N/A",
         explanation=COMPONENT_EXPLANATIONS[key],
         good_score=GOOD_SCORE_TEXT[key],
-        why=PENDING_WORKFLOW_REASON,
+        why=reason,
         authority=authority,
         score_role=role,
     )

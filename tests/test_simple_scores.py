@@ -81,14 +81,12 @@ SECONDARY_IDS = {
     "CBUK",
     "SEC0",
     "SXRV_NASDAQ100",
-    "JEDI",
     "VFEM",
     "VUSA",
     "EUDF",
     "XAIX",
     "EXUS",
     "XDWU",
-    "RABO",
 }
 
 SPAREBANKEN_IDS = {
@@ -98,7 +96,6 @@ SPAREBANKEN_IDS = {
     "SOGN",
     "JAEREN",
     "MELG",
-    "SADG",
     "SKUE",
     "NONG",
     "RING",
@@ -109,6 +106,8 @@ SPAREBANKEN_IDS = {
     "SPOG",
 }
 
+# Disabled in configs/universe.yaml: JEDI delisted, SADG merged into SBNOR, RABO has no Yahoo history.
+DISABLED_IDS = {"JEDI", "RABO", "SADG"}
 SPAREBANKEN_NEEDS_VERIFICATION = {"AURG", "SOGN", "MELG", "SADG", "SKUE"}
 
 
@@ -512,6 +511,9 @@ def test_scoreboard_frame_contains_quality_and_authority_columns() -> None:
     frame = simple_scoreboard_frame([score])
 
     assert frame.loc[0, "evidence_score_10"] is not None
+    assert frame.loc[0, "final_combined_score_10"] == frame.loc[0, "evidence_score_10"]
+    assert 0.0 <= frame.loc[0, "coverage"] <= 1.0
+    assert isinstance(frame.loc[0, "missing_components"], str)
     assert frame.loc[0, "evidence_quality_10"] is not None
     assert frame.loc[0, "risk_friction_10"] is not None
     assert frame.loc[0, "model_authority_label"] == "Model evidence unavailable"
@@ -789,7 +791,7 @@ def test_scoreboard_binds_classification_token_and_reader_invalidates_stale_scor
     assert bool(projected.iloc[0]["execution_allowed"]) is False
 
 
-def test_score_construction_fails_closed_when_classification_storage_is_unavailable(monkeypatch) -> None:
+def test_classification_storage_unavailable_does_not_block_score(monkeypatch) -> None:
     candidate = SimpleInstrumentScore(
         instrument_key="candidate:ABC",
         display_id="ABC",
@@ -832,10 +834,11 @@ def test_score_construction_fails_closed_when_classification_storage_is_unavaila
         simple_scores_module._with_classification_dependency(candidate)
     )
 
-    assert result.final_score_10 is None
-    assert result.canonical_score is None
+    assert result.final_score_10 == 7.0
+    assert result.canonical_score is not None
     assert result.classification_dependency_status == "classification_unavailable"
     assert "classification_unavailable" in result.warnings
+    assert "Classification context is unavailable" in result.one_line_reason
     assert result.execution_allowed is False
 
 
@@ -1039,8 +1042,8 @@ def test_two_tier_universe_config_contains_requested_primary_and_secondary_witho
         candidates = pd.DataFrame(rows)
     secondary = candidates[candidates["analysis_tier"].astype(str) == "secondary"]
     sparebanken = candidates[candidates["analysis_tier"].astype(str) == "sparebanken"]
-    assert SECONDARY_IDS == set(secondary["instrument_id"].astype(str))
-    assert SPAREBANKEN_IDS == set(sparebanken["instrument_id"].astype(str))
+    assert SECONDARY_IDS == set(secondary["instrument_id"].astype(str)) - DISABLED_IDS
+    assert SPAREBANKEN_IDS == set(sparebanken["instrument_id"].astype(str)) - DISABLED_IDS
     assert set(candidates["data_policy"]) == {"yfinance_only"}
     if loaded_generated_candidates:
         assert set(candidates["instrument_id"]).isdisjoint(PRIMARY_IDS)
@@ -1069,14 +1072,13 @@ def test_simple_scores_show_all_two_tier_instruments_as_pending_without_refresh(
     assert by_id["VWCE"].source_group == "Primary tier"
     assert by_id["VWCE"].final_score_10 is None
     assert by_id["VWCE"].decision == "Pending Refresh"
+    assert by_id["VWCE"].one_line_reason == "No local price history is available for VWCE."
     assert by_id["MSFT"].source_group == "Secondary tier"
     assert by_id["MSFT"].decision == "Pending Refresh"
     assert by_id["NONG"].source_group == "Sparebanken"
     assert by_id["NONG"].analysis_tier == "sparebanken"
     assert by_id["NONG"].asset_type == "Equity certificate"
     assert by_id["AURG"].isin == "needs_verification"
-    assert by_id["RABO"].asset_type == "Certificate"
-    assert by_id["RABO"].final_score_10 is None
 
 
 def test_mixed_universe_routes_sparebank_ec_to_native_scorecard(monkeypatch) -> None:
@@ -1085,7 +1087,7 @@ def test_mixed_universe_routes_sparebank_ec_to_native_scorecard(monkeypatch) -> 
     monkeypatch.setattr(simple_scores_module, "load_forecast_history", lambda: pd.DataFrame())
     monkeypatch.setattr(simple_scores_module, "_latest_candidate_input_frame", lambda: pd.DataFrame())
     config = load_config()
-    mixed_ids = {"VWCE", "UCG", "RABO"}
+    mixed_ids = {"VWCE", "UCG", "MING"}
     mixed_instruments = [item for item in config.universe.etfs if item.id in mixed_ids]
     assert {item.id for item in mixed_instruments} == mixed_ids
     mixed_config = config.model_copy(
@@ -1096,7 +1098,7 @@ def test_mixed_universe_routes_sparebank_ec_to_native_scorecard(monkeypatch) -> 
     ordinary_config = config.model_copy(
         update={
             "universe": config.universe.model_copy(
-                update={"etfs": [item for item in mixed_instruments if item.id != "RABO"]}
+                update={"etfs": [item for item in mixed_instruments if item.id != "MING"]}
             ),
         }
     )
@@ -1106,13 +1108,13 @@ def test_mixed_universe_routes_sparebank_ec_to_native_scorecard(monkeypatch) -> 
     mixed_by_id = {score.display_id: score for score in mixed_scores}
     ordinary_by_id = {score.display_id: score for score in ordinary_scores}
 
-    assert mixed_by_id["RABO"].source_group == "Sparebanken"
-    assert mixed_by_id["RABO"].decision == "Sparebank scorecard required"
-    assert "Underwriting is determined by the Sparebank scorecard" in mixed_by_id["RABO"].one_line_reason
-    assert "tactical evidence is presented separately" in mixed_by_id["RABO"].one_line_reason
-    assert mixed_by_id["RABO"].final_score_10 is None
-    assert mixed_by_id["RABO"].canonical_score is None
-    assert mixed_by_id["RABO"].components == []
+    assert mixed_by_id["MING"].source_group == "Sparebanken"
+    assert mixed_by_id["MING"].decision == "Sparebank scorecard required"
+    assert "Underwriting is determined by the Sparebank scorecard" in mixed_by_id["MING"].one_line_reason
+    assert "tactical evidence is presented separately" in mixed_by_id["MING"].one_line_reason
+    assert mixed_by_id["MING"].final_score_10 is None
+    assert mixed_by_id["MING"].canonical_score is None
+    assert mixed_by_id["MING"].components == []
     assert mixed_by_id["UCG"] == ordinary_by_id["UCG"]
     assert mixed_by_id["VWCE"] == ordinary_by_id["VWCE"]
 

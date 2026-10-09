@@ -252,6 +252,8 @@ def _build_financial_projection_from_evidence(
                             {
                                 "instrument_id": str(instrument_id),
                                 "final_combined_score_10": float(composite),
+                                "coverage": getattr(scorecard, "composite_coverage", None),
+                                "missing_components": "|".join(getattr(scorecard, "missing_axes", ()) or ()),
                                 "price_as_of_date": decision_price_projection.get("date", ""),
                                 "data_as_of_date": decision.date().isoformat(),
                                 "formula_version": getattr(scorecard, "formula_version", "unavailable"),
