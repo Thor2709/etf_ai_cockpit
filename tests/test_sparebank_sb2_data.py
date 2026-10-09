@@ -9,6 +9,8 @@ from types import SimpleNamespace
 import pytest
 
 from etf_cockpit.application.sparebank_evidence import with_derived_owner_earnings
+from etf_cockpit.analysis.sparebank.claim import build_claim_state
+from etf_cockpit.analysis.sparebank.valuation import owner_valuation
 from etf_cockpit.data import pillar3_queue
 from etf_cockpit.data.esef_extensions import equity_member_facts, issuer_extension
 from etf_cockpit.data.pillar3_extract import detect_period, extract_figures, ingest_pdf
@@ -71,13 +73,26 @@ def test_owner_result_uses_the_tagged_primary_capital_split_and_count_comes_from
     assert "tags the ownerless share" in derived["ec_attributable_result"]["source_locator"]
     # EC count = result / EPS (27.1 m); implied nominal 258 m / 27.1 m = 9.5 NOK is within the plausible NOK 1 to 60 range.
     assert derived["weighted_average_ec_count"]["value"] == pytest.approx(439e6 / 16.2)
-    assert derived["outstanding_ec_count"]["derived"] is True
+    assert "outstanding_ec_count" not in derived
     # A split that disagrees with the ownership fraction is not trusted; the book's eierbrok allocation is used.
     off = with_derived_owner_earnings(_facts(), {**statements, "current": {**statements["current"], "ownerless_result": 300e6}})
     assert off["ec_attributable_result"]["value"] == pytest.approx(439e6 * 0.79905, rel=1e-3)
     # An EPS tag with the wrong scale (163 instead of 16.3) implies a NOK 96 nominal: no count is invented.
     scale = with_derived_owner_earnings(_facts(), {**statements, "current": {**statements["current"], "basic_eps": 163.0}})
     assert "weighted_average_ec_count" not in scale
+
+
+def test_weighted_average_count_never_substitutes_for_a_missing_closing_count() -> None:
+    derived = with_derived_owner_earnings(
+        _facts(),
+        {"period_end": PERIOD, "current": {"profit_attributable_to_owners": 150e6, "basic_eps": 8.0}},
+    )
+    assert derived["weighted_average_ec_count"]["value"] == pytest.approx(150e6 * 0.799 / 8.0, rel=0.002)
+    assert "outstanding_ec_count" not in derived
+    claim = build_claim_state({"facts": derived, "known_at": "2025-03-01T00:00:00Z", "source_url": "https://example.test/f"})
+    value = owner_valuation(claim, allow_partial=True)
+    assert value["status"] == "unavailable"
+    assert value["reason_code"] == "OWNER_VALUATION_EVIDENCE_MISSING"
 
 
 def test_reimport_of_the_same_package_fills_only_previously_unavailable_facts(tmp_path: Path) -> None:

@@ -146,6 +146,7 @@ def build_sparebank_scorecard(
                 status=("rated" if scored else "shown") if value is not None else "UNAVAILABLE",
                 reason_code=None if value is not None else "SCORECARD_INPUT_UNAVAILABLE",
                 reason=reason_text,
+                source_locator=_input_source(row, context),
             )
             rated_inputs.append(row)
             raw_values[str(row["id"])] = value
@@ -400,6 +401,67 @@ def _input_value(rule: Mapping[str, object], context: Mapping[str, object]) -> f
     if transform == "ratio_to_basis_points":
         return number * 10000.0
     return number
+
+
+def _input_source(rule: Mapping[str, object], context: Mapping[str, object]) -> str | None:
+    """Resolve source citations for the evidence path behind one scorecard input."""
+
+    path = str(rule.get("source") or "")
+    if not path:
+        return None
+    parts = path.split(".")
+    leaf = parts[-1]
+    citations: list[str] = []
+
+    def add(value: object) -> None:
+        if isinstance(value, Mapping):
+            locator = value.get("source_locator") or value.get("source_url")
+            title = value.get("document_title") or value.get("title")
+            page = value.get("page")
+            pieces = [str(item) for item in (locator, title, f"page {page}" if page is not None else None) if item]
+            if pieces:
+                citations.append(" | ".join(pieces))
+        elif value is not None and str(value).strip():
+            citations.append(str(value).strip())
+
+    parent = _path(context, ".".join(parts[:-1])) if len(parts) > 1 else context
+    parent_provenance = _field(parent, "provenance", {})
+    if isinstance(parent_provenance, Mapping):
+        add(parent_provenance.get(leaf))
+        if not citations:
+            for item in parent_provenance.values():
+                add(item)
+    if not citations:
+        bank = _field(context, "bank_economics", {})
+        reported = _field(bank, "reported", {})
+        provenance = _field(reported, "provenance", {})
+        if isinstance(provenance, Mapping):
+            direct = provenance.get(leaf)
+            if direct is not None:
+                add(direct)
+            elif ".lending." in path or ".normalised." in path:
+                for item in provenance.values():
+                    add(item)
+    if not citations:
+        claim = _field(context, "claim_state", {})
+        provenance = _field(claim, "provenance", {})
+        if isinstance(provenance, Mapping):
+            direct = provenance.get(leaf)
+            if direct is not None:
+                add(direct)
+            elif path.startswith("claim_state.") or ".normalised." in path:
+                for item in provenance.values():
+                    add(item)
+    elif ".normalised." in path:
+        claim = _field(context, "claim_state", {})
+        provenance = _field(claim, "provenance", {})
+        if isinstance(provenance, Mapping):
+            for item in provenance.values():
+                add(item)
+    if not citations and path.startswith("valuation."):
+        add(_field(_field(context, "valuation", {}), "assumption_source"))
+    unique = tuple(dict.fromkeys(item for item in citations if item))
+    return " | ".join(unique) or None
 
 
 def _path(context: object, path: str) -> object:

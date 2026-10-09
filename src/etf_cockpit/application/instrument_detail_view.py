@@ -2801,7 +2801,7 @@ def _sparebank_workspace(
 
         context = {
             "instrument_id": instrument_id,
-            "history": quarterly_score_history(score_history, instrument_id),
+            "history": quarterly_score_history(score_history, instrument_id, decision_time),
             "peers": load_peer_rows(ROOT, instrument_id, decision_time),
             "picked_peers": picked_peers(ROOT, instrument_id),
             "pillar3": load_queue(ROOT, instrument_id),

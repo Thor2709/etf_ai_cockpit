@@ -143,8 +143,12 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def quarterly_score_history(frame: pd.DataFrame | None, instrument_id: str) -> list[dict[str, object]]:
-    """Last native scorecard row per calendar quarter, oldest first, with the change from the quarter before.
+def quarterly_score_history(
+    frame: pd.DataFrame | None,
+    instrument_id: str,
+    decision_time: str | None = None,
+) -> list[dict[str, object]]:
+    """Last native run per reporting quarter at the decision time, oldest first.
 
     The change is shown only between rows of the same formula version (a formula change is not a trend).
     """
@@ -154,9 +158,22 @@ def quarterly_score_history(frame: pd.DataFrame | None, instrument_id: str) -> l
     rows = frame.loc[frame["instrument_id"].astype(str).eq(str(instrument_id)) & frame["run_id"].astype(str).str.startswith("sparebank:")].copy()
     if rows.empty:
         return []
-    rows["_at"] = pd.to_datetime(rows.get("run_started_at", rows.get("run_completed_at")), errors="coerce", utc=True)
-    rows = rows.loc[rows["_at"].notna()].sort_values("_at", kind="stable")
-    rows["_quarter"] = rows["_at"].dt.tz_localize(None).dt.to_period("Q")
+    if "effective_at" not in rows.columns:
+        return []
+    started = rows["run_started_at"] if "run_started_at" in rows.columns else pd.Series(pd.NaT, index=rows.index)
+    completed = rows["run_completed_at"] if "run_completed_at" in rows.columns else pd.Series(pd.NaT, index=rows.index)
+    rows["_started_at"] = pd.to_datetime(started, errors="coerce", utc=True)
+    rows["_completed_at"] = pd.to_datetime(completed, errors="coerce", utc=True)
+    rows["_at"] = rows["_completed_at"].fillna(rows["_started_at"])
+    rows["_period"] = pd.to_datetime(rows["effective_at"], errors="coerce", utc=True)
+    rows = rows.loc[rows["_at"].notna() & rows["_period"].notna()]
+    if decision_time:
+        cutoff = pd.to_datetime(decision_time, errors="coerce", utc=True)
+        if pd.isna(cutoff):
+            return []
+        rows = rows.loc[rows["_at"].le(cutoff)]
+    rows = rows.sort_values("_at", kind="stable")
+    rows["_quarter"] = rows["_period"].dt.tz_localize(None).dt.to_period("Q")
     latest = rows.groupby("_quarter", sort=True).tail(1)
     result: list[dict[str, object]] = []
     previous: dict[str, object] | None = None
@@ -164,7 +181,10 @@ def quarterly_score_history(frame: pd.DataFrame | None, instrument_id: str) -> l
         composite = _number(row.get("final_combined_score_10"))
         entry: dict[str, object] = {
             "quarter": f"{row['_quarter'].year} Q{row['_quarter'].quarter}",
-            "scored_at": row["_at"].date().isoformat(),
+            "run_started_at": row["_started_at"].isoformat() if pd.notna(row["_started_at"]) else None,
+            "run_completed_at": row["_completed_at"].isoformat() if pd.notna(row["_completed_at"]) else None,
+            "run_timestamp": row["_at"].isoformat(),
+            "effective_at": row["_period"].date().isoformat(),
             "data_as_of": str(row.get("data_as_of_date") or "") or None,
             "composite": composite,
             "coverage": _number(row.get("coverage")),

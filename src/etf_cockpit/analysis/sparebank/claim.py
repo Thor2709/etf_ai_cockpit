@@ -21,7 +21,7 @@ _OWNER_FACTS = ("ec_capital", "overkursfond", "utjevningsfond")
 _SELF_FACTS = ("sparebankens_fond", "gavefond", "kompensasjonsfond")
 # Optional ownerless pools: a bank may simply hold none. A missing figure is flagged, and the reconstructed eierbrok is
 # still cross-checked against the reported one, so an omission that matters shows as REPORTED_RECONSTRUCTED_EIERBROK_DIFFER.
-_OPTIONAL_SELF_FACTS = ("gavefond", "kompensasjonsfond")
+_OPTIONAL_SELF_FACTS = ("kompensasjonsfond",)
 _REQUIRED_ROUTING_EC_TOKENS = {"equity_certificate", "ec", "egenkapitalbevis"}
 _NO_TOKENS = {"no", "norway", "norge", "norwegian"}
 _SAVINGS_BANK_TOKENS = {
@@ -155,12 +155,25 @@ def build_claim_state(
 
     owner_pools = _available_pool_values(values, _OWNER_FACTS)
     self_owned_pools = _available_pool_values(values, _SELF_FACTS)
-    missing_pool_components = _missing_pool_components(values)
+    reported = _fact_number(values, "eierbrok")
+    missing_pool_components = list(_missing_pool_components(values))
+    gavefond_reported = _fact_number(values, "gavefond") is not None
+    if _fact_number(values, "sparebankens_fond") is None:
+        missing_pool_components.append("sparebankens_fond")
+    if reported is not None and 0.0 <= reported <= 1.0:
+        missing_pool_components = [name for name in missing_pool_components if name != "gavefond"]
+    if not gavefond_reported and not (reported is not None and 0.0 <= reported <= 1.0):
+        missing_pool_components.append("gavefond")
+    missing_pool_components = tuple(dict.fromkeys(missing_pool_components))
     compensation_not_reported = _fact_number(values, "kompensasjonsfond") is None
     owner_total = _pool_total(owner_pools) if not any(name in missing_pool_components for name in _OWNER_FACTS) else None
-    self_total = _pool_total(self_owned_pools) if not any(name in missing_pool_components for name in _SELF_FACTS) else None
-    reconstructed = reconstruct_eierbrok(owner_pools, self_owned_pools) if not missing_pool_components else None
-    reported = _fact_number(values, "eierbrok")
+    self_total = (
+        _pool_total(self_owned_pools)
+        if all(_fact_number(values, name) is not None for name in _SELF_FACTS if name not in _OPTIONAL_SELF_FACTS)
+        else None
+    )
+    reconstruction_missing = (*missing_pool_components, *(('gavefond',) if not gavefond_reported else ()))
+    reconstructed = reconstruct_eierbrok(owner_pools, self_owned_pools) if not reconstruction_missing else None
     difference = abs(reconstructed - reported) if reconstructed is not None and reported is not None else None
     if difference is not None and difference > 0.005:
         reasons.append("REPORTED_RECONSTRUCTED_EIERBROK_DIFFER" )
@@ -179,7 +192,7 @@ def build_claim_state(
     count_reasons = _count_reconciliation_reasons(registered, outstanding, treasury, foundation_count)
     if compensation_not_reported:
         reasons.append("KOMPENSASJONSFOND_NOT_REPORTED")
-    if "gavefond" in values and _fact_number(values, "gavefond") is None:
+    if not gavefond_reported and not (reported is not None and 0.0 <= reported <= 1.0):
         reasons.append("GAVEFOND_NOT_REPORTED")
     if missing_pool_components:
         reasons.append("POOL_COMPONENT_EVIDENCE_MISSING")
@@ -212,7 +225,10 @@ def build_claim_state(
             ("owner_attributable_earnings", owner_earnings),
         ) if value is None))
     ))
-    resolved = reconstructed is not None and not any(
+    reported_share_used = reported is not None and 0.0 <= reported <= 1.0 and not any(
+        name in missing_pool_components for name in _OWNER_FACTS
+    )
+    resolved = (reconstructed is not None or reported_share_used) and not any(
         reason in {
             "CLAIM_KNOWN_AFTER_DECISION_TIME",
             "CLAIM_KNOWN_AT_MISSING",
@@ -397,10 +413,15 @@ def analyse_sparebank_ec(
     from .events import analyse_events
     from .valuation import valuation
     from .scorecard import build_sparebank_scorecard
-    bank_economics = owner_normalisation(build_bank_economics(bank_economics_evidence, bank_metrics=bank_metrics), claim)
+    assumptions = dict(valuation_assumptions or {})
+    bank_economics = owner_normalisation(
+        build_bank_economics(bank_economics_evidence, bank_metrics=bank_metrics),
+        claim,
+        sustainable_roe_assumption=assumptions.get("sustainable_roe"),
+        assumption_source=str(assumptions.get("assumption_source") or "") or None,
+    )
     event_analysis = analyse_events(events, decision_time=decision_time)
     # The sustainable ROE of the owner claim feeds the justified-value and reverse-valuation models once.
-    assumptions = dict(valuation_assumptions or {})
     sustainable = bank_economics.normalised.get("normalised_roe") if isinstance(bank_economics.normalised, Mapping) else None
     if sustainable is not None:
         assumptions.setdefault("sustainable_roe", sustainable)

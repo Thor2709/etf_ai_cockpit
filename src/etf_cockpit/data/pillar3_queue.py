@@ -109,7 +109,7 @@ def decide(
     decided_at: str | None = None,
     note: str | None = None,
 ) -> dict[str, object]:
-    """Confirm or reject one pending figure. Confirming a metric supersedes an earlier confirmed figure of the same period."""
+    """Confirm or reject a figure, retaining the history of any superseded confirmation."""
 
     if decision not in {"confirmed", "rejected"}:
         raise ValueError("decision must be 'confirmed' or 'rejected'")
@@ -117,6 +117,8 @@ def decide(
     target = next((item for item in queue["figures"] if isinstance(item, dict) and item.get("figure_id") == figure), None)
     if target is None:
         raise KeyError(f"figure {figure} is not in the queue for {instrument_id}")
+    if target.get("status") != "pending":
+        raise ValueError(f"figure {figure} has already been decided")
     stamp = decided_at or _utc_now()
     if decision == "confirmed":
         for other in queue["figures"]:
@@ -126,9 +128,14 @@ def decide(
                 and other.get("metric") == target.get("metric")
                 and other.get("period") == target.get("period")
                 and other.get("status") == "confirmed"
+                and not other.get("superseded_at")
             ):
-                other.update(status="rejected", decided_at=stamp, note="superseded by a newer confirmation")
+                other["superseded_at"] = stamp
+                other["superseded_by"] = target.get("figure_id")
     target.update(status=decision, decided_at=stamp, decided_by="owner", note=note)
+    if decision == "confirmed":
+        target.pop("superseded_at", None)
+        target.pop("superseded_by", None)
     save_queue(root, instrument_id, queue)
     return queue
 
@@ -138,21 +145,27 @@ def pending_count(root: Path, instrument_id: str) -> int:
 
 
 def confirmed_figures(queue: Mapping[str, object], decision_time: str | None) -> list[Mapping[str, object]]:
-    """Latest confirmed figure per metric that was confirmed no later than ``decision_time``."""
+    """Active confirmed figures at ``decision_time``, including retained historical states."""
 
     cutoff = _parse(decision_time) if decision_time else None
-    best: dict[str, Mapping[str, object]] = {}
+    best: dict[tuple[str, str], Mapping[str, object]] = {}
     for item in queue.get("figures", ()):
         if not isinstance(item, Mapping) or item.get("status") != "confirmed":
             continue
         decided = _parse(item.get("decided_at"))
         if decided is None or (cutoff is not None and decided > cutoff):
             continue
+        superseded = _parse(item.get("superseded_at"))
+        if item.get("superseded_at") and superseded is None:
+            continue
+        if superseded is not None and (cutoff is None or superseded <= cutoff):
+            continue
         metric = str(item.get("metric"))
-        key = (str(item.get("period") or ""), str(item.get("decided_at") or ""))
-        current = best.get(metric)
-        if current is None or key > (str(current.get("period") or ""), str(current.get("decided_at") or "")):
-            best[metric] = item
+        period = str(item.get("period") or "")
+        key = (metric, period)
+        current = best.get(key)
+        if current is None or decided > (_parse(current.get("decided_at")) or datetime.min.replace(tzinfo=timezone.utc)):
+            best[key] = item
     return list(best.values())
 
 

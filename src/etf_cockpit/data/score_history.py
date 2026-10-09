@@ -92,6 +92,8 @@ _COLUMNS = [
     "version_registry_signature",
     "dependency_graph_hash",
     "snapshot_hash",
+    # Reporting period of the evidence behind a native (Sparebank) score; history groups by it.
+    "effective_at",
 ]
 
 

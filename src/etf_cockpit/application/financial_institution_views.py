@@ -190,7 +190,7 @@ def _build_financial_projection_from_evidence(
     bank_economics_evidence = merge_bank_economics_evidence(
         ec_revision.get("bank_economics_evidence") if isinstance(ec_revision, Mapping) else None,
         statements,
-        pillar3_evidence(root, instrument_id, cutoff),
+        pillar3_evidence(root, instrument_id, cutoff, target_period=requested_period or statements.get("period_end")),
     )
     valuation_currency = _valuation_currency(valuation_assumptions, context, ec_facts)
     price_path = root / "data" / "clean" / "prices.parquet"
@@ -321,6 +321,7 @@ def _build_financial_projection_from_evidence(
                                 "formula_version": getattr(scorecard, "formula_version", "unavailable"),
                                 "formula_checksum": getattr(scorecard, "formula_checksum", "unavailable"),
                                 "source_vintage_hash": source_vintage_hash,
+                                "effective_at": str(route_evidence.get("effective_at") or ""),
                             }
                         ]
                     ),
@@ -449,17 +450,16 @@ def _financial_rows_for_instrument(
 
 
 def _with_policy_defaults(assumptions: Mapping[str, object]) -> dict[str, object]:
-    """Add the book's illustrative cost of equity and growth only where the evidence supplies none."""
+    """Normalize explicit valuation assumptions before adding missing policy defaults."""
 
     from etf_cockpit.analysis.sparebank import load_sparebank_scorecard_policy
+    from etf_cockpit.analysis.sparebank.valuation import normalise_valuation_assumptions
 
     defaults = load_sparebank_scorecard_policy().valuation_defaults
-    result = dict(assumptions)
-    if "cost_of_equity" not in result and "cost_of_equity_pct" not in result and defaults.get("cost_of_equity") is not None:
-        result["cost_of_equity"] = defaults["cost_of_equity"]
-        result["assumption_source"] = defaults.get("assumption_source")
-    if "long_run_growth" not in result and "g" not in result and defaults.get("long_run_growth") is not None:
-        result["long_run_growth"] = defaults["long_run_growth"]
+    result = normalise_valuation_assumptions(assumptions, defaults=defaults)
+    if not any(name in assumptions for name in ("cost_of_equity", "k", "cost_of_equity_pct")) and defaults.get("cost_of_equity") is not None:
+        result.setdefault("assumption_source", defaults.get("assumption_source"))
+    if not any(name in assumptions for name in ("long_run_growth", "g", "long_run_growth_pct")) and defaults.get("long_run_growth") is not None:
         result.setdefault("assumption_source", defaults.get("assumption_source"))
     return result
 

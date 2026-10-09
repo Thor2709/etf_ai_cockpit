@@ -72,7 +72,7 @@ class ECClaimState:
 
     @property
     def eierbrok(self) -> float | None:
-        return self.reconstructed_eierbrok
+        return self.reconstructed_eierbrok if self.reconstructed_eierbrok is not None else self.reported_eierbrok
 
 
 @dataclass(frozen=True)
