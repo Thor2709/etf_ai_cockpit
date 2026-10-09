@@ -110,16 +110,23 @@ class CockpitSnapshot:
     vwce_listing_id: str | None = None
     vwce_conversion_evidence: Mapping[str, object] | None = None
 
+    def __getattribute__(self, name: str):
+        # ``backtest`` is loaded lazily (startup speed); every reader still gets the report.
+        if name == "backtest":
+            return object.__getattribute__(self, "ensure_backtest")()
+        return object.__getattribute__(self, name)
+
     def ensure_backtest(self) -> BacktestReport | None:
         """Load the persisted report or calculate it once when a consumer needs it."""
 
-        if self.backtest is not None:
-            return self.backtest
+        get = object.__getattribute__
+        if get(self, "backtest") is not None or get(self, "_backtest_loader") is None:
+            return get(self, "backtest")
         with _STARTUP_WRITE_LOCK:
             with _BACKTEST_LOCK:
-                if self.backtest is None and self._backtest_loader is not None:
-                    self.backtest = self._backtest_loader()
-                return self.backtest
+                if get(self, "backtest") is None and get(self, "_backtest_loader") is not None:
+                    self.backtest = get(self, "_backtest_loader")()
+                return get(self, "backtest")
 
 
 def build_snapshot(
