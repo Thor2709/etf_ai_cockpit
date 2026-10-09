@@ -1,65 +1,72 @@
-# ETF1 worker handoff
+# ETFFIX correction-pass handoff
 
-- TASK_ID: ETF1
+- TASK_ID: ETFFIX
 - MODEL/EFFORT: Runtime: model=gpt-6.1-sol effort=high
 - STATUS: done
 - Output-contract status: DONE
 - Branch/worktree: ui/etf, C:/dev/etf-UI-ETF.
-- Exact base: 0c240bc89e79479404a5422d856a5df6f0d554ec.
-- The previous implementation remains committed at that base. This correction
-  pass is uncommitted. No agents, commits, pushes or comparison-page edits.
+- Exact base/head: e0789e54a98af2a353ee496932b3b4301637751d.
+- Earlier commits 0c240bc8 and e0789e54 are retained. Corrections are uncommitted.
+- No agents, commits, pushes, provider writes, uploads or tags.
+
+## Correction packet, numbered results
+
+1. Fixed: ETF detail uses the snapshot decision timestamp, including the
+   existing benchmark_reference_decision_time when supplied. An explicit as_of
+   override follows the same policy. Calendar dates mean the end of that UTC
+   day, through its final nanosecond; exact timestamps remain exact. Regressions
+   include same-day observations, midnight decisions and next-day exclusion.
+2. Fixed: Sectors and ETF detail share one dated direct/reference-holdings
+   loader. Each fund lacking usable direct evidence falls back to the fetched
+   etf_holdings reference store before exposure projection. The regression
+   verifies the empty direct store, reference look-through, direct-stock
+   exposure and exclusion of an acquisition after the snapshot decision.
+3. Fixed: holdings rank usable authority before vintage. Older usable issuer
+   evidence wins over newer conflicting vendor evidence. Eligible alternatives
+   are retained in frame attrs; unusable acquisitions carry rejection reasons.
+4. Fixed: the selector chooses one eligible acquisition per source and vintage,
+   with the latest known_at. Both 70% and 30% repeated-snapshot regressions check
+   against inflated totals and exclude a future revision. Mixed calendar/ISO
+   timestamps are parsed explicitly, preserving eligible later acquisitions.
+5. Fixed: the canonical per-field loader validates split weights before source
+   selection, records rejected-source reasons and tries the next source.
+   Regressions cover 150%, negative, infinite, nonnumeric and empty preferred
+   mappings. Valid partial splits receive Other/unclassified in the loader;
+   the view no longer maintains a second split-validation path.
+6. Fixed: public country/sector sections are located independently of the top
+   holdings section. An offline fixture regression removes that entire section
+   and verifies both sourced, dated splits survive.
+7. Complete: the prescribed pytest invocation finished against the final
+   production/test code: 534 passed, 0 failed, 0 skipped, 311 warnings in
+   1125.81s. Exit code 0 was observed; no sandbox limitation prevented it.
 
 ## Per-criterion result
 
-1. Audit: DONE. The audit retains all 16 ETFs' original E1/source-gap inventory
-   and VWCE fetch/process/score/display diagnosis. This session re-read the
-   copied scoreboard and canonical E1 panel for all 16 and appended the current
-   field values, source dates and exact reasons. Historical VWCE screen output
-   remains UNVERIFIED; the concrete feature-empty display defect was corrected
-   in the retained implementation. No copied artifact was rewritten.
-2. Pipeline: DONE for the configured ETF universe. All 16 have persisted numeric
-   scores; the retained VWCE fixture regression exercises numeric recovery with
-   coverage and a missing list. Missing inputs are excluded. Existing canonical
-   scoring and score_views contracts were preserved.
-3. E1 data: DONE with offline acquisition evidence. Refresh now wires the
-   existing source adapter to timed, bounded issuer/public GET readers, then
-   the existing yfinance readers. Registered document URLs and an observed
-   public factsheet link supply issuer bindings; VWCE also has a verified issuer
-   factsheet URL. Unsupported/missing source formats fall through with reasons.
-   Source records, alternates, disagreements, dates and known_at survive the
-   existing reference importer via its field_name/value columns. Current public
-   facts use acquisition-snapshot dates; dated composition and issuer factsheets
-   retain effective dates. A bare dollar sign does not establish AUM currency.
-   Tracking difference retains the canonical distribution-adjusted same-window
-   calculation; absent bound index evidence stays unavailable with exact steps.
-4. Holdings: DONE. Dated public top holdings and explicitly identity-bound issuer
-   CSV holdings reuse reference persistence. The existing point-in-time vintage
-   selection and weight/residual calculation are reused. Countries/sectors are
-   never inferred from holding names. Issuer/public allocations can fill
-   classifications absent from partial holdings. Canonical holdings remain the
-   primary source; source acquisition does not confer scoring authority.
-5. ETF page: DONE. The retained implementation renders E1 tiles, top-25 holdings
-   table/count, labelled charts and deterministic summary with reasons. The
-   correction prevents wholly unclassified partial holdings from masking
-   sourced allocations. Offline importer-to-panel evidence verifies issuer
-   split provenance after round trip. Browser appearance is UNVERIFIED.
-6. Sectors/countries: DONE. Retained canonical look-through/direct-stock exposure,
-   dated classification, attractiveness/coverage, heatmap, labelled universe
-   fallback and explicit empty states remain covered by the required tests.
-   No new comparison page was created; the existing page is unchanged as the
-   owner explicitly directed in the correction packet.
-7. Offline/live fetch: DONE under the packet's network-unavailable route. HTTP
-   stubs cover issuer priority, discovery, public/vendor fallback, missing fee,
-   source failures, identity, point-in-time dates, GET/timeouts, persistence and
-   DataService wiring. The direct sandbox GET failed with WinError 10061; no
-   live refresh ran. The exact external fetch command is below.
+1. Audit: retained docs/development/etf-coverage-2026-10.md inventories all
+   16 ETFs, E1 values/sources/reasons and VWCE fetch/process/score/display gaps.
+   This pass independently read the copied universe and scoreboard: all 16
+   ETFs have numeric persisted scores. No score artifact was regenerated.
+2. Pipeline: retained implementation; the VWCE fixture regression passed with
+   numeric score, coverage and missing components, without zero-filled inputs.
+3. E1 data: cutoff and split-validation corrections complete; issuer/public/
+   yfinance fallback, provenance and tracking golden tests passed offline.
+4. Holdings: authority/vintage/acquisition selection and residual regressions
+   passed. Conflicting alternatives remain retained; future evidence excluded.
+5. ETF page: retained tiles/table/charts/rendering regression passed. Same-day
+   observations and valid fallback splits now reach the panel. Browser
+   appearance is UNVERIFIED in this pass.
+6. Sectors/countries: fetched reference holdings now feed the existing exposure
+   cube at the decision timestamp. Look-through, direct stocks, attractiveness,
+   heatmap rendering and explicit empty-state regressions passed.
+7. Offline/live fetch: offline source tests passed. No live fetch was attempted
+   in this correction pass; network acquisition remains UNVERIFIED. The exact
+   orchestrator command is retained below.
 
 ## Per-ETF score and coverage, before and after
 
-These are this session's readbacks of unchanged copied artifacts, not a new
-published score run. Every row has the same canonical missing list:
-relative_strength, etf_exposure, baseline, timesfm, toto. The prior recovery
-run used different inputs and is retained only as historical audit evidence.
+Read-only scoreboard readback this pass verified these copied persisted values
+for all 16 configured ETFs. They were not recalculated or rewritten: before
+and after refer to unchanged artifacts, not a causal change in score.
 
 | ETF | Score before / after | Canonical coverage before / after |
 | --- | --- | --- |
@@ -82,81 +89,73 @@ run used different inputs and is retained only as historical audit evidence.
 
 ## TESTS+RESULTS
 
-Environment: `$env:ETF_COCKPIT_ROOT='C:/dev/release/etflive'`.
-The existing pytest runtime fixtures isolate test writes. All six numbered
-required tests exist in tests/test_etf_completion.py and ran. No assertion
-was weakened, deleted or skipped. No out-of-scope test was edited.
+Environment: $env:ETF_COCKPIT_ROOT='C:/dev/release/etflive'.
+All six required tests remain in tests/test_etf_completion.py and ran. Each
+numbered behavioral correction has its own added regression; parameters add
+boundary cases. No assertion was weakened, deleted or skipped. The prior
+handoff's pytest claims are superseded by the observed results below.
 
-- `python -m pytest -q --tb=line tests/test_etf_live_fetch.py tests/test_etf_completion.py`
-  Initial result: 16 passed, 1 failed. Verbatim failure:
-  `ValueError: ETF factsheets contain invalid or missing as_of_date values.`
-  `C:/dev/etf-UI-ETF/src/etf_cockpit/data/reference_data.py:275`
-  Cause: source observations mixed date strings with ISO timestamps, which
-  the existing pandas normaliser parsed as one format. The reader now supplies
-  uniform calendar import dates and retains precise timestamps in provenance;
-  no normaliser or assertion was changed.
-- `python -m pytest -q --tb=line --verbosity=0 tests/test_etf_live_fetch.py tests/test_etf_completion.py`
-  After the date correction: 17 passed, 0 failed, 7 warnings.
-  After discovery/exception-containment and importer-to-panel coverage were
-  added: 19 passed, 0 failed, 7 warnings (9 acquisition + 10 completion tests).
+- Initial command: `python -m pytest -q --tb=line tests/test_etf_completion.py tests/test_etf_live_fetch.py`
+  Result: 30 passed, 2 failed (32 cases). Both failures were the newly added
+  acquisition regression, parameters weights0 and weights1. Verbatim failure
+  line: `E   AssertionError: assert np.False_` at
+  `tests/test_etf_completion.py:165`. Actual selected known_at was
+  `2026-01-02 00:00:00+00:00`; expected `2026-01-03 12:00:00+00:00`.
+  Cause: mixed-format timestamp parsing dropped later acquisitions. The
+  selector was corrected; neither assertion was changed.
+- `python -m pytest -q --tb=line --verbosity=0 tests/test_etf_completion.py tests/test_etf_live_fetch.py`
+  Result: 32 passed, 0 failed, 7 warnings in 5.09s. Breakdown: 22 completion,
+  10 live-fetch tests. This ran after all six behavioral fixes; subsequent
+  bounded cleanup removed unused imports and cross-fund dataframe attrs.
 - `python -m pytest -q --tb=line --verbosity=0 tests/test_simple_scores.py tests/test_architecture_boundaries.py tests/test_flet_layout_contracts.py tests/test_accessibility_contracts.py tests/test_button_contracts.py tests/ui tests/test_etf_completion.py tests/test_etf_live_fetch.py`
-  Result: 521 passed, 0 failed, 311 warnings in 1163.50 seconds. No listed
-  known failure was encountered. This run started before the bounded AUM
-  currency clarification, malformed-context guard and company-name filter
-  correction. Final affected evidence is recorded below; unchanged broad
-  checks are not repeated.
-- `python -m pytest -q --tb=line --verbosity=0 tests/test_etf_live_fetch.py tests/test_etf_completion.py`
-  Final affected-code run after all source corrections: 19 passed, 0 failed,
-  7 warnings in 5.55 seconds. This includes explicit regressions for ambiguous
-  AUM currency, malformed context and real holding names containing Holdings.
+  Result: 534 passed, 0 failed, 0 skipped, 311 warnings in 1125.81s (0:18:45),
+  exit code 0. All 22 completion and 10 live-fetch cases passed again after
+  the final cleanup. No listed known pre-existing failure was encountered.
+  --verbosity=0 overrides the repository's additional -q so pytest prints
+  its actual terminal counts. Observed terminal output:
+  `=============== 534 passed, 311 warnings in 1125.81s (0:18:45) ================`
+- `git diff --check`: passed, no whitespace errors. The final write-set and
+  newline verification is recorded below. No ruff or other unnamed check ran.
 
-## WHAT_CHANGED / FILES_CHANGED (this pass)
+## FILES_CHANGED / WHAT_CHANGED
 
-- src/etf_cockpit/application/data_service.py: source-chain refresh wiring,
-  preserving the existing price and reference publication scopes.
-- src/etf_cockpit/data/etf_e1_fetch.py: new bounded GET readers, source discovery,
-  dated parsers and existing reference-column provenance encoding/decoding.
-- src/etf_cockpit/data/fund_adapters.py: source exceptions fall through with
-  redacted detailed reasons; callable cutoff resolves after acquisition.
-- src/etf_cockpit/data/etf_economics.py: decode imported context in the canonical
-  reference loader and include acquisition failures in unavailable reasons.
-- src/etf_cockpit/application/etf_economics_view.py: decode supplied metadata
-  and keep sourced allocations when holding classifications are unavailable.
-- tests/test_etf_live_fetch.py: offline acquisition/refresh/persistence tests.
-- tests/fixtures/etf/public_profile.html: explicitly synthetic offline template.
-- docs/architecture/etf-economics.md: source acquisition and provenance routing.
-- docs/development/etf-coverage-2026-10.md: current E1 readback and resolved decisions.
-- docs/development/etf-HANDOFF.md: this handoff.
+- src/etf_cockpit/data/etf_cutoff.py: shared date/timestamp cutoff policy.
+- src/etf_cockpit/data/fund_holdings.py: usable-authority/vintage/acquisition
+  selection, mixed timestamps, retained alternatives and rejections.
+- src/etf_cockpit/data/etf_economics.py: cutoff and canonical split validation.
+- src/etf_cockpit/data/etf_e1_fetch.py: independent public composition lookup.
+- src/etf_cockpit/application/etf_economics_view.py: snapshot cutoff, shared
+  holdings-store fallback and removal of duplicate split validation.
+- src/etf_cockpit/application/ui_views/sectors.py: same dated holdings fallback
+  and decision cutoff for exposure and constituent evidence.
+- tests/test_etf_completion.py: five correction regressions, with parameters.
+- tests/test_etf_live_fetch.py: public splits without holdings regression.
+- docs/architecture/etf-economics.md: corrected selection/fallback policy.
+- docs/development/etf-coverage-2026-10.md: correction policy and observed
+  evidence; historical validation claims explicitly superseded.
+- docs/development/etf-HANDOFF.md: current handoff and actual validation counts.
 
-All earlier committed implementation files are retained. The shared AUM
-normaliser was not further edited. No Comparison page, stock-only, Sparebank,
-score-history/settings contract, dependency or protected desktop path changed.
+All files are within the packet's write set. No shared persistence, score
+contract, stock-only, Sparebank, dependency or configuration was changed.
 
 ## ASSUMPTIONS/RISKS / open gaps with reasons
 
-Live acquisition is UNVERIFIED because the sandbox cannot connect. Direct GETs to both justETF and Vanguard returned:
-`URLError <urlopen error [WinError 10061] Kan geen verbinding maken omdat de doelcomputer de verbinding actief heeft geweigerd>`.
-Web-tool source verification is a different environment and was not imported
-as financial observations. No live field value or issuer ID was invented.
-
-The unchanged copied data still lacks TER for VWCE/VFEM/VUSA, AUM and dated
-policy for all 16, a bound fund/index total-return pair, and constituent
-classifications. The current per-ETF values and exact source/reason codes are
-in the final audit table. A successful external refresh is needed for new
-observations; its success and browser rendering remain UNVERIFIED. Unsupported
-issuer templates or an absent optional PDF parser explicitly fall through.
-A current public profile date is acquisition context, never a publication date.
+Production/live acquisition and browser appearance are UNVERIFIED. The retained
+audit lists the copied data's absent Vanguard TER, AUM, dated policy,
+constituent classifications and matched fund/index total-return evidence.
+These are source gaps, not values this correction pass can invent. Prior
+network failures are historical evidence, not rerun results in this pass.
+A timestamp is treated literally, including midnight; only an actual calendar
+date expands to end of day. No current clock time is substituted for a decision.
 
 ## NEEDS_OPUS_DECISION
 
-None. Both prior decisions are resolved by the correction packet. The source
-integration file is authorised, and the existing Comparison page is unchanged.
-No expanded write set, production dependency or external action is requested.
+None. All corrections fit the authorised write set and decision rules.
 
 ## Live-fetch command for the orchestrator
 
-Run outside this sandbox's network restriction. This invokes the implemented
-issuer/public/yfinance source chain and its existing local publication path:
+Retained from the committed handoff. Run in a network-enabled environment;
+this pass did not execute it or claim live acquisition success.
 
 ```powershell
 $env:ETF_COCKPIT_ROOT = 'C:/dev/release/etflive'
@@ -164,21 +163,17 @@ $env:PYTHONPATH = 'C:/dev/etf-UI-ETF/src'
 python -c "from etf_cockpit.core.config import load_config; from etf_cockpit.application.data_service import DataService; print(DataService(load_config()).refresh_yfinance_data(include_reference_data=True))"
 ```
 
-Then use the canonical ETF E1 panels to record every ETF's actual new values,
-sources, dates and remaining reasons. The command makes no provider writes;
-only the approved local copy is published. execution_allowed remains false.
-
 ## NEXT_STEP
 
-The orchestrator reviews the uncommitted correction and runs the live command
-in a network-enabled environment, then records actual per-ETF E1 sources and
-values. No commit or push was performed by this worker.
+Orchestrator review and commit. The requested corrections and prescribed
+validation are complete. The live-fetch command above remains available for
+the orchestrator's network-enabled environment; it was not run here.
 
 ## Final workspace verification
 
 `git diff --stat`, `git status --porcelain` and `git diff --check` ran.
-All ten changed/new files match the allowed write set; no unrelated file
-needed reverting. Added lines and all three new files use LF. Untouched
-legacy CRLF lines in data_service.py were preserved. No whitespace errors
-were reported; Git only warns about its existing checkout newline setting.
-The branch and base are unchanged, and the correction remains uncommitted.
+All 11 changed/new files match the allowed write set (10 tracked modifications,
+one new etf_ data module); no unrelated file needed reverting. Added lines and
+the new file use LF; untouched legacy CRLF lines in fund_holdings.py remain.
+No whitespace errors were reported. Git only warns about its existing checkout
+newline setting. The base/head is unchanged and all corrections are uncommitted.

@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from etf_cockpit.data.etf_cutoff import etf_decision_cutoff
 from etf_cockpit.core.paths import (
     ETF_CLOSURE_POLICY_PATH,
     ETF_ECONOMICS_PATH,
@@ -991,7 +992,7 @@ def load_etf_e1_fields(
     Inputs must already be bound to the requested identity. This is display
     context only; canonical tracking remains calculate_etf_economics.
     """
-    cutoff = pd.to_datetime(decision_time, utc=True, errors="coerce")
+    cutoff = etf_decision_cutoff(decision_time)
     candidates: list[tuple[int, dict[str, object]]] = []
     rejected = False
     for rank, rows in enumerate((issuer_records, public_records, vendor_records)):
@@ -1020,6 +1021,7 @@ def load_etf_e1_fields(
         "sector_split": ("sector_split",),
     }.items():
         available = []
+        rejections = []
         for rank, row in candidates:
             value = next((row.get(alias) for alias in aliases if not _missing(row.get(alias))), None)
             if value is None:
@@ -1040,8 +1042,15 @@ def load_etf_e1_fields(
                 value = str(value).strip().casefold()
                 if value not in {"accumulating", "distributing"}:
                     continue
-            elif not isinstance(value, Mapping):
-                continue
+            else:
+                weights = pd.to_numeric(pd.Series(dict(value), dtype=object), errors="coerce") if isinstance(value, Mapping) else pd.Series(dtype=float)
+                total = float(weights.sum())
+                if weights.empty or weights.isna().any() or weights.lt(0).any() or not math.isfinite(total) or not 0 < total <= 1.01:
+                    rejections.append({"source": row["source"], "as_of": row["as_of"], "known_at": row["known_at"], "reason": f"{field_name}_weights_not_usable"})
+                    continue
+                value = weights.to_dict()
+                if total < 1:
+                    value["Other/unclassified"] = value.get("Other/unclassified", 0) + 1 - total
             available.append({"value": value, "source": row["source"], "as_of": row["as_of"], "known_at": row["known_at"], "currency": row.get("aum_currency") if field_name == "aum" else None})
         if available:
             selected = dict(available[0])
@@ -1055,6 +1064,9 @@ def load_etf_e1_fields(
             if failures:
                 reason += ": " + "; ".join(f"{key}={value}" for key, value in sorted(failures.items()))
             result[field_name] = {"value": None, "source": None, "as_of": None, "known_at": None, "alternates": [], "difference": False, "reason": reason}
+        result[field_name]["rejections"] = rejections
+        if not available and rejections:
+            result[field_name]["reason"] = f"{field_name}_weights_not_usable"
     return result
 
 

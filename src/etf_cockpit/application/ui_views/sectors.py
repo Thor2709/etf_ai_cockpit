@@ -14,13 +14,14 @@ import json
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date
 from functools import lru_cache
 
 import pandas as pd
 
 from etf_cockpit.app.components.globe import GEOJSON_PATH
 from etf_cockpit.application.ui_views.portfolio import herfindahl, hhi_band, window_return
+from etf_cockpit.data.etf_cutoff import snapshot_etf_cutoff
 
 PERSPECTIVES = ("Sector", "Country", "Company")
 METRICS = ("P/E", "P/B", "ROE")
@@ -241,7 +242,7 @@ def _cube(weights: Mapping[str, float], snapshot: object, holdings: pd.DataFrame
     as_of = _as_of(snapshot)
     if as_of is None:
         return None, "The snapshot has no as-of date, so exposure cannot be dated."
-    decision = datetime(as_of.year, as_of.month, as_of.day, 23, 59, 59, tzinfo=timezone.utc)
+    decision = snapshot_etf_cutoff(snapshot)
     try:
         from etf_cockpit.application.sector_views import load_sector_position_metadata
 
@@ -333,8 +334,8 @@ def group_of(sector: str) -> str:
 
 
 def load(snapshot: object, window: str = "1Y", *, holdings: pd.DataFrame | None = None) -> SectorsView:
-    """Build the page data for a snapshot. ``holdings`` is the fund-holdings evidence (loaded locally when None)."""
-    from etf_cockpit.application.overlap import load_direct_holdings
+    """Build the page using dated direct holdings, then reference holdings."""
+    from etf_cockpit.application.etf_economics_view import load_etf_holdings_evidence
 
     view = SectorsView(window=window)
     weights = current_weights(snapshot)
@@ -349,7 +350,7 @@ def load(snapshot: object, window: str = "1Y", *, holdings: pd.DataFrame | None 
         weights = dict.fromkeys(ids, 1.0 / len(ids))
         view.exposure_label = "Universe (no portfolio holdings registered)"
         view.exposure_note = "Equal weight per analysed instrument. Register portfolio holdings to see your portfolio exposure. Missing ETF classifications remain unmapped."
-    evidence = holdings if holdings is not None else load_direct_holdings()
+    evidence = holdings if holdings is not None else load_etf_holdings_evidence(snapshot, list(weights), snapshot_etf_cutoff(snapshot))
     projection, error = _cube(weights, snapshot, evidence)
     country_rows, country_cover = _segments(projection, "economic_country")
     sector_rows, sector_cover = _segments(projection, "sector")
@@ -378,7 +379,7 @@ def load(snapshot: object, window: str = "1Y", *, holdings: pd.DataFrame | None 
     bubble_evidence = evidence
     date_column = _pick(evidence, ("as_of", "as_of_date"))
     if date_column and "known_at" in evidence and _as_of(snapshot):
-        cutoff = pd.Timestamp(_as_of(snapshot), tz="UTC") + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+        cutoff = snapshot_etf_cutoff(snapshot)
         dates = pd.to_datetime(evidence[date_column], utc=True, errors="coerce")
         known = pd.to_datetime(evidence["known_at"], utc=True, errors="coerce")
         bubble_evidence = evidence.loc[dates.le(cutoff) & known.le(cutoff) & known.ge(dates)]

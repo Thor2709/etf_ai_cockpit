@@ -163,7 +163,7 @@ def _public_records(html: bytes, instrument, known_at: str, url: str) -> list[di
             row["holdings_unavailable_reason"] = "public_holdings_weights_not_usable"
         splits = dict(instrument_id=instrument.id, as_of=effective, known_at=known_at, source_id=url, source_authority="public_page")
         for dimension, start_label, end_label in (("country", "Countries", "Sectors"), ("sector", "Sectors", "As of")):
-            start = text.find(start_label, end)
+            start = text.find(start_label)
             finish = text.find(end_label, start + len(start_label))
             if start >= 0 and finish > start:
                 pairs = re.findall(r"([A-Za-z][^%]*?)\s+(\d+(?:\.\d+)?)%", text[start + len(start_label):finish])

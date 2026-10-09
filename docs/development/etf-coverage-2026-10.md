@@ -393,7 +393,18 @@ Consequently no live refresh was run, and live values for each ETF remain
 UNVERIFIED. The exact command to run outside this network restriction and the
 final validation counts are in etf-HANDOFF.md.
 
-Validation completed: the prescribed run passed 521 tests (0 failed, 311
-warnings). After the final bounded reader corrections, all 19 affected ETF
-regressions passed again (0 failed, 7 warnings), including all six numbered
-required tests. Exact commands and evidence timing are in etf-HANDOFF.md.
+The prior pass reported 521 broad-validation passes and 19 affected ETF
+passes. Those historical claims are UNVERIFIED in ETFFIX and are superseded
+by the current run's observed results in etf-HANDOFF.md.
+
+ETFFIX correction: ETF detail and Sectors now share the snapshot decision
+cutoff; calendar-only decisions include the entire UTC day. Sectors reuses
+the dated fetched reference-holdings fallback. Holdings prefer usable issuer
+authority before vintage and select one acquisition, retaining alternatives.
+The canonical field loader rejects unusable preferred splits before fallback;
+public composition no longer depends on a holdings section. The focused run
+passed 32 tests, including a distinct regression for each correction (0 failed,
+7 warnings). The prescribed validation completed against the final code:
+534 passed, 0 failed, 0 skipped, 311 warnings in 1125.81s (exit code 0).
+This pass re-read the copied universe and scoreboard and verified all 16 ETFs
+have numeric persisted scores, with the same values and coverage shown above.

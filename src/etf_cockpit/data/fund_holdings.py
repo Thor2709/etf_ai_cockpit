@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from etf_cockpit.data.etf_cutoff import etf_decision_cutoff
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import CLEAN_DIR
@@ -242,27 +243,43 @@ def normalise_holdings(
 
 
 def select_holdings_as_of(frame: pd.DataFrame, instrument_id: str, decision_time: object) -> pd.DataFrame:
-    """Select one dated, known holdings vintage; never mix snapshots."""
+    """Prefer usable authority, then vintage, then one known acquisition.
+
+    Eligible alternatives and rejected acquisitions remain in frame attrs.
+    """
     identity = next((key for key in ("instrument_id", "etf_id") if key in frame), None)
     date_column = next((key for key in ("as_of", "as_of_date") if key in frame), None)
     if identity is None or date_column is None or "known_at" not in frame:
         return pd.DataFrame()
-    cutoff = pd.to_datetime(decision_time, utc=True, errors="coerce")
+    cutoff = etf_decision_cutoff(decision_time)
     scoped = frame.loc[frame[identity].astype(str).eq(instrument_id)].copy()
-    scoped["as_of"] = pd.to_datetime(scoped[date_column], utc=True, errors="coerce")
-    scoped["known_at"] = pd.to_datetime(scoped["known_at"], utc=True, errors="coerce")
+    scoped["as_of"] = pd.to_datetime(scoped[date_column], utc=True, errors="coerce", format="mixed")
+    scoped["known_at"] = pd.to_datetime(scoped["known_at"], utc=True, errors="coerce", format="mixed")
     scoped = scoped.loc[scoped["as_of"].le(cutoff) & scoped["known_at"].le(cutoff) & scoped["known_at"].ge(scoped["as_of"])]
     if scoped.empty:
         return scoped
-    scoped = scoped.loc[scoped["as_of"].eq(scoped["as_of"].max())]
-    # Prefer the issuer snapshot; never add vendor top holdings to it.
-    if "authority" in scoped:
-        ranks = scoped["authority"].map({"issuer": 0, "official": 0, "vendor": 1}).fillna(2)
-        scoped = scoped.loc[ranks.eq(ranks.min())]
-    if "source_id" in scoped and scoped["source_id"].nunique() > 1:
-        newest = scoped.sort_values("known_at", kind="stable").iloc[-1]["source_id"]
-        scoped = scoped.loc[scoped["source_id"].eq(newest)]
-    return scoped.reset_index(drop=True)
+    keys = [key for key in ("authority", "source_id", "as_of", "known_at") if key in scoped]
+    if "source_id" not in scoped and "source" in scoped:
+        keys.insert(0, "source")
+    acquisitions = [group for _, group in scoped.groupby(keys, sort=False, dropna=False)]
+    ranks = {"issuer": 0, "official": 0, "issuer_document": 0, "vendor": 1, "public_page": 1, "yfinance": 2}
+    acquisitions.sort(key=lambda group: (
+        ranks.get(str(group.iloc[0].get("authority", "unknown")), 3),
+        -group["as_of"].iloc[0].value,
+        -group["known_at"].iloc[0].value,
+        str(group.iloc[0].get("source_id", group.iloc[0].get("source", ""))),
+    ))
+    usable, rejected = [], []
+    for group in acquisitions:
+        reason = holdings_splits(group)["reason"]
+        if reason is None:
+            usable.append(group)
+        else:
+            rejected.append({"reason": reason, "rows": group.to_dict("records")})
+    selected = usable[0].reset_index(drop=True) if usable else scoped.iloc[:0].copy()
+    selected.attrs["alternates"] = [group.to_dict("records") for group in usable[1:]]
+    selected.attrs["rejections"] = rejected
+    return selected
 
 
 def holdings_splits(frame: pd.DataFrame) -> dict[str, object]:

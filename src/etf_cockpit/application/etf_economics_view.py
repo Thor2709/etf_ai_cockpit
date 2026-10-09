@@ -8,9 +8,37 @@ import pandas as pd
 
 from etf_cockpit.data.etf_economics import calculate_etf_economics, load_etf_e1_fields, load_etf_reference_context
 from etf_cockpit.data.fund_holdings import holdings_splits, select_holdings_as_of
+from etf_cockpit.data.etf_cutoff import etf_decision_cutoff, snapshot_etf_cutoff
 
 if TYPE_CHECKING:
     from etf_cockpit.application.snapshot_builder import CockpitSnapshot
+
+
+def load_etf_holdings_evidence(snapshot: object, instrument_ids: list[str], decision_time: object) -> pd.DataFrame:
+    """Reuse dated reference holdings when a fund has no usable direct evidence."""
+    from etf_cockpit.application.overlap import load_direct_holdings
+
+    supplied = getattr(snapshot, "etf_holdings", None)
+    direct = supplied if isinstance(supplied, pd.DataFrame) else load_direct_holdings()
+    reference = None
+    selections = []
+    for instrument_id in instrument_ids:
+        selected = select_holdings_as_of(direct, instrument_id, decision_time)
+        if not isinstance(supplied, pd.DataFrame) and (selected.empty or selected.get("authority", pd.Series("", index=selected.index)).eq("manual_unverified").all()):
+            if reference is None:
+                reference = load_etf_reference_context("etf_holdings")
+            selected = select_holdings_as_of(reference, instrument_id, decision_time)
+        selections.append(selected)
+    if len(selections) == 1:
+        return selections[0]
+    # Per-fund alternatives remain in their source store; the cube consumes
+    # only one acquisition per fund, with no cross-fund frame attributes.
+    frames = []
+    for selected in selections:
+        frame = selected.copy()
+        frame.attrs = {}
+        frames.append(frame)
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
 def build_etf_economics_panel(
@@ -52,7 +80,7 @@ def build_etf_economics_panel(
     supplied_policy = closure_policy
     if supplied_policy is None:
         supplied_policy = getattr(snapshot, "etf_closure_policy", None)
-    decision_time = as_of if as_of is not None else getattr(getattr(snapshot, "data_report", None), "as_of_date", None)
+    decision_time = etf_decision_cutoff(as_of) if as_of is not None else snapshot_etf_cutoff(snapshot)
     report = calculate_etf_economics(
         instrument_id,
         supplied_records if supplied_records is not None else (),
@@ -95,36 +123,16 @@ def build_etf_economics_panel(
         "known_at": max(filter(None, (report.fund_total_return_selected_known_at, report.benchmark_total_return_selected_known_at)), default=None),
         "window": f"{report.matched_start} to {report.matched_end}" if report.matched_start else None,
     }
-    from etf_cockpit.application.overlap import load_direct_holdings
-
-    evidence = getattr(snapshot, "etf_holdings", None)
-    if not isinstance(evidence, pd.DataFrame):
-        evidence = load_direct_holdings()
-        identity_column = "instrument_id" if "instrument_id" in evidence else "etf_id" if "etf_id" in evidence else None
-        instrument_rows = evidence.loc[evidence[identity_column].astype(str).eq(instrument_id)] if identity_column else pd.DataFrame()
-        if instrument_rows.empty or instrument_rows.get("authority", pd.Series(dtype=str)).eq("manual_unverified").all():
-            evidence = load_etf_reference_context("etf_holdings")
-    selected = select_holdings_as_of(evidence, instrument_id, decision_time)
+    selected = load_etf_holdings_evidence(snapshot, [instrument_id], decision_time)
     splits = holdings_splits(selected)
-    if evidence.attrs.get("unavailable_reason"):
-        splits["reason"] = evidence.attrs["unavailable_reason"]
+    if selected.attrs.get("unavailable_reason"):
+        splits["reason"] = selected.attrs["unavailable_reason"]
     for dimension in ("country", "sector"):
         name = f"{dimension}_split"
         labels = selected.get(dimension, pd.Series(dtype=str)).fillna("").astype(str).str.strip().str.casefold()
         classified = (~labels.isin({"", "unknown", "unknown/unmapped", "unclassified", "nan", "none"})).any()
         if splits[dimension] and (classified or fields[name]["value"] is None):
             fields[name] = {"value": splits[dimension], "as_of": splits["as_of"], "known_at": splits["known_at"], "source": ", ".join(sorted(set(selected.get("source_id", selected.get("source", pd.Series(dtype=str))).dropna().astype(str)))), "reason": None}
-        elif fields[name]["value"] is not None:
-            values = fields[name]["value"]
-            weights = pd.to_numeric(pd.Series(values), errors="coerce")
-            total = weights.sum()
-            if weights.isna().any() or weights.lt(0).any() or not 0 < total <= 1.01:
-                fields[name].update(value=None, reason=f"{dimension}_split_weights_not_usable")
-            else:
-                values = dict(values)
-                if total < 1:
-                    values["Other/unclassified"] = values.get("Other/unclassified", 0) + 1 - total
-                fields[name]["value"] = values
     holding_rows = []
     if splits["reason"] is None:
         for row in selected.sort_values("weight", ascending=False).head(25).to_dict("records"):

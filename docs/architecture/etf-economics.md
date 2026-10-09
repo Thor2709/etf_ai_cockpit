@@ -30,7 +30,13 @@ The ETF E1 read model uses `load_etf_e1_fields` for per-field issuer-document,
 public-page and yfinance precedence. Only observations with a source, effective
 date and known-at time at or before the decision are eligible. Lower-priority
 values remain alternates, and disagreements are visible. Missing fields carry
-reason codes. These display fields do not promote vendor data into canonical
+reason codes. ETF detail and Sectors use the snapshot's decision timestamp.
+When only a calendar date exists, the cutoff is the end of that day in UTC;
+same-day observations are included and next-day observations are excluded.
+Split weights are validated in this canonical per-field loader before source
+selection. Invalid preferred splits record a rejection reason and fall through
+to the next source; usable partial splits include an explicit residual.
+These display fields do not promote vendor data into canonical
 tracking or scoring evidence. `DataService.refresh_yfinance_data` calls the
 offline-testable `fetch_etf_e1_reference_data` source chain before reference
 publication. Its HTTP readers use bounded, timed GET requests. Issuer URLs
@@ -63,7 +69,11 @@ window. Both series require the existing canonical corporate-action binding,
 matching currencies and return convention. Missing index evidence produces no
 tracking result, even when ETF prices are available.
 
-Holdings select one effective, known vintage and source. Country and sector
+Holdings first select the most authoritative usable source, then its latest
+eligible vintage, then its latest acquisition known at the cutoff. Repeated
+acquisitions are never summed together. Conflicting usable alternatives and
+rejected acquisitions remain in the selected frame's provenance attributes.
+Country and sector
 weights derive from that snapshot, with undisclosed/unclassified weight shown
 as `Other/unclassified`; unusable weights remain unavailable. Issuer splits
 are the fallback when holdings or their classifications are unavailable. ETF pages render E1 tiles,
@@ -71,7 +81,10 @@ the top 25 disclosed holdings with a count, labelled split charts and a
 deterministic summary through the existing kit.
 
 Sectors & Countries reuses the canonical exposure cube and dated stock
-classification resolver. With no portfolio holdings, it uses equal weights
+classification resolver. It shares ETF detail's dated reference-holdings
+fallback when a fund has no usable direct-store holdings. Public country and
+sector sections are read independently of the availability of top holdings.
+With no portfolio holdings, it uses equal weights
 over enabled instruments and labels the view
 `Universe (no portfolio holdings registered)`. Registering holdings restores
 portfolio weights. Unknown classifications are explicit exposure, not inferred

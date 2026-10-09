@@ -119,6 +119,19 @@ def test_failed_http_sources_fall_through_and_record_reasons(public_available):
         assert "public_page=" in fields["distribution_policy"]["reason"]
 
 
+def test_public_splits_are_independent_of_missing_holdings_section():
+    instrument = _config().universe.by_id()["VWCE"]
+    body = (FIXTURES / "public_profile.html").read_bytes()
+    start, finish = body.index(b"<h3>Top 10 Holdings"), body.index(b"<h3>Countries")
+    rows = _public_records(body[:start] + body[finish:], instrument, NOW.isoformat(), _public_url(instrument.isin))
+    assert "holdings" not in rows[0]
+    fields = load_etf_e1_fields("VWCE", decision_time=NOW, public_records=rows)
+    assert fields["country_split"]["value"] == {"United States": 0.6, "Other/unclassified": 0.4}
+    assert fields["sector_split"]["value"] == {"Technology": 0.6, "Other/unclassified": 0.4}
+    assert fields["country_split"]["as_of"].startswith("2025-12-31")
+    assert fields["sector_split"]["source"] == _public_url(instrument.isin)
+
+
 def test_no_fee_from_any_source_is_unavailable():
     def get(_url, *, timeout):
         raise OSError("offline fixture")

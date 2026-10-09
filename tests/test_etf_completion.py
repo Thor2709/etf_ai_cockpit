@@ -112,6 +112,80 @@ def test_holdings_splits_reconcile_residual_and_exclude_future_vintage():
     assert select_holdings_as_of(late, "VWCE", "2026-01-03").empty
 
 
+@pytest.mark.parametrize("decision", [None, "2026-01-03T14:00:00Z", "2026-01-03T00:00:00Z"])
+def test_snapshot_cutoff_includes_same_day_only_when_known_at_decision(decision):
+    from datetime import date
+    from etf_cockpit.application.etf_economics_view import build_etf_economics_panel
+
+    snapshot = SimpleNamespace(
+        data_report=SimpleNamespace(as_of_date=date(2026, 1, 3)),
+        etf_metadata=pd.DataFrame([
+            dict(_source("yfinance", ter=0.0022), as_of="2026-01-03", known_at="2026-01-03T12:00:00Z"),
+            dict(_source("yfinance", ter=0.009), as_of="2026-01-04", known_at="2026-01-04T00:00:00Z"),
+        ]),
+        etf_holdings=pd.concat([
+            _holdings().iloc[:2].assign(as_of="2026-01-03", known_at="2026-01-03T12:00:00Z"),
+            _holdings().iloc[:2].assign(as_of="2026-01-04", known_at="2026-01-04T00:00:00Z", weight=0.4),
+        ], ignore_index=True),
+    )
+    if decision is not None:
+        snapshot.decision_time = decision
+    panel = build_etf_economics_panel(snapshot, "VWCE")
+    if decision == "2026-01-03T00:00:00Z":
+        assert panel["e1"]["ter"]["value"] is None
+        assert panel["holdings_count"] == 0
+    else:
+        assert panel["e1"]["ter"]["value"] == pytest.approx(0.0022)
+        assert panel["holdings_count"] == 2
+        assert panel["disclosed_weight"] == pytest.approx(0.7)
+        assert panel["holdings_as_of"].startswith("2026-01-03")
+
+
+def test_holdings_prefer_usable_issuer_before_newer_vendor_and_keep_alternates():
+    issuer = _holdings().iloc[:2]
+    vendor = issuer.assign(as_of="2026-01-02", source_id="vendor-fixture", authority="vendor", country="Japan")
+    evidence = pd.concat([issuer, vendor], ignore_index=True)
+    selected = select_holdings_as_of(evidence, "VWCE", "2026-01-03")
+    assert len(selected) == 2 and selected["source_id"].eq("holdings-fixture").all()
+    assert len(selected.attrs["alternates"]) == 1
+    assert selected.attrs["alternates"][0][0]["country"] == "Japan"
+    invalid_issuer = issuer.assign(weight=0.75)
+    fallback = select_holdings_as_of(pd.concat([invalid_issuer, vendor]), "VWCE", "2026-01-03")
+    assert fallback["authority"].eq("vendor").all()
+    assert fallback.attrs["rejections"][0]["reason"] == "holdings_weights_not_usable"
+
+
+@pytest.mark.parametrize("weights", [(0.6, 0.1), (0.2, 0.1)])
+def test_holdings_select_one_latest_known_acquisition_per_vintage(weights):
+    first = _holdings().iloc[:2].assign(weight=list(weights))
+    second = first.assign(known_at="2026-01-03T12:00:00Z")
+    future = first.assign(known_at="2026-01-04T00:00:00Z", weight=0.4)
+    selected = select_holdings_as_of(pd.concat([first, second, future]), "VWCE", "2026-01-03")
+    assert len(selected) == 2
+    assert selected["known_at"].eq(pd.Timestamp("2026-01-03T12:00:00Z")).all()
+    assert holdings_splits(selected)["disclosed_weight"] == pytest.approx(sum(weights))
+    assert holdings_splits(selected)["reason"] is None
+    before = select_holdings_as_of(pd.concat([first, second]), "VWCE", "2026-01-03T10:00:00Z")
+    assert before["known_at"].eq(pd.Timestamp("2026-01-02", tz="UTC")).all()
+
+
+@pytest.mark.parametrize("invalid", [{"USA": 1.5}, {"USA": -0.2}, {"USA": float("inf")}, {"USA": "bad"}, {}])
+def test_invalid_preferred_splits_fall_through_in_canonical_loader(invalid):
+    from etf_cockpit.application.etf_economics_view import build_etf_economics_panel
+
+    issuer = _source("issuer-fixture", source_authority="issuer_document", country_split=invalid, sector_split=invalid)
+    public = _source("public-fixture", source_authority="public_page", country_split={"USA": 0.6}, sector_split={"Technology": 0.6})
+    fields = load_etf_e1_fields("VWCE", decision_time="2026-01-03", issuer_records=[issuer], public_records=[public])
+    for name in ("country_split", "sector_split"):
+        assert fields[name]["source"] == "public-fixture"
+        assert sum(fields[name]["value"].values()) == pytest.approx(1.0)
+        assert fields[name]["value"]["Other/unclassified"] == pytest.approx(0.4)
+        assert fields[name]["rejections"][0]["source"] == "issuer-fixture"
+        assert fields[name]["rejections"][0]["reason"] == f"{name}_weights_not_usable"
+    panel = build_etf_economics_panel(SimpleNamespace(data_report=SimpleNamespace(as_of_date="2026-01-03"), etf_metadata=pd.DataFrame([issuer, public]), etf_holdings=pd.DataFrame()), "VWCE")
+    assert panel["e1"]["country_split"]["source"] == "public-fixture"
+
+
 def _walk(control):
     if not isinstance(control, ft.Control):
         return
@@ -176,6 +250,32 @@ def test_sectors_page_look_through_plus_direct_stocks_and_explicit_empty_state(m
     text = _texts(sectors_page(None, SimpleNamespace(snapshot=None)).body)
     assert "Register portfolio holdings or add enabled instruments" in text
     assert "Unavailable" in text
+
+
+def test_sectors_consumes_dated_reference_holdings_when_direct_store_is_empty(monkeypatch):
+    from tests.test_exposure_cube import _apple_holding
+    from etf_cockpit.application import overlap, etf_economics_view
+    from etf_cockpit.application.ui_views import sectors as view
+
+    snapshot = _sector_snapshot()
+    snapshot.decision_time = "2026-07-18T10:00:00Z"
+    reference = pd.concat([
+        _apple_holding("VWCE").assign(as_of="2026-07-18", known_at="2026-07-18T09:00:00Z"),
+        _apple_holding("VWCE").assign(as_of="2026-07-18", known_at="2026-07-18T11:00:00Z", sector="Energy"),
+    ], ignore_index=True)
+    calls = []
+    monkeypatch.setattr(overlap, "load_direct_holdings", lambda: pd.DataFrame())
+    def load_reference(dataset):
+        calls.append(dataset)
+        return reference if dataset == "etf_holdings" else pd.DataFrame()
+    monkeypatch.setattr(etf_economics_view, "load_etf_reference_context", load_reference)
+    data = view.load(snapshot)
+    assert calls == ["etf_holdings"]
+    assert {item.name: item.weight for item in data.sectors} == {"Information Technology": 80.0, "Financials": 20.0}
+    assert sum(item.weight for item in data.countries) == pytest.approx(100)
+    panel = etf_economics_view.build_etf_economics_panel(snapshot, "VWCE")
+    assert panel["holdings_count"] == 1
+    assert panel["e1"]["sector_split"]["value"] == {"Information Technology": 1.0}
 
 
 def test_no_portfolio_holdings_shows_labelled_universe_exposure_tiles(monkeypatch):
