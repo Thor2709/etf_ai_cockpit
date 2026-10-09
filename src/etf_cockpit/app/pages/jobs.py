@@ -486,8 +486,19 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
 
     row_a = ft.Row([workflow_card, resource_card], spacing=24)
     row_b = ft.Row([timeline_card, audit_card], spacing=24)
+    authority_card = GlassCard(
+        "Execution boundary",
+        note="local job activity only",
+        body=ft.Column(
+            [
+                Note("Local job activity only. No broker or execution authority is enabled."),
+                Disclosure("Raw authority flag", "execution_allowed=false"),
+            ],
+            spacing=8,
+        ),
+    )
     body = ft.Column(
-        [row_a, row_b, Note("Local job activity only. No broker or execution authority is enabled."), Disclosure("Raw authority flag", "execution_allowed=false")],
+        [row_a, row_b, authority_card],
         spacing=24,
         expand=True,
         scroll=ft.ScrollMode.AUTO,

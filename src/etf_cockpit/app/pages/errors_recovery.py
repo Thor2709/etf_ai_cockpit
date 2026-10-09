@@ -40,6 +40,8 @@ def errors_recovery_page(page: ft.Page, state: AppState) -> PageView:
         if developer_mode_enabled():
             content.append(kit.Disclosure("Developer detail", f"{details}\n{record.detail or 'No technical detail is available.'}"))
         errors.extend(content)
+    if not developer_mode_enabled():
+        errors.append(kit.Note("Technical detail is hidden outside developer mode."))
     recent_errors = kit.GlassCard(
         "Recent errors",
         note=f"{len(records)} controlled errors" if records else "Current session",
@@ -136,8 +138,6 @@ def errors_recovery_page(page: ft.Page, state: AppState) -> PageView:
         body=ft.Column(activity_rows or [kit.EmptyState("No activity", "No activity is currently running.")], spacing=8, scroll=ft.ScrollMode.AUTO),
         expand=True,
     )
-    if not developer_mode_enabled():
-        recent_errors.content.controls.append(kit.Note("Technical detail is hidden outside developer mode."))
     body = ft.ResponsiveRow(
         [
             ft.Container(content=recent_errors, col={"xs": 12, "md": 7}),

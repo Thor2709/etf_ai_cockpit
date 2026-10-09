@@ -17,6 +17,11 @@ from etf_cockpit.application.ui_facade import MacroWarehouse
 from etf_cockpit.core.paths import ROOT
 
 
+def _regime_tag(value: object) -> ft.Control:
+    available = value is not None and str(value).strip().casefold() not in {"", "unavailable", "none", "nan", "nat"}
+    return kit.Tag("Available" if available else "Unavailable", "ok" if available else "warn")
+
+
 def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
     def refresh_context(event: ft.ControlEvent) -> None:
         if page is not None:
@@ -68,8 +73,9 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
         if page is not None:
             page.update()
 
+    regime_label = regime.get("label")
     regime_rows = [
-        kit.Headline(str(regime.get("label") or "Unavailable"), 54),
+        ft.Row([kit.Headline(str(regime_label or "Unavailable"), 54), _regime_tag(regime_label)], spacing=12, wrap=True),
         kit.KpiTile(
             "Breadth above SMA200",
             _format_metric(breadth_value) if breadth_value is not None else None,
@@ -354,10 +360,13 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
     body = ft.Column(
         [
             view_note,
-            kit.Button.secondary(
-                "Refresh local macro/news context",
-                on_click=refresh_context if page is not None else None,
-                key="macro.refresh-context",
+            ft.Row(
+                [kit.Button.secondary(
+                    "Refresh local macro/news context",
+                    on_click=refresh_context if page is not None else None,
+                    key="macro.refresh-context",
+                )],
+                wrap=True,
             ),
             *view_sections.values(),
         ],

@@ -52,25 +52,31 @@ def news_context_page(page: ft.Page, state: AppState) -> PageView:
         cutoff=decision_time,
     )
     contradiction_rows = [
-        kit.ListRow(
-            "warn" if row.get("status") not in {"clear", "available"} else "info",
-            str(row.get("title") or "Contradiction rule"),
-            sub=kit.Disclosure(
-                "Rule result",
-                f"{row.get('rule_status', row.get('status', 'Unavailable'))}: {row.get('detail', 'Unavailable')}",
-            ),
-            tag=kit.Tag(
+        {
+            "title": str(row.get("title") or "Contradiction rule"),
+            "status": kit.Tag(
                 str(row.get("status") or "Unavailable").replace("_", " ").title(),
                 "warn" if row.get("status") not in {"clear", "available"} else "ok",
             ),
-        )
+            "detail": f"{row.get('rule_status', row.get('status', 'Unavailable'))}: {row.get('detail', 'Unavailable')}",
+        }
         for row in contradictions
     ]
     contradiction_card = kit.GlassCard(
         "News/macro contradictions",
         "context rules",
         body=(
-            ft.Column(contradiction_rows, spacing=8)
+            kit.DataTable(
+                [
+                    kit.TableColumn("title", "Rule"),
+                    kit.TableColumn("status", "Status"),
+                    kit.TableColumn("detail", "Result", flex=2),
+                ],
+                contradiction_rows,
+                row_height=48,
+                empty_title="Unavailable",
+                empty_reason="Contradiction results are unavailable; no rule result is inferred.",
+            )
             if contradiction_rows
             else kit.EmptyState("Unavailable", "Contradiction results are unavailable; no rule result is inferred.")
         ),

@@ -249,7 +249,8 @@ def line_chart(
         x_axis_line(sc, plot, x_name)
         labels = list(x_labels) if x_labels is not None else [x_label(v, x_format) for v in xl]
         for i in _label_idx(len(xl), plot.w, x_label_every):
-            sc.add(txt(xs[i], plot.y1 + 14, labels[i], color=pal.T2 if timeaxis else pal.T))
+            align = "l" if edge and i == 0 else "r" if edge and i == len(xl) - 1 else "c"
+            sc.add(txt(xs[i], plot.y1 + 14, labels[i], color=pal.T2 if timeaxis else pal.T, h=align))
         draw_bands(sc, xs, ys, bands)
         draw_series(sc, plot, xs, ys, series)
         draw_events(sc, xs, ys, series, events)
@@ -324,7 +325,8 @@ def price_drawdown_chart(
         sc.add(line(up.x0, up.y1, up.x1, up.y1, pal.AXIS, 1))
         x_axis_line(sc, dn, "Date", name_gap=38)
         for i in _label_idx(len(xl), dn.w, max(1, round(60 * len(xl) / max(len(xl), 60))) if len(xl) > 120 else None):
-            sc.add(txt(xs[i], dn.y1 + 16, x_label(xl[i], x_format), color=pal.T2))
+            align = "l" if i == 0 else "r" if i == len(xl) - 1 else "c"
+            sc.add(txt(xs[i], dn.y1 + 16, x_label(xl[i], x_format), color=pal.T2, h=align))
         draw_bands(sc, xs, ys, bands)
         draw_series(sc, up, xs, ys, series)
         draw_events(sc, xs, ys, series, events)

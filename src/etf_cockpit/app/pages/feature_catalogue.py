@@ -21,6 +21,18 @@ from etf_cockpit.core.paths import ROOT
 from etf_cockpit.application.feature_service import LocalFeatureStore
 
 
+def _display_value(value: object) -> str:
+    if value is None:
+        return "—"
+    try:
+        if pd.isna(value):
+            return "—"
+    except (TypeError, ValueError):
+        pass
+    text = str(value).strip()
+    return text if text.casefold() not in {"", "none", "null", "nan", "nat"} else "—"
+
+
 def feature_catalogue_page(page: ft.Page, state: AppState) -> PageView:
     """Show versioned feature definitions and their local training preview."""
     del page
@@ -30,24 +42,13 @@ def feature_catalogue_page(page: ft.Page, state: AppState) -> PageView:
     source = getattr(getattr(state, "snapshot", None), "features", None)
     coverage = store.coverage(source) if source is not None else None
 
-    def display_value(value: object) -> str:
-        if value is None:
-            return "—"
-        try:
-            if pd.isna(value):
-                return "—"
-        except (TypeError, ValueError):
-            pass
-        text = str(value).strip()
-        return text if text.casefold() not in {"", "none", "null", "nan", "nat"} else "—"
-
     feature_rows = [
         {
-            "feature": display_value(item.feature_id),
-            "source": display_value(item.source_column),
+            "feature": _display_value(item.feature_id),
+            "source": _display_value(item.source_column),
             "lookback": f"{format_count(item.lookback_days, unavailable='—')}d / +{format_count(item.availability_delay_days, unavailable='—')}d",
-            "units": display_value(item.units),
-            "missing": display_value(item.missing_policy),
+            "units": _display_value(item.units),
+            "missing": _display_value(item.missing_policy),
         }
         for item in catalogue
     ]
@@ -67,11 +68,14 @@ def feature_catalogue_page(page: ft.Page, state: AppState) -> PageView:
         raw_coverage = coverage.get("coverage", {})
         coverage_values = raw_coverage if isinstance(raw_coverage, dict) else {}
         preview_reason = "No feature preview rows are available in the local snapshot."
-        preview_columns = [TableColumn("decision_timestamp", "Decision time"), *[TableColumn(str(item.feature_id), str(item.feature_id)) for item in catalogue]]
+        preview_columns = [
+            TableColumn("decision_timestamp", "Decision time", width=180),
+            *[TableColumn(str(item.feature_id), str(item.feature_id), width=150) for item in catalogue],
+        ]
         preview_rows = []
         if hasattr(source, "empty") and not source.empty:
             preview_rows = [
-                {key: display_value(row.get(key)) for key in ("decision_timestamp", *(item.feature_id for item in catalogue))}
+                {key: _display_value(row.get(key)) for key in ("decision_timestamp", *(item.feature_id for item in catalogue))}
                 for row in source.head(8).to_dict(orient="records")
             ]
     coverage_items = sorted(coverage_values.items())
@@ -88,7 +92,7 @@ def feature_catalogue_page(page: ft.Page, state: AppState) -> PageView:
     target_text = "No target definitions are registered."
     if targets:
         target_text = "\n".join(
-            f"{display_value(item.target_id)}: {display_value(item.kind)}, horizon={format_count(item.horizon_days, unavailable='—')}d, embargo={format_count(item.embargo_days, unavailable='—')}d"
+            f"{_display_value(item.target_id)}: {_display_value(item.kind)}, horizon={format_count(item.horizon_days, unavailable='—')}d, embargo={format_count(item.embargo_days, unavailable='—')}d"
             for item in targets
         )
     feature_count = len(catalogue) if catalogue else None
@@ -117,21 +121,31 @@ def feature_catalogue_page(page: ft.Page, state: AppState) -> PageView:
         body=DataTable(feature_columns, feature_rows, empty_title="No feature definitions", empty_reason="The local feature catalogue has no registered definitions."),
         expand=True,
     )
+    coverage_chart_width = max(760, len(coverage_items) * 128)
+    coverage_chart = ck.grouped_bar_chart(
+        [name for name, _ in coverage_items],
+        [
+            ck.BarSeries("Coverage at least 80%", covered_values, kind="blue"),
+            ck.BarSeries("Coverage below 80%", low_coverage_values, kind="gold"),
+        ],
+        x_name="Feature",
+        y_name="Coverage (%)",
+        unit="%",
+        label_size=9,
+        show_legend=True,
+        width=coverage_chart_width,
+        unavailable_reason="No feature coverage result is available from the current snapshot." if not available_coverage else None,
+        insight=lowest_insight,
+    )
     coverage_card = GlassCard(
         "Feature coverage",
         insight=lowest_insight,
-        body=ck.grouped_bar_chart(
-            [name for name, _ in coverage_items],
+        body=ft.Column(
             [
-                ck.BarSeries("Coverage at least 80%", covered_values, kind="blue"),
-                ck.BarSeries("Coverage below 80%", low_coverage_values, kind="gold"),
+                Note("Legend: Coverage at least 80% (blue) · Coverage below 80% (gold)."),
+                ft.Row([coverage_chart], scroll=ft.ScrollMode.AUTO),
             ],
-            x_name="Feature",
-            y_name="Coverage (%)",
-            unit="%",
-            label_size=9,
-            unavailable_reason="No feature coverage result is available from the current snapshot." if not available_coverage else None,
-            insight=lowest_insight,
+            spacing=4,
         ),
         expand=True,
     )
@@ -140,7 +154,10 @@ def feature_catalogue_page(page: ft.Page, state: AppState) -> PageView:
         note="Selected by decision timestamp",
         body=ft.Column(
             [
-                DataTable(preview_columns, preview_rows, empty_title="Training preview unavailable", empty_reason=preview_reason),
+                ft.Row(
+                    [DataTable(preview_columns, preview_rows, empty_title="Training preview unavailable", empty_reason=preview_reason)],
+                    scroll=ft.ScrollMode.AUTO,
+                ),
                 Note("Rows are selected by decision timestamp; late revisions cannot enter earlier vintages."),
                 Note("Parity: offline, paper and disabled live-inference contracts share the same feature definitions."),
                 Disclosure("Coverage details", str(coverage.get("coverage", {})) if coverage is not None else "Unavailable"),

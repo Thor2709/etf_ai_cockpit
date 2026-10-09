@@ -66,6 +66,36 @@ _LIMIT_COLUMNS = [
 ]
 
 
+def _current_weight_availability(holdings: object) -> dict[str, bool]:
+    if not isinstance(holdings, pd.DataFrame) or holdings.empty or "current_weight" not in holdings.columns:
+        return {}
+    identity = "etf_id" if "etf_id" in holdings.columns else "instrument_id" if "instrument_id" in holdings.columns else None
+    if identity is None:
+        return {}
+    available: dict[str, bool] = {}
+    for _, row in holdings.iterrows():
+        instrument_id = str(row.get(identity) or "").strip()
+        if not instrument_id:
+            continue
+        value = pd.to_numeric(pd.Series([row.get("current_weight")]), errors="coerce").iloc[0]
+        has_value = bool(pd.notna(value) and math.isfinite(float(value)))
+        available[instrument_id] = available.get(instrument_id, True) and has_value
+    return available
+
+
+def _bucket_weight_available(
+    allocation: pd.DataFrame,
+    dimension: str,
+    bucket: object,
+    source_availability: dict[str, bool],
+) -> bool:
+    if dimension not in allocation.columns or "etf_id" not in allocation.columns:
+        return False
+    matching = allocation.loc[allocation[dimension].astype(str).eq(str(bucket)), "etf_id"]
+    member_ids = [str(item) for item in matching.tolist()]
+    return bool(member_ids) and all(source_availability.get(item, False) for item in member_ids)
+
+
 def _holdings_reference_day(reference_date: object | None) -> pd.Timestamp:
     """Return the UTC day holdings age is measured against (wall clock only when no reference date is given)."""
 
@@ -364,6 +394,7 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
         )
     snapshot = state.snapshot
     allocation = allocation_frame(snapshot.config, snapshot.holdings)
+    current_weight_availability = _current_weight_availability(snapshot.holdings)
     limits = (
         exposure_limit_report(snapshot.config, allocation)
         if not allocation.empty
@@ -518,30 +549,51 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
         dimension = _DIMENSIONS[label]
         exposure = exposure_summary(allocation, dimension)
         bucket_column = dimension
+        exposure_availability = [
+            _bucket_weight_available(allocation, bucket_column, row.get(bucket_column), current_weight_availability)
+            for _, row in exposure.iterrows()
+        ]
         exposure_rows = [
             {
                 "bucket": str(row.get(bucket_column, "—")) if pd.notna(row.get(bucket_column)) else "—",
-                "current": percent_cell(row.get("current_weight")),
+                "current": percent_cell(row.get("current_weight")) if is_available else "—",
                 "target": percent_cell(row.get("target_weight")),
             }
-            for _, row in exposure.iterrows()
+            for (_, row), is_available in zip(exposure.iterrows(), exposure_availability, strict=True)
         ]
         chart_values = [
-            (row.get("current_weight") * 100) if pd.notna(row.get("current_weight")) else None
-            for _, row in exposure.iterrows()
+            (row.get("current_weight") * 100) if is_available and pd.notna(row.get("current_weight")) else None
+            for (_, row), is_available in zip(exposure.iterrows(), exposure_availability, strict=True)
         ]
         target_values = [
             (row.get("target_weight") * 100) if pd.notna(row.get("target_weight")) else None
             for _, row in exposure.iterrows()
         ]
+        available_differences = [
+            row.get("current_weight") - row.get("target_weight")
+            for (_, row), is_available in zip(exposure.iterrows(), exposure_availability, strict=True)
+            if is_available and pd.notna(row.get("current_weight")) and pd.notna(row.get("target_weight"))
+        ]
         if exposure.empty:
             insight = f"{label} exposure and target comparison are unavailable."
+        elif not available_differences:
+            insight = f"Current {label.casefold()} exposure is unavailable; no target drift is inferred."
         else:
-            differences = exposure["current_weight"] - exposure["target_weight"]
-            over_target = differences.idxmax()
-            bucket = str(exposure.loc[over_target, bucket_column])
-            points = format_number(differences.loc[over_target] * 100, decimals=1, unavailable="—")
-            insight = f"{bucket} is {points} pts over its target."
+            over_target = max(
+                (
+                    (row.get("current_weight") - row.get("target_weight"), str(row.get(bucket_column)))
+                    for (_, row), is_available in zip(exposure.iterrows(), exposure_availability, strict=True)
+                    if is_available and pd.notna(row.get("current_weight")) and pd.notna(row.get("target_weight"))
+                ),
+                key=lambda item: item[0],
+            )
+            points = format_number(over_target[0] * 100, decimals=1, unavailable="—")
+            unavailable_suffix = (
+                " Some current weights are unavailable and omitted."
+                if not all(exposure_availability)
+                else ""
+            )
+            insight = f"{over_target[1]} is {points} pts over its target.{unavailable_suffix}"
         chart = ck.grouped_bar_chart(
             [str(row.get(bucket_column, "—")) for _, row in exposure.iterrows()],
             [
@@ -552,7 +604,11 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
             y_name="Weight (%)",
             unit="%",
             insight=insight,
-            unavailable_reason=f"{label} exposure data is unavailable for the selected holdings.",
+            unavailable_reason=(
+                f"Current {label.casefold()} exposure data is unavailable for the selected holdings."
+                if not any(exposure_availability)
+                else None
+            ),
         )
         return GlassCard(
             f"{label} exposure vs. target",
@@ -594,13 +650,33 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
     for _, row in limits.iterrows():
         display_status, status_kind = status_labels.get(str(row.get("status")), ("Unavailable", "bad"))
         headroom = row.get("headroom")
+        risk_type = str(row.get("risk_type", ""))
+        bucket = row.get("bucket")
+        dimension = {
+            "etf": "etf_id",
+            "asset_class": "asset_class",
+            "region": "region",
+            "sector": "sector",
+            "theme": "theme",
+            "currency": "currency",
+        }.get(risk_type)
+        source_value_available = (
+            bucket in current_weight_availability
+            and current_weight_availability.get(str(bucket), False)
+            if dimension == "etf_id"
+            else _bucket_weight_available(allocation, dimension, bucket, current_weight_availability)
+            if dimension is not None
+            else False
+        )
+        if not source_value_available:
+            display_status, status_kind = "Unavailable", "mute"
         guardrail_rows.append(
             {
                 "type": str(row.get("risk_type", "—")),
                 "bucket": str(row.get("bucket", "—")),
-                "current": percent_cell(row.get("current_weight")),
+                "current": percent_cell(row.get("current_weight")) if source_value_available else "—",
                 "limit": percent_cell(row.get("limit")),
-                "headroom": percent_cell(headroom),
+                "headroom": percent_cell(headroom) if source_value_available else "—",
                 "status": Tag(display_status, status_kind),
             }
         )
