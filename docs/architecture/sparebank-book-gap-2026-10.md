@@ -2,7 +2,7 @@
 
 One row per numbered equation, scorecard-relevant rule and table in the owner's book (Norwegian equity certificates, 7 chapters). `Locator` is the code that implements the item, or `missing`. `Score impact` says which scorecard input the item feeds. `unavailable` items fail closed with a reason; none is estimated.
 
-Totals: implemented 79, partial 59, missing 120, background 123 of 381 rows. Manifest: [sparebank-book-manifest.md](sparebank-book-manifest.md).
+Totals: implemented 81, partial 61, missing 116, background 123 of 381 rows. Manifest: [sparebank-book-manifest.md](sparebank-book-manifest.md).
 
 ## Calibration facts from the book
 
@@ -401,11 +401,11 @@ Totals: implemented 79, partial 59, missing 120, background 123 of 381 rows. Man
 | rule 9 | 103-104 | Normalise earnings by remove-the-cost-only-if-the-resource-disappears; no add-back of bad years | implemented | `src/etf_cockpit/analysis/sparebank/bank_economics.py::owner_normalisation` |  | efficiency axis |
 | rule 10 | owner design | Pillar 3 / annual-report figures are semi-automatic: only owner-confirmed figures are evidence | implemented | `src/etf_cockpit/data/pillar3_queue.py::confirmed_figures` |  | Capital, liquidity and Stage 3 inputs |
 | rule 11 | scorecard | Composite withheld below the minimum coverage floor | implemented | `src/etf_cockpit/analysis/sparebank/scorecard.py::min_coverage_for_composite` |  | Composite is None below 0.25 coverage |
-| rule 12 | 114 | Dividends: EC and ownerless distributions, yield and payout symmetry | missing | missing | Dividend history and yield are not yet produced. | payout_symmetry_gap |
+| rule 12 | 114 | Dividends: EC and ownerless distributions, yield and payout symmetry | partial | `src/etf_cockpit/analysis/sparebank/dividends.py::dividend_history` | EC cash distributions and trailing yield come from the price parquet dividends column; distributions to the ownerless capital (gifts, foundation) are not published in a free structured source, so payout symmetry stays unavailable. | payout_symmetry_gap |
 | rule 13 | owner design | Quarterly report import | missing | missing | Quarterly reports are not yet imported. | Fresher trailing figures |
-| rule 14 | owner design | Score history per quarter with trend | missing | missing | Only annual score history exists. | Trend display |
-| rule 15 | owner design | Non-ESEF banks (HSPG, SOGN, JAEREN, MELG, SKUE) via issuer PDFs | missing | missing | No structured filings for these banks. | Five banks stay unscored |
-| rule 16 | owner design | All listed Norwegian ECs through the universe path | missing | missing | Universe limited to the banks already added. | Coverage of the universe |
+| rule 14 | owner design | Score history per quarter with trend | implemented | `src/etf_cockpit/application/sparebank_peers.py::quarterly_score_history` |  | Trend display |
+| rule 15 | owner design | Non-ESEF banks (HSPG, SOGN, JAEREN, MELG, SKUE) via issuer PDFs | partial | `src/etf_cockpit/data/pillar3_extract.py::ingest_pdf` | Issuer PDFs are read into a pending queue; a figure counts only after the owner confirms it in the Fundamentals tab. Income-statement and balance-sheet lines of these banks are not structured, so their scores stay partial until figures are confirmed. | Five banks stay unscored |
+| rule 16 | owner design | All listed Norwegian ECs through the universe path | implemented | `src/etf_cockpit/data/savings_bank_universe.py::missing_savings_banks` |  | Coverage of the universe |
 
 ## Tables
 

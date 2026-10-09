@@ -70,6 +70,9 @@ def peer_row(instrument_id: str, name: str, analysis: Mapping[str, object], as_o
         "roe": _number(standalone.get("roe")),
         "eierbrok": _number(claim.get("reconstructed_eierbrok")),
         "ttm_yield": _number(dividends.get("ttm_yield")),
+        "gate_reasons": [str(item) for item in (scorecard.get("gate_reasons") or ())],
+        "missing_axes": [str(item) for item in (scorecard.get("missing_axes") or ())],
+        "formula_version": scorecard.get("formula_version"),
     }
     for source, target in _INPUT_FIELDS.items():
         row[target] = _number(inputs.get(source))
@@ -111,6 +114,18 @@ def load_peer_rows(root: Path | None, instrument_id: str, decision_time: object 
     return sorted(result, key=lambda row: (not row["picked"], -(_number(row.get("composite")) or -1.0), str(row.get("instrument_id"))))
 
 
+def load_peer_row(root: Path | None, instrument_id: str) -> dict[str, object] | None:
+    """The latest stored summary row of one certificate (used to explain a missing score)."""
+
+    try:
+        payload = json.loads(_path(root).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    rows = payload.get("rows") if isinstance(payload, dict) and isinstance(payload.get("rows"), dict) else {}
+    row = rows.get(str(instrument_id))
+    return dict(row) if isinstance(row, Mapping) else None
+
+
 def picked_peers(root: Path | None, instrument_id: str) -> list[str]:
     stored = load_preferences(root).get(SPAREBANK_PEERS)
     chosen = stored.get(instrument_id) if isinstance(stored, Mapping) else None
@@ -126,3 +141,38 @@ def set_picked_peers(root: Path | None, instrument_id: str, peer_ids: list[str])
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def quarterly_score_history(frame: pd.DataFrame | None, instrument_id: str) -> list[dict[str, object]]:
+    """Last native scorecard row per calendar quarter, oldest first, with the change from the quarter before.
+
+    The change is shown only between rows of the same formula version (a formula change is not a trend).
+    """
+
+    if frame is None or frame.empty or not {"instrument_id", "run_id", "final_combined_score_10"}.issubset(frame.columns):
+        return []
+    rows = frame.loc[frame["instrument_id"].astype(str).eq(str(instrument_id)) & frame["run_id"].astype(str).str.startswith("sparebank:")].copy()
+    if rows.empty:
+        return []
+    rows["_at"] = pd.to_datetime(rows.get("run_started_at", rows.get("run_completed_at")), errors="coerce", utc=True)
+    rows = rows.loc[rows["_at"].notna()].sort_values("_at", kind="stable")
+    rows["_quarter"] = rows["_at"].dt.tz_localize(None).dt.to_period("Q")
+    latest = rows.groupby("_quarter", sort=True).tail(1)
+    result: list[dict[str, object]] = []
+    previous: dict[str, object] | None = None
+    for row in latest.to_dict("records"):
+        composite = _number(row.get("final_combined_score_10"))
+        entry: dict[str, object] = {
+            "quarter": f"{row['_quarter'].year} Q{row['_quarter'].quarter}",
+            "scored_at": row["_at"].date().isoformat(),
+            "data_as_of": str(row.get("data_as_of_date") or "") or None,
+            "composite": composite,
+            "coverage": _number(row.get("coverage")),
+            "formula_version": str(row.get("formula_version") or "") or None,
+            "change": None,
+        }
+        if previous is not None and composite is not None and previous["composite"] is not None and previous["formula_version"] == entry["formula_version"]:
+            entry["change"] = composite - float(previous["composite"])  # type: ignore[arg-type]
+        result.append(entry)
+        previous = entry
+    return result

@@ -273,3 +273,11 @@ def with_derived_owner_earnings(ec_facts: Mapping[str, object], statements: Mapp
             facts["weighted_average_ec_count"] = derived(count, "EC", locator)
             facts["outstanding_ec_count"] = derived(count, "EC", locator)
     return facts
+
+
+def review_pillar3_figure(root: Path, instrument_id: str, figure_id: str, decision: str) -> dict[str, object]:
+    """Record the owner's decision on one proposed figure (``confirmed`` or ``rejected``); only confirmed figures count."""
+
+    from etf_cockpit.data.pillar3_queue import decide
+
+    return decide(root, instrument_id, figure_id, decision)

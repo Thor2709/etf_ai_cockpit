@@ -38,6 +38,7 @@ from etf_cockpit.application.instrument_detail_view import (
     _latest_operational_row,
     _operational_evidence_panel,
 )
+from etf_cockpit.application.score_views import sparebank_score_context
 from etf_cockpit.application.ui_facade import build_simple_instrument_scores
 from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections  # noqa: F401
 
@@ -136,6 +137,14 @@ def _requested_tier(page: object | None) -> str:
     return requested if requested in {"All", "Primary", "Secondary", "Sparebanken"} else "All"
 
 
+def _not_applicable(what: str) -> ft.Control:
+    """A bank's score does not use ETF/stock components; say so instead of showing a dash."""
+
+    tag = Tag("n/a", "mute", dense=True)
+    tag.tooltip = f"{what} is an ETF/stock measure and is not used for savings-bank certificates. The Sparebank scorecard axes are on the instrument page."
+    return tag
+
+
 def _scorecard_reason(score: object) -> str | None:
     if _tier(score) != "Sparebanken" or str(_read(score, "final_label", "") or "").casefold() != "scorecard_owned":
         return None
@@ -159,6 +168,7 @@ def _score_rows(scores: Sequence[object], on_scorecard_click=None) -> list[dict[
         warning_cell: object = _MISSING
         if warning_count is not None:
             warning_cell = Tag(str(warning_count), "warn" if warning_count else "mute")
+        bank = _tier(score) == "Sparebanken"
         reason = _scorecard_reason(score)
         if reason:
             score_cell: ft.Control = Tag("Scorecard", "mute")
@@ -176,12 +186,10 @@ def _score_rows(scores: Sequence[object], on_scorecard_click=None) -> list[dict[
                 "score": score_cell,
                 "label": Tag(label, kind),
                 "action": Tag(action, action_kind),
-                "quality": _shown_number(_read(score, "evidence_quality_10")),
-                "risk_friction": _shown_number(_read(score, "risk_friction_10")),
-                "components": f"{valid_components}/10 valid"
-                if components
-                else _MISSING,
-                "warnings": warning_cell,
+                "quality": _not_applicable("Evidence quality") if bank else _shown_number(_read(score, "evidence_quality_10")),
+                "risk_friction": _not_applicable("Risk/friction") if bank else _shown_number(_read(score, "risk_friction_10")),
+                "components": _not_applicable("Generic components") if bank else f"{valid_components}/10 valid" if components else _MISSING,
+                "warnings": _not_applicable("Generic warnings") if bank else warning_cell,
             }
         )
     return rows
@@ -274,6 +282,28 @@ def _score_detail(score: object | None, page: ft.Page | None, state: object) -> 
                 "Open instrument detail for the per-axis breakdown and coverage."
             )
         ]
+    bank_notes: list[ft.Control] = []
+    if tier == "Sparebanken":
+        context = sparebank_score_context(score) or {}
+        composite = _number(_read(score, "final_score_10"))
+        coverage = _number(context.get("coverage"))
+        gate_codes = [str(item) for item in context.get("gate_reasons", ()) or ()]
+        if composite is not None:
+            bank_notes.append(Note(f"Composite {composite:.1f} of 10 at {format_number(coverage * 100 if coverage is not None else None, decimals=0)} % evidence coverage."))
+        else:
+            bank_notes.append(
+                Note(
+                    "No composite score: "
+                    + (f"evidence coverage is {coverage * 100:.0f} %, below the 25 % needed. " if coverage is not None else "no scorecard evidence is stored for this certificate yet. ")
+                    + "A score is never invented from missing evidence."
+                )
+            )
+        if gate_codes:
+            bank_notes.append(Note("Gate reasons: " + ", ".join(code.replace("_", " ").lower() for code in gate_codes) + "."))
+        axes_without = [str(item).replace("_", " ") for item in context.get("missing_axes", ()) or ()]
+        if axes_without:
+            bank_notes.append(Note("Axes without evidence: " + ", ".join(axes_without) + "."))
+        bank_notes.append(Note("Tier, ranking and portfolio-fit columns that apply to ETFs and stocks are not used for banks; open the instrument page for each axis, input and reason."))
     authority = _read(score, "authority_decision")
     gates = _read(authority, "gates", ()) or ()
     gate_controls = []
@@ -342,12 +372,19 @@ def _score_detail(score: object | None, page: ft.Page | None, state: object) -> 
             spacing=8,
         ),
         *components,
-        *(gate_controls or [GateCheck(None, "Gate results", "Gate evaluation is unavailable.")]),
-        DataTable(
-            [TableColumn("field", "Portfolio fit"), TableColumn("value", "Value")],
-            fit_rows,
-            empty_title="Unavailable",
-            empty_reason="Portfolio-fit evidence is unavailable.",
+        *bank_notes,
+        *(gate_controls or ([] if tier == "Sparebanken" else [GateCheck(None, "Gate results", "Gate evaluation is unavailable.")])),
+        *(
+            []
+            if tier == "Sparebanken"
+            else [
+                DataTable(
+                    [TableColumn("field", "Portfolio fit"), TableColumn("value", "Value")],
+                    fit_rows,
+                    empty_title="Unavailable",
+                    empty_reason="Portfolio-fit evidence is unavailable.",
+                )
+            ]
         ),
         Note(str(_read(score, "one_line_reason", "") or "Score reasons are unavailable.")),
         Note("Momentum, drawdown, volatility, liquidity and spread details are in the evidence disclosure."),
