@@ -127,3 +127,49 @@ def test_ingest_requires_https_and_a_pdf_and_queues_everything_as_pending(tmp_pa
     queue = pillar3_queue.load_queue(tmp_path, "TEST")
     assert result["proposed"] == 1 and {item["status"] for item in queue["figures"]} == {"pending"}
     assert queue["documents"][0]["source_url"] == "https://example.test/p3.pdf" and len(queue["documents"][0]["sha256"]) == 64
+
+
+def test_dividend_history_is_point_in_time_per_certificate_and_unavailable_when_empty() -> None:
+    import pandas as pd
+
+    from etf_cockpit.analysis.sparebank.dividends import dividend_history
+
+    dates = pd.to_datetime(["2023-04-20", "2024-04-18", "2024-10-10", "2025-04-17", "2025-06-30"], utc=True)
+    frame = pd.DataFrame({"_price_date": dates, "dividends": [5.0, 6.0, None, 8.0, 0.0]})
+    result = dividend_history(frame, 160.0)
+    assert [(item["year"], item["amount"], item["complete"]) for item in result["by_year"]] == [(2023, 5.0, True), (2024, 6.0, True), (2025, 8.0, False)]
+    assert result["ttm_amount"] == pytest.approx(8.0)  # only 2025-04-17 lies within a year of the last row
+    assert result["ttm_yield"] == pytest.approx(8.0 / 160.0)
+    assert result["last_ex_date"] == "2025-04-17"
+    for empty in (pd.DataFrame({"_price_date": dates, "dividends": [0.0] * 5}), pd.DataFrame({"_price_date": dates}), None):
+        outcome = dividend_history(empty, 160.0)
+        assert outcome["status"] == "unavailable" and outcome["reason_code"] and outcome["by_year"] == []
+
+
+def test_listing_sync_adds_only_pattern_matched_unknown_banks(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import pandas as pd
+
+    from etf_cockpit.data import savings_bank_universe as module
+    from etf_cockpit.data.universe_store import UniverseRecord
+
+    assert module.display_name("SPBK 1 NORDMØRE") == "Sparebank 1 Nordmøre"
+    listing = pd.DataFrame(
+        [
+            {"isin": "NO0010691660", "symbol": "SNOR", "yfinance_ticker": "SNOR.OL", "market": "Oslo Børs"},
+            {"isin": "NO0003025009", "symbol": "VVL", "yfinance_ticker": "VVL.OL", "market": "Oslo Børs"},  # include-name only, not a pattern
+            {"isin": "NO0006000801", "symbol": "NONG", "yfinance_ticker": "NONG.OL", "market": "Oslo Børs"},  # already known
+            {"isin": "NO0006001601", "symbol": "AURG", "yfinance_ticker": "AURG.OL", "market": "Oslo Børs"},  # known without a valid ISIN
+        ]
+    )
+    monkeypatch.setattr(module, "savings_bank_view", lambda root: listing)
+    monkeypatch.setattr(module, "_listing_names", lambda root: {"NO0010691660": "SPBK 1 NORDMØRE", "NO0003025009": "VOSS VEKSEL OGLAND", "NO0006000801": "SPAREBANK 1 NORD-NORGE", "NO0006001601": "AURSKOG SPAREBANK"})
+    existing = (
+        UniverseRecord(instrument_id="NONG", name="SpareBank 1 Nord-Norge", isin="NO0006000801", ticker="NONG.OL", asset_type="equity_certificate", tier="sparebanken", currency="NOK"),
+        UniverseRecord(instrument_id="AURG", name="Aurskog Sparebank", isin="NEEDS_VERIFICATION", isin_status="needs_verification", ticker="AURG.OL", asset_type="equity_certificate", tier="sparebanken", currency="NOK"),
+    )
+    monkeypatch.setattr(module, "_all_records", lambda root: existing)
+    monkeypatch.setattr(module, "load_sparebank_records", lambda root, enabled_only=False: existing)
+    assert [row["symbol"] for row in module.missing_savings_banks(tmp_path)] == ["SNOR"]
+    assert module.isin_corrections(tmp_path) == {"AURG": "NO0006001601"}
+    created = module.sync(tmp_path)
+    assert [(record.instrument_id, record.asset_type, record.isin, record.currency) for record in created] == [("SNOR", "equity_certificate", "NO0010691660", "NOK")]

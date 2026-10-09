@@ -295,6 +295,9 @@ def _build_financial_projection_from_evidence(
         }
         sparebank_payload = asdict(sparebank_analysis)
         sparebank_payload["decision_price"] = decision_price_projection
+        from etf_cockpit.analysis.sparebank.dividends import dividend_history
+
+        sparebank_payload["dividends"] = dividend_history(_market_prices_as_of(market_data_prices, instrument_id, decision), decision_price)
         source_vintage_hash = _source_vintage_hash(route_evidence.get("sha256")) or "unavailable"
         sparebank_payload["source_vintage_hash"] = source_vintage_hash
         scorecard = sparebank_analysis.scorecard
