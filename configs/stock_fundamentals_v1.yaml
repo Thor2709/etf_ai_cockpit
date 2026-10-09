@@ -1,0 +1,124 @@
+schema_version: 1
+# Normal-stock (non-bank) fundamentals, valuation and score inputs. Read by
+# etf_cockpit.analysis.stock_evidence and etf_cockpit.data.stock_fundamentals.
+# Every number here is an explicit, documented default: change it here, never in code.
+
+scope:
+  # normal stocks only: banks and equity certificates have their own scorecard
+  excluded_sectors: [Banks, Bank, Savings banks]
+
+sources:
+  # Fallback chain per instrument: the first source that yields the core fields wins; gaps are
+  # filled from later sources only for the same period and currency, and recorded per field.
+  chain: [sec_edgar, yfinance]
+  # SEC EDGAR needs a descriptive User-Agent (fair-access policy). Set the environment variable
+  # ETF_COCKPIT_SEC_EDGAR_USER_AGENT to "<name> <contact>"; without it EDGAR is reported unavailable.
+  sec_edgar_user_agent_env: ETF_COCKPIT_SEC_EDGAR_USER_AGENT
+  core_fields: [revenue, net_income_parent, equity_parent]
+
+yfinance_labels:
+  # field -> ordered statement row labels (first present wins)
+  revenue: [Total Revenue, Operating Revenue]
+  gross_profit: [Gross Profit]
+  ebit: [Operating Income, EBIT]
+  da: [Depreciation And Amortization, Reconciled Depreciation, Depreciation Amortization Depletion]
+  pretax_income: [Pretax Income]
+  income_tax: [Tax Provision]
+  interest_expense: [Interest Expense, Interest Expense Non Operating]
+  net_income_parent: [Net Income Common Stockholders, Net Income]
+  cfo: [Operating Cash Flow, Cash Flow From Continuing Operating Activities]
+  capex: [Capital Expenditure, Purchase Of PPE]
+  dividends_paid: [Cash Dividends Paid, Common Stock Dividend Paid]
+  equity_parent: [Stockholders Equity, Common Stock Equity]
+  minority_interest: [Minority Interest]
+  total_debt: [Total Debt]
+  lease_liabilities: [Capital Lease Obligations]
+  cash_sti: [Cash Cash Equivalents And Short Term Investments, Cash And Cash Equivalents]
+  total_assets: [Total Assets]
+  shares_outstanding: [Ordinary Shares Number, Share Issued]
+
+sec_edgar_concepts:
+  # field -> ordered us-gaap concepts (first reported wins). Debt is the sum of the listed parts
+  # that are reported (current + non-current), never a guess for a missing part.
+  revenue: [Revenues, RevenueFromContractWithCustomerExcludingAssessedTax, SalesRevenueNet, RevenueFromContractWithCustomerIncludingAssessedTax]
+  gross_profit: [GrossProfit]
+  ebit: [OperatingIncomeLoss]
+  da: [DepreciationDepletionAndAmortization, DepreciationAndAmortization, DepreciationAmortizationAndAccretionNet]
+  pretax_income: [IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest, IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments]
+  income_tax: [IncomeTaxExpenseBenefit]
+  interest_expense: [InterestExpense, InterestExpenseNonoperating]
+  net_income_parent: [NetIncomeLoss]
+  cfo: [NetCashProvidedByUsedInOperatingActivities]
+  capex: [PaymentsToAcquirePropertyPlantAndEquipment, PaymentsToAcquireProductiveAssets]
+  capex_extra: [PaymentsToAcquireIntangibleAssets]
+  dividends_paid: [PaymentsOfDividendsCommonStock, PaymentsOfDividends]
+  equity_parent: [StockholdersEquity]
+  minority_interest: [MinorityInterest]
+  debt_parts: [LongTermDebtNoncurrent, LongTermDebtCurrent, ShortTermBorrowings, CommercialPaper]
+  debt_total: [LongTermDebt, DebtAndCapitalLeaseObligations]
+  lease_parts: [OperatingLeaseLiabilityNoncurrent, OperatingLeaseLiabilityCurrent, FinanceLeaseLiabilityNoncurrent, FinanceLeaseLiabilityCurrent]
+  cash: [CashAndCashEquivalentsAtCarryingValue]
+  short_term_investments: [ShortTermInvestments, MarketableSecuritiesCurrent, AvailableForSaleSecuritiesDebtSecuritiesCurrent]
+  total_assets: [Assets]
+  shares_outstanding: [CommonStockSharesOutstanding]
+
+reporting:
+  quarters_for_ttm: 4
+  # four consecutive quarter ends span 270 days; accept 240..300 (a stale or gappy series is not a TTM)
+  ttm_span_days: [240, 300]
+  minor_currency_units: {GBp: [GBP, 0.01], GBX: [GBP, 0.01], ILA: [ILS, 0.01], ZAc: [ZAR, 0.01]}
+  max_balance_staleness_days: 400
+
+growth:
+  years: 3
+
+valuation:
+  history_years: 5
+  history_min_points: 12
+  # a filing share count that differs from the provider count by more than this is treated as a share-class or split mismatch
+  share_count_tolerance: 0.25
+  # Reverse valuation inputs. Left empty on purpose: the app must not invent a cost of equity.
+  # With cost_of_equity unset every reverse-valuation figure is reported unavailable with that reason.
+  cost_of_equity: null
+  terminal_growth: null
+  stage1_years: 5
+
+peers:
+  min_for_score: 3
+  size_bands_market_cap_eur_bn: [2, 10, 50]
+  min_score: 2
+  max_auto: 8
+  weights: {industry: 3, sector: 2, region: 1, size_band: 1}
+
+scoring:
+  # sub-score mapping: value at/below `low` -> 0, at/above `high` -> 10, linear in between
+  # (`low` may exceed `high` for "lower is better" inputs). weight is the share inside the component.
+  value:
+    min_inputs: 2
+    earnings_yield: {low: 0.0, high: 0.10, weight: 1}
+    fcf_yield: {low: 0.0, high: 0.10, weight: 1}
+    ebit_ev_yield: {low: 0.0, high: 0.10, weight: 1}
+    pe_history_percentile: {low: 1.0, high: 0.0, weight: 1}
+    pe_vs_peers_discount: {low: -0.5, high: 0.5, weight: 1}
+  quality:
+    min_inputs: 2
+    roe: {low: 0.0, high: 0.20, weight: 1}
+    roic: {low: 0.0, high: 0.15, weight: 1}
+    ebit_margin: {low: 0.0, high: 0.25, weight: 1}
+    net_debt_to_ebitda: {low: 4.0, high: 0.0, weight: 1}
+    fcf_conversion: {low: 0.0, high: 1.0, weight: 1}
+    revenue_cagr: {low: -0.05, high: 0.10, weight: 1}
+  analyst_revision:
+    min_inputs: 1
+    eps_estimate_change_90d: {low: -0.10, high: 0.10, weight: 1}
+    up_share_30d: {low: 0.0, high: 1.0, weight: 1}
+    min_analysts: 3
+  # a loss-making company scores 0 on the yield-type value inputs and on ROE/ROIC/margin (known losses, not missing data)
+  loss_subscore: 0.0
+
+text:
+  percentile_cheap: 0.25
+  percentile_expensive: 0.75
+  peer_premium_pct: 0.10
+  strong_score: 7.0
+  weak_score: 4.0
