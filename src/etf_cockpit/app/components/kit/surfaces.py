@@ -30,6 +30,8 @@ def _rim_overlay(radius: float) -> cv.Canvas:
     canvas = cv.Canvas(left=0, top=0, right=0, bottom=0, shapes=[], resize_interval=80)
 
     def redraw(event: cv.CanvasResizeEvent) -> None:
+        if hasattr(canvas, "_frozen") or getattr(canvas, "_parent", None) is None:
+            return
         width, height = float(event.width), float(event.height)
         if width < 4 or height < 4:
             return

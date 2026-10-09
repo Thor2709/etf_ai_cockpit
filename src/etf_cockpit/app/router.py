@@ -244,59 +244,86 @@ def _toast_is_error(message: str) -> bool:
 # One page build at a time: builders share state and the (patched) page.update, and a superseded
 # background build must finish before the next starts.
 _BUILD_LOCK = threading.RLock()
+_RENDER_LOCK = threading.RLock()
 _RENDER_GENERATIONS = count(1)
 SKELETON_PATIENCE_S = 0.08  # a page that builds faster than this is painted once, without a skeleton frame
 _DEFERRED_UPDATE_KEY = "shell.deferred-update"
 
 
-def _schedule_deferred_updates(page: ft.Page, view: ft.View, generation: int, state: AppState, route: str) -> None:
-    """Run tagged section fillers after the placeholder shell has been painted."""
-
+def _deferred_callbacks(root: object, *, consume: bool = False) -> list[tuple[ft.Control, Callable[[], object]]]:
     pending: list[tuple[ft.Control, Callable[[], object]]] = []
+    seen: set[int] = set()
 
-    def walk(control: ft.Control) -> None:
+    def walk(control: object) -> None:
+        if isinstance(control, PageView):
+            walk(control.body)
+            return
+        if not isinstance(control, ft.Control) or id(control) in seen:
+            return
+        seen.add(id(control))
         data = getattr(control, "data", None)
         if isinstance(data, dict):
-            callback = data.pop(_DEFERRED_UPDATE_KEY, None)
+            callback = data.pop(_DEFERRED_UPDATE_KEY, None) if consume else data.get(_DEFERRED_UPDATE_KEY)
             if callable(callback):
                 pending.append((control, callback))
         for child in getattr(control, "controls", ()) or ():
-            if isinstance(child, ft.Control):
-                walk(child)
-        content = getattr(control, "content", None)
-        if isinstance(content, ft.Control):
-            walk(content)
+            walk(child)
+        walk(getattr(control, "content", None))
 
-    for control in view.controls:
-        walk(control)
+    if isinstance(root, ft.View):
+        for control in root.controls:
+            walk(control)
+    else:
+        walk(root)
+    return pending
 
-    for control, callback in pending:
-        def fill(target=control, build=callback) -> None:
-            if getattr(page, "_render_generation", generation) != generation:
-                return
+
+def _resolve_deferred_controls(page: ft.Page, built: object) -> object:
+    """Fill a fresh, unmounted page tree before the router mounts it."""
+
+    for _ in range(64):
+        pending = _deferred_callbacks(built, consume=True)
+        if not pending:
+            return built
+        replaced = False
+        for _target, callback in pending:
             try:
                 with _deferred_page_update(page):
-                    result = build()
+                    result = callback()
             except Exception:
-                return
+                continue
             if isinstance(result, PageView):
-                if getattr(page, "_render_generation", generation) != generation:
-                    return
-                replacement = build_shell(page, state, route, built=result)
-                page.views[:] = [replacement]
-                page.update()
-                _schedule_deferred_updates(page, replacement, generation, state, route)
-                return
-            if callable(getattr(target, "update", None)):
-                try:
-                    target.update()
-                    return
-                except Exception:
-                    pass
-            if callable(getattr(page, "update", None)):
-                page.update()
+                built = result
+                replaced = True
+                break
+        if replaced:
+            continue
+    _deferred_callbacks(built, consume=True)
+    return built
 
-        threading.Thread(target=fill, name="deferred-page-section", daemon=True).start()
+
+def _schedule_deferred_updates(page: ft.Page, view: ft.View, generation: int, state: AppState, route: str) -> None:
+    """Rebuild tagged sections off-thread, resolving their fillers before mounting controls."""
+
+    if not _deferred_callbacks(view):
+        return
+
+    def refresh() -> None:
+        if getattr(page, "_render_generation", generation) != generation:
+            return
+        if _page_route(getattr(page, "route", route)) != _page_route(route):
+            return
+        built = _resolve_deferred_controls(page, build_page(page, state, route))
+        if getattr(page, "_render_generation", generation) != generation:
+            return
+        replacement = build_shell(page, state, route, built=built, show_toast=False)
+        if _page_route(getattr(page, "route", route)) != _page_route(route):
+            return
+        if not _paint_if_current(page, replacement, generation):
+            return
+        _schedule_deferred_updates(page, replacement, generation, state, route)
+
+    threading.Thread(target=refresh, name="deferred-page-refresh", daemon=True).start()
 
 
 @contextmanager
@@ -385,7 +412,7 @@ def build_shell(page: ft.Page, state: AppState, route: str, *, built: object | N
     def select_workspace(workspace: str) -> None:
         go(dict(WORKSPACE_GROUPS)[workspace][0])
 
-    badge_count = {"value": 0}
+    badge_count = {"value": material_change_count(state)}
     dock = build_dock(
         [workspace for workspace, _routes in WORKSPACE_GROUPS],
         active=active_workspace,
@@ -566,28 +593,6 @@ def build_shell(page: ft.Page, state: AppState, route: str, *, built: object | N
         vertical_alignment=ft.CrossAxisAlignment.STRETCH,
     )
 
-    def refresh_badges() -> None:
-        nonlocal dock, topbar
-
-        count = material_change_count(state)
-        badge_count["value"] = count
-        dock = build_dock(
-            [workspace for workspace, _routes in WORKSPACE_GROUPS],
-            active=active_workspace,
-            narrow=narrow,
-            icons=WORKSPACE_ICONS,
-            tooltips=_workspace_tooltips(),
-            badge_count=count,
-            on_select=select_workspace,
-        )
-        shell_row.controls[0] = dock.control
-        replacement = build_chrome_topbar(chrome)
-        topbar.control = replacement.control
-        topbar.title_left = replacement.title_left
-        topbar.set_width = replacement.set_width
-        topbar_holder["control"] = topbar.control
-        column.controls[0] = topbar.control
-
     shell_content = ft.Container(content=shell_row, padding=margin(), expand=True)
     background = ft.Image(src="background/bg_3200.jpg", fit=ft.BoxFit.COVER, left=-12, top=-12, right=-12, bottom=-12,
                           exclude_from_semantics=True)
@@ -601,7 +606,6 @@ def build_shell(page: ft.Page, state: AppState, route: str, *, built: object | N
         expand=True,
         key="shell.backdrop",
     )
-    root.data = {_DEFERRED_UPDATE_KEY: refresh_badges}
     view = ft.View(route=route, controls=[root], bgcolor=theme.BG, padding=0)
 
     message = str(getattr(state, "last_message", "") or "")
@@ -733,20 +737,30 @@ def _dispose_workspace(page: ft.Page) -> None:
 def _claim_render(page: ft.Page) -> int:
     """Newest render wins: an older background build that finishes later must not repaint."""
 
-    generation = next(_RENDER_GENERATIONS)
-    try:
-        page._render_generation = generation
-    except Exception:
-        pass
-    return generation
+    with _RENDER_LOCK:
+        generation = next(_RENDER_GENERATIONS)
+        try:
+            page._render_generation = generation
+        except Exception:
+            pass
+        return generation
+
+
+def _paint_if_current(page: ft.Page, view: ft.View, generation: int) -> bool:
+    with _RENDER_LOCK:
+        if getattr(page, "_render_generation", generation) != generation:
+            return False
+        page.views[:] = [view]
+        page.update()
+        return True
 
 
 def render_shell(page: ft.Page, state: AppState, route: str) -> None:
     generation = _claim_render(page)
     _dispose_workspace(page)
     view = build_shell(page, state, route)
-    page.views[:] = [view]
-    page.update()
+    if not _paint_if_current(page, view, generation):
+        return
     _schedule_deferred_updates(page, view, generation, state, route)
 
 
@@ -785,8 +799,8 @@ def render_route_change(
         if getattr(page, "_render_generation", generation) != generation:
             return  # superseded by a newer render
         view = build_shell(page, state, route, built=result["built"])
-        page.views[:] = [view]
-        page.update()
+        if not _paint_if_current(page, view, generation):
+            return
         _schedule_deferred_updates(page, view, generation, state, route)
         if on_done is not None:
             on_done()
@@ -810,8 +824,7 @@ def render_route_change(
         if pending:
             title = PAGES.get(_page_route(route), ("Loading", None))[0]
             skeleton = PageView(PageChrome(title, theme.APP_TAGLINE), skeleton_body(f"Loading {title}…"))
-            page.views[:] = [build_shell(page, state, route, built=skeleton, show_toast=False)]
-            page.update()
-            skeleton_shown["value"] = True
+            shell = build_shell(page, state, route, built=skeleton, show_toast=False)
+            skeleton_shown["value"] = _paint_if_current(page, shell, generation)
     if not pending:
         paint_final()

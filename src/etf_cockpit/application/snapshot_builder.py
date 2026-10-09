@@ -64,6 +64,8 @@ from etf_cockpit.application.feature_service import FeatureService
 from etf_cockpit.application.data_service import DataService
 from etf_cockpit.application.signal_service import _run_decision_shadow_guard
 
+_STARTUP_WRITE_LOCK = threading.RLock()
+
 
 @dataclass
 class CockpitSnapshot:
@@ -104,10 +106,11 @@ class CockpitSnapshot:
 
         if self.backtest is not None:
             return self.backtest
-        with self._backtest_lock:
-            if self.backtest is None and self._backtest_loader is not None:
-                self.backtest = self._backtest_loader()
-            return self.backtest
+        with _STARTUP_WRITE_LOCK:
+            with self._backtest_lock:
+                if self.backtest is None and self._backtest_loader is not None:
+                    self.backtest = self._backtest_loader()
+                return self.backtest
 
 
 def build_snapshot(
@@ -115,8 +118,9 @@ def build_snapshot(
     *,
     publish_guard: PublicationScopeFactory | None = None,
 ) -> CockpitSnapshot:
-    with timed_step("snapshot", "build"):
-        return _build_snapshot(force_sample=force_sample, publish_guard=publish_guard)
+    with _STARTUP_WRITE_LOCK:
+        with timed_step("snapshot", "build"):
+            return _build_snapshot(force_sample=force_sample, publish_guard=publish_guard)
 
 
 def _build_snapshot(

@@ -88,8 +88,10 @@ def _attach_windowed_stdio() -> None:
 def _refresh_static_trust_artifacts(state: AppState) -> None:
     try:
         from etf_cockpit.application.scoreboard_publication import refresh_static_trust_artifacts
+        from etf_cockpit.application.snapshot_builder import _STARTUP_WRITE_LOCK
 
-        refresh_static_trust_artifacts(state.snapshot.config)
+        with _STARTUP_WRITE_LOCK:
+            refresh_static_trust_artifacts(state.snapshot.config)
     except Exception:
         pass
 
