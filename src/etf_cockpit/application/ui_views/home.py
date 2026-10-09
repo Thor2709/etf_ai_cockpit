@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+import re
 
 TIER_FILTERS = ("All", "Primary", "Secondary", "Sparebanken")
 SORT_MODES = ("Score", "Rank", "Change")
@@ -149,6 +150,9 @@ def score_rows(
         ident = str(item.display_id)
         old, new = rank_info.get(ident, (None, None))
         text, kind = evidence_tag(item.final_label, item.final_action, ident in blocked)
+        scorecard_reason = str(item.one_line_reason or "")
+        if re.search(r"\bnan\b", scorecard_reason, re.IGNORECASE) or "n/ad" in scorecard_reason.casefold():
+            scorecard_reason = "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields."
         rows.append(
             ScoreRow(
                 rank=index if item.final_score_10 is not None else None,
@@ -163,7 +167,7 @@ def score_rows(
                 old_rank=None if old is None else int(old),
                 new_rank=None if new is None else int(new),
                 scorecard_reason=(
-                    item.one_line_reason
+                    scorecard_reason
                     if tier_label(item.source_group) == "Sparebanken"
                     and str(item.final_label or "").casefold() == "scorecard_owned"
                     else None

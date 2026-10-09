@@ -22,7 +22,9 @@ from etf_cockpit.data.local_storage import (
     StorageSchemaError,
     TransactionalStore,
     storage_layout,
+    transactional_store_initialized,
 )
+from etf_cockpit.core.session_log import log_event
 from etf_cockpit.portfolio.top_n_selection import (
     SelectionCandidate,
     SelectionPolicyError,
@@ -488,12 +490,15 @@ def load_portfolio_goals_projection(
         "acknowledgement_history": [],
     }
     stored_revision = 0
+    store_initialized = False
 
     try:
         layout = storage_layout(root)
         database_exists = layout.transactional_path.is_file()
-        if database_exists or command is not None:
+        store_initialized = database_exists and transactional_store_initialized(root)
+        if command is not None or store_initialized:
             with TransactionalStore(root, read_only=command is None) as store:
+                store_initialized = True
                 record = store.get(entity_type, storage_id)
                 if record is not None:
                     if record.payload.get("schema_version") != PORTFOLIO_GOALS_SCHEMA:
@@ -599,6 +604,14 @@ def load_portfolio_goals_projection(
     except StorageRevisionConflict as exc:
         return {"status": "conflict", "reason": str(exc), "execution_allowed": False}
     except (OSError, sqlite3.Error, StorageSchemaError) as exc:
+        log_event(
+            event_type="data_read_failed",
+            severity="warning",
+            component="portfolio_goals",
+            operation="read_portfolio_goals_store",
+            exception_type=type(exc).__name__,
+            exception_message_redacted=str(exc),
+        )
         return _portfolio_goals_unavailable(f"local_portfolio_goals_store_unavailable:{type(exc).__name__}")
 
     versions = state.get("policy_versions", [])
@@ -648,6 +661,8 @@ def load_portfolio_goals_projection(
     return {
         "status": "available" if latest_policy is not None or not versions else "unavailable",
         "reason": None if latest_policy is not None or not versions else "stored_portfolio_policy_invalid",
+        "store_status": "available" if store_initialized else "uninitialized",
+        "store_reason": None if store_initialized else "portfolio_goals_store_uninitialized",
         "source_snapshot_hash": current_hash,
         "policy": None if latest_policy is None else policy_record(latest_policy),
         "policy_as_of": (

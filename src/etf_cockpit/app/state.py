@@ -309,6 +309,59 @@ class AppState:
 
     def __post_init__(self) -> None:
         self.refresh_runtime_profile()
+        self.assign_sector_projections()
+
+    def assign_sector_projections(self, instrument_id: str | None = None) -> None:
+        """Attach verified or explicitly unavailable sector evidence for the selected instrument."""
+
+        from etf_cockpit.analysis.financial_sector_adapters import unavailable_financial_projection
+        from etf_cockpit.application.financial_institution_views import load_financial_institution_projection
+        from etf_cockpit.application.sector_views import (
+            load_cyclical_projection,
+            load_innovation_projection,
+            load_real_asset_projection,
+        )
+        from etf_cockpit.application.identity_views import load_classification_projection
+
+        selected = str(instrument_id or self.selected_etf)
+        cutoff_value = getattr(getattr(self.snapshot, "data_report", None), "as_of_date", None)
+        cutoff = f"{cutoff_value}T00:00:00Z" if cutoff_value is not None else None
+        load_classification_projection(
+            selected,
+            storage_root=ROOT,
+            effective_at=cutoff,
+            decision_time=cutoff,
+        )
+        if self.real_asset_projection is None or str(self.real_asset_projection.get("instrument_id")) != selected:
+            self.real_asset_projection = load_real_asset_projection(selected)
+        if self.cyclical_projection is None or str(self.cyclical_projection.get("instrument_id")) != selected:
+            self.cyclical_projection = load_cyclical_projection(selected)
+            self.cyclical_source_digest = None
+        if self.innovation_projection is None or str(self.innovation_projection.get("instrument_id")) != selected:
+            self.innovation_projection = load_innovation_projection(selected)
+            self.innovation_source_digest = None
+        if self.financial_projection is None or str(self.financial_projection.get("instrument_id")) != selected:
+            try:
+                self.financial_projection = load_financial_institution_projection(
+                    selected,
+                    storage_root=ROOT,
+                    decision_time=cutoff,
+                    effective_at=cutoff,
+                )
+            except Exception as exc:
+                log_event(
+                    event_type="data_read_failed",
+                    severity="warning",
+                    component="sector_projection",
+                    operation="build_financial_projection",
+                    instrument_id=selected,
+                    exception_type=type(exc).__name__,
+                    exception_message_redacted=str(exc),
+                )
+                self.financial_projection = unavailable_financial_projection(
+                    selected,
+                    "financial_evidence_invalid",
+                )
 
     def refresh_runtime_profile(self, resource_profile: str | None = None) -> str:
         """Rebuild the local runtime boundary from persisted onboarding hardware."""
