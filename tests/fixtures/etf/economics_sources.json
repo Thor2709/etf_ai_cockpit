@@ -1,0 +1,6 @@
+{
+  "fixture_type": "synthetic offline fallback observations; not live ETF facts",
+  "issuer": [{"instrument_id": "VWCE", "as_of": "2026-01-01", "known_at": "2026-01-02", "source": "issuer-fixture", "ter": 0.22, "fee_unit": "percent"}],
+  "public_page": [{"instrument_id": "VWCE", "as_of": "2026-01-01", "known_at": "2026-01-02", "source": "public-fixture", "ter": 0.0023, "fee_unit": "decimal_fraction"}],
+  "yfinance": [{"instrument_id": "VWCE", "as_of": "2026-01-02", "known_at": "2026-01-02", "source": "yfinance", "ter": 0.0024}]
+}

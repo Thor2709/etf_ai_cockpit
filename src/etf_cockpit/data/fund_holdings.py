@@ -241,6 +241,53 @@ def normalise_holdings(
     return HoldingsNormalisationResult(selected, completeness, str(source), as_of_date.isoformat(), tuple(warnings), source_id, freshness, confidence, authority, score_eligible)
 
 
+def select_holdings_as_of(frame: pd.DataFrame, instrument_id: str, decision_time: object) -> pd.DataFrame:
+    """Select one dated, known holdings vintage; never mix snapshots."""
+    identity = next((key for key in ("instrument_id", "etf_id") if key in frame), None)
+    date_column = next((key for key in ("as_of", "as_of_date") if key in frame), None)
+    if identity is None or date_column is None or "known_at" not in frame:
+        return pd.DataFrame()
+    cutoff = pd.to_datetime(decision_time, utc=True, errors="coerce")
+    scoped = frame.loc[frame[identity].astype(str).eq(instrument_id)].copy()
+    scoped["as_of"] = pd.to_datetime(scoped[date_column], utc=True, errors="coerce")
+    scoped["known_at"] = pd.to_datetime(scoped["known_at"], utc=True, errors="coerce")
+    scoped = scoped.loc[scoped["as_of"].le(cutoff) & scoped["known_at"].le(cutoff) & scoped["known_at"].ge(scoped["as_of"])]
+    if scoped.empty:
+        return scoped
+    scoped = scoped.loc[scoped["as_of"].eq(scoped["as_of"].max())]
+    # Prefer the issuer snapshot; never add vendor top holdings to it.
+    if "authority" in scoped:
+        ranks = scoped["authority"].map({"issuer": 0, "official": 0, "vendor": 1}).fillna(2)
+        scoped = scoped.loc[ranks.eq(ranks.min())]
+    if "source_id" in scoped and scoped["source_id"].nunique() > 1:
+        newest = scoped.sort_values("known_at", kind="stable").iloc[-1]["source_id"]
+        scoped = scoped.loc[scoped["source_id"].eq(newest)]
+    return scoped.reset_index(drop=True)
+
+
+def holdings_splits(frame: pd.DataFrame) -> dict[str, object]:
+    """Derive country/sector NAV fractions and an explicit undisclosed residual."""
+    result: dict[str, object] = {"count": len(frame), "as_of": None, "known_at": None, "country": {}, "sector": {}, "reason": None}
+    if frame.empty or "weight" not in frame:
+        result["reason"] = "holdings_no_dated_source"
+        return result
+    weights = pd.to_numeric(frame["weight"], errors="coerce")
+    total = float(weights.sum())
+    if weights.isna().any() or (weights < 0).any() or not math.isfinite(total) or not 0 < total <= 1.01:
+        result["reason"] = "holdings_weights_not_usable"
+        return result
+    result.update(as_of=str(frame["as_of"].max()), known_at=str(frame["known_at"].max()), disclosed_weight=total)
+    for dimension in ("country", "sector"):
+        labels = frame.get(dimension, pd.Series("", index=frame.index)).fillna("").astype(str).str.strip()
+        labels = labels.mask(labels.str.casefold().isin({"", "unknown", "unknown/unmapped", "unclassified", "nan", "none"}), "Other/unclassified")
+        values = weights.groupby(labels).sum().to_dict()
+        residual = max(0.0, 1.0 - total)
+        if residual:
+            values["Other/unclassified"] = values.get("Other/unclassified", 0.0) + residual
+        result[dimension] = dict(sorted(values.items(), key=lambda item: -item[1]))
+    return result
+
+
 def _canonical_holdings_json(frame: pd.DataFrame) -> str:
     """Return an order-independent finite JSON representation for provenance."""
 

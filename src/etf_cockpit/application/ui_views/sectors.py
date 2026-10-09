@@ -3,8 +3,9 @@
 Everything is aggregated from existing results: the dated portfolio exposure cube (ETF look-through, economic
 country / sector / entity dimensions) and the stored fund-holdings evidence. Nothing here changes a score, gate,
 forecast or portfolio decision. A value that cannot be derived is ``None`` with a reason, never zero. Look-through
-buckets carry no return (their constituents have no stored prices); a return only appears where it is the plain
-weighted adjusted-close return of the held instruments that make up a classification group.
+buckets carry no return when their constituents have no stored return evidence. Constituent fundamentals and
+returns must be dated and known at the selected snapshot. Without portfolio holdings, exposure uses equal
+weights across the analysed universe and says so explicitly; missing classifications remain unmapped.
 """
 
 from __future__ import annotations
@@ -79,6 +80,9 @@ class SectorsView:
     bubbles: list[Bubble] = field(default_factory=list)
     bubbles_reason: str | None = None
     window: str = "1Y"
+    exposure_label: str = "Portfolio"
+    exposure_note: str | None = None
+    attractiveness: dict[str, dict[str, object]] = field(default_factory=dict)
 
 
 # ----- geography --------------------------------------------------------------------------------------------------
@@ -239,7 +243,10 @@ def _cube(weights: Mapping[str, float], snapshot: object, holdings: pd.DataFrame
         return None, "The snapshot has no as-of date, so exposure cannot be dated."
     decision = datetime(as_of.year, as_of.month, as_of.day, 23, 59, 59, tzinfo=timezone.utc)
     try:
-        return load_portfolio_exposure_projection(weights, decision_time=decision, analysis_date=as_of, holdings=holdings), None
+        from etf_cockpit.application.sector_views import load_sector_position_metadata
+
+        metadata = load_sector_position_metadata(snapshot, decision, list(weights))
+        return load_portfolio_exposure_projection(weights, decision_time=decision, analysis_date=as_of, holdings=holdings, position_metadata=metadata), None
     except (ArithmeticError, KeyError, OSError, TypeError, ValueError) as exc:
         return None, f"Exposure evidence unavailable: {exc}"
 
@@ -247,7 +254,7 @@ def _cube(weights: Mapping[str, float], snapshot: object, holdings: pd.DataFrame
 def _segments(projection: Mapping[str, object] | None, dimension: str) -> tuple[list[dict[str, object]], float]:
     if not projection:
         return [], 0.0
-    rows = [row for row in projection.get("dimensions", {}).get(dimension, []) if row["name"] != UNKNOWN and float(row["percentage"]) > 0]  # type: ignore[union-attr]
+    rows = [row for row in projection.get("dimensions", {}).get(dimension, []) if float(row["percentage"]) > 0]  # type: ignore[union-attr]
     coverage = float(projection.get("coverage", {}).get(dimension, {}).get("coverage_fraction", 0.0))  # type: ignore[union-attr]
     return rows, coverage
 
@@ -332,25 +339,33 @@ def load(snapshot: object, window: str = "1Y", *, holdings: pd.DataFrame | None 
     view = SectorsView(window=window)
     weights = current_weights(snapshot)
     if not weights:
-        view.exposure_reason = "No current holdings are available in the selected portfolio snapshot."
-        view.sector_reason = view.exposure_reason
-        view.bubbles_reason = "Import benchmark holdings and fundamentals to compare companies."
-        return view
+        universe = getattr(getattr(snapshot, "config", None), "universe", None)
+        ids = list(getattr(universe, "enabled_ids", ()))
+        if not ids:
+            view.exposure_reason = "No current holdings or analysed universe are available. Register portfolio holdings or add enabled instruments to the universe."
+            view.sector_reason = view.exposure_reason
+            view.bubbles_reason = "Import benchmark holdings and fundamentals to compare companies."
+            return view
+        weights = dict.fromkeys(ids, 1.0 / len(ids))
+        view.exposure_label = "Universe (no portfolio holdings registered)"
+        view.exposure_note = "Equal weight per analysed instrument. Register portfolio holdings to see your portfolio exposure. Missing ETF classifications remain unmapped."
     evidence = holdings if holdings is not None else load_direct_holdings()
     projection, error = _cube(weights, snapshot, evidence)
     country_rows, country_cover = _segments(projection, "economic_country")
     sector_rows, sector_cover = _segments(projection, "sector")
     company_rows, _cover = _segments(projection, "entity")
-    if country_rows and country_cover >= 0.01:
+    if country_rows:
         view.countries = _look_through(country_rows, countries=True)
+        if country_cover < 0.01:
+            view.exposure_reason = "Country classifications are unavailable at this snapshot date. Import dated ETF holdings and direct-stock classifications; unmapped exposure is shown explicitly."
     else:
-        view.region_only = True
-        view.countries = _classified(snapshot, weights, "region", window)
-        view.exposure_reason = error or None
-    if sector_rows and sector_cover >= 0.01:
+        view.exposure_reason = error or "No dated country exposure is available. Import holdings with country classifications."
+    if sector_rows:
         view.sectors = _look_through(sector_rows, countries=False)
+        if sector_cover < 0.01:
+            view.sector_reason = "Sector classifications are unavailable at this snapshot date. Import dated holdings; unmapped exposure is shown explicitly."
     else:
-        view.sectors = _classified(snapshot, weights, "sector", window)
+        view.sector_reason = error or "No dated sector exposure is available. Import holdings with sector classifications."
     view.companies = _look_through(company_rows, countries=False)
     if not view.sectors:
         view.sector_reason = error or "No sector classification is available for the held instruments."
@@ -360,5 +375,17 @@ def load(snapshot: object, window: str = "1Y", *, holdings: pd.DataFrame | None 
         rows, cover = _segments(bench_projection, "economic_country")
         if rows and cover >= 0.01:
             view.benchmark_top_country = max(float(row["percentage"]) for row in rows)
-    view.bubbles, view.bubbles_reason = bubbles_from_holdings(evidence, window)
+    bubble_evidence = evidence
+    date_column = _pick(evidence, ("as_of", "as_of_date"))
+    if date_column and "known_at" in evidence and _as_of(snapshot):
+        cutoff = pd.Timestamp(_as_of(snapshot), tz="UTC") + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+        dates = pd.to_datetime(evidence[date_column], utc=True, errors="coerce")
+        known = pd.to_datetime(evidence["known_at"], utc=True, errors="coerce")
+        bubble_evidence = evidence.loc[dates.le(cutoff) & known.le(cutoff) & known.ge(dates)]
+    else:
+        bubble_evidence = pd.DataFrame()
+    view.bubbles, view.bubbles_reason = bubbles_from_holdings(bubble_evidence, window)
+    from etf_cockpit.application.sector_views import build_sector_attractiveness
+
+    view.attractiveness = build_sector_attractiveness(snapshot, [item.name for item in view.sectors])
     return view

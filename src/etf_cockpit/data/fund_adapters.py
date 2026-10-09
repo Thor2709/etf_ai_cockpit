@@ -1,4 +1,4 @@
-"""Explicit, point-in-time adapters for SEC fund bulk datasets.
+"""Explicit, point-in-time adapters for fund evidence and SEC bulk datasets.
 
 Network access is opt-in at the run boundary. Quarterly SEC archives are
 acquired only through :mod:`sec_edgar_bulk`, which supplies resumable,
@@ -32,6 +32,36 @@ _COVERAGE_COLUMNS = (
     "instrument_id", "accession_number", "report_date", "market", "market_basis", "asset_type",
     "evidence_type", "denominator_pct", "mapped_pct", "unknown_pct", "coverage_pct", "unknown_reason",
 )
+
+
+def fetch_etf_economics_sources(
+    instrument_id: str,
+    *,
+    decision_time: object,
+    issuer_reader: object,
+    public_reader: object,
+    vendor_reader: object,
+) -> dict[str, object]:
+    """Acquire explicit source bindings in priority order, with offline readers.
+
+    Readers return dated records for the exact instrument. URLs and identities
+    belong to those bindings; this adapter never constructs issuer addresses.
+    All available sources are retained so disagreements can be displayed.
+    This function does not publish records or confer scoring authority.
+    """
+    from etf_cockpit.data.etf_economics import load_etf_e1_fields
+
+    records = []
+    failures = {}
+    for name, reader in (("issuer", issuer_reader), ("public_page", public_reader), ("yfinance", vendor_reader)):
+        try:
+            rows = reader(instrument_id) if callable(reader) else ()
+            records.append(list(rows))
+        except (OSError, TypeError, ValueError) as exc:
+            records.append([])
+            failures[name] = type(exc).__name__
+    fields = load_etf_e1_fields(instrument_id, decision_time=decision_time, issuer_records=records[0], public_records=records[1], vendor_records=records[2])
+    return {"fields": fields, "records": records, "failures": failures, "execution_allowed": False}
 
 
 @dataclass(frozen=True)
