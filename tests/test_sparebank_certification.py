@@ -166,6 +166,7 @@ def test_teaching_bank_production_route_exposes_scorecard_and_workspace(tmp_path
         decision_time="2025-03-01T00:00:00Z",
         context=context,
         tactical_evidence={"status": "available", "components": ({"key": "momentum", "raw_metric": 0.8},)},
+        record_history=True,
     )
     identity = projection["share_class_identity"]
     assert identity["native_suite"] == "sparebank-analysis-suite.v1"
@@ -227,6 +228,7 @@ def test_sparebank_score_history_requires_price_at_decision_time(
         storage_root=tmp_path,
         decision_time="2025-03-01T00:00:00Z",
         context=context,
+        record_history=True,
     )
     analysis = projection["share_class_identity"]["sparebank_analysis"]
     # Owner policy 2026-10-09: partial composite allowed; the price-dependent axis must stay unavailable.

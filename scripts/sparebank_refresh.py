@@ -210,6 +210,7 @@ def _rescore(record: UniverseRecord, data_root: Path, universe_root: Path, decis
         universe_root=universe_root,
         decision_time=decision_time,
         effective_at=decision_time[:10],
+        record_history=True,
     )
     identity = projection.get("share_class_identity") if isinstance(projection, Mapping) else None
     analysis = identity.get("sparebank_analysis") if isinstance(identity, Mapping) else None

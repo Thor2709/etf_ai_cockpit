@@ -672,3 +672,24 @@ def _normalise_history_frame(frame: pd.DataFrame) -> pd.DataFrame:
     result["final_action"] = result["final_action"].map(_clean_optional_text)
     result["execution_allowed"] = False
     return result.reindex(columns=_COLUMNS)
+
+
+_SPAREBANK_CACHE: dict[str, object] = {}
+
+
+def latest_sparebank_scores(*, root: Path | None = None) -> dict[str, dict[str, object]]:
+    """Latest native Sparebank scorecard row per instrument (run ids ``sparebank:<id>:<time>``)."""
+
+    path = (Path(root) if root is not None else ROOT) / "data" / "derived" / "score_history.parquet"
+    key = (str(path), path.stat().st_mtime_ns if path.exists() else None)
+    if _SPAREBANK_CACHE.get("key") == key:
+        return _SPAREBANK_CACHE["value"]  # type: ignore[return-value]
+    frame = score_history_frame(root=root)
+    if frame.empty or "run_id" not in frame.columns:
+        return {}
+    native = frame[frame["run_id"].astype(str).str.startswith("sparebank:")]
+    latest: dict[str, dict[str, object]] = {}
+    for row in native.sort_values("run_id", kind="stable").to_dict("records"):
+        latest[str(row["instrument_id"])] = row
+    _SPAREBANK_CACHE.update(key=key, value=latest)
+    return latest

@@ -33,8 +33,12 @@ def load_financial_institution_projection(
     effective_at: str | None = None,
     context: object | None = None,
     tactical_evidence: Mapping[str, object] | None = None,
+    record_history: bool = False,
 ) -> dict[str, object]:
-    """Load a verified projection, or build one from local point-in-time evidence."""
+    """Load a verified projection, or build one from local point-in-time evidence.
+
+    Views are read-only; only the Sparebank refresh passes ``record_history=True`` to store the score.
+    """
 
     # A cached projection for another instrument (stale UI selection) is ignored and rebuilt.
     if isinstance(projection, Mapping) and str(projection.get("instrument_id")) != str(instrument_id):
@@ -49,6 +53,7 @@ def load_financial_institution_projection(
                 effective_at=effective_at,
                 context=context,
                 tactical_evidence=tactical_evidence,
+                record_history=record_history,
             )
         except (FinancialAdapterError, OSError, TypeError, ValueError, KeyError):
             return unavailable_financial_projection(
@@ -74,6 +79,7 @@ def _build_financial_projection_from_evidence(
     effective_at: str | None,
     context: object | None,
     tactical_evidence: Mapping[str, object] | None = None,
+    record_history: bool = False,
 ) -> dict[str, object]:
     """Adapt #699's persisted statement/EC artifacts to the domain adapter."""
     from datetime import datetime, timezone
@@ -276,7 +282,9 @@ def _build_financial_projection_from_evidence(
         sparebank_payload["source_vintage_hash"] = source_vintage_hash
         scorecard = sparebank_analysis.scorecard
         composite = getattr(scorecard, "composite_10", None)
-        if isinstance(composite, Real) and not isinstance(composite, bool) and math.isfinite(float(composite)):
+        if not record_history:
+            history_status = {"status": "not_requested", "reason": "read_only_view"}
+        elif isinstance(composite, Real) and not isinstance(composite, bool) and math.isfinite(float(composite)):
             try:
                 from etf_cockpit.data.score_history import append_score_run
 

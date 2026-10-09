@@ -25,7 +25,7 @@ from etf_cockpit.core.types import SignalResult, latest_signal
 from etf_cockpit.data.classification import classification_score_state
 from etf_cockpit.data.trade_candidate_analysis import load_candidate_price_binding
 from etf_cockpit.data.macro_warehouse import MacroWarehouse, load_risk_free_proxy_mappings
-from etf_cockpit.data.score_history import project_classification_score_frame
+from etf_cockpit.data.score_history import latest_sparebank_scores, project_classification_score_frame
 from etf_cockpit.governance.gate_policy import resolve_authority
 from etf_cockpit.data.reference_data import load_reference_dataset
 from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items
@@ -1958,6 +1958,26 @@ def _pending_configured_score(
     )
 
 
+def _native_sparebank_score(display_id: str) -> tuple[float | None, str]:
+    """Read the stored native scorecard result (computed by the Sparebank refresh), never recompute here."""
+
+    row = latest_sparebank_scores().get(str(display_id))
+    value = None if row is None else row.get("final_combined_score_10")
+    try:
+        score = float(value) if value is not None and isfinite(float(value)) else None
+    except (TypeError, ValueError):
+        score = None
+    if score is None:
+        return None, "Underwriting is determined by the Sparebank scorecard (pending: not enough filing evidence for a composite yet); tactical evidence is presented separately."
+    coverage = row.get("coverage")
+    try:
+        coverage_text = f"{float(coverage):.0%} of axis evidence"
+    except (TypeError, ValueError):
+        coverage_text = "coverage unknown"
+    as_of = _noneable_str(row.get("data_as_of_date")) or "unknown date"
+    return round(score, 2), f"Sparebank scorecard {score:.1f}/10 from {coverage_text} (as of {as_of})."
+
+
 def _sparebank_scorecard_status(
     *,
     instrument_key: str,
@@ -1969,6 +1989,7 @@ def _sparebank_scorecard_status(
     isin: str | None,
     data_policy: str,
 ) -> SimpleInstrumentScore:
+    native_score, native_reason = _native_sparebank_score(display_id)
     return SimpleInstrumentScore(
         instrument_key=instrument_key,
         display_id=display_id,
@@ -1982,11 +2003,9 @@ def _sparebank_scorecard_status(
         isin=isin,
         analysis_tier="sparebanken",
         data_policy=data_policy,
-        final_score_10=None,
-        decision="Sparebank scorecard required",
-        one_line_reason=(
-            "Underwriting is determined by the Sparebank scorecard; tactical evidence is presented separately."
-        ),
+        final_score_10=native_score,
+        decision="Sparebank scorecard" if native_score is not None else "Sparebank scorecard required",
+        one_line_reason=native_reason,
         components=[],
         warnings=[],
         evidence_score_10=None,
