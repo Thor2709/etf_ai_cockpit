@@ -427,11 +427,23 @@ def load_settings_bundle_with_issues(root: Path) -> tuple[SettingsBundle, tuple[
     base = _base_bundle(root, controls).model_copy(update={"settings_version": settings_version, "revision": ""})
     expected = _revision_for(base)
     supplied = str(raw.get("revision") or "")
+    issues: tuple[SettingsMigrationIssue, ...] = ()
     if supplied != expected:
-        raise SettingsError("SETTINGS_SCHEMA_INVALID", "settings revision does not match companion configuration")
+        if settings_version != 0:
+            raise SettingsError("SETTINGS_SCHEMA_INVALID", "settings revision does not match companion configuration")
+        # A never-saved shipped default (version 0) holds no user choice to protect; it is
+        # re-bound to this install's companion configuration in memory (startup never writes).
+        issues = (
+            SettingsMigrationIssue(
+                code="SETTINGS_DEFAULT_REBOUND",
+                field="revision",
+                legacy_value=supplied,
+                message="Shipped default settings were re-bound to this install's local configuration.",
+            ),
+        )
     bundle = base.model_copy(update={"revision": expected})
     _validate_bundle(bundle)
-    return bundle, ()
+    return bundle, issues
 
 
 def _validate_bundle(bundle: SettingsBundle) -> None:

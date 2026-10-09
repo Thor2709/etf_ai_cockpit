@@ -110,6 +110,8 @@ def _field(
 
 def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
     settings_bundle, migration_issues = load_settings_bundle_with_issues(ROOT)
+    # Re-binding an untouched shipped default is routine, not something the user must review.
+    migration_issues = tuple(issue for issue in migration_issues if issue.code != "SETTINGS_DEFAULT_REBOUND")
     config = state.snapshot.config if state is not None and getattr(state, "snapshot", None) is not None else None
     if config is None:
         config = load_config()
