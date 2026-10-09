@@ -355,8 +355,13 @@ def _book_valuation(standalone: Mapping[str, object], assumptions: Mapping[str, 
     The book's own worked examples use 10 % and 3 % (p. 16, p. 111).
     """
 
-    coe = _num(assumptions.get("cost_of_equity", assumptions.get("k")))
-    growth = _num(assumptions.get("long_run_growth", assumptions.get("g")))
+    errors = assumptions.get("assumption_errors")
+    if isinstance(errors, Mapping) and errors:
+        reason = str(next(iter(errors.values())))
+        missing = {"status": "unavailable", "reason_code": reason}
+        return missing, dict(missing)
+    coe = _num(assumptions.get("cost_of_equity"))
+    growth = _num(assumptions.get("long_run_growth"))
     sustainable = _num(assumptions.get("sustainable_roe"))
     book_per_ec = _num(standalone.get("owner_book_per_ec"))
     owner_pb = _num(standalone.get("owner_pb"))
@@ -382,7 +387,9 @@ def _book_valuation(standalone: Mapping[str, object], assumptions: Mapping[str, 
         }
     implied = book_calcs.implied_roe(owner_pb, coe, growth)
     reverse: dict[str, object]
-    if implied is None:
+    if sustainable is None:
+        reverse = {"status": "unavailable", "reason_code": "SUSTAINABLE_ROE_UNAVAILABLE"}
+    elif implied is None:
         reverse = {"status": "unavailable", "reason_code": "OWNER_PRICE_TO_BOOK_UNAVAILABLE"}
     else:
         reverse = {
@@ -399,6 +406,46 @@ def _book_valuation(standalone: Mapping[str, object], assumptions: Mapping[str, 
     return central, reverse
 
 
+def normalise_valuation_assumptions(
+    assumptions: Mapping[str, object],
+    *,
+    defaults: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Map supported valuation aliases to canonical ratios before valuation."""
+
+    result = dict(assumptions)
+    errors: dict[str, str] = {}
+    aliases = (
+        ("cost_of_equity", ("cost_of_equity", "k", "cost_of_equity_pct"), "COST_OF_EQUITY_ALIAS_CONFLICT"),
+        ("long_run_growth", ("long_run_growth", "g", "long_run_growth_pct"), "GROWTH_ALIAS_CONFLICT"),
+    )
+    default_values = defaults or {}
+    for canonical, names, conflict_code in aliases:
+        supplied = [(name, result[name]) for name in names if name in result]
+        if supplied:
+            converted: list[float] = []
+            invalid = False
+            for name, raw in supplied:
+                value = _num(raw)
+                if value is None:
+                    invalid = True
+                    continue
+                converted.append(value / 100.0 if name.endswith("_pct") else value)
+            if invalid:
+                errors[canonical] = f"{canonical.upper()}_ASSUMPTION_INVALID"
+            elif converted and any(not math.isclose(value, converted[0], rel_tol=0.0, abs_tol=1e-12) for value in converted[1:]):
+                errors[canonical] = conflict_code
+            elif converted:
+                result[canonical] = converted[0]
+        elif default_values.get(canonical) is not None:
+            result[canonical] = default_values[canonical]
+    if errors:
+        result["assumption_errors"] = errors
+    else:
+        result.pop("assumption_errors", None)
+    return result
+
+
 def valuation(claim: ECClaimState | Mapping[str, object], *, price: float | None = None, assumptions: Mapping[str, object] | None = None) -> dict[str, object]:
     """Build the explicit valuation section used by the suite entry point."""
 
@@ -408,6 +455,7 @@ def valuation(claim: ECClaimState | Mapping[str, object], *, price: float | None
     assumptions = assumptions or {}
     if not isinstance(assumptions, Mapping):
         return {"status": "unavailable", "standalone": standalone, "reason_code": "VALUATION_ASSUMPTIONS_INVALID", "execution_allowed": False}
+    assumptions = normalise_valuation_assumptions(assumptions)
     reverse = None
     if "price_to_book" in assumptions and "k" in assumptions and "g" in assumptions:
         reverse = reverse_valuation(float(assumptions["price_to_book"]), k=float(assumptions["k"]), g=float(assumptions["g"]))
@@ -416,7 +464,10 @@ def valuation(claim: ECClaimState | Mapping[str, object], *, price: float | None
     else:
         reverse = {"status": "unavailable", "reason_code": "REVERSE_INPUTS_MISSING"}
     central, reverse_book = _book_valuation(standalone, assumptions)
-    if reverse.get("status") == "unavailable" and reverse_book.get("status") == "resolved":
+    if reverse.get("status") == "unavailable" and (
+        reverse_book.get("status") == "resolved"
+        or reverse_book.get("reason_code") == "SUSTAINABLE_ROE_UNAVAILABLE"
+    ):
         reverse = reverse_book
     scenarios = scenario_value(assumptions.get("scenarios")) if "scenarios" in assumptions else {"status": "unavailable", "reason_code": "SCENARIO_ASSUMPTIONS_MISSING", "scenarios": ()}
 

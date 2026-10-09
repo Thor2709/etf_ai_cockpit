@@ -98,6 +98,8 @@ def _summary(workspace: Mapping[str, object]) -> ft.Control:
     coverage = _number(scorecard.get("composite_coverage"))
     gates = [str(item) for item in _sequence(scorecard.get("gate_reasons"))]
     share = _number(claim.get("reconstructed_eierbrok"))
+    if share is None:
+        share = _number(claim.get("reported_eierbrok"))
     tiles = [
         KpiTile(
             "Composite score",
@@ -153,9 +155,12 @@ def _input_rows(inputs: Sequence[object]) -> list[dict[str, object]]:
         else:
             basis = _text(str(entry.get("book") or ""), size=12)
             role = Tag("scored", "ok", dense=True)
+        calculation_id = str(entry.get("calculation_id") or "")
+        source = entry.get("source_locator") or entry.get("source_url") or entry.get("document_title")
+        citation = str(source) if source else "Source unavailable"
         rows.append(
             {
-                "input": (str(entry.get("label") or entry.get("id")), str(entry.get("calculation_id") or "")),
+                "input": (str(entry.get("label") or entry.get("id")), f"{calculation_id} · {citation}".strip(" ·")),
                 "value": shown,
                 "rating": ScoreBar(rating) if rating is not None else _text("not rated", size=12),
                 "role": role,
@@ -268,12 +273,13 @@ def _ownership(workspace: Mapping[str, object]) -> ft.Control:
     rows = [{"pool": name.replace("_", " "), "holder": "EC holders", "amount": _money(value)} for name, value in owner.items()]
     rows += [{"pool": name.replace("_", " "), "holder": "Ownerless (the bank itself)", "amount": _money(value)} for name, value in own.items()]
     reported, rebuilt = _number(claim.get("reported_eierbrok")), _number(claim.get("reconstructed_eierbrok"))
+    used_share = rebuilt if rebuilt is not None else reported
     status = str(claim.get("claim_status") or "unknown")
     body: list[ft.Control] = [
         _tiles(
             [
                 KpiTile("Claim status", status.replace("_", " "), "pools and counts reconcile" if status == "resolved" else "see the unavailable fields below", tone="pos" if status == "resolved" else "attention"),
-                KpiTile("EC ownership fraction", _percent(rebuilt, 2), "reconstructed: EC pools / (EC pools + ownerless pools)" if rebuilt is not None else "Cannot be reconstructed: a pool is missing"),
+                KpiTile("EC ownership fraction", _percent(used_share, 2), "reconstructed: EC pools / (EC pools + ownerless pools)" if rebuilt is not None else "reported by the bank; a missing pool prevents reconstruction" if reported is not None else "Cannot be reconstructed: a pool is missing"),
                 KpiTile("Reported by the bank", _percent(reported, 2), "as printed in the report" if reported is not None else "The bank does not print it in the structured filing"),
                 KpiTile("Certificates", None if _number(claim.get("registered_ec_count")) is None else f"{_number(claim.get('registered_ec_count')) / 1e6:,.1f} m", "registered" if _number(claim.get("registered_ec_count")) is not None else "Count not tagged in the filing"),
             ]
@@ -299,7 +305,7 @@ def _bank_economics(workspace: Mapping[str, object]) -> ft.Control:
     resilience = _mapping(economics.get("resilience"))
     reasons = _mapping(economics.get("reasons"))
     specs = (
-        ("Net interest margin", lending.get("nim"), "percent", "net_interest_margin", True),
+        ("Net interest margin", lending.get("net_interest_margin"), "percent", "net_interest_margin", True),
         ("Risk-adjusted margin", lending.get("risk_adjusted_margin"), "percent", "risk_adjusted_margin_pct", True),
         ("Cost of risk", lending.get("cost_of_risk"), "percent", "cost_of_risk_bps", True),
         ("Loan growth", lending.get("loan_growth"), "percent", "loan_growth", True),
@@ -416,6 +422,8 @@ def _history(workspace: Mapping[str, object]) -> ft.Control:
         rows.append(
             {
                 "quarter": str(item.get("quarter")),
+                "run_started_at": str(item.get("run_started_at") or ""),
+                "run_completed_at": str(item.get("run_completed_at") or item.get("run_timestamp") or ""),
                 "composite": None if _number(item.get("composite")) is None else f"{_number(item.get('composite')):.1f}",
                 "coverage": _percent(item.get("coverage"), 0),
                 "trend": Tag("n/a (first or formula changed)" if change is None else f"{change:+.1f}", "mute" if change is None else "ok" if change > 0 else "warn" if change < 0 else "mute", dense=True),
@@ -425,22 +433,22 @@ def _history(workspace: Mapping[str, object]) -> ft.Control:
     chart = ck.line_chart(
         [str(item.get("quarter")) for item in history],
         [ck.Series("Composite", [_number(item.get("composite")) for item in history], color=theme.CYAN, glow=True, markers=7.0)],
-        x_name="Quarter scored",
+        x_name="Reporting quarter",
         y_name="Composite (0-10)",
         y_min=0,
         y_max=10,
         height=220,
-        insight=f"{len(history)} quarter(s) with a stored score; a gap means no composite was computed.",
+        insight=f"{len(history)} reporting quarter(s) with a stored score; run timestamps are shown separately.",
     )
     body = [
         chart,
         DataTable(
-            [TableColumn("quarter", "Quarter", sortable=False), TableColumn("composite", "Composite", numeric=True, sortable=False), TableColumn("coverage", "Coverage", numeric=True, sortable=False), TableColumn("trend", "Change", sortable=False), TableColumn("formula", "Formula", flex=2, sortable=False)],
+            [TableColumn("quarter", "Reporting quarter", sortable=False), TableColumn("run_started_at", "Run started", flex=2, sortable=False), TableColumn("run_completed_at", "Run completed", flex=2, sortable=False), TableColumn("composite", "Composite", numeric=True, sortable=False), TableColumn("coverage", "Coverage", numeric=True, sortable=False), TableColumn("trend", "Change", sortable=False), TableColumn("formula", "Formula", flex=2, sortable=False)],
             rows,
             row_height=40,
             max_visible_rows=8,
         ),
-        Note("One row per calendar quarter in which the certificate was scored (the last run of the quarter). The change is shown only between rows of the same formula version."),
+        Note("One row per reporting quarter (the latest run stored for that period). Run started and completed times remain separate. The change is shown only between rows of the same formula version."),
     ]
     return GlassCard("Score history", note="per quarter with trend", body=body, key="instrument-detail.sparebank-history")
 

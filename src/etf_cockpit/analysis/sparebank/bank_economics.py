@@ -354,21 +354,25 @@ def lending_economics(metrics: Mapping[str, object], statements: Mapping[str, ob
 _STATUTORY_TAX_RATE = 0.25  # Norwegian financial-sector rate (22 % + 3 % financial-activities surcharge); fallback only.
 
 
-def owner_normalisation(bank: BankEconomics, claim: object) -> BankEconomics:
+def owner_normalisation(
+    bank: BankEconomics,
+    claim: object,
+    *,
+    sustainable_roe_assumption: object | None = None,
+    assumption_source: str | None = None,
+) -> BankEconomics:
     """Sustainable ROE bridge on the EC owner claim (book eq. 3.5 / 5.10, p. 47 and p. 104).
 
     Starts from the EC-attributable result and the owner capital pools of the filing and applies
     only adjustments the filed statements evidence: credit losses are never normalised below the
     average of the filed years (benign years are haircut, high years are not added back without
     evidence of a one-off; book 5.2.3-5.2.4, p. 103). Every adjustment keeps its audit trail.
-    An existing resolved bridge supplied by the evidence is left untouched.
+    Sustainable ROE is withheld when loss-cycle, owner-share, securities/alliance, or rate-cycle
+    bridge inputs are missing. An explicit owner sustainable-ROE assumption is labelled separately.
     """
 
     from dataclasses import replace
 
-    existing = bank.normalised if isinstance(bank.normalised, Mapping) else {}
-    if existing.get("status") == "resolved" and existing.get("normalised_roe") is not None:
-        return bank
     statements = bank.reported.get("statements") if isinstance(bank.reported, Mapping) else None
     earnings = _number(getattr(claim, "owner_attributable_earnings", None))
     book = _number(getattr(claim, "owner_attributable_book", None))
@@ -377,12 +381,45 @@ def owner_normalisation(bank: BankEconomics, claim: object) -> BankEconomics:
         book = _number(getattr(claim, "owner_pool_total", None))
         book_basis = "owner_pool_total"
     share = _number(getattr(claim, "reconstructed_eierbrok", None))
+    if share is None:
+        share = _number(getattr(claim, "reported_eierbrok", None))
     reasons = dict(bank.reasons)
     key = "normalised_roe_minus_cost_of_equity_pp"
+    reported_roe = earnings / book if earnings is not None and book is not None and book > 0 else None
+    assumption = _number(sustainable_roe_assumption)
+    if assumption is not None:
+        normalised = {
+            "reported_roe": reported_roe,
+            "normalised_roe": assumption,
+            "status": "resolved",
+            "owner_assumption": True,
+            "assumption_source": assumption_source or "explicit owner sustainable-ROE assumption",
+            "owner_book_basis": "owner_attributable_book" if _number(getattr(claim, "owner_attributable_book", None)) is not None else "owner_pool_total",
+            "adjustments": (),
+            "missing_components": (),
+        }
+        reasons.pop(key, None)
+        return replace(bank, normalised=normalised, reasons=reasons)
+
     if earnings is None or book is None or book <= 0:
         missing = "the EC-attributable result" if earnings is None else "the owner capital pools"
         reasons[key] = f"Needs {missing} from the filing (the owner claim is not fully reconstructed)."
-        return replace(bank, reasons=reasons)
+        return replace(bank, normalised={}, reasons=reasons)
+
+    current_loss = _statement_value(statements, "current", "impairment_losses")
+    prior_loss = _statement_value(statements, "prior", "impairment_losses")
+    missing_components = []
+    if earnings is None:
+        missing_components.append("EC-attributable result")
+    if book is None or book <= 0:
+        missing_components.append("positive owner-capital denominator")
+    if current_loss is None:
+        missing_components.append("current-period impairment losses")
+    if prior_loss is None:
+        missing_components.append("prior-period impairment losses")
+    if share is None:
+        missing_components.append("reported or reconstructed eierbrøk")
+    missing_components.extend(("securities/alliance and one-off gain history", "rate-cycle deposit-cost history"))
     pre_tax = _statement_value(statements, "current", "income_before_tax")
     tax = _statement_value(statements, "current", "income_tax")
     tax_rate = tax / pre_tax if pre_tax and tax is not None and pre_tax > 0 and 0.0 <= tax / pre_tax <= 0.5 else None
@@ -390,8 +427,6 @@ def owner_normalisation(bank: BankEconomics, claim: object) -> BankEconomics:
     if tax_rate is None:
         tax_rate, tax_source = _STATUTORY_TAX_RATE, "statutory fallback 25 % (filing does not give a usable effective rate)"
     adjustments: list[NormalisationAdjustment] = []
-    current_loss = _statement_value(statements, "current", "impairment_losses")
-    prior_loss = _statement_value(statements, "prior", "impairment_losses")
     if current_loss is not None and prior_loss is not None and share is not None:
         through_cycle = max(current_loss, (current_loss + prior_loss) / 2.0)
         extra_loss = through_cycle - current_loss
@@ -409,6 +444,7 @@ def owner_normalisation(bank: BankEconomics, claim: object) -> BankEconomics:
     bridge = normalisation_bridge(earnings, adjustments, equity_denominator=book)
     normalised = dict(bridge.__dict__)
     normalised.update(
+        reported_roe=reported_roe,
         owner_book_basis=book_basis,
         denominator_basis="closing owner capital (conservative versus the average the book prefers, eq. 1.22)",
         tax_rate=tax_rate,
@@ -418,7 +454,17 @@ def owner_normalisation(bank: BankEconomics, claim: object) -> BankEconomics:
             "rate-cycle spread windfall (deposit beta needs the deposit cost history, book p. 5)",
         ),
         status="resolved",
+        missing_components=(),
     )
+    if missing_components:
+        normalised.update(
+            normalised_roe=None,
+            status="unavailable",
+            missing_components=tuple(missing_components),
+            reason_code="SUSTAINABLE_ROE_BRIDGE_INPUTS_MISSING",
+        )
+        reasons[key] = "Sustainable ROE unavailable; missing bridge inputs: " + ", ".join(missing_components) + "."
+        return replace(bank, normalised=normalised, reasons=reasons)
     reasons.pop(key, None)
     return replace(bank, normalised=normalised, reasons=reasons, calculation_ids=tuple(dict.fromkeys((*bank.calculation_ids, "normalisation_bridge"))))
 
@@ -428,16 +474,21 @@ def build_bank_economics(evidence: Mapping[str, object] | None = None, *, bank_m
 
     values = dict(evidence or {})
     metrics: dict[str, object] = {}
+    metric_sources: dict[str, str] = {}
     metric_evidence_ids: list[str] = []
     for item in bank_metrics:
         if isinstance(item, Mapping):
             name, value = item.get("metric"), item.get("value")
             metric_evidence_ids.extend(str(item[key]) for key in ("evidence_id", "source_id", "source_url") if item.get(key))
+            source = item.get("source") or item.get("source_locator") or item.get("source_url") or item.get("source_id")
         else:
             name, value = getattr(item, "metric", None), getattr(item, "value", None)
             metric_evidence_ids.extend(str(getattr(item, key)) for key in ("evidence_id", "source_id", "source_url") if getattr(item, key, None))
+            source = getattr(item, "source", None) or getattr(item, "source_locator", None) or getattr(item, "source_id", None)
         if name:
             metrics[str(name)] = value
+            if source:
+                metric_sources[str(name)] = str(source)
     merged = {**metrics, **values}
     reported_input = merged.get("reported_earnings", merged.get("earnings"))
     bridge = normalisation_bridge(reported_input, merged.get("normalisation_adjustments", ()), equity_denominator=merged.get("average_common_equity", merged.get("equity")), reported_pre_tax=merged.get("reported_pre_tax"), pre_tax_adjustments=merged.get("pre_tax_adjustments", ()), ec_share=merged.get("ec_share"), ec_count=merged.get("ec_count")) if reported_input is not None else None
@@ -560,7 +611,11 @@ def build_bank_economics(evidence: Mapping[str, object] | None = None, *, bank_m
     reasons = {key: text for key, text in reasons.items() if text}
     if lending:
         calculation_ids = (*calculation_ids, "lending_economics")
-    return BankEconomics(status=status, reported={"metrics": metrics, "statements": statements or {}}, normalised=bridge.__dict__ if bridge else {}, resilience=resilience, credit=credit, funding=funding, concentration=concentration, evidence_ids=evidence_ids, unavailable_fields=unavailable, coverage=(1.0 if complete else 0.5 if bridge or capital or credit else 0.0), calculation_ids=calculation_ids, lending=lending, allocation=allocation, reasons=reasons)
+    statement_sources = statements.get("sources", {}) if isinstance(statements, Mapping) else {}
+    provenance = {**metric_sources}
+    if isinstance(statement_sources, Mapping):
+        provenance.update({f"statement.{name}": str(source) for name, source in statement_sources.items() if source})
+    return BankEconomics(status=status, reported={"metrics": metrics, "statements": statements or {}, "provenance": provenance}, normalised=bridge.__dict__ if bridge else {}, resilience=resilience, credit=credit, funding=funding, concentration=concentration, evidence_ids=evidence_ids, unavailable_fields=unavailable, coverage=(1.0 if complete else 0.5 if bridge or capital or credit else 0.0), calculation_ids=calculation_ids, lending=lending, allocation=allocation, reasons=reasons)
 
 
 analyse_bank_economics = build_bank_economics

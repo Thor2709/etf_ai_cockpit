@@ -38,6 +38,17 @@ _STATEMENT_SELECTORS: dict[str, tuple[str, str]] = {
     "basic_eps": ("concept", "BasicEarningsLossPerShare"),
 }
 _PER_SHARE = {"basic_eps"}
+_FLOW_METRICS = {
+    "net_interest_income",
+    "operating_expenses",
+    "impairment_losses",
+    "net_profit",
+    "profit_attributable_to_owners",
+    "income_before_tax",
+    "income_tax",
+    "ownerless_result",
+    "basic_eps",
+}
 _NOMINAL_RANGE = (1.0, 60.0)
 
 
@@ -51,9 +62,22 @@ def _is_undimensioned(row: Mapping[str, object]) -> bool:
 
 
 def _period(row: Mapping[str, object]) -> pd.Timestamp | None:
-    value = row.get("effective_at") or row.get("end") or row.get("instant")
+    value = row.get("end") or row.get("instant") or row.get("effective_at")
     parsed = pd.to_datetime(value, errors="coerce", utc=True)
     return None if pd.isna(parsed) else pd.Timestamp(parsed)
+
+
+def _date(value: object) -> pd.Timestamp | None:
+    parsed = pd.to_datetime(value, errors="coerce", utc=True)
+    return None if pd.isna(parsed) else pd.Timestamp(parsed).normalize()
+
+
+def _filing_identity(row: Mapping[str, object]) -> str | None:
+    for field in ("filing_version", "sha256", "source_url"):
+        value = row.get(field)
+        if value is not None and str(value).strip():
+            return f"{field}:{str(value).strip()}"
+    return None
 
 
 def _number(value: object) -> float | None:
@@ -65,57 +89,103 @@ def _number(value: object) -> float | None:
 
 
 def statement_series(rows: Iterable[Mapping[str, object]], *, target_period: str | None = None) -> dict[str, object]:
-    """Current and prior-year primary-statement values from one filing's rows (annual periods)."""
+    """Current and prior primary-statement values from one filing and one flow duration."""
 
     eligible = [row for row in rows if _is_undimensioned(row) and _period(row) is not None]
-    anchors = [_period(row) for row in eligible if row.get("canonical_metric") == "net_interest_income"]
+    anchors = [row for row in eligible if row.get("canonical_metric") == "net_interest_income"]
     if target_period:
-        anchor = pd.Timestamp(target_period, tz="UTC")
-        anchor = anchor if anchor in anchors else None
+        wanted_anchor = _date(target_period)
+        matches = [row for row in anchors if _period(row) == wanted_anchor]
+        anchor_row = max(matches, key=lambda row: str(row.get("_known") or row.get("known_at") or "")) if matches else None
     else:
-        anchor = max(anchors) if anchors else None
-    if anchor is None:
+        anchor_row = max(anchors, key=lambda row: (_period(row), str(row.get("_known") or row.get("known_at") or ""))) if anchors else None
+    if anchor_row is None:
         return {}
+    anchor = _period(anchor_row)
+    filing_identity = _filing_identity(anchor_row)
+    if filing_identity is None:
+        return {"unavailable_reasons": {"statements": "STATEMENT_FILING_IDENTITY_MISSING"}}
+    anchor_start = _date(anchor_row.get("start") or anchor_row.get("period_start"))
     prior_anchor = anchor - pd.DateOffset(years=1)
     result: dict[str, object] = {
         "period_end": anchor.date().isoformat(),
         "prior_period_end": prior_anchor.date().isoformat(),
+        "filing_identity": filing_identity,
+        "duration_start": anchor_start.date().isoformat() if anchor_start is not None else None,
         "unit": "NOK",
         "current": {},
         "prior": {},
         "sources": {},
+        "unavailable_reasons": {},
     }
     for name, (field, selector) in _STATEMENT_SELECTORS.items():
         for side, wanted, tolerance in (("current", anchor, 3), ("prior", prior_anchor, 10)):
-            matches = [
-                row
-                for row in eligible
-                if row.get(field) == selector
-                and abs((_period(row) - wanted).days) <= tolerance
-                and str(row.get("consolidation_scope") or "consolidated").casefold() == "consolidated"
-                and (name in _PER_SHARE or str(row.get("currency") or "NOK").upper() == "NOK")
-            ]
+            matches = []
+            for row in eligible:
+                row_period = _period(row)
+                if (
+                    row.get(field) != selector
+                    or abs((row_period - wanted).days) > tolerance
+                    or _filing_identity(row) != filing_identity
+                    or str(row.get("consolidation_scope") or "consolidated").casefold() != "consolidated"
+                    or (name not in _PER_SHARE and str(row.get("currency") or "NOK").upper() != "NOK")
+                ):
+                    continue
+                if name in _FLOW_METRICS:
+                    row_start = _date(row.get("start") or row.get("period_start"))
+                    expected_start = anchor_start - pd.DateOffset(years=1) if side == "prior" and anchor_start is not None else anchor_start
+                    if anchor_start is None or row_start is None or row_period != wanted or row_start != expected_start:
+                        continue
+                matches.append(row)
             if not matches:
+                result["unavailable_reasons"][name] = (  # type: ignore[index]
+                    "STATEMENT_FLOW_DURATION_MISMATCH" if name in _FLOW_METRICS else "STATEMENT_FILING_OR_PERIOD_MISMATCH"
+                )
                 continue
             chosen = max(matches, key=lambda row: str(row.get("_known") or row.get("known_at") or ""))
             value = _number(chosen.get("value"))
             if value is None:
+                result["unavailable_reasons"][name] = "STATEMENT_VALUE_INVALID"  # type: ignore[index]
                 continue
             result[side][name] = value  # type: ignore[index]
             if side == "current":
-                result["sources"][name] = str(chosen.get("source_url") or chosen.get("source_id") or "")  # type: ignore[index]
+                result["sources"][name] = str(chosen.get("source_locator") or chosen.get("source_url") or chosen.get("source_id") or "")  # type: ignore[index]
     return result if result["current"] else {}
 
 
 # Pillar 3 metric -> (evidence path, conversion). Percent figures become ratios, as the analysis expects.
-def pillar3_evidence(root: Path, instrument_id: str, decision_time: str | None) -> dict[str, object]:
-    """Evidence built from the owner's confirmed Pillar 3 figures only."""
+def pillar3_evidence(
+    root: Path,
+    instrument_id: str,
+    decision_time: str | None,
+    *,
+    target_period: str | None = None,
+) -> dict[str, object]:
+    """Evidence built only from confirmed Pillar 3 figures for the reporting period."""
 
     queue = load_queue(root, instrument_id)
-    figures = {str(item.get("metric")): item for item in confirmed_figures(queue, decision_time)}
+    confirmed = confirmed_figures(queue, decision_time)
     documents = {str(item.get("document_id")): item for item in queue.get("documents", ()) if isinstance(item, Mapping)}
-    if not figures:
+    if not confirmed:
         return {}
+    if target_period is None:
+        return {"unavailable_reasons": {"pillar3": "PILLAR3_REPORTING_PERIOD_REQUIRED"}}
+
+    target = _date(target_period)
+    target_key = target.date().isoformat() if target is not None else str(target_period).strip()
+    matching = [item for item in confirmed if str(item.get("period") or "").strip()[:10] == target_key[:10]]
+    figures: dict[str, Mapping[str, object]] = {}
+    for item in matching:
+        metric = str(item.get("metric"))
+        current = figures.get(metric)
+        if current is None or str(item.get("decided_at") or "") > str(current.get("decided_at") or ""):
+            figures[metric] = item
+    if not figures:
+        return {
+            "unavailable_reasons": {
+                str(item.get("metric")): "PILLAR3_REPORTING_PERIOD_MISMATCH" for item in confirmed
+            }
+        }
 
     def citation(item: Mapping[str, object]) -> dict[str, object]:
         document = documents.get(str(item.get("document_id")), {})
@@ -261,17 +331,15 @@ def with_derived_owner_earnings(ec_facts: Mapping[str, object], statements: Mapp
                 locator = f"derived: eierbrok {share:.4f} x {name} (book eq. 1.19, p. 12-13); AT1 coupon not separated"
         if result is not None:
             facts["ec_attributable_result"] = derived(result, "NOK", locator)
-    count_names = ("registered_ec_count", "outstanding_ec_count", "period_end_ec_count", "weighted_average_ec_count")
     result_value = _available(facts, "ec_attributable_result")
     eps = _number(current.get("basic_eps"))
-    if all(_available(facts, name) is None for name in count_names) and result_value and result_value > 0 and eps and eps > 0:
+    if _available(facts, "weighted_average_ec_count") is None and result_value and result_value > 0 and eps and eps > 0:
         count = result_value / eps
         capital = _available(facts, "ec_capital")
         nominal = capital / count if capital else None
         if nominal and _NOMINAL_RANGE[0] <= nominal <= _NOMINAL_RANGE[1]:
-            locator = f"derived: EC result / reported basic EPS {eps:g}; implied nominal {nominal:.2f} NOK per certificate; approximates the weighted average and is used as the outstanding count"
+            locator = f"derived: EC result / reported basic EPS {eps:g}; implied nominal {nominal:.2f} NOK per certificate; approximates the weighted-average count only"
             facts["weighted_average_ec_count"] = derived(count, "EC", locator)
-            facts["outstanding_ec_count"] = derived(count, "EC", locator)
     return facts
 
 
