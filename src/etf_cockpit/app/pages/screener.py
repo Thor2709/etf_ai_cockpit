@@ -60,7 +60,7 @@ _SCREEN_COLUMNS = (
     TableColumn("region", "Region"),
     TableColumn("sector", "Sector"),
     TableColumn("score", "Score", numeric=True),
-    TableColumn("quality", "Quality", numeric=True),
+    TableColumn("evidence_quality", "Quality", numeric=True),  # evidence quality, as on Scores
     TableColumn("risk_friction", "Risk Friction", numeric=True),
 )
 
@@ -144,7 +144,7 @@ def _screen_table(result: object, sort_key: str | None, descending: bool, on_sor
             value = _read(record, column.key)
             if column.key == "score":
                 values[column.key] = ScoreBar(_number(value), maximum=10)
-            elif column.key in {"quality", "risk_friction"}:
+            elif column.key in {"evidence_quality", "risk_friction"}:
                 number = _number(value)
                 values[column.key] = format_number(number, decimals=1, unavailable="—")
             else:

@@ -41,6 +41,7 @@ def build_screen_rows(snapshot: Any, fundamentals: pd.DataFrame) -> pd.DataFrame
     else:
         fundamentals = pd.DataFrame()
     signals = {str(signal.etf_id): signal for signal in getattr(snapshot, "signals", ())}
+    canonical = _canonical_scores(snapshot)
     model_status = getattr(snapshot, "model_status", {}) or {}
     rows: list[dict[str, object]] = []
     for instrument in snapshot.config.universe.etfs:
@@ -68,11 +69,15 @@ def build_screen_rows(snapshot: Any, fundamentals: pd.DataFrame) -> pd.DataFrame
                 "as_of": as_of,
                 "freshness": freshness,
                 "freshness_days": freshness_days,
-                "score": _metric(metrics, "canonical_attractiveness_10"),
+                # One score everywhere: the canonical list's final score (same as Home/Scores/detail).
+                "score": _canonical_field(canonical, instrument_id, "final_score_10"),
+                "attractiveness": _metric(metrics, "canonical_attractiveness_10"),
+                "evidence_quality": _canonical_field(canonical, instrument_id, "evidence_quality_10"),
                 "expected_return": _metric(metrics, "canonical_expected_return_10"),
                 "confidence": _metric(metrics, "canonical_evidence_confidence_10", getattr(signal, "confidence", None)),
                 "coverage": _metric(metrics, "canonical_coverage"),
-                "risk_friction": _metric(metrics, "canonical_risk_implementation_10"),
+                "risk_friction": _canonical_field(canonical, instrument_id, "risk_friction_10"),
+                "risk_implementation": _metric(metrics, "canonical_risk_implementation_10"),
                 "momentum": _metric(metrics, "momentum_60d"),
                 "trend": _metric(metrics, "trend_200"),
                 "volatility": _metric(metrics, "vol_60d_ann"),
@@ -103,6 +108,23 @@ def build_screen_rows(snapshot: Any, fundamentals: pd.DataFrame) -> pd.DataFrame
         values = pd.to_numeric(frame[field], errors="coerce")
         frame[f"{field}_percentile"] = values.rank(method="average", pct=True) * 100
     return frame
+
+
+def _canonical_scores(snapshot: Any) -> dict[str, object]:
+    from etf_cockpit.application.score_views import snapshot_scores
+
+    try:
+        return {str(getattr(row, "display_id", "")): row for row in snapshot_scores(snapshot)}
+    except Exception:  # no canonical list (minimal snapshot): those fields stay unavailable
+        return {}
+
+
+def _canonical_field(canonical: dict[str, object], instrument_id: str, field: str) -> float | None:
+    value = getattr(canonical.get(instrument_id), field, None)
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def query_for_snapshot(snapshot: Any, frame: pd.DataFrame, **kwargs: object) -> ScreenQuery:
