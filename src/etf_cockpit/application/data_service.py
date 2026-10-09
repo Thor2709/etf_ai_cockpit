@@ -381,7 +381,13 @@ class DataService:
             )
         ]
         if include_candidates:
-            candidate_data = fetch_candidate_prices(self.config, years=years)
+            try:
+                candidate_data = fetch_candidate_prices(self.config, years=years)
+            except RuntimeError as exc:
+                # Candidate forecasts are optional extras; the configured forecasts above stand.
+                messages.append(f"Candidate forecasts skipped: {redact_text(str(exc))[:300]}")
+                self.last_operation_succeeded = True
+                return "\n".join(messages)
             candidate_ids = list(candidate_data.candidates["instrument_id"].astype(str))
             candidate_output = FORECASTS_DIR / f"yfinance_candidate_forecasts_{candidate_data.effective_as_of:%Y%m%d}.csv"
             candidate_window = _calculation_window(
