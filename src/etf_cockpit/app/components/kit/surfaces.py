@@ -25,9 +25,9 @@ _RIM_COLORS = [colour for _, colour in theme.GLASS_RIM_STOPS]
 _RIM_STOPS = [stop for stop, _ in theme.GLASS_RIM_STOPS]
 
 
-def _rim_overlay(radius: float) -> cv.Canvas:
+def _rim_overlay(radius: float) -> ft.Container:
     """Draw the 1px gradient light edge over the card; redrawn when the card is resized."""
-    canvas = cv.Canvas(left=0, top=0, right=0, bottom=0, shapes=[], resize_interval=80)
+    canvas = cv.Canvas(shapes=[], resize_interval=80, expand=True)
 
     def redraw(event: cv.CanvasResizeEvent) -> None:
         width, height = float(event.width), float(event.height)
@@ -47,10 +47,15 @@ def _rim_overlay(radius: float) -> cv.Canvas:
                 ),
             )
         ]
-        canvas.update()
+        try:
+            canvas.update()
+        except RuntimeError:  # frozen or unmounted after a re-render; the next resize redraws it
+            pass
 
     canvas.on_resize = redraw
-    return canvas
+    # A Canvas hit-tests its whole area even with ignore_interactions, which swallowed every click on the
+    # panels beneath it; the decorative edge sits in a positioned holder that ignores pointer input.
+    return ft.Container(content=canvas, left=0, top=0, right=0, bottom=0, ignore_interactions=True)
 
 
 def GlassCard(  # noqa: N802 - kit component names are CamelCase per spec 3

@@ -372,11 +372,14 @@ def project_classification_score_frame(
         if column not in result.columns:
             result[column] = default
 
+    states: dict[str, dict[str, object]] = {}  # history repeats instruments; read each state once
     for index, row in result.iterrows():
         instrument_id = _clean_optional_text(row.get(id_column))
         if instrument_id is None:
             continue
-        state = classification_score_state(canonical_root, instrument_id)
+        state = states.get(instrument_id)
+        if state is None:
+            state = states[instrument_id] = classification_score_state(canonical_root, instrument_id)
         current_token = str(state.get("invalidation_token") or "unavailable")
         stored_token = _clean_optional_text(row.get("classification_invalidation_hash")) or "unavailable"
         has_active_invalidation = bool(state.get("invalidated_score_keys"))
