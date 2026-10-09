@@ -849,7 +849,7 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
                     "Model availability",
                     body=ft.Column([*model_rows, Disclosure("Local model file details", "\n".join(model_details) or "No local model files detected.")], spacing=8),
                     expand=True,
-                    key="Model availability",
+                    key=ft.ScrollKey("Model availability"),
                 ),
                 GlassCard(
                     "Latest local price data",
@@ -865,7 +865,7 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
                         spacing=8,
                     ),
                     expand=True,
-                    key="Latest local price data",
+                    key=ft.ScrollKey("Latest local price data"),
                 ),
             ],
             spacing=16,
@@ -903,7 +903,7 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
             spacing=16,
             vertical_alignment=ft.CrossAxisAlignment.START,
         ),
-        ft.Row([GlassCard("Forecast artefacts", body=Disclosure("Local artefact details", "\n".join(str(path) for path in forecast_files) or "No forecast artefacts are available."), expand=True, key="Forecast artefacts"), GlassCard("Derived evidence artefacts", body=Disclosure("Local artefact details", "\n".join(str(path) for path in derived_files) or "No derived evidence artefacts are available."), expand=True)], spacing=16),
+        ft.Row([GlassCard("Forecast artefacts", body=Disclosure("Local artefact details", "\n".join(str(path) for path in forecast_files) or "No forecast artefacts are available."), expand=True, key=ft.ScrollKey("Forecast artefacts")), GlassCard("Derived evidence artefacts", body=Disclosure("Local artefact details", "\n".join(str(path) for path in derived_files) or "No derived evidence artefacts are available."), expand=True)], spacing=16),
         ft.Row([GlassCard("Market regime", body=Disclosure("Regime details", _market_regime_text()), expand=True), GlassCard("Forecast calibration", insight="Unavailable: saved calibration summaries do not provide reliability-curve points.", body=ft.Column([ck.line_chart([], [], x_name="Predicted probability (proportion)", y_name="Observed frequency (proportion)", unavailable_reason="No saved calibration reliability points are available.", empty_title="Forecast calibration unavailable", insight="Unavailable: saved calibration summaries do not provide reliability-curve points."), Disclosure("Calibration details", _calibration_text())], spacing=8), expand=True)], spacing=16),
         ft.Row([GlassCard("Strategy templates", body=ft.Column([Disclosure("Template details", _strategy_template_text()), Disclosure("Monthly decision template", monthly_detail)], spacing=8), expand=True), GlassCard("Candidate reports", body=Disclosure("Report details", "\n".join(str(path) for path in report_files) or "No candidate reports are available."), expand=True)], spacing=16),
         ft.Row(
@@ -923,29 +923,27 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
         ft.Row([GlassCard("Manual thesis and news notes", body=Disclosure("Manual note details", manual_note_detail), expand=True), GlassCard("Validation findings", body=Disclosure("Validation details", validation_detail), expand=True)], spacing=16),
     ]
 
-    def jump_to(value: str) -> None:
-        scroll_key = {"Models": "Model availability", "Data": "Latest local price data", "Artefacts": "Forecast artefacts"}.get(value)
-        scroll_to = getattr(page, "scroll_to", None)
-        runner = getattr(page, "run_task", None)
-        if scroll_key is None or not callable(scroll_to):
-            return
-        if callable(runner):
-            async def scroll() -> None:
-                await scroll_to(scroll_key=scroll_key, duration=300)
+    body = ft.Column(cards, spacing=16, expand=True, scroll=ft.ScrollMode.AUTO)
 
-            try:
-                runner(scroll)
-            except Exception:
-                state.last_message = f"Could not jump to the {value.lower()} section."
-        elif not inspect.iscoroutinefunction(scroll_to):
-            scroll_to(scroll_key=scroll_key)
-        else:
+    def jump_to(value: str) -> None:
+        # The body column scrolls (not the Flet page), and Flet only targets ScrollKey-keyed controls.
+        title = {"Models": "Model availability", "Data": "Latest local price data", "Artefacts": "Forecast artefacts"}.get(value)
+        runner = getattr(page, "run_task", None)
+        if title is None:
+            return
+        if not callable(runner):
             state.last_message = f"Jump to the {value.lower()} section is unavailable in this view."
-            update = getattr(page, "update", None)
-            if callable(update):
-                update()
+            return
+
+        async def scroll() -> None:
+            await body.scroll_to(scroll_key=ft.ScrollKey(title), duration=300)
+
+        try:
+            runner(scroll)
+        except Exception:
+            state.last_message = f"Could not jump to the {value.lower()} section."
 
     return PageView(
         chrome=PageChrome("Data & Models", "Model availability, local data freshness and derived artefacts", (SegmentGroup("data-models", ("Models", "Data", "Artefacts"), "Models", on_change=jump_to),)),
-        body=ft.Column(cards, spacing=16, expand=True, scroll=ft.ScrollMode.AUTO),
+        body=body,
     )

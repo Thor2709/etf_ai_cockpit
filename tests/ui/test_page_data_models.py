@@ -26,13 +26,19 @@ def _text(page: PageView) -> list[str]:
     return [str(item.value) for item in _walk(page.body) if isinstance(item, ft.Text)]
 
 
-def test_renders_with_sample_data() -> None:
-    class _Page:
-        def __init__(self) -> None:
-            self.scroll_targets: list[str] = []
+def test_renders_with_sample_data(monkeypatch) -> None:
+    import asyncio
 
-        def scroll_to(self, *, scroll_key: str) -> None:
-            self.scroll_targets.append(scroll_key)
+    scrolled: list[tuple[object, object]] = []
+
+    async def fake_scroll_to(self, *, scroll_key=None, **_kwargs):
+        scrolled.append((self, scroll_key))
+
+    monkeypatch.setattr(ft.Column, "scroll_to", fake_scroll_to)
+
+    class _Page:
+        def run_task(self, handler):
+            asyncio.run(handler())
 
     snapshot = SimpleNamespace(
         model_status={"reasons": True, "timesfm": False, "toto": False},
@@ -65,7 +71,11 @@ def test_renders_with_sample_data() -> None:
     assert tuple(rendered.chrome.segment_groups[0].items) == ("Models", "Data", "Artefacts")
     assert rendered.chrome.segment_groups[0].on_change is not None
     rendered.chrome.segment_groups[0].on_change("Data")
-    assert page.scroll_targets == ["Latest local price data"]
+    # The body column is scrolled to a ScrollKey that a rendered section actually carries.
+    assert len(scrolled) == 1
+    column, key = scrolled[0]
+    assert column is rendered.body and isinstance(key, ft.ScrollKey) and key.value == "Latest local price data"
+    assert any(isinstance(c.key, ft.ScrollKey) and c.key.value == key.value for c in _walk(rendered.body) if getattr(c, "key", None) is not None)
     assert not any("Traceback" in value for value in values)
 
 
