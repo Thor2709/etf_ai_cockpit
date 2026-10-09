@@ -28,6 +28,7 @@ def load_financial_institution_projection(
     *,
     projection: FinancialInstitutionProjection | Mapping[str, object] | None = None,
     storage_root: Path | None = None,
+    universe_root: Path | None = None,
     decision_time: str | None = None,
     effective_at: str | None = None,
     context: object | None = None,
@@ -40,6 +41,7 @@ def load_financial_institution_projection(
             return _build_financial_projection_from_evidence(
                 instrument_id,
                 storage_root=storage_root,
+                universe_root=universe_root,
                 decision_time=decision_time,
                 effective_at=effective_at,
                 context=context,
@@ -64,6 +66,7 @@ def _build_financial_projection_from_evidence(
     instrument_id: str,
     *,
     storage_root: Path | None,
+    universe_root: Path | None,
     decision_time: str | None,
     effective_at: str | None,
     context: object | None,
@@ -75,9 +78,29 @@ def _build_financial_projection_from_evidence(
 
     root = Path(storage_root or ROOT).resolve()
     identity = _read_json_artifact(root, "identity.json", instrument_id=instrument_id) or {}
+    if context is None and not decision_time and not identity.get("known_at"):
+        from etf_cockpit.application.identity_views import load_classification_projection
+
+        load_classification_projection(
+            instrument_id,
+            storage_root=root,
+            universe_root=universe_root,
+        )
     cutoff = str(decision_time or identity.get("known_at") or "").strip()
     if not cutoff:
-        return unavailable_financial_projection(instrument_id, "financial_decision_time_unavailable")
+        from etf_cockpit.data.universe_store import load_sparebank_records
+
+        configured = next(
+            (
+                record
+                for record in load_sparebank_records(universe_root or ROOT)
+                if record.instrument_id == str(instrument_id)
+            ),
+            None,
+        )
+        if configured is None:
+            return unavailable_financial_projection(instrument_id, "financial_decision_time_unavailable")
+        cutoff = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     decision = datetime.fromisoformat(cutoff.replace("Z", "+00:00"))
     cutoff = decision.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
     effective = str(effective_at or identity.get("effective_at") or cutoff).strip()
@@ -86,6 +109,15 @@ def _build_financial_projection_from_evidence(
         effective = f"{effective}T00:00:00Z"
 
     if context is None:
+        from etf_cockpit.application.identity_views import load_classification_projection
+
+        load_classification_projection(
+            instrument_id,
+            storage_root=root,
+            universe_root=universe_root,
+            effective_at=effective,
+            decision_time=cutoff,
+        )
         context = read_instrument_context(
             root,
             instrument_id,
@@ -98,8 +130,6 @@ def _build_financial_projection_from_evidence(
     frame = _read_financial_statement_frame(root, instrument_id=instrument_id)
     rows = _financial_rows_for_instrument(frame, instrument_id, decision)
     facts = _financial_metric_facts(rows, context, cutoff, target_period=requested_period)
-    if not facts:
-        return unavailable_financial_projection(instrument_id, "financial_statement_evidence_unavailable")
 
     registry = AdapterRegistry([financial_adapter_definition()])
     result = build_financial_institution_projection(

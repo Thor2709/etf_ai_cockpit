@@ -18,21 +18,13 @@ from etf_cockpit.data.classification import ClassificationEvidence, Classificati
 from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.oam_adapters import archive_manual_official_filing
 from etf_cockpit.data.statement_normalisation import normalise_statement_facts
+from etf_cockpit.data.universe_store import UniverseRecord, load_sparebank_records
+from etf_cockpit.core.paths import ROOT
 from etf_cockpit.parsers.contracts import RawDocument
 from etf_cockpit.parsers.esef_ixbrl import parse_esef_package
 from etf_cockpit.parsers.sec_facts import statement_facts_from_esef, write_statement_evidence
 
 
-NORWAY_ISSUER_TABLE: dict[str, dict[str, str | None]] = {
-    "MING": {"ticker": "MING", "isin": "NO0006390301", "name": "SpareBank 1 SMN", "lei": "7V6Z97IO7R1SEAO84Q32", "orgnr": "937901003"},
-    "NONG": {"ticker": "NONG", "isin": "NO0006000801", "name": "SpareBank 1 Nord-Norge", "lei": "549300SXM92LQ05OJQ76", "orgnr": None},
-    "RING": {"ticker": "RING", "isin": "NO0006390400", "name": "SpareBank 1 Ringerike Hadeland", "lei": "5967007LIEEXZX73ZK25", "orgnr": None},
-    "SOAG": {"ticker": "SOAG", "isin": "NO0010285562", "name": "SpareBank 1 Østfold Akershus", "lei": "5967007LIEEXZX7D8W16", "orgnr": None},
-    "SPOL": {"ticker": "SPOL", "isin": "NO0010751910", "name": "SpareBank 1 Østlandet", "lei": "549300VRM6G42M8OWN49", "orgnr": None},
-    "MORG": {"ticker": "MORG", "isin": "NO0006390004", "name": "Sparebanken Møre", "lei": "5967007LIEEXZX5PU005", "orgnr": None},
-    "SPOG": {"ticker": "SPOG", "isin": "NO0006222009", "name": "Sparebanken Øst", "lei": "5967007LIEEXZX51WW28", "orgnr": None},
-    "AURG": {"ticker": "AURG", "isin": None, "name": "Aurskog Sparebank", "lei": "5967007LIEEXZX7H3S04", "orgnr": None},
-}
 EC_FACT_NAMES = (
     "registered_ec_count",
     "outstanding_ec_count",
@@ -64,11 +56,11 @@ EC_FACT_NAMES = (
 # SpareBank 1 SMN's own ESEF extension taxonomy.  Extension concepts are
 # mapped by exact local name and only when the filing resolves to this issuer
 # namespace.  Names outside this table remain retained and unmapped.
-MING_EXTENSION_PREFIX = "sb1smn"
-MING_EXTENSION_NAMESPACE = "http://aarsrapport.smn.no/2024"
+SMN_EXTENSION_PREFIX = "sb1smn"
+SMN_EXTENSION_NAMESPACE = "http://aarsrapport.smn.no/2024"
 # GiftsAllocation is not evidence of an equity-pool Gavefond; without a
 # separately cited pool fact, gavefond remains unavailable.
-MING_EXTENSION_CONCEPT_MAP: dict[str, dict[str, str]] = {
+SMN_EXTENSION_CONCEPT_MAP: dict[str, dict[str, str]] = {
     "OtherInterestIncome": {"canonical_metric": "other_interest_income"},
     "ProfitLossBeforeTaxAndImpairment": {"canonical_metric": "profit_before_tax_and_impairment"},
     "ProfitLossAttributableToAdditionalTier1CapitalHolders": {"canonical_metric": "at1_attributable_result"},
@@ -93,7 +85,7 @@ MING_EXTENSION_CONCEPT_MAP: dict[str, dict[str, str]] = {
     "UnrealisedGainsReserve": {"canonical_metric": "unrealised_gains_reserve"},
     "AdditionalTier1Capital": {"canonical_metric": "additional_tier_1_capital"},
 }
-MING_IFRS_EC_FACT_MAP = {
+IFRS_EC_FACT_MAP = {
     "IssuedCapital": "ec_capital",
     "SharePremium": "overkursfond",
 }
@@ -113,32 +105,35 @@ def import_official_filing(
     expected_sha256: str | None = None,
     fact_sheet: Path | None = None,
     output_dir: Path | None = None,
+    universe_root: Path | None = None,
 ) -> dict[str, object]:
     """Import one local ESEF package without making any network request."""
 
     if str(jurisdiction).strip().upper() != "NO":
         raise ValueError("official filing importer currently supports jurisdiction NO only")
     canonical = _normalise_ticker(str(instrument_id or "").strip().upper().removeprefix("NO:").removeprefix("OSL:"))
-    issuer = NORWAY_ISSUER_TABLE.get(canonical)
+    issuer = next(
+        (
+            record
+            for record in load_sparebank_records(universe_root or ROOT, enabled_only=False)
+            if record.instrument_id.upper() == canonical
+        ),
+        None,
+    )
     if issuer is None:
-        raise ValueError("filing identity is ambiguous: unknown Norwegian issuer ticker")
-    bound_ticker = _normalise_ticker(str(ticker or canonical).strip().upper())
-    if bound_ticker != canonical:
-        raise ValueError("filing ticker does not match the requested listing")
-    bound_orgnr = issuer["orgnr"]
-    if orgnr:
-        supplied_orgnr = str(orgnr).strip()
-        if bound_orgnr is None:
-            raise ValueError("filing organisation number is not verified for this issuer")
-        if supplied_orgnr != bound_orgnr:
-            raise ValueError("filing organisation number does not match the issuer table")
-    if not lei:
-        raise ValueError("an issuer LEI (from GLEIF) is required to bind the filing; none is assumed")
-    bound_lei = str(lei).strip().upper()
+        raise ValueError("filing identity is ambiguous: issuer is not in the configured universe")
+    if issuer.asset_type not in {"equity_certificate", "certificate"}:
+        raise ValueError("filing issuer is not configured as an equity certificate")
+    bound_ticker = issuer.ticker.strip().upper()
+    if ticker and _normalise_ticker(ticker) != _normalise_ticker(bound_ticker):
+        raise ValueError("filing ticker does not match the configured listing")
+    bound_lei = str(lei or issuer.lei).strip().upper()
+    if not bound_lei:
+        raise ValueError("an issuer LEI from the universe or verified filing entity data is required")
     if len(bound_lei) != 20 or not bound_lei.isalnum():
         raise ValueError("filing LEI must be a 20-character identifier")
-    if bound_lei != issuer["lei"]:
-        raise ValueError("filing LEI does not match the issuer table")
+    if issuer.lei and bound_lei != issuer.lei:
+        raise ValueError("filing LEI does not match the configured universe")
     expected = str(expected_period or "").strip()
     if not expected:
         raise ValueError("expected filing period is required")
@@ -195,15 +190,8 @@ def import_official_filing(
         instrument_id=canonical,
         source_sha256=archive.sha256,
         source_provider="esef_local_import",
-        extension_namespace=MING_EXTENSION_NAMESPACE if canonical == "MING" else None,
-        extension_mappings=(
-            {
-                concept: values["canonical_metric"]
-                for concept, values in MING_EXTENSION_CONCEPT_MAP.items()
-            }
-            if canonical == "MING"
-            else {}
-        ),
+        extension_namespace=SMN_EXTENSION_NAMESPACE,
+        extension_mappings={concept: values["canonical_metric"] for concept, values in SMN_EXTENSION_CONCEPT_MAP.items()},
     )
     facts = tuple(
         replace(
@@ -239,7 +227,7 @@ def import_official_filing(
     normalised = normalise_statement_facts(facts)
     normalised_path = output / "normalised_statements.parquet"
     _append_revision_frame(normalised, normalised_path, "source_id")
-    _write_identity(output / "identity.json", canonical, bound_ticker, bound_orgnr, bound_lei, issuer["isin"], archive, expected, known_at)
+    _write_identity(output / "identity.json", issuer, bound_ticker, bound_lei, archive, expected, known_at)
     _write_ec_facts(
         filing_facts,
         output / "ec_facts.json",
@@ -249,13 +237,12 @@ def import_official_filing(
         known_at,
         source_url,
     )
-    _write_financial_classification(output, canonical, issuer, expected, known_at)
+    _write_financial_classification(output, issuer, bound_lei, expected, known_at)
     return {
         "status": "imported",
         "instrument_id": canonical,
-        "isin": issuer["isin"],
+        "isin": issuer.isin,
         "ticker": bound_ticker,
-        "orgnr": bound_orgnr,
         "lei": bound_lei,
         "period": expected,
         "known_at": known_at,
@@ -265,7 +252,7 @@ def import_official_filing(
         "warnings": [
             warning.message
             for warning in parsed.warnings
-            if warning.severity == "warning" and not _mapped_ming_extension_warning(warning, canonical)
+            if warning.severity == "warning" and not _mapped_smn_extension_warning(warning)
         ],
         "facts_path": str(facts_path),
         "normalised_path": str(normalised_path),
@@ -329,20 +316,20 @@ def _map_issuer_extension_qname(
     *,
     output_key: str = "canonical_metric",
 ) -> str | None:
-    """Map one explicit MING extension QName, rejecting foreign prefixes."""
+    """Map one explicit SMN extension QName, rejecting foreign prefixes."""
 
     prefix, separator, local_name = str(qname or "").partition(":")
-    if not separator or prefix != MING_EXTENSION_PREFIX:
+    if not separator or prefix != SMN_EXTENSION_PREFIX:
         return None
-    entry = MING_EXTENSION_CONCEPT_MAP.get(local_name)
+    entry = SMN_EXTENSION_CONCEPT_MAP.get(local_name)
     return entry.get(output_key) if entry else None
 
 
-def _mapped_ming_extension_warning(warning: object, instrument_id: str) -> bool:
-    if instrument_id != "MING" or str(getattr(warning, "code", "")) != "unmapped_extension":
+def _mapped_smn_extension_warning(warning: object) -> bool:
+    if str(getattr(warning, "code", "")) != "unmapped_extension":
         return False
     message = str(getattr(warning, "message", ""))
-    return any(f"{MING_EXTENSION_PREFIX}:{concept}" in message for concept in MING_EXTENSION_CONCEPT_MAP)
+    return any(f"{SMN_EXTENSION_PREFIX}:{concept}" in message for concept in SMN_EXTENSION_CONCEPT_MAP)
 
 
 def _extract_ec_facts(
@@ -354,19 +341,17 @@ def _extract_ec_facts(
 ) -> dict[str, dict[str, object]]:
     """Select exact consolidated ESEF facts for the native claim inputs."""
 
-    if instrument_id != "MING":
-        return {}
     candidates: dict[str, list[tuple[object, str]]] = {}
     for record in records:
         concept = str(getattr(record, "concept", "") or "")
         namespace = str(getattr(record, "namespace", "") or "")
-        if namespace == MING_EXTENSION_NAMESPACE:
+        if namespace == SMN_EXTENSION_NAMESPACE:
             ec_name = _map_issuer_extension_qname(
-                f"{MING_EXTENSION_PREFIX}:{concept}", output_key="ec_fact"
+                f"{SMN_EXTENSION_PREFIX}:{concept}", output_key="ec_fact"
             )
-            qname = f"{MING_EXTENSION_PREFIX}:{concept}"
+            qname = f"{SMN_EXTENSION_PREFIX}:{concept}"
         elif "ifrs" in namespace.casefold():
-            ec_name = MING_IFRS_EC_FACT_MAP.get(concept)
+            ec_name = IFRS_EC_FACT_MAP.get(concept)
             qname = f"ifrs-full:{concept}"
         else:
             continue
@@ -440,36 +425,40 @@ def _classification_storage_root(output: Path) -> Path:
 
 def _write_financial_classification(
     output: Path,
-    instrument_id: str,
-    issuer: dict[str, str | None],
+    issuer: UniverseRecord,
+    lei: str,
     period: str,
     known_at: str,
 ) -> None:
     row_checksum = hashlib.sha256(
-        json.dumps(issuer, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        json.dumps(
+            {"id": issuer.instrument_id, "name": issuer.name, "ticker": issuer.ticker, "isin": issuer.isin, "lei": lei, "instrument_type": issuer.asset_type},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
     ).hexdigest()
-    evidence_id = f"norway_savings_bank_issuer_table:{instrument_id}:{row_checksum}"
+    evidence_id = f"norway_configured_equity_certificate:{issuer.instrument_id}:{row_checksum}"
     effective_at = _classification_timestamp(period)
     available_at = _classification_timestamp(known_at)
-    # The verified issuer table establishes these facts for every row: a Norwegian savings bank whose
-    # listed instrument is an equity certificate in the financials sector.
     table_facts = (
         ("sector", "financials"),
         ("issuer_type", "savings_bank"),
         ("operating_country", "NO"),
-        ("instrument_type", "stock"),
+        ("instrument_type", issuer.asset_type),
         ("asset_class", "equity"),
-        ("instrument_subtype", "equity_certificate"),
+        ("instrument_subtype", issuer.asset_type),
+        ("special_structure", issuer.asset_type),
     )
     evidences = tuple(
         ClassificationEvidence(
             evidence_id=evidence_id if field == "sector" else f"{evidence_id}:{field}",
-            instrument_id=instrument_id,
+            instrument_id=issuer.instrument_id,
             field=field,
             value=value,
-            source="verified Norwegian savings-bank issuer table",
-            authority=SourceAuthority.OFFICIAL,
-            source_id=f"norway_savings_bank_issuer_table:{instrument_id}",
+            source="configured universe record and issuer-validated ESEF filing",
+            authority=SourceAuthority.MANUAL,
+            source_id=f"configured_universe:{issuer.instrument_id}:{lei}",
             confidence=0.95,
             valid_from=effective_at,
             available_at=available_at,
@@ -478,7 +467,7 @@ def _write_financial_classification(
         for field, value in table_facts
     )
     with ClassificationStore(_classification_storage_root(output)) as store:
-        current = store.classify(instrument_id, effective_at=effective_at, decision_time=available_at)
+        current = store.classify(issuer.instrument_id, effective_at=effective_at, decision_time=available_at)
         missing = tuple(item for item in evidences if item.evidence_id not in current.evidence_ids)
         if missing:
             store.append_evidence(missing)
@@ -512,14 +501,15 @@ def _append_revision_frame(frame: pd.DataFrame, destination: Path, key: str) -> 
     combined.to_parquet(destination, index=False)
 
 
-def _write_identity(destination: Path, instrument_id: str, ticker: str, orgnr: str | None, lei: str, isin: str | None, archive: object, period: str, known_at: str) -> None:
+def _write_identity(destination: Path, issuer: UniverseRecord, ticker: str, lei: str, archive: object, period: str, known_at: str) -> None:
     payload = {
-        "instrument_id": instrument_id,
+        "instrument_id": issuer.instrument_id,
+        "name": issuer.name,
         "ticker": ticker,
-        "isin": isin,
+        "isin": issuer.isin,
         "lei": lei,
-        "orgnr": orgnr,
-        "identity_source": "Brønnøysund organisation number + Oslo Børs listing + filed ESEF issuer LEI",
+        "instrument_type": issuer.asset_type,
+        "identity_source": "configured universe record plus ESEF issuer LEI",
         "source_url": archive.source_url,
         "sha256": archive.sha256,
         "known_at": known_at,
@@ -726,6 +716,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected-sha256")
     parser.add_argument("--fact-sheet", type=Path)
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--universe-root", type=Path, default=ROOT)
     return parser
 
 
@@ -745,6 +736,7 @@ def main(argv: list[str] | None = None) -> int:
         expected_sha256=args.expected_sha256,
         fact_sheet=args.fact_sheet,
         output_dir=output_dir,
+        universe_root=args.universe_root,
     )
     print(json.dumps(result, sort_keys=True))
     return 0

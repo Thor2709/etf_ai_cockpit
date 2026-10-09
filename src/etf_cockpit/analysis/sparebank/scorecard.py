@@ -379,6 +379,8 @@ def _input_value(rule: Mapping[str, object], context: Mapping[str, object]) -> f
             value = _path(context, "valuation.implementation.days_to_trade")
         return _number(value)
     value = _path(context, str(rule.get("source") or ""))
+    if value is None and str(rule.get("source") or "") == "valuation.marketability.median_volume_60d":
+        value = _path(context, "assumptions.marketability.median_volume_60d")
     number = _number(value)
     if number is None:
         return None

@@ -833,6 +833,7 @@ etfs:
   - id: AURG
     name: Aurskog Sparebank
     isin: needs_verification
+    lei: 5967007LIEEXZX7H3S04  # GLEIF exact legal-name match 2026-10-09
     ticker: AURG.OL
     provider_symbol: AURG.OL
     exchange: OSE
@@ -884,6 +885,7 @@ etfs:
   - id: SOGN
     name: Sogn Sparebank
     isin: needs_verification
+    lei: 5967007LIEEXZXAXC017  # GLEIF exact legal-name match 2026-10-09
     ticker: SOGN.OL
     provider_symbol: SOGN.OL
     exchange: OSE
@@ -918,6 +920,7 @@ etfs:
   - id: MELG
     name: Melhus Sparebank
     isin: needs_verification
+    lei: 5967007LIEEXZXI0QG32  # GLEIF exact legal-name match 2026-10-09
     ticker: MELG.OL
     provider_symbol: MELG.OL
     exchange: OSE
@@ -953,6 +956,7 @@ etfs:
   - id: SKUE
     name: Skue Sparebank
     isin: needs_verification
+    lei: 5967007LIEEXZX850W58  # GLEIF exact legal-name match 2026-10-09
     ticker: SKUE.OL
     provider_symbol: SKUE.OL
     exchange: OSE
@@ -1055,6 +1059,7 @@ etfs:
   - id: MORG
     name: Sparebanken Møre
     isin: NO0006390004
+    lei: 5967007LIEEXZX5PU005  # GLEIF exact legal-name match 2026-10-09
     ticker: MORG.OL
     provider_symbol: MORG.OL
     exchange: OSE

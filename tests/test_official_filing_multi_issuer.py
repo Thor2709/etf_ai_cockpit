@@ -7,7 +7,8 @@ import zipfile
 import pytest
 
 from etf_cockpit.data.classification import read_instrument_context
-from scripts.import_official_filing import NORWAY_ISSUER_TABLE, _validate_units, import_official_filing
+from etf_cockpit.data.universe_store import load_sparebank_records
+from scripts.import_official_filing import _validate_units, import_official_filing
 from etf_cockpit.parsers.esef_ixbrl import XbrlFact
 
 
@@ -73,42 +74,53 @@ def _fixture_with_scope_member(path: Path, member: str) -> Path:
     return path
 
 
-def test_nong_import_uses_issuer_table_identity_and_isin(tmp_path: Path) -> None:
-    issuer = NORWAY_ISSUER_TABLE["NONG"]
-    package = _fixture_for_issuer(tmp_path / "nong.xbri", str(issuer["lei"]))
+def test_nong_import_uses_configured_universe_identity(tmp_path: Path) -> None:
+    issuer = next(record for record in load_sparebank_records() if record.instrument_id == "NONG")
+    lei = "549300SXM92LQ05OJQ76"
+    package = _fixture_for_issuer(tmp_path / "nong.xbri", lei)
 
-    result = _import(tmp_path / "evidence", source=package, instrument_id="NONG", lei=issuer["lei"])
+    result = _import(tmp_path / "evidence", source=package, instrument_id="NONG", lei=lei)
 
     identity = json.loads((tmp_path / "evidence" / "identity.json").read_text(encoding="utf-8"))
-    assert issuer == {
-        "ticker": "NONG",
-        "isin": "NO0006000801",
-        "name": "SpareBank 1 Nord-Norge",
-        "lei": "549300SXM92LQ05OJQ76",
-        "orgnr": None,
-    }
-    assert result["isin"] == "NO0006000801"
-    assert identity["isin"] == "NO0006000801"
-    assert identity["lei"] == issuer["lei"]
-    assert identity["orgnr"] is None
+    assert result["isin"] == issuer.isin == "NO0006000801"
+    assert result["ticker"] == issuer.ticker == "NONG.OL"
+    assert identity["instrument_id"] == issuer.instrument_id
+    assert identity["instrument_type"] == "equity_certificate"
+    assert identity["isin"] == issuer.isin
+    assert identity["lei"] == lei
 
 
 def test_unknown_ticker_is_rejected(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="unknown Norwegian issuer ticker"):
+    with pytest.raises(ValueError, match="not in the configured universe"):
         _import(tmp_path / "unknown", instrument_id="UNKNOWN")
 
 
-def test_issuer_table_lei_mismatch_is_rejected(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="LEI does not match the issuer table"):
-        _import(tmp_path / "mismatch", lei="00000000000000000000")
+def test_configured_universe_lei_mismatch_is_rejected(tmp_path: Path) -> None:
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    (config_dir / "universe.yaml").write_text(
+        "etfs:\n"
+        "  - id: MING\n"
+        "    name: SpareBank 1 SMN\n"
+        "    isin: NO0006390301\n"
+        "    ticker: MING.OL\n"
+        "    lei: 00000000000000000000\n"
+        "    instrument_type: equity_certificate\n"
+        "    analysis_tier: sparebanken\n"
+        "    region: Norway\n"
+        "    sector: Banks\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="LEI does not match the configured universe"):
+        _import(tmp_path / "mismatch", universe_root=tmp_path)
 
 
 def test_ticker_ol_suffix_normalises_to_bare_ticker(tmp_path: Path) -> None:
     result = _import(tmp_path / "ming", ticker="MING.OL")
 
-    assert result["ticker"] == "MING"
+    assert result["ticker"] == "MING.OL"
     identity = json.loads((tmp_path / "ming" / "identity.json").read_text(encoding="utf-8"))
-    assert identity["ticker"] == "MING"
+    assert identity["ticker"] == "MING.OL"
 
 
 def test_import_writes_financial_sector_classification(tmp_path: Path) -> None:

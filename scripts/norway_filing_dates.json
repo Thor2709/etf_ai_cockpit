@@ -1,10 +1,3 @@
 {
-  "MING": "2025-02-27",
-  "NONG": "2025-05-08",
-  "RING": "2025-05-08",
-  "SOAG": "2025-05-08",
-  "SPOL": "2025-05-08",
-  "MORG": "2025-05-08",
-  "SPOG": "2025-05-08",
-  "AURG": "2025-05-08"
+  "source": "Filing publication dates are taken from each selected filings.xbrl.org API record and retained beside its downloaded package."
 }
