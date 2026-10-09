@@ -138,11 +138,7 @@ def _build_financial_projection_from_evidence(
     }
     valuation_assumptions = ec_revision.get("valuation_assumptions")
     valuation_assumptions = valuation_assumptions if isinstance(valuation_assumptions, Mapping) else None
-    valuation_currency = str(
-        (valuation_assumptions or {}).get("currency")
-        or (valuation_assumptions or {}).get("output_currency")
-        or ""
-    ).strip().upper()
+    valuation_currency = _valuation_currency(valuation_assumptions, context, ec_facts)
     price_path = root / "data" / "clean" / "prices.parquet"
     decision_price = None
     market_data_prices = None
@@ -508,3 +504,42 @@ def _finite_number(value: object) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None
+
+
+def _valuation_currency(
+    assumptions: Mapping[str, object] | None,
+    context: object,
+    facts: object,
+) -> str:
+    """Resolve the listed price currency from explicit or filing evidence."""
+
+    for value in (
+        (assumptions or {}).get("currency"),
+        (assumptions or {}).get("output_currency"),
+        _record_value(context, "share_class_currency"),
+        _record_value(context, "trading_currency"),
+        _record_value(context, "reporting_currency"),
+    ):
+        currency = _currency_code(value)
+        if currency:
+            return currency
+    if not isinstance(facts, Mapping):
+        return ""
+    currencies = {
+        currency
+        for name in ("owner_attributable_book", "ec_capital", "overkursfond", "utjevningsfond")
+        if isinstance(facts.get(name), Mapping)
+        and (currency := _currency_code(facts[name].get("unit")))
+    }
+    return next(iter(currencies)) if len(currencies) == 1 else ""
+
+
+def _record_value(value: object, name: str) -> object:
+    if isinstance(value, Mapping):
+        return value.get(name)
+    return getattr(value, name, None)
+
+
+def _currency_code(value: object) -> str:
+    currency = str(value or "").strip().upper()
+    return currency if len(currency) == 3 and currency.isalpha() else ""
