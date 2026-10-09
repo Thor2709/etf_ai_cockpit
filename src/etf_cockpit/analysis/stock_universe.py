@@ -60,6 +60,8 @@ class UniverseEvidence:
     names: dict[str, str] = field(default_factory=dict)
     snapshots: dict[str, dict[str, Any]] = field(default_factory=dict)
     prices: dict[str, MarketInputs] = field(default_factory=dict)
+    periods: dict[str, list[sm.Period]] = field(default_factory=dict)
+    config: dict[str, Any] = field(default_factory=dict)
 
 
 def stock_records(universe_rows: Iterable[Mapping[str, Any]], config: Mapping[str, Any]) -> list[StockRecord]:
@@ -173,7 +175,7 @@ def build_universe_evidence(
     periods_frame = store.read_periods(root)
     snapshots = store.read_snapshots(root)
     fx = store.read_fx(root)
-    result = UniverseEvidence(decision_time)
+    result = UniverseEvidence(decision_time, config=cfg)
     user_picks = load_user_peers(root)
     result.user_peers = user_picks
     ids = [r.instrument_id for r in records]
@@ -196,6 +198,7 @@ def build_universe_evidence(
             market = market_inputs(frame, snapshot, reporting, decision_time, fx, cfg)
         reason = store.no_data_reason(iid, snapshots, decision_time, bool(known))
         result.snapshots[iid] = snapshot or {}
+        result.periods[iid] = sm.known_periods(periods, decision_time)
         result.prices[iid] = market
         result.names[iid] = (snapshot or {}).get("long_name") if iid.startswith("peer:") and snapshot else record.name
         first[iid] = build_stock_evidence(iid, periods, decision_time, market, analyst_inputs(snapshot), cfg, no_data_reason=reason)

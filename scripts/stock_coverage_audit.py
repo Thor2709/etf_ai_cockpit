@@ -64,7 +64,7 @@ def build(state: str) -> str:
     records = stock_universe_records(snapshot.config)
     evidence = snapshot_stock_evidence(snapshot).evidence if state == "after" else {}
     lines = [f"### State: {state.upper()} (decision time {snapshot.benchmark_reference_decision_time})", ""]
-    lines += ["| Stock | Score | Coverage | Components used | Missing components (reason) |", "|---|---|---|---|---|"]
+    lines += ["| Stock | Score | Coverage | Components used (incl. the zero-weight data-quality check) | Missing components (reason) |", "|---|---|---|---|---|"]
     for record in records:
         score = scores.get(record.instrument_id)
         if score is None:

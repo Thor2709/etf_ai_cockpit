@@ -79,7 +79,7 @@ def peer_sentence(label: str, own: object, median: object, count: int, premium_p
         relation = "in line with"
     else:
         relation = f"{abs(gap) * 100:.0f}% {'above' if gap > 0 else 'below'}"
-    return f"{label} {times(own_n)} is {relation} the peer median {times(med_n)} ({count} peers, instrument excluded)."
+    return f"{label} {times(own_n)} is {relation} the peer median {times(med_n)} ({count} peer{'' if count == 1 else 's'}, instrument excluded)."
 
 
 def unavailable_line(label: str, reason: object) -> str:
@@ -107,3 +107,73 @@ def score_headline(
     if missing:
         text += " Not included: " + join_list([f"{name} ({reason})" for name, reason in missing.items()]) + "."
     return text
+
+
+def _metric_phrase(metric: object, formatter, label: str) -> tuple[str, str | None]:
+    """(phrase, reason): the formatted value, or the label with the stored reason."""
+
+    value = getattr(metric, "value", None)
+    if value is not None and getattr(metric, "status", "") == "ok":
+        return f"{label} {formatter(value)}", None
+    return label, str(getattr(metric, "reason", None) or "unavailable")
+
+
+def _group(label: str, parts: Sequence[tuple[str, str | None]]) -> str:
+    have = [phrase for phrase, reason in parts if reason is None]
+    missing = [f"{phrase} ({reason})" for phrase, reason in parts if reason is not None]
+    text = ""
+    if have:
+        text = f"{label}: " + join_list(have) + "."
+    if missing:
+        text += (" " if text else f"{label}: ") + "Unavailable: " + "; ".join(missing) + "."
+    return text
+
+
+def describe_stock(evidence: object, text_config: Mapping[str, object], history_years: int = 5) -> list[str]:
+    """Plain-language paragraphs from the evidence numbers (templates only; every gap keeps its reason)."""
+
+    m = evidence.metrics  # type: ignore[attr-defined]
+    ccy = getattr(evidence, "reporting_currency", None)
+    out: list[str] = []
+    basis = m["revenue"].basis or m["ebit_margin"].basis
+    as_of = m["revenue"].as_of or m["ebit_margin"].as_of
+    period = f" ({basis} to {as_of})" if basis and as_of else ""
+    out.append(
+        _group(
+            "Profitability" + period,
+            [_metric_phrase(m["ebit_margin"], pct, "EBIT margin"), _metric_phrase(m["net_margin"], pct, "net margin"), _metric_phrase(m["roe"], pct, "ROE"), _metric_phrase(m["roic"], pct, "ROIC")],
+        )
+    )
+    out.append(
+        _group(
+            "Balance sheet and cash",
+            [_metric_phrase(m["net_debt_to_ebitda"], times, "net debt / EBITDA"), _metric_phrase(m["debt_to_equity"], times, "debt / equity"), _metric_phrase(m["fcf_conversion"], pct, "FCF / net income")],
+        )
+    )
+    out.append(_group("Growth", [_metric_phrase(m["revenue_cagr"], pct, "revenue CAGR"), _metric_phrase(m["net_income_cagr"], pct, "net income CAGR")]))
+    cap = m["market_cap"]
+    cap_text = f"at a market cap of {money(cap.value, ccy)}" if cap.value is not None else "market cap unavailable (" + str(cap.reason) + ")"
+    out.append(
+        _group(
+            f"Valuation {cap_text}",
+            [_metric_phrase(m["pe"], times, "P/E"), _metric_phrase(m["ev_ebit"], times, "EV/EBIT"), _metric_phrase(m["fcf_yield"], pct, "FCF yield"), _metric_phrase(m["dividend_yield"], pct, "dividend yield")],
+        )
+    )
+    percentile = m["pe_percentile"]
+    cheap, dear = float(text_config.get("percentile_cheap", 0.25)), float(text_config.get("percentile_expensive", 0.75))
+    if percentile.value is not None:
+        out.append(percentile_sentence("P/E", percentile.value, int(getattr(evidence, "history_points", 0)), history_years, cheap, dear))
+    else:
+        out.append(unavailable_line("P/E versus its own history", percentile.reason))
+    stat = evidence.peer_stats.get("pe")  # type: ignore[attr-defined]
+    if stat is not None and stat.median is not None and stat.own is not None and stat.count and m["pe_vs_peers"].status == "ok":
+        out.append(peer_sentence("P/E", stat.own, stat.median, stat.count, float(text_config.get("peer_premium_pct", 0.10))))
+    else:
+        out.append(unavailable_line("P/E versus peers", m["pe_vs_peers"].reason))
+    growth = m["implied_growth_pe"]
+    if growth.value is not None:
+        out.append(f"Reverse valuation: the P/E implies about {pct(growth.value)} growth at the configured cost of equity.")
+    else:
+        out.append(unavailable_line("Reverse valuation", growth.reason))
+    out.extend(str(note) for note in getattr(evidence, "notes", ()))
+    return [line for line in out if line]

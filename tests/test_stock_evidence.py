@@ -152,3 +152,24 @@ def test_components_score_from_available_inputs_and_state_what_is_missing() -> N
     assert scored.score_10 == pytest.approx((10.0 * (0.10 + 0.10) / 0.20 + 10.0 * 0.8) / 2, abs=1e-2)
     future = AnalystInputs(eps_current=4.4, eps_90d_ago=4.0, known_at=DECISION + timedelta(days=1))
     assert build_stock_evidence("T", [_period(2025)], DECISION, _market(), future, CONFIG).components["analyst_revision"].score_10 is None
+
+
+def test_describe_stock_writes_numbers_and_keeps_the_reason_for_every_gap() -> None:
+    from etf_cockpit.analysis.stock_text import describe_stock
+
+    lines = describe_stock(_evidence(), CONFIG.get("text", {}), 5)
+    text = "\n".join(lines)
+    assert "EBIT margin 15.0%" in text  # 200 / 1331
+    assert "P/E versus its own history: unavailable" in text  # no history in the fixture, so the reason is shown
+    assert "Reverse valuation: unavailable" in text and "cost of equity" in text
+    assert "None" not in text and "nan" not in text.casefold()
+
+
+def test_peer_sentence_needs_enough_peers_like_the_metric_does() -> None:
+    from etf_cockpit.analysis.stock_text import describe_stock
+
+    one_peer = describe_stock(_evidence(peer_values={"pe": {"P1": 20.0}}), CONFIG.get("text", {}), 5)
+    assert not any("peer median" in line for line in one_peer)
+    assert any(line.startswith("P/E versus peers: unavailable") and "only 1 peer with" in line for line in one_peer)
+    three = describe_stock(_evidence(peer_values={"pe": {"P1": 20.0, "P2": 22.0, "P3": 24.0}}), CONFIG.get("text", {}), 5)
+    assert any("peer median" in line and "3 peers" in line for line in three)

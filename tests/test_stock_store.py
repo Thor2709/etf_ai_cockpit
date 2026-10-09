@@ -133,3 +133,12 @@ def test_user_peers_persist_and_override_automatic_peers(tmp_path) -> None:
     assert [p.instrument_id for p in auto] == ["AIR", "LR"]  # same size band ranks AIR first; MSFT below threshold; never itself
     merged = effective_peers(auto, ["MSFT", "SU"], {"MSFT": "Microsoft"}, "SU")
     assert [(p.instrument_id, p.origin) for p in merged] == [("MSFT", "user"), ("AIR", "auto"), ("LR", "auto")]
+
+
+def test_a_peer_must_share_the_industry_or_sector_region_and_size_only_rank() -> None:
+    target = PeerProfile("T", "Target", sector="Technology", industry="Software", region="Europe", market_cap_eur_bn=30.0)
+    same_region_and_size = PeerProfile("X", "Unrelated", sector="Utilities", industry="Power", region="Europe", market_cap_eur_bn=31.0)
+    same_sector = PeerProfile("Y", "Same sector", sector="Technology", industry="Hardware", region="Europe", market_cap_eur_bn=31.0)
+    picks = auto_peers(target, [same_region_and_size, same_sector], CONFIG)
+    assert [p.instrument_id for p in picks] == ["Y"]  # region + size alone (score 2) is not a peer
+    assert "same sector (Technology)" in picks[0].reasons and "same region (Europe)" in picks[0].reasons

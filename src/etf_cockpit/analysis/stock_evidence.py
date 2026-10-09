@@ -554,7 +554,7 @@ class _Builder:
         quote_major, _ = sm.minor_unit(self.market.price_currency or "", self.minor)
         reporting_major, _ = sm.minor_unit(self.reporting_currency or "", self.minor)
         if quote_major != reporting_major:
-            self.metrics[key] = _missing(key, "currency_mismatch: history needs an FX series for the price currency")
+            self.metrics[key] = _missing(key, f"the price currency ({quote_major}) differs from the reporting currency ({reporting_major}); rebuilding past P/E needs a daily FX series, which is not loaded")
             return
         values: list[float] = []
         start = self.decision_time.date() - timedelta(days=int(365.25 * years))
@@ -617,7 +617,7 @@ class _Builder:
             reason = "no meaningful own P/E" if stat.own is None else f"needs {minimum} peers with a meaningful P/E; have {stat.count}"
             self.metrics["pe_vs_peers"] = _missing("pe_vs_peers", reason, "own P/E / median peer P/E - 1")
         elif stat.count < minimum:
-            self.metrics["pe_vs_peers"] = _metric("pe_vs_peers", value=stat.premium, status=sm.UNAVAILABLE, reason=f"only {stat.count} peers with a meaningful P/E; {minimum} needed", formula="own P/E / median peer P/E - 1")
+            self.metrics["pe_vs_peers"] = _metric("pe_vs_peers", value=stat.premium, status=sm.UNAVAILABLE, reason=f"only {stat.count} peer{'' if stat.count == 1 else 's'} with a meaningful P/E; {minimum} needed", formula="own P/E / median peer P/E - 1")
         else:
             self.metrics["pe_vs_peers"] = _metric("pe_vs_peers", value=stat.premium, status=sm.OK, basis="spot", source=f"median of {stat.count} peers (instrument excluded)", formula="own P/E / median peer P/E - 1")
 

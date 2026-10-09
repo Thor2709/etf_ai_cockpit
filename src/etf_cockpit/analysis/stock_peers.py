@@ -59,6 +59,7 @@ def auto_peers(target: PeerProfile, candidates: Sequence[PeerProfile], config: M
         if _same(target.sector, candidate.sector):
             score += int(weights["sector"])
             reasons.append(f"same sector ({candidate.sector})")
+        classified = score > 0  # region and size only rank peers: a peer must share the industry or the sector
         if _same(target.region, candidate.region):
             score += int(weights["region"])
             reasons.append(f"same region ({candidate.region})")
@@ -66,7 +67,7 @@ def auto_peers(target: PeerProfile, candidates: Sequence[PeerProfile], config: M
         if own_band is not None and band is not None and band == own_band:
             score += int(weights["size_band"])
             reasons.append("same size band")
-        if score >= minimum:
+        if classified and score >= minimum:
             picks.append(PeerPick(candidate.instrument_id, candidate.name, score, tuple(reasons), "auto"))
     picks.sort(key=lambda item: (-item.score, item.instrument_id))
     return picks[:limit]

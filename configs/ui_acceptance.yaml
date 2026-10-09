@@ -84,6 +84,11 @@ controls:
   - {key: universe.add, route: /universe, control_label: Add record, callback: add_dialog, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_universe_store.py, control_type: button}
   - {key: universe.add-cancel, route: /universe, control_label: Cancel, callback: cancel_add, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_universe_store.py, control_type: button}
   - {key: universe.add-save, route: /universe, control_label: Validate and add, callback: save_add, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_universe_store.py, control_type: button}
+  - {key: universe.lookup, route: /universe, control_label: Add by ISIN or ticker, callback: lookup_dialog, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_instrument_lookup.py, control_type: button}
+  - {key: universe.lookup-search, route: /universe, control_label: Look up, callback: search, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_instrument_lookup.py, control_type: button}
+  - {key: universe.lookup-pick.*, route: /universe, control_label: Pick listing, callback: pick, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_instrument_lookup.py, control_type: button}
+  - {key: universe.lookup-cancel, route: /universe, control_label: Cancel, callback: cancel_lookup, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_instrument_lookup.py, control_type: button}
+  - {key: universe.lookup-stage, route: /universe, control_label: Validate and add, callback: stage_lookup, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_instrument_lookup.py, control_type: button}
   - {key: universe.enabled.*, route: /universe, control_label: Enabled, callback: set_enabled, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_universe_manager.py, control_type: button}
   - {key: universe.remove.*, route: /universe, control_label: Remove, callback: remove_item, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_universe_store.py, control_type: button}
   - {key: universe.identity.*, route: /universe, control_label: Identity, callback: identity_dialog, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_universe_manager.py, control_type: button}
@@ -294,6 +299,10 @@ controls:
   - {key: instrument-detail.valuation-input.*, route: /instrument, control_label: Scenario assumption, callback: invalidate_valuation, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_task19_instrument_detail.py, control_type: input}
   - {key: instrument-detail.preview-capacity, route: /instrument, control_label: Preview capacity, callback: preview, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_etf_economics.py, control_type: button}
   - {key: instrument-detail.open-scores, route: /instrument, control_label: Open in Scores, callback: open_scores, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_button_contracts.py, control_type: button}
+  - {key: stock.peers.save, route: /instrument, control_label: Save my peers, callback: save_peers, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_stock_page_ui.py, control_type: button}
+  - {key: stock.peers.clear, route: /instrument, control_label: Clear my peers, callback: reset_peers, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_stock_page_ui.py, control_type: button}
+  - {key: stock.notes.add, route: /instrument, control_label: Add note, callback: add_note, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_stock_page_ui.py, control_type: button}
+  - {key: stock.notes.retract.*, route: /instrument, control_label: Remove note, callback: retract_note, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/ui/test_stock_page_ui.py, control_type: button}
 
   # Official parser file pickers and controlled parser callbacks.
   - {key: filings.import-sec, route: /filings, control_label: Import SEC companyfacts, callback: import_sec, success_signal: auto, controlled_error_signal: auto, acceptance_test: tests/test_button_contracts.py, control_type: button}

@@ -1499,7 +1499,7 @@ def build_universe_simple_scores(
             _component(
                 "relative_strength",
                 signal.components.relative_strength,
-                f"Relative strength input is {raw_to_score_10(signal.components.relative_strength)}/10 after comparing with the configured ETF universe.",
+                _relative_strength_why(signal.components.relative_strength),
                 authority="high",
             ),
             _liquidity_component(liquidity_info),
@@ -2361,6 +2361,16 @@ def _data_quality_raw_and_reason(
         score = min(score, 3.0)
         reason.append("Blocking warning flags are present: " + ", ".join(sorted(hard_warning_tokens & set(warnings))) + ".")
     return _score_10_to_raw(score), " ".join(reason)
+
+
+def _relative_strength_why(raw: float | None) -> str:
+    score = raw_to_score_10(raw)
+    if score is None:
+        return (
+            "Relative strength is unavailable: it compares 60/120-day returns with the canonical benchmark reference, "
+            "and no benchmark reference is bound to this snapshot (benchmark record missing or stale)."
+        )
+    return f"Relative strength input is {score}/10 after comparing with the canonical benchmark reference."
 
 
 def _liquidity_component(info: dict[str, object]) -> SimpleScoreComponent:

@@ -396,6 +396,8 @@ def targets_from_universe(records: Iterable[Mapping[str, Any]], *, excluded_sect
         kind = str(record.get("instrument_type") or record.get("asset_type") or "").casefold()
         if kind != "stock" or not bool(record.get("enabled", True)):
             continue
+        if str(record.get("lifecycle") or ""):  # delisted or merged: stored history is kept, nothing new is fetched
+            continue
         if str(record.get("sector") or "").casefold() in blocked:
             continue
         symbol = str(record.get("provider_symbol") or record.get("ticker") or "").strip()
