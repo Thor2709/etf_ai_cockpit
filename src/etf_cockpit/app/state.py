@@ -345,7 +345,7 @@ class AppState:
                 self.financial_projection = load_financial_institution_projection(
                     selected,
                     storage_root=ROOT,
-                    decision_time=cutoff,
+                    decision_time=None,  # live view decides as of now
                     effective_at=cutoff,
                 )
             except Exception as exc:

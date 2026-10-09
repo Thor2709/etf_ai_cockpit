@@ -36,6 +36,9 @@ def load_financial_institution_projection(
 ) -> dict[str, object]:
     """Load a verified projection, or build one from local point-in-time evidence."""
 
+    # A cached projection for another instrument (stale UI selection) is ignored and rebuilt.
+    if isinstance(projection, Mapping) and str(projection.get("instrument_id")) != str(instrument_id):
+        projection = None
     if projection is None:
         try:
             return _build_financial_projection_from_evidence(

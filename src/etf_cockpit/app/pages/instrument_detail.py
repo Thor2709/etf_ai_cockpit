@@ -1547,12 +1547,13 @@ def instrument_detail_page(page: ft.Page | None, state: object) -> PageView:
             section = "Overview"
 
         def change_section(value: str) -> PageChrome | None:
+            # Sections are already built: switching only toggles visibility (no full page rebuild).
             state.selected_instrument_section = value
-            refresh_page = getattr(page, "_shell_refresh", None)
-            if callable(refresh_page):
-                refresh_page()
-                return None
-            return render(instrument_id, value)
+            chrome = render(instrument_id, value)
+            refresh_chrome = getattr(page, "_shell_chrome_update", None)
+            if callable(refresh_chrome):
+                refresh_chrome(chrome)
+            return chrome
 
         groups.append(
             SegmentGroup(

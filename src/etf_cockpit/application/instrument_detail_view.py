@@ -3031,7 +3031,8 @@ def build_instrument_detail(
     financial_institutions = load_financial_institution_projection(
         instrument_id,
         projection=financial_projection,
-        decision_time=projection_time or None,
+        # Live view: decide as of now; the snapshot date only bounds the evidence period.
+        decision_time=None,
         effective_at=projection_time or None,
         tactical_evidence=_tactical_scorecard_evidence(signal, candidate),
     )
