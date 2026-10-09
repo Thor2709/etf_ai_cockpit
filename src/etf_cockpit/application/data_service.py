@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 from datetime import date
 from io import BytesIO
@@ -9,7 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
-from etf_cockpit.core.paths import FORECASTS_DIR, ROOT
+from etf_cockpit.core.paths import CLEAN_DIR, FORECASTS_DIR, ROOT
 from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.core.timing import record_cache_event
 from etf_cockpit.core.types import DataQualityReport
@@ -60,6 +61,7 @@ from etf_cockpit.data.validation import (
     validate_holdings,
     validate_prices,
 )
+from etf_cockpit.data.provenance import sha256_dataframe
 from etf_cockpit.data.yfinance_provider import YFinanceProvider
 from etf_cockpit.portfolio.risk import target_policy_issues
 from etf_cockpit.application.derived_cache import (
@@ -192,6 +194,7 @@ class DataService:
         messages: list[str] = []
 
         result = provider.fetch_prices([], start_date, end_date)
+        result = _carry_forward_failed_instruments(result)
         if not result.ok or result.data is None:
             return redact_text(str(result.message))
         result, quarantined = _quarantine_invalid_ohlc(result)
@@ -698,3 +701,28 @@ def _quarantine_invalid_ohlc(result):
     quarantined = frame.loc[bad].copy()
     quarantined["quarantine_reason"] = "invalid_ohlc"
     return dataclasses.replace(result, data=frame.loc[~bad].reset_index(drop=True)), quarantined
+
+
+def _carry_forward_failed_instruments(result: ProviderResult, *, clean_path: Path | None = None) -> ProviderResult:
+    """One instrument the provider could not return must not block every other refresh.
+
+    The price store is replaced on commit, so the instruments missing from a partial fetch keep
+    their stored history unchanged (they turn stale and the staleness gate reports them) instead
+    of being dropped. Nothing is filled or estimated."""
+
+    if result.ok or result.data is None or result.data.empty:
+        return result
+    path = clean_path or CLEAN_DIR / "prices.parquet"
+    fetched = set(result.data["etf_id"].astype(str))
+    stored = pd.read_parquet(path) if path.is_file() else pd.DataFrame(columns=["etf_id"])
+    kept = stored[~stored["etf_id"].astype(str).isin(fetched)]
+    data = pd.concat([result.data, kept], ignore_index=True) if not kept.empty else result.data
+    kept_ids = sorted(set(kept["etf_id"].astype(str)))
+    message = (
+        f"Downloaded fresh prices for {len(fetched)} instruments. Not refreshed, stored history kept: "
+        + (", ".join(kept_ids) if kept_ids else "none (no stored history)")
+        + ". Provider detail: "
+        + str(result.message).replace("Partial refresh rejected; no incomplete Yahoo Finance price set was committed. ", "")
+    )
+    metadata = dataclasses.replace(result.metadata, checksum=sha256_dataframe(data)) if result.metadata else None
+    return ProviderResult(result.provider_name, result.dataset_type, "ok", message, data, metadata)

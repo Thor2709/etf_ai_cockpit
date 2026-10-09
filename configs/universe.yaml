@@ -370,21 +370,21 @@ etfs:
     isin_status: needs_verification
     enabled: true
   - id: BA
-    name: Boeing Co
-    isin: needs_verification
-    ticker: BA
-    provider_symbol: BA
-    exchange: unverified
-    currency: USD
+    name: BAE Systems plc
+    isin: GB0002634946
+    ticker: BA.L
+    provider_symbol: BA.L
+    exchange: LSE
+    currency: GBP
     asset_class: equity
     instrument_type: stock
     analysis_tier: secondary
     data_policy: yfinance_only
-    region: United States
+    region: United Kingdom
     sector: Industrials
-    theme: Aerospace
+    theme: Defence
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: BRK_B
     name: Berkshire Hathaway Inc Class B
@@ -404,21 +404,21 @@ etfs:
     isin_status: needs_verification
     enabled: true
   - id: AM
-    name: Amazon.com Inc
-    isin: needs_verification
-    ticker: AMZN
-    provider_symbol: AMZN
-    exchange: unverified
-    currency: USD
+    name: Dassault Aviation SA
+    isin: FR0014004L86
+    ticker: AM.PA
+    provider_symbol: AM.PA
+    exchange: Euronext Paris
+    currency: EUR
     asset_class: equity
     instrument_type: stock
     analysis_tier: secondary
     data_policy: yfinance_only
-    region: United States
-    sector: Consumer discretionary
-    theme: Digital platforms
+    region: Europe
+    sector: Industrials
+    theme: Defence
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: IDR
     name: Indra Sistemas SA
@@ -455,21 +455,21 @@ etfs:
     isin_status: needs_verification
     enabled: true
   - id: KMAR
-    name: Kempower Oyj
-    isin: needs_verification
-    ticker: KEMPOWR.HE
-    provider_symbol: KEMPOWR.HE
-    exchange: unverified
-    currency: EUR
+    name: Kongsberg Maritime ASA
+    isin: NO0013697029
+    ticker: KMAR.OL
+    provider_symbol: KMAR.OL
+    exchange: Oslo Bors
+    currency: NOK
     asset_class: equity
     instrument_type: stock
     analysis_tier: secondary
     data_policy: yfinance_only
     region: Europe
     sector: Industrials
-    theme: Electrification
+    theme: Maritime technology
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: LDO
     name: Leonardo SpA
@@ -557,11 +557,11 @@ etfs:
     isin_status: needs_verification
     enabled: true
   - id: HO
-    name: Hochtief AG
-    isin: needs_verification
-    ticker: HOT.DE
-    provider_symbol: HOT.DE
-    exchange: unverified
+    name: Thales SA
+    isin: FR0000121329
+    ticker: HO.PA
+    provider_symbol: HO.PA
+    exchange: Euronext Paris
     currency: EUR
     asset_class: equity
     instrument_type: stock
@@ -569,9 +569,9 @@ etfs:
     data_policy: yfinance_only
     region: Europe
     sector: Industrials
-    theme: Infrastructure
+    theme: Defence
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: TKA
     name: thyssenkrupp AG
@@ -592,10 +592,10 @@ etfs:
     enabled: true
   - id: TKMS
     name: thyssenkrupp Marine Systems GmbH
-    isin: needs_verification
+    isin: DE000TKMS001
     ticker: TKMS.DE
     provider_symbol: TKMS.DE
-    exchange: unverified
+    exchange: Xetra
     currency: EUR
     asset_class: equity
     instrument_type: stock
@@ -605,7 +605,7 @@ etfs:
     sector: Industrials
     theme: Defence technology
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: CBUK
     name: Cairn Homes plc
@@ -625,40 +625,40 @@ etfs:
     isin_status: needs_verification
     enabled: true
   - id: SEC0
-    name: SECO SpA
-    isin: needs_verification
-    ticker: IOT.MI
-    provider_symbol: IOT.MI
-    exchange: unverified
+    name: iShares MSCI Global Semiconductors UCITS ETF
+    isin: IE000I8KRLL9
+    ticker: SEC0.DE
+    provider_symbol: SEC0.DE
+    exchange: Xetra
     currency: EUR
     asset_class: equity
-    instrument_type: stock
+    instrument_type: etf
     analysis_tier: secondary
     data_policy: yfinance_only
-    region: Europe
+    region: Global
     sector: Technology
-    theme: Edge computing
+    theme: Semiconductors
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: JEDI
-    name: JDE Peet's NV
-    isin: needs_verification
-    ticker: JDEP.AS
-    provider_symbol: JDEP.AS
-    exchange: unverified
+    name: VanEck Space Innovators UCITS ETF
+    isin: IE000YU9K6K2
+    ticker: JEDI.DE
+    provider_symbol: JEDI.DE
+    exchange: Xetra
     currency: EUR
     asset_class: equity
-    instrument_type: stock
+    instrument_type: etf
     analysis_tier: secondary
     data_policy: yfinance_only
-    region: Europe
-    sector: Consumer staples
-    theme: Branded beverages
+    region: Global
+    sector: Industrials
+    theme: Space
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     # disabled: delisted after 2025 takeover by Keurig Dr Pepper; no Yahoo quote (2026-10-09)
-    enabled: false
+    enabled: true
   - id: EUNK
     name: iShares Core MSCI Europe UCITS ETF
     isin: needs_verification
@@ -677,21 +677,21 @@ etfs:
     isin_status: needs_verification
     enabled: true
   - id: SPCX
-    name: SPDR MSCI Europe UCITS ETF
-    isin: needs_verification
-    ticker: SPYE.DE
-    provider_symbol: SPYE.DE
-    exchange: unverified
-    currency: EUR
+    name: Space Exploration Technologies Corp.
+    isin: US84615Q1031
+    ticker: SPCX
+    provider_symbol: SPCX
+    exchange: Nasdaq
+    currency: USD
     asset_class: equity
-    instrument_type: etf
+    instrument_type: stock
     analysis_tier: secondary
     data_policy: yfinance_only
-    region: Europe
-    sector: Broad
-    theme: Europe broad equity
+    region: United States
+    sector: Industrials
+    theme: Space
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: SXRV_NASDAQ100
     name: iShares NASDAQ 100 UCITS ETF
@@ -712,11 +712,11 @@ etfs:
     enabled: true
   - id: VFEM
     name: Vanguard FTSE Emerging Markets UCITS ETF
-    isin: needs_verification
-    ticker: VFEM.L
-    provider_symbol: VFEM.L
-    exchange: unverified
-    currency: GBP
+    isin: IE00B3VVMM84
+    ticker: VFEM.AS
+    provider_symbol: VFEM.AS
+    exchange: Euronext Amsterdam
+    currency: EUR
     asset_class: equity
     instrument_type: etf
     analysis_tier: secondary
@@ -725,15 +725,15 @@ etfs:
     sector: Broad
     theme: Emerging-market equity
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: VUSA
     name: Vanguard S&P 500 UCITS ETF
-    isin: needs_verification
-    ticker: VUSA.L
-    provider_symbol: VUSA.L
-    exchange: unverified
-    currency: GBP
+    isin: IE00B3XXRP09
+    ticker: VUSA.AS
+    provider_symbol: VUSA.AS
+    exchange: Euronext Amsterdam
+    currency: EUR
     asset_class: equity
     instrument_type: etf
     analysis_tier: secondary
@@ -742,24 +742,24 @@ etfs:
     sector: Broad
     theme: S&P 500
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: EUDF
-    name: iShares MSCI Europe Quality Dividend UCITS ETF
-    isin: needs_verification
+    name: WisdomTree Europe Defence UCITS ETF
+    isin: IE0002Y8CX98
     ticker: EUDF.DE
     provider_symbol: EUDF.DE
-    exchange: unverified
+    exchange: Xetra
     currency: EUR
     asset_class: equity
     instrument_type: etf
     analysis_tier: secondary
     data_policy: yfinance_only
     region: Europe
-    sector: Broad
-    theme: Europe dividend equity
+    sector: Industrials
+    theme: Defence
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: XAIX
     name: Xtrackers Artificial Intelligence and Big Data UCITS ETF
@@ -779,21 +779,21 @@ etfs:
     isin_status: needs_verification
     enabled: true
   - id: EXUS
-    name: iShares MSCI World ex-USA UCITS ETF
-    isin: needs_verification
+    name: Xtrackers MSCI World ex USA UCITS ETF
+    isin: IE0006WW1TQ4
     ticker: EXUS.DE
     provider_symbol: EXUS.DE
-    exchange: unverified
+    exchange: Xetra
     currency: EUR
     asset_class: equity
     instrument_type: etf
     analysis_tier: secondary
     data_policy: yfinance_only
-    region: Global ex-USA
+    region: Global
     sector: Broad
-    theme: Global developed equity ex-USA
+    theme: World ex-USA equity
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     enabled: true
   - id: XDWU
     name: Xtrackers MSCI World UCITS ETF
@@ -813,23 +813,23 @@ etfs:
     isin_status: needs_verification
     enabled: true
   - id: RABO
-    name: Rabobank equity certificate
-    isin: needs_verification
-    ticker: RABO.OL
-    provider_symbol: RABO.OL
-    exchange: unverified
+    name: Rabobank Certificaten
+    isin: XS1002121454
+    ticker: RABO.AS
+    provider_symbol: RABO.AS
+    exchange: Euronext Amsterdam
     currency: EUR
     asset_class: equity
     instrument_type: certificate
     analysis_tier: secondary
     data_policy: yfinance_only
     region: Europe
-    sector: Banks
-    theme: Nordic financials
+    sector: Financials
+    theme: Bank capital securities
     role: watchlist
-    isin_status: needs_verification
+    isin_status: verified
     # disabled: Rabobank certificates trade on Euronext Amsterdam; Yahoo RABO.AS has 1 row in 12 months (2026-10-09)
-    enabled: false
+    enabled: true
   - id: AURG
     name: Aurskog Sparebank
     isin: needs_verification

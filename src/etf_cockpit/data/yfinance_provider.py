@@ -339,6 +339,10 @@ class YFinanceProvider(DataProvider, PriceProvider):
             }
         )
         out = out.dropna(subset=["open", "high", "low", "close", "adjusted_close"])
+        divisor = _minor_unit_divisor(yf, symbol)
+        if divisor != 1:
+            for column in ("open", "high", "low", "close", "adjusted_close", "dividends", "capital_gains"):
+                out[column] = out[column] / divisor
         return out
 
     def _quote_currency(self, symbol: str, etf_id: str) -> str | None:
@@ -539,3 +543,19 @@ def _single_or_mixed(series: pd.Series | None) -> str | None:
     if not values:
         return None
     return values[0] if len(values) == 1 else "mixed"
+
+
+# Yahoo quotes some venues in minor units (London in pence). Prices are stored in
+# the major currency the instrument is configured with, so they are scaled once here.
+_MINOR_UNIT_CURRENCIES = {"GBp": 100.0, "GBX": 100.0, "ILA": 100.0, "ZAc": 100.0}
+_MINOR_UNIT_SUFFIXES = (".L", ".IL", ".TA", ".JO")
+
+
+def _minor_unit_divisor(yf: Any, symbol: str) -> float:
+    if not str(symbol).upper().endswith(_MINOR_UNIT_SUFFIXES) or not hasattr(yf, "Ticker"):
+        return 1.0
+    try:
+        currency = yf.Ticker(symbol).fast_info["currency"]
+    except Exception:  # pragma: no cover - provider metadata is best effort
+        currency = None
+    return _MINOR_UNIT_CURRENCIES.get(str(currency), 1.0)
