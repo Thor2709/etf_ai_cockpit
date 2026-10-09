@@ -22,7 +22,7 @@ _SELF_FACTS = ("sparebankens_fond", "gavefond", "kompensasjonsfond")
 # Optional ownerless pools: a bank may simply hold none. A missing figure is flagged, and the reconstructed eierbrok is
 # still cross-checked against the reported one, so an omission that matters shows as REPORTED_RECONSTRUCTED_EIERBROK_DIFFER.
 _OPTIONAL_SELF_FACTS = ("gavefond", "kompensasjonsfond")
-_REQUIRED_ROUTING_EC_TOKENS = {"equity_certificate", "certificate", "ec", "egenkapitalbevis"}
+_REQUIRED_ROUTING_EC_TOKENS = {"equity_certificate", "ec", "egenkapitalbevis"}
 _NO_TOKENS = {"no", "norway", "norge", "norwegian"}
 _SAVINGS_BANK_TOKENS = {
     "savings_bank",

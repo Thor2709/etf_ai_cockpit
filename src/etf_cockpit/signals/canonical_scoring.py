@@ -538,4 +538,4 @@ def _normalise_10(value: float | None) -> float | None:
 
 def _is_sparebank_ec_asset_type(value: object) -> bool:
     normalized = str(value or "").strip().casefold().replace("-", "_").replace(" ", "_")
-    return normalized in {"ec", "equity_certificate", "certificate", "egenkapitalbevis"}
+    return normalized in {"ec", "equity_certificate", "egenkapitalbevis"}

@@ -1470,6 +1470,7 @@ def build_universe_simple_scores(
                 instrument_currency=identity.currency,
                 isin=identity.isin or "needs_verification",
                 data_policy=str(_config_extra(identity, "data_policy", "yfinance_now_multi_provider_later")),
+                latest=latest_prices.get(identity.id),
             )
             if native.final_score_10 is not None:
                 output.append(native)
@@ -1678,6 +1679,7 @@ def build_universe_simple_scores(
                     instrument_currency=identity.currency,
                     isin=identity.isin or "needs_verification",
                     data_policy=str(_config_extra(identity, "data_policy", "yfinance_now_multi_provider_later")),
+                    latest=latest_prices.get(identity.id),
                 )
             )
         else:
@@ -1760,6 +1762,7 @@ def build_candidate_simple_scores(
                     instrument_currency=_noneable_str(row.get("currency")),
                     isin=_noneable_str(row.get("isin")),
                     data_policy=_noneable_str(row.get("data_policy")) or "yfinance_only",
+                    latest={"date": _noneable_str(row.get("latest_date")), "price": row.get("latest_price")},
                 )
             )
             continue
@@ -2020,8 +2023,10 @@ def _sparebank_scorecard_status(
     instrument_currency: str | None,
     isin: str | None,
     data_policy: str,
+    latest: dict[str, object] | None = None,
 ) -> SimpleInstrumentScore:
     native_score, native_reason = _native_sparebank_score(display_id)
+    latest = latest or {}
     return SimpleInstrumentScore(
         instrument_key=instrument_key,
         display_id=display_id,
@@ -2030,8 +2035,8 @@ def _sparebank_scorecard_status(
         name=name,
         yahoo_symbol=yahoo_symbol,
         instrument_currency=instrument_currency,
-        latest_date="unavailable",
-        latest_price=None,
+        latest_date=str(latest.get("date") or "unavailable"),
+        latest_price=_safe_float(latest.get("price")),
         isin=isin,
         analysis_tier="sparebanken",
         data_policy=data_policy,
@@ -3927,7 +3932,8 @@ def _is_stock_like_asset_type(asset_type: str) -> bool:
 
 def _is_sparebank_ec_asset_type(asset_type: object) -> bool:
     normalized = str(asset_type or "").strip().casefold().replace("-", "_").replace(" ", "_")
-    return normalized in {"ec", "equity_certificate", "certificate", "egenkapitalbevis"}
+    # A plain "certificate" (e.g. Rabobank Certificaten) is not a Norwegian savings-bank EC.
+    return normalized in {"ec", "equity_certificate", "egenkapitalbevis"}
 
 
 def _isin_status(isin: object) -> str:

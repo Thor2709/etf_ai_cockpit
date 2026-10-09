@@ -59,7 +59,7 @@ _FINANCIAL_CONTEXT_LABELS = frozenset(
         "insurer",
     }
 )
-_EC_TOKENS = frozenset({"ec", "equity_certificate", "certificate", "egenkapitalbevis"})
+_EC_TOKENS = frozenset({"ec", "equity_certificate", "egenkapitalbevis"})
 
 
 @dataclass(frozen=True)
