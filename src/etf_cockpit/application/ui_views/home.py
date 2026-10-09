@@ -211,7 +211,7 @@ def band_insight(rows: Sequence[ScoreRow]) -> str | None:
 
 def rank_change_bars(rows: Iterable[ScoreRow], limit: int = 7) -> list[ScoreRow]:
     """Up to ``limit`` rows with the largest absolute rank change, largest gain first."""
-    changed = [row for row in rows if row.rank_delta is not None]
+    changed = [row for row in rows if row.rank_delta]  # unchanged ranks (0) are not "changes"
     top = sorted(changed, key=lambda r: (-abs(r.rank_delta or 0), r.instrument_id))[:limit]
     return sorted(top, key=lambda r: (-(r.rank_delta or 0), r.instrument_id))
 
@@ -219,11 +219,14 @@ def rank_change_bars(rows: Iterable[ScoreRow], limit: int = 7) -> list[ScoreRow]
 def rank_insight(bars: Sequence[ScoreRow]) -> str | None:
     if not bars:
         return None
-    best, worst = bars[0], bars[-1]
-    return (
-        f"{best.instrument_id} gained the most ({signed(best.rank_delta)} places); "
-        f"{worst.instrument_id} fell the most ({signed(worst.rank_delta)} places)."
-    )
+    gains = [row for row in bars if (row.rank_delta or 0) > 0]
+    falls = [row for row in bars if (row.rank_delta or 0) < 0]
+    parts = []
+    if gains:
+        parts.append(f"{gains[0].instrument_id} gained the most ({signed(gains[0].rank_delta)} places)")
+    if falls:
+        parts.append(f"{falls[-1].instrument_id} fell the most ({signed(falls[-1].rank_delta)} places)")
+    return "; ".join(parts) + "."
 
 
 # ---------------------------------------------------------------------------

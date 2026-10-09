@@ -95,3 +95,17 @@ def test_forecasts_carry_no_score_weight_owner_rule_f5():
 
     for weights in (ETF_EVIDENCE_WEIGHTS, STOCK_EVIDENCE_WEIGHTS):
         assert all(weights[key] == 0.0 for key in ("baseline", "timesfm", "toto"))
+
+
+def test_rank_changes_ignore_unchanged_ranks():
+    from types import SimpleNamespace
+
+    from etf_cockpit.application.ui_views.home import rank_change_bars, rank_insight
+
+    rows = [SimpleNamespace(instrument_id=i, rank_delta=d) for i, d in (("A", 0), ("B", None), ("C", 2), ("D", -1))]
+    bars = rank_change_bars(rows)
+    assert [b.instrument_id for b in bars] == ["C", "D"]
+    assert rank_insight(bars) == "C gained the most (+2 places); D fell the most (22121 places)."
+    assert rank_change_bars(rows[:2]) == [] and rank_insight([]) is None
+    only_gain = rank_change_bars([SimpleNamespace(instrument_id="C", rank_delta=2)])
+    assert rank_insight(only_gain) == "C gained the most (+2 places)."

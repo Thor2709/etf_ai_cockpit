@@ -414,7 +414,9 @@ def forecast_lab_page(page: ft.Page, state: AppState) -> PageView:
     governance_feedback = Note("", key="forecast-lab.governance-feedback")
 
     def on_governance(feedback: ft.Control) -> None:
-        scroll_to = getattr(page, "scroll_to", None)
+        # The page body is the grid's own scrolling column; the Flet page itself does not scroll.
+        scroll_to = getattr(holder.content, "scroll_to", None) or getattr(page, "scroll_to", None)
+
         async def go() -> None:
             try:
                 await scroll_to(scroll_key="forecast-lab.governance", duration=300)
