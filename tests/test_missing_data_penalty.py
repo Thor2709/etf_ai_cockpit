@@ -105,7 +105,7 @@ def test_rank_changes_ignore_unchanged_ranks():
     rows = [SimpleNamespace(instrument_id=i, rank_delta=d) for i, d in (("A", 0), ("B", None), ("C", 2), ("D", -1))]
     bars = rank_change_bars(rows)
     assert [b.instrument_id for b in bars] == ["C", "D"]
-    assert rank_insight(bars) == "C gained the most (+2 places); D fell the most (22121 places)."
+    assert rank_insight(bars) == "C gained the most (+2 places); D fell the most (−1 places)."
     assert rank_change_bars(rows[:2]) == [] and rank_insight([]) is None
     only_gain = rank_change_bars([SimpleNamespace(instrument_id="C", rank_delta=2)])
     assert rank_insight(only_gain) == "C gained the most (+2 places)."

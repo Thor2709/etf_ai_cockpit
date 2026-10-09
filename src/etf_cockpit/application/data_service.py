@@ -223,11 +223,14 @@ class DataService:
         )
 
         if include_reference_data:
+            from etf_cockpit.data.etf_e1_fetch import fetch_etf_e1_reference_data
+
             context = self._reference_context()
-            for dataset_type, reference_result in (
-                ("etf_metadata", provider.fetch_etf_metadata([])),
-                ("etf_holdings", provider.fetch_etf_holdings([])),
-            ):
+            reference_results, source_messages = fetch_etf_e1_reference_data(
+                self.config, provider, checkpoint=lambda: _cancellation_checkpoint(publish_guard)
+            )
+            messages.extend(redact_text(message) for message in source_messages)
+            for dataset_type, reference_result in reference_results:
                 if not reference_result.ok or reference_result.data is None:
                     messages.append(f"{dataset_type}: {redact_text(str(reference_result.message))}")
                     continue
@@ -743,7 +746,16 @@ def _refresh_stock_fundamentals(config: AppConfig, publish_guard: PublicationSco
     try:
         with publication_scope(publish_guard):
             report = refresh_universe_stock_fundamentals(config)
+    except WorkflowTransitionError:
+        raise  # a user cancellation must reach the workflow, never become a soft message
     except Exception as exc:  # read-only, best-effort source; the reason is shown, prices stand
         return f"Stock fundamentals not refreshed: {type(exc).__name__}: {redact_text(str(exc))[:200]}"
     missing = f" Without data: {', '.join(sorted(report.failures))}." if report.failures else ""
     return f"Stock fundamentals refreshed: {report.rows_added} new rows.{missing}"
+
+
+def _cancellation_checkpoint(publish_guard: PublicationScopeFactory | None) -> None:
+    """Raise the workflow's cancellation error between long network steps (no-op otherwise)."""
+
+    with publication_scope(publish_guard):
+        pass

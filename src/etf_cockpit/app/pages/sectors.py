@@ -15,7 +15,7 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components import chartkit as ck
 from etf_cockpit.app.components.globe import Globe, WorldMap
-from etf_cockpit.app.components.kit import EmptyState, FloatingPanel, GlassCard, KpiStrip, ScoreBar, Segmented, Well
+from etf_cockpit.app.components.kit import EmptyState, FloatingPanel, GlassCard, KpiStrip, ScoreBar, Segmented, Well, Note, DataTable, TableColumn
 from etf_cockpit.app.components.shell.page_view import PageView, SegmentGroup
 from etf_cockpit.app.pages import _p2_common as shared
 from etf_cockpit.app.pages import _p3_common as links
@@ -268,14 +268,36 @@ def _country_chart(data: view.SectorsView, width: float, height: float, window: 
     return chart, insight
 
 
+def _sector_heatmap(data: view.SectorsView) -> ft.Control:
+    """Sector x metric heatmap; unavailable cells are labelled, never coloured zero."""
+    def cell(value: float | None, text: str, maximum: float) -> ft.Control:
+        return ft.Container(ft.Text(text, color=theme.TEXT), padding=8, bgcolor=ck.palette.mix(ck.palette.P, "#101820", 1 - min(1, value / maximum)) if value is not None else None, border_radius=4)
+
+    rows = []
+    for sector in data.sectors:
+        evidence = data.attractiveness.get(sector.name, {})
+        score = evidence.get("score")
+        coverage = evidence.get("coverage")
+        rows.append({
+            "sector": sector.name,
+            "exposure": cell(sector.weight, f"{sector.weight:.1f}%", 100),
+            "attractiveness": cell(score, f"{score:.1f}/10" if score is not None else "Unavailable", 10),
+            "coverage": f"{coverage:.0%} ({evidence.get('count', 0)} scored)" if coverage is not None else evidence.get("reason", "No canonical sector evidence."),
+        })
+    return GlassCard("Sector attractiveness heatmap", body=[
+        Note("Exposure (%) and the mean available canonical attractiveness (0–10) in each configured sector. Colour intensity uses each column's stated scale; missing scores are excluded."),
+        DataTable([TableColumn("sector", "Sector", flex=3), TableColumn("exposure", "Exposure %"), TableColumn("attractiveness", "Attractiveness /10", flex=2), TableColumn("coverage", "Score coverage / reason", flex=3)], rows, max_visible_rows=max(1, len(rows)), key="sectors.attractiveness", empty_title="Sector evidence unavailable", empty_reason=data.sector_reason or "Import holdings with sector classifications."),
+    ])
+
+
 def sectors_page(page: ft.Page | None, state: AppState) -> PageView:
     layout = common.make_layout(page, strip=True)
     ui: dict[str, object] = {"perspective": "Country", "metric": "P/E", "window": "1Y", "world": "Globe", "sector": "Treemap", "group": "All", "drill": None}
     data = {"view": view.load(state.snapshot, str(ui["window"]))}
-    hosts = {name: ft.Container() for name in ("strip", "world", "sector", "bubble", "country", "histogram")}
+    hosts = {name: ft.Container() for name in ("strip", "world", "sector", "bubble", "country", "histogram", "heatmap", "scope")}
 
     def refresh(*names: str) -> None:
-        builders = {"strip": strip_card, "world": world_card, "sector": sector_card, "bubble": bubble_card, "country": country_card, "histogram": histogram_card}
+        builders = {"strip": strip_card, "world": world_card, "sector": sector_card, "bubble": bubble_card, "country": country_card, "histogram": histogram_card, "heatmap": lambda: _sector_heatmap(data["view"]), "scope": lambda: ft.Column([Note(data["view"].exposure_label), Note(data["view"].exposure_note or "Exposure is based on registered portfolio holdings.")])}
         for name in names:
             hosts[name].content = builders[name]()
             common.refresh(hosts[name])
@@ -289,6 +311,8 @@ def sectors_page(page: ft.Page | None, state: AppState) -> PageView:
         word = {"Sector": "sectors", "Country": "countries", "Company": "companies"}[perspective]
         reason = d.exposure_reason or f"No {noun} exposure is available."
         headline, sub = view.headline(items, perspective)
+        if sub and d.exposure_label.startswith("Universe"):
+            sub = sub.replace("portfolio", "analysed universe")
         top = max(items, key=lambda item: item.weight) if items else None
         top5 = view.top_share(items, 5)
         hhi, band = view.concentration(items)
@@ -303,7 +327,7 @@ def sectors_page(page: ft.Page | None, state: AppState) -> PageView:
         sector_delta = f"{ret} {d.window}" if ret else (f"{d.window} return unavailable" if largest is not None else reason)
         entries = [
             (f"Top-1 {noun}", _pct(top.weight) if top else None, delta or ("" if top else reason), tone),
-            (f"Top-5 {word}", _pct(top5), "of portfolio" if top5 is not None else reason, None),
+            (f"Top-5 {word}", _pct(top5), "of analysed universe" if d.exposure_label.startswith("Universe") and top5 is not None else "of portfolio" if top5 is not None else reason, None),
             ("Concentration (HHI)", None if hhi is None else f"{hhi:.2f}", (band or "").capitalize() if hhi is not None else reason, {"high": "neg", "low": "pos"}.get(band or "")),
             ("Largest sector", f"{largest.short or largest.name} {largest.weight:.1f}%" if largest else None, sector_delta, None if largest is None else {"pos": "pos", "neg": "neg"}.get(_tone(largest.ret))),
         ]
@@ -385,8 +409,8 @@ def sectors_page(page: ft.Page | None, state: AppState) -> PageView:
         )
         return shared.title_first(GlassCard(f"Distribution of {d.window} returns", "companies per return bin", insight, quiet=True, body=Well(chart, width=width, height=height), width=layout.span_width(3), height=layout.row_heights[2]), f"Distribution of {d.window} returns")
 
-    refresh("strip", "world", "sector", "bubble", "country", "histogram")
-    body = common.grid(
+    refresh("strip", "world", "sector", "bubble", "country", "histogram", "heatmap", "scope")
+    grid = common.grid(
         layout,
         [
             [(hosts["strip"], 12)],
@@ -394,6 +418,7 @@ def sectors_page(page: ft.Page | None, state: AppState) -> PageView:
             [(hosts["bubble"], 5), (hosts["country"], 4), (hosts["histogram"], 3)],
         ],
     )
+    body = ft.Column([hosts["scope"], grid, hosts["heatmap"]], spacing=12, scroll=ft.ScrollMode.AUTO)
 
     def select_perspective(label: str) -> None:
         ui["perspective"] = label
@@ -406,7 +431,7 @@ def sectors_page(page: ft.Page | None, state: AppState) -> PageView:
     def select_window(label: str) -> None:
         ui["window"], ui["drill"] = label, None
         data["view"] = view.load(state.snapshot, label)
-        refresh("strip", "world", "sector", "bubble", "country", "histogram")
+        refresh("strip", "world", "sector", "bubble", "country", "histogram", "heatmap", "scope")
 
     groups = (
         SegmentGroup("perspective", list(view.PERSPECTIVES), "Country", select_perspective),

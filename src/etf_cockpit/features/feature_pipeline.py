@@ -71,7 +71,11 @@ def compute_features(prices: pd.DataFrame, benchmark_etf_id: str | None = None) 
                 "last_price": price.values,
             }
         )
-        if benchmark_returns is not None:
+        if benchmark_returns is not None and etf_id == benchmark_etf_id:
+            # The benchmark measured against itself carries no information: unavailable, not neutral.
+            out["relative_strength_60d"] = float("nan")
+            out["relative_strength_120d"] = float("nan")
+        elif benchmark_returns is not None:
             own_returns = pd.Series(out["return_60d_log"].values, index=group["date"])
             relative = own_returns - _benchmark_as_of(benchmark_returns, own_returns.index)
             out["relative_strength_60d"] = relative.values

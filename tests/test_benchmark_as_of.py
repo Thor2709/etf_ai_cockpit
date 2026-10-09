@@ -17,3 +17,14 @@ def test_never_uses_a_later_close_and_stops_after_the_gap():
     assert pd.isna(out.iloc[0])          # before the first benchmark close
     assert out.iloc[1] == 1.0            # within the gap
     assert pd.isna(out.iloc[2])          # too stale; the later 5.0 is never used
+
+
+def test_benchmark_has_no_relative_strength_against_itself():
+    from etf_cockpit.features.feature_pipeline import compute_features
+
+    days = pd.bdate_range("2026-01-01", periods=130)
+    rows = [{"etf_id": i, "date": d, "adjusted_close": 100 + k * (1 if i == "VWCE" else 2), "volume": 1.0} for i in ("VWCE", "X") for k, d in enumerate(days)]
+    features = compute_features(pd.DataFrame(rows), benchmark_etf_id="VWCE")
+    last = features[features["date"] == features["date"].max()].set_index("etf_id")
+    assert pd.isna(last.loc["VWCE", "relative_strength_60d"])
+    assert last.loc["X", "relative_strength_60d"] > 0

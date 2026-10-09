@@ -277,6 +277,68 @@ def render_etf_structure_panel(model: InstrumentDetailViewModel) -> ft.Control:
     )
 
 
+def render_etf_e1_panel(economics: object) -> ft.Control:
+    """Readable ETF economics, disclosed holdings and dated NAV splits."""
+    payload = economics if isinstance(economics, Mapping) else {}
+    fields = payload.get("e1", {})
+    tiles = []
+    for name, label in (("ter", "TER"), ("tracking_difference", "Tracking difference"), ("aum", "Fund size (AUM)"), ("distribution_policy", "Distribution policy")):
+        field = fields.get(name, {})
+        value = field.get("value")
+        shown = None
+        if value is not None:
+            if name in {"ter", "tracking_difference"}:
+                shown = f"{value:+.2%}" if name == "tracking_difference" else f"{value:.2%}"
+            elif name == "aum":
+                shown = f"{value:,.0f} {field.get('currency') or '(currency unavailable)'}"
+            else:
+                shown = str(value).capitalize()
+        detail = field.get("reason") or (
+            f"{field.get('source')} · as of {field.get('as_of')} · known {field.get('known_at')}"
+        )
+        if not field:
+            detail = f"{name}_missing_all_sources"
+        if field.get("window"):
+            detail += f" · window {field['window']}"
+        if field.get("difference"):
+            detail += " · sources differ; preferred source shown"
+        tiles.append(ft.Column([KpiTile(label, shown, detail, key=f"etf.e1.{name}"), Note(detail)], col={"xs": 12, "md": 6}, spacing=4))
+    holdings = payload.get("holdings", [])
+    count = payload.get("holdings_count", 0)
+    reason = payload.get("holdings_reason") or "holdings_no_dated_source"
+    rows = [{"name": row.get("name") or "Name unavailable", "weight": f"{row['weight']:.2%}", "country": row.get("country") or "Other/unclassified", "sector": row.get("sector") or "Other/unclassified"} for row in holdings]
+    table = DataTable(
+        [TableColumn("name", "Holding", flex=3), TableColumn("weight", "Weight", numeric=True), TableColumn("country", "Country"), TableColumn("sector", "Sector", flex=2)],
+        rows, max_visible_rows=25, key="etf.e1.holdings", empty_title="Holdings unavailable", empty_reason=reason,
+    )
+    return GlassCard(
+        "ETF Economics",
+        body=[
+            ft.ResponsiveRow(tiles, spacing=8, run_spacing=8),
+            Note(payload.get("summary") or "ETF economics are unavailable: no dated local evidence."),
+            SectionHeader("ETF holdings and exposure"),
+            KpiTile("Disclosed holdings", str(count) if holdings else None, f"Top 25 of {count} disclosed rows · as of {payload.get('holdings_as_of')}" if holdings else reason, key="etf.e1.holdings-count"),
+            table,
+            _render_etf_split("Country split", fields.get("country_split", {}), "etf.e1.country-split"),
+            _render_etf_split("Sector split", fields.get("sector_split", {}), "etf.e1.sector-split"),
+        ], key="instrument-detail.etf-economics",
+    )
+
+
+def _render_etf_split(title: str, field: Mapping[str, object], key: str) -> ft.Control:
+    values = field.get("value")
+    values = values if isinstance(values, Mapping) else {}
+    # Numbered bars have full, wrapping labels below them; long country and
+    # sector names cannot be clipped by the chart's fixed plotting margin.
+    entries = list(values.items())
+    return GlassCard(title, body=[
+        KpiTile(title, f"{sum(name != 'Other/unclassified' for name, _ in entries)} classified buckets" if entries else None, f"{float(values.get('Other/unclassified', 0)):.1%} Other/unclassified" if entries else str(field.get("reason") or "split_no_dated_source")),
+        ck.bar_chart([str(index) for index in range(1, len(entries) + 1)], [float(weight) * 100 for _, weight in entries], unit="%", signed_labels=False, width=680, height=260, unavailable_reason=field.get("reason") if not entries else None, empty_title=f"{title} unavailable", insight=title),
+        *[Note(f"{index}. {name}: {float(weight):.2%}") for index, (name, weight) in enumerate(entries, 1)],
+        Note(f"Source {field.get('source')} · as of {field.get('as_of')} · known {field.get('known_at')}" if entries else str(field.get("reason") or "split_no_dated_source")),
+    ], key=key)
+
+
 def render_news_context_panel(model: InstrumentDetailViewModel) -> ft.Control:
     """Render dated news and manual-note credibility with source provenance."""
 
@@ -1406,7 +1468,7 @@ def _section_rows(
     fund = [
         render_etf_structure_panel(model),
         render_etf_disclosure_panel(model),
-        _section_card("ETF holdings and exposure", sections.get("etf_holdings")),
+        render_etf_e1_panel(sections.get("etf_economics")),
         _section_card("ETF direct overlap", sections.get("etf_overlap"), "instrument-detail.etf-overlap"),
         _section_card("ETF Liquidity", sections.get("etf_liquidity")),
         GlassCard(
@@ -1432,7 +1494,6 @@ def _section_rows(
                 ),
             ],
         ),
-        _section_card("ETF Economics", sections.get("etf_economics")),
     ]
     fundamentals = [
         _section_card("Fundamentals", sections.get("fundamentals"), "instrument-detail.fundamentals"),
