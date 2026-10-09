@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from etf_cockpit.core.paths import LOG_DIR
+from etf_cockpit.core.session_log import log_event
 from etf_cockpit.application.screening_data import build_screen_rows as _build_screen_rows_v3
 
 
@@ -161,11 +162,26 @@ def load_score_metric_history_projection(
             frame = pd.read_parquet(SCORE_METRIC_HISTORY_PATH)
         except FileNotFoundError:
             return unavailable("missing_local_artifact")
-        except Exception:
+        except Exception as exc:
+            log_event(
+                event_type="data_read_failed",
+                severity="warning",
+                component="score_metric_history",
+                operation="read_projection",
+                file_paths=SCORE_METRIC_HISTORY_PATH,
+                exception_type=type(exc).__name__,
+                exception_message_redacted=str(exc),
+            )
             return unavailable("unreadable_local_artifact")
+    legacy_metadata = {"formula_version", "formula_checksum", "source_vintage_hash"}
+    missing_metadata = legacy_metadata - set(frame.columns) if isinstance(frame, pd.DataFrame) else legacy_metadata
+    required_columns = set(_METRIC_HISTORY_DISPLAY_COLUMNS) - legacy_metadata
     if (not isinstance(frame, pd.DataFrame) or not frame.columns.is_unique
-            or not set(_METRIC_HISTORY_DISPLAY_COLUMNS).issubset(frame.columns)):
+            or not required_columns.issubset(frame.columns)):
         return unavailable("malformed_metric_history")
+    frame = frame.copy()
+    for column in missing_metadata:
+        frame[column] = None
     rows = frame.loc[frame["instrument_id"].eq(instrument_id), list(_METRIC_HISTORY_DISPLAY_COLUMNS)]
     if rows.empty:
         return unavailable("no_instrument_metric_history")
@@ -218,11 +234,15 @@ def load_score_metric_history_projection(
                 "rank_route_reason": route.get("reason"),
             }
         rank_evidence_reason = rank_evidence_reason or "active_rank_score_unavailable"
-    return {"status": "available", "instrument_id": instrument_id, "rows": records,
+    return {"status": "partial" if missing_metadata else "available", "instrument_id": instrument_id, "rows": records,
             "rank_cutover": route, "active_ranker": route["ranker"],
             "active_rank_score": route["rank_score"], "v3_replay_score": route["v3_replay_score"],
             "active_rank_score_reason": rank_evidence_reason,
-            "message": "Persisted score-component snapshots across local runs. As-of dates and stored provenance do not establish knowledge-time availability or replay guarantees.",
+            "reason_code": "legacy_metric_history_metadata_unavailable" if missing_metadata else None,
+            "message": (
+                "Legacy score-component snapshots loaded; formula and source-vintage metadata were not stored. "
+                if missing_metadata else "Persisted score-component snapshots across local runs. "
+            ) + "As-of dates and stored provenance do not establish knowledge-time availability or replay guarantees.",
             "execution_allowed": False}
 
 

@@ -413,7 +413,13 @@ def resolve_provider_api_key(
     return environment_value if environment_value is not None else configured_value
 
 
-def _universe_config_from_records(records: Any, *, allow_cross_tier_duplicates: bool = False) -> UniverseConfig:
+def _universe_config_from_records(
+    records: Any,
+    *,
+    allow_cross_tier_duplicates: bool = False,
+    listing_metadata: dict[str, dict[str, str]] | None = None,
+) -> UniverseConfig:
+    listing_metadata = listing_metadata or {}
     return UniverseConfig(
         etfs=[
             ETFConfig(
@@ -422,12 +428,20 @@ def _universe_config_from_records(records: Any, *, allow_cross_tier_duplicates: 
                 isin=row.isin if row.isin_status == "verified" else None,
                 ticker=row.ticker,
                 provider_symbol=row.ticker,
-                exchange="OSE" if row.asset_type in {"stock", "equity_certificate", "certificate"} else None,
+                exchange=(
+                    getattr(row, "exchange", None)
+                    or listing_metadata.get(str(row.instrument_id).casefold(), {}).get("exchange")
+                    or None
+                ),
                 currency=row.currency,
                 asset_class="equity",
                 region=row.region or None,
-                sector=row.sector or None,
-                theme=row.theme or None,
+                sector=(row.sector or listing_metadata.get(str(row.instrument_id).casefold(), {}).get("sector") or None),
+                theme=(
+                    row.theme
+                    or listing_metadata.get(str(row.instrument_id).casefold(), {}).get("theme")
+                    or None
+                ),
                 role="core" if row.tier == "primary" else "watchlist",
                 enabled=row.enabled,
                 instrument_type=row.asset_type,
@@ -447,14 +461,29 @@ def _universe_config_from_records(records: Any, *, allow_cross_tier_duplicates: 
 
 def _load_universe_config(config_dir: Path) -> UniverseConfig:
     persisted = config_dir / "universe_store.json"
+    listing_metadata: dict[str, dict[str, str]] = {}
+    primary_path = config_dir / "universe.yaml"
+    if primary_path.exists():
+        raw = _read_yaml(primary_path)
+        rows = raw.get("etfs", ()) if isinstance(raw, dict) else ()
+        for item in rows if isinstance(rows, list) else ():
+            if not isinstance(item, dict):
+                continue
+            identifier = str(item.get("id") or "").strip().casefold()
+            if not identifier:
+                continue
+            listing_metadata[identifier] = {
+                key: str(item.get(key)).strip()
+                for key in ("exchange", "theme", "sector")
+                if item.get(key) is not None and str(item.get(key)).strip()
+            }
     if not persisted.exists():
-        primary_path = config_dir / "universe.yaml"
         if not primary_path.exists():
             return UniverseConfig(etfs=[])
         candidate_dir = config_dir.parent / "data" / "raw" / "trade_candidates"
         candidates = sorted(candidate_dir.glob("yahoo_trade_candidates_*.csv")) if candidate_dir.exists() else []
         imported = import_legacy_universe(primary_path, candidates[-1] if candidates else None)
-        return _universe_config_from_records(imported.records)
+        return _universe_config_from_records(imported.records, listing_metadata=listing_metadata)
     try:
         snapshot = load_universe(config_dir.parent)
         if snapshot.integrity_errors:
@@ -464,6 +493,7 @@ def _load_universe_config(config_dir: Path) -> UniverseConfig:
         return _universe_config_from_records(
             snapshot.records,
             allow_cross_tier_duplicates=snapshot.allow_cross_tier_duplicates,
+            listing_metadata=listing_metadata,
         )
     except (OSError, ValueError, TypeError, KeyError) as exc:
         raise ConfigError(f"Could not read persisted universe {persisted}: {exc}") from exc

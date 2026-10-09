@@ -6,8 +6,11 @@ from collections.abc import Mapping
 from dataclasses import (
     dataclass,
     field,
+    replace,
 )
+import re
 import threading
+from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 import pandas as pd
 
@@ -18,7 +21,8 @@ from etf_cockpit.core.config import (
     load_config,
 )
 from etf_cockpit.core.logging import configure_logging
-from etf_cockpit.core.paths import ensure_project_dirs
+from etf_cockpit.core.paths import FORECASTS_DIR, ensure_project_dirs
+from etf_cockpit.core.session_log import log_event
 from etf_cockpit.core.timing import timed_step
 from etf_cockpit.core.types import (
     DataQualityReport,
@@ -31,7 +35,7 @@ from etf_cockpit.data.etf_economics import (
     EtfEconomicsObservation,
     TotalReturnEvidence,
 )
-from etf_cockpit.data.trade_candidate_analysis import load_candidate_price_binding
+from etf_cockpit.data.trade_candidate_analysis import load_candidate_price_binding, load_candidate_price_snapshot
 from etf_cockpit.features.feature_pipeline import latest_features
 from etf_cockpit.models.forecast_scores import (
     configured_forecast_request_identity,
@@ -143,6 +147,13 @@ def _build_snapshot(
     prices = data_service.load_prices()
     if not prices.empty and "etf_id" in prices:
         prices = prices[prices["etf_id"].astype(str).isin(current_ids)].copy()
+    candidate_prices = load_candidate_price_snapshot()
+    if not candidate_prices.empty and {"etf_id", "date"}.issubset(candidate_prices.columns):
+        existing_ids = set(prices.get("etf_id", pd.Series(dtype=str)).astype(str))
+        candidate_ids = current_ids - existing_ids
+        candidate_prices = candidate_prices.loc[candidate_prices["etf_id"].astype(str).isin(candidate_ids)].copy()
+        if not candidate_prices.empty:
+            prices = pd.concat([prices, candidate_prices], ignore_index=True, sort=False)
     holdings_source = load_holdings()
     holdings = holdings_source
     if not holdings.empty and "etf_id" in holdings:
@@ -190,21 +201,28 @@ def _build_snapshot(
         if price_binding is not None
         else pd.DataFrame()
     )
+    if forecasts.empty:
+        forecasts = _load_legacy_forecasts(
+            data_report.as_of_date,
+            allowed_ids=current_ids.intersection(set(prices.get("etf_id", pd.Series(dtype=str)).astype(str))),
+        )
     structure_caps = _load_structure_caps(config.universe.enabled_ids, data_report.as_of_date)
     signals = (
         []
         if latest.empty
-        else generate_signals(
-            config,
-            latest,
-            holdings,
-            data_report,
-            as_of_date=data_report.as_of_date,
-            toto_available=status["toto"],
-            timesfm_available=status["timesfm"],
-            forecast_scores=forecast_component_maps(forecasts),
-            forecast_distributions=forecast_return_distributions(forecasts),
-            structure_confidence_caps=structure_caps,
+        else _clean_signal_narratives(
+            generate_signals(
+                config,
+                latest,
+                holdings,
+                data_report,
+                as_of_date=data_report.as_of_date,
+                toto_available=status["toto"],
+                timesfm_available=status["timesfm"],
+                forecast_scores=forecast_component_maps(forecasts),
+                forecast_distributions=forecast_return_distributions(forecasts),
+                structure_confidence_caps=structure_caps,
+            )
         )
     )
     _run_decision_shadow_guard(
@@ -263,3 +281,74 @@ def _build_snapshot(
         vwce_listing_id=benchmark_reference["listing_id"],  # type: ignore[arg-type]
         vwce_conversion_evidence=None,
     )
+
+
+def _load_legacy_forecasts(as_of_date: object, *, allowed_ids: set[str]) -> pd.DataFrame:
+    """Read an unbound pre-sidecar forecast cache with an explicit legacy label.
+
+    Legacy rows are limited to instruments with local price history and forecast
+    dates at or before the snapshot cutoff. A present but mismatched sidecar is
+    never bypassed.
+    """
+
+    if not allowed_ids:
+        return pd.DataFrame()
+    files = sorted(
+        FORECASTS_DIR.glob("forecast_results_*.csv"),
+        key=lambda item: (
+            item.stem.rsplit("_", 1)[-1] if item.stem.rsplit("_", 1)[-1].isdigit() else "",
+            item.stat().st_mtime,
+        ),
+        reverse=True,
+    )
+    if not files or Path(f"{files[0]}.meta.json").exists():
+        return pd.DataFrame()
+    path = files[0]
+    try:
+        frame = pd.read_csv(path)
+    except (OSError, ValueError, UnicodeError) as exc:
+        log_event(
+            event_type="data_read_failed",
+            severity="warning",
+            component="forecast_cache",
+            operation="read_legacy_forecasts",
+            file_paths=path,
+            exception_type=type(exc).__name__,
+            exception_message_redacted=str(exc),
+        )
+        return pd.DataFrame()
+    required = {"etf_id", "forecast_date", "horizon_days", "expected_return", "model_name", "status"}
+    if not required.issubset(frame.columns):
+        frame.attrs["unavailable_reason"] = "legacy_forecast_schema_incompatible"
+        return pd.DataFrame()
+    dates = pd.to_datetime(frame["forecast_date"], errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
+    cutoff = pd.to_datetime(as_of_date, errors="coerce")
+    if pd.isna(cutoff):
+        frame.attrs["unavailable_reason"] = "snapshot_forecast_cutoff_unavailable"
+        return pd.DataFrame()
+    valid = dates.notna() & (dates <= cutoff.normalize()) & frame["etf_id"].astype(str).isin(allowed_ids)
+    frame = frame.loc[valid].copy()
+    if frame.empty:
+        return frame
+    frame["source_file"] = str(path)
+    frame["cache_status"] = "legacy_cache"
+    frame.attrs["cache_compatibility"] = "legacy_cache"
+    return frame
+
+
+def _clean_signal_narratives(signals: list[SignalResult]) -> list[SignalResult]:
+    """Keep nonfinite score placeholders out of presentation text with an explicit cause."""
+
+    cleaned: list[SignalResult] = []
+    nonfinite = re.compile(r"\bnan\b", re.IGNORECASE)
+    for signal in signals:
+        short = str(signal.reason_short or "")
+        long = str(signal.reason_long or "")
+        if not any(nonfinite.search(value) or "n/ad" in value.casefold() for value in (short, long)):
+            cleaned.append(signal)
+            continue
+        reason = "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields."
+        warnings = list(signal.warnings)
+        warnings.append("nonfinite_score_narrative_suppressed")
+        cleaned.append(replace(signal, reason_short=reason, reason_long=reason, warnings=list(dict.fromkeys(warnings))))
+    return cleaned
