@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 import json
+import math
 from types import SimpleNamespace
 
 import pandas as pd
@@ -237,7 +238,7 @@ def test_forecast_service_uses_explicit_canonical_benchmark_data_id(monkeypatch)
 
     assert len(captured) == 1
     assert captured[0] is not None
-    assert float(captured[0].iloc[0]) == pytest.approx(0.01)
+    assert float(captured[0].dropna().iloc[0]) == pytest.approx(math.log(101.0 / 100.0))
 
 
 def test_backtest_output_is_published_only_after_settings_bound_manifest_reservation(tmp_path, monkeypatch) -> None:

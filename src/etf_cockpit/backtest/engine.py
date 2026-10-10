@@ -23,6 +23,7 @@ from etf_cockpit.core.constants import TRADING_DAYS_PER_YEAR
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.core.types import DataQualityReport
+from etf_cockpit.core.values import finite_float_or_none
 from etf_cockpit.data.validation import validate_prices
 from etf_cockpit.data.provenance import sha256_dataframe
 from etf_cockpit.data.market_calendar import (
@@ -167,6 +168,10 @@ def _price_pivot(prices: pd.DataFrame) -> pd.DataFrame:
     frame = prices.copy()
     frame["date"] = pd.to_datetime(frame["date"])
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
+    invalid = ~np.isfinite(frame["adjusted_close"].to_numpy(dtype=float)) | frame["adjusted_close"].le(0).to_numpy()
+    if invalid.any():
+        row = frame.loc[invalid].iloc[0]
+        raise BacktestDataUnavailableError(f"invalid_price_data: {row['etf_id']} {row['date']}")
     return frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index().dropna(how="all")
 
 
@@ -1054,6 +1059,14 @@ def run_backtest(
     benchmark_registry: CanonicalBenchmarkRegistry | None = None,
     calendar_identity_resolver: Callable[[str, object], Mapping[str, object] | None] | None = None,
 ) -> BacktestReport:
+    if isinstance(rebalance_frequency_days, bool) or not isinstance(rebalance_frequency_days, int) or rebalance_frequency_days < 1:
+        raise ValueError("rebalance_frequency_days must be an integer of at least 1")
+    initial_value = finite_float_or_none(initial_value_eur)
+    if initial_value is None or initial_value <= 0:
+        raise ValueError("initial_value_eur must be finite and greater than 0")
+    transaction_cost = finite_float_or_none(transaction_cost_bps)
+    if transaction_cost_bps is not None and (transaction_cost is None or transaction_cost < 0):
+        raise ValueError("transaction_cost_bps must be finite and non-negative")
     validate_execution_disabled(benchmark_reference or unavailable_reference_projection())
     validate_execution_disabled(reference_identity or {})
     calculation_window = _declared_calculation_window(reference_identity)

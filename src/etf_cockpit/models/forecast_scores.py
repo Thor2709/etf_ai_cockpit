@@ -506,7 +506,7 @@ def forecast_return_distributions(
             exact_horizon = model_frame.loc[model_frame["horizon_days"].eq(horizon_days)]
             if exact_horizon.empty:
                 continue
-            selected = exact_horizon.iloc[-1]
+            selected = _latest_row(exact_horizon)
             expected = _finite_or_none(selected.get("expected_return"))
             if expected is None:
                 continue
@@ -879,8 +879,16 @@ def _choose_horizon_row_for(group: pd.DataFrame, primary_horizon: int) -> pd.Ser
     for horizon in (primary_horizon, *fallback_horizons):
         matches = group[group["horizon_days"].astype(int) == horizon]
         if not matches.empty:
-            return matches.iloc[-1]
-    return group.sort_values("horizon_days").iloc[-1]
+            return _latest_row(matches)
+    highest_horizon = group["horizon_days"].astype(int).max()
+    return _latest_row(group[group["horizon_days"].astype(int) == highest_horizon])
+
+
+def _latest_row(frame: pd.DataFrame) -> pd.Series:
+    sort_columns = ["forecast_date"]
+    if "run_id" in frame.columns:
+        sort_columns.append("run_id")
+    return frame.sort_values(sort_columns, kind="stable").iloc[-1]
 
 
 def _timestamp_iso_or_none(value: object) -> str | None:

@@ -11,7 +11,7 @@ import pandas as pd
 from etf_cockpit.core.config import AppConfig, ETFConfig, ProviderSection
 from etf_cockpit.core.paths import RAW_DIR as RAW_DIR
 from etf_cockpit.core.session_log import redact_text
-from etf_cockpit.core.values import dict_or_empty as _safe_dict
+from etf_cockpit.core.values import dict_or_empty as _safe_dict, years_before
 from etf_cockpit.data.providers import DataProvider, PriceProvider, ProviderResult
 from etf_cockpit.data.provenance import metadata_from_frame
 from etf_cockpit.data.retrieval_batch import BatchRetriever, provider_rate_limiter
@@ -90,7 +90,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
     def validate_symbol(self, symbol: str) -> bool:
         try:
             end = date.today()
-            start = end.replace(year=end.year - 1)
+            start = years_before(end, 1)
             return not self.fetch_daily_prices(symbol, start, end).empty
         except Exception:
             return False

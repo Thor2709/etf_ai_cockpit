@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig, ProviderSection
-from etf_cockpit.core.values import dict_or_empty as _safe_dict
+from etf_cockpit.core.values import dict_or_empty as _safe_dict, years_before
 from etf_cockpit.portfolio.benchmark_reference import adjusted_price_snapshot_binding
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, read_atomic_group
 from etf_cockpit.core.paths import FORECASTS_DIR, RAW_DIR, REPORTS_DIR
@@ -767,7 +767,4 @@ def _fmt_number(value: object) -> str:
 
 
 def _years_back(as_of: date, years: int) -> date:
-    try:
-        return as_of.replace(year=as_of.year - years)
-    except ValueError:
-        return as_of.replace(month=2, day=28, year=as_of.year - years)
+    return years_before(as_of, years)

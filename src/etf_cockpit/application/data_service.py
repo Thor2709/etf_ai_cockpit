@@ -14,6 +14,7 @@ from etf_cockpit.core.paths import CLEAN_DIR, FORECASTS_DIR, ROOT
 from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.core.timing import record_cache_event
 from etf_cockpit.core.types import DataQualityReport
+from etf_cockpit.core.values import years_before
 from etf_cockpit.core.workflow import (
     PublicationScopeFactory,
     WorkflowTransitionError,
@@ -189,7 +190,7 @@ class DataService:
     ) -> str:
         self.last_operation_succeeded = False
         end_date = date.today()
-        start_date = end_date.replace(year=end_date.year - years)
+        start_date = years_before(end_date, years)
         provider = YFinanceProvider.from_config(self.config)
         messages: list[str] = []
 

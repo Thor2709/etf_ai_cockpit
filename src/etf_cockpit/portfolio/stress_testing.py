@@ -104,8 +104,9 @@ def run_stress_scenario(
     if notional <= 0 or not math.isfinite(float(notional)):
         raise StressScenarioError("notional must be finite and greater than zero.")
     frame = _allocation(allocation)
+    history_warnings: tuple[str, ...] = ()
     if scenario.historical_date:
-        frame = _apply_historical_shock(frame, historical_returns, scenario.historical_date)
+        frame, history_warnings = _apply_historical_shock(frame, historical_returns, scenario.historical_date)
     if frame.empty:
         return StressResult(scenario, "unavailable", None, (), (), {"status": "unavailable", "instrument_count": 0}, ("No validated allocation rows are available.",))
     exposures = _exposure_map(factor_exposures)
@@ -154,6 +155,7 @@ def run_stress_scenario(
     limitations = ["Scenario PnL is not a probability forecast.", "Nonlinear derivatives, taxes and transaction impact beyond the explicit liquidity cost are not modelled."]
     if missing:
         limitations.append("Some instruments have no applicable shock or factor coverage.")
+    limitations.extend(history_warnings)
     coverage = {"status": "partial" if missing else "available", "instrument_count": len(instrument_rows), "covered_instruments": len(instrument_rows) - len(missing), "missing_instruments": sorted(missing), "factor_coverage": len(exposures)}
     status = "unavailable" if len(missing) == len(instrument_rows) else "partial" if missing else "available"
     return StressResult(scenario, status, total, tuple(instrument_rows), factor_rows, coverage, tuple(limitations))
@@ -255,29 +257,43 @@ def _exposure_map(frame: pd.DataFrame | None) -> dict[str, dict[str, float]]:
     return result
 
 
-def _apply_historical_shock(frame: pd.DataFrame, returns: pd.DataFrame | None, as_of: str) -> pd.DataFrame:
+def _apply_historical_shock(
+    frame: pd.DataFrame, returns: pd.DataFrame | None, as_of: str
+) -> tuple[pd.DataFrame, tuple[str, ...]]:
     if returns is None or returns.empty:
-        return frame.assign(historical_return=None)
+        return frame.assign(historical_return=None), ()
     data = returns.copy()
     date_column = "date" if "date" in data.columns else "as_of" if "as_of" in data.columns else None
     adjusted_column = next((column for column in ("adjusted_return", "adjusted_close_return", "total_return") if column in data.columns), None)
     if date_column is None or (adjusted_column is None and "instrument_id" in data.columns):
-        return frame.assign(historical_return=None)
+        return frame.assign(historical_return=None), ()
     data[date_column] = pd.to_datetime(data[date_column], errors="coerce").dt.date
     selected = data[data[date_column] == date.fromisoformat(as_of)]
     if selected.empty:
-        return frame.assign(historical_return=None)
+        return frame.assign(historical_return=None), ()
     result = frame.copy()
     if "instrument_id" in selected.columns and adjusted_column is not None:
+        values_by_instrument: dict[str, float | None] = {}
+        conflicting: set[str] = set()
+        for row in selected.to_dict("records"):
+            instrument_id = str(row["instrument_id"])
+            value = _finite(row[adjusted_column])
+            if instrument_id in values_by_instrument:
+                if values_by_instrument[instrument_id] != value:
+                    conflicting.add(instrument_id)
+            else:
+                values_by_instrument[instrument_id] = value
         values = {
-            str(row["instrument_id"]): _finite(row[adjusted_column])
-            for row in selected.to_dict("records")
+            instrument_id: None if instrument_id in conflicting else value
+            for instrument_id, value in values_by_instrument.items()
         }
         result["historical_return"] = result["instrument_id"].map(values)
+        warnings = tuple(f"conflicting_history:{instrument_id}" for instrument_id in sorted(conflicting))
+        return result, warnings
     else:
         row = selected.iloc[-1]
         result["historical_return"] = result["instrument_id"].map(lambda item: _finite(row.get(item)))
-    return result
+        return result, ()
 
 
 def _common_shock_components(shocks: Mapping[str, float], row: Mapping[str, object]) -> dict[str, float]:

@@ -42,6 +42,8 @@ def compute_features(prices: pd.DataFrame, benchmark_etf_id: str | None = None) 
         group = group.sort_values("date").copy()
         price = group["adjusted_close"].astype(float)
         log_ret = daily_log_returns(price)
+        sma_100 = simple_moving_average(price, 100)
+        sma_200 = simple_moving_average(price, 200)
         out = pd.DataFrame(
             {
                 "date": group["date"].values,
@@ -55,11 +57,11 @@ def compute_features(prices: pd.DataFrame, benchmark_etf_id: str | None = None) 
                 "momentum_120d": horizon_log_returns(price, 120).values,
                 "momentum_180d": horizon_log_returns(price, 180).values,
                 "sma_50": simple_moving_average(price, 50).values,
-                "sma_100": simple_moving_average(price, 100).values,
-                "sma_200": simple_moving_average(price, 200).values,
-                "trend_100": (price > simple_moving_average(price, 100)).astype(float).values,
-                "trend_200": (price > simple_moving_average(price, 200)).astype(float).values,
-                "trend_slope": (simple_moving_average(price, 100) / simple_moving_average(price, 200) - 1).values,
+                "sma_100": sma_100.values,
+                "sma_200": sma_200.values,
+                "trend_100": (price > sma_100).where(sma_100.notna()).astype(float).values,
+                "trend_200": (price > sma_200).where(sma_200.notna()).astype(float).values,
+                "trend_slope": (sma_100 / sma_200 - 1).values,
                 "vol_20d_ann": realised_volatility(log_ret, 20).values,
                 "vol_60d_ann": realised_volatility(log_ret, 60).values,
                 "vol_120d_ann": realised_volatility(log_ret, 120).values,

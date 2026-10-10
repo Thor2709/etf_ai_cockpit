@@ -329,7 +329,9 @@ def executable_order(quantity: float, asks: Iterable[Mapping[str, object]] | Non
         remaining, cost, filled = qty, 0.0, 0.0
         for row in levels:
             px, available = _num(row.get("price")), _num(row.get("quantity", row.get("size")))
-            if px is None or available is None or available <= 0 or (limit_price is not None and px > limit_price):
+            if px is None or px <= 0:
+                return {"status": "unavailable", "reason_code": "INVALID_ORDER_BOOK", "filled_quantity": 0.0, "unfilled_quantity": qty, "execution_allowed": False}
+            if available is None or available <= 0 or (limit_price is not None and px > limit_price):
                 continue
             take = min(remaining, available)
             cost += take * px

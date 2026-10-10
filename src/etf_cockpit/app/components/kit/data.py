@@ -21,6 +21,7 @@ from etf_cockpit.app.components.kit._base import (
 )
 from etf_cockpit.app.components.kit.controls import Disclosure, Segmented, _safe_update
 from etf_cockpit.app.components.kit.surfaces import EmptyState, GlassCard, Well
+from etf_cockpit.app.components.chartkit.core import finite
 
 TAG_KINDS = tuple(theme.TAG_TONES)
 
@@ -67,6 +68,7 @@ def ScoreBar(  # noqa: N802
     Scores use the canonical 0-10 scale (one decimal, colour rule applies). Weight bars pass ``maximum=100``
     with the value in percent; they keep the default colour. ``None`` renders an empty track and an em dash.
     """
+    value = finite(value)
     if value is not None and maximum <= 0:
         raise ValueError("maximum must be positive")
     shown = max(0.0, min(maximum, value)) if value is not None else None

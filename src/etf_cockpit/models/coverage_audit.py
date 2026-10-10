@@ -268,8 +268,11 @@ def _observed_price_ids(prices: pd.DataFrame | None, as_of_date: str | None, min
         if pd.isna(upper_bound):
             return set()
         valid &= dates <= upper_bound
-    bounded = prices.loc[valid].assign(_instrument=prices.loc[valid, "etf_id"].astype(str).str.strip())
-    counts = bounded.groupby("_instrument").size()
+    bounded = prices.loc[valid].assign(
+        _instrument=prices.loc[valid, "etf_id"].astype(str).str.strip(),
+        _date=dates.loc[valid],
+    )
+    counts = bounded.groupby("_instrument")["_date"].nunique()
     return set(counts[counts >= minimum_history_observations].index)
 
 

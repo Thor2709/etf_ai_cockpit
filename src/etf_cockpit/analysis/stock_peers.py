@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from etf_cockpit.core.values import is_finite_number
 
 @dataclass(frozen=True)
 class PeerProfile:
@@ -31,7 +32,7 @@ class PeerPick:
 
 
 def size_band(market_cap_eur_bn: float | None, edges: Sequence[float]) -> int | None:
-    if market_cap_eur_bn is None:
+    if not is_finite_number(market_cap_eur_bn) or market_cap_eur_bn < 0:
         return None
     return sum(1 for edge in edges if market_cap_eur_bn >= edge)
 

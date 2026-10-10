@@ -22,6 +22,7 @@ import yaml
 
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import CONFIG_DIR
+from etf_cockpit.core.values import finite_float_or_none
 from etf_cockpit.models.ensemble import effective_ensemble_weights
 
 
@@ -193,7 +194,14 @@ def load_score_policy(asset_type: str = "ETF", *, path: Path = FORMULA_PATH) -> 
             values = selected.get(group)
             if not isinstance(values, dict):
                 raise CanonicalScoreError(f"score policy group is missing: {group}")
-            groups[group] = {str(key): float(value) for key, value in values.items() if float(value) > 0}
+            group_weights: dict[str, float] = {}
+            for key, value in values.items():
+                number = finite_float_or_none(value)
+                if number is None:
+                    raise CanonicalScoreError("score policy weights must be finite numbers")
+                if number > 0:
+                    group_weights[str(key)] = number
+            groups[group] = group_weights
             if sum(groups[group].values()) <= 0:
                 raise CanonicalScoreError(f"score policy group has no positive weights: {group}")
         return ScorePolicy(formula_version, hashlib.sha256(normalised_bytes).hexdigest(), horizon, str(asset_type).upper(), groups)
@@ -220,11 +228,23 @@ def build_canonical_score(
         raise CanonicalScoreError("EC instruments must use the native Sparebank scorecard")
     selected_policy = policy or load_score_policy(asset_type)
     timestamp = str(decision_time.isoformat() if isinstance(decision_time, date) else decision_time)
-    source_components = tuple(components)
+    raw_components = tuple(components)
+    warnings: list[str] = []
+    source_components_list: list[CanonicalComponent] = []
+    seen_components: set[tuple[str, str]] = set()
+    for component in raw_components:
+        identity = (_component_group(component), component.key)
+        if identity in seen_components:
+            warning = f"duplicate_component:{component.key}"
+            if warning not in warnings:
+                warnings.append(warning)
+            continue
+        seen_components.add(identity)
+        source_components_list.append(component)
+    source_components = tuple(source_components_list)
     group_results: dict[str, tuple[float | None, float, list[dict[str, object]], list[dict[str, object]]]] = {}
     all_component_rows: list[dict[str, object]] = []
     contributions: list[dict[str, object]] = []
-    warnings: list[str] = []
     explanations: list[str] = []
     total_configured = 0.0
     total_active = 0.0

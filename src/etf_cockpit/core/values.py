@@ -7,8 +7,19 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
+from datetime import date
 from numbers import Real
 
+
+
+def years_before(value: date, years: int) -> date:
+    """Return the same calendar day ``years`` earlier, clamping leap day to February 28."""
+
+    target_year = value.year - years
+    try:
+        return value.replace(year=target_year)
+    except ValueError:
+        return value.replace(month=2, day=28, year=target_year)
 
 
 def finite_float_or_none(value: object) -> float | None:

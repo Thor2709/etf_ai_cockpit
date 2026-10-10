@@ -26,6 +26,7 @@ from etf_cockpit.core.versioning import (
 )
 from etf_cockpit.data.duckdb_store import load_prices
 from etf_cockpit.features.forecast_lab import build_forecast_lab_workspace as build_forecast_lab_workspace
+from etf_cockpit.features.returns import daily_log_returns
 from etf_cockpit.models.baseline_models import baseline_forecast
 from etf_cockpit.models.forecast_scores import configured_forecast_request_identity as configured_forecast_request_identity, forecast_request_identity
 from etf_cockpit.portfolio.benchmark_reference_contract import CanonicalBenchmarkRegistry
@@ -99,7 +100,7 @@ class ForecastService:
             raise ValueError("forecast cache request identity does not match the calculation request")
         pivot = price_frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
         benchmark_id = context.benchmark_data_id if context is not None else None
-        benchmark_returns = pivot[benchmark_id].pct_change(fill_method=None).dropna() if benchmark_id in pivot else None
+        benchmark_returns = daily_log_returns(pivot[benchmark_id]).dropna() if benchmark_id in pivot else None
         forecasts: list[ForecastResult] = []
         run_id = settings_bound_run_id(
             f"forecast_{as_of_date:%Y%m%d}",
