@@ -100,11 +100,6 @@ def etf_disclosures_page(page: ft.Page, state: AppState) -> PageView:
         body=kit.Well(coverage_chart),
     )
     view_note = kit.Note("Documents import controls")
-
-    def select_view(value: str) -> None:
-        view_note.value = f"{value} import controls"
-        if getattr(page, "update", None):
-            page.update()
     evidence = kit.EvidenceTableSwitcher(
         [
             evidence_table(
@@ -170,6 +165,24 @@ def etf_disclosures_page(page: ft.Page, state: AppState) -> PageView:
         ),
         key="disclosures.sfdr",
     )
+    sections = {
+        "Documents": (importer, inventory, coverage),
+        "Reports": (evidence,),
+        "Holdings": (evidence,),
+        "SFDR": (sfdr_note,),
+    }
+
+    def _apply_filter(value: str) -> None:
+        view_note.value = f"{value} import controls"
+        for card in (importer, inventory, coverage, sfdr_note, evidence):
+            card.visible = any(card is shown for shown in sections[value])
+
+    def select_view(value: str) -> None:
+        _apply_filter(value)
+        if getattr(page, "update", None):
+            page.update()
+
+    _apply_filter("Documents")
     body = ft.Column(
         [view_note, importer, inventory, coverage, sfdr_note, evidence],
         spacing=16,

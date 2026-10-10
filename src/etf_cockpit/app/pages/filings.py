@@ -146,17 +146,30 @@ def filings_page(page: ft.Page, state: AppState) -> PageView:
     )
     source_note = kit.Note("SEC import controls")
 
-    def select_source(value: str) -> None:
-        source_note.value = f"{value} import controls"
-        if getattr(page, "update", None):
-            page.update()
-
     actions = legacy_action_panel(
         page,
         trust_evidence._filing_import_controls(page, state),
         "Official filing import",
         "Network, entitlement and timing gaps stay explicit.",
     )
+    sections = {
+        "SEC": (actions, inventory),
+        "ESEF": (coverage_card,),
+        "National OAM": (evidence,),
+        "Manual": (actions,),
+    }
+
+    def _apply_filter(value: str) -> None:
+        source_note.value = f"{value} import controls"
+        for card in (actions, inventory, coverage_card, evidence):
+            card.visible = any(card is shown for shown in sections[value])
+
+    def select_source(value: str) -> None:
+        _apply_filter(value)
+        if getattr(page, "update", None):
+            page.update()
+
+    _apply_filter("SEC")
     body = ft.Column(
         [source_note, actions, inventory, coverage_card, evidence],
         spacing=16,

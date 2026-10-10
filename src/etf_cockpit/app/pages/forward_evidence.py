@@ -96,12 +96,49 @@ def forward_evidence_page(page: ft.Page | None, state: AppState) -> PageView:
     selected_view = {"value": "Record"}
     status_note = Note("No external or broker action is available; execution_allowed=false.")
     entries: list[object] = []
+    outcomes_well = Well(EmptyState("No observations yet", "Record a local observation opportunity to begin."))
+    recent_host = ft.Column(spacing=theme.SPACE_2)
+
+    def _render_recent() -> None:
+        statuses = [str(row.outcome.status).casefold() for row in entries]
+        if statuses:
+            other = len(statuses) - statuses.count("available") - statuses.count("pending")
+            outcomes_well.content = ft.Column(
+                [
+                    ft.Row(
+                        [
+                            KpiTile("Matured", format_count(statuses.count("available"), unavailable="—"), sub="Outcome available"),
+                            KpiTile("Pending", format_count(statuses.count("pending"), unavailable="—"), sub="Horizon not yet matured"),
+                        ],
+                        spacing=theme.SPACE_2,
+                        wrap=True,
+                    ),
+                    Note(f"Stale, unavailable or conflicted: {format_count(other, unavailable='—')}"),
+                ],
+                spacing=theme.SPACE_2,
+            )
+        else:
+            outcomes_well.content = EmptyState("No observations yet", "Record a local observation opportunity to begin.")
+        recent_rows = []
+        for row in entries[-12:]:
+            status_key = str(row.outcome.status).casefold()
+            label, kind = _STATUS_LABELS.get(status_key, ("Unavailable", "bad"))
+            recent_rows.append(
+                ListRow(
+                    "info" if status_key in {"pending", "available"} else "warn" if status_key == "stale" else "bad",
+                    row.observation.observation_id,
+                    f"{format_timestamp(row.observation.manifest.as_of, unavailable='—')} · {label}",
+                    tag=(label, kind),
+                )
+            )
+        recent_host.controls = recent_rows or [Well(EmptyState("No diary entries yet", "Recorded local observations will appear here."))]
 
     def refresh() -> None:
         try:
             entries[:] = diary.list_entries(root=DATA_DIR)
         except Exception:
             entries.clear()
+        _render_recent()
 
     def show(message: str) -> None:
         status_note.value = message
@@ -272,26 +309,7 @@ def forward_evidence_page(page: ft.Page | None, state: AppState) -> PageView:
         ),
     )
 
-    outcomes_card = GlassCard(
-        "Outcomes over time",
-        body=Well(EmptyState("No observations yet", "Record a local observation opportunity to begin.")),
-    )
-    recent_rows = []
-    for row in entries[-12:]:
-        status_key = str(row.outcome.status).casefold()
-        label, kind = _STATUS_LABELS.get(status_key, ("Unavailable", "bad"))
-        recent_rows.append(
-            ListRow(
-                "info" if status_key in {"pending", "available"} else "warn" if status_key == "stale" else "bad",
-                row.observation.observation_id,
-                f"{format_timestamp(row.observation.manifest.as_of, unavailable='—')} · {label}",
-                tag=(label, kind),
-            )
-        )
-    recent_host = ft.Column(
-        recent_rows or [Well(EmptyState("No diary entries yet", "Recorded local observations will appear here."))],
-        spacing=theme.SPACE_2,
-    )
+    outcomes_card = GlassCard("Outcomes over time", body=outcomes_well)
     return PageView(
         chrome=PageChrome(
             "Forward Evidence Diary",

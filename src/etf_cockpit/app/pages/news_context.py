@@ -16,6 +16,7 @@ from etf_cockpit.app.pages._l2_common import (
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.digest import contradiction_digest_records
 from etf_cockpit.application.ui_facade import normalise_event_decision_time
+from etf_cockpit.data.news_context import _headline_direction
 
 
 def news_context_page(page: ft.Page, state: AppState) -> PageView:
@@ -29,7 +30,7 @@ def news_context_page(page: ft.Page, state: AppState) -> PageView:
     ]
     timeline = ck.horizontal_stacked_bar(
         [str(row["published_at"]) for row in dated_rows],
-        [[ck.Segment("News items", 1, theme.CHART_BLUE)] for _row in dated_rows],
+        [[ck.Segment("News items", 1, theme.BAR_BLUE)] for _row in dated_rows],
         x_name="News items",
         unit="items",
         unavailable_reason=None if dated_rows else "No timestamped local news items are available.",
@@ -90,36 +91,53 @@ def news_context_page(page: ft.Page, state: AppState) -> PageView:
         ("instrument_mapping_method", "Mapping confidence"),
         ("direction", "Direction"),
     )
+    def sentiment(row: dict[str, object]) -> str:
+        explicit = str(row.get("direction") or "").strip().casefold()
+        if explicit in {"positive", "negative"}:
+            return explicit
+        return {"up": "positive", "down": "negative"}.get(_headline_direction(row.get("headline")), "")
+
     inventory_rows = [
-        {
-            field: (
-                kit.Tag(display_value(row.get(source)).replace("_", " ").title(), "mute")
-                if field == "direction" and display_value(row.get(source)) != "—"
-                else "—" if field == "instrument_mapping_method"
-                else display_value(row.get(source)) if source in row else "—"
-            )
-            for field, source in inventory_columns
-        }
+        (
+            sentiment(row),
+            {
+                field: (
+                    kit.Tag(sentiment(row).title(), "mute")
+                    if field == "direction" and sentiment(row)
+                    else "—" if field in {"instrument_mapping_method", "direction"}
+                    else display_value(row.get(source)) if source in row else "—"
+                )
+                for field, source in inventory_columns
+            },
+        )
         for row in frame.to_dict(orient="records")
     ]
-    inventory = kit.GlassCard(
-        "News/context inventory",
-        "point-in-time context",
-        body=(
-            kit.DataTable(
-                [kit.TableColumn(field, label) for field, label in inventory_columns],
-                inventory_rows,
-            )
-            if inventory_rows
-            else kit.EmptyState("Unavailable", "No local news or context rows are registered.")
-        ),
-    )
+    inventory_slot = ft.Container()
+    inventory = kit.GlassCard("News/context inventory", "point-in-time context", body=inventory_slot)
     filter_note = kit.Note("Showing all news and context")
 
+    def _apply_filter(value: str) -> None:
+        selected = [row for tone, row in inventory_rows if value in {"All", "Contradictions"} or tone == value.casefold()]
+        inventory_slot.content = (
+            kit.DataTable([kit.TableColumn(field, label) for field, label in inventory_columns], selected)
+            if selected
+            else kit.EmptyState(
+                "Unavailable",
+                "No local news or context rows are registered."
+                if not inventory_rows
+                else f"No {value.casefold()} news rows are available.",
+            )
+        )
+        inventory.visible = value != "Contradictions"
+        contradiction_card.visible = value in {"All", "Contradictions"}
+        filter_note.value = f"Showing {value.casefold()} news and context ({len(selected) if inventory.visible else len(contradiction_rows)} rows)"
+
     def select_filter(value: str) -> None:
-        filter_note.value = f"Showing {value.casefold()} news and context"
+        _apply_filter(value)
         if getattr(page, "update", None):
             page.update()
+
+    _apply_filter("All")
     note_review = legacy_action_panel(
         page,
         trust_evidence._news_context_extra(state, page),

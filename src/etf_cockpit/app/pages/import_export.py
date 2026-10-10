@@ -809,14 +809,25 @@ def import_export_page(page: ft.Page, state: AppState) -> PageView:
             return "Portfolio action updated; review details."
         return "Local action updated; review details."
 
+    def _invalidate_preview() -> None:
+        nonlocal selected_preview
+        selected_preview = None
+        set_commit_enabled(False)
+
+    def _select(name: str, values: dict[str, str]):
+        def on_change(label: str) -> None:
+            selections[name] = values[label]
+            _invalidate_preview()
+        return on_change
+
     import_type_control = Field("Import type", options=import_type_labels, value="Portfolio History",
-        on_change=lambda label: selections.__setitem__("import_type", import_type_values[label]), expand=True)
+        on_change=_select("import_type", import_type_values), expand=True)
     locale_control = Segmented(locale_items, locale_items[0],
-        on_change=lambda label: selections.__setitem__("portfolio_locale", locale_values[label]),
+        on_change=_select("portfolio_locale", locale_values),
         key="import-export.portfolio-locale")
     authority_values = {"Broker": "broker", "Paper": "paper"}
     authority_control = Segmented(tuple(authority_values), "Broker",
-        on_change=lambda label: selections.__setitem__("portfolio_authority", authority_values[label]),
+        on_change=_select("portfolio_authority", authority_values),
         key="import-export.portfolio-authority")
 
     source_path_disclosure = Disclosure("Local source path", Field("Local source path", control=path_field, expand=True))
@@ -834,14 +845,15 @@ def import_export_page(page: ft.Page, state: AppState) -> PageView:
     audit_export_disclosure = Disclosure("Deterministic ledger audit JSON path",
         Field("Deterministic ledger audit JSON", control=portfolio_audit_path, expand=True))
 
-    rollback_confirmation = {"armed": False}
+    rollback_confirmation: dict[str, tuple[str, str] | None] = {"armed": None}
     def rollback_portfolio(_event: ft.ControlEvent) -> None:
-        if not rollback_confirmation["armed"]:
-            rollback_confirmation["armed"] = True
+        target = (rollback_batch.value or "", rollback_reason.value or "")
+        if rollback_confirmation["armed"] != target:
+            rollback_confirmation["armed"] = target
             action_status.value = "Select Rollback batch again to confirm this source rollback."
             page.update()
             return
-        rollback_confirmation["armed"] = False
+        rollback_confirmation["armed"] = None
         rollback_portfolio_once(_event)
 
     def import_view() -> ft.Control:
