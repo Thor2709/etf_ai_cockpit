@@ -32,12 +32,12 @@ def test_equity_component_members_feed_the_ownerless_and_equalisation_pools() ->
         _record("spar:Dividendequalisationreservemember", 1831),
         _record("spar:Primarycapitalreservemember", 876),
         _record("spar:Giftfoundationmember", 28),
-        _record("ifrs-full:SharePremiumMember", 1505),  # not a rule: share premium comes from the IFRS concept
+        _record("ifrs-full:SharePremiumMember", 1505),  # K03: overkursfond rule
         _record("spar:" + "AdditionalTier1CapitalReserveOfFairValueGainsLossesPrimaryCapitalReserveGiftReserve" * 2 + "Member", 3459),
         _record("spar:Primarycapitalreservemember", 52, concept="ProfitLoss", start="2024-01-01"),  # a flow, not a balance
     ]
     facts = equity_member_facts(records, PERIOD)
-    assert {name: item["value"] for name, item in facts.items()} == {"utjevningsfond": "1831", "sparebankens_fond": "876", "gavefond": "28"}
+    assert {name: item["value"] for name, item in facts.items()} == {"utjevningsfond": "1831", "sparebankens_fond": "876", "gavefond": "28", "overkursfond": "1505"}
     assert "member=Primarycapitalreservemember" in facts["sparebankens_fond"]["source_locator"]
     # Two balances matching the same pool are ambiguous and are not guessed.
     ambiguous = equity_member_facts([*records, _record("spar:OtherEqualisationMember", 5)], PERIOD)

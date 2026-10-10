@@ -73,11 +73,12 @@ def _date(value: object) -> pd.Timestamp | None:
 
 
 def _filing_identity(row: Mapping[str, object]) -> str | None:
-    for field in ("filing_version", "sha256", "source_url"):
-        value = row.get(field)
-        if value is not None and str(value).strip():
-            return f"{field}:{str(value).strip()}"
-    return None
+    parts = [
+        f"{field}:{str(row[field]).strip()}"
+        for field in ("filing_version", "sha256", "source_url")
+        if row.get(field) is not None and str(row[field]).strip()
+    ]
+    return "|".join(parts) or None
 
 
 def _number(value: object) -> float | None:
@@ -150,7 +151,9 @@ def statement_series(rows: Iterable[Mapping[str, object]], *, target_period: str
             result[side][name] = value  # type: ignore[index]
             if side == "current":
                 result["sources"][name] = str(chosen.get("source_locator") or chosen.get("source_url") or chosen.get("source_id") or "")  # type: ignore[index]
-    return result if result["current"] else {}
+    if not result["current"]:
+        result["status"] = "unavailable"
+    return result
 
 
 # Pillar 3 metric -> (evidence path, conversion). Percent figures become ratios, as the analysis expects.
@@ -302,7 +305,7 @@ def with_derived_owner_earnings(ec_facts: Mapping[str, object], statements: Mapp
 
     facts = dict(ec_facts)
     current = statements.get("current") if isinstance(statements, Mapping) else None
-    if not isinstance(current, Mapping):
+    if not isinstance(current, Mapping) or not current:
         return facts
     template = next((item for item in facts.values() if isinstance(item, Mapping) and item.get("known_at")), {})
     period = statements.get("period_end")  # type: ignore[union-attr]

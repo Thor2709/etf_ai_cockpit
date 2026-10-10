@@ -26,3 +26,5 @@ equity_member_rules:
   sparebankens_fond: '(?i)(primarycapital|primary capital|grunnfond|ownerless|sparebankensfond|savingsbankreserve)'
   gavefond: '(?i)(giftfoundation|giftfond|gavefond)'
   kompensasjonsfond: '(?i)(compensationfund|kompensasjonsfond)'
+  ec_capital: '(?i)(issuedcapital|eierandelskapital)'
+  overkursfond: '(?i)(sharepremium|overkurs)'

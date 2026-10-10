@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import math
 from typing import Iterable, Mapping
 
-from etf_cockpit.core.values import finite_float_or_none as _number
+from etf_cockpit.core.values import all_finite_or_none, finite_float_or_none as _number
 
 from .models import ECClaimState, SparebankEventAnalysis, UNAVAILABLE
 
@@ -183,7 +183,8 @@ def merger_bridge(
     discount_rate = discount_rate if discount_rate is not None else _number(aliases.get("discount"))
     standalone = _number(standalone_per_ec)
     gross, recurring, lost = map(_number, (gross_benefit, recurring_added_capability, lost_customer_contribution))
-    costs = tuple(number for value in integration_costs if (number := _number(value)) is not None)
+    integration_costs = tuple(integration_costs)
+    costs = all_finite_or_none(integration_costs)
     ramp: tuple[float, ...] | None
     if implementation_ramp is None:
         ramp = None
@@ -193,6 +194,8 @@ def merger_bridge(
         ramp = tuple(_number(item) for item in implementation_ramp)
     if ramp is not None and any(item is None for item in ramp):
         ramp = None
+    if costs is None or (tax_rate is not None and not 0 <= tax_rate < 1):
+        return {"status": "unavailable", "reason_code": "INVALID_MERGER_INPUT", "credible_standalone": standalone, "integration_costs": integration_costs, "tax_rate": tax_rate, "maturity": "unresolved"}
     annual = None
     if None not in (gross, recurring, lost, tax_rate):
         annual = (gross + recurring - lost - sum(costs)) * (1 - tax_rate)

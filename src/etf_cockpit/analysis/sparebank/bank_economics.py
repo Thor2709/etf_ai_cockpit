@@ -8,7 +8,7 @@ from typing import Iterable, Mapping
 from . import book_calcs
 from .models import BankEconomics, UNAVAILABLE
 
-from etf_cockpit.core.values import finite_float_or_none as _number
+from etf_cockpit.core.values import all_finite_or_none, finite_float_or_none as _number
 
 # Plain-language reasons shown next to a missing scorecard input (SB2). Keys are scorecard input ids.
 MISSING_REASONS: dict[str, str] = {
@@ -46,6 +46,7 @@ class NormalisationBridge:
     ec_share: float | None = None
     ec_eps: float | None = None
     status: str = "resolved"
+    reason_code: str | None = None
 
 
 @dataclass(frozen=True)
@@ -134,16 +135,20 @@ def normalisation_bridge(
     """Reconcile reported earnings to normalised earnings exactly."""
 
     base = _number(reported)
-    parsed = tuple(item for value in adjustments if (item := _adjustment(value)) is not None)
+    candidates = tuple(_adjustment(value) for value in adjustments)
+    parsed = tuple(item for item in candidates if item is not None)
     if base is None:
         return NormalisationBridge(None, parsed, None, equity_denominator=_number(equity_denominator), status="unavailable")
+    pretax_values = all_finite_or_none(
+        value if not isinstance(value, Mapping) else value.get("amount", value.get("value")) for value in pre_tax_adjustments
+    )
+    if len(parsed) != len(candidates) or pretax_values is None:
+        return NormalisationBridge(
+            base, parsed, None, equity_denominator=_number(equity_denominator), status="unavailable",
+            reason_code="INVALID_NORMALISATION_ADJUSTMENT",
+        )
     normalised = base + sum(item.amount for item in parsed)
     pretax = _number(reported_pre_tax)
-    pretax_values = tuple(
-        number
-        for value in pre_tax_adjustments
-        if (number := _number(value if not isinstance(value, Mapping) else value.get("amount", value.get("value")))) is not None
-    )
     normalised_pretax = pretax + sum(pretax_values) if pretax is not None else None
     equity = _number(equity_denominator)
     reported_roe = base / equity if equity not in (None, 0) else None
@@ -401,17 +406,15 @@ def owner_normalisation(
         reasons.pop(key, None)
         return replace(bank, normalised=normalised, reasons=reasons)
 
-    if earnings is None or book is None or book <= 0:
-        missing = "the EC-attributable result" if earnings is None else "the owner capital pools"
-        reasons[key] = f"Needs {missing} from the filing (the owner claim is not fully reconstructed)."
-        return replace(bank, normalised={}, reasons=reasons)
-
+    inputs_missing = earnings is None or book is None or book <= 0
+    if inputs_missing:
+        book = None
     current_loss = _statement_value(statements, "current", "impairment_losses")
     prior_loss = _statement_value(statements, "prior", "impairment_losses")
     missing_components = []
     if earnings is None:
         missing_components.append("EC-attributable result")
-    if book is None or book <= 0:
+    if book is None:
         missing_components.append("positive owner-capital denominator")
     if current_loss is None:
         missing_components.append("current-period impairment losses")
@@ -419,7 +422,6 @@ def owner_normalisation(
         missing_components.append("prior-period impairment losses")
     if share is None:
         missing_components.append("reported or reconstructed eierbrøk")
-    missing_components.extend(("securities/alliance and one-off gain history", "rate-cycle deposit-cost history"))
     pre_tax = _statement_value(statements, "current", "income_before_tax")
     tax = _statement_value(statements, "current", "income_tax")
     tax_rate = tax / pre_tax if pre_tax and tax is not None and pre_tax > 0 and 0.0 <= tax / pre_tax <= 0.5 else None
@@ -463,7 +465,11 @@ def owner_normalisation(
             missing_components=tuple(missing_components),
             reason_code="SUSTAINABLE_ROE_BRIDGE_INPUTS_MISSING",
         )
-        reasons[key] = "Sustainable ROE unavailable; missing bridge inputs: " + ", ".join(missing_components) + "."
+        if inputs_missing:
+            missing = "the EC-attributable result" if earnings is None else "the owner capital pools"
+            reasons[key] = f"Needs {missing} from the filing (the owner claim is not fully reconstructed)."
+        else:
+            reasons[key] = "Sustainable ROE unavailable; missing bridge inputs: " + ", ".join(missing_components) + "."
         return replace(bank, normalised=normalised, reasons=reasons)
     reasons.pop(key, None)
     return replace(bank, normalised=normalised, reasons=reasons, calculation_ids=tuple(dict.fromkeys((*bank.calculation_ids, "normalisation_bridge"))))
