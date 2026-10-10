@@ -43,6 +43,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     _validate_smoke_args(args)
+    _runtime_root()
     verify_ui_action_inventory()
     verify_expected_title()
 
@@ -87,7 +88,7 @@ def _ensure_source_ready(
 ) -> subprocess.Popen | None:
     python = launcher_core.resolve_python(ROOT)
     env = os.environ.copy()
-    env["ETF_COCKPIT_ROOT"] = str(ROOT)
+    env["ETF_COCKPIT_ROOT"] = str(_runtime_root())
     env["ETF_COCKPIT_VIEW"] = "web"
     env["ETF_COCKPIT_PORT"] = str(port)
     env["ETF_COCKPIT_OPEN_BROWSER"] = "0"
@@ -106,7 +107,7 @@ def _ensure_source_ready(
 def _ensure_mode_ready(mode: str, port: int, timeout: int, *, already_ready: bool = False) -> subprocess.Popen | None:
     command, cwd = launcher_core._launch_command(ROOT, mode, exe_path=None)
     env = os.environ.copy()
-    env["ETF_COCKPIT_ROOT"] = str(ROOT)
+    env["ETF_COCKPIT_ROOT"] = str(_runtime_root())
     env["ETF_COCKPIT_VIEW"] = "web"
     env["ETF_COCKPIT_PORT"] = str(port)
     env["ETF_COCKPIT_OPEN_BROWSER"] = "0"
@@ -167,9 +168,15 @@ def verify_expected_title() -> None:
 
 
 def verify_ui_action_inventory() -> None:
-    from etf_cockpit.core.ui_acceptance import build_main_ui_action_inventory, ui_command_contracts
+    from etf_cockpit.core.ui_acceptance import (
+        build_main_ui_action_inventory,
+        load_ui_acceptance_contracts,
+        ui_command_contracts,
+    )
 
-    inventory = build_main_ui_action_inventory()
+    # Acceptance metadata describes this code, rather than the selected install's data.
+    contracts = load_ui_acceptance_contracts(ROOT / "configs" / "ui_acceptance.yaml")
+    inventory = build_main_ui_action_inventory(contracts)
     commands = ui_command_contracts(inventory)
     if not inventory or len(commands) != len(inventory):
         raise RuntimeError("UI action inventory is empty or has unbound commands")
@@ -182,6 +189,17 @@ def _source_root() -> Path:
         if (candidate / "etf_cockpit").exists():
             return candidate
     return ROOT / "src"
+
+
+def _runtime_root() -> Path:
+    """Use the selected install's config/data while running this checkout's code."""
+    selected = os.getenv("ETF_COCKPIT_ROOT", "").strip()
+    root = Path(selected).expanduser().resolve() if selected else ROOT
+    if selected and not (root / "configs" / "universe.yaml").is_file():
+        raise RuntimeError(
+            f"ETF_COCKPIT_ROOT must contain configs/universe.yaml and a data directory: {root}"
+        )
+    return root
 
 
 def verify_process_path(process: subprocess.Popen | object, expected_path: Path) -> None:
@@ -210,7 +228,7 @@ def _verify_score_groups() -> None:
     by_id = {score.display_id: score for score in sparebanken.scores}
     from etf_cockpit.data.universe_store import load_sparebank_records
 
-    registry = {record.instrument_id: record for record in load_sparebank_records(ROOT)}
+    registry = {record.instrument_id: record for record in load_sparebank_records(_runtime_root())}
     identity = registry.get("AURG")
     if identity is None or identity.isin_status != "verified" or not identity.isin:
         raise RuntimeError("AURG needs a verified ISIN in the universe registry.")
