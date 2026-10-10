@@ -89,6 +89,8 @@ def test_desktop_and_web_launch_use_the_same_main_and_assets(monkeypatch) -> Non
     monkeypatch.setattr(flet_app, "_startup_log", lambda _message: None)
     monkeypatch.setattr(flet_app, "init_session_log", lambda **_kwargs: None)
     monkeypatch.setattr(flet_app, "_resolve_flet_app", lambda: fake_flet_app)
+    # per-instance web asset copies (identity, P06-N008) are covered in test_bugfix_t-uia; this test checks launch parity
+    monkeypatch.setattr(flet_app, "_prepare_web_assets", lambda: (flet_app.theme.ASSETS_DIR, "test-identity"))
     monkeypatch.setenv("ETF_COCKPIT_PORT", "9855")
     monkeypatch.setenv("ETF_COCKPIT_OPEN_BROWSER", "0")
     monkeypatch.setenv("FLET_PLATFORM", "web")
