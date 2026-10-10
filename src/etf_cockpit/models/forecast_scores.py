@@ -885,9 +885,9 @@ def _choose_horizon_row_for(group: pd.DataFrame, primary_horizon: int) -> pd.Ser
 
 
 def _latest_row(frame: pd.DataFrame) -> pd.Series:
-    sort_columns = ["forecast_date"]
-    if "run_id" in frame.columns:
-        sort_columns.append("run_id")
+    sort_columns = [column for column in ("forecast_date", "run_id") if column in frame.columns]
+    if not sort_columns:
+        return frame.iloc[-1]
     return frame.sort_values(sort_columns, kind="stable").iloc[-1]
 
 

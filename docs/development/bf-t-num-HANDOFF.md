@@ -82,3 +82,13 @@
 ## NEEDS_OPUS_DECISION
 
 - None.
+
+## Correction pass
+
+| Test | Cause | Fix | Result |
+|---|---|---|---|
+| `test_friction_edge::test_forecast_return_distribution_aggregates_allowed_model_quantiles` | P04-N006 `_latest_row` sorted by `forecast_date` unconditionally; frames without that column raised `KeyError` | `_latest_row` sorts by whichever of `forecast_date`/`run_id` exist, else keeps row order (`iloc[-1]`); sorted selection for P04-N006 unchanged | pass |
+| `test_release_hardening::test_valid_forecast_rows_become_model_score_inputs` | same `KeyError` via `_choose_horizon_row` | same `_latest_row` fix | pass |
+| `test_etf_economics::test_non_finite_total_return_values_fail_closed` | pinned exactly P01-N001: built evidence from an `inf` close via `apply_total_return_adjustments`, which the old gate let through; it now raises at construction. Tampered payloads are rejected earlier still (checksum / bound-artifact checks), so the old "invalid observations" message is unreachable | Assertion updated: `inf`, `-inf` and `NaN` each raise `MarketAdjustmentError` (`non-finite`) when building evidence (equally strict, now also covers `-inf`/`NaN`) | pass |
+| `test_issue_0112_...simple_score_disk_reader` | passed on re-run before changes (no failure reproduced) | none | pass |
+| `refactor_parity/test_optional_models_golden::test_optional_models_match_golden` | P04-N004 (`< MIN_BASELINE_OBSERVATIONS` finite returns -> `[]`): `baseline_forecast` on an empty series now returns 0 rows instead of 4 zero-edge `ok` rows | NOT fixed here (golden may not be regenerated). Only difference: `$.baseline_forecast.empty_series: length 4 != 0` | still fails; **record for final integration: regenerate `optional_models` golden, expecting `empty_series == []`** |

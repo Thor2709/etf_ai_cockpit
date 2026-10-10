@@ -29,6 +29,7 @@ from etf_cockpit.data.market_adjustments import (
     CorporateAction,
     CorporateActionCoverage,
     CorporateActionCoverageStore,
+    MarketAdjustmentError,
     apply_total_return_adjustments,
 )
 from etf_cockpit.features.etf_economics import calculate_etf_liquidity
@@ -742,20 +743,13 @@ def test_aum_and_flow_amount_units_are_explicit() -> None:
 
 def test_non_finite_total_return_values_fail_closed() -> None:
     evidence = _total_return_series([100, 101, 102, 104])
-    frame = evidence.frame.astype({"total_return_index": float}).copy()
-    frame.loc[2, "total_return_index"] = float("inf")
-    bad = _replace_evidence(evidence, frame)
-    report = calculate_etf_economics(
-        "VWCE",
-        _economics_records(),
-        fund_total_return=bad,
-        benchmark_total_return=_total_return_series([100, 100.5, 101, 103], instrument_id="FTSE-ALL-WORLD"),
-        as_of="2026-01-06",
-        horizon_days=3,
-        closure_policy=_closure_policy(),
-    )
-    assert report.status == "unavailable"
-    assert "invalid observations" in report.message
+    for invalid in (float("inf"), float("-inf"), float("nan")):
+        frame = evidence.frame.astype({"total_return_index": float}).copy()
+        frame.loc[2, "total_return_index"] = invalid
+        # Since P01-N001 the canonical adjustment gate rejects non-finite values before any evidence can be bound;
+        # a tampered payload is rejected by the checksum/binding checks, so construction is the fail-closed point.
+        with pytest.raises(MarketAdjustmentError, match="non-finite"):
+            _replace_evidence(evidence, frame)
 
 
 def test_etf_economics_ui_renders_scalar_tracking_coverage() -> None:
