@@ -360,6 +360,8 @@ def _fixed_income_card(page: ft.Page | None, result: object) -> ft.Control:
         spacing=16,
         run_spacing=16,
     )
+    for tile in tiles.controls:
+        tile.col = {"xs": 12, "sm": 6, "lg": 3}
     fields = (
         "instrument_id",
         "yield_to_worst",
@@ -562,6 +564,8 @@ def _selection_view(page: ft.Page | None, decision_time: str, snapshot: object) 
                 "Saved portfolio-fit evidence." if marginal is not None else "No single saved impact value is available.",
             ),
         ]
+        for tile in metrics.controls:
+            tile.col = {"xs": 12, "sm": 6}
         funnel = result.get("exclusion_funnel")
         if isinstance(funnel, dict):
             pairs = list(funnel.items())

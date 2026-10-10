@@ -53,15 +53,31 @@ def test_summary_kpis_have_stable_keys_and_no_inline_as_of() -> None:
 
 def test_onboarding_leads_with_setup_and_discloses_details() -> None:
     page = onboarding.onboarding_page(SimpleNamespace(update=lambda: None), SimpleNamespace(snapshot=None))
-    controls = list(_walk(page))
-    keys = {c.key for c in controls if c.key}
-    assert {
-        "onboarding.save",
-        "onboarding.as-of.date",
-        "onboarding.details.advanced",
-        "onboarding.details.resources",
-        "onboarding.details.sources",
-    } <= keys
-    tiles = [c for c in controls if isinstance(c, ft.ExpansionTile)]
-    assert len(tiles) == 3 and all(t.expanded is False for t in tiles)
+
+    def keyed(key: str):
+        return next((c for c in _walk(page) if getattr(c, "key", None) == key), None)
+
+    # Setup comes first: a four-step flow opens on Preferences with Next; saving is only offered on the last step.
+    assert {f"onboarding.step.{n}" for n in range(4)} <= {c.key for c in _walk(page) if getattr(c, "key", None)}
+    steps = [c for c in _walk(page) if isinstance(getattr(c, "data", None), dict) and c.data.get("kit") == "Stepper"]
+    assert len(steps) == 1
+    text = _texts(page)
+    for name in ("Preferences", "Data source", "Watchlist", "Review & save"):
+        assert name in text
+    assert "Current step" in text
+    assert keyed("onboarding.next") is not None and keyed("onboarding.save") is None
+    for _ in range(3):
+        keyed("onboarding.next").on_click(None)
+    assert keyed("onboarding.save") is not None and keyed("onboarding.next") is None
+
+    # Details stay disclosed on demand: every disclosure starts collapsed and is not an expanded tile.
+    disclosures = [c for c in _walk(page) if isinstance(getattr(c, "data", None), dict) and c.data.get("kit") == "Disclosure"]
+    assert {c.data["label"] for c in disclosures} >= {
+        "Save status",
+        "Raw authority flags",
+        "Full profile table and diagnostics",
+        "Policy and terms details",
+    }
+    assert all(c.controls[1].visible is False for c in disclosures)
+    assert not any(isinstance(c, ft.ExpansionTile) and c.expanded for c in _walk(page))
     assert "execution_allowed=false" in _texts(page)

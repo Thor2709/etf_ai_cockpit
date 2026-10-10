@@ -76,11 +76,29 @@ def test_what_changed_uses_compact_responsive_instrument_cards_without_horizonta
 
     rendered = module.what_changed_page(None, SimpleNamespace())
     controls = list(_walk(rendered))
-    texts = {str(getattr(item, "value", "")) for item in controls if hasattr(item, "value")}
 
+    # No natively scrolling table: the kit table lays its columns out with flex sizes inside the card width.
     assert not any(isinstance(item, ft.DataTable) for item in controls)
-    assert any(isinstance(item, ft.ResponsiveRow) for item in controls)
-    assert {"Warnings", "Freshness", "Model availability", "Forecasts", "News inventory", "Backtest trust", "Portfolio risk", "Current action"} <= texts
+    assert not any(
+        isinstance(item, ft.Row) and getattr(item, "scroll", None) not in (None, ft.ScrollMode.HIDDEN)
+        for item in controls
+    )
+    tables = [item for item in controls if isinstance(getattr(item, "data", None), dict) and item.data.get("kit") == "DataTable"]
+    changes = [
+        item for item in tables
+        if item.data["columns"] == ["instrument", "score", "rank", "freshness", "model", "forecasts", "news", "backtest", "risk"]
+    ]
+    assert len({id(item) for item in changes}) == 1
+    assert changes[0].data["rows"] >= 1
+    # The first row is selected and its causal path card is shown next to the table.
+    selected_rows = [
+        item for item in controls
+        if isinstance(getattr(item, "data", None), dict) and item.data.get("kit") == "DataTableRow" and item.data.get("selected")
+    ]
+    assert [row.data["index"] for row in selected_rows] == [0]
+    titles = {str(item.value).casefold() for item in controls if isinstance(item, ft.Text)}
+    assert "changes by instrument" in titles
+    assert any(title.startswith("causal path: a") for title in titles)
 
 
 def test_dashboard_digest_surfaces_deterministic_run_changes(monkeypatch) -> None:
