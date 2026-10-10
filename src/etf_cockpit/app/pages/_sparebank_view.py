@@ -30,7 +30,7 @@ from etf_cockpit.app.components.kit import (
     field_input_style,
 )
 from etf_cockpit.application.sparebank_evidence import review_pillar3_figure
-from etf_cockpit.application.sparebank_peers import set_picked_peers
+from etf_cockpit.application.sparebank_peers import axis_evidence_groups, axis_evidence_notes, set_picked_peers
 
 # Plain-language copy for the scorecard's gate codes (the codes themselves come from the analysis).
 GATE_TEXT = {
@@ -127,9 +127,9 @@ def _summary(workspace: Mapping[str, object]) -> ft.Control:
         lines.extend(_text(f"{code}: {GATE_TEXT.get(code, code.replace('_', ' ').capitalize())}") for code in gates)
     else:
         lines.append(Note("No gate is active: nothing caps or withholds the composite."))
-    missing = [str(item).replace("_", " ") for item in _sequence(scorecard.get("missing_axes"))]
-    if missing:
-        lines.append(Note("Axes without evidence: " + ", ".join(missing) + ". Each axis below states why."))
+    without, partial = axis_evidence_groups(scorecard)
+    for note in axis_evidence_notes(without, partial, _sequence(scorecard.get("missing_axes"))):
+        lines.append(Note(note + " Each axis below states why."))
     return ft.Column(lines, spacing=8)
 
 

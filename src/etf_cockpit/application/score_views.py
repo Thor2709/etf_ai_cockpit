@@ -120,3 +120,58 @@ def apply_missing_data_penalty(score: object) -> object:
     note = f"Missing-data penalty on: {float(raw):.1f} -> {adjusted:.1f} at {coverage:.0%} evidence coverage."
     reason = f"{getattr(score, 'one_line_reason', '') or ''} {note}".strip()
     return replace(score, final_score_10=adjusted, one_line_reason=reason)
+
+
+def score_card_values(score: object) -> dict[str, object]:
+    """Every number shown beside a score, read from the one canonical score row.
+
+    Pages must not recompute these (the stored scoreboard and the signal pipeline apply different caps and
+    eligibility rules), otherwise the same instrument shows different Quality, confidence or component counts.
+    """
+
+    canonical = getattr(score, "canonical_score", None)
+
+    def number(value: object) -> float | None:
+        try:
+            result = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        return result if isfinite(result) else None
+
+    return {
+        "canonical_attractiveness_10": number(getattr(canonical, "attractiveness_10", None)),
+        "canonical_expected_return_10": number(getattr(canonical, "expected_return_10", None)),
+        "canonical_risk_implementation_10": number(getattr(canonical, "risk_implementation_10", None)),
+        "canonical_evidence_confidence_10": number(getattr(canonical, "evidence_confidence_10", None)),
+        "canonical_coverage": number(getattr(canonical, "coverage", None)),
+        "evidence_quality_10": number(getattr(score, "evidence_quality_10", None)),
+        "valid_components": tuple(getattr(score, "evidence_component_counts", (0, 0)))[0],
+        "total_components": tuple(getattr(score, "evidence_component_counts", (0, 0)))[1],
+        "confidence_cap": _confidence_cap(canonical),
+    }
+
+
+def _confidence_cap(canonical: object) -> float | None:
+    """The structure cap that limited evidence confidence (0-1), or ``None`` when no cap was applied."""
+
+    for warning in getattr(canonical, "warnings", ()) or ():
+        text = str(warning)
+        if text.startswith("structure_confidence_cap:"):
+            try:
+                return float(text.split(":", 1)[1])
+            except ValueError:
+                return None
+    return None
+
+
+def confidence_cap_note(values: dict[str, object]) -> str | None:
+    """Plain-language reason evidence confidence is low although the score itself is valid."""
+
+    cap = values.get("confidence_cap")
+    confidence = values.get("canonical_evidence_confidence_10")
+    if not isinstance(cap, float) or not isinstance(confidence, float) or cap >= 1.0:
+        return None
+    return (
+        f"Evidence confidence is held at {confidence:.1f} of 10 because fund-structure evidence "
+        "(holdings, methodology, fees) is incomplete; the score itself is unchanged."
+    )

@@ -540,6 +540,12 @@ class SimpleInstrumentScore:
         return len(self.components)
 
     @property
+    def evidence_component_counts(self) -> tuple[int, int]:
+        """(usable, configured) weighted evidence components: the one pair every page shows as "N of M"."""
+
+        return _evidence_component_counts(self.asset_type, self.components)
+
+    @property
     def score_coverage(self) -> float:
         weights = STOCK_EVIDENCE_WEIGHTS if _is_stock_like_asset_type(self.asset_type) else ETF_EVIDENCE_WEIGHTS
         configured_weight = sum(weights.values())
@@ -1603,7 +1609,7 @@ def build_universe_simple_scores(
                     validity=validity,
                     template_labels=template_labels,
                 ),
-                one_line_reason=_summary_reason(decision, evidence_score, components, quality_score=quality_score, risk_friction_score=risk_friction),
+                one_line_reason=_summary_reason(decision, evidence_score, components, asset_type=_display_asset_type(identity), quality_score=quality_score, risk_friction_score=risk_friction),
                 warnings=[*signal.blocked_by, *signal.warnings],
                 model_versions_used=dict(getattr(signal, "model_versions_used", {}) or {}),
                 portfolio_fit_label=str(fit_info["label"]),
@@ -1887,7 +1893,7 @@ def build_candidate_simple_scores(
                     validity=validity,
                     template_labels=template_labels,
                 ),
-                one_line_reason=_summary_reason(decision, evidence_score, components, flags=blocked, quality_score=quality_score, risk_friction_score=risk_friction),
+                one_line_reason=_summary_reason(decision, evidence_score, components, asset_type=asset_type, flags=blocked, quality_score=quality_score, risk_friction_score=risk_friction),
                 warnings=blocked,
                 model_versions_used=_forecast_versions_for_instrument(forecasts, instrument_id),
                 portfolio_fit_label="Candidate portfolio fit pending: not in clean portfolio price panel.",
@@ -3769,11 +3775,19 @@ def _unique_strings(values: Iterable[str]) -> list[str]:
     return output
 
 
+def _evidence_component_counts(asset_type: str, components: Iterable[SimpleScoreComponent]) -> tuple[int, int]:
+    weights = STOCK_EVIDENCE_WEIGHTS if _is_stock_like_asset_type(asset_type) else ETF_EVIDENCE_WEIGHTS
+    configured = [key for key, weight in weights.items() if weight > 0]
+    eligible = {component.key for component in components if component.score_eligible}
+    return sum(key in eligible for key in configured), len(configured)
+
+
 def _summary_reason(
     decision: str,
     final_score: float | None,
     components: list[SimpleScoreComponent],
     *,
+    asset_type: str = "ETF",
     flags: list[str] | None = None,
     quality_score: float | None = None,
     risk_friction_score: float | None = None,
@@ -3788,7 +3802,7 @@ def _summary_reason(
     friction_text = "" if risk_friction_score is None else f" Risk/friction {risk_friction_score:.1f}/10."
     if best and weakest:
         return (
-            f"{decision}: final {final_score:.1f}/10 from {len(valid)} valid components. "
+            f"{decision}: final {final_score:.1f}/10 from {_evidence_component_counts(asset_type, components)[0]} of {_evidence_component_counts(asset_type, components)[1]} evidence components. "
             f"Strongest: {best.label} {best.score_10:.1f}/10; weakest: {weakest.label} {weakest.score_10:.1f}/10."
             f"{quality_text}{friction_text}{flag_text}"
         )

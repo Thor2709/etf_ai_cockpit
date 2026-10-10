@@ -118,14 +118,19 @@ if set(_PAGE_RENDERERS) != {route for route, _title in ROUTE_TITLES}:
     raise RuntimeError("router renderers and core.navigation.ROUTE_TITLES disagree")
 PAGES = {route: (title, _PAGE_RENDERERS[route]) for route, title in ROUTE_TITLES}
 
+# Pages whose builder may touch the lazy backtest (a recalculation after a data change takes tens of seconds)
+# or other heavy evidence: they build off the event thread behind the skeleton instead of a white screen.
 _DEFERRED_RENDER_ROUTES = {
+    "/backtests",
     "/chatgpt",
     "/comparison",
     "/diagnostics",
     "/evidence",
     "/etf",
+    "/forward-evidence",
     "/instrument",
     "/settings",
+    "/signals",
     "/stock-research",
     "/what-changed",
 }

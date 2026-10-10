@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import flet as ft
 
@@ -34,6 +35,82 @@ def _glossary_terms() -> list[str]:
         except Exception:
             return []  # a transient load error is not cached for the whole process
     return _GLOSSARY
+
+
+def search_universe(state: object) -> object:
+    """The searchable instruments: the configured universe, with the Yahoo symbol the score rows show.
+
+    The Yahoo symbol (``VWCE.DE``) comes from the provider symbol map, which only the score rows carry,
+    so the score rows are merged in by id; a score failure falls back to the configured ids and names.
+    """
+
+    snapshot = getattr(state, "snapshot", None)
+    universe = getattr(getattr(snapshot, "config", None), "universe", None)
+    symbols: dict[str, tuple[str, str]] = {}
+    try:
+        from etf_cockpit.application.score_views import snapshot_scores
+
+        for row in snapshot_scores(snapshot):
+            symbols[str(getattr(row, "display_id", "") or "")] = (
+                str(getattr(row, "yahoo_symbol", "") or ""),
+                str(getattr(row, "isin", "") or ""),
+            )
+    except Exception:
+        symbols = {}
+    items = []
+    for etf in getattr(universe, "etfs", ()) or ():
+        yahoo, isin = symbols.get(str(etf.id), ("", ""))
+        items.append(
+            SimpleNamespace(
+                id=etf.id,
+                name=etf.name,
+                ticker=getattr(etf, "ticker", ""),
+                provider_symbol=getattr(etf, "provider_symbol", ""),
+                yahoo_symbol=yahoo,
+                isin=getattr(etf, "isin", "") or isin,
+            )
+        )
+    return SimpleNamespace(etfs=items)
+
+
+def _instrument_keys(item: object) -> list[str]:
+    return [
+        value.casefold()
+        for value in (str(getattr(item, attr, "") or "") for attr in ("id", "ticker", "provider_symbol", "yahoo_symbol", "isin"))
+        if value
+    ]
+
+
+def exact_instrument_id(universe: object, query: str) -> str | None:
+    """The instrument whose id, Yahoo symbol or ISIN equals the query (``BA.L``, ``RABO.AS``), if any."""
+
+    needle = str(query or "").strip().casefold()
+    for item in getattr(universe, "etfs", ()) or ():
+        if needle and needle in _instrument_keys(item):
+            return str(getattr(item, "id", "") or "")
+    return None
+
+
+def instrument_matches(universe: object, query: str, limit: int | None = None) -> list[tuple[str, str]]:
+    """(instrument id, name) pairs matching a query on id, name, Yahoo symbol or ISIN; exact hits first.
+
+    One matcher for the result list and for Enter, so ``BA.L`` finds the same instrument either way.
+    """
+
+    needle = str(query or "").strip().casefold()
+    if not needle:
+        return []
+    exact_id = exact_instrument_id(universe, query)
+    exact: list[tuple[str, str]] = []
+    partial: list[tuple[str, str]] = []
+    for item in getattr(universe, "etfs", ()) or ():
+        instrument_id, name = str(getattr(item, "id", "") or ""), str(getattr(item, "name", "") or "")
+        if instrument_id == exact_id:
+            exact.append((instrument_id, name))
+        elif any(needle in key for key in _instrument_keys(item)) or needle in name.casefold():
+            partial.append((instrument_id, name))
+    found = [*exact, *partial]
+    return found if limit is None else found[:limit]
 
 
 def _slug(term: str) -> str:
@@ -149,16 +226,12 @@ def build_search(
                     height=ROW_HEIGHT,
                 )
             )
-        universe = getattr(getattr(getattr(state, "snapshot", None), "config", None), "universe", None)
-        for item in getattr(universe, "etfs", ()) or ():
-            instrument_id, name = str(getattr(item, "id", "")), str(getattr(item, "name", "") or "")
-            if len(rows) >= MAX_RESULTS:
-                break
-            if needle in f"{instrument_id} {name}".casefold():
-                label = f"{instrument_id} · {name}" if name else instrument_id
-                rows.append(
-                    plain_row(ft.Icons.SHOW_CHART, label, "Instrument", lambda _e, i=instrument_id: navigate_target(f"/instrument/{i}"))
-                )
+        universe = search_universe(state)
+        for instrument_id, name in instrument_matches(universe, query, MAX_RESULTS - len(rows)):
+            label = f"{instrument_id} · {name}" if name else instrument_id
+            rows.append(
+                plain_row(ft.Icons.SHOW_CHART, label, "Instrument", lambda _e, i=instrument_id: navigate_target(f"/instrument/{i}"))
+            )
         for term in _glossary_terms():
             if len(rows) >= MAX_RESULTS:
                 break
@@ -189,18 +262,19 @@ def build_search(
         if not query.strip():
             show_palette_message("Enter a page or workspace to search")
             return
+        universe = search_universe(state)
+        exact = exact_instrument_id(universe, query)
+        if exact:  # an exact id/symbol/ISIN beats a page whose title merely contains it ("BA" vs "Backtests")
+            navigate_target(f"/instrument/{exact}")
+            return
         matches = search_commands(pages, workspace_groups, query, limit=1)
         if matches:
             navigate_target(matches[0].route)
             return
-        universe = getattr(getattr(getattr(state, "snapshot", None), "config", None), "universe", None)
         needle = query.strip().casefold()
-        for item in getattr(universe, "etfs", ()) or ():
-            instrument_id = str(getattr(item, "id", "") or "")
-            name = str(getattr(item, "name", "") or "")
-            if needle and needle in f"{instrument_id} {name}".casefold():
-                navigate_target(f"/instrument/{instrument_id}")
-                return
+        for instrument_id, _name in instrument_matches(universe, query, 1):
+            navigate_target(f"/instrument/{instrument_id}")
+            return
         for term in _glossary_terms():
             if needle and needle in term.casefold():
                 navigate_target(f"/help#{_slug(term)}")

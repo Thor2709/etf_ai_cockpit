@@ -145,11 +145,24 @@ def search_commands(
     commands = all_commands(pages, workspace_groups)
     if not needle:
         return commands[:limit]
-    return tuple(
-        command
-        for command in commands
+    ranked = [
+        (_match_rank(command, needle), index, command)
+        for index, command in enumerate(commands)
         if needle in f"{command.title} {command.route} {command.workspace}".casefold()
-    )[:limit]
+    ]
+    # Best match first (exact title, title start, word start, title text, then route/workspace); catalogue order breaks ties.
+    return tuple(command for _rank, _index, command in sorted(ranked, key=lambda item: item[:2]))[:limit]
+
+
+def _match_rank(command: PaletteCommand, needle: str) -> int:
+    title = command.title.casefold()
+    if title == needle:
+        return 0
+    if title.startswith(needle):
+        return 1
+    if any(word.startswith(needle) for word in title.replace("-", " ").replace("&", " ").split()):
+        return 2
+    return 3 if needle in title else 4
 
 
 __all__ = ["PaletteCommand", "ROUTE_TITLES", "WORKSPACE_GROUPS", "WORKSPACE_ICONS", "all_commands", "search_commands"]

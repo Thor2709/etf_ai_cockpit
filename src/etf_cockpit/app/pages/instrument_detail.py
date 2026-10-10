@@ -33,7 +33,7 @@ from etf_cockpit.app.components.kit import (
     field_input_style,
 )
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
-from etf_cockpit.app.formatting import format_number
+from etf_cockpit.app.formatting import format_number, format_timestamp, plain_text
 from etf_cockpit.app.pages import stock_page as sp
 from etf_cockpit.app.pages._sparebank_view import render_sparebank_workspace
 from etf_cockpit.application.alerts import read_local_alerts
@@ -59,12 +59,19 @@ def _value(value: object) -> str:
     return _MISSING if text.casefold() in {"", "none", "nan", "<na>", "nat"} else text
 
 
+def _plain_with_code(reason: object) -> str:
+    """Plain wording first; the stored reason code stays visible after it so support can still quote it."""
+
+    text, raw = plain_text(reason), str(reason)
+    return text if text == raw else f"{text} ({raw})"
+
+
 def _reason(value: object, title: str) -> str:
     if isinstance(value, Mapping):
         for key in ("unavailable_reason", "message", "reason"):
             candidate = value.get(key)
             if candidate:
-                return str(candidate).splitlines()[0]
+                return plain_text(str(candidate).splitlines()[0])
     return f"{title} evidence is unavailable for this instrument."
 
 
@@ -83,7 +90,7 @@ def _render_evidence_section(
 ) -> ft.Control:
     available = isinstance(value, Mapping) and value.get("status") not in {"unavailable", "missing"}
     if available:
-        summary: ft.Control = Note("Evidence details are available in the local result.")
+        summary: ft.Control = Note("Evidence is available. The technical records are listed below, collapsed.")
     else:
         summary = KpiTile(title, None, _reason(value, title))
     record_lines: list[str] = []
@@ -331,11 +338,11 @@ def render_etf_e1_panel(economics: object) -> ft.Control:
                 shown = f"{value:,.0f} {field.get('currency') or '(currency unavailable)'}"
             else:
                 shown = str(value).capitalize()
-        detail = field.get("reason") or (
-            f"{field.get('source')} · as of {field.get('as_of')} · known {field.get('known_at')}"
+        detail = _plain_with_code(field.get("reason")) if field.get("reason") else (
+            f"{plain_text(field.get('source'))} · as of {format_timestamp(field.get('as_of'))} · known {format_timestamp(field.get('known_at'))}"
         )
         if not field:
-            detail = f"{name}_missing_all_sources"
+            detail = _plain_with_code(f"{name}_missing_all_sources")
         if field.get("window"):
             detail += f" · window {field['window']}"
         if field.get("difference"):
@@ -986,16 +993,27 @@ def _score_card(model: InstrumentDetailViewModel, page: ft.Page | None, state: o
         ("canonical_evidence_confidence_10", "Evidence confidence"),
         ("canonical_coverage", "Coverage"),
     )
+    from etf_cockpit.application.score_views import confidence_cap_note, score_card_values
+
+    # One canonical value path: when the instrument is in the score list, every number comes from that row.
+    values = score_card_values(listed) if listed is not None else score
     bars = [
         ft.Row(
             [
                 Note(label),
-                ScoreBar(score.get(key) if isinstance(score.get(key), (int, float)) else None),
+                ScoreBar(values.get(key) if isinstance(values.get(key), (int, float)) else None),
             ],
             spacing=8,
         )
         for key, label in component_keys
     ]
+    if listed is not None:
+        quality = values.get("evidence_quality_10")
+        bars.append(ft.Row([Note("Evidence quality"), ScoreBar(quality if isinstance(quality, (int, float)) else None)], spacing=8))
+        bars.append(Note(f"Components: {values['valid_components']} of {values['total_components']} usable"))
+        cap_note = confidence_cap_note(values)
+        if cap_note:
+            bars.append(Note(cap_note))
     if scorecard_owned:
         bars = [
             Note(

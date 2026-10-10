@@ -4,7 +4,7 @@ import flet as ft
 
 from etf_cockpit.app.components import kit
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView
-from etf_cockpit.app.formatting import format_timestamp
+from etf_cockpit.app.formatting import format_timestamp, plain_text
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.recovery_centre import (
     RECOVERY_POLICIES,
@@ -30,7 +30,7 @@ def errors_recovery_page(page: ft.Page, state: AppState) -> PageView:
         content = [
             kit.ListRow(
                 "bad",
-                record.user_message,
+                plain_text(record.user_message),
                 format_timestamp(record.created_at, unavailable="Unavailable"),
                 tag=(record.category.value, severity),
             )
