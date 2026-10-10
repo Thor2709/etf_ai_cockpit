@@ -176,3 +176,67 @@ def test_k06_axes_header_separates_unrated_from_partially_evidenced_axes() -> No
     assert axis_evidence_notes(None, None, ["credit_concentration"]) == ["Axes with incomplete evidence: credit concentration."]
     row = peer_row("NONG", "Nord", {"scorecard": scorecard}, "2026-10-08")
     assert row["axes_without_rating"] == ["owner_claim_integrity"] and row["axes_partial_evidence"] == ["credit_concentration"]
+
+
+# --- K07: search ---------------------------------------------------------------------------------
+
+
+def _search(universe_items: list[SimpleNamespace]):
+    from etf_cockpit.app.components.shell.search import build_search
+    from etf_cockpit.core.navigation import ROUTE_TITLES, WORKSPACE_GROUPS
+
+    visited: list[str] = []
+    state = SimpleNamespace(snapshot=SimpleNamespace(config=SimpleNamespace(universe=SimpleNamespace(etfs=universe_items))), last_message="")
+    overlay = SimpleNamespace(show=lambda *a, **k: None, hide=lambda *a, **k: None)
+    search = build_search(
+        SimpleNamespace(),
+        state,
+        {route: (title, None) for route, title in ROUTE_TITLES},
+        WORKSPACE_GROUPS,
+        navigate=visited.append,
+        overlay=overlay,
+        anchor_left=lambda: 0.0,
+        anchor_top=0.0,
+        compact=False,
+    )
+
+    def enter(text: str) -> list[str]:
+        visited.clear()
+        search.field.on_submit(SimpleNamespace(control=SimpleNamespace(value=text)))
+        return list(visited)
+
+    return enter
+
+
+_UNIVERSE = [
+    SimpleNamespace(id="BA", name="BAE Systems", yahoo_symbol="BA.L", isin="GB0002634946"),
+    SimpleNamespace(id="RABO", name="Rabobank certificates", yahoo_symbol="RABO.AS", isin=None),
+    SimpleNamespace(id="VWCE", name="Vanguard FTSE All-World", yahoo_symbol="VWCE.DE", isin="IE00BK5BQT80"),
+]
+
+
+def test_k07_yahoo_symbols_and_isin_find_the_instrument() -> None:
+    from etf_cockpit.app.components.shell.search import exact_instrument_id, instrument_matches
+
+    universe = SimpleNamespace(etfs=_UNIVERSE)
+    assert exact_instrument_id(universe, "BA.L") == "BA"
+    assert exact_instrument_id(universe, "rabo.as") == "RABO"
+    assert exact_instrument_id(universe, "IE00BK5BQT80") == "VWCE"
+    assert [item[0] for item in instrument_matches(universe, "RABO.A")] == ["RABO"]
+    assert instrument_matches(universe, "zzz") == []
+
+    enter = _search(_UNIVERSE)
+    assert enter("BA.L") == ["/instrument/BA"]
+    assert enter("RABO.AS") == ["/instrument/RABO"]
+    assert enter("BA") == ["/instrument/BA"]  # exact id beats the page "Backtests" that merely contains it
+
+
+def test_k07_enter_on_a_page_name_opens_that_page_not_the_first_substring_match() -> None:
+    from etf_cockpit.core.navigation import ROUTE_TITLES, WORKSPACE_GROUPS, search_commands
+
+    pages = {route: (title, None) for route, title in ROUTE_TITLES}
+    assert search_commands(pages, WORKSPACE_GROUPS, "Scores", limit=1)[0].route == "/signals"  # not "Simple Scores" (Home)
+    assert search_commands(pages, WORKSPACE_GROUPS, "forecast lab", limit=1)[0].route == "/forecasts"
+    enter = _search(_UNIVERSE)
+    assert enter("Scores") == ["/signals"]
+    assert enter("Data Health") == ["/data-health"]
