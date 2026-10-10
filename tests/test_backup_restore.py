@@ -154,7 +154,7 @@ def test_settings_revision_mismatch_is_rejected_before_writes(tmp_path: Path) ->
         source_configs.joinpath(name).write_bytes(payload)
         destination_configs.joinpath(name).write_bytes(payload)
     settings = source_configs / "settings.yaml"
-    settings.write_text(settings.read_text(encoding="utf-8").replace("revision: ", "revision: " + "0" * 64 + " # ", 1), encoding="utf-8")
+    settings.write_text(settings.read_text(encoding="utf-8").replace("settings_version: 0", "settings_version: 1", 1).replace("revision: ", "revision: " + "0" * 64 + " # ", 1), encoding="utf-8")
     before = {name: destination_configs.joinpath(name).read_bytes() for name in required}
     archive = tmp_path / "mismatch.backup"
     create_backup([source_configs], archive)
@@ -170,6 +170,10 @@ def test_commit_restore_rechecks_companions_after_preview(tmp_path: Path, monkey
     destination, destination_configs = _make_destination_with_configs(tmp_path)
     source_settings = tmp_path / "source" / "configs" / "settings.yaml"
     source_settings.parent.mkdir(parents=True)
+    source_settings.write_bytes(destination_configs.joinpath("settings.yaml").read_bytes())
+    from etf_cockpit.core.settings_bundle import load_settings_bundle, save_settings
+    bundle = load_settings_bundle(destination)
+    save_settings(bundle.model_copy(update={"controls": bundle.controls.model_copy(update={"analysis_depth": "full"})}), expected_revision=bundle.revision, root=destination)
     source_settings.write_bytes(destination_configs.joinpath("settings.yaml").read_bytes())
     archive = tmp_path / "settings-only.backup"
     create_backup([source_settings], archive)
@@ -442,7 +446,7 @@ def test_encrypted_partial_preview_checks_destination_consistency(tmp_path: Path
 
     mismatch = tmp_path / "mismatch" / "configs" / "settings.yaml"
     mismatch.parent.mkdir(parents=True)
-    mismatch.write_text(source_settings.read_text(encoding="utf-8").replace("revision: ", "revision: " + "0" * 64 + " # ", 1), encoding="utf-8")
+    mismatch.write_text(source_settings.read_text(encoding="utf-8").replace("settings_version: 0", "settings_version: 1", 1).replace("revision: ", "revision: " + "0" * 64 + " # ", 1), encoding="utf-8")
     mismatch_archive = tmp_path / "mismatch.encrypted.backup"
     create_encrypted_backup([mismatch], mismatch_archive, recovery_key=key)
     mismatch_preview = validate_encrypted_restore(mismatch_archive, key, destination=destination)

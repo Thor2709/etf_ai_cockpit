@@ -18,7 +18,7 @@ def _walk(control):
     if body is not None:
         yield from _walk(body)
     content = getattr(control, "content", None)
-    if content is not None:
+    if content is not None and content is not body:
         yield from _walk(content)
     for child in getattr(control, "controls", ()) or ():
         yield from _walk(child)

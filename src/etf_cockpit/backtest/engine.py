@@ -1408,6 +1408,8 @@ def run_backtest(
             signal_weight = weights["signal_strategy"].copy()
             target = target_weights(config, columns)
             for signal in signals:
+                if signal.etf_id not in columns:
+                    continue
                 canonical = signal.canonical_score
                 structural_identity = structure_caps.provenance.get(signal.etf_id, {})
                 signal_rows.append(

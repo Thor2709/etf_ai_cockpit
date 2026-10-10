@@ -1855,7 +1855,7 @@ def _score_panel(
     )
     canonical_confidence = _safe_float(canonical_payload.get("evidence_confidence_10"))
     scoreboard_confidence = _safe_float(scoreboard.get("canonical_evidence_confidence_10"))
-    freshness = _safe_text(scoreboard.get("freshness_status") or scoreboard.get("freshness"))
+    freshness = (_safe_text(scoreboard.get("freshness_status")) or _safe_text(scoreboard.get("freshness")))
     if freshness is None and _safe_text(scoreboard.get("latest_price_date")) is not None:
         freshness = "source_dated"
     freshness_valid = freshness is not None
@@ -1894,9 +1894,9 @@ def _score_panel(
             else scoreboard_confidence
         ),
         "canonical_coverage": _safe_float(scoreboard.get("canonical_coverage")) or _safe_float(canonical_payload.get("coverage")) or 0.0,
-        "formula_version": scoreboard.get("formula_version") or canonical_payload.get("formula_version", "unavailable"),
-        "formula_checksum": scoreboard.get("formula_checksum") or canonical_payload.get("formula_checksum", "unavailable"),
-        "source_vintage_hash": scoreboard.get("source_vintage_hash") or canonical_payload.get("source_vintage_hash", "unavailable"),
+        "formula_version": _safe_text(scoreboard.get("formula_version")) or _safe_text(canonical_payload.get("formula_version")) or "unavailable",
+        "formula_checksum": _safe_text(scoreboard.get("formula_checksum")) or _safe_text(canonical_payload.get("formula_checksum")) or "unavailable",
+        "source_vintage_hash": _safe_text(scoreboard.get("source_vintage_hash")) or _safe_text(canonical_payload.get("source_vintage_hash")) or "unavailable",
         "final_label": label,
         "final_reason": reason,
         "reason": reason,

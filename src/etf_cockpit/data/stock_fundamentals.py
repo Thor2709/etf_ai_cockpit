@@ -74,7 +74,7 @@ def config_path(root: Path | None = None) -> Path:
     candidate = Path(root or ROOT) / "configs" / CONFIG_NAME
     if candidate.is_file():
         return candidate
-    return Path(__file__).resolve().parents[3] / "configs" / CONFIG_NAME
+    return ROOT / "configs" / CONFIG_NAME
 
 
 def load_stock_config(root: Path | None = None) -> dict[str, Any]:

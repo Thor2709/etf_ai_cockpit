@@ -306,7 +306,7 @@ def data_health_page(page: ft.Page, state: AppState) -> PageView:
             )
         except Exception as exc:
             state.last_message = f"Data health export failed: {type(exc).__name__}: {exc}"
-            export_feedback.controls = [kit.Note(state.last_message)]
+            export_feedback.controls = [ft.Text(state.last_message, color=theme.RED)]
         else:
             state.last_message = "Data health export completed."
             export_feedback.controls = [kit.Note(state.last_message)]
@@ -464,6 +464,12 @@ def data_health_page(page: ft.Page, state: AppState) -> PageView:
                         f"Raw status: {anomaly_summary.get('status', 'unavailable')}",
                         f"Reason: {quality_reason}",
                         f"Rule coverage: {anomaly_summary.get('rule_count', 'Unavailable')}",
+                        " | ".join(
+                            f"{status}={format_count(quality_counts.get(status)) if quality_available else 'Unavailable'}"
+                            for status in ("pass", "warn", "quarantine", "block")
+                        ),
+                        f"Review state: {', '.join(anomaly_summary.get('review_states', [])) or 'Unavailable'}",
+                        f"Canonical eligible: {anomaly_summary.get('canonical_eligible', 'Unavailable')}",
                         f"Versions: {', '.join(anomaly_summary.get('rule_versions', [])) or 'Unavailable'}",
                         f"Invalidation token: {anomaly_summary.get('invalidation_token', 'Unavailable')}",
                         f"execution_allowed={str(anomaly_summary.get('execution_allowed', False)).lower()}",

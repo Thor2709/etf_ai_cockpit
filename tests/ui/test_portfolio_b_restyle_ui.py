@@ -34,7 +34,7 @@ def _walk(control):
     for child in getattr(control, "controls", []) or []:
         yield from _walk(child)
     content = getattr(control, "content", None)
-    if content is not None:
+    if content is not None and content is not page_body:
         yield from _walk(content)
     for item in getattr(control, "items", []) or []:  # card menu entries
         yield from _walk(item)

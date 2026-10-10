@@ -234,10 +234,10 @@ def onboarding_page(
         **field_input_style(multiline=True, placeholder="Enter tickers separated by commas"),
     )
     tickers = Field("Initial tickers (comma separated)", control=tickers_control, multiline=True, expand=True)
-    validation = ft.Checkbox(
-        label="Online validation unavailable (no validator configured)",
-        value=False,
-        disabled=True,
+    validation = Toggle(
+        on=False,
+        disabled=validator is None,
+        disabled_reason="Online validation is unavailable without a configured validator.",
         key="onboarding.online-validation",
     )
 
@@ -387,7 +387,7 @@ def onboarding_page(
         watchlist = ft.Column(
             [
                 tickers,
-                ft.Row([validation, Note("Online validation is unavailable without a configured validator.")], spacing=12),
+                ft.Row([validation, Note("Validate tickers online (opt-in)" if validator is not None else "Online validation is unavailable without a configured validator.")], spacing=12),
             ],
             spacing=16,
             expand=True,

@@ -29,6 +29,9 @@ from etf_cockpit.core.settings_bundle import (
 
 __all__ = [
     "ANALYSIS_DEPTHS",
+    "MISSING_DATA_PENALTY",
+    "missing_data_penalty",
+    "save_preference",
     "ASSET_SCOPES",
     "AppConfig",
     "CredentialVault",
@@ -49,3 +52,5 @@ __all__ = [
     "save_provider_settings",
     "save_settings",
 ]
+
+from etf_cockpit.core.ui_preferences import MISSING_DATA_PENALTY, missing_data_penalty, save_preference

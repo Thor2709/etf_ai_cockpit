@@ -135,6 +135,10 @@ def import_official_filing(
         raise ValueError("filing LEI must be a 20-character identifier")
     if issuer.lei and bound_lei != issuer.lei:
         raise ValueError("filing LEI does not match the configured universe")
+    if orgnr is not None:
+        registry_orgnr = str(getattr(issuer, "orgnr", "") or "").strip()
+        if not registry_orgnr or str(orgnr).strip() != registry_orgnr:
+            raise ValueError("filing organisation number is missing from or does not match the configured universe")
     expected = str(expected_period or "").strip()
     if not expected:
         raise ValueError("expected filing period is required")

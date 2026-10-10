@@ -19,7 +19,9 @@ from functools import lru_cache
 
 import pandas as pd
 
-from etf_cockpit.app.components.globe import GEOJSON_PATH
+from importlib.resources import files
+
+GEOJSON_PATH = files("etf_cockpit").joinpath("app", "assets", "geo", "countries.geojson")
 from etf_cockpit.application.ui_views.portfolio import herfindahl, hhi_band, window_return
 from etf_cockpit.data.etf_cutoff import snapshot_etf_cutoff
 

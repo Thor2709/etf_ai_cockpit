@@ -38,7 +38,7 @@ def test_snapshot_defers_backtest_and_lazy_result_matches_eager_result(monkeypat
     monkeypatch.setattr(backtest_service.BacktestService, "load_or_run_backtest", eager_like)
     snapshot = build_snapshot()
 
-    assert snapshot.backtest is None
+    assert object.__getattribute__(snapshot, "backtest") is None
     assert calls == []
     lazy = snapshot.ensure_backtest()
     assert lazy is not None
@@ -89,7 +89,7 @@ def test_backtest_route_loads_on_worker_behind_loading_shell(monkeypatch) -> Non
 
     monkeypatch.setattr(backtest_service.BacktestService, "load_or_run_backtest", blocked_load)
     snapshot = build_snapshot()
-    assert snapshot.backtest is None
+    assert object.__getattribute__(snapshot, "backtest") is None
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
 
     def consume_backtest(_page, app_state):

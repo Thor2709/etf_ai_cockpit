@@ -126,7 +126,7 @@ def test_dashboard_generation_keeps_each_accepted_category_visible(monkeypatch) 
         last_export_path=None,
         recent_activity=[],
     )
-    monkeypatch.setattr(dashboard, "_latest_run_change_report", lambda _cutoff: None)
+    monkeypatch.setattr(dashboard, "_latest_run_change_report", lambda _cutoff, _history: None)
     monkeypatch.setattr(dashboard, "_read_alerts", lambda **_kwargs: SimpleNamespace(status="available", records=()))
     monkeypatch.setattr(dashboard, "load_news_items", lambda _path: pd.DataFrame())
     monkeypatch.setattr(dashboard, "load_calendar_events", lambda _path: pd.DataFrame())
@@ -158,7 +158,7 @@ def test_dashboard_uses_one_cutoff_and_complete_alert_population(monkeypatch) ->
         ),
     )
 
-    def capture_report(cutoff):
+    def capture_report(cutoff, _history):
         captured["score_cutoff"] = cutoff
         return None
 

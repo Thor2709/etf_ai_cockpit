@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+import inspect
 
 import flet as ft
 
@@ -61,10 +62,16 @@ def _button(
         button.shadow = drops(shadows)
         _safe_update(button)
 
-    def click(event: object) -> None:
+    def click(event: object) -> object:
         release()
         if on_click is not None:
-            on_click(event)
+            return on_click(event)
+        return None
+
+    async def async_click(event: object) -> None:
+        release()
+        if on_click is not None:
+            await on_click(event)
 
     button = ft.Container(
         content=txt(text, 13.5, 700, ink, text_align=ft.TextAlign.CENTER, trunc=True),
@@ -78,8 +85,9 @@ def _button(
         border=ring(theme.PRIMARY_RIM if primary else theme.rgba(255, 255, 255, 0.22)),
         shadow=None if disabled else drops(shadows),
         opacity=0.45 if disabled else 1.0,
+        disabled=disabled,
         tooltip=disabled_reason if disabled else None,
-        on_click=None if disabled else click,
+        on_click=None if disabled else async_click if inspect.iscoroutinefunction(on_click) else click,
         on_tap_down=None if disabled else press,
         ink=not disabled,
         ink_color=theme.HOVER_OVERLAY,

@@ -18,8 +18,13 @@ from etf_cockpit.app.pages import _p3_common as common
 import etf_cockpit.app.pages.import_export as import_export
 import etf_cockpit.app.pages.operations as operations
 from etf_cockpit.application.api import LocalApplicationApi
+from etf_cockpit.core.config import load_config
 from etf_cockpit.core.job_scheduler import DurableJobScheduler
 from etf_cockpit.data.import_export import validate_import
+
+
+def _by_key(root, key):
+    return next(item for item in _walk_controls(root) if getattr(item, "key", None) == key)
 
 
 def test_s11_01_operation_worker_is_scoped_to_its_workflow():
@@ -43,7 +48,7 @@ def test_s11_01_operation_worker_is_scoped_to_its_workflow():
         patch.object(operations, "save_operation_record"),
     ):
         root = operations.operations_page(None, N(application_api=api, selected_etf="A"))
-        run = getclosurevars(root.controls[3].content.controls[2].controls[2].on_click).nonlocals["run_workflow"]
+        run = getclosurevars(_by_key(root, "operations.confirm").on_click).nonlocals["run_workflow"]
         preview = operations.build_operation_preview(environment="paper", instrument_id="A", quantity=1)
         run(preview, "own")
         scheduler.complete.assert_not_called()
@@ -52,6 +57,7 @@ def test_s11_01_operation_worker_is_scoped_to_its_workflow():
 def test_s11_02_failed_job_is_not_recorded_completed():
     api = Mock()
     api.get_paper.return_value = N(items=[])
+    api.get_operations.return_value = N(items=[])
     api.get_portfolios.return_value = N(items=[])
     api.run_next_job.return_value = N(workflow_id="w", status="failed")
     api.get_jobs.return_value = N(items=[N(workflow_id="w", status="failed")])
@@ -61,7 +67,7 @@ def test_s11_02_failed_job_is_not_recorded_completed():
         patch.object(operations, "save_operation_record") as saved,
     ):
         root = operations.operations_page(None, N(application_api=api, selected_etf="A"))
-        run = getclosurevars(root.controls[3].content.controls[2].controls[2].on_click).nonlocals["run_workflow"]
+        run = getclosurevars(_by_key(root, "operations.confirm").on_click).nonlocals["run_workflow"]
         run(operations.build_operation_preview(environment="paper", instrument_id="A", quantity=1), "w")
         assert saved.call_args.args[0].status == "failed"
 
@@ -73,7 +79,7 @@ def test_s11_03_portfolio_context_includes_all_holdings():
     with (
         patch.object(operations, "load_operation_records", return_value=()),
         patch.object(operations, "load_paper_tca_view", return_value={"status": "unavailable"}),
-        patch.object(operations, "metric_card", wraps=operations.metric_card) as cards,
+        patch.object(operations, "KpiStripItem", wraps=operations.KpiStripItem) as cards,
     ):
         operations.operations_page(None, N(application_api=api, selected_etf="A0"))
         assert cards.call_args_list[0].args[1] == operations.format_currency(5100.0)
@@ -82,6 +88,7 @@ def test_s11_03_portfolio_context_includes_all_holdings():
 def test_s11_04_cancelled_worker_preserves_new_preview():
     api = Mock()
     api.get_paper.return_value = N(items=[])
+    api.get_operations.return_value = N(items=[])
     api.get_portfolios.return_value = N(items=[])
     api.execute.return_value = N(status=operations.ApiStatus.ACCEPTED)
     api.get_jobs.return_value = N(items=[N(workflow_id="w", status="cancelled")])
@@ -91,7 +98,7 @@ def test_s11_04_cancelled_worker_preserves_new_preview():
         patch.object(operations, "save_operation_record"),
     ):
         root = operations.operations_page(None, N(application_api=api, selected_etf="A"))
-        buttons = root.controls[3].content.controls[2].controls
+        buttons = [_by_key(root, key) for key in ("operations.preview", "operations.proposal-review", "operations.confirm", "operations.cancel")]
         run = getclosurevars(buttons[2].on_click).nonlocals["run_workflow"]
         finish = getclosurevars(run).nonlocals["finish"]
         set_record = getclosurevars(finish).nonlocals["set_record"]
@@ -103,7 +110,7 @@ def test_s11_04_cancelled_worker_preserves_new_preview():
 
         def late_result(_handler):
             buttons[3].on_click(None)
-            root.controls[3].content.controls[1].controls[1].content.value = "2"
+            _by_key(root, "operations.quantity").value = "2"
             buttons[0].on_click(None)
             expected.append(getclosurevars(buttons[2].on_click).nonlocals["active_record"].operation_id)
             return N(workflow_id="w", status="cancelled")
@@ -115,7 +122,7 @@ def test_s11_04_cancelled_worker_preserves_new_preview():
 
 def _walk_controls(control):
     yield control
-    for child in getattr(control, "controls", None) or []:
+    for child in [*(getattr(control, "controls", None) or []), *(getattr(control, "items", None) or [])]:
         yield from _walk_controls(child)
     content = getattr(control, "content", None)
     if content is not None:
@@ -124,10 +131,10 @@ def _walk_controls(control):
 
 def test_s11_05_comparison_workspace_save_accepts_snapshot_date():
     snapshot = N(
-        config=N(),
+        config=load_config(),
         signals=[],
-        forecasts=[],
-        prices={},
+        forecasts=pd.DataFrame(),
+        prices=pd.DataFrame(),
         universe_revision="v",
         benchmark_reference_decision_time=None,
         data_report=N(as_of_date=date(2026, 10, 6)),
@@ -160,10 +167,13 @@ def test_s11_06_browser_import_uses_selected_bytes():
         patch.object(ft.FilePicker, "pick_files", new=AsyncMock(return_value=[file])),
         patch.object(import_export, "validate_import", wraps=validate_import),
     ):
-        centre = import_export.import_export_page(page, state).controls[0].content
-        centre.controls[2].controls[0].value = "news"
-        asyncio.run(centre.controls[3].controls[1].on_click(None))
-        assert "Preview valid" in centre.controls[5].value
+        root = import_export.import_export_page(page, state)
+        # Select the import type through its current menu.
+        selector = next(item for item in _walk_controls(root) if isinstance(getattr(item, "data", None), dict) and item.data.get("kit") == "Field" and item.data.get("label") == "Import type")
+        next(item for item in _walk_controls(selector) if getattr(getattr(item, "content", None), "value", None) == "News" and callable(getattr(item, "on_click", None))).on_click(None)
+        asyncio.run(_by_key(root, "import-export.import").on_click(None))
+        assert "Preview valid" in _by_key(root, "import-export.preview-status").value
+
 
 
 def test_s11_07_completed_llm_audit_is_not_shown_as_unrun(monkeypatch):
@@ -194,8 +204,10 @@ def test_s11_07_completed_llm_audit_is_not_shown_as_unrun(monkeypatch):
         page_obj.views[:] = [N(controls=[chatgpt_audit.chatgpt_audit_page(page_obj, state_obj)])]
 
     monkeypatch.setattr("etf_cockpit.app.router.render_shell", render)
-    chatgpt_audit.chatgpt_audit_page(page, state).controls[4].content.controls[1].controls[1].on_click(None)
-    assert "has not been run" not in page.views[0].controls[0].controls[4].content.controls[2].value
+    _by_key(chatgpt_audit.chatgpt_audit_page(page, state), "chatgpt.generate-commentary").on_click(None)
+    texts = [str(getattr(item, "value", "")) for item in _walk_controls(page.views[0].controls[0])]
+    assert "has not been run" not in "\n".join(texts)
+    assert any("Generated summary" in text for text in texts)
 
 
 def test_s11_08_sort_preserves_active_search():

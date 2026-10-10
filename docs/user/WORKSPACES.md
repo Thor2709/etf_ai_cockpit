@@ -1,6 +1,6 @@
 # Workspaces and navigation
 
-Release version: `1.1.0b1` (display: `1.1.0-beta.1`).
+Release version: `1.1.0b1`.
 
 This guide lists every page the application registers in
 `src/etf_cockpit/core/navigation.py` (bound to page renderers by

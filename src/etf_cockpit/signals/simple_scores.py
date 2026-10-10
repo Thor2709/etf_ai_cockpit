@@ -913,16 +913,19 @@ def build_simple_instrument_scores(
     )
     ranked_crowding_lookup = {row.instrument_id: row for row in ranked_crowding.rows}
     news_inventory = _news_inventory_lookup()
+    ordinary_ranks = {score.display_id: index for index, score in enumerate(
+        (score for score in scores if not _is_sparebank_ec_asset_type(score.asset_type)), start=1
+    )}
     ranked = [
         replace(
             score,
-            rank=None if _is_sparebank_ec_asset_type(score.asset_type) else index,
-            score_rank=None if _is_sparebank_ec_asset_type(score.asset_type) else index,
+            rank=None if _is_sparebank_ec_asset_type(score.asset_type) else ordinary_ranks[score.display_id],
+            score_rank=None if _is_sparebank_ec_asset_type(score.asset_type) else ordinary_ranks[score.display_id],
             news_inventory=news_inventory.get(score.display_id),
             forecast_status=_forecast_status_for_components(score.components),
             **_crowding_fields_for_score(ranked_crowding_lookup.get(score.display_id)),
         )
-        for index, score in enumerate(scores, start=1)
+        for score in scores
     ]
     identity_conflicts = _identity_conflict_reasons(score.display_id for score in ranked)
     return [

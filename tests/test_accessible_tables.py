@@ -152,7 +152,7 @@ def test_backtests_page_connects_real_chart_and_accessible_table_helpers() -> No
     source = inspect.getsource(backtests_page)
     assert "price_drawdown_chart" in source
     assert "DataTable" in source
-    assert "Search strategies" in source
+    assert "Search strategy results" in source
 
 
 def test_settings_page_documents_issue_0044_packaged_update_workflow() -> None:

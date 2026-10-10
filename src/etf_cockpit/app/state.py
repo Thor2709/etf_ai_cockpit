@@ -351,7 +351,7 @@ class AppState:
     def assign_sector_projections(self, instrument_id: str | None = None) -> None:
         """Attach verified or explicitly unavailable sector evidence for the selected instrument."""
 
-        from etf_cockpit.analysis.financial_sector_adapters import unavailable_financial_projection
+        from etf_cockpit.application.financial_institution_views import unavailable_financial_projection
         from etf_cockpit.application.financial_institution_views import load_financial_institution_projection
         from etf_cockpit.application.sector_views import (
             load_cyclical_projection,
@@ -433,7 +433,7 @@ class AppState:
     def set_missing_data_penalty(self, enabled: bool) -> bool:
         """Save the global missing-data penalty preference; every score list follows it."""
 
-        from etf_cockpit.core.ui_preferences import MISSING_DATA_PENALTY, save_preference
+        from etf_cockpit.application.settings import MISSING_DATA_PENALTY, save_preference
 
         value = bool(enabled)
         try:

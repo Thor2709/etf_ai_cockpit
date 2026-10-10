@@ -12,7 +12,9 @@ import re
 
 import yaml
 
-CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "esef_extension_concepts.yaml"
+from etf_cockpit.core.paths import CONFIG_DIR
+
+CONFIG_PATH = CONFIG_DIR / "esef_extension_concepts.yaml"
 _COMPONENTS_AXIS = "ifrs-full:ComponentsOfEquityAxis"
 _MAX_MEMBER_NAME = 70
 

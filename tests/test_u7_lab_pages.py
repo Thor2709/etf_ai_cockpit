@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import flet as ft
 
+from etf_cockpit.app import theme
 from etf_cockpit.app.components import kit
 from etf_cockpit.app.pages import _lab_style as lab
 
@@ -19,7 +20,7 @@ def test_panel_uses_kit_glass_with_key_and_label() -> None:
     built = lab.panel(ft.Column([lab.section_header("Model comparison", "note")]))
     assert built.key.startswith("lab.panel.")
     assert built.tooltip == "Model comparison"
-    assert built.border_radius == kit.theme.CARD_RADIUS
+    assert built.border_radius == theme.CARD_RADIUS
 
 
 def test_metric_card_is_kit_tile_and_never_blank() -> None:

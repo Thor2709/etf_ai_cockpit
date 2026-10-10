@@ -103,7 +103,7 @@ def open_depth_dialog(page: ft.Page, state: object, *, on_changed: Callable[[], 
         key="shell.evidence-mode",
     )
 
-    from etf_cockpit.core.ui_preferences import missing_data_penalty
+    from etf_cockpit.application.settings import missing_data_penalty
 
     def penalty_changed(event: ft.ControlEvent) -> None:
         setter = getattr(state, "set_missing_data_penalty", None)
