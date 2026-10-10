@@ -713,7 +713,8 @@ def latest_sparebank_scores(*, root: Path | None = None) -> dict[str, dict[str, 
     """Latest native Sparebank scorecard row per instrument (run ids ``sparebank:<id>:<time>``)."""
 
     path = (Path(root) if root is not None else ROOT) / "data" / "derived" / "score_history.parquet"
-    key = (str(path), path.stat().st_mtime_ns if path.exists() else None)
+    formula_version = _current_sparebank_formula_version()
+    key = (str(path), path.stat().st_mtime_ns if path.exists() else None, formula_version)
     if _SPAREBANK_CACHE.get("key") == key:
         return _SPAREBANK_CACHE["value"]  # type: ignore[return-value]
     if not path.exists():
@@ -729,10 +730,9 @@ def latest_sparebank_scores(*, root: Path | None = None) -> dict[str, dict[str, 
     if frame.empty or "run_id" not in frame.columns:
         return {}
     native = frame[frame["run_id"].astype(str).str.startswith("sparebank:")]
-    current = _current_sparebank_formula_version()
-    if current and "formula_version" in native.columns:
+    if formula_version and "formula_version" in native.columns:
         # A score from an older scorecard formula is superseded, never shown as current.
-        native = native[native["formula_version"].astype(str).eq(current)]
+        native = native[native["formula_version"].astype(str).eq(formula_version)]
     latest: dict[str, dict[str, object]] = {}
     for row in native.sort_values("run_id", kind="stable").to_dict("records"):
         latest[str(row["instrument_id"])] = row

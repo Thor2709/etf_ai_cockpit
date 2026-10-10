@@ -319,6 +319,11 @@ def _validate_frame(import_type: str, frame: pd.DataFrame) -> tuple[list[str], l
         if weight is not None and (pd.to_numeric(frame[weight], errors="coerce") > 1).any():
             errors.append(f"invalid_weight:{weight}")
     if import_type == "etf_holdings":
+        date_column = _first_column(frame, ("as_of", "as_of_date", "date", "holdings_date", "report_date"))
+        if date_column is not None:
+            dates = pd.to_datetime(frame[date_column], errors="coerce", utc=True).dt.date.dropna().unique()
+            if len(dates) > 1:
+                errors.append(f"multiple_as_of_dates_not_allowed:{date_column}")
         instrument_column = _first_column(frame, ("instrument_id", "etf_id", "parent_etf_id", "isin", "fund_isin", "ticker"))
         if instrument_column is not None:
             instrument_values = frame[instrument_column].astype("string").str.strip()
