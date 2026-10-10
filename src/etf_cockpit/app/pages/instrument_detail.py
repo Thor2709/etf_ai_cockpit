@@ -949,16 +949,27 @@ def _score_card(model: InstrumentDetailViewModel, page: ft.Page | None, state: o
         ("canonical_evidence_confidence_10", "Evidence confidence"),
         ("canonical_coverage", "Coverage"),
     )
+    from etf_cockpit.application.score_views import confidence_cap_note, score_card_values
+
+    # One canonical value path: when the instrument is in the score list, every number comes from that row.
+    values = score_card_values(listed) if listed is not None else score
     bars = [
         ft.Row(
             [
                 Note(label),
-                ScoreBar(score.get(key) if isinstance(score.get(key), (int, float)) else None),
+                ScoreBar(values.get(key) if isinstance(values.get(key), (int, float)) else None),
             ],
             spacing=8,
         )
         for key, label in component_keys
     ]
+    if listed is not None:
+        quality = values.get("evidence_quality_10")
+        bars.append(ft.Row([Note("Evidence quality"), ScoreBar(quality if isinstance(quality, (int, float)) else None)], spacing=8))
+        bars.append(Note(f"Components: {values['valid_components']} of {values['total_components']} usable"))
+        cap_note = confidence_cap_note(values)
+        if cap_note:
+            bars.append(Note(cap_note))
     if scorecard_owned:
         bars = [
             Note(

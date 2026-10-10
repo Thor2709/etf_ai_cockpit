@@ -38,7 +38,7 @@ from etf_cockpit.application.instrument_detail_view import (
     _latest_operational_row,
     _operational_evidence_panel,
 )
-from etf_cockpit.application.score_views import sparebank_score_context
+from etf_cockpit.application.score_views import confidence_cap_note, score_card_values, sparebank_score_context
 from etf_cockpit.application.ui_facade import build_simple_instrument_scores
 from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections  # noqa: F401
 
@@ -159,10 +159,7 @@ def _score_rows(scores: Sequence[object], on_scorecard_click=None) -> list[dict[
         label, kind = _label(score)
         action, action_kind = _action(score)
         components = _read(score, "components", ()) or ()
-        valid_components = sum(
-            _number(_read(component, "score_10")) is not None
-            for component in components
-        )
+        valid_components, total_components = _read(score, "evidence_component_counts", (0, 0))  # same pair on every page
         warning_value = _read(score, "warnings")
         warning_count = len(warning_value) if isinstance(warning_value, Sequence) else None
         warning_cell: object = _MISSING
@@ -188,7 +185,7 @@ def _score_rows(scores: Sequence[object], on_scorecard_click=None) -> list[dict[
                 "action": Tag(action, action_kind),
                 "quality": _not_applicable("Evidence quality") if bank else _shown_number(_read(score, "evidence_quality_10")),
                 "risk_friction": _not_applicable("Risk/friction") if bank else _shown_number(_read(score, "risk_friction_10")),
-                "components": _not_applicable("Generic components") if bank else f"{valid_components}/10 valid" if components else _MISSING,
+                "components": _not_applicable("Generic components") if bank else f"{valid_components}/{total_components} valid" if components else _MISSING,
                 "warnings": _not_applicable("Generic warnings") if bank else warning_cell,
             }
         )
@@ -282,6 +279,8 @@ def _score_detail(score: object | None, page: ft.Page | None, state: object) -> 
                 "Open instrument detail for the per-axis breakdown and coverage."
             )
         ]
+    elif cap_note := confidence_cap_note(score_card_values(score)):
+        components.append(Note(cap_note))
     bank_notes: list[ft.Control] = []
     if tier == "Sparebanken":
         context = sparebank_score_context(score) or {}

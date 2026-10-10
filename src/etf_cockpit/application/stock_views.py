@@ -225,8 +225,7 @@ def build_stock_page_model(snapshot: Any, instrument_id: str, score_row: Any | N
         score = getattr(score_row, "final_score_10", None)
         model.score = None if score is None else float(score)
         model.coverage = score_coverage(score_row)
-        model.used = sum(1 for c in model.components if c.eligible)
-        model.total = len(model.components)
+        model.used, model.total = getattr(score_row, "evidence_component_counts", (0, len(model.components)))  # one pair for every page
         model.label = str(getattr(score_row, "final_label", "") or "")
         model.one_line = str(getattr(score_row, "one_line_reason", "") or "")
         model.missing = [(c.label, short_reason(c.why, 90)) for c in model.components if not c.eligible]

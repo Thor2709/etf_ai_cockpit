@@ -112,8 +112,8 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
                         evidence_chip("Risk/friction", _score_badge(item.risk_friction_10), score_colour(item.risk_friction_10)),
                         evidence_chip(
                             "Components",
-                            f"{item.valid_component_count}/{item.total_component_count} valid",
-                            theme.GREEN if item.valid_component_count >= max(5, item.total_component_count - 3) else theme.AMBER,
+                            f"{item.evidence_component_counts[0]}/{item.evidence_component_counts[1]} valid",
+                            theme.GREEN if item.evidence_component_counts[0] >= max(5, item.evidence_component_counts[1] - 3) else theme.AMBER,
                         ),
                         evidence_chip("Warnings", str(len(item.warnings)), theme.AMBER if item.warnings else theme.GREEN),
                     ],
