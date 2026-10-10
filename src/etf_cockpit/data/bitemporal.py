@@ -153,6 +153,8 @@ class BitemporalStore:
             "availability_confidence": availability_confidence,
             "status": status,
         }
+        if canonical["valid_to"] is not None and canonical["valid_to"] <= canonical["valid_from"]:
+            raise BitemporalError("valid_to must be after valid_from")
         observation_id = hashlib.sha256(
             json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
         ).hexdigest()
@@ -260,9 +262,20 @@ class BitemporalStore:
             params += (str(entity_id),)
         query += " ORDER BY stable_id, available_at, revision, observation_id"
         rows = list(self.store.connection.execute(query, params))
-        selected: dict[str, Any] = {}
+        selected: dict[tuple[str, str], Any] = {}
         for row in rows:
-            selected[str(row["stable_id"])] = row
+            key = (str(row["entity_id"]), str(row["stable_id"]))
+            if str(row["status"]) == "retracted":
+                value = json.loads(str(row["value_json"]))
+                current = selected.get(key)
+                if (
+                    current is not None
+                    and isinstance(value, dict)
+                    and value.get("retracts_observation_id") == str(current["observation_id"])
+                ):
+                    selected.pop(key, None)
+                continue
+            selected[key] = row
         records = [_observation(row) for row in selected.values() if str(row["status"]) == "active"]
         return pd.DataFrame([_observation_payload(item) for item in records])
 
@@ -313,7 +326,14 @@ class BitemporalStore:
             value={"retracts_observation_id": observation_id, "reason": str(reason)},
             source_id=str(row["source_id"]),
             source_checksum=str(row["source_checksum"]),
-            revision=_positive_revision(row["revision"]) + 1,
+            revision=int(
+                self.store.connection.execute(
+                    "SELECT COALESCE(MAX(revision), 0) FROM bitemporal_observations "
+                    "WHERE dataset_id = ? AND stable_id = ? AND source_id = ?",
+                    (str(row["dataset_id"]), str(row["stable_id"]), str(row["source_id"])),
+                ).fetchone()[0]
+            )
+            + 1,
             valid_from=str(row["valid_from"]),
             valid_to=str(row["valid_to"]) if row["valid_to"] else None,
             published_at=available_at,

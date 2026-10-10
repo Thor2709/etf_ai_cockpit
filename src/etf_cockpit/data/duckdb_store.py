@@ -91,6 +91,8 @@ def write_prices(prices: pd.DataFrame, path: Path = PRICE_PARQUET) -> None:
 
 def load_prices(path: Path = PRICE_PARQUET) -> pd.DataFrame:
     if not path.exists():
+        if path != PRICE_PARQUET:
+            raise FileNotFoundError(path)
         initialise_store()
     wait_for_atomic_group(path)
     frame = pd.read_parquet(path)
@@ -104,6 +106,8 @@ def load_prices(path: Path = PRICE_PARQUET) -> pd.DataFrame:
 
 def load_holdings(path: Path = HOLDINGS_CSV) -> pd.DataFrame:
     if not path.exists():
+        if path != HOLDINGS_CSV:
+            raise FileNotFoundError(path)
         initialise_store()
     frame = pd.read_csv(path)
     frame["as_of_date"] = pd.to_datetime(frame["as_of_date"]).dt.date
