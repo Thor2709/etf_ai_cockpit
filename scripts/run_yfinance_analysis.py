@@ -8,6 +8,8 @@ from dataclasses import asdict
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+from run_pipeline_cli import run_cli
+
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +35,7 @@ from etf_cockpit.features.feature_pipeline import compute_features, latest_featu
 from etf_cockpit.models.forecast_scores import forecast_component_maps
 from etf_cockpit.models.registry import model_availability
 from etf_cockpit.portfolio.risk import target_policy_issues
+from etf_cockpit.core.values import years_before  # noqa: E402
 from etf_cockpit.application.forecast_service import ForecastService
 from etf_cockpit.signals.signal_pipeline import generate_signals
 from etf_cockpit.data.duckdb_store import load_holdings, write_features
@@ -50,7 +53,9 @@ def main() -> int:
     config = load_config()
     provider = YFinanceProvider.from_config(config)
     as_of = pd.to_datetime(args.as_of).date() if args.as_of else date.today()
-    start = as_of.replace(year=as_of.year - args.years)
+    if args.years <= 0:
+        raise ValueError("--years must be positive.")
+    start = years_before(as_of, args.years)
     result = provider.fetch_prices([], start, as_of)
     if not result.ok or result.data is None:
         print(result.message)
@@ -234,4 +239,4 @@ def _fetch_reference_data(provider: YFinanceProvider, config, *, skip: bool) -> 
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run_cli(main))

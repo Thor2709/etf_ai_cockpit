@@ -224,7 +224,7 @@ def _legacy_backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
     strategy_table = accessible_table(report.results, table_id="backtests.strategy-results")
     export_status = ft.Text("CSV exports show the destination path and controlled failure state.", color=theme.MUTED, selectable=True)
 
-    def export_backtest(_event: ft.ControlEvent) -> None:
+    def export_backtest(_event: ft.ControlEvent | None = None) -> None:
         result = export_table("backtest_equity_drawdown", equity_frame, EXPORTS_DIR / "backtest_equity_drawdown.csv")
         if result.ok:
             export_status.value = f"Export complete: {result.destination} ({result.rows} rows)."
@@ -233,7 +233,7 @@ def _legacy_backtests_page(_page: ft.Page, state: AppState) -> ft.Control:
         export_status.color = theme.GREEN if result.ok else theme.RED
         _page.update()
 
-    def export_strategy_results(_event: ft.ControlEvent) -> None:
+    def export_strategy_results(_event: ft.ControlEvent | None = None) -> None:
         result = export_table("backtest_strategy_results", strategy_table.frame, EXPORTS_DIR / "backtest_strategy_results.csv")
         if result.ok:
             export_status.value = f"Export complete: {result.destination} ({result.rows} rows)."
@@ -1385,13 +1385,13 @@ def backtests_page(page: ft.Page, state: AppState, *, _deferred: bool = False) -
         empty_title="Price history unavailable",
         empty_reason="No local adjusted-price rows are available.",
     )
-    def export_backtest(_event: object) -> None:
+    def export_backtest(_event: object = None) -> None:
         result = export_table("backtest_equity_drawdown", equity_frame, EXPORTS_DIR / "backtest_equity_drawdown.csv")
         export_status.value = f"{result.error}" if not result.ok else f"Export complete: {result.destination} ({result.rows} rows)."
         if callable(getattr(page, "update", None)):
             page.update()
 
-    def export_strategy_results(_event: object) -> None:
+    def export_strategy_results(_event: object = None) -> None:
         result = export_table("backtest_strategy_results", results, EXPORTS_DIR / "backtest_strategy_results.csv")
         export_status.value = f"{result.error}" if not result.ok else f"Export complete: {result.destination} ({result.rows} rows)."
         if callable(getattr(page, "update", None)):

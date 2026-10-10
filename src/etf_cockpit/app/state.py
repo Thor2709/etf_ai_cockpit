@@ -859,6 +859,12 @@ class AppState:
                 return None
             if expected_action_id is not None and entry.action_id != expected_action_id:
                 raise WorkflowTransitionError("The requested activity is owned by another action.")
+            # A terminal worker keeps the slot until it exits. Repeated UI clicks
+            # must report that result without asking the controller to finish twice.
+            terminal = self.workflow_controller.get(entry.action_id)
+            if terminal is not None and terminal.status is not WorkflowStatus.RUNNING:
+                self.last_message = terminal.message
+                return entry
             result = self.workflow_controller.cancel(entry.action_id, message)
             entry.status = result.status.value
             entry.step = "Cancelled"

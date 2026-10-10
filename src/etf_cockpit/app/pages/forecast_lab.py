@@ -157,7 +157,7 @@ def _comparison_rows(ids: list[str], models: pd.DataFrame, catalogue: pd.DataFra
 
 def _run_status(state: AppState) -> ft.Control:
     current = getattr(state, "current_activity", None)
-    if current is not None and getattr(current, "label", None) == FORECAST_RUN_LABEL:
+    if current is not None and getattr(current, "label", None) == FORECAST_RUN_LABEL and getattr(current, "status", "running") == "running":
         progress = current.completed_units / current.total_units if current.total_units else None
         return ft.Column(
             [
@@ -169,7 +169,7 @@ def _run_status(state: AppState) -> ft.Control:
                     spacing=8,
                 ),
                 common.text(f"Current step: {current.step}", 12, 400, theme.INK2, trunc=True),
-                ScoreBar(progress * 100, maximum=100, decimals=0),
+                ScoreBar(None if progress is None else progress * 100, maximum=100, decimals=0),
             ],
             spacing=4,
             tight=True,

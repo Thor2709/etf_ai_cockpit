@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 from etf_cockpit.application.runtime import atomic_write_json, pid_is_alive
-from etf_cockpit.core.paths import WEB_INSTANCE_PATH
+from etf_cockpit.core.paths import LOG_DIR, WEB_INSTANCE_PATH
 from etf_cockpit.core.runtime import configure_runtime_environment
 
 _RUNTIME_TEMP = configure_runtime_environment()
@@ -52,7 +52,7 @@ class _FletStaticTempfile:
 
 
 def _log_dir() -> Path:
-    return Path.cwd() / "logs"
+    return LOG_DIR
 
 
 def _startup_log(message: str) -> None:
