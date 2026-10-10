@@ -311,7 +311,13 @@ def no_data_reason(instrument_id: str, snapshots: pd.DataFrame, decision_time: d
     mine = snapshots[snapshots["instrument_id"].astype(str) == str(instrument_id)]
     if mine.empty:
         return "fundamentals were never fetched for this instrument: run 'Refresh stock fundamentals'"
-    newest = mine.sort_values("known_at").iloc[-1]
+    cutoff = pd.Timestamp(decision_time)
+    cutoff = cutoff.tz_localize("UTC") if cutoff.tzinfo is None else cutoff.tz_convert("UTC")
+    known_at = pd.to_datetime(mine["known_at"], errors="coerce", utc=True)
+    mine = mine.loc[known_at.notna() & known_at.le(cutoff)].assign(__known_at=known_at.loc[known_at.notna() & known_at.le(cutoff)])
+    if mine.empty:
+        return "fundamentals were never fetched for this instrument: run 'Refresh stock fundamentals'"
+    newest = mine.sort_values("__known_at").iloc[-1]
     if str(newest.get("status")) != "ok" and str(newest.get("reason") or ""):
         return str(newest["reason"])
     if not periods_present:

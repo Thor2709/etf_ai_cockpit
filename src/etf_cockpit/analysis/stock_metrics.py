@@ -162,7 +162,15 @@ def known_periods(periods: Iterable[Period], decision_time: datetime) -> list[Pe
             continue
         key = (period.period_end, period.period_type)
         current = best.get(key)
-        if current is None or period.known_at >= current.known_at:
+        source = period.source.casefold()
+        current_source = current.source.casefold() if current is not None else ""
+        source_rank = int(any(token in source for token in ("sec", "esef", "oam", "filing", "official")))
+        current_rank = int(any(token in current_source for token in ("sec", "esef", "oam", "filing", "official")))
+        candidate_key = (source_rank, source, period.source_ref)
+        current_key = (current_rank, current_source, current.source_ref) if current is not None else None
+        if current is None or period.known_at > current.known_at or (
+            period.known_at == current.known_at and candidate_key > current_key
+        ):
             best[key] = period
     return sorted(best.values(), key=lambda item: (item.period_end, item.period_type))
 

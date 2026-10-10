@@ -599,6 +599,8 @@ def _hero_card(width: float, height: float, view: research_view.StockView, meta:
     note = f"{meta['currency']} · close" + (f" · {fans_note}" if models else "")
     if not view.forecasts and view.baseline is None:
         note = f"{meta['currency']} · close · Forecast unavailable — no forecast run yet"
+    if view.forecast_note and not view.forecasts:
+        note = f"{meta['currency']} · close · Forecast unavailable — the latest forecast is stale"
     insight = _hero_insight(view, score)
 
     def chart(w: float, h: float) -> ft.Control:

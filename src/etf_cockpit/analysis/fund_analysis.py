@@ -987,8 +987,8 @@ def _point_in_time_fx(
         return None, None, None, ()
     if known.empty:
         return None, None, None, ()
-    start_rate, start_refs = _fx_rate_on_date(known, nav_currency, selected_currency, start_date)
-    end_rate, end_refs = _fx_rate_on_date(known, nav_currency, selected_currency, end_date)
+    start_rate, start_refs = _fx_rate_on_date(known, nav_currency, selected_currency, start_date, decision)
+    end_rate, end_refs = _fx_rate_on_date(known, nav_currency, selected_currency, end_date, decision)
     if start_rate is None or end_rate is None:
         return None, None, None, tuple(dict.fromkeys(start_refs + end_refs))
     return start_rate, end_rate, end_rate / start_rate - Decimal("1"), tuple(dict.fromkeys(start_refs + end_refs))
@@ -999,9 +999,10 @@ def _fx_rate_on_date(
     base_currency: str,
     quote_currency: str,
     on_date: date,
+    known_at: datetime,
 ) -> tuple[Decimal | None, tuple[str, ...]]:
     cutoff = datetime.combine(on_date, time.max, tzinfo=timezone.utc)
-    snapshot = build_fx_rate_snapshot(rates, decision_time=cutoff)
+    snapshot = build_fx_rate_snapshot(rates, decision_time=cutoff, known_at=known_at)
     if not snapshot.available:
         return None, ()
     cross = fx_cross_rate(snapshot, base_currency, quote_currency)
