@@ -297,10 +297,17 @@ def sectors_page(page: ft.Page | None, state: AppState) -> PageView:
     hosts = {name: ft.Container() for name in ("strip", "world", "sector", "bubble", "country", "histogram", "heatmap", "scope")}
 
     def refresh(*names: str) -> None:
-        builders = {"strip": strip_card, "world": world_card, "sector": sector_card, "bubble": bubble_card, "country": country_card, "histogram": histogram_card, "heatmap": lambda: _sector_heatmap(data["view"]), "scope": lambda: ft.Column([Note(data["view"].exposure_label), Note(data["view"].exposure_note or "Exposure is based on registered portfolio holdings.")])}
+        builders = {"strip": strip_card, "world": world_card, "sector": sector_card, "bubble": bubble_card, "country": country_card, "histogram": histogram_card, "heatmap": lambda: _sector_heatmap(data["view"]), "scope": scope_card}
         for name in names:
             hosts[name].content = builders[name]()
             common.refresh(hosts[name])
+
+    def scope_card() -> ft.Control:
+        d: view.SectorsView = data["view"]  # type: ignore[assignment]
+        lines = [Note(d.exposure_note or "Exposure is based on registered portfolio holdings.")]
+        if d.unknown_text:
+            lines.append(Note(d.unknown_text))
+        return GlassCard(d.exposure_label, body=ft.Column(lines, spacing=4))
 
     # ----- KPI strip -----
     def strip_card() -> ft.Control:

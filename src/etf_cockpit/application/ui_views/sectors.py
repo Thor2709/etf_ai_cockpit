@@ -83,6 +83,7 @@ class SectorsView:
     window: str = "1Y"
     exposure_label: str = "Portfolio"
     exposure_note: str | None = None
+    unknown_text: str | None = None  # how much is unknown and why, never hidden or estimated
     attractiveness: dict[str, dict[str, object]] = field(default_factory=dict)
 
 
@@ -342,17 +343,18 @@ def apply_fund_splits(rows: Sequence[Mapping[str, object]], splits: Mapping[str,
     return [*result, *spread]
 
 
-def unknown_note(countries: Sequence[Weight], sectors: Sequence[Weight]) -> str | None:
+def unknown_note(countries: Sequence[Weight], sectors: Sequence[Weight], *, known_ids: set[str] | None = None) -> str | None:
     """Say plainly how much is unknown and which instruments cause it (never a guess, never hidden)."""
 
     unknown = next((item for item in countries if item.name == UNKNOWN), None) or next((item for item in sectors if item.name == UNKNOWN), None)
     if unknown is None or unknown.weight < 1.0:
         return None
-    names = [name for name, _weight in unknown.parts][:6]
-    more = f" and {len(unknown.parts) - len(names)} more" if len(unknown.parts) > len(names) else ""
+    causes = [name for name, _weight in unknown.parts if known_ids is None or name in known_ids]
+    names = causes[:6]
+    more = f" and {len(causes) - len(names)} more" if len(causes) > len(names) else ""
     return (
         f"{unknown.weight:.0f}% has no stored classification or fund look-through"
-        + (f" ({', '.join(names)}{more})" if names else "")
+        + (f" (including {', '.join(names)}{more})" if names else "")
         + " and is shown as Unknown/Unmapped; it is never estimated."
     )
 
@@ -494,7 +496,5 @@ def load(snapshot: object, window: str = "1Y", *, holdings: pd.DataFrame | None 
     from etf_cockpit.application.sector_views import build_sector_attractiveness
 
     view.attractiveness = build_sector_attractiveness(snapshot, [item.name for item in view.sectors])
-    note = unknown_note(view.countries, view.sectors)
-    if note:
-        view.exposure_note = f"{view.exposure_note} {note}" if view.exposure_note else note
+    view.unknown_text = unknown_note(view.countries, view.sectors, known_ids=set(weights))
     return view
