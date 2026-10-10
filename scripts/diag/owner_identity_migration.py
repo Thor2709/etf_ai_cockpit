@@ -21,12 +21,15 @@ FIX = {
  "TKMS": dict(isin="DE000TKMS001"),
  "VFEM": dict(isin="IE00B3VVMM84", ticker="VFEM.AS", currency="EUR"),
  "VUSA": dict(isin="IE00B3XXRP09", ticker="VUSA.AS", currency="EUR"),
- "MORG": dict(isin="NO0012483207"),
 }
 root, owner_csv, apply = Path(sys.argv[1]), Path(sys.argv[2]), "--apply" in sys.argv
 snap = us.load_universe(root)
 records = tuple(snap.records)
 by_id = {r.instrument_id: r for r in records}
+registry = us.import_legacy_universe(root / "configs" / "universe.yaml", root / "__no_candidate_universe__.csv")
+for record in registry.records:
+    if record.asset_type == "equity_certificate" and record.isin_status == V and us.is_valid_isin(record.isin):
+        FIX[record.instrument_id] = dict(isin=record.isin)
 owner_by_ticker = {row["ticker"].strip().upper(): row for row in csv.DictReader(open(owner_csv, encoding="utf-8")) if row.get("ticker")}
 changes = {}
 by_ticker = {r.ticker.upper(): r for r in records}

@@ -208,8 +208,14 @@ def _verify_score_groups() -> None:
         raise RuntimeError(f"Simple Scores group labels missing: {missing}")
     sparebanken = next(group for group in groups if group.label == REQUIRED_GROUP_LABELS[-1])
     by_id = {score.display_id: score for score in sparebanken.scores}
-    if "AURG" not in by_id or by_id["AURG"].isin != "needs_verification":
-        raise RuntimeError("Sparebanken group did not preserve AURG needs_verification ISIN.")
+    from etf_cockpit.data.universe_store import load_sparebank_records
+
+    registry = {record.instrument_id: record for record in load_sparebank_records(ROOT)}
+    identity = registry.get("AURG")
+    if identity is None or identity.isin_status != "verified" or not identity.isin:
+        raise RuntimeError("AURG needs a verified ISIN in the universe registry.")
+    if "AURG" not in by_id or by_id["AURG"].isin != identity.isin:
+        raise RuntimeError("Sparebanken group did not preserve AURG's verified registry ISIN.")
     if "NONG" not in by_id or by_id["NONG"].source_group != "Sparebanken":
         raise RuntimeError("NONG was not moved into the Sparebanken group.")
 

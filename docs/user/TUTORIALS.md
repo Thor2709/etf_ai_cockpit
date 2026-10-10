@@ -1,6 +1,6 @@
 # Tutorials
 
-Release version: `1.1.0b1` (display: `1.1.0-beta.1`).
+Release version: `1.1.0b1`.
 
 Step-by-step tasks for the offline core workflow. Each step names a control as it
 appears on screen (in bold) and the workspace that holds it; see
@@ -18,7 +18,7 @@ notes, imports or exports.
    builds the service snapshot without opening the UI.
 2. Open Home, then First-run Setup. Choose the output currency, asset scope,
    risk profile, target horizon and analysis depth.
-3. Under advanced options choose the **Offline bootstrap**. `sample` creates a
+3. In the Data source step choose the **Offline bootstrap**. `sample` creates a
    shipped, identity-only universe: it contains instruments but no fabricated
    prices. `bulk` checks a local CSV or Parquet file you name in **Local bulk
    price file**; it needs date, instrument identity and an `adjusted_close`
@@ -26,7 +26,7 @@ notes, imports or exports.
    and reports the result but writes no price files, so prices are imported in
    step 6.
 4. Enter **Initial tickers (comma separated)**. Offline or unresolved tickers
-   stay disabled until validated; **Validate tickers online (optional)** is
+   stay disabled until validated; **Validate tickers online (opt-in)** is
    opt-in and never required.
 5. Select **Save setup**. Setup stores preferences only; it never grants broker
    or provider write authority.
@@ -54,7 +54,7 @@ subject to its own terms; its failure is visible and does not block local work.
    add**. A rejected record shows the reason; leveraged and inverse products are
    flagged for manual review.
 3. To load many rows select **Import**, paste CSV, TSV or JSON rows or a local
-   path, then **Dry-run validate**, **Stage import** and, for large inputs,
+   path, then **Validate only**, **Preview import** and **Apply to pending changes**; for large inputs use
    **Resume next chunk**. **Cancel import** stops it.
 4. Staged changes are not final until you select **Save validated changes**.
    **Edit**, **Identity** and **Classification** on each row show or change
@@ -133,8 +133,9 @@ subject to its own terms; its failure is visible and does not block local work.
    **Commit restore**; **Cancel restore** leaves the destination unchanged.
 3. Keep the recovery key separately; a lost key cannot be recovered. Before
    updating the application, back up first and check the restore preview.
-4. Exports (**Export scoreboard**, **Export audit packet**, **Export decision
-   journal**, **Export watchlist**) go to an explicit local path; restricted
+4. In Import & Export choose Scoreboard, Audit packet, Decision journal or
+   Watchlist, disclose **Export destination path**, then select **Export**.
+   Exports go to an explicit local path; restricted
    source text can be omitted while permitted provenance remains.
 
 ## 7. Handle an incident

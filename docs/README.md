@@ -1,6 +1,6 @@
 # Documentation index
 
-Release version: `1.1.0b1` (display: `1.1.0-beta.1`).
+Release version: `1.1.0b1`.
 
 ETF AI Cockpit is a local-first research and decision-support application;
 `execution_allowed=false`. Pick the section for your role.

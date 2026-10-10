@@ -1,6 +1,6 @@
 # ETF AI Cockpit user guide
 
-Release version: `1.1.0b1` (display: `1.1.0-beta.1`).
+Release version: `1.1.0b1`.
 
 The cockpit is a local research and evidence tool. It helps you inspect data,
 compare instruments, review model evidence and record your own decisions. It
