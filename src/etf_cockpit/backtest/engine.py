@@ -1092,6 +1092,7 @@ def run_backtest(
     if not columns:
         raise BacktestDataUnavailableError("not_enough_data: no configured instruments have adjusted-close history")
     selected_raw = pivot_raw.reindex(columns=columns)
+    column_set = set(columns)
     complete_mask = selected_raw.notna().all(axis=1)
     missing_observation_rows = int((~complete_mask).sum())
     pivot = selected_raw.loc[complete_mask].copy()
@@ -1408,6 +1409,8 @@ def run_backtest(
             signal_weight = weights["signal_strategy"].copy()
             target = target_weights(config, columns)
             for signal in signals:
+                if signal.etf_id not in column_set:
+                    continue  # disabled/unscorable instruments are outside the backtest universe (and the cache contract)
                 canonical = signal.canonical_score
                 structural_identity = structure_caps.provenance.get(signal.etf_id, {})
                 signal_rows.append(
