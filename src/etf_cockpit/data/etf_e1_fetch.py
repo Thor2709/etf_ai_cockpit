@@ -13,10 +13,10 @@ from io import BytesIO
 import json
 import re
 from urllib.parse import urlencode, urljoin, urlsplit
-from urllib.request import Request
 
 import pandas as pd
 
+from etf_cockpit.core.http_fetch import get_checked
 from etf_cockpit.data.fund_adapters import fetch_etf_economics_sources
 from etf_cockpit.data.fund_documents import read_document_registry
 from etf_cockpit.data.providers import ProviderResult
@@ -47,27 +47,16 @@ def _get(url: str, *, timeout: float = 10) -> bytes:
         )
     if not allowed(url):
         raise ValueError("source_url_not_supported")
-    # Disable automatic redirects so an unapproved target is never contacted.
-    from urllib.request import HTTPRedirectHandler, build_opener
-    class NoRedirect(HTTPRedirectHandler):
-        def redirect_request(self, *_args, **_kwargs):
-            return None
-    from urllib.error import HTTPError
-    opener = build_opener(NoRedirect())
-    for _ in range(4):
-        try:
-            with opener.open(Request(url, headers={"User-Agent": "ETF-AI-Cockpit/1.1 (read-only research)"}), timeout=timeout) as response:
-                payload = response.read(_MAX_BYTES + 1)
-            if len(payload) > _MAX_BYTES:
-                raise ValueError("source_response_too_large")
-            return payload
-        except HTTPError as exc:
-            if exc.code not in {301, 302, 303, 307, 308}:
-                raise
-            url = urljoin(url, exc.headers.get("Location", ""))
-            if not allowed(url):
-                raise ValueError("source_redirect_not_supported") from exc
-    raise ValueError("source_redirect_limit")
+    payload, _status, _headers = get_checked(
+        url,
+        allowed=allowed,
+        headers={"User-Agent": "ETF-AI-Cockpit/1.1 (read-only research)"},
+        timeout=timeout,
+        max_bytes=_MAX_BYTES,
+    )
+    if len(payload) > _MAX_BYTES:
+        raise ValueError("source_response_too_large")
+    return payload
 
 
 class _Profile(HTMLParser):

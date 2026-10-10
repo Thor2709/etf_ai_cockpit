@@ -86,7 +86,7 @@ def test_app_state_imports_local_oam_without_network_and_publishes_manual_eviden
         lambda result, **_kwargs: (observed.update(coverage_result=result) or coverage),
     )
     monkeypatch.setattr(
-        "etf_cockpit.data.oam_adapters.urlopen",
+        "urllib.request.build_opener",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("local import attempted network I/O")),
     )
     state = AppState(snapshot=build_snapshot(), selected_etf="VWCE")

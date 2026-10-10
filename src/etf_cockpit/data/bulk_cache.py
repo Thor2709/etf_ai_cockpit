@@ -112,7 +112,11 @@ def _safe_name(value: str, label: str) -> str:
     cleaned = _SAFE_NAME.sub("_", str(value).strip()).strip("._")
     if not cleaned or cleaned in {".", ".."}:
         raise BulkCacheError(f"{label} must contain a safe name")
-    return cleaned[:160]
+    cleaned = cleaned[:160]
+    if cleaned != str(value):
+        # Cleaning is lossy: keep distinct raw names on distinct paths.
+        cleaned += "-" + hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:12]
+    return cleaned
 
 
 def _json_bytes(value: Mapping[str, object]) -> bytes:
@@ -294,6 +298,8 @@ class ContentAddressedCache:
         except Exception:
             # The part is intentionally retained for a caller-controlled retry.
             raise
+        if response.total_size is not None and written - offset != response.total_size:
+            raise BulkCacheError(f"bulk source size mismatch: server declared {response.total_size}, got {written - offset}")
         if request.expected_size is not None and written != request.expected_size:
             raise BulkCacheError(f"bulk source size mismatch: expected {request.expected_size}, got {written}")
         digest = _sha256_file(part)
@@ -313,7 +319,8 @@ class ContentAddressedCache:
         self._prepare()
         object_path = self._object_path(digest)
         object_path.parent.mkdir(parents=True, exist_ok=True)
-        deduplicated = object_path.is_file()
+        # An existing object is trusted only when its bytes still hash to the digest.
+        deduplicated = object_path.is_file() and _sha256_file(object_path) == digest
         if deduplicated:
             part.unlink(missing_ok=True)
         else:
