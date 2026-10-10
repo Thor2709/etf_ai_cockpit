@@ -48,6 +48,17 @@ def test_launcher_smoke_preserves_selected_install(tmp_path, monkeypatch):
     assert smoke_app._ensure_mode_ready("source", 8611, 1) is process
     assert captured["env"]["ETF_COCKPIT_ROOT"] == str(tmp_path.resolve())
 
+    # A data/config-only install selects the runtime data, while this checkout
+    # supplies the executable code. The ordinary owner launcher must agree.
+    launcher = smoke_app.launcher_core
+    monkeypatch.setattr(launcher, "choose_launch_port", lambda *_args, **_kwargs:
+                        SimpleNamespace(port=8611, requested_port=8611, reason="free", reuse_existing=False, url="http://127.0.0.1:8611/"))
+    monkeypatch.setattr(launcher, "wait_for_ready", lambda *_args:
+                        SimpleNamespace(ready=True, message="ready", url="http://127.0.0.1:8611/"))
+    process.pid = 123
+    assert launcher.launch(mode="source", root=smoke_app.ROOT, preferred_port=8611, open_browser_flag=False) == 0
+    assert captured["env"]["ETF_COCKPIT_ROOT"] == str(tmp_path.resolve())
+
 
 def test_smoke_without_selected_install_uses_checkout(monkeypatch):
     monkeypatch.delenv("ETF_COCKPIT_ROOT", raising=False)
