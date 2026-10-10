@@ -48,3 +48,10 @@ The failures were `KeyError: ['effective_at'] not in index` in the backtest/scor
 ## NEEDS_OPUS_DECISION
 
 - None for the listed implementation scope. The required existing-test validation is not green, so the conditional commit was not created.
+
+## Correction pass
+
+- `test_marker_paths_reject_malformed_stored_revision[1|1.5|True-record_retraction]`
+  - Cause: the bug fix computing the retraction revision from `MAX(revision)` dropped the `_positive_revision(row["revision"])` validation of the stored row, so a malformed stored revision no longer raised `BitemporalError` (and the test's stub connection raised `KeyError: 0` on the new query).
+  - Fix: `record_retraction` validates the stored revision first via `_positive_revision`, then uses `max(stored_revision, MAX(revision) in the dataset/stable_id/source_id series) + 1`. The retraction-revision bug fix is kept.
+  - Result: the 3 tests and `tests/test_bugfix_t-store.py` pass; no existing test changed.

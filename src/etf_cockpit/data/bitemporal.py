@@ -318,6 +318,7 @@ class BitemporalStore:
         ).fetchone()
         if row is None:
             raise KeyError(observation_id)
+        stored_revision = _positive_revision(row["revision"])
         return self.record_observation(
             dataset_id=str(row["dataset_id"]),
             entity_id=str(row["entity_id"]),
@@ -326,12 +327,15 @@ class BitemporalStore:
             value={"retracts_observation_id": observation_id, "reason": str(reason)},
             source_id=str(row["source_id"]),
             source_checksum=str(row["source_checksum"]),
-            revision=int(
-                self.store.connection.execute(
-                    "SELECT COALESCE(MAX(revision), 0) FROM bitemporal_observations "
-                    "WHERE dataset_id = ? AND stable_id = ? AND source_id = ?",
-                    (str(row["dataset_id"]), str(row["stable_id"]), str(row["source_id"])),
-                ).fetchone()[0]
+            revision=max(
+                stored_revision,
+                int(
+                    self.store.connection.execute(
+                        "SELECT COALESCE(MAX(revision), 0) FROM bitemporal_observations "
+                        "WHERE dataset_id = ? AND stable_id = ? AND source_id = ?",
+                        (str(row["dataset_id"]), str(row["stable_id"]), str(row["source_id"])),
+                    ).fetchone()[0]
+                ),
             )
             + 1,
             valid_from=str(row["valid_from"]),
