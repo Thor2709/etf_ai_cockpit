@@ -111,19 +111,33 @@ class ForecastService:
         # Per-family durations are the Forecast Lab's measured resource use.
         with timed_step("forecasts", "model:baseline", run_id=run_id):
             for etf_id in etf_ids:
-                if etf_id not in pivot:
-                    continue
-                series = pivot[etf_id].dropna()
-                forecasts.extend(
-                    baseline_forecast(
-                        etf_id,
-                        series,
-                        horizons,
-                        as_of_date,
-                        run_id=run_id,
-                        benchmark_returns=benchmark_returns,
-                    )
+                series = pivot[etf_id].dropna() if etf_id in pivot else pd.Series(dtype=float)
+                baseline_rows = baseline_forecast(
+                    etf_id,
+                    series,
+                    horizons,
+                    as_of_date,
+                    run_id=run_id,
+                    benchmark_returns=benchmark_returns,
                 )
+                if not baseline_rows:
+                    baseline_rows = [
+                        ForecastResult(
+                            run_id=run_id,
+                            model_name="baseline",
+                            model_version="momentum_shrunk_v1",
+                            etf_id=etf_id,
+                            forecast_date=as_of_date,
+                            horizon_days=horizon,
+                            expected_return=None,
+                            expected_excess_return=None,
+                            status="unavailable",
+                            model_allowed_in_score=False,
+                            reason_unavailable="insufficient_adjusted_price_history",
+                        )
+                        for horizon in horizons
+                    ]
+                forecasts.extend(baseline_rows)
         if progress_callback is not None:
             progress_callback("Checking cached TimesFM forecasts", 2, 4)
         with timed_step("forecasts", "model:timesfm", run_id=run_id):
