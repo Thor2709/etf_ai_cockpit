@@ -39,7 +39,7 @@ def _glossary_terms() -> list[str]:
 def _instrument_keys(item: object) -> list[str]:
     return [
         value.casefold()
-        for value in (str(getattr(item, attr, "") or "") for attr in ("id", "yahoo_symbol", "isin"))
+        for value in (str(getattr(item, attr, "") or "") for attr in ("id", "ticker", "provider_symbol", "yahoo_symbol", "isin"))
         if value
     ]
 
