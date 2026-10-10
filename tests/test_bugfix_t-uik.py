@@ -104,3 +104,47 @@ def test_k04_confidence_cap_is_explained_in_plain_language() -> None:
     assert note and "fund-structure evidence" in note and "score itself is unchanged" in note
     assert confidence_cap_note({"confidence_cap": None, "canonical_evidence_confidence_10": 3.0}) is None
     assert confidence_cap_note({"confidence_cap": 1.0, "canonical_evidence_confidence_10": 8.0}) is None
+
+
+# --- K05: Sparebank verdict ----------------------------------------------------------------------
+
+from types import SimpleNamespace
+
+
+def _bank_score(native: float | None) -> SimpleNamespace:
+    gate = SimpleNamespace(gate_id="source_linked_score_evidence", passed=False, message="Source-linked score evidence is available", order=1, severity="warning")
+    return SimpleNamespace(
+        display_id="NONG",
+        final_label="scorecard_owned",
+        final_action="manual_review",
+        final_score_10=native,
+        authority_decision=SimpleNamespace(gates=tuple(SimpleNamespace(**{**gate.__dict__, "gate_id": f"gate_{i}", "order": i}) for i in range(5))),
+        risk_friction_10=None,
+    )
+
+
+def test_k05_scorecard_owned_bank_is_not_pending_or_failing_generic_gates() -> None:
+    from etf_cockpit.app.pages import _p3_common as common
+    from etf_cockpit.app.pages import stock_research
+
+    scored = _bank_score(8.6)
+    assert common.evidence_tag(scored) == ("Scorecard", "ok")
+    status = stock_research._verdict_status(scored)
+    assert "8.6 of 10" in status and "Fails" not in status and "generic gates do not apply" in status
+
+    unscored = _bank_score(None)
+    assert common.evidence_tag(unscored)[0] == "No composite"
+    assert "more scorecard evidence" in stock_research._verdict_status(unscored)
+
+    # a generic row keeps the gate wording
+    generic = SimpleNamespace(**{**scored.__dict__, "final_label": "watchlist"})
+    assert stock_research._verdict_status(generic) == "Fails 5 of 5 gates · decision support only"
+
+
+def test_k05_scorecard_owned_gate_tiles_do_not_show_generic_failures() -> None:
+    from etf_cockpit.app.pages import stock_research
+
+    view = SimpleNamespace(max_drawdown=None, range_key="1Y", adjusted_share=None, gap_count=0, last_date=None)
+    rows = stock_research._gate_rows(_bank_score(8.6), view, {"ter": ""})
+    assert len(rows) == 4 and all(row[0] is not False for row in rows)
+    assert any("Not used for banks" in row[2] for row in rows)

@@ -481,6 +481,9 @@ def _gate_rows(score: object, view: research_view.StockView, meta: dict[str, str
         forecast = (None, "Forecast agrees", "No complete forecast distribution")
     else:
         forecast = (True, "Forecast agrees", f"Baseline {common.signed(q50, 1, ratio=True)} (80% range {common.signed(q10, 1, '', ratio=True)} … {common.signed(q90, 1, ratio=True)})")
+    if common.is_scorecard_owned(score):
+        not_used = "Not used for banks: the scorecard axes cover this"
+        return [risk, data, (None, "Cost", not_used), (None, "Forecast agrees", not_used)]
     rows = [risk, data, cost, forecast]
     failed = [(False, str(gate.gate_id).replace("_", " ").capitalize(), gate_sub_line(False, gate.message)) for gate in sorted(gates, key=lambda item: (item.order, item.gate_id)) if not gate.passed]
     titles = {row[1] for row in rows}
@@ -511,16 +514,29 @@ def _all_gates_dialog(page: object, score: object) -> Callable[[object], None]:
     return show
 
 
-def _verdict_card(g: common.Grid, width: float, height: float, page: object, score: object, view: research_view.StockView, meta: dict[str, str]) -> ft.Control:
-    tag, _kind = common.evidence_tag(score)
+def _verdict_status(score: object) -> str:
+    """The one-line verdict under the headline: native scorecard for banks, evidence gates for everything else."""
+
     gates = tuple(getattr(getattr(score, "authority_decision", None), "gates", ()) or ())
     failed = sum(1 for gate in gates if not gate.passed)
+    native = getattr(score, "final_score_10", None)
+    if common.is_scorecard_owned(score):
+        # The generic ETF/stock gates do not apply to a bank: the native scorecard decides.
+        return (
+            f"Native Sparebank scorecard {native:.1f} of 10 · generic gates do not apply · decision support only"
+            if native is not None
+            else "No Sparebank composite yet: more scorecard evidence is needed · decision support only"
+        )
     if not gates:
-        status = "Gate evidence unavailable · decision support only"
-    elif failed:
-        status = f"Fails {failed} of {len(gates)} gates · decision support only"
-    else:
-        status = f"Passes all {len(gates)} gates · decision support only"
+        return "Gate evidence unavailable · decision support only"
+    if failed:
+        return f"Fails {failed} of {len(gates)} gates · decision support only"
+    return f"Passes all {len(gates)} gates · decision support only"
+
+
+def _verdict_card(g: common.Grid, width: float, height: float, page: object, score: object, view: research_view.StockView, meta: dict[str, str]) -> ft.Control:
+    tag, _kind = common.evidence_tag(score)
+    status = _verdict_status(score)
     ids = score.display_id
     inner_w, _ = common.inner_size(width, height, insight=False, title=False)
     verdict_label = Note(f"RESEARCH VERDICT · {ids}", color=theme.INK3)

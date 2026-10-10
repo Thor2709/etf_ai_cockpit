@@ -146,8 +146,14 @@ _TAGS = (
     (("weak_evidence_review", "low_quality_manual_review"), ("Review", "warn")),
     (("not_backtested_candidate",), ("Untested", "warn")),
     (("reduce_exposure_review", "trim_candidate"), ("Weak", "bad")),
-    (("pending_refresh", "scorecard_owned"), ("Pending", "mute")),
+    (("pending_refresh",), ("Pending", "mute")),
 )
+
+
+def is_scorecard_owned(score: object) -> bool:
+    """True for a Sparebank row whose score comes from the native scorecard, not the generic gates."""
+
+    return str(getattr(score, "final_label", "") or "").casefold() == "scorecard_owned"
 
 
 def evidence_tag(score: object) -> tuple[str, str]:
@@ -156,6 +162,9 @@ def evidence_tag(score: object) -> tuple[str, str]:
     if any(not getattr(gate, "passed", True) and str(getattr(gate, "severity", "")).casefold() in {"blocking", "block", "error"} for gate in gates):
         return "Blocked", "bad"
     label = str(getattr(score, "final_label", "") or "")
+    if is_scorecard_owned(score):
+        # Banks are scored by the native Sparebank scorecard; the generic evidence label does not apply.
+        return ("Scorecard", "ok") if getattr(score, "final_score_10", None) is not None else ("No composite", "mute")
     for names, result in _TAGS:
         if label in names:
             return result
