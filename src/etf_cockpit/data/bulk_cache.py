@@ -114,8 +114,8 @@ def _safe_name(value: str, label: str) -> str:
         raise BulkCacheError(f"{label} must contain a safe name")
     cleaned = cleaned[:160]
     if cleaned != str(value):
-        # Cleaning is lossy: keep distinct raw names on distinct paths.
-        cleaned += "-" + hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:12]
+        # Literal safe names cannot contain '~', reserving a separate namespace.
+        cleaned += "~" + hashlib.sha256(str(value).encode("utf-8")).hexdigest()
     return cleaned
 
 
@@ -330,7 +330,7 @@ class ContentAddressedCache:
         version = int(previous.get("version", 0)) + 1 if previous else 1
         manifest = CacheManifest(
             schema_version=BULK_CACHE_SCHEMA_VERSION,
-            source_id=_safe_name(request.source_id, "source_id"),
+            source_id=request.source_id,
             source_url=request.url,
             content_sha256=digest,
             size_bytes=size,
@@ -379,7 +379,7 @@ class ContentAddressedCache:
         atomic_write_bytes(path, payload, lambda _path: None)
         if metadata:
             atomic_write_bytes(path.with_suffix(".json"), _json_bytes(dict(metadata)), lambda _path: None)
-        return GenerationRecord(dataset, generation_id, source_digest, str(path.relative_to(self.root)).replace("\\", "/"), "staged", _utc_now())
+        return GenerationRecord(dataset_id, generation_id, source_digest, str(path.relative_to(self.root)).replace("\\", "/"), "staged", _utc_now())
 
     def promote_generation(self, record: GenerationRecord) -> GenerationRecord:
         staged = (self.root / record.relative_path).resolve()
@@ -389,7 +389,7 @@ class ContentAddressedCache:
         destination = self.generations / dataset / f"{record.generation_id}.bin"
         destination.parent.mkdir(parents=True, exist_ok=True)
         staged.replace(destination)
-        promoted = GenerationRecord(dataset, record.generation_id, record.source_sha256, str(destination.relative_to(self.root)).replace("\\", "/"), "promoted", _utc_now())
+        promoted = GenerationRecord(record.dataset_id, record.generation_id, record.source_sha256, str(destination.relative_to(self.root)).replace("\\", "/"), "promoted", _utc_now())
         atomic_write_bytes(destination.with_suffix(".json"), _json_bytes(promoted.__dict__), lambda _path: None)
         return promoted
 

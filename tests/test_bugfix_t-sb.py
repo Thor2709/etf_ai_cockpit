@@ -166,3 +166,24 @@ def test_k03() -> None:
 
     facts = equity_member_facts([record("ifrs-full:IssuedCapitalMember", 258), record("ifrs-full:SharePremiumMember", 1505)], "2024-12-31")
     assert {name: item["value"] for name, item in facts.items()} == {"ec_capital": "258", "overkursfond": "1505"}
+
+
+@pytest.mark.parametrize("end_price", [None, float("nan"), float("inf"), "invalid", 10**400])
+def test_int_sb_1_unfilled_shortfall_requires_finite_end_price(end_price) -> None:
+    result = implementation_shortfall(reference_price=100.0, filled_quantity=1.0, fill_price=100.0,
+                                      unfilled_quantity=1.0, end_price=end_price)
+    assert result["status"] == "unavailable" and result["reason_code"] == "END_PRICE_MISSING"
+    valid = implementation_shortfall(reference_price=100.0, filled_quantity=1.0, fill_price=100.0,
+                                     unfilled_quantity=1.0, end_price=110.0)
+    assert valid["shortfall"] == 10.0 and valid["execution_allowed"] is False
+    filled = implementation_shortfall(reference_price=100.0, filled_quantity=1.0, fill_price=100.0, end_price=end_price)
+    assert filled["status"] == "resolved" and filled["shortfall"] == 0.0
+
+
+def test_int_sb_2_overflowing_bridge_inputs_are_unavailable() -> None:
+    merger = merger_bridge(10.0, integration_costs=(10**400,), tax_rate=0.25,
+                           gross_benefit=100.0, recurring_added_capability=10.0, lost_customer_contribution=5.0)
+    assert merger["status"] == "unavailable" and merger["reason_code"] == "INVALID_MERGER_INPUT"
+    normalised = normalisation_bridge(100.0, [], reported_pre_tax=130.0, pre_tax_adjustments=[10**400])
+    assert normalised.status == "unavailable" and normalised.reason_code == "INVALID_NORMALISATION_ADJUSTMENT"
+    assert normalised.normalised is None

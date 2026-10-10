@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import sys
 import threading
 import traceback
 import urllib.request
+import uuid
 import webbrowser
 from itertools import count
 from datetime import datetime
@@ -253,18 +255,34 @@ def _local_http_ready(url: str) -> bool:
 
 
 def _is_own_web_instance(port: int) -> bool:
-    """True when the runtime file names this port and a live process (a foreign server on the port never matches)."""
+    """Require a live process and its unique identity served by the recorded port."""
 
     try:
         record = json.loads(WEB_INSTANCE_PATH.read_text(encoding="utf-8"))
-        return int(record["port"]) == port and pid_is_alive(int(record["pid"]))
-    except (OSError, ValueError, KeyError, TypeError):
+        identity = record["identity"]
+        if not isinstance(identity, str) or len(identity) != 32 or any(char not in "0123456789abcdef" for char in identity):
+            return False
+        if int(record["port"]) != port or not pid_is_alive(int(record["pid"])):
+            return False
+        url = f"http://127.0.0.1:{port}/cockpit-instance-{identity}.txt"
+        with urllib.request.urlopen(url, timeout=1.5) as response:
+            return response.status == 200 and response.geturl() == url and response.read(33) == identity.encode("ascii")
+    except Exception:
         return False
 
 
-def _record_web_instance(port: int) -> None:
+def _prepare_web_assets() -> tuple[Path, str]:
+    """Serve identity from an immutable per-instance asset directory."""
+    identity = uuid.uuid4().hex
+    assets_dir = _RUNTIME_TEMP / "web_assets" / identity
+    shutil.copytree(theme.ASSETS_DIR, assets_dir)
+    (assets_dir / f"cockpit-instance-{identity}.txt").write_text(identity, encoding="ascii")
+    return assets_dir, identity
+
+
+def _record_web_instance(port: int, identity: str) -> None:
     try:
-        atomic_write_json(WEB_INSTANCE_PATH, {"port": port, "pid": os.getpid()})
+        atomic_write_json(WEB_INSTANCE_PATH, {"port": port, "pid": os.getpid(), "identity": identity})
     except Exception as exc:  # the record is best-effort; without it a later start simply uses another port
         _startup_log(f"web instance record not written: {type(exc).__name__}: {exc}")
 
@@ -307,6 +325,7 @@ def run() -> None:
     view_setting = os.getenv("ETF_COCKPIT_VIEW", "web").strip().lower()
     port = _normalise_port(os.getenv("ETF_COCKPIT_PORT", "8550"))
     open_browser = os.getenv("ETF_COCKPIT_OPEN_BROWSER", "1").strip().lower() not in {"0", "false", "no"}
+    assets_dir = theme.ASSETS_DIR
     _startup_log(
         "run entered "
         f"frozen={getattr(sys, 'frozen', False)} "
@@ -332,7 +351,8 @@ def run() -> None:
             return
         port = _fallback_port_if_busy(port)
         os.environ["ETF_COCKPIT_PORT"] = str(port)
-        _record_web_instance(port)
+        assets_dir, identity = _prepare_web_assets()
+        _record_web_instance(port, identity)
         init_session_log(clear=False, build_mode="web", port=port, route="/")
         view = ft.AppView.WEB_BROWSER
         embedded_platform = os.environ.pop("FLET_PLATFORM", None)
@@ -350,7 +370,10 @@ def run() -> None:
     try:
         if view_setting in {"desktop", "flet_app"}:
             init_session_log(clear=False, build_mode="desktop", port=port, route="/")
-        _resolve_flet_app()(target=main, view=view, host="127.0.0.1", port=port, assets_dir=str(theme.ASSETS_DIR))
+        _resolve_flet_app()(target=main, view=view, host="127.0.0.1", port=port, assets_dir=str(assets_dir))
     except Exception:
         _startup_log("ft.app failed\n" + traceback.format_exc())
         raise
+    finally:
+        if assets_dir != theme.ASSETS_DIR:
+            shutil.rmtree(assets_dir, ignore_errors=True)

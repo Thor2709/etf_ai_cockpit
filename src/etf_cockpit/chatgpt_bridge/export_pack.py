@@ -297,6 +297,9 @@ def export_review_pack(
     export_dir = CHATGPT_EXPORTS_DIR / f"audit_packet_{as_of_date:%Y-%m-%d}"
     staging = export_dir.with_name(f"{export_dir.name}.staging-{uuid.uuid4().hex[:8]}")
     zip_path = export_dir.with_suffix(".zip")
+    backup_dir = staging.with_name(f"{staging.name}.backup")
+    backup_zip = staging.with_name(f"{staging.name}.backup.zip")
+    failed_dir = staging.with_name(f"{staging.name}.failed")
     try:
         _stage_review_pack(
             staging, config, holdings, features, signals, backtest,
@@ -308,12 +311,36 @@ def export_review_pack(
                 if file.is_file():
                     archive.write(file, arcname=file.relative_to(staging))
         with publication_scope(publish_guard):
-            atomic_write_bytes(zip_path, buffer.getvalue(), lambda _path: None)
-            if export_dir.exists():
-                shutil.rmtree(export_dir)
-            os.replace(staging, export_dir)
+            had_directory, had_zip = export_dir.exists(), zip_path.exists()
+            if had_directory:
+                shutil.copytree(export_dir, backup_dir)
+            if had_zip:
+                shutil.copy2(zip_path, backup_zip)
+            try:
+                atomic_write_bytes(zip_path, buffer.getvalue(), lambda _path: None)
+                if had_directory:
+                    shutil.rmtree(export_dir)
+                os.replace(staging, export_dir)
+            except Exception:
+                # Move any partly deleted/published directory aside so rollback
+                # does not depend on the deletion operation that just failed.
+                if export_dir.exists():
+                    os.replace(export_dir, failed_dir)
+                if had_directory:
+                    os.replace(backup_dir, export_dir)
+                if had_zip:
+                    os.replace(backup_zip, zip_path)
+                else:
+                    zip_path.unlink(missing_ok=True)
+                raise
+            shutil.rmtree(backup_dir, ignore_errors=True)
+            try:
+                backup_zip.unlink(missing_ok=True)
+            except OSError:
+                pass  # Published artifacts are complete; keep an undeletable backup.
     finally:
         shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(failed_dir, ignore_errors=True)
     return zip_path
 
 

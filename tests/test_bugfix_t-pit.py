@@ -406,3 +406,41 @@ def test_p07_n011_stale_forecast_vintage_is_anchored_and_marked_stale() -> None:
     assert fresh_view.baseline is not None
     assert fresh_view.baseline.dates == [dates[-5] + pd.Timedelta(days=30)]
     assert fresh_view.baseline.q50 == [126.0]
+
+
+def test_int_pit_1_intraday_feature_time_defaults_availability_exactly(tmp_path: Path) -> None:
+    store = LocalFeatureStore(tmp_path)
+    store.register_feature(FeatureDefinition("signal", "signal"))
+    features = pd.DataFrame({"etf_id": ["A"], "date": ["2026-01-02T16:00:00Z"], "signal": [1.0]})
+    for candidate in (features, features.assign(available_at="2026-01-02T08:00:00Z")):
+        early = store.materialise(candidate, ["2026-01-02T10:00:00Z"], feature_ids=["signal"])
+        eligible = store.materialise(candidate, ["2026-01-02T16:00:00Z"], feature_ids=["signal"])
+        assert pd.isna(early.loc[0, "signal"]) and bool(early.loc[0, "missing_signal"])
+        assert eligible.loc[0, "signal"] == 1.0
+    store.register_feature(FeatureDefinition("delayed", "signal", availability_delay_days=1))
+    delayed = store.materialise(features, ["2026-01-03T10:00:00Z"], feature_ids=["delayed"])
+    assert delayed.loc[0, "delayed"] == 1.0
+
+
+@pytest.mark.parametrize("timestamp", [None, "invalid"])
+def test_int_pit_2_unverifiable_quote_timestamps_are_unavailable(timestamp) -> None:
+    prices = _prices(pd.date_range("2026-10-01", periods=8, freq="B"))
+    quote = {"instrument_id": "VWCE", "currency": "EUR", "bid": 100.0, "ask": 102.0, "nav": 101.0}
+    if timestamp is not None:
+        quote["quote_timestamp"] = timestamp
+    for candidate in (quote, pd.DataFrame([quote])):
+        report = calculate_etf_liquidity(load_config(), prices, "VWCE", quote_evidence=candidate, as_of=prices["date"].max().date())
+        assert report.quote_status == "unavailable"
+        assert all(getattr(report, name) is None for name in ("bid_eur", "ask_eur", "nav_eur", "quoted_spread_bps", "premium_discount_bps"))
+        assert "quote_timestamp" in report.missing_evidence
+
+
+def test_int_pit_3_stale_forecast_rejection_is_separate_from_quantile_passthrough() -> None:
+    prices = _prices(pd.bdate_range("2026-01-01", periods=90)).assign(etf_id="AAA")
+    row = {"etf_id": "AAA", "model_name": "toto", "horizon_days": 21, "q10_return": -0.03,
+           "q25_return": -0.015, "q50_return": 0.0, "q75_return": 0.015, "q90_return": 0.03}
+    eligible = build_stock_view(prices, pd.DataFrame([{**row, "forecast_date": prices["date"].iloc[-1]}]), "AAA", "1Y")
+    assert len(eligible.forecasts) == 1 and len(eligible.forecasts[0].dates) == 1
+    stale = build_stock_view(prices, pd.DataFrame([{**row, "forecast_date": prices["date"].iloc[0]}]), "AAA", "1Y")
+    assert stale.forecasts == [] and stale.baseline is None
+    assert stale.forecast_note == "forecast stale"

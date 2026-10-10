@@ -242,8 +242,29 @@ def test_p06_n008_only_own_running_instance_is_reused(monkeypatch, tmp_path) -> 
     monkeypatch.setattr(flet_app, "WEB_INSTANCE_PATH", record)
     monkeypatch.setattr(flet_app, "_is_port_listening", lambda host, port: True)
     monkeypatch.setattr(flet_app, "_local_http_ready", lambda url: True)
+    identity = "a" * 32
+
+    class Response:
+        status = 200
+
+        def __init__(self, url):
+            self.url = url
+
+        def geturl(self):
+            return self.url
+
+        def read(self, limit):
+            return identity.encode("ascii")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+    monkeypatch.setattr(flet_app.urllib.request, "urlopen", lambda url, **kwargs: Response(url))
     assert flet_app._reuse_existing_web_server(8550, False) is False  # foreign server, no record
-    record.write_text(json.dumps({"port": 8550, "pid": os.getpid()}), encoding="utf-8")
+    record.write_text(json.dumps({"port": 8550, "pid": os.getpid(), "identity": identity}), encoding="utf-8")
     assert flet_app._reuse_existing_web_server(8550, False) is True
     record.write_text(json.dumps({"port": 8551, "pid": os.getpid()}), encoding="utf-8")
     assert flet_app._reuse_existing_web_server(8550, False) is False
@@ -356,3 +377,101 @@ def test_p06_n015_today_outside_data_is_not_drawn(monkeypatch) -> None:
     chart = lines.line_chart(days, series)
     plot_mid = marks[0]
     assert 0 < plot_mid < 600 and chart is not None
+
+
+
+def test_int_uia_1_literal_transformed_workspace_name_cannot_overwrite(tmp_path) -> None:
+    from etf_cockpit.app.workspaces import load_workspace, save_workspace
+    from etf_cockpit.core.paths import safe_file_stem
+
+    raw = "A/B"
+    literal = safe_file_stem(raw)
+    first = save_workspace(raw, {"v": 1}, directory=tmp_path)
+    before = first.read_bytes()
+    second = save_workspace(literal, {"v": 2}, directory=tmp_path)
+    assert first != second and first.read_bytes() == before
+    assert load_workspace(raw, directory=tmp_path)["v"] == 1
+    assert load_workspace(literal, directory=tmp_path)["v"] == 2
+    assert load_workspace(raw, directory=tmp_path)["execution_allowed"] is False
+
+
+@pytest.mark.parametrize("response_body", [b"foreign server", b"", b"b" * 32])
+def test_int_uia_2_live_reused_pid_does_not_authorise_foreign_http(monkeypatch, tmp_path, response_body) -> None:
+    from etf_cockpit.app import flet_app
+
+    record = tmp_path / "web_instance.json"
+    identity = "a" * 32
+    record.write_text(json.dumps({"port": 8550, "pid": os.getpid(), "identity": identity}), encoding="utf-8")
+    monkeypatch.setattr(flet_app, "WEB_INSTANCE_PATH", record)
+    monkeypatch.setattr(flet_app, "pid_is_alive", lambda pid: True)
+    monkeypatch.setattr(flet_app, "_is_port_listening", lambda host, port: True)
+    monkeypatch.setattr(flet_app, "_local_http_ready", lambda url: True)
+    opened, requested = [], []
+    monkeypatch.setattr(flet_app.webbrowser, "open", opened.append)
+
+    class Response:
+        status = 200
+
+        def geturl(self):
+            return requested[-1]
+
+        def read(self, limit):
+            return response_body[:limit]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+    def urlopen(url, **kwargs):
+        requested.append(url)
+        return Response()
+
+    monkeypatch.setattr(flet_app.urllib.request, "urlopen", urlopen)
+    assert flet_app._reuse_existing_web_server(8550, True) is False
+    assert opened == []
+    assert requested == [f"http://127.0.0.1:8550/cockpit-instance-{identity}.txt"]
+
+
+def test_int_uia_2_assets_and_record_have_unique_per_instance_identity(monkeypatch, tmp_path) -> None:
+    from etf_cockpit.app import flet_app
+
+    original_assets = tmp_path / "assets"
+    original_assets.mkdir()
+    (original_assets / "font.ttf").write_bytes(b"fixture")
+    monkeypatch.setattr(flet_app.theme, "ASSETS_DIR", original_assets)
+    monkeypatch.setattr(flet_app, "_RUNTIME_TEMP", tmp_path / "runtime")
+    record = tmp_path / "web_instance.json"
+    monkeypatch.setattr(flet_app, "WEB_INSTANCE_PATH", record)
+    first, identity_one = flet_app._prepare_web_assets()
+    second, identity_two = flet_app._prepare_web_assets()
+    assert identity_one != identity_two and first != second
+    assert (first / "font.ttf").read_bytes() == b"fixture"
+    assert (first / f"cockpit-instance-{identity_one}.txt").read_text(encoding="ascii") == identity_one
+    assert not (second / f"cockpit-instance-{identity_one}.txt").exists()
+    flet_app._record_web_instance(8550, identity_one)
+    assert json.loads(record.read_text(encoding="utf-8")) == {"port": 8550, "pid": os.getpid(), "identity": identity_one}
+    assert sorted(p.name for p in original_assets.iterdir()) == ["font.ttf"]
+
+
+def test_int_uia_3_negative_bar_endpoints_stay_inside_plot(monkeypatch) -> None:
+    from etf_cockpit.app.components.chartkit import bars
+
+    rects, plots = [], []
+    original_rect, original_axis = bars.bar_rect, bars.y_axis
+
+    def axis(scene, plot, lo, hi, **kwargs):
+        plots.append((plot, lo, hi))
+        return original_axis(scene, plot, lo, hi, **kwargs)
+
+    monkeypatch.setattr(bars, "y_axis", axis)
+    monkeypatch.setattr(bars, "bar_rect", lambda *args, **kwargs: rects.append(args) or original_rect(*args, **kwargs))
+    bars.grouped_bar_chart(["A"], [bars.BarSeries("loss", [-5])], height=300)
+    plot, lo, hi = plots[0]
+    assert lo <= -5 and hi >= 0
+    assert len(rects) == 1
+    _, top, _, height = rects[0][:4]
+    assert height > 0
+    assert plot.y0 <= top <= plot.y0 + plot.h
+    assert plot.y0 <= top + height <= plot.y0 + plot.h

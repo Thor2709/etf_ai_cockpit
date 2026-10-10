@@ -454,3 +454,59 @@ def test_p06_n011() -> None:
         bar = ScoreBar(invalid)
         assert bar.data["label"] == "—"
         assert bar.data["value"] is None
+
+
+@pytest.mark.parametrize("field", ["quality", "confidence"])
+@pytest.mark.parametrize("invalid", [float("inf"), float("-inf"), float("nan"), 10**400])
+def test_int_num_1_non_finite_quality_is_ineligible(field, invalid) -> None:
+    source = EvidenceSource("prices", "source:fixture", SourceAuthority.VENDOR, "2026-10-01", "fresh", **{field: invalid})
+    entry = ledger_entry_for_component("ETF-A", "score", 7.0, source)
+    assert entry.score_eligible is False
+    assert "quality" in entry.reason
+    assert entry.executable_authority is False
+    valid = EvidenceSource("prices", "source:fixture", SourceAuthority.VENDOR, "2026-10-01", "fresh", **{field: 0.5})
+    assert ledger_entry_for_component("ETF-A", "score", 7.0, valid).score_eligible
+
+
+def test_int_num_2_wide_history_conflicts_are_order_independent() -> None:
+    from etf_cockpit.portfolio.stress_testing import _apply_historical_shock
+
+    allocation = pd.DataFrame({"instrument_id": ["ETF-A", "ETF-B"], "weight": [0.5, 0.5]})
+    returns = pd.DataFrame({"date": ["2026-01-02", "2026-01-02"], "ETF-A": [-0.1, 0.1], "ETF-B": [-0.1, -0.1]})
+    for candidate in (returns, returns.iloc[::-1]):
+        result, warnings = _apply_historical_shock(allocation, candidate, "2026-01-02")
+        assert pd.isna(result.loc[0, "historical_return"])
+        assert result.loc[1, "historical_return"] == -0.1
+        assert warnings == ("conflicting_history:ETF-A",)
+        scenario = StressScenario("history", "Historical", {"equity": -0.5}, historical_date="2026-01-02")
+        stress = run_stress_scenario(scenario, allocation.iloc[[0]], historical_returns=candidate)
+        assert stress.status == "unavailable" and stress.total_pnl is None
+        assert "conflicting_history:ETF-A" in stress.limitations
+
+
+@pytest.mark.parametrize("invalid_date", [None, "not-a-date", pd.NaT])
+def test_int_num_3_undated_forecasts_never_select_as_latest(invalid_date) -> None:
+    from etf_cockpit.models.forecast_scores import forecast_component_maps, forecast_return_distributions
+
+    dated = {"etf_id": "ETF-A", "model_name": "baseline", "forecast_date": "2026-09-01T16:00:00Z",
+             "horizon_days": 60, "expected_return": 0.1, "q10_return": -0.1, "q50_return": 0.1,
+             "q90_return": 0.2, "status": "ok", "model_allowed_in_score": True, "run_id": "run-a"}
+    undated = {**dated, "forecast_date": invalid_date, "expected_return": 0.9, "q50_return": 0.9,
+               "q90_return": 1.0, "run_id": "run-b"}
+    frame = pd.DataFrame([dated, undated])
+    for candidate in (frame, frame.iloc[::-1]):
+        assert _latest_row(candidate)["run_id"] == "run-a"
+        assert _choose_horizon_row_for(candidate, 60)["run_id"] == "run-a"
+        assert forecast_component_maps(candidate) == forecast_component_maps(pd.DataFrame([dated]))
+        distribution = forecast_return_distributions(candidate, horizon_days=60)["ETF-A"]
+        assert distribution["q50_return"] == 0.1
+    missing = pd.DataFrame([undated])
+    assert _latest_row(missing) is None
+    assert _choose_horizon_row_for(missing, 60) is None
+    assert not forecast_component_maps(missing)["baseline"]
+    unavailable = forecast_return_distributions(missing, horizon_days=60)["ETF-A"]
+    assert unavailable["status"] == "unavailable" and unavailable["reason"]
+    assert _latest_row(frame.drop(columns="forecast_date")) is None
+    fallback = frame.copy()
+    fallback.loc[1, "horizon_days"] = 30
+    assert _choose_horizon_row_for(fallback, 30)["run_id"] == "run-a"

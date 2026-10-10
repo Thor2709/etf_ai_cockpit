@@ -40,6 +40,7 @@ def _forecasts(with_q25: bool = True) -> pd.DataFrame:
         spread = 0.03 * (horizon / 63) ** 0.5
         rows.append({
             "etf_id": "AAA", "model_name": "toto", "horizon_days": horizon,
+            "forecast_date": _prices()["date"].iloc[-1],
             "q10_return": -spread, "q25_return": -spread / 2 if with_q25 else None, "q50_return": 0.0,
             "q75_return": spread / 2 if with_q25 else None, "q90_return": spread,
         })
@@ -56,13 +57,22 @@ def test_sharpe_is_unavailable_without_a_risk_free_rate() -> None:
 
 def test_forecast_quantiles_are_passed_through_never_interpolated() -> None:
     view = build_stock_view(_prices(), _forecasts(with_q25=False), "AAA", "1Y")
-    assert view.forecasts == [] and view.baseline is None
+    assert len(view.forecasts) == 1
+    assert view.forecasts[0].q25 == [None, None, None]
+    assert view.forecasts[0].q75 == [None, None, None]
     complete = build_stock_view(_prices(), _forecasts(), "AAA", "1Y")
-    assert complete.forecasts == [] and complete.baseline is None
+    assert len(complete.forecasts) == 1
+    assert all(value is not None for value in complete.forecasts[0].q25)
+    assert all(value is not None for value in complete.forecasts[0].q75)
+    anchor = _prices()["close"].iloc[-1]
+    np.testing.assert_allclose(complete.forecasts[0].q25, anchor * (1 + _forecasts()["q25_return"]))
+    np.testing.assert_allclose(complete.forecasts[0].q75, anchor * (1 + _forecasts()["q75_return"]))
     broken = _forecasts()
     broken.loc[0, "q50_return"] = np.nan
     unavailable = build_stock_view(_prices(), broken, "AAA", "1Y")
-    assert unavailable.forecasts == [] and unavailable.baseline is None
+    assert len(unavailable.forecasts) == 1
+    assert len(unavailable.forecasts[0].dates) == 2
+    assert unavailable.forecasts[0].dates == complete.forecasts[0].dates[1:]
 
 
 def test_missing_attribution_components_stay_unavailable_and_empty_prices_are_explained() -> None:

@@ -290,10 +290,15 @@ def _apply_historical_shock(
         result["historical_return"] = result["instrument_id"].map(values)
         warnings = tuple(f"conflicting_history:{instrument_id}" for instrument_id in sorted(conflicting))
         return result, warnings
-    else:
-        row = selected.iloc[-1]
-        result["historical_return"] = result["instrument_id"].map(lambda item: _finite(row.get(item)))
-        return result, ()
+    values: dict[str, float | None] = {}
+    conflicting: set[str] = set()
+    for instrument_id in result["instrument_id"].astype(str).unique():
+        observations = [_finite(value) for value in selected[instrument_id]] if instrument_id in selected else [None]
+        if any(value != observations[0] for value in observations[1:]):
+            conflicting.add(instrument_id)
+        values[instrument_id] = None if instrument_id in conflicting else observations[0]
+    result["historical_return"] = result["instrument_id"].map(values)
+    return result, tuple(f"conflicting_history:{instrument_id}" for instrument_id in sorted(conflicting))
 
 
 def _common_shock_components(shocks: Mapping[str, float], row: Mapping[str, object]) -> dict[str, float]:

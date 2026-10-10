@@ -174,7 +174,7 @@ class LocalFeatureStore:
         if not decisions:
             return pd.DataFrame(columns=[entity_column, "decision_time", "inference_mode"])
         source = features.copy()
-        source["__feature_time"] = _timestamps(source[date_column])
+        source["__feature_time"] = _timestamps(source[date_column], normalize=False)
         if "available_at" in source.columns:
             source["__available_at"] = _timestamps(source["available_at"], normalize=False)
         else:
@@ -189,7 +189,7 @@ class LocalFeatureStore:
                 selected_times: list[pd.Timestamp] = []
                 for definition in definitions:
                     cutoff = decision.normalize() - pd.Timedelta(days=definition.availability_delay_days)
-                    candidates = entity_rows[(entity_rows["__feature_time"] <= cutoff) & (entity_rows["__available_at"] <= decision)]
+                    candidates = entity_rows[(entity_rows["__feature_time"].dt.normalize() <= cutoff) & (entity_rows["__feature_time"] <= decision) & (entity_rows["__available_at"] <= decision)]
                     if candidates.empty:
                         if definition.missing_policy == "reject":
                             raise FeatureStoreError(f"feature {definition.feature_id} is unavailable for {entity} at {decision.date()}")

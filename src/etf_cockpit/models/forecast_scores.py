@@ -507,6 +507,8 @@ def forecast_return_distributions(
             if exact_horizon.empty:
                 continue
             selected = _latest_row(exact_horizon)
+            if selected is None:
+                continue
             expected = _finite_or_none(selected.get("expected_return"))
             if expected is None:
                 continue
@@ -873,6 +875,9 @@ def _choose_horizon_row(group: pd.DataFrame) -> pd.Series | None:
 
 
 def _choose_horizon_row_for(group: pd.DataFrame, primary_horizon: int) -> pd.Series | None:
+    if "forecast_date" not in group.columns:
+        return None
+    group = group.loc[group["forecast_date"].map(_normalise_decision_time).notna()]
     if group.empty:
         return None
     fallback_horizons = tuple(horizon for horizon in (PRIMARY_MODEL_HORIZON_DAYS, *FALLBACK_MODEL_HORIZONS_DAYS) if horizon != primary_horizon)
@@ -884,11 +889,17 @@ def _choose_horizon_row_for(group: pd.DataFrame, primary_horizon: int) -> pd.Ser
     return _latest_row(group[group["horizon_days"].astype(int) == highest_horizon])
 
 
-def _latest_row(frame: pd.DataFrame) -> pd.Series:
-    sort_columns = [column for column in ("forecast_date", "run_id") if column in frame.columns]
-    if not sort_columns:
-        return frame.iloc[-1]
-    return frame.sort_values(sort_columns, kind="stable").iloc[-1]
+def _latest_row(frame: pd.DataFrame) -> pd.Series | None:
+    """Select the newest validated forecast timestamp; undated rows are unavailable."""
+    if "forecast_date" not in frame.columns:
+        return None
+    dates = frame["forecast_date"].map(_normalise_decision_time)
+    dated = frame.loc[dates.notna()].copy()
+    if dated.empty:
+        return None
+    dated["__forecast_time"] = dates.loc[dates.notna()]
+    sort_columns = ["__forecast_time", *(["run_id"] if "run_id" in dated.columns else [])]
+    return dated.sort_values(sort_columns, kind="stable").drop(columns="__forecast_time").iloc[-1]
 
 
 def _timestamp_iso_or_none(value: object) -> str | None:

@@ -6,13 +6,13 @@ from pathlib import Path
 
 
 def safe_file_stem(raw: object, default: str = "workspace") -> str:
-    """Filesystem-safe stem; a name that needed cleaning gets ``-<sha256[:12]>`` so cleaned names cannot collide."""
+    """Keep literal safe names; reserve ``-<sha256>~`` for names needing cleaning."""
 
     text = str(raw).strip()
     cleaned = "".join(character if character.isalnum() or character in "-_" else "_" for character in text)
     if cleaned and cleaned == text:
         return cleaned
-    return f"{cleaned or default}-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:12]}"
+    return f"{cleaned or default}-{hashlib.sha256(text.encode('utf-8')).hexdigest()}~"
 
 
 def _has_project_config(path: Path) -> bool:

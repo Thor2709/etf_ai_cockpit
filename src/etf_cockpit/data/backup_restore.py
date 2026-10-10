@@ -42,6 +42,8 @@ class BackupManifest:
     encrypted: bool = False
     incremental: bool = False
     base_manifest_checksum: str | None = None
+    # Archive payload checksums stay sparse; chained deltas need the full inventory.
+    inventory_checksums: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -104,13 +106,14 @@ def create_incremental_backup(
     *,
     include_transient: bool = False,
 ) -> BackupManifest:
-    """Write only changed, policy-approved files relative to a prior manifest."""
+    """Archive changed files and return the complete policy-approved current inventory."""
 
     seen: set[str] = set()
+    previous_inventory = base_manifest.inventory_checksums if base_manifest.inventory_checksums is not None else base_manifest.checksums
     checksums, excluded, payloads = _collect_payloads(
         paths,
         include_transient=include_transient,
-        previous_checksums=base_manifest.checksums,
+        previous_checksums=previous_inventory,
         seen=seen,
     )
     manifest_payload = _manifest_payload(
@@ -119,7 +122,7 @@ def create_incremental_backup(
         schema_version=2,
         incremental=True,
         base_manifest_checksum=base_manifest.manifest_checksum,
-        deleted=sorted(set(base_manifest.checksums) - seen),
+        deleted=sorted(set(previous_inventory) - seen),
     )
     manifest_checksum = hashlib.sha256(manifest_payload).hexdigest()
     _write_backup_archive(destination, _zip_payload(payloads, manifest_payload))
@@ -133,6 +136,7 @@ def create_incremental_backup(
         False,
         True,
         base_manifest.manifest_checksum,
+        {**{name: value for name, value in previous_inventory.items() if name in seen}, **checksums},
     )
 
 
@@ -355,9 +359,24 @@ def commit_incremental_restore(previews: list[RestorePreview] | tuple[RestorePre
             if consistency_error:
                 raise ValueError(consistency_error)
 
-        atomic_write_group(requests, precondition=precondition)
-        for name in sorted(deleted_names):
-            targets[name].unlink(missing_ok=True)
+        # Delete before publishing replacements, retaining the original bytes
+        # until the write group commits. Its own rollback covers replacements.
+        deletion_backups = {
+            name: targets[name].read_bytes()
+            for name in sorted(deleted_names)
+            if targets[name].is_file()
+        }
+        try:
+            precondition()
+            for name in sorted(deleted_names):
+                targets[name].unlink(missing_ok=True)
+            atomic_write_group(requests, precondition=precondition)
+        except Exception:
+            atomic_write_group([
+                AtomicWriteRequest(targets[name], payload, _checksum_validator(hashlib.sha256(payload).hexdigest(), name))
+                for name, payload in deletion_backups.items()
+            ])
+            raise
     except Exception as exc:
         return RestoreResult(Path(destination), 0, False, f"restore_failed:{type(exc).__name__}:{exc}")
     return RestoreResult(Path(destination), len(requests), True)
@@ -474,14 +493,14 @@ def _collect_payloads(
         relative = _archive_name(path)
         if origins.setdefault(relative, path.resolve()) != path.resolve():
             raise BackupError(f"archive_name_collision:{relative}")
-        if seen is not None:
-            seen.add(relative)
         data = path.read_bytes()
         if data.startswith(b"SQLite format 3\x00"):
             data = _sqlite_snapshot(path)
         if _secret_path(path) or _secret_content(data, path) or (not include_transient and _transient_path(path)):
             excluded.append(relative)
             continue
+        if seen is not None:
+            seen.add(relative)
         checksum = hashlib.sha256(data).hexdigest()
         if previous_checksums is not None and previous_checksums.get(relative) == checksum:
             continue
@@ -593,7 +612,9 @@ def _iter_files(paths: list[Path]) -> tuple[list[Path], list[Path]]:
 
     for path in paths:
         source = Path(path)
-        if source.is_dir():
+        if source.is_symlink() or os.path.isjunction(source) or _is_reparse_point(source):
+            skipped.append(source)
+        elif source.is_dir():
             root = source.resolve()
             for item in source.rglob("*"):
                 if item.is_symlink() or os.path.isjunction(item) or _is_reparse_point(item) or item.is_file():

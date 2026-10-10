@@ -165,7 +165,7 @@ def _scope_quote(quote_evidence: pd.DataFrame | Mapping[str, object] | None, ins
             break
     timestamp_column = next((column for column in ("quote_timestamp", "timestamp", "as_of", "date") if column in frame.columns), None)
     if timestamp_column is None:
-        return frame.reset_index(drop=True)
+        return pd.DataFrame()
     frame["_timestamp"] = pd.to_datetime(frame[timestamp_column], errors="coerce", utc=True, format="mixed")
     frame = frame[frame["_timestamp"].notna()]
     if cutoff is not None:

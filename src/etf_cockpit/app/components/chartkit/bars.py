@@ -165,7 +165,7 @@ def grouped_bar_chart(
         sc = Scene(w, h, label=insight or "")
         plot = Plot(w, h, margins or Margins(58, 56 if line_series else 20, 36, 50))
         known = [v for v in allv if v is not None]
-        hi = y_max if y_max is not None else max(known)
+        hi = y_max if y_max is not None else max(0.0, max(known))
         lo = y_min if y_min is not None else min(0.0, min(known))
         ys = y_axis(sc, plot, lo, max(hi, lo + 1e-9), name=y_name)
         x_axis_line(sc, plot, x_name)

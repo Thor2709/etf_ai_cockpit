@@ -277,7 +277,7 @@ def price_implied_state_weight(price: float, reference_value: float, improvement
 
 
 def implementation_shortfall(*, reference_price: float, filled_quantity: float, fill_price: float, unfilled_quantity: float = 0.0, end_price: float | None = None, fees: float = 0.0) -> dict[str, object]:
-    """Calculate shortfall only when a fill simulation supplies the inputs."""
+    """Require fill inputs and a finite end price for any unfilled quantity."""
 
     reference, filled, fill, unfilled, end, fee = map(_num, (reference_price, filled_quantity, fill_price, unfilled_quantity, end_price, fees))
     if None in (reference, filled, fill, unfilled, fee) or reference <= 0 or filled < 0 or unfilled < 0:
@@ -285,7 +285,9 @@ def implementation_shortfall(*, reference_price: float, filled_quantity: float, 
     total_quantity = filled + unfilled
     if total_quantity <= 0:
         return {"status": "unavailable", "reason_code": "FILL_SIMULATION_MISSING"}
-    opportunity = unfilled * max(0.0, (end if end is not None else reference) - reference)
+    if unfilled > 0 and end is None:
+        return {"status": "unavailable", "reason_code": "END_PRICE_MISSING"}
+    opportunity = unfilled * max(0.0, end - reference) if unfilled > 0 else 0.0
     implementation = filled * (fill - reference) + fee + opportunity
     return {"status": "resolved", "shortfall": implementation, "shortfall_pct": implementation / (reference * total_quantity), "filled_quantity": filled, "unfilled_quantity": unfilled, "execution_allowed": False}
 

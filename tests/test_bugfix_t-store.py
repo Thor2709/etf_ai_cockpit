@@ -343,3 +343,20 @@ def test_p08_n004_concurrent_credential_sets_keep_both_entries(
 
     assert vault.get("account-a") == "value-a"
     assert vault.get("account-b") == "value-b"
+
+
+@pytest.mark.parametrize("dates", [["2026-07-10", "2026-07-11"], ["2026-07-11", "2026-07-11"]])
+def test_int_store_1_holdings_date_alias_cannot_mask_required_dates(tmp_path: Path, dates) -> None:
+    source = tmp_path / "aliased-dates.csv"
+    pd.DataFrame({"as_of": ["2026-07-10", "2026-07-10"], "as_of_date": dates,
+                  "etf_id": ["ETF-A", "ETF-A"], "holding_name": ["Issuer A", "Issuer B"], "weight": [0.5, 0.5]}).to_csv(source, index=False)
+    preview = validate_import("etf_holdings", source)
+    assert preview.valid is False
+    assert "conflicting_date_alias:as_of" in preview.errors
+    if len(set(dates)) > 1:
+        assert "multiple_as_of_dates_not_allowed:as_of_date" in preview.errors
+    service = ImportService(tmp_path)
+    service.register(preview)
+    with pytest.raises(ValueError, match="valid import preview"):
+        service.commit(preview.preview_id)
+    assert not (tmp_path / "data" / "clean" / "fund_holdings.parquet").exists()

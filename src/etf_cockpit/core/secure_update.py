@@ -127,6 +127,12 @@ def detached_signature_errors(payload: bytes, signature: dict[str, object] | Non
     if signature is None or not key:
         return ["a signing key and detached signature are required"]
     errors: list[str] = []
+    for field in ("payload_sha256", "signature"):
+        value = signature.get(field)
+        if not isinstance(value, str) or len(value) != 64 or any(character not in "0123456789abcdefABCDEF" for character in value):
+            errors.append(f"detached signature {field} must be a 64-character hexadecimal ASCII digest")
+    if errors:
+        return errors
     if str(signature.get("payload_sha256", "")) != sha256_bytes(payload):
         errors.append("detached signature payload hash does not match the manifest")
     if not hmac.compare_digest(str(signature.get("signature", "")), hmac.new(key, payload, hashlib.sha256).hexdigest()):

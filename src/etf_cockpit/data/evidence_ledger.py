@@ -156,10 +156,8 @@ def _quality_acceptable(value: float | str | None) -> bool:
         return True
     if isinstance(value, str):
         return value.strip().casefold() in {"high", "medium", "good", "ok"}
-    try:
-        return float(value) >= 0.5
-    except (TypeError, ValueError):
-        return False
+    number = finite_float_or_none(value)
+    return number is not None and number >= 0.5
 
 
 def _number_or_none(value: object) -> float | None:

@@ -469,3 +469,175 @@ def test_chat_p08_n006(tmp_path: Path) -> None:
     report = run_static_execution_boundary_check(tmp_path)
 
     assert any(violation.code == "UNSCANNED_TOO_LARGE" and violation.path == "big.py" for violation in report.violations)
+
+
+@pytest.mark.parametrize("failure", ["directory_deletion", "directory_replacement"])
+def test_int_io_1_publication_failure_restores_both_artifacts(tmp_path, monkeypatch, failure) -> None:
+    from etf_cockpit.chatgpt_bridge import export_pack as ep
+
+    monkeypatch.setattr(ep, "CHATGPT_EXPORTS_DIR", tmp_path / "exports")
+    monkeypatch.setattr(ep, "_stage_review_pack", _fake_stage([
+        {"manifest.json": "good", "old.txt": "retained"}, {"manifest.json": "new", "new.txt": "candidate"},
+    ]))
+    zip_path = _export(ep)
+    export_dir = zip_path.with_suffix("")
+    before_zip = zip_path.read_bytes()
+    before_dir = {p.relative_to(export_dir): p.read_bytes() for p in export_dir.rglob("*") if p.is_file()}
+    original_delete, original_replace = ep.shutil.rmtree, ep.os.replace
+
+    def delete(path, *args, **kwargs):
+        if Path(path) == export_dir:
+            (export_dir / "old.txt").unlink()  # failure after a partial deletion
+            raise OSError("directory deletion failed")
+        return original_delete(path, *args, **kwargs)
+
+    def replace(source, target):
+        if Path(target) == export_dir and ".staging-" in Path(source).name and not Path(source).name.endswith(".backup"):
+            raise OSError("directory replacement failed")
+        return original_replace(source, target)
+
+    if failure == "directory_deletion":
+        monkeypatch.setattr(ep.shutil, "rmtree", delete)
+    else:
+        monkeypatch.setattr(ep.os, "replace", replace)
+    with pytest.raises(OSError, match="directory (deletion|replacement) failed"):
+        _export(ep)
+    assert zip_path.read_bytes() == before_zip
+    assert {p.relative_to(export_dir): p.read_bytes() for p in export_dir.rglob("*") if p.is_file()} == before_dir
+
+
+def test_int_io_2_three_archive_chain_preserves_deletions(tmp_path) -> None:
+    data = _data_tree(tmp_path / "live", {"a.txt": b"A", "b.txt": b"B"})
+    base = create_backup([data], tmp_path / "base.backup")
+    (data / "b.txt").write_bytes(b"B2")
+    delta_one = create_incremental_backup([data], tmp_path / "delta-one.backup", base)
+    assert set(delta_one.checksums) == {"data/b.txt"}
+    assert delta_one.inventory_checksums == {**base.checksums, **delta_one.checksums}
+    with zipfile.ZipFile(delta_one.archive) as archive:
+        assert set(archive.namelist()) == {"data/b.txt", "manifest.json"}
+        assert set(json.loads(archive.read("manifest.json"))["checksums"]) == {"data/b.txt"}
+    (data / "a.txt").unlink()
+    delta_two = create_incremental_backup([data], tmp_path / "delta-two.backup", delta_one)
+    with zipfile.ZipFile(delta_two.archive) as archive:
+        assert json.loads(archive.read("manifest.json"))["deleted"] == ["data/a.txt"]
+    assert set(delta_two.inventory_checksums) == {"data/b.txt"}
+    destination = tmp_path / "restored"
+    result = commit_incremental_restore([validate_restore(item.archive) for item in (base, delta_one, delta_two)], destination)
+    assert result.ok, result.error
+    assert not (destination / "data" / "a.txt").exists()
+    assert (destination / "data" / "b.txt").read_bytes() == b"B2"
+
+
+@pytest.mark.parametrize("failure", ["deletion", "replacement"])
+def test_int_io_3_failed_restore_preserves_every_original_file(tmp_path, monkeypatch, failure) -> None:
+    data = _data_tree(tmp_path / "live", {"a.txt": b"A", "b.txt": b"B", "c.txt": b"C"})
+    base = create_backup([data], tmp_path / "base.backup")
+    (data / "a.txt").unlink()
+    (data / "b.txt").unlink()
+    (data / "c.txt").write_bytes(b"changed")
+    (data / "new.txt").write_bytes(b"new")
+    delta = create_incremental_backup([data], tmp_path / "delta.backup", base)
+    destination = tmp_path / "destination"
+    restored_data = _data_tree(destination, {"a.txt": b"original-a", "b.txt": b"original-b", "c.txt": b"original-c", "extra.txt": b"extra"})
+    backup_restore.atomic_write_group([
+        backup_restore.AtomicWriteRequest(restored_data / "c.txt", b"original-c", lambda _path: None),
+    ])
+    before = {p.name: p.read_bytes() for p in restored_data.iterdir() if p.is_file()}
+    original_unlink = Path.unlink
+    original_group = backup_restore.atomic_write_group
+    failed = False
+
+    def unlink(path, *args, **kwargs):
+        nonlocal failed
+        if path == restored_data / "b.txt" and not failed:
+            failed = True
+            raise OSError("injected deletion failure")
+        return original_unlink(path, *args, **kwargs)
+
+    def group(requests, **kwargs):
+        nonlocal failed
+        if not failed:
+            failed = True
+            raise OSError("injected replacement failure")
+        return original_group(requests, **kwargs)
+
+    if failure == "deletion":
+        monkeypatch.setattr(Path, "unlink", unlink)
+    else:
+        monkeypatch.setattr(backup_restore, "atomic_write_group", group)
+    result = commit_incremental_restore([validate_restore(base.archive), validate_restore(delta.archive)], destination)
+    assert not result.ok and f"injected {failure} failure" in result.error
+    assert {p.name: p.read_bytes() for p in restored_data.iterdir() if p.is_file()} == before
+
+
+@pytest.mark.parametrize("link_kind", ["symlink", "junction", "reparse"])
+def test_int_io_4_direct_linked_roots_are_excluded_before_traversal(tmp_path, monkeypatch, link_kind) -> None:
+    source = _data_tree(tmp_path / "external", {"sentinel.txt": b"private"})
+    if link_kind == "symlink":
+        original = Path.is_symlink
+        monkeypatch.setattr(Path, "is_symlink", lambda p: p == source or original(p))
+    elif link_kind == "junction":
+        original = os.path.isjunction
+        monkeypatch.setattr(os.path, "isjunction", lambda p: Path(p) == source or original(p))
+    else:
+        original = backup_restore._is_reparse_point
+        monkeypatch.setattr(backup_restore, "_is_reparse_point", lambda p: p == source or original(p))
+    manifest = create_backup([source], tmp_path / "linked.backup")
+    assert manifest.checksums == {} and manifest.excluded == ("data",)
+    with zipfile.ZipFile(manifest.archive) as archive:
+        assert archive.namelist() == ["manifest.json"]
+
+
+def test_int_io_4_direct_directory_link_does_not_archive_target(tmp_path) -> None:
+    outside = _data_tree(tmp_path / "external", {"sentinel.txt": b"private"})
+    link = tmp_path / "data"
+    if os.name == "nt":
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(outside)], check=True, capture_output=True)
+    else:
+        link.symlink_to(outside, target_is_directory=True)
+    manifest = create_backup([link], tmp_path / "direct-link.backup")
+    assert manifest.checksums == {} and manifest.excluded == ("data",)
+    with zipfile.ZipFile(manifest.archive) as archive:
+        assert archive.namelist() == ["manifest.json"]
+
+
+def test_int_io_5_transformed_identifiers_do_not_share_manifests_or_generations(tmp_path) -> None:
+    from etf_cockpit.data.bulk_cache import _safe_name
+
+    raw = "feed/a"
+    constructed = _safe_name(raw, "source_id")
+    old_constructed = "feed_a-" + hashlib.sha256(raw.encode()).hexdigest()[:12]
+    cache = ContentAddressedCache(tmp_path)
+    source = tmp_path / "source.bin"
+    paths = []
+    for identifier in (raw, constructed, old_constructed):
+        source.write_bytes(identifier.encode())
+        first = cache.store_local_file(identifier, source)
+        second = cache.store_local_file(identifier, source)
+        assert first.manifest.version == 1 and second.manifest.version == 2
+        assert first.manifest.source_id == identifier
+        paths.append(cache._manifest_path(identifier))
+        staged = cache.stage_generation(identifier, identifier.encode(), source_sha256=first.manifest.content_sha256)
+        promoted = cache.promote_generation(staged)
+        assert promoted.dataset_id == identifier
+        assert Path(promoted.relative_path).parent.name == _safe_name(identifier, "dataset_id")
+        assert (tmp_path / promoted.relative_path).read_bytes() == identifier.encode()
+    assert len(set(paths)) == 3
+    assert all(path.is_file() for path in paths)
+
+
+@pytest.mark.parametrize("field", ["payload_sha256", "signature"])
+@pytest.mark.parametrize("invalid", ["\u00e9", "g" * 64, "0" * 63, None, 1, []])
+def test_int_io_6_malformed_detached_signature_blocks_certification(tmp_path, monkeypatch, field, invalid) -> None:
+    release = tmp_path / "artifacts" / "release" / "issue-0152"
+    release.mkdir(parents=True)
+    payload = json.dumps({"git": {"head": "abc123"}}).encode()
+    (release / "release-manifest.json").write_bytes(payload)
+    signature = {"status": "signed", "payload_sha256": hashlib.sha256(payload).hexdigest(),
+                 "signature": hmac.new(KEY, payload, hashlib.sha256).hexdigest()}
+    signature[field] = invalid
+    (release / "release-manifest.sig.json").write_text(json.dumps(signature), encoding="utf-8")
+    monkeypatch.setenv(SIGNING_KEY_ENV, KEY.decode())
+    assert secure_update.detached_signature_errors(payload, signature, KEY)
+    status, reason = _signed_manifest_status(tmp_path, "abc123")
+    assert status == "blocked" and "not cryptographically verified" in reason
