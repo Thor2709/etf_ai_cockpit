@@ -19,6 +19,7 @@ import pandas as pd
 from etf_cockpit.analysis import stock_metrics as sm
 from etf_cockpit.analysis.stock_evidence import AnalystInputs, MarketInputs, StockEvidence, build_stock_evidence
 from etf_cockpit.analysis.stock_peers import PeerPick, PeerProfile, auto_peers, effective_peers
+from etf_cockpit.core.frame_signature import columns_key
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data import stock_fundamentals as store
 from etf_cockpit.data.stock_peer_picks import load_user_peers
@@ -216,11 +217,13 @@ def build_universe_evidence(
     extra_ids = sorted({p for picks in user_picks.values() for p in picks} - set(ids))
     all_records = list(records) + [StockRecord(f"peer:{p}", p, p, "", "", "") for p in extra_ids]
     first: dict[str, StockEvidence] = {}
+    analysts: dict[str, Mapping[str, Any] | None] = {}
     for record in all_records:
         iid = record.instrument_id
         periods = store.periods_for(iid, periods_frame, chain)
         snapshot = store.latest_snapshot(iid, snapshots, decision_time)
         analyst = store.latest_analyst(iid, periods_frame, decision_time)
+        analysts[iid] = analyst
         reporting = None
         known = sm.known_periods(periods, decision_time)
         if known:
@@ -253,7 +256,7 @@ def build_universe_evidence(
         periods = store.periods_for(iid, periods_frame, chain)
         snapshot = store.latest_snapshot(iid, snapshots, decision_time)
         result.evidence[iid] = build_stock_evidence(
-            iid, periods, decision_time, result.prices[iid], analyst_inputs(analyst), cfg,
+            iid, periods, decision_time, result.prices[iid], analyst_inputs(analysts[iid]), cfg,
             peer_values=scoped, no_data_reason=store.no_data_reason(iid, snapshots, decision_time, bool(sm.known_periods(periods, decision_time))),
         )
     for pid, evidence in first.items():
@@ -293,8 +296,11 @@ def get_universe_evidence(
     picks_path = Path(root or ROOT) / "data" / "stock_peers" / "user_peers.json"
     stamps += (picks_path.stat().st_mtime_ns if picks_path.is_file() else 0,)
     config_stamp = store.config_path(root).stat().st_mtime_ns
-    last_price = str(prices["date"].max()) if prices is not None and not prices.empty and "date" in prices else ""
-    key = repr((str(root or ROOT), stamps, config_stamp, tuple((r.instrument_id, r.lifecycle_date) for r in records), last_price, len(prices) if prices is not None else 0, decision_time.isoformat()))
+    price_columns = tuple(str(column) for column in prices.columns) if isinstance(prices, pd.DataFrame) else ()
+    price_key = columns_key(prices, price_columns) if price_columns and all(isinstance(column, str) for column in prices.columns) else None
+    if price_key is None:
+        return build_universe_evidence(records, prices, decision_time, root=root)
+    key = repr((str(root or ROOT), stamps, config_stamp, repr(records), price_key, decision_time.isoformat()))
     with _LOCK:
         if _CACHE.get("key") == key:
             return _CACHE["value"]

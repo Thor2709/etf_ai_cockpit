@@ -368,8 +368,10 @@ def canonical_score_from_signal_row(
     ):
         raise CanonicalScoreError("EC instruments must use the native Sparebank scorecard")
     instrument_id = str(row.get("etf_id") or row.get("instrument_id") or "unknown")
-    as_of = str(decision_time.isoformat() if isinstance(decision_time, date) else decision_time)
-    price_freshness = "ok" if as_of not in {"", "None", "nan"} else "unknown"
+    freshness = row.get("price_freshness")
+    price_freshness = str(freshness).strip().casefold() if freshness is not None else "unknown"
+    if price_freshness in {"", "none", "nan", "<na>"}:
+        price_freshness = "unknown"
     source = "yfinance:prices"
     components = [
         _signal_component("momentum", row.get("score_momentum"), "attractiveness", source, price_freshness, "Momentum evidence."),

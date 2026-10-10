@@ -56,13 +56,13 @@ def test_sharpe_is_unavailable_without_a_risk_free_rate() -> None:
 
 def test_forecast_quantiles_are_passed_through_never_interpolated() -> None:
     view = build_stock_view(_prices(), _forecasts(with_q25=False), "AAA", "1Y")
-    line = view.forecasts[0]
-    assert len(line.dates) == 3 and all(v is None for v in line.q25 + line.q75)  # no 50% fan invented
-    complete = build_stock_view(_prices(), _forecasts(), "AAA", "1Y").forecasts[0]
-    assert all(v is not None for v in complete.q25)
+    assert view.forecasts == [] and view.baseline is None
+    complete = build_stock_view(_prices(), _forecasts(), "AAA", "1Y")
+    assert complete.forecasts == [] and complete.baseline is None
     broken = _forecasts()
     broken.loc[0, "q50_return"] = np.nan
-    assert len(build_stock_view(_prices(), broken, "AAA", "1Y").forecasts[0].dates) == 2  # the incomplete row is skipped
+    unavailable = build_stock_view(_prices(), broken, "AAA", "1Y")
+    assert unavailable.forecasts == [] and unavailable.baseline is None
 
 
 def test_missing_attribution_components_stay_unavailable_and_empty_prices_are_explained() -> None:

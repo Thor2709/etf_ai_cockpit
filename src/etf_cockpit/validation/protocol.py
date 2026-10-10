@@ -173,6 +173,9 @@ def evaluate_trials(
     baseline_mean = validation_means.get(baseline_trial_id)
     final_score = float(arrays[selected_id][final_indices].mean())
     final_scores = {trial_id: float(values[final_indices].mean()) for trial_id, values in arrays.items()}
+    baseline_final_score = final_scores.get(baseline_trial_id)
+    if baseline_final_score is None:
+        warnings.append("baseline_final_score_unavailable")
     trial_rows = [
         ValidationTrial(
             row.trial_id,
@@ -203,7 +206,7 @@ def evaluate_trials(
         stable = False
     if not stable:
         warnings.append("promotion_evidence_insufficient_or_unstable")
-    promotion = bool(stable and final_score >= baseline_mean)
+    promotion = bool(stable and baseline_final_score is not None and final_score >= baseline_final_score)
     return ValidationReport(
         VALIDATION_PROTOCOL_VERSION,
         definition,

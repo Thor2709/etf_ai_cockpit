@@ -134,7 +134,7 @@ class EtfLiquidityReport:
         return asdict(self)
 
 
-def _scope_prices(price_history: pd.DataFrame, instrument_id: str) -> pd.DataFrame:
+def _scope_prices(price_history: pd.DataFrame, instrument_id: str, as_of: object = None) -> pd.DataFrame:
     frame = price_history.copy()
     for column in _QUOTE_ID_COLUMNS:
         if column in frame.columns:
@@ -144,10 +144,15 @@ def _scope_prices(price_history: pd.DataFrame, instrument_id: str) -> pd.DataFra
         return pd.DataFrame()
     frame["_date"] = pd.to_datetime(frame["date"], errors="coerce", utc=True, format="mixed")
     frame = frame[frame["_date"].notna()].sort_values("_date", kind="stable")
+    if as_of is not None:
+        cutoff = _as_of_timestamp(as_of, None)
+        if cutoff is None:
+            return pd.DataFrame()
+        frame = frame[frame["_date"].le(cutoff)]
     return frame.drop_duplicates("_date", keep="last")
 
 
-def _scope_quote(quote_evidence: pd.DataFrame | Mapping[str, object] | None, instrument_id: str) -> pd.DataFrame:
+def _scope_quote(quote_evidence: pd.DataFrame | Mapping[str, object] | None, instrument_id: str, cutoff: pd.Timestamp | None = None) -> pd.DataFrame:
     if isinstance(quote_evidence, Mapping):
         frame = pd.DataFrame([dict(quote_evidence)])
     elif isinstance(quote_evidence, pd.DataFrame):
@@ -162,7 +167,10 @@ def _scope_quote(quote_evidence: pd.DataFrame | Mapping[str, object] | None, ins
     if timestamp_column is None:
         return frame.reset_index(drop=True)
     frame["_timestamp"] = pd.to_datetime(frame[timestamp_column], errors="coerce", utc=True, format="mixed")
-    return frame[frame["_timestamp"].notna()].sort_values("_timestamp", kind="stable").reset_index(drop=True)
+    frame = frame[frame["_timestamp"].notna()]
+    if cutoff is not None:
+        frame = frame[frame["_timestamp"].le(cutoff)]
+    return frame.sort_values("_timestamp", kind="stable").reset_index(drop=True)
 
 
 def _quote_value(row: Mapping[str, object], *names: str) -> float | None:
@@ -173,8 +181,9 @@ def _quote_value(row: Mapping[str, object], *names: str) -> float | None:
     return None
 
 
-def _quote_context(quote_evidence: pd.DataFrame | Mapping[str, object] | None, instrument_id: str, as_of: object, latest_price_date: object) -> dict[str, object]:
-    frame = _scope_quote(quote_evidence, instrument_id)
+def _quote_context(quote_evidence: pd.DataFrame | Mapping[str, object] | None, instrument_id: str, as_of: object, latest_price_date: object, native_currency: str | None = None) -> dict[str, object]:
+    reference = _as_of_timestamp(as_of, latest_price_date)
+    frame = _scope_quote(quote_evidence, instrument_id, reference)
     if frame.empty:
         return {
             "quote_status": "unavailable",
@@ -182,16 +191,22 @@ def _quote_context(quote_evidence: pd.DataFrame | Mapping[str, object] | None, i
             "missing_evidence": {"bid_ask", "nav", "quote_timestamp"},
         }
     row = frame.iloc[-1].to_dict()
-    bid = _quote_value(row, "bid", "bid_eur")
-    ask = _quote_value(row, "ask", "ask_eur")
+    row_currency = _text(row.get("currency") or row.get("quote_currency"))
+    allow_untyped = (row_currency or native_currency or "").upper() == "EUR"
+    bid = _quote_value(row, "bid_eur")
+    ask = _quote_value(row, "ask_eur")
+    if allow_untyped:
+        bid = bid if bid is not None else _quote_value(row, "bid")
+        ask = ask if ask is not None else _quote_value(row, "ask")
     mid = (bid + ask) / 2.0 if bid is not None and ask is not None and ask >= bid else None
-    nav = _quote_value(row, "nav", "nav_eur", "indicative_nav", "indicative_nav_eur")
+    nav = _quote_value(row, "nav_eur", "indicative_nav_eur")
+    if allow_untyped and nav is None:
+        nav = _quote_value(row, "nav", "indicative_nav")
     timestamp = _latest_timestamp(row.get("_timestamp")) or _latest_timestamp(row.get("quote_timestamp")) or _latest_timestamp(row.get("timestamp")) or _latest_timestamp(row.get("as_of"))
-    reference = _as_of_timestamp(as_of, latest_price_date)
     age_hours = None
     stale = None
     if timestamp is not None and reference is not None:
-        age_hours = max(0.0, (reference - timestamp).total_seconds() / 3600.0)
+        age_hours = (reference - timestamp).total_seconds() / 3600.0
         stale = age_hours > 24.0
     session = (_text(row.get("session")) or _text(row.get("quote_session")) or "").casefold().replace("-", "_").replace(" ", "_")
     off_hours = session in _OFF_HOURS_SESSIONS if session else None
@@ -211,6 +226,9 @@ def _quote_context(quote_evidence: pd.DataFrame | Mapping[str, object] | None, i
         missing.add("nav")
     if timestamp is None:
         missing.add("quote_timestamp")
+    untyped_fields = (("bid", "bid_eur"), ("ask", "ask_eur"), ("nav", "nav_eur"), ("indicative_nav", "indicative_nav_eur"))
+    if not allow_untyped and any(_positive(row.get(plain)) is not None and _positive(row.get(eur)) is None for plain, eur in untyped_fields):
+        missing.add("quote_currency_not_eur")
     return {
         "quote_status": "available",
         "quote_freshness": freshness,
@@ -249,7 +267,7 @@ def calculate_etf_liquidity(
     """Calculate local ETF liquidity, capacity and premium/discount evidence."""
 
     instrument = str(instrument_id or "").strip() or "unknown"
-    frame = _scope_prices(price_history, instrument)
+    frame = _scope_prices(price_history, instrument, as_of)
     if frame.empty:
         return _empty_report(instrument, "No dated local price history is available for ETF economics.")
     if "close" not in frame.columns or "volume" not in frame.columns:
@@ -289,7 +307,7 @@ def calculate_etf_liquidity(
     zero_days = int((recent_volume <= 0).sum())
     zero_rate = zero_days / len(recent_volume) if len(recent_volume) else None
     latest_date = frame["_date"].iloc[-1]
-    quote = _quote_context(quote_evidence, instrument, as_of, latest_date)
+    quote = _quote_context(quote_evidence, instrument, as_of, latest_date, _native_currency(config, frame, instrument))
     effective_spread = quote.get("quoted_spread_bps") if quote.get("quoted_spread_bps") is not None else spread_bps
     spread_source = "quoted_bid_ask" if quote.get("quoted_spread_bps") is not None else "high_low_proxy" if spread_bps is not None else "unavailable"
     order = max(0.0, _finite(order_value_eur) or 0.0)

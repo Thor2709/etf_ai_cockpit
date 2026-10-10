@@ -133,11 +133,15 @@ def uncertainty_gate_reasons(
         reasons.append("forecast_model_disagreement")
     values = _settings(settings)
     minimum = _probability(values.get("minimum_confidence")) if values is not None else None
+    maximum_age = _positive(values.get("maximum_forecast_age_days")) if values is not None else None
     confidence = _probability(effective_confidence)
-    if minimum is None:
+    if minimum is None or maximum_age is None:
         reasons.append("forecast_uncertainty_config_invalid")
     elif confidence is None or confidence < minimum:
         reasons.append("forecast_confidence_below_threshold")
+    age = _finite(assessment.get("forecast_age_days"))
+    if age is None or (maximum_age is not None and age > maximum_age):
+        reasons.append("forecast_stale")
     return reasons
 
 

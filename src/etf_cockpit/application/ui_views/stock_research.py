@@ -41,6 +41,7 @@ class StockView:
     dividend_index: list[int] = field(default_factory=list)
     forecasts: list[ForecastLine] = field(default_factory=list)
     baseline: ForecastLine | None = None
+    forecast_note: str | None = None
     unavailable_price: str | None = None
     # stat tiles
     total_return: float | None = None
@@ -97,13 +98,28 @@ def month_end_returns(frame: pd.DataFrame, months: int = 12) -> pd.Series:
     return (monthly / monthly.shift(months) - 1.0).dropna()
 
 
-def _forecast_lines(forecasts: pd.DataFrame, instrument_id: str, last_date: pd.Timestamp, last_close: float) -> list[ForecastLine]:
+def _forecast_lines(forecasts: pd.DataFrame, instrument_id: str, last_date: pd.Timestamp, prices: pd.DataFrame) -> tuple[list[ForecastLine], bool]:
     """Pass-through of stored quantile rows; a row with a missing or unordered q10/q50/q90 is skipped."""
-    needed = {"etf_id", "model_name", "horizon_days", "q10_return", "q50_return", "q90_return"}
+    needed = {"etf_id", "model_name", "forecast_date", "horizon_days", "q10_return", "q50_return", "q90_return"}
     if forecasts is None or forecasts.empty or not needed.issubset(forecasts.columns):
-        return []
+        return [], False
     rows = forecasts[forecasts["etf_id"].astype(str) == str(instrument_id)]
+    if rows.empty:
+        return [], False
+    dates = pd.to_datetime(rows["forecast_date"], errors="coerce", utc=True)
+    rows = rows.loc[dates.notna()].copy()
+    if rows.empty:
+        return [], False
+    rows["__forecast_date"] = pd.to_datetime(rows["forecast_date"], errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
+    latest_vintage = rows["__forecast_date"].max()
+    rows = rows.loc[rows["__forecast_date"].eq(latest_vintage)]
+    if "date" not in prices.columns or "close" not in prices.columns:
+        return [], False
+    price_dates = pd.to_datetime(prices["date"], errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
+    price_closes = pd.to_numeric(prices["close"], errors="coerce")
+    close_by_date = {day: finite(close) for day, close in zip(price_dates, price_closes, strict=True) if pd.notna(day)}
     lines: list[ForecastLine] = []
+    stale = False
     for model, group in rows.groupby("model_name", sort=True):
         line = ForecastLine(str(model), [], [], [], [], [], [])
         for _, row in group.sort_values("horizon_days").iterrows():
@@ -111,18 +127,26 @@ def _forecast_lines(forecasts: pd.DataFrame, instrument_id: str, last_date: pd.T
             q10, q50, q90 = (finite(row.get(name)) for name in ("q10_return", "q50_return", "q90_return"))
             if horizon is None or horizon <= 0 or q10 is None or q50 is None or q90 is None or not q10 <= q50 <= q90:
                 continue
+            forecast_date = row["__forecast_date"]
+            target_date = forecast_date + pd.Timedelta(days=int(horizon))
+            if target_date <= last_date:
+                stale = True
+                continue
+            forecast_close = close_by_date.get(forecast_date)
+            if forecast_close is None:
+                continue
             q25, q75 = finite(row.get("q25_return")), finite(row.get("q75_return"))
             if q25 is None or q75 is None or not q10 <= q25 <= q50 <= q75 <= q90:
                 q25 = q75 = None  # never interpolated: the 50% fan is simply not drawn
-            line.dates.append(last_date + pd.Timedelta(days=int(horizon)))
-            line.q10.append(last_close * (1 + q10))
-            line.q50.append(last_close * (1 + q50))
-            line.q90.append(last_close * (1 + q90))
-            line.q25.append(None if q25 is None else last_close * (1 + q25))
-            line.q75.append(None if q75 is None else last_close * (1 + q75))
+            line.dates.append(target_date)
+            line.q10.append(forecast_close * (1 + q10))
+            line.q50.append(forecast_close * (1 + q50))
+            line.q90.append(forecast_close * (1 + q90))
+            line.q25.append(None if q25 is None else forecast_close * (1 + q25))
+            line.q75.append(None if q75 is None else forecast_close * (1 + q75))
         if line.dates:
             lines.append(line)
-    return lines
+    return lines, stale
 
 
 def build_stock_view(
@@ -236,7 +260,9 @@ def build_stock_view(
 
     last_close = view.close[-1] if view.close else None
     if last_close is not None:
-        lines = _forecast_lines(forecasts, instrument_id, last, last_close)
+        lines, stale = _forecast_lines(forecasts, instrument_id, last, full)
+        if not lines and stale:
+            view.forecast_note = "forecast stale"
         view.baseline = next((line for line in lines if "baseline" in line.model.casefold()), None)
         view.forecasts = [line for line in lines if line is not view.baseline]
     return view
