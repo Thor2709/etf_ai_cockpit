@@ -58,3 +58,13 @@ The existing assertions updated were `tests/test_canonical_scoring.py` (missing 
 - `docs/development/bf-t-pit-HANDOFF.md`
 
 NEEDS_OPUS_DECISION: P07-N011 page rendering in `src/etf_cockpit/app/pages/stock_research.py` is outside the write set. Validation is also blocked by the existing statement UI assertion and repeatable temporary-directory cleanup failure described above.
+
+## Correction pass
+
+Cause (both tests): P04-N012 (`canonical_scoring.py`) no longer derives `price_freshness="ok"` from a non-empty decision date; the adapter reads `row["price_freshness"]` and defaults to `unknown` (ineligible, composite `None`). Both tests supplied only a decision date, so they pinned exactly the bug the plan row fixes.
+
+Fix: source code unchanged (the planned fix stays). Each test now asserts both halves with equally strict checks: a row without freshness gives `legacy_composite_raw is None`; the same row with `price_freshness="ok"` keeps the original expected value.
+- `tests/bughunt/test_repro_s3.py::test_s3_07_baseline_ensemble_weight_is_preserved`: fresh row -> 0.5 (baseline weight preserved), unknown -> None.
+- `tests/test_scoring_pit_and_policy_fixes.py::test_baseline_weight_is_redistributed_from_unavailable_models`: fresh row -> 0.375 (timesfm 0.25 split 50/50), unknown -> None.
+
+Result: both tests and `tests/test_bugfix_t-pit.py` pass (20 passed). No goldens touched.
