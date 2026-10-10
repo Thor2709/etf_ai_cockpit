@@ -8,7 +8,7 @@ Owner-picked peers are kept in the display preferences and only change the order
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 import json
 import math
@@ -45,6 +45,43 @@ def _number(value: object) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def axis_evidence_groups(scorecard: Mapping[str, object]) -> tuple[list[str], list[str]]:
+    """(axes with no rating at all, axes rated on partial evidence), from the scorecard's own axis results.
+
+    The scorecard's ``missing_axes`` lists every axis below full coverage, so it also names axes that show a
+    rating; pages must describe those separately instead of claiming they have no evidence.
+    """
+
+    without: list[str] = []
+    partial: list[str] = []
+    axes = scorecard.get("axes")
+    for axis_id, axis in (axes.items() if isinstance(axes, Mapping) else ()):
+        if not isinstance(axis, Mapping):
+            continue
+        coverage = _number(axis.get("coverage"))
+        if _number(axis.get("rating_10")) is None:
+            without.append(str(axis_id))
+        elif coverage is not None and coverage < 1.0:
+            partial.append(str(axis_id))
+    return without, partial
+
+
+def axis_evidence_notes(without: Sequence[object] | None, partial: Sequence[object] | None, incomplete: Sequence[object] = ()) -> list[str]:
+    """Plain-language header lines about axis evidence; ``incomplete`` is the legacy undifferentiated list."""
+
+    def names(items: Sequence[object]) -> str:
+        return ", ".join(str(item).replace("_", " ") for item in items)
+
+    notes: list[str] = []
+    if without:
+        notes.append(f"Axes without a rating (no evidence): {names(without)}.")
+    if partial:
+        notes.append(f"Axes rated on partial evidence: {names(partial)}.")
+    if not notes and incomplete:
+        notes.append(f"Axes with incomplete evidence: {names(incomplete)}.")
+    return notes
+
+
 def peer_row(instrument_id: str, name: str, analysis: Mapping[str, object], as_of: str) -> dict[str, object]:
     """One summary row from a Sparebank analysis payload."""
 
@@ -72,6 +109,8 @@ def peer_row(instrument_id: str, name: str, analysis: Mapping[str, object], as_o
         "ttm_yield": _number(dividends.get("ttm_yield")),
         "gate_reasons": [str(item) for item in (scorecard.get("gate_reasons") or ())],
         "missing_axes": [str(item) for item in (scorecard.get("missing_axes") or ())],
+        "axes_without_rating": axis_evidence_groups(scorecard)[0],
+        "axes_partial_evidence": axis_evidence_groups(scorecard)[1],
         "formula_version": scorecard.get("formula_version"),
     }
     for source, target in _INPUT_FIELDS.items():

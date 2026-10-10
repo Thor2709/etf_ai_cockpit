@@ -148,3 +148,31 @@ def test_k05_scorecard_owned_gate_tiles_do_not_show_generic_failures() -> None:
     rows = stock_research._gate_rows(_bank_score(8.6), view, {"ter": ""})
     assert len(rows) == 4 and all(row[0] is not False for row in rows)
     assert any("Not used for banks" in row[2] for row in rows)
+
+
+# --- K06: Sparebank axes header ------------------------------------------------------------------
+
+
+def test_k06_axes_header_separates_unrated_from_partially_evidenced_axes() -> None:
+    from etf_cockpit.application.sparebank_peers import axis_evidence_groups, axis_evidence_notes, peer_row
+
+    scorecard = {
+        "axes": {
+            "capital": {"rating_10": 7.3, "coverage": 1.0},
+            "credit_concentration": {"rating_10": 9.7, "coverage": 0.5},
+            "owner_claim_integrity": {"rating_10": None, "coverage": 0.0},
+        },
+        "missing_axes": ["credit_concentration", "owner_claim_integrity"],
+    }
+    without, partial = axis_evidence_groups(scorecard)
+    assert (without, partial) == (["owner_claim_integrity"], ["credit_concentration"])
+    notes = axis_evidence_notes(without, partial)
+    assert notes == [
+        "Axes without a rating (no evidence): owner claim integrity.",
+        "Axes rated on partial evidence: credit concentration.",
+    ]
+    assert all("credit concentration" not in note for note in notes if "without" in note)
+    # stored rows from before this change only know the undifferentiated list: say so, never "without evidence"
+    assert axis_evidence_notes(None, None, ["credit_concentration"]) == ["Axes with incomplete evidence: credit concentration."]
+    row = peer_row("NONG", "Nord", {"scorecard": scorecard}, "2026-10-08")
+    assert row["axes_without_rating"] == ["owner_claim_integrity"] and row["axes_partial_evidence"] == ["credit_concentration"]

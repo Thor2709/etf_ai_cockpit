@@ -39,6 +39,7 @@ from etf_cockpit.application.instrument_detail_view import (
     _operational_evidence_panel,
 )
 from etf_cockpit.application.score_views import confidence_cap_note, score_card_values, sparebank_score_context
+from etf_cockpit.application.sparebank_peers import axis_evidence_notes
 from etf_cockpit.application.ui_facade import build_simple_instrument_scores
 from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections  # noqa: F401
 
@@ -299,9 +300,10 @@ def _score_detail(score: object | None, page: ft.Page | None, state: object) -> 
             )
         if gate_codes:
             bank_notes.append(Note("Gate reasons: " + ", ".join(code.replace("_", " ").lower() for code in gate_codes) + "."))
-        axes_without = [str(item).replace("_", " ") for item in context.get("missing_axes", ()) or ()]
-        if axes_without:
-            bank_notes.append(Note("Axes without evidence: " + ", ".join(axes_without) + "."))
+        for note in axis_evidence_notes(
+            context.get("axes_without_rating"), context.get("axes_partial_evidence"), context.get("missing_axes", ()) or ()
+        ):
+            bank_notes.append(Note(note))
         bank_notes.append(Note("Tier, ranking and portfolio-fit columns that apply to ETFs and stocks are not used for banks; open the instrument page for each axis, input and reason."))
     authority = _read(score, "authority_decision")
     gates = _read(authority, "gates", ()) or ()
