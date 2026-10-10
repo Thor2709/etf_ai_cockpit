@@ -359,9 +359,9 @@ def test_k09_evidence_cards_collapse_raw_record_lines() -> None:
     assert any("run_id=score_2026" in text for text in texts)  # still available for the technical reader ...
     top_level = [control for control in _walk(card) if isinstance(control, ft.Text) and control.value and "run_id=" in str(control.value)]
     disclosures = [control for control in _walk(card) if isinstance(getattr(control, "data", None), dict) and control.data.get("kit") == "Disclosure"]
-    assert any(str(control.data["label"]).startswith("Records (") for control in disclosures)  # ... but inside a collapsed Disclosure
+    assert any(str(control.data["label"]) == "Evidence records" for control in disclosures)  # ... but inside a collapsed Disclosure
     for text_control in top_level:
-        assert any(text_control in set(_walk(disclosure)) for disclosure in disclosures if str(disclosure.data["label"]).startswith("Records ("))
+        assert any(text_control in set(_walk(disclosure)) for disclosure in disclosures if str(disclosure.data["label"]) == "Evidence records")
 
 
 def test_k09_unavailable_reasons_on_the_detail_page_are_plain() -> None:
