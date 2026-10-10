@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import socket
 import sys
@@ -11,6 +12,9 @@ from itertools import count
 from datetime import datetime
 from pathlib import Path
 
+from etf_cockpit.core.atomic_io import atomic_write_json
+from etf_cockpit.core.paths import WEB_INSTANCE_PATH
+from etf_cockpit.core.process import pid_is_alive
 from etf_cockpit.core.runtime import configure_runtime_environment
 
 _RUNTIME_TEMP = configure_runtime_environment()
@@ -249,16 +253,33 @@ def _local_http_ready(url: str) -> bool:
         return False
 
 
+def _is_own_web_instance(port: int) -> bool:
+    """True when the runtime file names this port and a live process (a foreign server on the port never matches)."""
+
+    try:
+        record = json.loads(WEB_INSTANCE_PATH.read_text(encoding="utf-8"))
+        return int(record["port"]) == port and pid_is_alive(int(record["pid"]))
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
+def _record_web_instance(port: int) -> None:
+    try:
+        atomic_write_json(WEB_INSTANCE_PATH, {"port": port, "pid": os.getpid()})
+    except Exception as exc:  # the record is best-effort; without it a later start simply uses another port
+        _startup_log(f"web instance record not written: {type(exc).__name__}: {exc}")
+
+
 def _reuse_existing_web_server(port: int, open_browser: bool) -> bool:
     url = f"http://127.0.0.1:{port}/"
     if not _is_port_listening("127.0.0.1", port):
         return False
-    if _local_http_ready(url):
+    if _is_own_web_instance(port) and _local_http_ready(url):
         _startup_log(f"existing local web server detected on {url}; reusing it")
         if open_browser:
             webbrowser.open(url)
         return True
-    _startup_log(f"port {port} is already in use, but {url} did not return HTTP readiness; not starting duplicate server")
+    _startup_log(f"port {port} is in use by a server that is not this app's running instance; not reusing it")
     return False
 
 
@@ -312,6 +333,7 @@ def run() -> None:
             return
         port = _fallback_port_if_busy(port)
         os.environ["ETF_COCKPIT_PORT"] = str(port)
+        _record_web_instance(port)
         init_session_log(clear=False, build_mode="web", port=port, route="/")
         view = ft.AppView.WEB_BROWSER
         embedded_platform = os.environ.pop("FLET_PLATFORM", None)

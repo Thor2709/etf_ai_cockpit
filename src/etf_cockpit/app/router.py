@@ -10,7 +10,7 @@ import flet as ft
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import panel
 from etf_cockpit.app.components.depth_selector import depth_label
-from etf_cockpit.app.components.kit import glass_panel
+from etf_cockpit.app.components.kit import Note, glass_panel
 from etf_cockpit.app.components.kit._base import txt
 from etf_cockpit.app.components.shell._glass import glass
 from etf_cockpit.app.components.shell.depth_dialog import open_depth_dialog
@@ -141,13 +141,19 @@ def instrument_detail_route(instrument_id: str) -> str:
     return f"/instrument/{value}" if value else "/instrument"
 
 
-def _page_route(route: str) -> str:
-    """Return the registered route while preserving query/hash targets for pages."""
+def _route_parts(route: str) -> tuple[str, str | None]:
+    """Return ``(registered page route, instrument id)``; query and hash never reach either part."""
 
     value = str(route or "/").split("?", 1)[0].split("#", 1)[0] or "/"
     if value.startswith("/instrument/"):
-        return "/instrument"
-    return value
+        return "/instrument", value.split("/", 2)[-1].strip() or None
+    return value, None
+
+
+def _page_route(route: str) -> str:
+    """Return the registered route while preserving query/hash targets for pages."""
+
+    return _route_parts(route)[0]
 
 
 def workspace_for_route(route: str) -> str:
@@ -190,7 +196,7 @@ def _shell_controls(state: AppState) -> object | None:
 
 def navigate_to(page: ft.Page, state: AppState, route: str, *, candidate_score: object | None = None) -> None:
     if str(route).startswith("/instrument/"):
-        selected = str(route).split("/", 2)[-1].strip()
+        selected = _route_parts(route)[1]
         if selected:
             state.selected_etf = selected
             state.selected_instrument_score = candidate_score
@@ -222,6 +228,12 @@ def navigate_to(page: ft.Page, state: AppState, route: str, *, candidate_score: 
 MIN_BODY_HEIGHT = 742  # row A 420 + gap + row B 300 (spec 1): below this the body scrolls inside the main area
 MIN_BODY_HEIGHT_NARROW = 1400  # stacked cards in one column (spec 1, width < 1100)
 _CHROME_HEIGHT = 24 + 80 + 22 + 22 + 48 + 24  # margins, top bar, two gaps, footer
+
+
+def _body_scrolls(height: float, narrow: bool) -> bool:
+    """True when the area below the chrome is shorter than the body's minimum height (body scrolls inside)."""
+
+    return height - _CHROME_HEIGHT < (MIN_BODY_HEIGHT_NARROW if narrow else MIN_BODY_HEIGHT)
 
 
 def _window_size(page: ft.Page, state: AppState, width: float | None = None) -> tuple[float, float]:
@@ -260,6 +272,7 @@ _RENDER_LOCK = threading.RLock()
 _RENDER_GENERATIONS = count(1)
 SKELETON_PATIENCE_S = 0.08  # a page that builds faster than this is painted once, without a skeleton frame
 _DEFERRED_UPDATE_KEY = "shell.deferred-update"
+_PAGE_UPDATE_SWAP_LOCK = threading.RLock()
 
 
 def _deferred_callbacks(root: object, *, consume: bool = False) -> list[tuple[ft.Control, Callable[[], object]]]:
@@ -290,7 +303,27 @@ def _deferred_callbacks(root: object, *, consume: bool = False) -> list[tuple[ft
     return pending
 
 
-def _resolve_deferred_controls(page: ft.Page, built: object) -> object:
+def _deferred_failure(target: ft.Control, route: str, exc: Exception) -> None:
+    """Log a failed section filler and replace its "Preparing…" content with a visible notice."""
+
+    log_event(
+        event_type="deferred_section_failure",
+        severity="error",
+        route=route,
+        component="navigation",
+        button_label="Section unavailable",
+        operation="deferred_update",
+        status="failed",
+        message=f"{type(exc).__name__}: {exc}",
+    )
+    notice = Note(f"This section could not load: {type(exc).__name__}")
+    if hasattr(target, "content"):
+        target.content = notice
+    elif isinstance(getattr(target, "controls", None), list):
+        target.controls = [notice]
+
+
+def _resolve_deferred_controls(page: ft.Page, built: object, route: str = "") -> object:
     """Fill a fresh, unmounted page tree before the router mounts it."""
 
     for _ in range(64):
@@ -298,11 +331,12 @@ def _resolve_deferred_controls(page: ft.Page, built: object) -> object:
         if not pending:
             return built
         replaced = False
-        for _target, callback in pending:
+        for target, callback in pending:
             try:
-                with _deferred_page_update(page):
+                with _BUILD_LOCK, _deferred_page_update(page):  # same lock order as build_page
                     result = callback()
-            except Exception:
+            except Exception as exc:
+                _deferred_failure(target, route, exc)
                 continue
             if isinstance(result, PageView):
                 built = result
@@ -325,7 +359,7 @@ def _schedule_deferred_updates(page: ft.Page, view: ft.View, generation: int, st
             return
         if _page_route(getattr(page, "route", route)) != _page_route(route):
             return
-        built = _resolve_deferred_controls(page, build_page(page, state, route))
+        built = _resolve_deferred_controls(page, build_page(page, state, route), route)
         if getattr(page, "_render_generation", generation) != generation:
             return
         replacement = build_shell(page, state, route, built=built, show_toast=False)
@@ -346,22 +380,23 @@ def _deferred_page_update(page: ft.Page):
     requested by the UI thread (a click, a resize) meanwhile.
     """
     owner = threading.get_ident()
-    original = page.__dict__.get("update")
-    real_update = getattr(page, "update", None)  # embedded/test pages may have none
+    with _PAGE_UPDATE_SWAP_LOCK:  # held for the whole block: an interleaved swap would restore the wrong method
+        original = page.__dict__.get("update")
+        real_update = getattr(page, "update", None)  # embedded/test pages may have none
 
-    def deferred(*args: object, **kwargs: object) -> object:
-        if real_update is None or threading.get_ident() == owner:
-            return None
-        return real_update(*args, **kwargs)
+        def deferred(*args: object, **kwargs: object) -> object:
+            if real_update is None or threading.get_ident() == owner:
+                return None
+            return real_update(*args, **kwargs)
 
-    page.update = deferred  # type: ignore[method-assign]
-    try:
-        yield
-    finally:
-        if original is None:
-            page.__dict__.pop("update", None)
-        else:
-            page.update = original  # type: ignore[method-assign]
+        page.update = deferred  # type: ignore[method-assign]
+        try:
+            yield
+        finally:
+            if original is None:
+                page.__dict__.pop("update", None)
+            else:
+                page.update = original  # type: ignore[method-assign]
 
 
 def build_page(page: ft.Page, state: AppState, route: str) -> object:
@@ -517,7 +552,7 @@ def build_shell(page: ft.Page, state: AppState, route: str, *, built: object | N
             overlay=overlay,
             badge_count=badge_count["value"],
             on_what_changed=None if canonical_route == "/what-changed" else (lambda: go("/what-changed")),
-            width=window_width,
+            width=lambda: mode["width"],
         )
 
     topbar = build_chrome_topbar(chrome)
@@ -612,9 +647,8 @@ def build_shell(page: ft.Page, state: AppState, route: str, *, built: object | N
     body_area = ft.Column([body_holder], expand=True)
 
     def apply_body_mode() -> None:
-        available = mode["height"] - _CHROME_HEIGHT
         minimum = MIN_BODY_HEIGHT_NARROW if mode["narrow"] else MIN_BODY_HEIGHT
-        scrolls = available < minimum
+        scrolls = _body_scrolls(mode["height"], mode["narrow"])
         body_area.scroll = ft.ScrollMode.AUTO if scrolls else None
         body_holder.height = minimum if scrolls else None
         body_holder.expand = not scrolls
@@ -651,9 +685,10 @@ def build_shell(page: ft.Page, state: AppState, route: str, *, built: object | N
     view = ft.View(route=route, controls=[root], bgcolor=theme.BG, padding=0)
 
     message = str(getattr(state, "last_message", "") or "")
-    if show_toast and message and message != "Ready" and message != getattr(page, "_shell_last_toast", None):
+    toast_key = getattr(state, "message_serial", message)  # serial: a repeated message is a new event
+    if show_toast and message and message != "Ready" and toast_key != getattr(page, "_shell_last_toast", None):
         try:
-            page._shell_last_toast = message
+            page._shell_last_toast = toast_key
         except Exception:
             pass
         toast.show(message, error=_toast_is_error(message), update=False)
@@ -661,10 +696,10 @@ def build_shell(page: ft.Page, state: AppState, route: str, *, built: object | N
     def relayout(width: float | None = None) -> bool:
         new_width, new_height = _window_size(page, state, width)
         new_narrow = uses_narrow_layout(page, state, width)
-        before = (mode["narrow"], mode["width"] < 1500, mode["width"] < 1300, mode["height"] < 900)
+        before = (mode["narrow"], mode["width"] < 1500, mode["width"] < 1300, _body_scrolls(mode["height"], mode["narrow"]))
         mode.update(narrow=new_narrow, width=new_width, height=new_height)
         footer.set_width(new_width)
-        after = (new_narrow, new_width < 1500, new_width < 1300, new_height < 900)
+        after = (new_narrow, new_width < 1500, new_width < 1300, _body_scrolls(new_height, new_narrow))
         if before == after:
             return False
         dock.set_narrow(new_narrow)

@@ -139,7 +139,7 @@ def grouped_bar_chart(
     y_name: str | None = None,
     y2_name: str | None = None,
     y_max: float | None = None,
-    y_min: float = 0.0,
+    y_min: float | None = None,
     unit: str = "",
     y2_unit: str = "",
     decimals: int = 1,
@@ -166,7 +166,8 @@ def grouped_bar_chart(
         plot = Plot(w, h, margins or Margins(58, 56 if line_series else 20, 36, 50))
         known = [v for v in allv if v is not None]
         hi = y_max if y_max is not None else max(known)
-        ys = y_axis(sc, plot, y_min, max(hi, y_min + 1e-9), name=y_name)
+        lo = y_min if y_min is not None else min(0.0, min(known))
+        ys = y_axis(sc, plot, lo, max(hi, lo + 1e-9), name=y_name)
         x_axis_line(sc, plot, x_name)
         n, k = len(cats), max(len(bars), 1)
         slot = plot.w / max(n, 1)
@@ -183,9 +184,9 @@ def grouped_bar_chart(
                     continue
                 x = xs[i] - group_w / 2 + si * (bw + gap)
                 clipped = v > ys.d1
-                y_top = ys(min(v, ys.d1))
-                y_bot = ys(max(0.0, ys.d0))
-                sc.add(*bar_rect(x, y_top, bw, y_bot - y_top, top, bot, round_top=not clipped, radius=radius))
+                y_top = ys(min(max(v, 0.0), ys.d1))
+                y_bot = ys(max(min(v, 0.0), ys.d0))
+                sc.add(*bar_rect(x, y_top, bw, y_bot - y_top, top, bot, round_top=not clipped and v >= 0, radius=radius))
                 if clipped:
                     sc.add(txt(x + bw / 2, y_top + 12, f"{fmt(v, 0)} ▲", weight=700, color="#ffffff", size=11.5))
                 rows_by_cat[i].append((s.name, fmt(v, decimals, unit=unit), top))
@@ -195,11 +196,12 @@ def grouped_bar_chart(
             if kn:
                 ticks, l0, l1 = nice_ticks(min(kn), max(kn), 5)
                 y2 = y_axis(sc, plot, l0, l1, name=y2_name, side="right", ticks=ticks, grid=False)
-                pts = [(xs[i], y2(v), v) for i, v in enumerate(lv[:n]) if v is not None]
-                # segments only between neighbouring valid points
-                for (xa, ya, _), (xb, yb, _) in zip(pts, pts[1:]):
-                    sc.add(line(xa, ya, xb, yb, line_series.color, line_series.width))
-                for x, y, v in pts:
+                pts = [(i, xs[i], y2(v), v) for i, v in enumerate(lv[:n]) if v is not None]
+                # segments only between neighbouring valid points (adjacent category indices)
+                for (ia, xa, ya, _), (ib, xb, yb, _) in zip(pts, pts[1:]):
+                    if ib == ia + 1:
+                        sc.add(line(xa, ya, xb, yb, line_series.color, line_series.width))
+                for _, x, y, v in pts:
                     sc.add(cv.Circle(x, y, line_series.marker / 2, pal.fill(line_series.color)),
                            cv.Circle(x, y, line_series.marker / 2, pal.stroke("#ffffff", 1.5)))
                 for i, v in enumerate(lv[:n]):

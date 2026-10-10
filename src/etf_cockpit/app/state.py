@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
+import copy
 import threading
 from typing import TYPE_CHECKING, Any, Callable, TypeVar, cast
 
@@ -336,6 +337,13 @@ class AppState:
     score_history_warning: str | None = None
     application_api: LocalApplicationApi = field(init=False, repr=False)
 
+    message_serial = 0  # counts last_message assignments, so a repeated text is still a new event
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if name == "last_message":
+            object.__setattr__(self, "message_serial", self.message_serial + 1)
+        object.__setattr__(self, name, value)
+
     def __post_init__(self) -> None:
         self.refresh_runtime_profile()
         self.assign_sector_projections()
@@ -483,7 +491,7 @@ class AppState:
         with timed_step("startup", "migrations"):
             run_startup_migrations()
         with timed_step("startup", "snapshot"):
-            snapshot = _shared_snapshot()
+            snapshot = copy.copy(_shared_snapshot())  # per-session shell; heavy frames stay shared read-only
         state = cls(
             snapshot=snapshot,
             selected_etf=snapshot.config.ui.default_etf,

@@ -32,7 +32,7 @@ def _glossary_terms() -> list[str]:
             loaded = load_glossary()
             _GLOSSARY = [] if loaded.policy is None or loaded.diagnostic_mode else [e.term for e in loaded.policy.entries]
         except Exception:
-            _GLOSSARY = []
+            return []  # a transient load error is not cached for the whole process
     return _GLOSSARY
 
 

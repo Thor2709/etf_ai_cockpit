@@ -255,9 +255,11 @@ def line_chart(
         draw_series(sc, plot, xs, ys, series)
         draw_events(sc, xs, ys, series, events)
         if today is not None:
-            tx = x_positions(xl + [today], plot.x0, plot.x1, edge_to_edge=edge)[-1] if timeaxis else None
-            if tx is not None and plot.x0 <= tx <= plot.x1:
-                draw_today(sc, plot, tx)
+            if timeaxis:
+                ords = [to_ordinal(v) for v in xl]
+                t = to_ordinal(today)
+                if min(ords) <= t <= max(ords):  # the data's own scale: a "today" outside the data draws nothing
+                    draw_today(sc, plot, Scale(min(ords), max(ords), plot.x0, plot.x1)(t))
         column_hits(sc, plot, xl, xs, ys, series, bands, tooltip_date_format)
         legend(sc, plot, [LegendItem(s.name, s.color, "dashed" if s.dashed else "line", marker=s.markers > 0 or s.glow or s.width >= 3)
                           for s in series if s.legend], where=legend_at)

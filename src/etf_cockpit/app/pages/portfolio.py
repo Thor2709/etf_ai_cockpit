@@ -1681,7 +1681,7 @@ def portfolio_page(page: ft.Page | None, state: AppState, *, _deferred: bool = F
         initial_status = "No current holdings are available because none are registered. Next step: set candidate weights below, then select Analyse candidate."
     status = common.text(initial_status, 12.5, 400, theme.INK2, max_lines=3, key="portfolio.status")
     result_host = ft.Column([_analysis_view(initial_analysis, benchmark_registry=registry)], key="portfolio.results", spacing=12)
-    rebalance_host = ft.Column([Note("Select Validate rebalance preview to compare local alternatives.")], key="portfolio.rebalance-results", spacing=12)
+    rebalance_host = ft.Column([Note("Select Validate rebalance preview to compare local alternatives. Sale proceeds are assumed available; set a settlement buffer for T+2.")], key="portfolio.rebalance-results", spacing=12)
     tiles_host = ft.Container(content=_candidate_tiles(initial_analysis))
     overlap_line = common.text(f"ETF overlap status: {initial_analysis.overlap_status}", 12.5, 400, theme.INK2)
     services_host = ft.Container()

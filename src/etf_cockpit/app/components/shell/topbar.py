@@ -63,9 +63,8 @@ def _group_control(
             pass
 
     def choose(option: str) -> None:
-        overlay.hide()
         current["value"] = option
-        rebuild()
+        overlay.hide()  # its on_hide rebuilds the group with the new value
         if group.on_change is not None:
             group.on_change(option)
 
@@ -112,8 +111,12 @@ def build_topbar(
     overlay: Overlay,
     badge_count: int | None,
     on_what_changed: Callable | None,
-    width: float,
+    width: float | Callable[[], float],
 ) -> TopBar:
+    """``width`` may be a getter so closures follow window resizes after the bar was built."""
+
+    current_width: Callable[[], float] = width if callable(width) else (lambda: width)
+    width = current_width()
     compact = width < COMPACT_BELOW
     title_width = TITLE_WIDTH_COMPACT if compact else TITLE_WIDTH
 
@@ -188,7 +191,7 @@ def build_topbar(
                 )
         panel = glass(ft.Column(sections, spacing=0, scroll=ft.ScrollMode.AUTO), radius=22, padding=8, width=260,
                       height=min(480, 48 * max(1, len(sections)) + 16))
-        overlay.show("view", panel, 24 + 84 + 24 + width - 48 - 320, TOPBAR_HEIGHT + 32)
+        overlay.show("view", panel, 24 + 84 + 24 + current_width() - 48 - 320, TOPBAR_HEIGHT + 32)
 
     view_pill.on_click = open_view_menu
 
@@ -239,6 +242,6 @@ def build_topbar(
         view_pill.visible = use_view
 
     set_width(width)
-    segments_left = lambda: width - 20 - 150 - 24 - 40  # noqa: E731
+    segments_left = lambda: current_width() - 20 - 150 - 24 - 40  # noqa: E731
     return TopBar(control, 24 + 84 + 24 + 28, set_width)
 
