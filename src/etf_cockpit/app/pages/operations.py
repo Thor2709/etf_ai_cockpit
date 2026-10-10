@@ -539,7 +539,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
     fill_intent: dict[str, str] = {}
 
     def fill_paper_order(_event: ft.ControlEvent | None) -> None:
-        intent_id = fill_intent.setdefault("id", "fill_" + uuid.uuid4().hex[:20])
+        intent_id = fill_intent.setdefault("id", "ui-" + uuid.uuid4().hex)
         notify(
             fill_status,
             fill_details,

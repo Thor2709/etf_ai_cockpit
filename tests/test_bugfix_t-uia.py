@@ -52,6 +52,7 @@ def test_chat_p05_n002_paper_fill_ui_sends_unique_fill_id(monkeypatch, snapshot_
         data = getattr(item, "data", None)
         if isinstance(data, dict) and isinstance(data.get("input"), ft.TextField):
             controls[data["input"].key] = data["input"]
+    controls["operations.paper-account-id"].value = "local-paper"
     controls["operations.paper-order-id"].value = "O1"
     controls["operations.paper-fill-quantity"].value = "2"
     controls["operations.paper-fill-price"].value = "10"
