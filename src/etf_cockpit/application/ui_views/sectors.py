@@ -268,6 +268,109 @@ def _parts(row: Mapping[str, object]) -> tuple[tuple[str, float], ...]:
     return tuple(sorted(parts.items(), key=lambda item: -item[1]))
 
 
+_UNKNOWN_KEYS = frozenset({"", "unknown", "unknown/unmapped", "unmapped", "unclassified", "other/unclassified", "n/a", "na", "none", "nan"})
+
+
+def bucket_key(name: object, *, countries: bool = False) -> str:
+    """The one identity of a sector/country bucket: case, spacing, "&"/"and" and unknown aliases do not split it."""
+
+    text = " ".join(str(name or "").replace("&", " and ").split()).casefold()
+    if text in _UNKNOWN_KEYS:
+        return UNKNOWN.casefold()
+    if countries:
+        code = iso3_of(text)
+        if code:
+            return code.casefold()
+    return text
+
+
+def _bucket_name(names: Sequence[str]) -> str:
+    """Display name of a merged bucket: the unknown label, else the best-cased source spelling."""
+
+    if bucket_key(names[0]) == UNKNOWN.casefold():
+        return UNKNOWN
+    cased = [" ".join(name.split()) for name in names if name != name.lower()]
+    return cased[0] if cased else " ".join(names[0].split()).title()
+
+
+def merge_buckets(rows: Sequence[Mapping[str, object]], *, countries: bool = False) -> list[dict[str, object]]:
+    """Sum look-through rows that name the same bucket ("financials" + "Financials", "United States" + "USA")."""
+
+    merged: dict[str, dict[str, object]] = {}
+    names: dict[str, list[str]] = {}
+    for row in rows:
+        key = bucket_key(row.get("name"), countries=countries)
+        names.setdefault(key, []).append(str(row.get("name") or ""))
+        if key not in merged:
+            merged[key] = {**row, "percentage": 0.0, "value": 0.0, "contributors": []}
+        target = merged[key]
+        target["percentage"] = float(target["percentage"]) + float(row.get("percentage") or 0.0)  # type: ignore[arg-type]
+        target["value"] = float(target["value"]) + float(row.get("value") or 0.0)  # type: ignore[arg-type]
+        target["contributors"] = [*target["contributors"], *(row.get("contributors") or ())]  # type: ignore[misc]
+    for key, target in merged.items():
+        target["name"] = _bucket_name(names[key])
+    return list(merged.values())
+
+
+def apply_fund_splits(rows: Sequence[Mapping[str, object]], splits: Mapping[str, Mapping[str, float]]) -> list[dict[str, object]]:
+    """Spread the unknown weight of funds that have a stored country/sector split over that split.
+
+    ``splits`` maps a fund id to {bucket: fraction}; a fund without an entry stays unknown (never guessed).
+    """
+
+    result: list[dict[str, object]] = []
+    spread: list[dict[str, object]] = []
+    for row in rows:
+        if bucket_key(row.get("name")) != UNKNOWN.casefold():
+            result.append(dict(row))
+            continue
+        kept = []
+        moved = 0.0
+        for contributor in row.get("contributors") or ():  # type: ignore[union-attr]
+            split = splits.get(str(contributor.get("root_instrument_id")))
+            if not split:
+                kept.append(contributor)
+                continue
+            weight = float(contributor.get("weight", 0.0))
+            moved += weight
+            for label, fraction in split.items():
+                spread.append({"name": label, "percentage": weight * fraction * 100.0, "value": weight * fraction,
+                               "contributors": [{**contributor, "weight": weight * fraction}]})
+        remaining = float(row.get("value") or 0.0) - moved
+        if remaining > 1e-9:
+            result.append({**row, "percentage": remaining * 100.0, "value": remaining, "contributors": kept})
+    return [*result, *spread]
+
+
+def unknown_note(countries: Sequence[Weight], sectors: Sequence[Weight]) -> str | None:
+    """Say plainly how much is unknown and which instruments cause it (never a guess, never hidden)."""
+
+    unknown = next((item for item in countries if item.name == UNKNOWN), None) or next((item for item in sectors if item.name == UNKNOWN), None)
+    if unknown is None or unknown.weight < 1.0:
+        return None
+    names = [name for name, _weight in unknown.parts][:6]
+    more = f" and {len(unknown.parts) - len(names)} more" if len(unknown.parts) > len(names) else ""
+    return (
+        f"{unknown.weight:.0f}% has no stored classification or fund look-through"
+        + (f" ({', '.join(names)}{more})" if names else "")
+        + " and is shown as Unknown/Unmapped; it is never estimated."
+    )
+
+
+def _with_fund_splits(snapshot: object, rows: Sequence[Mapping[str, object]], dimension: str, *, countries: bool) -> list[dict[str, object]]:
+    """Use each fund's stored split where the exposure cube found none, then merge buckets that name the same thing."""
+
+    from etf_cockpit.application.etf_economics_view import fund_split_weights
+
+    unknown = next((row for row in rows if bucket_key(row.get("name")) == UNKNOWN.casefold()), None)
+    splits: dict[str, Mapping[str, float]] = {}
+    for contributor in (unknown.get("contributors") or ()) if unknown else ():  # type: ignore[union-attr]
+        fund = str(contributor.get("root_instrument_id"))
+        if fund not in splits and (split := fund_split_weights(snapshot, fund, dimension)):
+            splits[fund] = split
+    return merge_buckets(apply_fund_splits(rows, splits) if splits else rows, countries=countries)
+
+
 def _look_through(rows: Sequence[Mapping[str, object]], *, countries: bool) -> list[Weight]:
     items = []
     for row in rows:
@@ -355,6 +458,8 @@ def load(snapshot: object, window: str = "1Y", *, holdings: pd.DataFrame | None 
     country_rows, country_cover = _segments(projection, "economic_country")
     sector_rows, sector_cover = _segments(projection, "sector")
     company_rows, _cover = _segments(projection, "entity")
+    country_rows = _with_fund_splits(snapshot, country_rows, "country", countries=True)
+    sector_rows = _with_fund_splits(snapshot, sector_rows, "sector", countries=False)
     if country_rows:
         view.countries = _look_through(country_rows, countries=True)
         if country_cover < 0.01:
@@ -389,4 +494,7 @@ def load(snapshot: object, window: str = "1Y", *, holdings: pd.DataFrame | None 
     from etf_cockpit.application.sector_views import build_sector_attractiveness
 
     view.attractiveness = build_sector_attractiveness(snapshot, [item.name for item in view.sectors])
+    note = unknown_note(view.countries, view.sectors)
+    if note:
+        view.exposure_note = f"{view.exposure_note} {note}" if view.exposure_note else note
     return view

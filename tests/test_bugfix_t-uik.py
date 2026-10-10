@@ -240,3 +240,60 @@ def test_k07_enter_on_a_page_name_opens_that_page_not_the_first_substring_match(
     enter = _search(_UNIVERSE)
     assert enter("Scores") == ["/signals"]
     assert enter("Data Health") == ["/data-health"]
+
+
+# --- K08: sectors & countries --------------------------------------------------------------------
+
+
+def _row(name: str, percentage: float, *contributors: tuple[str, float]) -> dict[str, object]:
+    return {
+        "name": name,
+        "percentage": percentage,
+        "value": percentage / 100,
+        "contributors": [{"root_instrument_id": key, "weight": weight} for key, weight in contributors],
+    }
+
+
+def test_k08_case_duplicate_buckets_merge_through_one_normaliser() -> None:
+    from etf_cockpit.application.ui_views import sectors as view
+
+    rows = [_row("financials", 25.9, ("BA", 0.259)), _row("Financials", 1.7, ("VWCE", 0.017)), _row("  FINANCIALS ", 1.0), _row("Health Care", 3.0), _row("health  care", 2.0)]
+    merged = {row["name"]: row for row in view.merge_buckets(rows)}
+
+    assert set(merged) == {"Financials", "Health Care"}
+    assert merged["Financials"]["percentage"] == pytest.approx(28.6)
+    assert merged["Health Care"]["percentage"] == pytest.approx(5.0)
+    assert len(merged["Financials"]["contributors"]) == 2
+    # unknown spellings are one bucket; countries merge by ISO code
+    unknown = view.merge_buckets([_row("unknown", 5.0), _row("Other/unclassified", 3.0), _row("Unknown/Unmapped", 2.0)])
+    assert [(row["name"], row["percentage"]) for row in unknown] == [(view.UNKNOWN, 10.0)]
+    countries = view.merge_buckets([_row("United States", 40.0), _row("USA", 10.0)], countries=True)
+    assert len(countries) == 1 and countries[0]["percentage"] == 50.0
+
+
+def test_k08_fund_look_through_replaces_only_that_funds_unknown_weight(monkeypatch: pytest.MonkeyPatch) -> None:
+    from etf_cockpit.application import etf_economics_view
+    from etf_cockpit.application.ui_views import sectors as view
+
+    stored = {"VWCE": {"Technology": 0.25, "Financials": 0.15, "Other/unclassified": 0.60}}
+    monkeypatch.setattr(etf_economics_view, "fund_split_weights", lambda _snapshot, fund, _dimension: stored.get(fund))
+    rows = [
+        _row("financials", 10.0, ("BA", 0.10)),
+        _row(view.UNKNOWN, 60.0, ("VWCE", 0.50), ("NOSPLIT", 0.10)),
+    ]
+
+    result = {row["name"]: row["percentage"] for row in view._with_fund_splits(object(), rows, "sector", countries=False)}
+
+    assert result["Financials"] == pytest.approx(10.0 + 7.5)  # direct "financials" and the fund's 15% merged
+    assert result["Technology"] == pytest.approx(12.5)
+    assert result[view.UNKNOWN] == pytest.approx(30.0 + 10.0)  # the fund's unclassified remainder + the fund with no split
+    assert sum(result.values()) == pytest.approx(70.0)  # nothing created or lost
+
+
+def test_k08_unknown_share_is_stated_with_its_causes() -> None:
+    from etf_cockpit.application.ui_views import sectors as view
+
+    unknown = view.Weight(view.UNKNOWN, 76.0, None, None, None, (("VWCE", 40.0), ("LYP6", 36.0)))
+    note = view.unknown_note([unknown], [])
+    assert note and "76%" in note and "VWCE, LYP6" in note and "never estimated" in note
+    assert view.unknown_note([view.Weight("USA", 99.5)], []) is None

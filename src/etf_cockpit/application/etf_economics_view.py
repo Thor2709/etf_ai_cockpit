@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
@@ -39,6 +40,26 @@ def load_etf_holdings_evidence(snapshot: object, instrument_ids: list[str], deci
         frame.attrs = {}
         frames.append(frame)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
+def fund_split_weights(snapshot: object, instrument_id: str, dimension: str) -> dict[str, float] | None:
+    """The stored country/sector split of one fund ({label: fraction}), exactly what its Fund view shows.
+
+    ``None`` when no dated split is stored: the caller must leave that weight unknown, never guess it.
+    """
+
+    try:
+        panel = build_etf_economics_panel(snapshot, instrument_id)  # type: ignore[arg-type]
+    except (KeyError, OSError, TypeError, ValueError, ArithmeticError):
+        return None
+    field = (panel.get("e1") or {}).get(f"{dimension}_split") or {}
+    value = field.get("value") if isinstance(field, Mapping) else None
+    if not isinstance(value, Mapping) or not value:
+        return None
+    try:
+        return {str(label): float(weight) for label, weight in value.items()}
+    except (TypeError, ValueError):
+        return None
 
 
 def build_etf_economics_panel(
