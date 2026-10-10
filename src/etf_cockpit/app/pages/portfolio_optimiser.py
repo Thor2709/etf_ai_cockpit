@@ -93,6 +93,14 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> PageView:
         )
     }
     audit = {"text": "", "details": ""}
+    disclosure_host = ft.Column(spacing=theme.SPACE_2)
+
+    def render_disclosures() -> None:
+        disclosure_host.controls = [
+            Disclosure("model and constraint details", audit["details"] or "Comparison details are unavailable."),
+            Disclosure("solver fingerprints", f"solver_fingerprints={audit['text'] or 'Unavailable'}"),
+            Disclosure("Authority boundary", "execution_allowed=false"),
+        ]
     status_note = Note(status["text"])
     table_well = Well(result_table["control"])
     frontier_well = Well(frontier["control"])
@@ -229,6 +237,8 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> PageView:
                 status["text"] = "Transparent methods compared on a held-out local return slice."
             except (TypeError, ValueError):
                 status["text"] = "Optimisation unavailable: check the constraint values."
+                audit["text"] = ""
+                audit["details"] = ""
                 result_table["control"] = EmptyState("Comparison unavailable", "Check the constraint values.")
                 frontier["control"] = EmptyState("Frontier unavailable", "No held-out validation results are available.")
                 weights_by_method["control"] = EmptyState(
@@ -238,6 +248,7 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> PageView:
                 table_well.content = result_table["control"]
                 frontier_well.content = frontier["control"]
                 weights_well.content = weights_by_method["control"]
+        render_disclosures()
         status_note.value = status["text"]
         if page is not None:
             page.update()
@@ -285,17 +296,7 @@ def portfolio_optimiser_page(page: ft.Page | None, state: AppState) -> PageView:
         GlassCard("Weights by method", body=weights_well),
         GlassCard(
             "Audit and limitations",
-            body=ft.Column(
-                [
-                    Disclosure("model and constraint details", audit["details"] or "Comparison details are unavailable."),
-                    Disclosure(
-                        "solver fingerprints",
-                        f"solver_fingerprints={audit['text'] or 'Unavailable'}",
-                    ),
-                    Disclosure("Authority boundary", "execution_allowed=false"),
-                ],
-                spacing=theme.SPACE_2,
-            ),
+            body=disclosure_host,
         ),
     ]
     return PageView(

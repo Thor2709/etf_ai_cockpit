@@ -185,9 +185,17 @@ def _option(score: object) -> str:
     return f"{score.display_id}  {score.name}"
 
 
+def _option_labels(scores: dict[str, object]) -> dict[str, str]:
+    """Dropdown label per score key; the key is appended only where two labels would collide."""
+
+    base = {key: _option(score) for key, score in scores.items()}
+    return {key: label if list(base.values()).count(label) == 1 else f"{label} · {key}" for key, label in base.items()}
+
+
 def _workspace_card(width: float, height: float, page: object, state: AppState, scores: dict[str, object], ui: dict[str, str], rebuild: object) -> ft.Control:
     first, second = scores.get(ui["a"]), scores.get(ui["b"])
-    options = {_option(score): key for key, score in scores.items()}
+    labels = _option_labels(scores)
+    options = {label: key for key, label in labels.items()}
     status = Note("")
     status.max_lines = 2
     status_row = ft.Container(content=status, visible=False, expand=True)
@@ -233,8 +241,8 @@ def _workspace_card(width: float, height: float, page: object, state: AppState, 
     inner_w, inner_h = common.inner_size(width, height, insight=False)
     fields = ft.Row(
         [
-            Dropdown("Instrument A", key="comparison.left", options=list(options), value=_option(first) if first else "", on_change=lambda label: render("a", label)),
-            Dropdown("Instrument B", key="comparison.right", options=list(options), value=_option(second) if second else "", on_change=lambda label: render("b", label)),
+            Dropdown("Instrument A", key="comparison.left", options=list(options), value=labels[ui["a"]] if first else "", on_change=lambda label: render("a", label)),
+            Dropdown("Instrument B", key="comparison.right", options=list(options), value=labels[ui["b"]] if second else "", on_change=lambda label: render("b", label)),
         ],
         spacing=16,
     )

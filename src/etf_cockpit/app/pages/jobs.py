@@ -5,6 +5,7 @@ import threading
 
 import flet as ft
 
+from etf_cockpit.app import theme
 from etf_cockpit.app.components.kit import (
     Button,
     DataTable,
@@ -136,6 +137,8 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
     workflow_rows: tuple[object, ...] = ()
     current_filter = {"value": "All"}
     recovered_count = 0
+    workflow_total = 0
+    workflow_more = False
     table_slot = ft.Container(expand=True)
     timeline_slot = ft.Container(expand=True)
     audit_slot = ft.Container(expand=True)
@@ -251,8 +254,9 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
         table_slot.content = build_workflow_table(selected)
         timeline_slot.content = Well(build_timeline(selected), expand=True)
         workflow_note.value = (
-            f"Workflows (local job store): {format_count(len(workflow_rows))} · "
+            f"Workflows (local job store): {format_count(len(workflow_rows))} of {format_count(workflow_total)} · "
             f"Recovered leases (scheduler recovery): {format_count(recovered_count)}"
+            + (" · more workflows exist than are shown" if workflow_more else "")
         )
         workflow_details.controls = [
             Disclosure(
@@ -275,23 +279,38 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
         update_workflow_views()
         update_page()
 
-    def refresh(_event: object | None = None) -> None:
-        nonlocal workflow_rows, recovered_count
+    def refresh(_event: object | None = None, *, announce: bool = True) -> None:
+        nonlocal workflow_rows, recovered_count, workflow_total, workflow_more
         if api is None:
             workflow_rows = ()
             recovered_count = 0
+            workflow_total = 0
+            workflow_more = False
             update_workflow_views()
             return
+        readable, reason = api.jobs_store_status()
+        if not readable:
+            status_message.value = f"Job store unavailable: {reason}"
+            status_message.color = theme.RED
+            update_workflow_views()
+            update_page()
+            return
+        status_message.color = None
         try:
             recovered = api.recover_expired_leases()
             workflow_page = api.get_jobs(PageRequest(limit=100))
             workflow_rows = tuple(workflow_page.items)
+            workflow_total = workflow_page.total
+            workflow_more = workflow_page.next_offset is not None
             recovered_count = len(recovered)
-            status_message.value = "Durable workflow state refreshed from the local job store."
-            action_details.value = ""
+            if announce:
+                status_message.value = "Durable workflow state refreshed from the local job store."
+                action_details.value = ""
         except Exception as exc:
             workflow_rows = ()
             recovered_count = 0
+            workflow_total = 0
+            workflow_more = False
             status_message.value = "Unable to read durable workflows from the local job store."
             action_details.value = f"{type(exc).__name__}: {redact_text(str(exc))}"
         update_workflow_views()
@@ -378,7 +397,7 @@ def jobs_page(page: ft.Page | None, state: AppState | None) -> PageView:
         except Exception as exc:
             status_message.value = "Workflow cancellation failed."
             action_details.value = f"{type(exc).__name__}: {redact_text(str(exc))}"
-        refresh()
+        refresh(announce=False)
 
     def run_self_check(_event: object) -> None:
         if api is None:

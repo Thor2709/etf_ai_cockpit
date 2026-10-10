@@ -65,7 +65,7 @@ def stress_lab_page(page: ft.Page | None, state: AppState) -> PageView:
         "reverse_limit": text_field("Reverse loss limit", "stress-lab.loss-limit"),
     }
     reverse_shock = {"value": "equity"}
-    revision = 0
+    revisions: dict[str, int] = {}
     result_host = Well(
         EmptyState(
             "No scenario run yet",
@@ -212,21 +212,22 @@ def stress_lab_page(page: ft.Page | None, state: AppState) -> PageView:
             show_status("Scenario unavailable: complete the required inputs.")
 
     def save(_event: ft.ControlEvent | None) -> None:
-        nonlocal revision
         try:
-            saved = facade.save(scenario_from_controls(), expected_revision=revision)
-            revision = saved.revision
+            scenario = scenario_from_controls()
+            saved = facade.save(scenario, expected_revision=revisions.get(scenario.scenario_id, 0))
+            revisions[scenario.scenario_id] = saved.revision
             show_status("Scenario saved locally.")
         except Exception:
             show_status("Scenario was not saved; local storage may be unavailable or conflicting.")
 
     def load(_event: ft.ControlEvent | None) -> None:
-        nonlocal revision
         try:
             saved = facade.load((input_of(fields["scenario_id"]).value or "").strip())
-            revision = saved.revision
+            revisions[saved.scenario.scenario_id] = saved.revision
             input_of(fields["name"]).value = saved.scenario.name
             input_of(fields["historical_date"]).value = saved.scenario.historical_date or ""
+            for name in _SHOCKS.values():
+                input_of(fields[name]).value = ""
             for name, value in saved.scenario.shocks.items():
                 if name in fields:
                     input_of(fields[name]).value = format_number(float(value) * 100, decimals=2, unavailable="")

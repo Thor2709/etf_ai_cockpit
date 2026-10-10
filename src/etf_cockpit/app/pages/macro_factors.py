@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 import flet as ft
+import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components import chartkit as ck, kit
@@ -70,6 +71,7 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
     def change_horizon(value: str) -> None:
         view_state["horizon"] = value
         view_note.value = f"View: {view_state['view']} · Horizon: {value}"
+        chart_holder.controls = _charts(value)
         if page is not None:
             page.update()
 
@@ -111,76 +113,91 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
     )
 
     colours = (theme.BAR_BLUE, theme.CHART_POS, theme.CHART_NEG, theme.AMBER)
-    unit_groups: dict[str, list[object]] = {}
-    for row in observations:
-        unit_groups.setdefault(display_value(row.unit), []).append(row)
-    chart_wells: list[ft.Control] = []
-    for unit, unit_rows in sorted(unit_groups.items()):
-        dates = sorted(
-            {
-                display_value(row.period_start)
-                for row in unit_rows
-                if display_value(row.period_start) != "—"
-            }
-        )
-        series_ids = sorted({str(row.series_id) for row in unit_rows})
-        chart_series = []
-        for index, series_id in enumerate(series_ids):
-            values_by_date = {
-                display_value(row.period_start): _numeric_value(row.value)
-                for row in unit_rows
-                if str(row.series_id) == series_id
-                and display_value(row.period_start) != "—"
-            }
-            chart_series.append(
-                ck.Series(
-                    series_id,
-                    [values_by_date.get(date) for date in dates],
-                    color=colours[index % len(colours)],
-                    unit=unit,
-                )
+    horizon_months = {"3M": 3, "1Y": 12, "5Y": 60}
+    observation_dates = [_parsed_date(row.period_start) for row in observations]
+    last_date = max((day for day in observation_dates if day is not None), default=None)
+
+    def _charts(horizon: str) -> list[ft.Control]:
+        cutoff = last_date - pd.DateOffset(months=horizon_months[horizon]) if last_date is not None else None
+        visible = [
+            row
+            for row, day in zip(observations, observation_dates, strict=True)
+            if cutoff is None or (day is not None and day >= cutoff)
+        ]
+        unit_groups: dict[str, list[object]] = {}
+        for row in visible:
+            unit_groups.setdefault(display_value(row.unit), []).append(row)
+        chart_wells: list[ft.Control] = []
+        for unit, unit_rows in sorted(unit_groups.items()):
+            dates = sorted(
+                {
+                    display_value(row.period_start)
+                    for row in unit_rows
+                    if display_value(row.period_start) != "—"
+                }
             )
-        has_values = any(_numeric_value(row.value) is not None for row in unit_rows)
-        chart_wells.extend(
-            [
-                kit.Note(f"Unit: {unit}"),
+            series_ids = sorted({str(row.series_id) for row in unit_rows})
+            chart_series = []
+            for index, series_id in enumerate(series_ids):
+                values_by_date = {
+                    display_value(row.period_start): _numeric_value(row.value)
+                    for row in unit_rows
+                    if str(row.series_id) == series_id
+                    and display_value(row.period_start) != "—"
+                }
+                chart_series.append(
+                    ck.Series(
+                        series_id,
+                        [values_by_date.get(date) for date in dates],
+                        color=colours[index % len(colours)],
+                        unit=unit,
+                    )
+                )
+            has_values = any(_numeric_value(row.value) is not None for row in unit_rows)
+            chart_wells.extend(
+                [
+                    kit.Note(f"Unit: {unit}"),
+                    kit.Well(
+                        ck.line_chart(
+                            dates,
+                            chart_series,
+                            x_name="Date",
+                            y_name=f"Value ({unit})",
+                            unavailable_reason=(
+                                None
+                                if has_values
+                                else f"No numeric observations are available for {unit}."
+                            ),
+                            empty_title="Unavailable",
+                            insight="Local macro and factor observations available at the recorded decision time.",
+                        ),
+                        expand=True,
+                    ),
+                ]
+            )
+        if not chart_wells:
+            chart_wells = [
                 kit.Well(
                     ck.line_chart(
-                        dates,
-                        chart_series,
+                        [],
+                        [],
                         x_name="Date",
-                        y_name=f"Value ({unit})",
-                        unavailable_reason=(
-                            None
-                            if has_values
-                            else f"No numeric observations are available for {unit}."
-                        ),
+                        y_name="Value (unit unavailable)",
+                        unavailable_reason=str(unavailable),
                         empty_title="Unavailable",
                         insight="Local macro and factor observations available at the recorded decision time.",
                     ),
                     expand=True,
-                ),
+                )
             ]
-        )
-    if not chart_wells:
-        chart_wells = [
-            kit.Well(
-                ck.line_chart(
-                    [],
-                    [],
-                    x_name="Date",
-                    y_name="Value (unit unavailable)",
-                    unavailable_reason=str(unavailable),
-                    empty_title="Unavailable",
-                    insight="Local macro and factor observations available at the recorded decision time.",
-                ),
-                expand=True,
-            )
-        ]
+        return chart_wells
+
+    chart_holder = ft.Column(_charts(view_state['horizon']), spacing=8)
+
     series_card = kit.GlassCard(
         "Macro series",
         "point-in-time observations grouped by unit",
-        body=ft.Column(chart_wells, spacing=8),
+        body=chart_holder,
     )
 
     curve_status = str(curve_coverage.get("status") or "unavailable")
@@ -395,6 +412,14 @@ def _format_metric(value: object) -> str:
     except (TypeError, ValueError):
         return "Unavailable"
     return f"{parsed:.2%}" if math.isfinite(parsed) else "Unavailable"
+
+
+def _parsed_date(value: object) -> pd.Timestamp | None:
+    try:
+        parsed = pd.Timestamp(value)
+    except (TypeError, ValueError):
+        return None
+    return None if pd.isna(parsed) else parsed.tz_localize(None) if parsed.tzinfo is not None else parsed
 
 
 def _numeric_value(value: object) -> float | None:

@@ -119,7 +119,7 @@ def what_changed_page(_page: ft.Page, _state: AppState) -> PageView:
         thumb_color=theme.INK,
     )
     table_holder = ft.Container(expand=True)
-    path_holder = ft.Container(expand=True)
+    path_holder = ft.Container(key="what-changed.path", expand=True)
 
     def visible_rows() -> list[ChangeRow]:
         return filter_rows(
@@ -137,7 +137,9 @@ def what_changed_page(_page: ft.Page, _state: AppState) -> PageView:
         rows = visible_rows()
         selected_index = next((i for i, row in enumerate(rows) if row.instrument_id == state["selected"]), None)
         table_holder.content = _changes_table(rows, view, selected_index, choose)
-        chosen = next((row for row in view.rows if row.instrument_id == state["selected"]), None)
+        chosen = next((row for row in rows if row.instrument_id == state["selected"]), None)
+        if chosen is None:
+            state["selected"] = None
         path_holder.content = _path_card(layout, chosen)
         refresh(table_holder)
         refresh(path_holder)

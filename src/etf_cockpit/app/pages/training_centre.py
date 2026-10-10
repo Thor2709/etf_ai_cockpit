@@ -25,12 +25,20 @@ from etf_cockpit.app.formatting import format_count, format_timestamp
 from etf_cockpit.app.pages._lab_style import lab_page, panel, section_header
 from etf_cockpit.application.runtime import DurableJobScheduler
 from etf_cockpit.core.paths import ROOT
+from etf_cockpit.core.values import finite_float_or_none
 from etf_cockpit.application.validation import build_validation_preview, load_optimisation_evidence, load_training_evidence, record_validation_preview
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.application.validation import SyntheticScenarioGenerator, SyntheticScenarioSpec
 
 
 @lab_page("training_centre")
+def _step_key(value: object) -> tuple[int, float, str]:
+    """Numbers in numeric order first, then everything else as text."""
+
+    number = finite_float_or_none(value)
+    return (0, number, "") if number is not None else (1, 0.0, str(value))
+
+
 def _legacy_training_centre_page(page: ft.Page, state: object) -> ft.Control:
     """Render durable local training evidence without granting model authority."""
 
@@ -386,7 +394,7 @@ def training_centre_page(page: ft.Page, state: object) -> PageView:
     metric_charts: list[ft.Control] = []
     for metric_name in metric_names:
         metric_rows = [item for item in metrics if str(item.get("name")) == metric_name]
-        steps = sorted({item.get("step") for item in metric_rows if item.get("step") is not None}, key=str)
+        steps = sorted({item.get("step") for item in metric_rows if item.get("step") is not None}, key=_step_key)
         metric_series = []
         for series_index, run_id in enumerate(run_ids):
             values = [
