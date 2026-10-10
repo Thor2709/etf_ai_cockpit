@@ -311,6 +311,25 @@ def _shared_snapshot():
         return _SHARED_SNAPSHOT["snapshot"]
 
 
+def shared_snapshot_is_current() -> bool:
+    """True when the shared snapshot exists and no input changed since it was built."""
+
+    with _SHARED_SNAPSHOT_LOCK:
+        return _SHARED_SNAPSHOT.get("snapshot") is not None and _SHARED_SNAPSHOT.get("key") == _data_fingerprint()
+
+
+def reseal_shared_snapshot() -> None:
+    """Re-record the data fingerprint after the app's own startup writes (static trust artifacts).
+
+    Those writes touch ``data/derived``; without this every browser session saw a "changed" fingerprint and rebuilt
+    the whole snapshot (5-8 s) and rewrote the artifacts again, so each reload was cold.
+    """
+
+    with _SHARED_SNAPSHOT_LOCK:
+        if _SHARED_SNAPSHOT.get("snapshot") is not None:
+            _SHARED_SNAPSHOT["key"] = _data_fingerprint()
+
+
 @dataclass
 class AppState:
     snapshot: CockpitSnapshot

@@ -94,8 +94,13 @@ def _refresh_static_trust_artifacts(state: AppState) -> None:
         from etf_cockpit.application.scoreboard_publication import refresh_static_trust_artifacts
         from etf_cockpit.application.snapshot_builder import _STARTUP_WRITE_LOCK
 
+        from etf_cockpit.app.state import reseal_shared_snapshot, shared_snapshot_is_current
+
         with _STARTUP_WRITE_LOCK:
+            unchanged = shared_snapshot_is_current()
             refresh_static_trust_artifacts(state.snapshot.config)
+            if unchanged:  # only our own writes happened: the next session may reuse the snapshot
+                reseal_shared_snapshot()
     except Exception:
         pass
 
