@@ -33,7 +33,7 @@ from etf_cockpit.app.components.kit import (
     field_input_style,
 )
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
-from etf_cockpit.app.formatting import format_number
+from etf_cockpit.app.formatting import format_number, format_timestamp, plain_text
 from etf_cockpit.app.pages import stock_page as sp
 from etf_cockpit.app.pages._sparebank_view import render_sparebank_workspace
 from etf_cockpit.application.alerts import read_local_alerts
@@ -64,7 +64,7 @@ def _reason(value: object, title: str) -> str:
         for key in ("unavailable_reason", "message", "reason"):
             candidate = value.get(key)
             if candidate:
-                return str(candidate).splitlines()[0]
+                return plain_text(str(candidate).splitlines()[0])
     return f"{title} evidence is unavailable for this instrument."
 
 
@@ -83,7 +83,7 @@ def _render_evidence_section(
 ) -> ft.Control:
     available = isinstance(value, Mapping) and value.get("status") not in {"unavailable", "missing"}
     if available:
-        summary: ft.Control = Note("Evidence details are available in the local result.")
+        summary: ft.Control = Note("Evidence is available. The technical records are listed below, collapsed.")
     else:
         summary = KpiTile(title, None, _reason(value, title))
     record_lines: list[str] = []
@@ -128,7 +128,9 @@ def _render_evidence_section(
     if isinstance(value, Mapping):
         collect_records(value)
     structured_rows = [ft.Text(line, color=theme.MUTED, selectable=True, size=11) for line in record_lines]
-    body = [summary, *_provenance_tags(value), *extra, *structured_rows, Disclosure("Evidence details", _payload(value), expanded=expanded)]
+    # Raw "field=value" record lines are developer detail: collapsed by default, never the card's first view.
+    records = [Disclosure(f"Records ({len(record_lines)})", ft.Column(structured_rows, spacing=2))] if structured_rows else []
+    body = [summary, *_provenance_tags(value), *extra, *records, Disclosure("Evidence details", _payload(value), expanded=expanded)]
     return GlassCard(title, note=subtitle, body=body, key=key)
 
 
@@ -294,11 +296,11 @@ def render_etf_e1_panel(economics: object) -> ft.Control:
                 shown = f"{value:,.0f} {field.get('currency') or '(currency unavailable)'}"
             else:
                 shown = str(value).capitalize()
-        detail = field.get("reason") or (
-            f"{field.get('source')} · as of {field.get('as_of')} · known {field.get('known_at')}"
+        detail = plain_text(field.get("reason")) if field.get("reason") else (
+            f"{plain_text(field.get('source'))} · as of {format_timestamp(field.get('as_of'))} · known {format_timestamp(field.get('known_at'))}"
         )
         if not field:
-            detail = f"{name}_missing_all_sources"
+            detail = plain_text(f"{name}_missing_all_sources")
         if field.get("window"):
             detail += f" · window {field['window']}"
         if field.get("difference"):

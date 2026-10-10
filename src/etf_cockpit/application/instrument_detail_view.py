@@ -1821,7 +1821,7 @@ def _score_panel(
         scorecard = scorecard if isinstance(scorecard, Mapping) else {}
         if not scorecard and str(financial_projection.get("status") or "").casefold() != "available":
             projection_reason = _safe_text(financial_projection.get("reason_code")) or "financial_projection_unavailable"
-            reason = f"Score unavailable at score routing: financial-institution projection failed ({projection_reason})."
+            reason = f"Score unavailable: the bank scorecard could not be built ({projection_reason})."
         else:
             composite = _safe_float(scorecard.get("composite_10"))
             if composite is not None:

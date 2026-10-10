@@ -12,6 +12,7 @@ import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components.cards import evidence_chip, panel, section_header
+from etf_cockpit.app.formatting import plain_text
 from etf_cockpit.app.components.simple_scores import simple_score_grouped_sections
 from etf_cockpit.app.components import chartkit as ck
 from etf_cockpit.app.components.kit import (
@@ -1159,7 +1160,7 @@ def _alert_row(page: ft.Page | None, state: AppState, record: AlertRecord, *, ac
     alert = record.alert
     status = f"status={alert.status.value}"
     text = ft.Text(
-        f"{alert.title} | {alert.message} | type={alert.alert_type.value} | severity={alert.severity.value} | confidence={alert.confidence.value} | subject={alert.subject_id} | {status} | execution_allowed=false",
+        f"{plain_text(alert.title)} | {plain_text(alert.message)} | type={alert.alert_type.value} | severity={alert.severity.value} | confidence={alert.confidence.value} | subject={alert.subject_id} | {status} | execution_allowed=false",
         color=theme.MUTED,
         selectable=True,
         size=theme.FONT_XS,
