@@ -35,6 +35,7 @@ from etf_cockpit.application.ui_facade import (
     allocation_frame,
     build_direct_overlap_view,
     build_factor_risk_report,
+    build_robust_risk_report,
     build_performance_attribution,
     drawdown_contribution,
     exposure_limit_report,
@@ -47,6 +48,128 @@ from etf_cockpit.application.ui_facade import (
 )
 from etf_cockpit.core.paths import EXPORTS_DIR, ROOT
 
+
+from etf_cockpit.app.components.simple_scores import _is_crowding_warning_state
+from etf_cockpit.core.values import finite_float_or_none as _finite_float
+from etf_cockpit.application.ui_facade import BENCHMARK_ATTRIBUTION_PATH, CORRELATION_CLUSTERS_PATH, load_simple_scoreboard
+from etf_cockpit.app.components.kit import SectionHeader
+
+SCOREBOARD_PATH = ROOT / "data" / "derived" / "scoreboard.parquet"
+
+def _number(value: object) -> str:
+    return format_number(value, decimals=2, unavailable="N/A")
+
+def _crowding_attribution_panel() -> ft.Control:
+    try:
+        crowding = pd.read_parquet(CORRELATION_CLUSTERS_PATH) if CORRELATION_CLUSTERS_PATH.exists() else pd.DataFrame()
+    except Exception:
+        crowding = pd.DataFrame()
+    try:
+        attribution = pd.read_parquet(BENCHMARK_ATTRIBUTION_PATH) if BENCHMARK_ATTRIBUTION_PATH.exists() else pd.DataFrame()
+    except Exception:
+        attribution = pd.DataFrame()
+    if crowding.empty and attribution.empty:
+        return GlassCard("Local risk evidence", body=ft.Column([SectionHeader("Crowding and attribution", "Trust evidence from clean adjusted-price returns."), ft.Text("Correlation and benchmark attribution evidence is unavailable; no cluster or sector-relative conclusion is inferred.", color=theme.MUTED)]))
+    warning_values = (
+        crowding["crowding_warning"]
+        if "crowding_warning" in crowding.columns
+        else pd.Series("", index=crowding.index, dtype=str)
+    )
+    warning_mask = warning_values.map(_is_crowding_warning_state)
+    warning_rows = crowding.loc[warning_mask] if not crowding.empty else pd.DataFrame()
+    if not warning_rows.empty and "cluster_id" in warning_rows.columns:
+        warning_ids = warning_rows["cluster_id"].astype("string").str.strip()
+        warning_count = int(warning_ids[warning_ids.notna() & warning_ids.ne("")].nunique())
+    else:
+        warning_count = 0
+    sector_available = int((attribution.get("sector_attribution_status", pd.Series(dtype=str)).astype(str) == "available").sum()) if not attribution.empty else 0
+    theme_available = int((attribution.get("theme_attribution_status", pd.Series(dtype=str)).astype(str) == "available").sum()) if not attribution.empty else 0
+    broad_available = int(
+        pd.to_numeric(attribution.get("benchmark_return", pd.Series(dtype=float)), errors="coerce").notna().sum()
+    ) if not attribution.empty else 0
+    risk_contribution = pd.to_numeric(crowding.get("cluster_risk_contribution", pd.Series(dtype=float)), errors="coerce") if not crowding.empty else pd.Series(dtype=float)
+    top_contribution = float(risk_contribution.max()) if not risk_contribution.dropna().empty else None
+    coverage = pd.to_numeric(crowding.get("ranking_coverage", pd.Series(dtype=float)), errors="coerce") if not crowding.empty else pd.Series(dtype=float)
+    mean_coverage = float(coverage.mean()) if not coverage.dropna().empty else None
+    return GlassCard("Local risk evidence", body=ft.Column([
+        SectionHeader("Crowding and attribution", "Configured metadata and clean adjusted-price evidence; diagnostics are descriptive and non-executable."),
+        ft.Text(f"Clusters with warnings: {warning_count} | highest cluster risk contribution: {_number(top_contribution)} | mean ranking coverage: {_number(mean_coverage)} | execution_allowed=false", color=theme.MUTED, selectable=True),
+        ft.Text(f"Broad benchmark attribution: {broad_available} rows available | Sector attribution: {sector_available} rows available | Theme attribution: {theme_available} rows available | horizons use clean overlapping returns; unavailable or insufficient evidence is N/A.", color=theme.MUTED, selectable=True),
+    ]))
+
+def _friction_edge_panel() -> ft.Control:
+    """Show persisted gross/net edge and cost scenarios as risk evidence."""
+
+    scoreboard_error: str | None = None
+    try:
+        scoreboard = load_simple_scoreboard(SCOREBOARD_PATH)
+    except (OSError, ValueError) as exc:
+        # Corrupt optional store: render the explicit unavailable panel with the reason.
+        scoreboard = pd.DataFrame()
+        scoreboard_error = type(exc).__name__
+    required = {"gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio", "cost_stress_scenario"}
+    id_column = next((column for column in ("display_id", "instrument_id", "etf_id") if column in scoreboard.columns), None)
+    if scoreboard.empty or id_column is None or not required.issubset(scoreboard.columns):
+        return GlassCard("Local risk evidence", body=
+            ft.Column(
+                [
+                    SectionHeader("Expected edge and trading costs", "Gross/net edge, estimated cost, ratio and stress scenario are descriptive evidence only."),
+                    ft.Text(
+                        "Expected edge and cost evidence unavailable; no scenario conclusion is inferred."
+                        if scoreboard_error is None
+                        else f"Expected edge and cost evidence unavailable: scoreboard store unreadable ({scoreboard_error}); no scenario conclusion is inferred.",
+                        color=theme.MUTED,
+                        selectable=True,
+                    ),
+                ]
+            )
+        )
+
+    def _bps(value: object) -> str:
+        number = _finite_float(value)
+        return "N/A" if number is None else f"{number:.2f} bps"
+
+    def _ratio(value: object) -> str:
+        number = _finite_float(value)
+        return "N/A" if number is None else f"{number:.2f}"
+
+    def _scenario(value: object) -> str:
+        if value is None or pd.isna(value):
+            return "unavailable"
+        text = str(value).strip()
+        return text or "unavailable"
+
+    rows = [
+        ft.DataRow(
+            cells=[
+                ft.DataCell(ft.Text(str(row.get(id_column, "N/A")), color=theme.INK, size=11)),
+                ft.DataCell(ft.Text(_bps(row.get("gross_expected_edge_bps")), color=theme.INK, size=11)),
+                ft.DataCell(ft.Text(_bps(row.get("estimated_total_cost_bps")), color=theme.MUTED, size=11)),
+                ft.DataCell(ft.Text(_bps(row.get("net_expected_edge_bps")), color=theme.INK, size=11)),
+                ft.DataCell(ft.Text(_ratio(row.get("edge_to_cost_ratio")), color=theme.INK, size=11)),
+                ft.DataCell(ft.Text(_scenario(row.get("cost_stress_scenario")), color=theme.MUTED, size=11)),
+            ]
+        )
+        for _, row in scoreboard.iterrows()
+    ]
+    summary = [
+        f"{row.get(id_column, 'N/A')}: Gross edge {_bps(row.get('gross_expected_edge_bps'))} | Estimated cost {_bps(row.get('estimated_total_cost_bps'))} | Net edge {_bps(row.get('net_expected_edge_bps'))} | Edge/cost {_ratio(row.get('edge_to_cost_ratio'))} | Cost scenario: {_scenario(row.get('cost_stress_scenario'))}"
+        for _, row in scoreboard.iterrows()
+    ]
+    return GlassCard("Local risk evidence", body=
+        ft.Column(
+            [
+                SectionHeader("Expected edge and trading costs", "Gross/net edge, estimated cost, ratio and stress scenario are descriptive evidence only."),
+                *[ft.Text(line, color=theme.MUTED, size=11, selectable=True) for line in summary],
+                ft.DataTable(
+                    columns=[ft.DataColumn(ft.Text(column, color=theme.INK, size=11)) for column in ("Instrument", "Gross edge", "Estimated cost", "Net edge", "Edge/cost", "Cost scenario")],
+                    rows=rows,
+                ),
+                ft.Text("execution_allowed=false", color=theme.MUTED, size=11),
+            ],
+            scroll=ft.ScrollMode.AUTO,
+        )
+    )
 
 _DIMENSIONS = {
     "Asset class": "asset_class",
@@ -401,6 +524,37 @@ def _underlying_holdings_card(holdings: pd.DataFrame, allocation: pd.DataFrame) 
     )
 
 
+def _robust_estimator_panel(report: dict[str, object]) -> ft.Control:
+    frame = report.get("estimator_comparison")
+    frame = frame if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+    rows = [
+        ft.DataRow(
+            cells=[
+                ft.DataCell(ft.Text(str(row.get("estimator", "")), color=theme.INK, size=11)),
+                ft.DataCell(ft.Text(_number(row.get("validation_error")), color=theme.INK, size=11)),
+                ft.DataCell(ft.Text(str(row.get("validation_observations", "")), color=theme.MUTED, size=11)),
+                ft.DataCell(ft.Text("yes" if bool(row.get("selected")) else "", color=theme.GREEN if bool(row.get("selected")) else theme.MUTED, size=11)),
+            ]
+        )
+        for _, row in frame.iterrows()
+    ]
+    return GlassCard("Robust risk model", body=
+        ft.Column(
+            [
+                SectionHeader("Estimator comparison", "Selection uses held-out covariance error; sample and diagonal baselines remain available."),
+                ft.DataTable(
+                    columns=[ft.DataColumn(ft.Text("Estimator")), ft.DataColumn(ft.Text("OOS error")), ft.DataColumn(ft.Text("Validation N")), ft.DataColumn(ft.Text("Selected"))],
+                    rows=rows,
+                )
+                if rows
+                else ft.Text("Out-of-sample estimator comparison is unavailable; the sample baseline remains explicit.", color=theme.MUTED),
+            ],
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
+    )
+
+
 def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False) -> PageView:
     if not _deferred and page is not None and (isinstance(page, ft.Page) or bool(getattr(page, "_shell_defer_render", False))):
         placeholder = ft.Container(content=Note("Loading risk evidence..."), expand=True)
@@ -464,6 +618,7 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
         snapshot.latest_features,
         eligible_holdings,
     )
+    robust_risk = build_robust_risk_report(snapshot.prices, allocation, factor_report=factors)
     factor_history = factors.get("factor_returns", pd.DataFrame())
     attribution = build_performance_attribution(
         snapshot.prices,
@@ -931,28 +1086,7 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
             spacing=theme.SPACE_2,
         ),
     )
-    robust_card = GlassCard(
-        "Robust risk model",
-        body=ft.Column(
-            [
-                KpiTile("Robust risk model", None, sub="No robust estimator result is available."),
-                Well(
-                    DataTable(
-                        [
-                            TableColumn("estimator", "Estimator"),
-                            TableColumn("error", "OOS error", numeric=True),
-                            TableColumn("n", "Validation N", numeric=True),
-                            TableColumn("selected", "Selected"),
-                        ],
-                        [],
-                        empty_title="Unavailable",
-                        empty_reason="Robust risk model results are unavailable.",
-                    )
-                ),
-            ],
-            spacing=theme.SPACE_2,
-        ),
-    )
+    robust_card = _robust_estimator_panel(robust_risk)
 
     asset_contributions = attribution.get("asset_contributions", pd.DataFrame())
     if not isinstance(asset_contributions, pd.DataFrame) or asset_contributions.empty:
@@ -1042,7 +1176,7 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
     body = page_body([])
 
     def render() -> None:
-        below_fold = [holdings_card, overlap_card, underlying_card]
+        below_fold = [holdings_card, overlap_card, underlying_card, _friction_edge_panel(), _crowding_attribution_panel()]
         if selection["view"] == "Factors":
             cards = [factor_card, factor_history_card, model_card, robust_card]
         elif selection["view"] == "Tail & regimes":

@@ -130,9 +130,13 @@ def test_feature_service_does_not_use_first_enabled_instrument_as_benchmark(monk
     monkeypatch.setattr(feature_service, "compute_features", lambda _frame, benchmark_etf_id=None: captured.append(benchmark_etf_id) or pd.DataFrame({"value": [1]}))
     monkeypatch.setattr(feature_service, "write_features", lambda _frame, **_kwargs: None)
 
-    FeatureService(load_config()).compute_features(prices=_bound_feature_prices())
+    config = load_config()
+    universe = config.universe.model_copy(update={"etfs": sorted(config.universe.etfs, key=lambda item: item.id == "VWCE")})
+    config = config.model_copy(update={"universe": universe})
+    assert config.universe.enabled_ids[0] != "VWCE"
+    FeatureService(config).compute_features(prices=_bound_feature_prices())
 
-    assert captured == [None]
+    assert captured == ["VWCE"]
 
 
 def test_feature_service_uses_explicit_canonical_benchmark_data_id(monkeypatch) -> None:

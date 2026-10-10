@@ -798,7 +798,7 @@ def import_export_page(page: ft.Page, state: AppState) -> PageView:
     def status_summary(message: str) -> str:
         lowered = message.casefold()
         if "preview" in lowered:
-            return "Import preview updated; review staged rows."
+            return message
         if "backup" in lowered:
             return "Backup action updated; review details."
         if "restore" in lowered:

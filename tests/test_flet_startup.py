@@ -257,6 +257,7 @@ def test_native_queued_navigation_has_one_render_owner(monkeypatch):
     class FakeSession:
         pass
 
+    monkeypatch.setattr(router, "_DEFERRED_RENDER_ROUTES", router._DEFERRED_RENDER_ROUTES - {"/backtests", "/signals", "/instrument"})
     session = FakeSession()
     page = ft.Page(session)
     page.route = "/backtests"

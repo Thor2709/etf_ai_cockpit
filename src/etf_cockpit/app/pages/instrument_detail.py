@@ -95,6 +95,7 @@ def _render_evidence_section(
                 collect_records(child, path)
                 continue
             if not isinstance(child, Sequence) or isinstance(child, (str, bytes)):
+                record_lines.append(f"{path}: {_value(child)}" if name == "coverage" else f"{path}={_value(child) if _value(child) != _MISSING else 'N/A'}")
                 continue
             if not child:
                 record_lines.append(f"{path}: unavailable")
@@ -110,7 +111,7 @@ def _render_evidence_section(
                         or isinstance(field_value, (str, bytes))
                     ]
                     if scalar and " / " not in path:
-                        record_lines.append(f"{row_path}: " + ", ".join(f"{field}={field_value}" for field, field_value in scalar))
+                        record_lines.append(f"{row_path}: " + ", ".join(f"{field}={_value(field_value) if _value(field_value) != _MISSING else 'N/A'}" for field, field_value in scalar))
                     elif scalar:
                         record_lines.extend(f"{row_path} / {field}: {field_value}" for field, field_value in scalar)
                     for field, field_value in item.items():
@@ -128,7 +129,8 @@ def _render_evidence_section(
     if isinstance(value, Mapping):
         collect_records(value)
     structured_rows = [ft.Text(line, color=theme.MUTED, selectable=True, size=11) for line in record_lines]
-    body = [summary, *_provenance_tags(value), *extra, *structured_rows, Disclosure("Evidence details", _payload(value), expanded=expanded)]
+    records = ft.Column(structured_rows, height=320 if len(structured_rows) > 20 else None, scroll=ft.ScrollMode.AUTO)
+    body = [summary, *_provenance_tags(value), *extra, Disclosure("Evidence records", records, expanded=expanded), Disclosure("Evidence details", _payload(value))]
     return GlassCard(title, note=subtitle, body=body, key=key)
 
 
@@ -161,21 +163,56 @@ def _provenance_tags(value: object) -> list[ft.Control]:
 
 
 def _render_crowding_attribution_panel(sections: Mapping[str, object]) -> ft.Control:
-    attribution = sections.get("attribution")
-    value = attribution.get("alpha") if isinstance(attribution, Mapping) else None
-    alpha = format_number(value, decimals=2, unavailable="Unavailable")
-    return GlassCard(
-        "Crowding and attribution",
-        note="Instrument-scoped attribution and crowding evidence.",
-        body=[
-            KpiTile(
-                "Alpha",
-                alpha if alpha != "Unavailable" else None,
-                "Stored attribution value" if alpha != "Unavailable" else "No stored alpha value is available.",
-            ),
-            Disclosure("Attribution details", _payload(sections)),
-        ],
-    )
+    scores = sections.get("scores") if isinstance(sections.get("scores"), dict) else {}
+    attribution = sections.get("attribution") if isinstance(sections.get("attribution"), dict) else {}
+    crowding = scores.get("crowding") if isinstance(scores.get("crowding"), dict) else {}
+    friction = scores.get("friction") if isinstance(scores.get("friction"), dict) else {}
+
+    def _bps(value: object) -> str:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return "N/A"
+        return "N/A" if not math.isfinite(number) else f"{number:.2f} bps"
+
+    def _ratio(value: object) -> str:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return "N/A"
+        return "N/A" if not math.isfinite(number) else f"{number:.2f}"
+
+    def _pct(value: object) -> str:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return "N/A"
+        return "N/A" if not math.isfinite(number) else f"{number:+.1%}"
+
+    def _euro(value: object) -> str:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return "N/A"
+        return "N/A" if not math.isfinite(number) else f"EUR {number:,.2f}"
+
+    horizon = friction.get("expected_return_horizon_days")
+    try:
+        horizon_text = f"{int(float(horizon))}d" if math.isfinite(float(horizon)) else "N/A"
+    except (TypeError, ValueError):
+        horizon_text = "N/A"
+
+    lines = [
+        f"Crowding: {crowding.get('crowding_warning', 'N/A')} | cluster {crowding.get('cluster_label', 'N/A')} | peer corr {crowding.get('average_peer_correlation', 'N/A')} | risk contribution {crowding.get('cluster_risk_contribution', 'N/A')} | coverage {crowding.get('ranking_coverage', 'N/A')} | pair sample {crowding.get('pair_sample_size', 'N/A')} / row sample {crowding.get('sample_size', 'N/A')} | top-theme concentration {crowding.get('top_ranked_theme_concentration', 'N/A')} | top-theme warning {crowding.get('top_ranked_theme_warning', 'N/A')} | as of {crowding.get('as_of_date', 'N/A')}",
+        f"Broad benchmark: beta {attribution.get('benchmark_beta', 'N/A')} | corr {attribution.get('benchmark_correlation', 'N/A')} | alpha {attribution.get('alpha') if attribution.get('alpha') is not None else attribution.get('alpha_proxy', 'N/A')}",
+        f"Cash comparison: return {attribution.get('cash_return', 'N/A')} | excess {attribution.get('excess_over_cash', 'N/A')} | currency {attribution.get('cash_currency', 'N/A')} | horizon {attribution.get('cash_horizon_years', 'N/A')} | vintage {attribution.get('cash_vintage', 'N/A')} | status {attribution.get('cash_comparison_status', 'unavailable')}",
+        f"Sector-relative: return {attribution.get('sector_relative_return', 'N/A')} | alpha {attribution.get('sector_alpha_proxy', 'N/A')} | status {attribution.get('sector_attribution_status', 'N/A')} | theme-relative return {attribution.get('theme_relative_return', 'N/A')} | theme alpha {attribution.get('theme_alpha_proxy', 'N/A')} | theme status {attribution.get('theme_attribution_status', 'N/A')} | source {attribution.get('source_dataset', 'N/A')}",
+        f"Gross edge: {_bps(friction.get('gross_expected_edge_bps'))} | Estimated cost: {_bps(friction.get('estimated_total_cost_bps'))} | Net edge: {_bps(friction.get('net_expected_edge_bps'))} | Edge/cost: {_ratio(friction.get('edge_to_cost_ratio'))} | Cost scenario: {friction.get('cost_stress_scenario', 'unavailable')} | status {friction.get('status', 'unavailable')}",
+        f"Expected-return distribution ({horizon_text}): q10 {_pct(friction.get('q10_expected_return'))} | q50 {_pct(friction.get('q50_expected_return'))} | q90 {_pct(friction.get('q90_expected_return'))} | net {_pct(friction.get('net_expected_return'))} on {_euro(friction.get('expected_return_order_value_eur'))} | cost {_bps(friction.get('expected_return_cost_bps'))} / {_euro(friction.get('expected_return_cost_eur'))} | return/cost {_ratio(friction.get('expected_return_cost_ratio'))} | source {friction.get('expected_return_source_dataset', 'forecast_return_distribution')}",
+        "These diagnostics are descriptive evidence only; execution_allowed=false.",
+    ]
+
+    return GlassCard("Crowding and attribution", note="Instrument-scoped, non-executable evidence.", body=[*[ft.Text(line, size=11, selectable=True) for line in lines], Disclosure("Attribution details", _payload(sections))])
 
 
 _DISCLOSURE_LINES = (
@@ -815,7 +852,7 @@ def _export_controls(model: InstrumentDetailViewModel, state: object, page: ft.P
         else:
             try:
                 exporter()
-                status.value = "Audit evidence export created."
+                status.value = "Exported audit evidence."
             except Exception:
                 status.value = "Audit evidence export could not be created."
         if page is not None and callable(getattr(page, "update", None)):
@@ -1250,18 +1287,48 @@ def _score_history_chart(value: object) -> ft.Control:
     )
 
 
-def _valuation_card(model: InstrumentDetailViewModel, page: ft.Page | None, state: object) -> ft.Control:
-    valuation = model.sections.get("valuation")
-    if str(model.identity.get("asset_type", "")).casefold() not in {"stock", "equity"}:
-        return _section_card("Stock valuation and scenarios", valuation)
+def _render_valuation_scenarios(
+    page: ft.Page | None,
+    model: InstrumentDetailViewModel,
+    decision_time: object,
+    *,
+    session_active: object = None,
+) -> ft.Control:
+    """Keep scenario assumptions in the active page-owned dialog session."""
 
-    decision_time = getattr(
-        getattr(getattr(state, "snapshot", None), "data_report", None),
-        "as_of_date",
-        None,
-    )
-    initial = valuation
-    result = {"value": initial}
+    initial = model.sections.get("valuation")
+    if str(model.identity.get("asset_type", "")).casefold() not in {"stock", "equity"}:
+        return _render_evidence_section("Stock valuation and scenarios", initial)
+
+    def render(projection: object) -> ft.Control:
+        return _render_evidence_section(
+            "Stock valuation and scenarios",
+            projection,
+            subtitle="Relative valuation, intrinsic value, reverse DCF and residual income; dated source lineage; execution_allowed=false.",
+            key="instrument-detail.valuation",
+            expanded=True,
+        )
+
+    result = ft.Container(content=render(initial))
+
+    def active() -> bool:
+        return not callable(session_active) or bool(session_active())
+
+    def refresh() -> None:
+        if page is not None and callable(getattr(page, "update", None)):
+            page.update()
+
+    def invalidate_valuation(_event: ft.ControlEvent | None = None) -> None:
+        if active():
+            result.content = render(
+                {
+                    "status": "unavailable",
+                    "message": "Inputs changed. Preview valuation scenarios to calculate current inputs.",
+                    "execution_allowed": False,
+                }
+            )
+            refresh()
+
     labels = {
         "forecast_years": "Forecast years (1-50)",
         "discount_rate": "Discount rate (%) >0 to 100",
@@ -1271,68 +1338,22 @@ def _valuation_card(model: InstrumentDetailViewModel, page: ft.Page | None, stat
         "bull": "Bull growth (%) <=100",
     }
 
-    def invalidate_valuation(_event: ft.ControlEvent | None = None) -> None:
-        result["value"] = {
-            "status": "unavailable",
-            "message": "Inputs changed. Preview valuation scenarios to calculate current inputs.",
-            "execution_allowed": False,
-        }
-        result_panel.content = Disclosure("Scenario result", _payload(result["value"]))
-        if page is not None and callable(getattr(page, "update", None)):
-            page.update()
-
     inputs = {
         name: ft.TextField(
-            key=f"instrument-detail.valuation-input.{name}",
+            label=label,
             value="",
+            col={"xs": 12, "sm": 6},
+            autofocus=name == "forecast_years",
             on_change=invalidate_valuation,
+            key=f"instrument-detail.valuation-input.{name}",
             **field_input_style(),
         )
-        for name in labels
+        for name, label in labels.items()
     }
-    input_fields = []
-    for name, label in labels.items():
-        field = Field(label, control=inputs[name])
-        field.col = {"xs": 12, "sm": 6}
-        input_fields.append(field)
 
-    result_panel = ft.Container(content=Disclosure("Scenario result", _payload(initial)))
-    workspace = ft.Column(
-        [
-            Note(
-                "Session-only scenario assumptions. Enter every input; bear < base < bull. "
-                "Inputs are not saved or exported and do not change scores. execution_allowed=false."
-            ),
-            Note("Terminal growth must be at least -100% and below the discount rate."),
-            ft.ResponsiveRow(input_fields, spacing=8, run_spacing=8),
-            ft.Row(
-                [
-                    Button.primary(
-                        "Preview valuation scenarios",
-                        on_click=lambda _event: preview_valuation(),
-                        key="instrument-detail.preview-valuation",
-                    ),
-                    Button.secondary(
-                        "Clear scenario inputs",
-                        on_click=lambda _event: clear_valuation(),
-                        key="instrument-detail.clear-valuation",
-                    ),
-                    Button.secondary(
-                        "Close scenario workspace",
-                        on_click=lambda _event: close_valuation_workspace(),
-                        key="instrument-detail.close-valuation",
-                    ),
-                ],
-                spacing=8,
-                wrap=True,
-            ),
-            result_panel,
-        ],
-        spacing=8,
-        visible=False,
-    )
-
-    def preview_valuation() -> None:
+    def preview_valuation(_event: ft.ControlEvent | None = None) -> None:
+        if not active():
+            return
         try:
             assumptions = {
                 "forecast_years": int(inputs["forecast_years"].value.strip()),
@@ -1345,46 +1366,148 @@ def _valuation_card(model: InstrumentDetailViewModel, page: ft.Page | None, stat
             }
         except (ValueError, TypeError, AttributeError, OverflowError):
             assumptions = {}
-        result["value"] = _valuation_panel(
-            model.instrument_id,
-            model.identity.get("asset_type"),
-            decision_time,
-            assumptions,
+        result.content = render(
+            _valuation_panel(
+                model.instrument_id,
+                model.identity.get("asset_type"),
+                decision_time,
+                assumptions,
+            )
         )
-        result_panel.content = Disclosure("Scenario result", _payload(result["value"]))
-        if page is not None and callable(getattr(page, "update", None)):
-            page.update()
+        refresh()
 
-    def clear_valuation() -> None:
+    def clear_valuation(_event: ft.ControlEvent | None = None) -> None:
+        if not active():
+            return
         for control in inputs.values():
             control.value = ""
-        result["value"] = initial
-        result_panel.content = Disclosure("Scenario result", _payload(initial))
-        if page is not None and callable(getattr(page, "update", None)):
-            page.update()
+        result.content = render(initial)
+        refresh()
 
-    def close_valuation_workspace() -> None:
-        workspace.visible = False
-        if page is not None and callable(getattr(page, "update", None)):
-            page.update()
+    return ft.Column(
+        [
+            ft.Text(
+                "Session-only scenario assumptions. Enter every input; bear < base < bull. Inputs are not saved or exported and do not change scores. execution_allowed=false.",
+                selectable=True,
+            ),
+            ft.Text("Terminal growth must be at least -100% and below the discount rate.", size=11),
+            ft.ResponsiveRow(list(inputs.values()), spacing=8, run_spacing=8),
+            ft.Row(
+                [
+                    ft.OutlinedButton(
+                        "Preview valuation scenarios",
+                        key="instrument-detail.preview-valuation",
+                        on_click=preview_valuation,
+                    ),
+                    ft.OutlinedButton(
+                        "Clear scenario inputs",
+                        key="instrument-detail.clear-valuation",
+                        on_click=clear_valuation,
+                    ),
+                ],
+                wrap=True,
+            ),
+            result,
+        ],
+        tight=True,
+    )
+
+
+def _valuation_workspace(page: ft.Page | None, model: InstrumentDetailViewModel, decision_time: object) -> ft.Control:
+    evidence = _render_evidence_section(
+        "Stock valuation and scenarios",
+        model.sections.get("valuation"),
+        key="instrument-detail.valuation",
+    )
+    if str(model.identity.get("asset_type", "")).casefold() not in {"stock", "equity"}:
+        return evidence
+
+    owner = {"mounted": True}
+    sessions: list[tuple[dict[str, bool], ft.AlertDialog]] = []
+
+    def dispose_workspace() -> None:
+        owner["mounted"] = False
+        for session, dialog in sessions:
+            session["active"] = False
+            dialog.open = False
+            dialog.content = None
+
+    if page is not None:
+        page._valuation_workspace_dispose = dispose_workspace
 
     def open_valuation_workspace(_event: ft.ControlEvent | None = None) -> None:
-        workspace.visible = True
-        if page is not None and callable(getattr(page, "update", None)):
-            page.update()
+        if page is None or not callable(getattr(page, "show_dialog", None)):
+            return
+        if not owner["mounted"] or any(session["active"] for session, _dialog in sessions):
+            return
+        session = {"active": True}
 
-    return GlassCard(
-        "Stock valuation and scenarios",
-        body=[
-            Button.primary(
-                "Open valuation scenarios",
-                on_click=open_valuation_workspace,
-                key="instrument-detail.open-valuation",
+        def session_active() -> bool:
+            return owner["mounted"] and session["active"]
+
+        async def restore_valuation_focus(_event: ft.ControlEvent | None = None) -> None:
+            session["active"] = False
+            dialog.content = None
+            sessions[:] = [item for item in sessions if item[1] is not dialog]
+            if owner["mounted"]:
+                await opener.focus()
+
+        async def close_valuation_workspace(_event: ft.ControlEvent | None = None) -> None:
+            session["active"] = False
+            dialog.open = False
+            dialog.content = None
+            sessions[:] = [item for item in sessions if item[1] is not dialog]
+            page.update()
+            if owner["mounted"]:
+                await opener.focus()
+
+        dialog = ft.AlertDialog(
+            title=ft.Text("Valuation scenario workspace"),
+            modal=False,
+            scrollable=True,
+            inset_padding=12,
+            content_padding=12,
+            content=ft.Container(
+                width=620,
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            "Closing this workspace discards its inputs and results. Resize retains them. Escape or Close returns to Instrument Detail."
+                        ),
+                        _render_valuation_scenarios(page, model, decision_time, session_active=session_active),
+                    ],
+                    tight=True,
+                ),
             ),
-            workspace,
-            Disclosure("Stored valuation evidence", _payload(initial)),
-        ],
+            actions=[
+                ft.TextButton(
+                    "Close scenario workspace",
+                    key="instrument-detail.close-valuation",
+                    on_click=close_valuation_workspace,
+                )
+            ],
+            on_dismiss=restore_valuation_focus,
+        )
+        sessions.append((session, dialog))
+        page.show_dialog(dialog)
+
+    opener = ft.OutlinedButton(
+        "Open valuation scenarios",
+        key="instrument-detail.open-valuation",
+        on_click=open_valuation_workspace,
+        disabled=page is None or not callable(getattr(page, "show_dialog", None)),
+        tooltip="A local scenario workspace is unavailable for this page session.",
     )
+    return ft.Column([opener, evidence])
+
+
+def _valuation_card(model: InstrumentDetailViewModel, page: ft.Page | None, state: object) -> ft.Control:
+    decision_time = getattr(
+        getattr(getattr(state, "snapshot", None), "data_report", None),
+        "as_of_date",
+        None,
+    )
+    return _valuation_workspace(page, model, decision_time)
 
 
 def _section_rows(
@@ -1400,6 +1523,12 @@ def _section_rows(
     valuation_workspace = _valuation_card(model, page, state)
     score_history = _score_history_chart(sections.get("history"))
     overview = [
+        _render_evidence_section(
+            "Candle Evidence",
+            sections.get("candle_evidence"),
+            subtitle="Candle research evidence; same-bar exits remain ambiguous; execution_allowed=false.",
+            key="instrument-detail.candle-evidence",
+        ),
         _render_feature_driver_panel(sections.get("feature_drivers")),
         _render_crowding_attribution_panel(
             {"scores": sections.get("scores"), "attribution": sections.get("attribution")}
@@ -1441,7 +1570,7 @@ def _section_rows(
         ),
     ]
     fundamentals = [
-        _section_card("Fundamentals", sections.get("fundamentals"), "instrument-detail.fundamentals"),
+        _render_evidence_section("Fundamentals", sections.get("fundamentals"), key="instrument-detail.fundamentals", subtitle="Five-section values and statement_history with provenance; execution_allowed=false."),
         valuation_workspace,
         _render_evidence_section(
             "Financial Institutions",
@@ -1487,7 +1616,7 @@ def _section_rows(
         _section_card("What changed since the last run", sections.get("run_changes")),
         _section_card("Paper-trade history", sections.get("paper_trades")),
         _section_card("Decision journal", sections.get("journal")),
-        _section_card("LLM thesis diary", sections.get("thesis_diary"), "instrument-detail.thesis-diary"),
+        _render_evidence_section("LLM thesis diary", sections.get("thesis_diary"), key="instrument-detail.thesis-diary", subtitle="Local non-executable thesis evidence; execution_allowed=false."),
         render_news_context_panel(model),
         render_event_calendar_panel(model),
     ]
@@ -1605,6 +1734,8 @@ def _body(
         else {"status": "unavailable", "message": "No instrument is selected."}
     )
     groups = _section_rows(model, vintage, page, state)
+    extra_evidence = [card for name in ("Fund", "Fundamentals", "Fixed income") if name != kind for card in groups[name]]
+    groups["Overview"].append(Disclosure("Additional local evidence", ft.Column(extra_evidence)))
     stock = _stock_model(model, state)
     if stock is not None:
         top_rows, groups = _stock_layout(model, stock, state, page, instrument_ids, on_instrument_change, groups)
@@ -1628,7 +1759,7 @@ def _body(
             [
                 SectionHeader(
                     section,
-                    "Instrument evidence and review context.",
+                    "Canonical evidence and review context.",
                 ),
                 ft.ResponsiveRow(cards, spacing=16, run_spacing=16),
             ],

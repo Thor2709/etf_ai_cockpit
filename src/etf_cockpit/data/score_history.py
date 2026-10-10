@@ -235,6 +235,7 @@ def append_score_run(
         ("analysis_tier", ""),
         ("source_group", ""),
         ("data_as_of_date", ""),
+        ("effective_at", None),
         ("price_as_of_date", ""),
         ("evidence_score_10", None),
         ("evidence_quality_10", None),

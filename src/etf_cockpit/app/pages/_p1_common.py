@@ -38,9 +38,11 @@ def workflow_button(
     disabled_reason: str | None = None,
     **_unused: object,
 ) -> ft.Control:
-    """Kit button with a stable acceptance key (call it as ``_workflow_button`` so source discovery sees it)."""
+    """Native keyboard-operable workflow button with the kit presentation."""
     factory = Button.primary if primary else Button.secondary
-    return factory(label, on_click, key=key_name, disabled=disabled, disabled_reason=disabled_reason)
+    presentation = factory(label)
+    return ft.FilledButton(content=presentation.content, key=key_name, on_click=on_click,
+        disabled=disabled, tooltip=disabled_reason if disabled else None)
 
 
 def go(page: object, state: object, route: str) -> None:

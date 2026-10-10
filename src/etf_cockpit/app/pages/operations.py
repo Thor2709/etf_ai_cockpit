@@ -1,4 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import threading
+import uuid
 
 import flet as ft
 
@@ -24,6 +26,12 @@ from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, Seg
 from etf_cockpit.app.pages._l4a_common import input_of, page_body, text_field
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.contracts import (
+    ApiStatus,
+    PageRequest,
+    CancelWorkflowCommand,
+    EventBlockPolicy,
+    ProposalReviewRequest,
+    SubmitWorkflowCommand,
     PaperAccountOpenRequest,
     PaperCorporateActionRequest,
     PaperFillRequest,
@@ -35,6 +43,15 @@ from etf_cockpit.application.contracts import (
     PaperProposalDeferRequest,
     PaperProposalRejectRequest,
 )
+
+from etf_cockpit.application.operation_records import OperationRecord, build_operation_preview, load_operation_records, save_operation_record
+from etf_cockpit.application.ui_facade import load_paper_tca_view
+from etf_cockpit.app.formatting import format_currency, format_number
+from collections.abc import Mapping
+
+def _safe_update(page: ft.Page | None) -> None:
+    if page is not None and callable(getattr(page, "update", None)):
+        page.update()
 
 
 def _number(field: ft.Control, label: str) -> float:
@@ -60,22 +77,35 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
     paper = api.get_paper()
     account = paper.items[0] if getattr(paper, "items", None) else None
     operations = api.get_operations()
+    portfolio_page = api.get_portfolios(PageRequest())
+    portfolio_values = [item.market_value for item in portfolio_page.items]
+    next_offset = getattr(portfolio_page, "next_offset", None)
+    while next_offset is not None:
+        portfolio_page = api.get_portfolios(PageRequest(offset=next_offset, limit=portfolio_page.limit))
+        portfolio_values.extend(item.market_value for item in portfolio_page.items)
+        next_offset = getattr(portfolio_page, "next_offset", None)
+    total_value = sum(portfolio_values) if portfolio_values and all(value is not None for value in portfolio_values) else None
     local_status = {"paper": "Local paper actions are available when their required evidence is supplied."}
 
-    preview_instrument = text_field("Instrument", "operations.instrument")
-    preview_quantity = text_field("Quantity", "operations.quantity")
+    preview_instrument = text_field("Instrument", "operations.instrument", value=str(getattr(state, "selected_etf", "") or ""))
+    preview_quantity = text_field("Quantity", "operations.quantity", value="1")
     event_status = ft.Text("Event policy unavailable")
 
-    def change_event_policy(_value: bool) -> None:
-        event_status.value = "Event policy unavailable in this build."
-        if page is not None:
-            page.update()
+    active_record: OperationRecord | None = None
+    busy = False
+    event_enabled = {"value": False}
+
+    def change_event_policy(value: bool) -> None:
+        nonlocal active_record
+        event_enabled["value"] = value
+        active_record = None
+        confirm_button.disabled = True
+        event_status.value = "Event policy changed; create a fresh preview. execution_allowed=false"
+        _safe_update(page)
 
     event_blackout = Toggle(
         on=False,
         on_change=change_event_policy,
-        disabled=True,
-        disabled_reason="Event policy details are unavailable in this build.",
         key="operations.event-policy",
     )
     event_policy = Field(
@@ -106,48 +136,241 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
             status.value = f"{name} unavailable. Review details."
             details.content = Disclosure(f"{name} details", str(exc))
         else:
-            status.value = f"{name} recorded locally."
+            status.value = f"{name}: {result.status}" if name == "Paper account" else f"{name} recorded locally."
             details.content = Disclosure(f"{name} details", str(result))
         if page is not None:
             page.update()
 
-    def preview(_event: ft.ControlEvent | None) -> None:
-        def store_preview():
-            from etf_cockpit.application.operation_records import build_operation_preview, save_operation_record
+    message = event_status
+    operation_state = ft.Text("State: idle")
+    preview_text = ft.Text("Preview: none")
+    authority_text = ft.Text("Authority: paper preview; execution_allowed=false")
+    result_text = ft.Text("Result: none")
+    audit_text = ft.Text("Audit: none")
+    event_evidence = ft.Text("Event policy disabled; execution_allowed=false")
+    proposal_state = ft.Text("Proposal review: not evaluated")
+    proposal_evidence = ft.Text("Validated optimiser and portfolio evidence is required.")
+    records_body = ft.Column()
+    instrument = input_of(preview_instrument)
+    quantity = input_of(preview_quantity)
+    preview_button = Button.secondary("Preview selected operation", key="operations.preview")
+    proposal_button = Button.secondary("Validate proposal review", key="operations.proposal-review")
+    confirm_button = Button.primary("Confirm paper workflow", key="operations.confirm", disabled=True, disabled_reason="Create a valid paper preview first.")
+    cancel_button = ft.TextButton("Cancel workflow", key="operations.cancel", disabled=True)
 
+    def selected_event_policy() -> EventBlockPolicy | None:
+        return EventBlockPolicy(policy_id="local-high-risk-preview", version="1", pre_minutes=1440, post_minutes=1440) if event_enabled["value"] else None
+
+    def set_record(record: OperationRecord) -> None:
+        nonlocal active_record
+        active_record = record
+        operation_state.value = f"State: {record.status}"
+        preview_text.value = f"Preview: {record.instrument_id} · {format_number(record.quantity)} · {record.currency} · {record.action}"
+        authority_text.value = (
+            f"Authority: stage={record.authority.get('stage')} · execution_allowed={str(record.authority.get('execution_allowed')).lower()} · "
+            f"{record.authority.get('reason')}"
+        )
+        result_text.value = f"Result: {record.result.get('status')} · {record.result.get('message')}"
+        audit_text.value = f"Audit: record={record.audit.get('record_id')} · workflow={record.audit.get('workflow_id') or 'not submitted'} · event chain={record.audit.get('event_chain')}"
+        raw_evidence = record.audit.get("event_control", {})
+        evidence = raw_evidence if isinstance(raw_evidence, Mapping) else {}
+        event_evidence.value = f"Event evidence: {evidence}"
+
+    def refresh_records() -> None:
+        records_body.controls = []
+        records = load_operation_records()
+        if not records:
+            records_body.controls.append(ft.Text("No local paper/live operation records yet.", color=theme.MUTED, selectable=True))
+        for record in records[:6]:
+            raw_audit = record.get("audit", {})
+            audit = raw_audit if isinstance(raw_audit, Mapping) else {}
+            records_body.controls.append(
+                ft.Text(
+                    f"{record.get('operation_id')} · {record.get('environment')} · {record.get('status')} · "
+                    f"{record.get('instrument_id')} · workflow={audit.get('workflow_id') or 'none'}",
+                    color=theme.INK,
+                    size=theme.FONT_XS,
+                    selectable=True,
+                )
+            )
+
+    def finish(record: OperationRecord, status: str, text: str, *, workflow_id: str | None = None) -> None:
+        nonlocal busy
+        if active_record is not None and active_record.operation_id == record.operation_id and active_record.status == "cancelled":
+            return
+        updated = record.with_update(
+            status=status,
+            result={"status": status, "message": text},
+            audit={**record.audit, "workflow_id": workflow_id or record.audit.get("workflow_id")},
+        )
+        save_operation_record(updated)
+        if active_record is None or active_record.operation_id != record.operation_id:
+            refresh_records()
+            return
+        set_record(updated)
+        busy = False
+        preview_button.disabled = False
+        confirm_button.disabled = True
+        cancel_button.disabled = True
+        refresh_records()
+        _safe_update(page)
+
+    def run_workflow(record: OperationRecord, workflow_id: str) -> None:
+        try:
+            def runner(_context: object) -> dict[str, object]:
+                return {"operation_id": record.operation_id, "execution_allowed": False}
+
+            runner.workflow_id = workflow_id
+            result = api.run_next_job(runner)
+            if result is None:
+                finish(record, "failed", "The paper preview workflow did not claim a job.", workflow_id=workflow_id)
+            elif getattr(result, "workflow_id", None) != workflow_id:
+                finish(record, "failed", "The paper preview worker claimed an unexpected workflow.", workflow_id=workflow_id)
+            else:
+                status = str(getattr(result, "status", ""))
+                if status == "succeeded":
+                    finish(record, "completed", "Paper proposal preview completed; no order was transmitted.", workflow_id=workflow_id)
+                elif status == "cancelled":
+                    finish(record, "cancelled", "Cancellation recorded; no order was transmitted.", workflow_id=workflow_id)
+                else:
+                    finish(record, status if status in {"failed", "queued", "running", "blocked"} else "failed", f"Paper preview workflow ended with status {status or 'unknown'}; no order was transmitted.", workflow_id=workflow_id)
+        except Exception as exc:
+            finish(record, "failed", f"Paper preview failed safely: {type(exc).__name__}: {exc}", workflow_id=workflow_id)
+
+    def proposal_review(_event: ft.ControlEvent) -> None:
+        try:
+            selected_quantity = float(str(quantity.value or "0").replace(",", ""))
+            as_of = datetime.combine(state.snapshot.data_report.as_of_date, datetime.min.time(), tzinfo=timezone.utc)
+            decision = api.review_proposal(
+                ProposalReviewRequest(
+                    instrument_id=str(instrument.value or ""),
+                    current_quantity=0.0,
+                    target_quantity=selected_quantity,
+                    strategy_id="strategy:manual_review",
+                    strategy_stage="research",
+                    model_id="model:baseline",
+                    model_stage="research",
+                    account_id="broker:paper_portfolio",
+                    account_stage="paper",
+                    optimiser_output_id=None,
+                    portfolio_revision=None,
+                    data_revision=None,
+                    as_of=as_of,
+                    expires_at=as_of + timedelta(days=1),
+                    authority_policy_checksum=api.get_authority_policy_checksum(),
+                    event_policy=selected_event_policy(),
+                    rationale="Manual input is shown as review-only until validated optimiser and portfolio evidence is supplied.",
+                )
+            )
+            failed = sum(not item.passed for item in decision.gates)
+            alternatives = ", ".join(decision.alternatives)
+            gate_summary = ", ".join(f"{item.gate_id}={'passed' if item.passed else 'failed'}" for item in decision.gates)
+            proposal_state.value = f"Proposal review: {decision.outcome} · authority={decision.authority_stage} · allowed={str(decision.proposal_allowed).lower()}"
+            proposal_evidence.value = f"Proposal evidence: {failed} gate(s) failed; gates={gate_summary}; alternatives={alternatives}; execution_allowed=false. {decision.rationale}"
+            event_evidence.value = f"Event evidence: {decision.event_control}"
+            message.value = "Proposal review recorded locally. No order or draft-order authority was created."
+            _safe_update(page)
+        except (OSError, TypeError, ValueError) as exc:
+            proposal_state.value = "Proposal review: manual_review"
+            proposal_evidence.value = f"Proposal evidence unavailable: {exc}"
+            _safe_update(page)
+
+    def preview(_event: ft.ControlEvent) -> None:
+        if busy:
+            message.value = "Duplicate click ignored: the current operation is already running."
+            _safe_update(page)
+            return
+        try:
+            selected_environment = "paper"
+            selected_quantity = float(str(quantity.value or "0").replace(",", ""))
             record = build_operation_preview(
-                environment="paper",
-                instrument_id=_required(preview_instrument, "Instrument"),
-                quantity=_number(preview_quantity, "Quantity"),
+                environment=selected_environment,  # type: ignore[arg-type]
+                instrument_id=str(instrument.value or ""),
+                quantity=selected_quantity,
+                event_policy=selected_event_policy(),
+                decision_time=datetime.now(timezone.utc) if event_enabled["value"] else None,
             )
             save_operation_record(record)
-            return record
+            set_record(record)
+            if not record.authority["submission_allowed"]:
+                message.value = f"Operation blocked by policy: {record.authority['reason']} Preview retained locally; no workflow submitted."
+                confirm_button.disabled = True
+                refresh_records()
+                _safe_update(page)
+                return
+            message.value = "Paper preview ready. Confirm the local workflow to start it; no order will be transmitted."
+            confirm_button.disabled = False
+            refresh_records()
+            _safe_update(page)
+        except (TypeError, ValueError) as exc:
+            message.value = f"Preview could not be created: {exc}"
+            operation_state.value = "State: error"
+            _safe_update(page)
 
-        notify(event_status, preview_details, "Operation preview", store_preview)
+    def confirm(_event: ft.ControlEvent) -> None:
+        nonlocal busy
+        if busy:
+            message.value = "Duplicate click ignored: the current operation is already running."
+            _safe_update(page)
+            return
+        if active_record is None or active_record.status != "preview" or active_record.environment != "paper" or not active_record.authority.get("submission_allowed"):
+            message.value = "Confirmation blocked: create a valid paper preview first."
+            _safe_update(page)
+            return
+        record = active_record
+        busy = True
+        preview_button.disabled = True
+        confirm_button.disabled = True
+        cancel_button.disabled = False
+        try:
+            dedupe_key = f"paper-preview:{record.operation_id}"
+            command = SubmitWorkflowCommand(
+                idempotency_key=dedupe_key,
+                workflow_type="paper_proposal_preview",
+                label=f"Paper proposal preview · {record.instrument_id}",
+                input_payload=record.to_payload(),
+                job_keys=("preview",),
+                dedupe_key=dedupe_key,
+            )
+            result = api.execute(command)
+            if result.status not in {ApiStatus.ACCEPTED, ApiStatus.REPLAYED} or not result.resource_id:
+                finish(record, "failed", result.error_message or "The local paper preview workflow was not accepted.")
+                return
+            queued = record.with_update(
+                status="queued",
+                result={"status": "queued", "message": "Paper preview workflow acknowledged."},
+                audit={**record.audit, "workflow_id": result.resource_id, "command_id": result.command_id},
+            )
+            save_operation_record(queued)
+            set_record(queued)
+            message.value = f"Acknowledged locally at {datetime.now(timezone.utc).isoformat(timespec='seconds')}; first workflow event recorded."
+            refresh_records()
+            _safe_update(page)
+            threading.Thread(target=run_workflow, args=(queued, result.resource_id), name="paper-preview", daemon=True).start()
+        except (TypeError, ValueError) as exc:
+            finish(record, "failed", f"Paper preview could not start safely: {exc}")
+            _safe_update(page)
 
-    proposal_status = ft.Text("Proposal review unavailable: current authority and optimiser evidence is not available here.")
-    proposal_details = ft.Container(
-        content=Disclosure("proposal review details", "No validated proposal review is available.")
-    )
-    cancel_status = ft.Text("No active workflow is available to cancel.")
-    cancel_details = ft.Container(content=Disclosure("workflow details", "No active workflow is available."))
+    def cancel(_event: ft.ControlEvent) -> None:
+        nonlocal busy
+        if active_record is None or not active_record.audit.get("workflow_id"):
+            message.value = "Nothing is running; cancellation made no changes."
+            _safe_update(page)
+            return
+        workflow_id = str(active_record.audit["workflow_id"])
+        result = api.execute(CancelWorkflowCommand(idempotency_key=f"cancel:{active_record.operation_id}", workflow_id=workflow_id))
+        if result.status in {ApiStatus.ACCEPTED, ApiStatus.REPLAYED}:
+            finish(active_record, "cancelled", "Cancellation recorded; no order was transmitted.", workflow_id=workflow_id)
+            message.value = f"Cancelled local workflow {workflow_id}."
+        else:
+            message.value = f"Cancellation failed safely: {result.error_message or result.status.value}"
+            _safe_update(page)
 
-    def proposal_review(_event: ft.ControlEvent | None) -> None:
-        def unavailable() -> None:
-            raise ValueError("Required authority and optimiser evidence is unavailable.")
-
-        notify(proposal_status, proposal_details, "Proposal review", unavailable)
-
-    def confirm(_event: ft.ControlEvent | None) -> None:
-        proposal_status.value = "Confirmation is unavailable until a reviewed proposal exists."
-        if page is not None:
-            page.update()
-
-    def cancel(_event: ft.ControlEvent | None) -> None:
-        def unavailable() -> None:
-            raise ValueError("No active workflow is available.")
-
-        notify(cancel_status, cancel_details, "Workflow cancellation", unavailable)
+    preview_button.on_click = preview
+    proposal_button.on_click = proposal_review
+    confirm_button.on_click = confirm
+    cancel_button.on_click = cancel
+    refresh_records()
 
     paper_equity = GlassCard(
         "Paper equity",
@@ -171,41 +394,12 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
                 event_policy,
                 ft.Row(
                     [
-                        Button.secondary("Preview selected operation", key="operations.preview", on_click=preview),
-                        Button.secondary(
-                            "Validate proposal review",
-                            key="operations.proposal-review",
-                            on_click=proposal_review,
-                        ),
-                        Button.primary(
-                            "Confirm paper workflow",
-                            key="operations.confirm",
-                            on_click=confirm,
-                            disabled=True,
-                            disabled_reason="Confirmation remains disabled until a reviewed paper proposal exists.",
-                        ),
-                        ft.TextButton("Cancel workflow", key="operations.cancel", on_click=cancel),
+                        preview_button, proposal_button, confirm_button, cancel_button,
                     ],
                     wrap=True,
                 ),
-                ft.Column(
-                    [
-                        ListRow("info", "State", "Paper proposal preview"),
-                        ListRow("info", "Preview", "Unavailable until a preview is stored."),
-                        ListRow("info", "Authority", "Paper proposal only · live disabled"),
-                        ListRow("info", "Result", "Unavailable until a review is available."),
-                        ListRow("info", "Audit", "Unavailable until a preview is stored."),
-                        ListRow("info", "Proposal review", "Unavailable · authority evidence is missing"),
-                        ListRow("info", "Event policy", "Unavailable · policy details are missing"),
-                    ],
-                    spacing=theme.SPACE_1,
-                ),
-                event_status,
-                preview_details,
-                proposal_status,
-                proposal_details,
-                cancel_status,
-                cancel_details,
+                operation_state, preview_text, authority_text, result_text, audit_text,
+                message, event_evidence, proposal_state, proposal_evidence,
             ],
             spacing=theme.SPACE_2,
         ),
@@ -260,6 +454,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
             title,
             lambda: api.accept_paper_proposal(
                 PaperProposalAcceptRequest(
+                    account_id=_required(account_id, "Paper account ID"),
                     proposal_id=_required(proposal_id, "Validated proposal ID"),
                     execution_price=_number(paper_fill_price, "Paper fill price"),
                     mode=mode,
@@ -280,6 +475,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
             "Proposal rejection",
             lambda: api.reject_paper_proposal(
                 PaperProposalRejectRequest(
+                    account_id=_required(account_id, "Paper account ID"),
                     proposal_id=_required(proposal_id, "Validated proposal ID"),
                     reason=_required(reject_reason, "Reject reason"),
                 )
@@ -293,6 +489,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
             "Proposal deferral",
             lambda: api.defer_paper_proposal(
                 PaperProposalDeferRequest(
+                    account_id=_required(account_id, "Paper account ID"),
                     proposal_id=_required(proposal_id, "Validated proposal ID"),
                     reason=_required(defer_reason, "Defer reason"),
                 )
@@ -339,19 +536,27 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
     fill_status = ft.Text("Paper fills are unavailable until a paper order is selected.")
     fill_details = ft.Container(content=Disclosure("paper fill details", "No paper order action has been recorded."))
 
+    fill_intent: dict[str, str] = {}
+
     def fill_paper_order(_event: ft.ControlEvent | None) -> None:
+        intent_id = fill_intent.setdefault("id", "fill_" + uuid.uuid4().hex[:20])
         notify(
             fill_status,
             fill_details,
             "Paper fill",
             lambda: api.fill_paper_order(
                 PaperFillRequest(
+                    account_id=_required(account_id, "Paper account ID"),
                     order_id=_required(order_id, "Paper order ID"),
+                    fill_id=intent_id,
                     quantity=_number(fill_quantity, "Fill quantity"),
                     price=_number(fill_price, "Fill price"),
                 )
             ),
         )
+
+        if fill_status.value == "Paper fill recorded locally.":
+            fill_intent.clear()
 
     def cancel_paper_order(_event: ft.ControlEvent | None) -> None:
         notify(
@@ -360,6 +565,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
             "Paper order cancellation",
             lambda: api.cancel_paper_order(
                 PaperOrderCancelRequest(
+                    account_id=_required(account_id, "Paper account ID"),
                     order_id=_required(order_id, "Paper order ID"),
                     reason=_required(order_cancel_reason, "Cancel reason"),
                 )
@@ -403,6 +609,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
             "Adjusted-close mark",
             lambda: api.mark_paper_position(
                 PaperPositionMarkRequest(
+                    account_id=_required(account_id, "Paper account ID"),
                     instrument_id=_required(mark_instrument, "Mark instrument"),
                     adjusted_close=_number(adjusted_close, "Adjusted-close mark"),
                     as_of=_moment(mark_as_of),
@@ -430,6 +637,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
             "Corporate action",
             lambda: api.apply_paper_corporate_action(
                 PaperCorporateActionRequest(
+                    account_id=_required(account_id, "Paper account ID"),
                     instrument_id=_required(action_instrument, "Action instrument"),
                     split_ratio=_number(split_ratio, "Split ratio"),
                     cash_dividend_per_unit=_number(dividend, "Dividend/unit"),
@@ -493,6 +701,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
             "Paper outcome",
             lambda: api.mature_paper_outcome(
                 PaperOutcomeMatureRequest(
+                    account_id=_required(account_id, "Paper account ID"),
                     reference_id=_required(outcome_reference, "Outcome order/proposal ID"),
                     adjusted_close=_number(outcome_adjusted_close, "Outcome adjusted-close price"),
                     benchmark_return=_number(benchmark_return, "Benchmark return"),
@@ -539,6 +748,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
             "Operational incident",
             lambda: api.record_paper_operational_error(
                 PaperOperationalErrorRequest(
+                    account_id=_required(account_id, "Paper account ID"),
                     code=_required(incident_code, "Incident code"),
                     message=_required(incident_message, "Operational incident"),
                     related_id=str(input_of(incident_related).value or "").strip() or None,
@@ -633,7 +843,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
         "Disabled",
         "No credentials or order route",
         [
-            KpiStripItem("Portfolio context", "Unavailable", "Portfolio execution context is not available."),
+            KpiStripItem("Portfolio context", format_currency(total_value, unavailable="Unavailable"), "Local holdings only"),
             KpiStripItem(
                 "Paper account",
                 "Unavailable" if account is None else "Local paper account",
@@ -647,7 +857,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
     views = {
         "Overview": [kpis, overview, paper_equity, environments, GlassCard("Post-trade TCA", body=tca)],
         "Paper ledger": [account_card, proposal_decisions_card, fills_card, marks_card, outcomes_card, incidents_card],
-        "Records": [records_card, Note("Paper ledger records are local and non-executable.")],
+        "Records": [records_card, records_body, Note("Paper ledger records are local and non-executable.")],
     }
     selected = {"view": "Overview"}
     body = page_body([])

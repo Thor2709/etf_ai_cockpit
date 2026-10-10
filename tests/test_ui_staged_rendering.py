@@ -168,7 +168,7 @@ def test_fast_page_is_painted_once_without_a_skeleton_frame(snapshot) -> None:
 
 
 def test_deferred_section_is_filled_after_the_placeholder_is_painted(snapshot, monkeypatch) -> None:
-    page = FakePage()
+    page = FakePage("/lazy-test")
     state = _state(snapshot)
     filled = threading.Event()
     observed_updates: list[int] = []
@@ -196,7 +196,7 @@ def test_deferred_section_is_filled_after_the_placeholder_is_painted(snapshot, m
 def test_deferred_pageview_rebuilds_shell_after_the_placeholder(snapshot, monkeypatch) -> None:
     class ReadyPage(FakePage):
         def __init__(self) -> None:
-            super().__init__()
+            super().__init__("/lazy-route-test")
             self.route_ready = threading.Event()
 
         def update(self, *_args: object) -> None:

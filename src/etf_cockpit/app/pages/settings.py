@@ -714,7 +714,7 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
         note=f"App version {APP_VERSION}",
         body=ft.Column(
             [
-                Note(f"App version: {APP_VERSION}"),
+                Note(f"App version: {APP_VERSION}", key="settings.update-version"),
                 Note(f"Last rebuild: {rebuild_timestamp or 'Unavailable'}"),
                 Disclosure(
                     "Version metadata, data root and changelog",
@@ -724,7 +724,7 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
                             ft.Text(f"Data root: {DATA_DIR}"),
                             ft.Text(f"Last rebuild timestamp: {rebuild_timestamp}"),
                             ft.Text(f"Changelog excerpt: {changelog_excerpt}"),
-                            ft.Text("ISSUE-0044 update plan: build and verify the Windows package, back up local data/configuration, run restore/startup checks, and retain release metadata."),
+                            ft.Text("ISSUE-0044 packaged-app update workflow: verify the bundle signature and checksum, back up local data/configuration, run restore/startup checks, and retain release metadata from pyproject.toml and CHANGELOG.md."),
                         ],
                         spacing=8,
                     ),
@@ -737,6 +737,7 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
     release_evidence = describe_release_evidence(ROOT)
     offline_update = GlassCard(
         "Offline update verification",
+        key="settings.update-verification",
         note="local-only verification",
         body=ft.Column(
             [
@@ -746,7 +747,8 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
                     "Release evidence and notices",
                     ft.Text(
                         f"Verification: {release_evidence.get('verification')}; version: {release_evidence.get('version')}; "
-                        f"notices: {release_evidence.get('notices')}; notices path: {release_evidence.get('notices_path')}"
+                        f"notices: {release_evidence.get('notices')}; notices path: {release_evidence.get('notices_path')}",
+                        key="settings.third-party-notices",
                     ),
                 ),
             ],
@@ -787,7 +789,8 @@ def settings_page(page: ft.Page | None, state: AppState | None) -> PageView:
                     ft.Text(
                         f"Status: {supply_chain_report.get('status')}; review: {supply_chain_report.get('review_status')}; "
                         f"components: {supply_chain_report.get('component_count')}; locked dependencies: {supply_chain_report.get('dependency_count')}; "
-                        f"checksum: {supply_chain_report.get('registry_sha256')}; notices: {supply_chain_report.get('third_party_notices')}"
+                        f"checksum: {supply_chain_report.get('registry_sha256')}; notices: {supply_chain_report.get('third_party_notices')}",
+                        key="settings.supply-chain-intake-status",
                     ),
                 ),
             ],

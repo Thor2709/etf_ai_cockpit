@@ -200,7 +200,7 @@ def test_shell_command_palette_filters_and_navigates(monkeypatch: pytest.MonkeyP
     palette.on_change(SimpleNamespace(control=palette))
     palette.on_submit(SimpleNamespace(control=palette))
     assert any(
-        isinstance(control, ft.Text) and control.value == "No matching workspace"
+        isinstance(control, ft.Text) and control.value == "No matching page, instrument or term"
         for control in _walk(view)
     )
     assert selected == ["/comparison", "/data-health", "/backtests"]
@@ -307,7 +307,7 @@ def test_dashboard_summary_cards_are_inherently_responsive():
     state = SimpleNamespace(snapshot=SimpleNamespace(data_report=SimpleNamespace(status="Clean", as_of_date="2026-07-01")))
     cards = _summary_cards(state, None, 1, 2, 3, 0, narrow=False)
     assert isinstance(cards, ft.ResponsiveRow)
-    assert len(cards.controls) == 6
+    assert len(cards.controls) == 8
     assert all(card.col == {"xs": 12, "sm": 6, "md": 4, "xl": 2} for card in cards.controls)
 
 

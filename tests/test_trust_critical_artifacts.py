@@ -297,8 +297,8 @@ def test_diagnostics_ui_displays_redacted_exception_fingerprint(tmp_path, monkey
                 yield from text_values(item)
 
     rendered_text = "\n".join(text_values(diagnostics_page(page, state)))
-    assert "fingerprint=" in rendered_text
-    assert "exception=" in rendered_text
+    assert f"fingerprint: {failure['traceback_fingerprint']}" in rendered_text
+    assert "exception: RuntimeError:" in rendered_text
     assert "SHOULD_NOT_APPEAR" not in rendered_text
 
 

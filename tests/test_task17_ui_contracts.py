@@ -25,9 +25,11 @@ def test_what_changed_exposes_instrument_search_and_dimension_filters(monkeypatc
     rendered = module.what_changed_page(None, SimpleNamespace())
     controls = list(_walk(rendered))
     labels = {str(getattr(item, "label", "")) for item in controls}
-    assert "Search instrument" in labels
-    assert "Filter dimension" in labels
-    assert any(isinstance(item, ft.Checkbox) and item.label == "Changed only" for item in controls)
+    labels.update(str(item.value) for item in controls if isinstance(item, ft.Text))
+    assert "search instrument" in {label.casefold() for label in labels}
+    assert rendered.chrome.segment_groups[0].selected == "All dimensions"
+    assert callable(rendered.chrome.segment_groups[0].on_change)
+    assert any(isinstance(item, ft.Switch) and item.key == "what-changed.filter.changed-only" and callable(item.on_change) for item in controls)
 
 
 def test_what_changed_uses_compact_responsive_instrument_cards_without_horizontal_table(monkeypatch) -> None:

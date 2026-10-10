@@ -47,7 +47,7 @@ def test_summary_kpis_have_stable_keys_and_no_inline_as_of() -> None:
     state = SimpleNamespace(snapshot=SimpleNamespace(data_report=SimpleNamespace(status="Clean", as_of_date="2026-07-01")))
     cards = dashboard._summary_cards(state, None, 1, 2, 3, 0, narrow=False)
     keys = {c.key for c in cards.controls}
-    assert keys == {f"dashboard.kpi.{n}" for n in ("instruments", "top-score", "data-health", "model-rows", "regime", "final-mode")}
+    assert keys == {f"dashboard.kpi.{n}" for n in ("primary-instruments", "secondary-candidates", "sparebanken-scorecards", "top-score", "data-health", "model-rows", "regime", "final-mode")}
     assert "N/A" in _texts(cards) and "as of 2026" not in _texts(cards)
 
 

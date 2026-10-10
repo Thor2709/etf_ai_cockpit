@@ -47,7 +47,7 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
     curve_coverage = binding.curve_coverage
     macro_context = binding.context
     scenario_context = binding.scenario
-    decision_time = binding.decision_time or "Unavailable"
+    decision_time = binding.decision_time or "unavailable"
     unavailable = binding.error or summary.get("reason") or "No local macro snapshot is available."
     regime = macro_context.get("regime", {})
     breadth = macro_context.get("breadth", {})
@@ -242,6 +242,10 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
                             f"Revision: {row.revision}",
                             f"Source checksum: {row.source_checksum or 'Unavailable'}",
                             f"Transformation: {row.transformation_version or 'Unavailable'}",
+                            f"source={row.source_id or 'unavailable'} | authority={row.source_authority or 'unavailable'}",
+                            f"observed_at={row.observed_at or 'unavailable'} | published_at={row.published_at or 'unavailable'} | revised_at={row.revised_at or 'unavailable'} | ingested_at={row.ingested_at or 'unavailable'}",
+                            f"revision={row.revision} | source_observation_ids={', '.join(row.source_observation_ids) or 'unavailable'}",
+                            f"country={row.country or 'unavailable'} | currency={row.currency or 'unavailable'} | uncertainty={row.timezone_confidence}/{row.availability_confidence} | transformation={row.transformation_version}",
                         )
                     ),
                 ),
@@ -259,6 +263,7 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
                     kit.TableColumn("observed", "Observed"),
                     kit.TableColumn("available_at", "Available at"),
                     kit.TableColumn("vintage", "Vintage"),
+                    kit.TableColumn("detail", "Provenance", sortable=False),
                 ],
                 latest_rows,
             )
@@ -317,7 +322,8 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
                 "Scenario evidence",
                 "\r\n".join(
                     (
-                        f"Evidence: {row.get('evidence_id') or 'Unavailable'}",
+                        f"evidence={row.get('evidence_id') or 'unavailable'} | link={row.get('link_id') or 'unavailable'}",
+                        f"decision_time={row.get('decision_time') or scenario_context.get('decision_time') or 'unavailable'}",
                         f"Source: {row.get('source_id') or 'Unavailable'}",
                         f"Authority: {row.get('authority') or 'Unavailable'}",
                         f"Source checksum: {row.get('source_sha256') or 'Unavailable'}",
@@ -360,6 +366,8 @@ def macro_factors_page(page: ft.Page | None, state: AppState) -> PageView:
     body = ft.Column(
         [
             view_note,
+            kit.Note(f"Decision-time vintages: decision-time vintage={decision_time}; Execution allowed: false; context_only=true; score_eligible=false."),
+            kit.Disclosure("Macro evidence boundaries", "Optional FRED: unavailable without explicit opt-in remote fetch. Inflation/rates context: local evidence only. Interpolation is declared per curve and bounded. Currency+horizon fallbacks are explicit. Issuer-specific credit curves: unavailable unless sourced."),
             ft.Row(
                 [kit.Button.secondary(
                     "Refresh local macro/news context",

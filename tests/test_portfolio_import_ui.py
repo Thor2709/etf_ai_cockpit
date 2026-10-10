@@ -15,7 +15,8 @@ def test_portfolio_import_controls_are_registered_and_non_executable() -> None:
         "import-export.portfolio-export",
     } <= keys
     source = inspect.getsource(import_export_page)
-    assert 'value="portfolio_history"' in source
+    assert '"import_type": "portfolio_history"' in source
+    assert 'value="Portfolio History"' in source
     assert "execution_allowed=false" in source
     assert "Canonical replay:" in source
     assert "explicit reviewer decisions" in source

@@ -137,6 +137,7 @@ def system_map_page(page: ft.Page | None, state: AppState) -> PageView:
                 kit.Disclosure(
                     "External components and future execution",
                     "Availability: Not installed. No broker execution. This cockpit presents local evidence and research context only.\n"
+                    "Stages: research \u00b7 shadow_proposal \u00b7 paper \u00b7 broker_read_only \u00b7 draft_order \u00b7 capped_automatic \u00b7 disabled. order_submission=disabled.\n"
                     "Future-only architecture: paper mode first, then broker_read_only observations and human-reviewed order previews; capped_automatic remains separately gated and disabled.\n"
                     "Controls required before any future transition: max order value, position size, daily turnover, daily loss, drawdown kill switch, cooldowns, market-hours checks, stale-data block and news/event block.\n"
                     "Future governance requires explicit human confirmation of order previews, an immutable audit log and an independent emergency disable. LLM or model-only authority is prohibited.\n"
