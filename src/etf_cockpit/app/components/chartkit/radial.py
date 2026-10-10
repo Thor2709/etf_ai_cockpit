@@ -25,6 +25,22 @@ class RadarSeries:
     fill_alpha: float = 0.25  # 0 = no fill
 
 
+_RADAR_BAND = 34.0  # legend row
+_RADAR_LABEL_ROOM = 26.0  # axis label: 10 px off the rim plus ~16 px of text
+
+
+def _radar_geometry(w: float, h: float, radius: float, center: tuple[float, float], legend_at: str) -> tuple[float, float, float]:
+    """Centre and radius of the radar so its axis labels stay clear of the legend band and inside the canvas."""
+
+    cx, cy = w * center[0], h * center[1]
+    r = min(w, h) / 2 * radius
+    top_room = _RADAR_BAND if legend_at != "bottom" else 6.0
+    bottom_room = _RADAR_BAND if legend_at == "bottom" else 6.0
+    r = max(min(r, (h - top_room - bottom_room - 2 * _RADAR_LABEL_ROOM) / 2), 18.0)
+    low, high = top_room + _RADAR_LABEL_ROOM + r, h - bottom_room - _RADAR_LABEL_ROOM - r
+    return cx, (min(max(cy, low), high) if low <= high else cy), r
+
+
 def radar_chart(
     axes: Sequence[str],
     series: Sequence[RadarSeries],
@@ -53,8 +69,7 @@ def radar_chart(
             return empty_scene(w, h, empty_title, unavailable_reason or "No values to chart.", insight or "")
         sc = Scene(w, h, label=insight or "")
         n = len(names)
-        cx, cy = w * center[0], h * center[1]
-        r = min(w, h) / 2 * radius
+        cx, cy, r = _radar_geometry(w, h, radius, center, legend_at)
         ang = [-math.pi / 2 + math.tau * i / n for i in range(n)]
 
         def pt(i: int, frac: float) -> tuple[float, float]:
@@ -112,6 +127,26 @@ def _sector(cx: float, cy: float, r0: float, r1: float, a0: float, a1: float, st
     return outer + inner
 
 
+_LABEL_GAP = 30.0  # two text lines of 13 px plus air
+
+
+def _spread_labels(group: list[list], top: float, bottom: float) -> None:
+    """Move the labels of one side apart vertically so no two overlap, keeping them inside [top, bottom]."""
+
+    group.sort(key=lambda item: item[4])
+    for item in group:
+        item[4] = min(max(item[4], top), bottom)
+    for previous, item in zip(group, group[1:]):
+        item[4] = max(item[4], previous[4] + _LABEL_GAP)
+    overflow = group[-1][4] - bottom if group else 0.0
+    if overflow > 0:  # pushed past the bottom: shift the stack up, then re-separate from the top
+        for item in group:
+            item[4] -= overflow
+        group[0][4] = max(group[0][4], top)
+        for previous, item in zip(group, group[1:]):
+            item[4] = max(item[4], previous[4] + _LABEL_GAP)
+
+
 def donut_chart(
     slices: Sequence[Slice],
     *,
@@ -142,6 +177,7 @@ def donut_chart(
         half = min(w, h) / 2
         r0, r1 = half * inner, half * outer
         a = -math.pi / 2
+        labels: list[list] = []  # [right side?, edge x, edge y, label x, label y, slice]
         for s in items:
             sweep = math.tau * s.value / total
             a0, a1 = a, a + sweep
@@ -159,15 +195,17 @@ def donut_chart(
             mid = (a0 + a1) / 2
             ex, ey = cx + r1 * math.cos(mid), cy + r1 * math.sin(mid)
             lx, ly = cx + (r1 + 14) * math.cos(mid), cy + (r1 + 14) * math.sin(mid)
-            if show_legend:
-                ly = min(max(ly, 20.0), max(20.0, h - 46.0))
-            right = math.cos(mid) >= 0
-            sc.add(line(ex, ey, lx, ly, pal.AXIS, 1),
-                   txt(lx + (4 if right else -4), ly, f"{s.name}\n{fmt(s.value, 0, unit=unit)}", size=13,
-                       h="l" if right else "r", v="m"))
+            labels.append([math.cos(mid) >= 0, ex, ey, lx, ly, s])
             sc.hits.append(Hit("sector", (cx, cy, r0, r1, a0, a1), s.name,
                                [(None, f"{fmt(s.value, 0, unit=unit)}  ({s.value / total * 100:.1f}%)", s.color)],
                                anchor=(ex, ey)))
+        top, bottom = 20.0, (max(20.0, h - 46.0) if show_legend else h - 14.0)
+        for side in (True, False):
+            _spread_labels([item for item in labels if item[0] is side], top, bottom)
+        for right, ex, ey, lx, ly, s in labels:
+            sc.add(line(ex, ey, lx, ly, pal.AXIS, 1),
+                   txt(lx + (4 if right else -4), ly, f"{s.name}\n{fmt(s.value, 0, unit=unit)}", size=13,
+                       h="l" if right else "r", v="m"))
         if center_text:
             sc.add(txt(cx, cy, center_text, size=20, weight=600))
         if show_legend:

@@ -281,11 +281,13 @@ def DataTable(  # noqa: N802
     for column in columns:
         active = column.key == sort_key
         label = txt(column.label, 11, 600, theme.INK3, tracking=0.08, upper=True, trunc=True)
-        parts: list[ft.Control] = [label]
+        label.tooltip = column.label  # a header cut by a narrow column keeps its full name
+        # The label is flexible so a long header is ellipsised inside its own column instead of painting over its neighbour.
+        parts: list[ft.Control] = [ft.Container(content=label, expand=True, alignment=ft.Alignment(1, 0) if column.numeric else ft.Alignment(-1, 0))]
         if active:
             parts.append(txt("▼" if descending else "▲", 9, 400, theme.INK3))
         cell = ft.Row(parts, spacing=4, alignment=ft.MainAxisAlignment.END if column.numeric
-                      else ft.MainAxisAlignment.START, tight=True)
+                      else ft.MainAxisAlignment.START)
         sized = _sized(cell, column)
         if column.sortable and on_sort is not None:
             sized.on_click = lambda _event, name=column.key, flip=(not descending if active else False): on_sort(

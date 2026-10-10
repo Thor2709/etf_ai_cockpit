@@ -202,7 +202,7 @@ def _score_table(scores: Sequence[object], selected: object | None, on_select, o
     if not scores:
         return DataTable(
             [
-                TableColumn("rank", "#", numeric=True),
+                TableColumn("rank", "#", width=36, numeric=True),
                 TableColumn("instrument", "Instrument"),
                 TableColumn("score", "Score", numeric=True),
                 TableColumn("label", "Label"),
@@ -218,7 +218,7 @@ def _score_table(scores: Sequence[object], selected: object | None, on_select, o
         )
     return DataTable(
         [
-            TableColumn("rank", "#", numeric=True),
+            TableColumn("rank", "#", width=36, numeric=True),
             TableColumn("instrument", "Instrument"),
             TableColumn("score", "Score ▼", numeric=True, sortable=False),
             TableColumn("label", "Label"),

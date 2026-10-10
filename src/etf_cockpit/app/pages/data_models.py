@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import inspect
 import json
 import math
@@ -681,6 +682,20 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
     snapshot = getattr(state, "snapshot", None)
     models = getattr(snapshot, "model_status", {}) or {}
 
+    def go(route: str) -> Callable[[object], None]:
+        def open_route(_event: object = None) -> None:
+            if page is not None and callable(getattr(page, "go", None)):
+                page.go(route)
+
+        return open_route
+
+    def opens(card: ft.Container, route: str, label: str) -> ft.Container:
+        """A card that opens the page that owns its data (a click on text, a chip or empty space; inner controls keep their own clicks)."""
+        card.on_click = go(route)
+        card.ink = True
+        card.tooltip = f"Open {label}"
+        return card
+
     def display_value(value: object) -> str:
         if value is None:
             return "—"
@@ -697,6 +712,7 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
             if name in {"timesfm", "toto"} and not available
             else "Model status is unavailable from this snapshot.",
             tag=("Available" if available else "Unavailable", "ok" if available else "bad"),
+            on_click=go("/forecasts"),
         )
         for name, available in (("baseline", True), ("reasons", bool(models.get("reasons"))), ("timesfm", bool(models.get("timesfm"))), ("toto", bool(models.get("toto"))))
     ]
@@ -845,13 +861,13 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
     cards = [
         ft.Row(
             [
-                GlassCard(
+                opens(GlassCard(
                     "Model availability",
                     body=ft.Column([*model_rows, Disclosure("Local model file details", "\n".join(model_details) or "No local model files detected.")], spacing=8),
                     expand=True,
                     key=ft.ScrollKey("Model availability"),
-                ),
-                GlassCard(
+                ), "/forecasts", "Forecast Lab"),
+                opens(GlassCard(
                     "Latest local price data",
                     note="Per instrument · clean store",
                     insight="Unavailable: the snapshot has no precomputed days-since-last-price series.",
@@ -866,14 +882,14 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
                     ),
                     expand=True,
                     key=ft.ScrollKey("Latest local price data"),
-                ),
+                ), "/data-health", "Data Health"),
             ],
             spacing=16,
             vertical_alignment=ft.CrossAxisAlignment.START,
         ),
         ft.Row(
             [
-                GlassCard(
+                opens(GlassCard(
                     "Data coverage and model monitoring",
                     note=coverage_note,
                     body=ft.Column(
@@ -897,30 +913,30 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
                         spacing=8,
                     ),
                     expand=True,
-                ),
-                GlassCard("Unified plugin capability status", body=plugin_table, expand=True),
+                ), "/diagnostics", "Diagnostics"),
+                opens(GlassCard("Unified plugin capability status", body=plugin_table, expand=True), "/diagnostics", "Diagnostics"),
             ],
             spacing=16,
             vertical_alignment=ft.CrossAxisAlignment.START,
         ),
-        ft.Row([GlassCard("Forecast artefacts", body=Disclosure("Local artefact details", "\n".join(str(path) for path in forecast_files) or "No forecast artefacts are available."), expand=True, key=ft.ScrollKey("Forecast artefacts")), GlassCard("Derived evidence artefacts", body=Disclosure("Local artefact details", "\n".join(str(path) for path in derived_files) or "No derived evidence artefacts are available."), expand=True)], spacing=16),
-        ft.Row([GlassCard("Market regime", body=Disclosure("Regime details", _market_regime_text()), expand=True), GlassCard("Forecast calibration", insight="Unavailable: saved calibration summaries do not provide reliability-curve points.", body=ft.Column([ck.line_chart([], [], x_name="Predicted probability (proportion)", y_name="Observed frequency (proportion)", unavailable_reason="No saved calibration reliability points are available.", empty_title="Forecast calibration unavailable", insight="Unavailable: saved calibration summaries do not provide reliability-curve points."), Disclosure("Calibration details", _calibration_text())], spacing=8), expand=True)], spacing=16),
-        ft.Row([GlassCard("Strategy templates", body=ft.Column([Disclosure("Template details", _strategy_template_text()), Disclosure("Monthly decision template", monthly_detail)], spacing=8), expand=True), GlassCard("Candidate reports", body=Disclosure("Report details", "\n".join(str(path) for path in report_files) or "No candidate reports are available."), expand=True)], spacing=16),
+        ft.Row([opens(GlassCard("Forecast artefacts", body=Disclosure("Local artefact details", "\n".join(str(path) for path in forecast_files) or "No forecast artefacts are available."), expand=True, key=ft.ScrollKey("Forecast artefacts")), "/forecasts", "Forecast Lab"), opens(GlassCard("Derived evidence artefacts", body=Disclosure("Local artefact details", "\n".join(str(path) for path in derived_files) or "No derived evidence artefacts are available."), expand=True), "/evidence", "Evidence Ledger")], spacing=16),
+        ft.Row([opens(GlassCard("Market regime", body=Disclosure("Regime details", _market_regime_text()), expand=True), "/macro", "Macro and Factors"), opens(GlassCard("Forecast calibration", insight="Unavailable: saved calibration summaries do not provide reliability-curve points.", body=ft.Column([ck.line_chart([], [], x_name="Predicted probability (proportion)", y_name="Observed frequency (proportion)", unavailable_reason="No saved calibration reliability points are available.", empty_title="Forecast calibration unavailable", insight="Unavailable: saved calibration summaries do not provide reliability-curve points."), Disclosure("Calibration details", _calibration_text())], spacing=8), expand=True), "/forecasts", "Forecast Lab")], spacing=16),
+        ft.Row([opens(GlassCard("Strategy templates", body=ft.Column([Disclosure("Template details", _strategy_template_text()), Disclosure("Monthly decision template", monthly_detail)], spacing=8), expand=True), "/strategy-builder", "Strategy Builder"), opens(GlassCard("Candidate reports", body=Disclosure("Report details", "\n".join(str(path) for path in report_files) or "No candidate reports are available."), expand=True), "/screener", "Fundamentals Screener")], spacing=16),
         ft.Row(
             [
-                GlassCard(
+                opens(GlassCard(
                     "Dataset provenance",
                     body=Disclosure(
                         "Provenance details",
                         DataTable([TableColumn("dataset", "Dataset"), TableColumn("source", "Source"), TableColumn("as_of", "As of"), TableColumn("staleness", "Staleness"), TableColumn("currency", "Currency"), TableColumn("checksum", "Checksum")], metadata_rows, empty_title="No provenance rows", empty_reason="No dataset provenance result is available."),
                     ),
                     expand=True,
-                ),
-                GlassCard("Reference data", body=Disclosure("Reference details", "\n".join(reference_lines)), expand=True),
+                ), "/catalogue", "Data Catalogue"),
+                opens(GlassCard("Reference data", body=Disclosure("Reference details", "\n".join(reference_lines)), expand=True), "/catalogue", "Data Catalogue"),
             ],
             spacing=16,
         ),
-        ft.Row([GlassCard("Manual thesis and news notes", body=Disclosure("Manual note details", manual_note_detail), expand=True), GlassCard("Validation findings", body=Disclosure("Validation details", validation_detail), expand=True)], spacing=16),
+        ft.Row([opens(GlassCard("Manual thesis and news notes", body=Disclosure("Manual note details", manual_note_detail), expand=True), "/news-context", "News & Context"), opens(GlassCard("Validation findings", body=Disclosure("Validation details", validation_detail), expand=True), "/data-health", "Data Health")], spacing=16),
     ]
 
     body = ft.Column(cards, spacing=16, expand=True, scroll=ft.ScrollMode.AUTO)

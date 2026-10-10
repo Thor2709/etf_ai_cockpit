@@ -23,7 +23,7 @@ from etf_cockpit.app.components.kit import (
     Well,
 )
 from etf_cockpit.app.components.shell.page_view import PageView, SegmentGroup
-from etf_cockpit.app.formatting import format_count
+from etf_cockpit.app.formatting import format_count, plain_text
 from etf_cockpit.app.pages import _p4_common as common
 from etf_cockpit.app.pages._p4_common import workflow_button as _workflow_button
 from etf_cockpit.app.pages.dashboard import _run_action
@@ -41,6 +41,9 @@ _CALIBRATION_NOTE = "Calibration compares the stored conformal coverage interval
 
 
 GOVERNANCE_SCROLL_KEY = "forecast-lab.governance-anchor"
+
+FORECAST_RUN_LABEL = "Run forecasting models"
+
 
 def _pct(value: object, decimals: int = 0) -> str | None:
     if value is None or pd.isna(value):
@@ -154,7 +157,7 @@ def _comparison_rows(ids: list[str], models: pd.DataFrame, catalogue: pd.DataFra
 
 def _run_status(state: AppState) -> ft.Control:
     current = getattr(state, "current_activity", None)
-    if current is not None and getattr(current, "action_id", None) == "forecasts":
+    if current is not None and getattr(current, "label", None) == FORECAST_RUN_LABEL:
         progress = current.completed_units / current.total_units if current.total_units else None
         return ft.Column(
             [
@@ -172,8 +175,9 @@ def _run_status(state: AppState) -> ft.Control:
             tight=True,
         )
     recent = getattr(state, "recent_activity", ()) or ()
-    last = next((entry for entry in reversed(recent) if getattr(entry, "action_id", None) == "forecasts"), None)
-    text = "Forecast run status: not run in this session" if last is None else f"Forecast run status: {last.status} — {last.message}"
+    # Activities carry a generated action id; the run is recognised by the label the button started it with.
+    last = next((entry for entry in reversed(recent) if getattr(entry, "label", None) == FORECAST_RUN_LABEL), None)
+    text = "Forecast run status: not run in this session" if last is None else f"Forecast run status: {last.status} — {plain_text(last.message)}"
     return common.text(text, 13, 400, theme.INK2, max_lines=2)
 
 
@@ -207,7 +211,7 @@ def _run_card(
     run = _workflow_button(
         "Run forecasts",
         key_name="forecast-lab.run",
-        on_click=lambda _event: _run_action(page, state, "Run forecasting models", state.run_forecasting_models),
+        on_click=lambda _event: _run_action(page, state, FORECAST_RUN_LABEL, state.run_forecasting_models),
         primary=True,
     )
     open_governance = Button.secondary(
