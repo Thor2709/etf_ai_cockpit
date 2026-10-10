@@ -12,9 +12,8 @@ from itertools import count
 from datetime import datetime
 from pathlib import Path
 
-from etf_cockpit.core.atomic_io import atomic_write_json
+from etf_cockpit.application.runtime import atomic_write_json, pid_is_alive
 from etf_cockpit.core.paths import WEB_INSTANCE_PATH
-from etf_cockpit.core.process import pid_is_alive
 from etf_cockpit.core.runtime import configure_runtime_environment
 
 _RUNTIME_TEMP = configure_runtime_environment()

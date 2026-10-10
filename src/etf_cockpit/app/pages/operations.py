@@ -77,13 +77,16 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
     paper = api.get_paper()
     account = paper.items[0] if getattr(paper, "items", None) else None
     operations = api.get_operations()
-    portfolio_page = api.get_portfolios(PageRequest())
-    portfolio_values = [item.market_value for item in portfolio_page.items]
-    next_offset = getattr(portfolio_page, "next_offset", None)
-    while next_offset is not None:
-        portfolio_page = api.get_portfolios(PageRequest(offset=next_offset, limit=portfolio_page.limit))
-        portfolio_values.extend(item.market_value for item in portfolio_page.items)
+    get_portfolios = getattr(api, "get_portfolios", None)  # an API without portfolios fails closed to "Unavailable"
+    portfolio_values: list[float | None] = []
+    if get_portfolios is not None:
+        portfolio_page = get_portfolios(PageRequest())
+        portfolio_values = [item.market_value for item in portfolio_page.items]
         next_offset = getattr(portfolio_page, "next_offset", None)
+        while next_offset is not None:
+            portfolio_page = get_portfolios(PageRequest(offset=next_offset, limit=portfolio_page.limit))
+            portfolio_values.extend(item.market_value for item in portfolio_page.items)
+            next_offset = getattr(portfolio_page, "next_offset", None)
     total_value = sum(portfolio_values) if portfolio_values and all(value is not None for value in portfolio_values) else None
     local_status = {"paper": "Local paper actions are available when their required evidence is supplied."}
 

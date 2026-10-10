@@ -15,8 +15,7 @@ from etf_cockpit.app.pages._l2_common import (
 )
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.digest import contradiction_digest_records
-from etf_cockpit.application.ui_facade import normalise_event_decision_time
-from etf_cockpit.data.news_context import _headline_direction
+from etf_cockpit.application.ui_facade import headline_direction, normalise_event_decision_time
 
 
 def news_context_page(page: ft.Page, state: AppState) -> PageView:
@@ -95,7 +94,7 @@ def news_context_page(page: ft.Page, state: AppState) -> PageView:
         explicit = str(row.get("direction") or "").strip().casefold()
         if explicit in {"positive", "negative"}:
             return explicit
-        return {"up": "positive", "down": "negative"}.get(_headline_direction(row.get("headline")), "")
+        return {"up": "positive", "down": "negative"}.get(headline_direction(row.get("headline")), "")
 
     inventory_rows = [
         (

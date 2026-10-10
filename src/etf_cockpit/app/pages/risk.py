@@ -142,12 +142,12 @@ def _friction_edge_panel() -> ft.Control:
     rows = [
         ft.DataRow(
             cells=[
-                ft.DataCell(ft.Text(str(row.get(id_column, "N/A")), color=theme.INK, size=11)),
-                ft.DataCell(ft.Text(_bps(row.get("gross_expected_edge_bps")), color=theme.INK, size=11)),
-                ft.DataCell(ft.Text(_bps(row.get("estimated_total_cost_bps")), color=theme.MUTED, size=11)),
-                ft.DataCell(ft.Text(_bps(row.get("net_expected_edge_bps")), color=theme.INK, size=11)),
-                ft.DataCell(ft.Text(_ratio(row.get("edge_to_cost_ratio")), color=theme.INK, size=11)),
-                ft.DataCell(ft.Text(_scenario(row.get("cost_stress_scenario")), color=theme.MUTED, size=11)),
+                ft.DataCell(ft.Text(str(row.get(id_column, "N/A")), color=theme.INK, size=theme.FONT_XS)),
+                ft.DataCell(ft.Text(_bps(row.get("gross_expected_edge_bps")), color=theme.INK, size=theme.FONT_XS)),
+                ft.DataCell(ft.Text(_bps(row.get("estimated_total_cost_bps")), color=theme.MUTED, size=theme.FONT_XS)),
+                ft.DataCell(ft.Text(_bps(row.get("net_expected_edge_bps")), color=theme.INK, size=theme.FONT_XS)),
+                ft.DataCell(ft.Text(_ratio(row.get("edge_to_cost_ratio")), color=theme.INK, size=theme.FONT_XS)),
+                ft.DataCell(ft.Text(_scenario(row.get("cost_stress_scenario")), color=theme.MUTED, size=theme.FONT_XS)),
             ]
         )
         for _, row in scoreboard.iterrows()
@@ -160,12 +160,12 @@ def _friction_edge_panel() -> ft.Control:
         ft.Column(
             [
                 SectionHeader("Expected edge and trading costs", "Gross/net edge, estimated cost, ratio and stress scenario are descriptive evidence only."),
-                *[ft.Text(line, color=theme.MUTED, size=11, selectable=True) for line in summary],
+                *[ft.Text(line, color=theme.MUTED, size=theme.FONT_XS, selectable=True) for line in summary],
                 ft.DataTable(
-                    columns=[ft.DataColumn(ft.Text(column, color=theme.INK, size=11)) for column in ("Instrument", "Gross edge", "Estimated cost", "Net edge", "Edge/cost", "Cost scenario")],
+                    columns=[ft.DataColumn(ft.Text(column, color=theme.INK, size=theme.FONT_XS)) for column in ("Instrument", "Gross edge", "Estimated cost", "Net edge", "Edge/cost", "Cost scenario")],
                     rows=rows,
                 ),
-                ft.Text("execution_allowed=false", color=theme.MUTED, size=11),
+                ft.Text("execution_allowed=false", color=theme.MUTED, size=theme.FONT_XS),
             ],
             scroll=ft.ScrollMode.AUTO,
         )
@@ -530,10 +530,10 @@ def _robust_estimator_panel(report: dict[str, object]) -> ft.Control:
     rows = [
         ft.DataRow(
             cells=[
-                ft.DataCell(ft.Text(str(row.get("estimator", "")), color=theme.INK, size=11)),
-                ft.DataCell(ft.Text(_number(row.get("validation_error")), color=theme.INK, size=11)),
-                ft.DataCell(ft.Text(str(row.get("validation_observations", "")), color=theme.MUTED, size=11)),
-                ft.DataCell(ft.Text("yes" if bool(row.get("selected")) else "", color=theme.GREEN if bool(row.get("selected")) else theme.MUTED, size=11)),
+                ft.DataCell(ft.Text(str(row.get("estimator", "")), color=theme.INK, size=theme.FONT_XS)),
+                ft.DataCell(ft.Text(_number(row.get("validation_error")), color=theme.INK, size=theme.FONT_XS)),
+                ft.DataCell(ft.Text(str(row.get("validation_observations", "")), color=theme.MUTED, size=theme.FONT_XS)),
+                ft.DataCell(ft.Text("yes" if bool(row.get("selected")) else "", color=theme.GREEN if bool(row.get("selected")) else theme.MUTED, size=theme.FONT_XS)),
             ]
         )
         for _, row in frame.iterrows()

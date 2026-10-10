@@ -83,6 +83,11 @@ def test_setup_cards_build_with_bounded_scroll_layout():
         and control.data.get("text") == "Open"
     )
     open_watchlist.on_click(None)
-    checkbox = next(control for control in _walk(result.body) if isinstance(control, ft.Checkbox))
-    assert checkbox.disabled is True
-    assert checkbox.value is False
+    # the online-validation opt-in is the kit Toggle (gate decision); without a validator it is disabled and off
+    toggle = next(
+        control for control in _walk(result.body)
+        if isinstance(getattr(control, "data", None), dict) and control.data.get("kit") == "Toggle"
+    )
+    assert toggle.on_click is None
+    assert toggle.data["on"] is False
+    assert "validator" in str(toggle.tooltip).lower()
