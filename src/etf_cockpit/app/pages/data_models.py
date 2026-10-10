@@ -829,10 +829,11 @@ def data_models_page(page: ft.Page, state: AppState) -> PageView:
     price_table = Disclosure(
         "Price rows",
         DataTable([TableColumn("instrument", "Instrument"), TableColumn("date", "Latest date")], latest_rows, empty_title="No local price data", empty_reason="The clean price store has no rows for this snapshot."),
+        expanded=True,
     )
     price_table.visible = False
 
-    def show_price_table(_event: object) -> None:
+    def show_price_table(_event: object = None) -> None:
         price_table.visible = True
         if callable(getattr(page, "update", None)):
             page.update()
