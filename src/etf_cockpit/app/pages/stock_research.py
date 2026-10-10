@@ -534,9 +534,16 @@ def _verdict_status(score: object) -> str:
     return f"Passes all {len(gates)} gates · decision support only"
 
 
+def fit_headline_size(word: str, available: float, size: float = 68.0, floor: float = 28.0) -> float:
+    """Headline font size that lets ``word`` fit ``available`` px (light weight is ~0.52 em per letter)."""
+
+    return max(floor, min(size, available / (0.52 * max(len(word), 1))))
+
+
 def _verdict_card(g: common.Grid, width: float, height: float, page: object, score: object, view: research_view.StockView, meta: dict[str, str]) -> ft.Control:
     tag, _kind = common.evidence_tag(score)
     status = _verdict_status(score)
+    verdict_word = common.verdict_word(tag)
     ids = score.display_id
     inner_w, _ = common.inner_size(width, height, insight=False, title=False)
     verdict_label = Note(f"RESEARCH VERDICT · {ids}", color=theme.INK3)
@@ -559,7 +566,7 @@ def _verdict_card(g: common.Grid, width: float, height: float, page: object, sco
                                 height=20,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
-                            Headline(common.verdict_word(tag), 68),
+                            Headline(verdict_word, fit_headline_size(verdict_word, inner_w - 128 - 12)),
                             Note(status),
                         ],
                         spacing=0,

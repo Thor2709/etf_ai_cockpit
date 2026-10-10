@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+
 import pandas as pd
 
 from etf_cockpit.backtest.engine import run_backtest
@@ -209,9 +211,10 @@ def _search(universe_items: list[SimpleNamespace]):
 
 
 _UNIVERSE = [
-    SimpleNamespace(id="BA", name="BAE Systems", yahoo_symbol="BA.L", isin="GB0002634946"),
-    SimpleNamespace(id="RABO", name="Rabobank certificates", yahoo_symbol="RABO.AS", isin=None),
-    SimpleNamespace(id="VWCE", name="Vanguard FTSE All-World", yahoo_symbol="VWCE.DE", isin="IE00BK5BQT80"),
+    # the real ETFConfig carries the Yahoo symbol as ``ticker`` / ``provider_symbol`` (no ``yahoo_symbol`` field)
+    SimpleNamespace(id="BA", name="BAE Systems", ticker="BA.L", provider_symbol="BA.L", isin="GB0002634946"),
+    SimpleNamespace(id="RABO", name="Rabobank certificates", ticker="RABO.AS", provider_symbol=None, isin=None),
+    SimpleNamespace(id="VWCE", name="Vanguard FTSE All-World", ticker="VWCE", provider_symbol="VWCE.DE", isin="IE00BK5BQT80"),
 ]
 
 
@@ -293,7 +296,221 @@ def test_k08_fund_look_through_replaces_only_that_funds_unknown_weight(monkeypat
 def test_k08_unknown_share_is_stated_with_its_causes() -> None:
     from etf_cockpit.application.ui_views import sectors as view
 
-    unknown = view.Weight(view.UNKNOWN, 76.0, None, None, None, (("VWCE", 40.0), ("LYP6", 36.0)))
-    note = view.unknown_note([unknown], [])
-    assert note and "76%" in note and "VWCE, LYP6" in note and "never estimated" in note
+    unknown = view.Weight(view.UNKNOWN, 76.0, None, None, None, (("VWCE", 40.0), ("portfolio", 38.0), ("LYP6", 36.0)))
+    note = view.unknown_note([unknown], [], known_ids={"VWCE", "LYP6"})
+    assert note and "76%" in note and "VWCE, LYP6" in note and "portfolio" not in note and "never estimated" in note
     assert view.unknown_note([view.Weight("USA", 99.5)], []) is None
+
+
+# --- K09: raw text leaks -------------------------------------------------------------------------
+
+
+def test_k09_plain_text_maps_developer_text_to_plain_language() -> None:
+    from etf_cockpit.app.formatting import plain_text
+
+    assert plain_text("RuntimeError: yfinance is not installed. Run `pip install yfinance` in the project environment.") == (
+        "The yfinance price provider is not installed, so prices cannot be refreshed. Install it with “pip install yfinance”."
+    )
+    assert plain_text("projection failed (financial_decision_time_unavailable)") == (
+        "Projection failed (the decision date for the financial statements is not available)"
+    )
+    assert plain_text("portfolio_snapshot_not_sealed_or_reconciled") == "The portfolio snapshot has not been sealed and reconciled yet"
+    assert plain_text("Factor-risk binding unavailable: complete unambiguous snapshot frames are required.").startswith("Factor risk cannot be calculated yet")
+    raw = "see https://www.ssga.com/library/holdings.csv, as of 2026-10-08T12:00:00+00:00 (known 2026-10-08T12:00:00Z)"
+    shown = plain_text(raw)
+    assert "https" not in shown and "T12:00" not in shown and "ssga.com" in shown and "8 Oct 2026" in shown
+    # key=value technical suffixes and ordinary text are left alone; the formatter is idempotent
+    assert plain_text("Data is stale") == "Data is stale"
+    assert plain_text("severity=warning | execution_allowed=false") == "Severity=warning | execution_allowed=false"
+    assert plain_text(plain_text(raw)) == shown
+    assert plain_text(None) == "Unavailable"
+
+
+def test_k09_alert_rows_show_plain_message_but_keep_the_pinned_technical_suffix() -> None:
+    from etf_cockpit.app.pages import dashboard
+    from etf_cockpit.data.alerts import AlertType, build_alert
+
+    alert = build_alert(
+        AlertType.STALE_DATA,
+        subject_id="VWCE",
+        title="Price refresh failed",
+        message="RuntimeError: yfinance is not installed. Run `pip install yfinance` in the project environment.",
+        severity="warning",
+        confidence="high",
+        occurred_at="2026-08-01T12:00:00+00:00",
+        available_at="2026-08-01T12:00:00+00:00",
+        dedupe_key="k09-raw",
+    )
+    record = SimpleNamespace(alert=alert)
+    row = dashboard._alert_row(None, SimpleNamespace(), record, actions=False)  # type: ignore[arg-type]
+    text = " ".join(_texts(row))
+    assert "RuntimeError" not in text and "The yfinance price provider is not installed" in text
+    assert "severity=warning" in text and "execution_allowed=false" in text
+
+
+def test_k09_evidence_cards_collapse_raw_record_lines() -> None:
+    from etf_cockpit.app.pages import instrument_detail
+
+    card = instrument_detail._render_evidence_section(
+        "History",
+        {"status": "available", "rows": [{"run_id": "score_2026", "na_reason": "Run Refresh yfinance data"}]},
+    )
+    texts = [str(item.value) for item in _walk(card) if isinstance(item, ft.Text) and item.value]
+    assert any("run_id=score_2026" in text for text in texts)  # still available for the technical reader ...
+    top_level = [control for control in _walk(card) if isinstance(control, ft.Text) and control.value and "run_id=" in str(control.value)]
+    disclosures = [control for control in _walk(card) if isinstance(getattr(control, "data", None), dict) and control.data.get("kit") == "Disclosure"]
+    assert any(str(control.data["label"]).startswith("Records (") for control in disclosures)  # ... but inside a collapsed Disclosure
+    for text_control in top_level:
+        assert any(text_control in set(_walk(disclosure)) for disclosure in disclosures if str(disclosure.data["label"]).startswith("Records ("))
+
+
+def test_k09_unavailable_reasons_on_the_detail_page_are_plain() -> None:
+    from etf_cockpit.app.pages import instrument_detail
+
+    reason = instrument_detail._reason({"reason": "Factor-risk binding unavailable: complete unambiguous snapshot frames are required."}, "Risk")
+    assert reason.startswith("Factor risk cannot be calculated yet") and "unambiguous" in reason
+
+
+# --- K11: navigation, status refresh, clipped/overlapping labels ---------------------------------
+
+
+class _GoPage:
+    def __init__(self) -> None:
+        self.routes: list[str] = []
+        self.views: list = []
+        self.route = "/data-models"
+
+    def go(self, route: str) -> None:
+        self.routes.append(route)
+
+    def update(self, *_args: object) -> None:
+        pass
+
+
+def test_k11_data_and_models_cards_and_model_rows_navigate(state: AppState) -> None:
+    from etf_cockpit.app.pages import data_models
+
+    page = _GoPage()
+    view = data_models.data_models_page(page, state)  # type: ignore[arg-type]
+    targets = [control for control in _walk(view.body) if str(getattr(control, "tooltip", "") or "").startswith("Open ") and callable(getattr(control, "on_click", None))]
+    assert len(targets) >= 12  # every card names the page that owns its data
+    for control in targets:
+        control.on_click(None)
+    assert {"/forecasts", "/data-health", "/catalogue", "/evidence", "/macro", "/news-context", "/diagnostics"} <= set(page.routes)
+    # the model status rows (the "chips") open the Forecast Lab too
+    page.routes.clear()
+    rows = [control for control in _walk(view.body) if getattr(getattr(control, "content", None), "controls", None) is not None and callable(getattr(control, "on_click", None)) and not str(getattr(control, "tooltip", "") or "").startswith("Open ")]
+    assert rows
+    rows[0].on_click(None)
+    assert page.routes == ["/forecasts"]
+
+
+def test_k11_forecast_lab_status_follows_the_run() -> None:
+    from etf_cockpit.app.pages import forecast_lab
+
+    finished = SimpleNamespace(label=forecast_lab.FORECAST_RUN_LABEL, action_id="9f2c", status="completed", message="Configured ETF forecasts refreshed as of 2026-10-08.")
+    idle = SimpleNamespace(current_activity=None, recent_activity=[])
+    done = SimpleNamespace(current_activity=None, recent_activity=[SimpleNamespace(label="Refresh data", action_id="aa", status="completed", message="x"), finished])
+    running = SimpleNamespace(
+        current_activity=SimpleNamespace(label=forecast_lab.FORECAST_RUN_LABEL, action_id="9f2c", completed_units=1, total_units=4, step="baseline"),
+        recent_activity=[],
+    )
+
+    assert "not run in this session" in " ".join(_texts(forecast_lab._run_status(idle)))  # type: ignore[arg-type]
+    shown = " ".join(_texts(forecast_lab._run_status(done)))  # type: ignore[arg-type]
+    assert "completed" in shown and "refreshed as of" in shown and "not run" not in shown
+    assert "in progress" in " ".join(_texts(forecast_lab._run_status(running)))  # type: ignore[arg-type]
+
+
+def test_k11_table_headers_ellipsise_inside_their_column_and_scores_rank_column_is_narrow() -> None:
+    from etf_cockpit.app.components.kit import DataTable, TableColumn
+    from etf_cockpit.app.pages import signals
+
+    table = DataTable([TableColumn("a", "Risk/friction", numeric=True), TableColumn("b", "Components")], [{"a": "1", "b": "2"}])
+    headers = [control for control in _walk(table) if isinstance(control, ft.Text) and str(control.value).upper() in {"RISK/FRICTION", "COMPONENTS"}]
+    assert len(headers) == 2 and {control.tooltip for control in headers} == {"Risk/friction", "Components"}
+    assert all(getattr(parent, "expand", None) for parent in _find_parent_containers(table, headers))  # flexible, so it ellipsises
+    source = inspect.getsource(signals._score_table)
+    assert 'TableColumn("rank", "#", width=36' in source  # the rank column no longer takes a full flex share from the labels
+
+
+def _find_parent_containers(root, texts):
+    parents = []
+    for control in _walk(root):
+        content = getattr(control, "content", None)
+        if any(content is text for text in texts):
+            parents.append(control)
+    return parents
+
+
+def test_k11_donut_labels_are_spread_apart_and_inside_the_canvas() -> None:
+    import random
+
+    from etf_cockpit.app.components.chartkit.radial import _LABEL_GAP, _spread_labels
+
+    rng = random.Random(7)
+    for _ in range(50):
+        group = [[True, 0.0, 0.0, 0.0, rng.uniform(20, 260), None] for _ in range(rng.randint(2, 8))]
+        _spread_labels(group, 20.0, 260.0)
+        ys = [item[4] for item in group]
+        assert all(b - a >= _LABEL_GAP - 1e-9 for a, b in zip(ys, ys[1:]))
+        assert min(ys) >= 20.0 - 1e-9 and max(ys) <= 260.0 + 1e-9
+
+
+def test_k11_radar_keeps_axis_labels_clear_of_the_legend_and_inside_the_canvas() -> None:
+    from etf_cockpit.app.components.chartkit.radial import _RADAR_BAND, _RADAR_LABEL_ROOM, _radar_geometry
+
+    for width, height in ((380, 170), (400, 320), (320, 220)):
+        _cx, cy, r = _radar_geometry(width, height, 0.62, (0.5, 0.54), "top-left")
+        assert cy - r - _RADAR_LABEL_ROOM >= _RADAR_BAND - 1e-9  # the top label sits below the legend row
+        assert cy + r + _RADAR_LABEL_ROOM <= height + 1e-9  # the bottom label stays inside the canvas
+
+
+# --- K10 (cont.): the startup trust refresh must not invalidate the shared snapshot ---------------
+
+
+def test_k10_own_startup_writes_do_not_make_the_next_session_rebuild_the_snapshot(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    from etf_cockpit.app import state as state_module
+
+    fingerprint = {"value": 1}
+    monkeypatch.setattr(state_module, "_data_fingerprint", lambda: (fingerprint["value"],))
+    monkeypatch.setattr(state_module, "_SHARED_SNAPSHOT", {"snapshot": object(), "key": (1,)})
+
+    assert state_module.shared_snapshot_is_current()
+    fingerprint["value"] = 2  # the trust-artifact refresh touches data/derived
+    assert not state_module.shared_snapshot_is_current()
+    state_module.reseal_shared_snapshot()  # ...and the app acknowledges its own write
+    assert state_module.shared_snapshot_is_current()
+
+    # an input that changed before the refresh is NOT acknowledged: the refresh code only reseals when it was current
+    monkeypatch.setattr(state_module, "_SHARED_SNAPSHOT", {"snapshot": object(), "key": (1,)})
+    fingerprint["value"] = 3
+    assert not state_module.shared_snapshot_is_current()
+
+
+def test_k07_search_universe_adds_the_provider_symbol_from_score_rows(monkeypatch) -> None:
+    """VWCE.DE exists only in the provider symbol map the score rows carry, not on the ETFConfig."""
+
+    from etf_cockpit.app.components.shell.search import exact_instrument_id, search_universe
+    from etf_cockpit.application import score_views
+
+    etf = SimpleNamespace(id="VWCE", name="Vanguard FTSE All-World", ticker="VWCE", provider_symbol=None, isin="IE00BK5BQT80")
+    state = SimpleNamespace(snapshot=SimpleNamespace(config=SimpleNamespace(universe=SimpleNamespace(etfs=[etf]))))
+    row = SimpleNamespace(display_id="VWCE", yahoo_symbol="VWCE.DE", isin="IE00BK5BQT80")
+    monkeypatch.setattr(score_views, "snapshot_scores", lambda _snapshot: [row])
+    assert exact_instrument_id(search_universe(state), "VWCE.DE") == "VWCE"
+
+    def broken(_snapshot):
+        raise ValueError("no scores")
+
+    monkeypatch.setattr(score_views, "snapshot_scores", broken)
+    assert exact_instrument_id(search_universe(state), "VWCE") == "VWCE"  # falls back to the configured id
+
+
+def test_k11_verdict_headline_shrinks_to_fit_its_column() -> None:
+    from etf_cockpit.app.pages.stock_research import fit_headline_size
+
+    assert fit_headline_size("Watchlist", 230.0) < 68.0  # was cut to "Watc…" at a fixed 68 px
+    assert 0.52 * 9 * fit_headline_size("Watchlist", 230.0) <= 230.0
+    assert fit_headline_size("Pass", 400.0) == 68.0
+    assert fit_headline_size("Unavailable-evidence", 100.0) == 28.0  # never below the floor

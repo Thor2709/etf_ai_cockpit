@@ -59,6 +59,13 @@ def _value(value: object) -> str:
     return _MISSING if text.casefold() in {"", "none", "nan", "<na>", "nat"} else text
 
 
+def _plain_with_code(reason: object) -> str:
+    """Plain wording first; the stored reason code stays visible after it so support can still quote it."""
+
+    text, raw = plain_text(reason), str(reason)
+    return text if text == raw else f"{text} ({raw})"
+
+
 def _reason(value: object, title: str) -> str:
     if isinstance(value, Mapping):
         for key in ("unavailable_reason", "message", "reason"):
@@ -296,11 +303,11 @@ def render_etf_e1_panel(economics: object) -> ft.Control:
                 shown = f"{value:,.0f} {field.get('currency') or '(currency unavailable)'}"
             else:
                 shown = str(value).capitalize()
-        detail = plain_text(field.get("reason")) if field.get("reason") else (
+        detail = _plain_with_code(field.get("reason")) if field.get("reason") else (
             f"{plain_text(field.get('source'))} · as of {format_timestamp(field.get('as_of'))} · known {format_timestamp(field.get('known_at'))}"
         )
         if not field:
-            detail = plain_text(f"{name}_missing_all_sources")
+            detail = _plain_with_code(f"{name}_missing_all_sources")
         if field.get("window"):
             detail += f" · window {field['window']}"
         if field.get("difference"):
