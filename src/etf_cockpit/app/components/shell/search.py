@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import flet as ft
 
@@ -34,6 +35,42 @@ def _glossary_terms() -> list[str]:
         except Exception:
             return []  # a transient load error is not cached for the whole process
     return _GLOSSARY
+
+
+def search_universe(state: object) -> object:
+    """The searchable instruments: the configured universe, with the Yahoo symbol the score rows show.
+
+    The Yahoo symbol (``VWCE.DE``) comes from the provider symbol map, which only the score rows carry,
+    so the score rows are merged in by id; a score failure falls back to the configured ids and names.
+    """
+
+    snapshot = getattr(state, "snapshot", None)
+    universe = getattr(getattr(snapshot, "config", None), "universe", None)
+    symbols: dict[str, tuple[str, str]] = {}
+    try:
+        from etf_cockpit.application.score_views import snapshot_scores
+
+        for row in snapshot_scores(snapshot):
+            symbols[str(getattr(row, "display_id", "") or "")] = (
+                str(getattr(row, "yahoo_symbol", "") or ""),
+                str(getattr(row, "isin", "") or ""),
+            )
+    except Exception:
+        symbols = {}
+    items = []
+    for etf in getattr(universe, "etfs", ()) or ():
+        yahoo, isin = symbols.get(str(etf.id), ("", ""))
+        items.append(
+            SimpleNamespace(
+                id=etf.id,
+                name=etf.name,
+                ticker=getattr(etf, "ticker", ""),
+                provider_symbol=getattr(etf, "provider_symbol", ""),
+                yahoo_symbol=yahoo,
+                isin=getattr(etf, "isin", "") or isin,
+            )
+        )
+    return SimpleNamespace(etfs=items)
 
 
 def _instrument_keys(item: object) -> list[str]:
@@ -189,7 +226,7 @@ def build_search(
                     height=ROW_HEIGHT,
                 )
             )
-        universe = getattr(getattr(getattr(state, "snapshot", None), "config", None), "universe", None)
+        universe = search_universe(state)
         for instrument_id, name in instrument_matches(universe, query, MAX_RESULTS - len(rows)):
             label = f"{instrument_id} · {name}" if name else instrument_id
             rows.append(
@@ -225,7 +262,7 @@ def build_search(
         if not query.strip():
             show_palette_message("Enter a page or workspace to search")
             return
-        universe = getattr(getattr(getattr(state, "snapshot", None), "config", None), "universe", None)
+        universe = search_universe(state)
         exact = exact_instrument_id(universe, query)
         if exact:  # an exact id/symbol/ISIN beats a page whose title merely contains it ("BA" vs "Backtests")
             navigate_target(f"/instrument/{exact}")
