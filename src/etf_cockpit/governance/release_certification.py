@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 from collections import Counter
 from pathlib import Path
 from typing import Any
+
+from etf_cockpit.core.secure_update import SIGNING_KEY_ENV, detached_signature_errors
 
 
 CERTIFICATION_SCHEMA_VERSION = "release-certification.v1"
@@ -88,6 +91,11 @@ def _signed_manifest_status(root: Path, release_commit: str) -> tuple[str, str]:
         return "blocked", "ISSUE-0152 release manifest evidence must contain JSON objects"
     if signature.get("status") != "signed":
         return "blocked", "ISSUE-0152 release manifest signature status is not signed"
+    key_text = os.environ.get(SIGNING_KEY_ENV, "")
+    if len(key_text.encode("utf-8")) < 16:
+        return "blocked", "signature not cryptographically verified: no trusted signing key is configured"
+    if detached_signature_errors(manifest_path.read_bytes(), signature, key_text.encode("utf-8")):
+        return "blocked", "signature not cryptographically verified: detached signature does not match the manifest"
     if release_commit == "unavailable":
         return "blocked", "current release commit is unavailable for signed manifest verification"
     git_payload = manifest.get("git")

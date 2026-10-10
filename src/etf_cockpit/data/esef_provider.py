@@ -9,11 +9,11 @@ import hashlib
 import json
 from pathlib import Path
 from urllib.parse import quote, urljoin, urlparse
-from urllib.request import Request, urlopen
 
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes
+from etf_cockpit.core.http_fetch import get_checked
 from etf_cockpit.core.values import string_dict_or_empty as _headers_dict
 from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.parsers.contracts import RawDocument, load_fixture_manifest
@@ -150,13 +150,17 @@ class FilingsXbrlOrgProvider:
         headers = {"User-Agent": "ETF AI Evidence Cockpit/1.0", "Accept": "application/json"}
         if self.transport is not None:
             return _normalise_response(self.transport(url, headers))
-        request = Request(url, headers=headers)
+        def allowed(address: str) -> bool:
+            parsed = urlparse(address)
+            return parsed.scheme == "https" and parsed.hostname == "filings.xbrl.org"
+
         try:
-            with urlopen(request, timeout=self.timeout) as response:
-                payload = response.read(MAX_RESPONSE_BYTES + 1)
-                return _Response(payload, int(getattr(response, "status", 200)), _headers_dict(getattr(response, "headers", {})))
-        except (TimeoutError, OSError) as exc:
+            payload, status, response_headers = get_checked(
+                url, allowed=allowed, headers=headers, timeout=self.timeout, max_bytes=MAX_RESPONSE_BYTES
+            )
+        except (TimeoutError, OSError, ValueError) as exc:
             raise EsefProviderUnavailable("official ESEF endpoint unavailable") from exc
+        return _Response(payload, status, _headers_dict(response_headers))
 
 
 def _flatten_rows(rows: list[object]) -> pd.DataFrame:

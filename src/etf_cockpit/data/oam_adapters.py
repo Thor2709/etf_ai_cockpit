@@ -22,13 +22,13 @@ import re
 import time
 from typing import Literal
 from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
-from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
 
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.file_guard import persistent_file_guard
+from etf_cockpit.core.http_fetch import get_checked
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR
 from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 
@@ -350,13 +350,14 @@ class OAMAdapter:
         if self.transport is not None:
             return _normalise_response(self.transport(url, headers))
         try:
-            with urlopen(Request(url, headers=headers), timeout=self.timeout) as response:
-                payload = response.read(MAX_RESPONSE_BYTES + 1)
-                if len(payload) > MAX_RESPONSE_BYTES:
-                    raise OAMUnavailable("OAM response exceeds the bounded response size")
-                return _Response(payload, int(getattr(response, "status", 200)), _headers_dict(getattr(response, "headers", {})))
-        except (TimeoutError, OSError) as exc:
+            payload, status, response_headers = get_checked(
+                url, allowed=self._official_url, headers=headers, timeout=self.timeout, max_bytes=MAX_RESPONSE_BYTES
+            )
+        except (TimeoutError, OSError, ValueError) as exc:
             raise OAMUnavailable("official OAM endpoint unavailable") from exc
+        if len(payload) > MAX_RESPONSE_BYTES:
+            raise OAMUnavailable("OAM response exceeds the bounded response size")
+        return _Response(payload, status, _headers_dict(response_headers))
 
     def _snapshot(
         self,
@@ -660,17 +661,14 @@ class CompaniesHouseFilingAdapter(OAMAdapter):
         if self.transport is not None:
             return _normalise_response(self.transport(url, headers))
         try:
-            with urlopen(Request(url, headers=headers), timeout=self.timeout) as response:
-                payload = response.read(MAX_RESPONSE_BYTES + 1)
-                if len(payload) > MAX_RESPONSE_BYTES:
-                    raise OAMUnavailable("Companies House response exceeds the bounded response size")
-                return _Response(
-                    payload,
-                    int(getattr(response, "status", 200)),
-                    _headers_dict(getattr(response, "headers", {})),
-                )
-        except (TimeoutError, OSError) as exc:
+            payload, status, response_headers = get_checked(
+                url, allowed=self._official_url, headers=headers, timeout=self.timeout, max_bytes=MAX_RESPONSE_BYTES
+            )
+        except (TimeoutError, OSError, ValueError) as exc:
             raise OAMUnavailable("Companies House endpoint unavailable") from exc
+        if len(payload) > MAX_RESPONSE_BYTES:
+            raise OAMUnavailable("Companies House response exceeds the bounded response size")
+        return _Response(payload, status, _headers_dict(response_headers))
 
     def _normalise_records(
         self,

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
+import shutil
+import uuid
 import zipfile
+from io import BytesIO
 from dataclasses import asdict
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -12,6 +16,7 @@ import pandas as pd
 
 from etf_cockpit.backtest.engine import BacktestReport
 from etf_cockpit.chatgpt_bridge.prompts import CHATGPT_REVIEW_PROMPT
+from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import AUDIT_PACKETS_DIR, CONFIG_DIR, DERIVED_DIR, ROOT, STATEMENT_FACTS_PATH
 from etf_cockpit.core.session_log import SESSION_LOG_PATH, copy_session_log_to
@@ -283,11 +288,51 @@ def export_review_pack(
     data_report: DataQualityReport | None = None,
     publish_guard: PublicationScopeFactory | None = None,
 ) -> Path:
+    """Stage the packet in a fresh sibling directory, then swap it in with the zip.
+
+    A re-export never inherits files from an earlier packet of the same date and a
+    failed export leaves the last good directory and zip untouched.
+    """
+
+    export_dir = CHATGPT_EXPORTS_DIR / f"audit_packet_{as_of_date:%Y-%m-%d}"
+    staging = export_dir.with_name(f"{export_dir.name}.staging-{uuid.uuid4().hex[:8]}")
+    zip_path = export_dir.with_suffix(".zip")
+    try:
+        _stage_review_pack(
+            staging, config, holdings, features, signals, backtest,
+            as_of_date=as_of_date, data_report=data_report, publish_guard=publish_guard,
+        )
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for file in sorted(staging.rglob("*")):
+                if file.is_file():
+                    archive.write(file, arcname=file.relative_to(staging))
+        with publication_scope(publish_guard):
+            atomic_write_bytes(zip_path, buffer.getvalue(), lambda _path: None)
+            if export_dir.exists():
+                shutil.rmtree(export_dir)
+            os.replace(staging, export_dir)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return zip_path
+
+
+def _stage_review_pack(
+    export_dir: Path,
+    config: AppConfig,
+    holdings: pd.DataFrame,
+    features: pd.DataFrame,
+    signals: list[SignalResult],
+    backtest: BacktestReport,
+    *,
+    as_of_date: date,
+    data_report: DataQualityReport | None,
+    publish_guard: PublicationScopeFactory | None,
+) -> None:
     def publish(operation: Callable[[], _Published]) -> _Published:
         with publication_scope(publish_guard):
             return operation()
 
-    export_dir = CHATGPT_EXPORTS_DIR / f"audit_packet_{as_of_date:%Y-%m-%d}"
     publish(lambda: export_dir.mkdir(parents=True, exist_ok=True))
     allocation = allocation_frame(config, holdings)
     portfolio_summary = {
@@ -492,16 +537,6 @@ def export_review_pack(
     ]
     publish(lambda: (export_dir / "combined_review_packet.md").write_text("\n".join(combined), encoding="utf-8"))
     publish(lambda: _write_audit_manifest(export_dir, derived_manifest, evidence_manifest))
-    zip_path = export_dir.with_suffix(".zip")
-
-    def write_archive() -> None:
-        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for file in export_dir.rglob("*"):
-                if file.is_file():
-                    archive.write(file, arcname=file.relative_to(export_dir))
-
-    publish(write_archive)
-    return zip_path
 
 
 def _export_decision_journal_summary(path: Path) -> None:
