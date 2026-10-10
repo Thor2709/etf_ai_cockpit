@@ -893,6 +893,7 @@ def build_simple_instrument_scores(
         regime=regime,
         include_latest_input=True,
         decision_date=decision_as_of,
+        excluded_instrument_ids=config.universe.by_id(),
     )
     scores = sorted(
         [*universe_scores, *candidate_scores],
@@ -1465,7 +1466,7 @@ def build_universe_simple_scores(
 
     for signal in signals:
         identity = etf_lookup.get(signal.etf_id)
-        if signal.etf_id not in enabled_ids or identity is None:
+        if signal.etf_id not in enabled_ids or identity is None or signal.etf_id in seen_ids:
             continue
         seen_ids.add(signal.etf_id)
         asset_type = _display_asset_type(identity)
@@ -1728,6 +1729,7 @@ def build_candidate_simple_scores(
     regime: dict[str, object] | None = None,
     include_latest_input: bool = False,
     decision_date: date | None = None,
+    excluded_instrument_ids: Iterable[str] = (),
 ) -> list[SimpleInstrumentScore]:
     report = candidate_report.copy() if candidate_report is not None else pd.DataFrame()
     forecasts = candidate_forecasts.copy() if candidate_forecasts is not None else pd.DataFrame()
@@ -1749,16 +1751,28 @@ def build_candidate_simple_scores(
     return_distributions = forecast_return_distributions(forecasts)
     forecast_details = forecast_score_details(forecasts)
     source = _candidate_source_frame(report, forecasts)
+    # Configured identities own their score and registry metadata. Retained
+    # pre-upgrade candidate files must not create a second, stale identity.
+    excluded_ids = {str(value).strip().casefold() for value in excluded_instrument_ids}
+    if not source.empty:
+        id_column = "instrument_id" if "instrument_id" in source else "etf_id"
+        source = (
+            source.loc[~source[id_column].astype(str).str.strip().str.casefold().isin(excluded_ids)]
+            if id_column in source
+            else source.iloc[:0]
+        )
     relative_reference = _candidate_relative_reference(source, decision_date)
     etf_exposure = _etf_exposure_lookup()
     calibration_by_id = calibration_by_id or {}
     regime = regime or {}
     output: list[SimpleInstrumentScore] = []
+    seen_ids: set[str] = set()
 
     for _, row in source.iterrows():
         instrument_id = str(row.get("instrument_id") or row.get("etf_id") or "").strip()
-        if not instrument_id:
+        if not instrument_id or instrument_id.casefold() in seen_ids:
             continue
+        seen_ids.add(instrument_id.casefold())
         asset_type = _infer_candidate_asset_type(row)
         if _is_sparebank_ec_asset_type(asset_type):
             output.append(
