@@ -1,7 +1,18 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
+
+
+def safe_file_stem(raw: object, default: str = "workspace") -> str:
+    """Filesystem-safe stem; a name that needed cleaning gets ``-<sha256[:12]>`` so cleaned names cannot collide."""
+
+    text = str(raw).strip()
+    cleaned = "".join(character if character.isalnum() or character in "-_" else "_" for character in text)
+    if cleaned and cleaned == text:
+        return cleaned
+    return f"{cleaned or default}-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:12]}"
 
 
 def _has_project_config(path: Path) -> bool:
@@ -50,6 +61,7 @@ FORECASTS_DIR = DATA_DIR / "forecasts"
 BACKTESTS_DIR = DATA_DIR / "backtests"
 PORTFOLIOS_DIR = DATA_DIR / "portfolios"
 WORKSPACES_DIR = DATA_DIR / "workspaces"
+WEB_INSTANCE_PATH = DATA_DIR / "runtime" / "web_instance.json"
 OPERATIONS_DIR = DATA_DIR / "operations"
 CHATGPT_EXPORTS_DIR = DATA_DIR / "chatgpt_exports"
 CHATGPT_IMPORTS_DIR = DATA_DIR / "chatgpt_imports"

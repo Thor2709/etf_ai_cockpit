@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import uuid4
 
 import flet as ft
 
@@ -340,6 +341,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
     fill_details = ft.Container(content=Disclosure("paper fill details", "No paper order action has been recorded."))
 
     def fill_paper_order(_event: ft.ControlEvent | None) -> None:
+        fill_id = f"ui-{uuid4().hex}"  # one id per submit: two identical real fills are two fills, never merged
         notify(
             fill_status,
             fill_details,
@@ -347,6 +349,7 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
             lambda: api.fill_paper_order(
                 PaperFillRequest(
                     order_id=_required(order_id, "Paper order ID"),
+                    fill_id=fill_id,
                     quantity=_number(fill_quantity, "Fill quantity"),
                     price=_number(fill_price, "Fill price"),
                 )

@@ -177,6 +177,7 @@ def test_reuse_existing_web_server_opens_ready_local_app(monkeypatch) -> None:
     opened: list[str] = []
     monkeypatch.setattr(flet_app, "_is_port_listening", lambda host, port: True)
     monkeypatch.setattr(flet_app, "_local_http_ready", lambda url: True)
+    monkeypatch.setattr(flet_app, "_is_own_web_instance", lambda port: True)
     monkeypatch.setattr(flet_app.webbrowser, "open", lambda url: opened.append(url) or True)
 
     assert flet_app._reuse_existing_web_server(8550, open_browser=True)
