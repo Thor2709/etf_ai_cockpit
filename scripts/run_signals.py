@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from math import isfinite
 from datetime import date
 from pathlib import Path
 
@@ -26,7 +27,8 @@ def main() -> int:
     config = load_config()
     signals = SignalService(config).generate_signals(as_of_date=as_of_date)
     for signal in signals:
-        print(f"{signal.etf_id:16s} {signal.action:13s} confidence={signal.confidence:.2f} score={signal.total_score:+.2f} blocked={','.join(signal.blocked_by) or '-'}")
+        confidence = f"{signal.confidence:.2f}" if isfinite(signal.confidence) else "unavailable"
+        print(f"{signal.etf_id:16s} {signal.action:13s} confidence={confidence} score={signal.total_score:+.2f} blocked={','.join(signal.blocked_by) or '-'}")
 
     return 0
 

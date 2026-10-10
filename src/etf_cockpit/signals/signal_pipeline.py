@@ -194,7 +194,10 @@ def generate_signals(
                 blocked_by = ["inside_deadband"]
             else:
                 blocked_by = ["no_trade_conservative"]
-        reason_short, reason_long = explain_signal(row, final_action, blocked_by)
+        explanation_row = row.copy()
+        explanation_row["total_score"] = total_score
+        explanation_row["confidence"] = action_confidence * structure_cap
+        reason_short, reason_long = explain_signal(explanation_row, final_action, blocked_by)
         if calibration_reason is not None:
             reason_short = f"{reason_short}; forecast calibration reduced authority"
             reason_long = (
@@ -357,8 +360,8 @@ def _signal_to_json(signal: SignalResult) -> dict[str, object]:
             "run_id": signal.run_id,
             "signal_date": signal.signal_date.isoformat(),
             "etf_id": signal.etf_id,
-            "confidence": signal.confidence,
-            "total_score": signal.total_score,
+            "confidence": signal.confidence if isfinite(signal.confidence) else None,
+            "total_score": signal.total_score if isfinite(signal.total_score) else None,
             "blocked_by": signal.blocked_by,
             "warnings": signal.warnings,
             "reason_short": signal.reason_short,
