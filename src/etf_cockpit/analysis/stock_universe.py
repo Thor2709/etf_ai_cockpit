@@ -150,7 +150,7 @@ def market_inputs(
     snap_time = sm.as_utc((snapshot or {}).get("known_at"))
     return MarketInputs(
         price=close,
-        price_currency=str(quote) or None,
+        price_currency=quote_major or None,
         price_date=price_date,
         fx_to_reporting=fx_rate,
         dividends_per_share_12m=dividends,

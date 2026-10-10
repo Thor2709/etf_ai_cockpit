@@ -282,9 +282,12 @@ def implementation_shortfall(*, reference_price: float, filled_quantity: float, 
     reference, filled, fill, unfilled, end, fee = map(_num, (reference_price, filled_quantity, fill_price, unfilled_quantity, end_price, fees))
     if None in (reference, filled, fill, unfilled, fee) or reference <= 0 or filled < 0 or unfilled < 0:
         return {"status": "unavailable", "reason_code": "FILL_SIMULATION_MISSING"}
+    total_quantity = filled + unfilled
+    if total_quantity <= 0:
+        return {"status": "unavailable", "reason_code": "FILL_SIMULATION_MISSING"}
     opportunity = unfilled * max(0.0, (end if end is not None else reference) - reference)
     implementation = filled * (fill - reference) + fee + opportunity
-    return {"status": "resolved", "shortfall": implementation, "shortfall_pct": implementation / (reference * max(1.0, filled + unfilled)), "filled_quantity": filled, "unfilled_quantity": unfilled, "execution_allowed": False}
+    return {"status": "resolved", "shortfall": implementation, "shortfall_pct": implementation / (reference * total_quantity), "filled_quantity": filled, "unfilled_quantity": unfilled, "execution_allowed": False}
 
 
 def decision_price(value: float, hurdle: float, *, years: float = 1.0, exit_cost: float = 0.0) -> float:
@@ -456,6 +459,8 @@ def valuation(claim: ECClaimState | Mapping[str, object], *, price: float | None
     if not isinstance(assumptions, Mapping):
         return {"status": "unavailable", "standalone": standalone, "reason_code": "VALUATION_ASSUMPTIONS_INVALID", "execution_allowed": False}
     assumptions = normalise_valuation_assumptions(assumptions)
+    if assumptions.get("assumption_errors"):
+        return {"status": "unavailable", "standalone": standalone, "reverse": {"status": "unavailable", "reason_code": "VALUATION_ASSUMPTIONS_INVALID"}, "reason_code": "VALUATION_ASSUMPTIONS_INVALID", "assumption_errors": assumptions["assumption_errors"], "execution_allowed": False}
     reverse = None
     if "price_to_book" in assumptions and "k" in assumptions and "g" in assumptions:
         reverse = reverse_valuation(float(assumptions["price_to_book"]), k=float(assumptions["k"]), g=float(assumptions["g"]))

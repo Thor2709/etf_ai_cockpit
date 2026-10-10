@@ -45,7 +45,7 @@ def dividend_history(price_rows: pd.DataFrame | None, price: float | None = None
         "status": "available",
         "source": SOURCE,
         "as_of": last_date.date().isoformat(),
-        "events": events[-keep_events:],
+        "events": events[-keep_events:] if keep_events > 0 else [],
         "by_year": [
             {"year": year, "amount": by_year[year]["amount"], "count": int(by_year[year]["count"]), "complete": year < last_date.year}
             for year in years

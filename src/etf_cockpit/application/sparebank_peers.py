@@ -174,7 +174,7 @@ def quarterly_score_history(
         rows = rows.loc[rows["_at"].le(cutoff)]
     rows = rows.sort_values("_at", kind="stable")
     rows["_quarter"] = rows["_period"].dt.tz_localize(None).dt.to_period("Q")
-    latest = rows.groupby("_quarter", sort=True).tail(1)
+    latest = rows.groupby("_quarter", sort=True).tail(1).sort_values("_quarter", kind="stable")
     result: list[dict[str, object]] = []
     previous: dict[str, object] | None = None
     for row in latest.to_dict("records"):

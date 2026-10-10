@@ -71,8 +71,8 @@ def test_owner_normalisation_haircuts_only_a_benign_loss_year_and_tax_effects_it
     adjustment = norm["adjustments"][0]
     assert adjustment.amount == pytest.approx(-10 * 0.75 * 0.4)
     assert norm["reported_roe"] == pytest.approx(48.0 / 400.0)
-    assert norm["normalised_roe"] is None and norm["status"] == "unavailable"
-    assert "securities/alliance and one-off gain history" in norm["missing_components"]
+    assert norm["normalised_roe"] is not None and norm["status"] == "resolved"  # K02a: undisclosable history is not_adjusted, not missing
+    assert any("securities, alliance" in item for item in norm["not_adjusted"])
     assert norm["denominator_basis"].startswith("closing owner capital")
     assert norm["tax_rate"] == pytest.approx(0.25)  # 200 / 800 from the filing
     # A year with HIGHER losses than the average is not added back without evidence of a one-off (book 5.2.4).
@@ -87,7 +87,8 @@ def test_owner_normalisation_states_why_it_is_unavailable() -> None:
     bank = build_bank_economics({"statements": _statements()}, bank_metrics=[])
     claim = _claim(ec_attributable_result={"available": False, "value": None})
     result = owner_normalisation(bank, claim)
-    assert result.normalised == {}
+    assert result.normalised["status"] == "unavailable" and result.normalised["reason_code"] == "SUSTAINABLE_ROE_BRIDGE_INPUTS_MISSING"
+    assert "EC-attributable result" in result.normalised["missing_components"]
     assert "EC-attributable result" in result.reasons["normalised_roe_minus_cost_of_equity_pp"]
 
 
