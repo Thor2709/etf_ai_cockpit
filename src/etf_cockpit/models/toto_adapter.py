@@ -85,6 +85,7 @@ class TotoAdapter:
         returns = np.log(pivot / pivot.shift(1)).replace([np.inf, -np.inf], np.nan).dropna(how="all")
         if etf_id not in returns or returns[etf_id].dropna().empty:
             raise ValueError(f"{etf_id}: no finite adjusted log-return history at or before {as_of_date}.")
+        observed_target = int(returns[etf_id].notna().sum())
         columns = [etf_id] + [column for column in returns.columns if column != etf_id]
         series = returns[columns].tail(self.config.context_length)
         patch_size = self._patch_size()
@@ -95,7 +96,7 @@ class TotoAdapter:
         observed = int(series[etf_id].notna().sum())
         if observed < patch_size:
             raise ValueError(f"{etf_id}: Toto requires at least {patch_size} finite adjusted log-return observations in context; found {observed}.")
-        return ModelInput(etf_id=etf_id, as_of_date=as_of_date, series=series)
+        return ModelInput(etf_id=etf_id, as_of_date=as_of_date, series=series, observed_returns=observed_target)
 
     def forecast_etf(
         self,
@@ -213,7 +214,7 @@ class TotoAdapter:
             forecast_date=as_of_date,
             run_id=run_id,
             model_version=f"toto_2_0_{self.config.model_size or 'live'}",
-            observed_returns=int(series[etf_id].notna().sum()),
+            observed_returns=model_input.observed_returns,
         )
 
     def _mock_forecast(
@@ -237,7 +238,7 @@ class TotoAdapter:
             blended = 0.65 * target.tail(180).mean() + 0.35 * peer_mean if np.isfinite(peer_mean) else target.tail(180).mean()
             mean = float(blended * 0.45)
             vol = float(target.tail(60).std() * np.sqrt(252))
-        coverage = history_coverage_ratio(len(target))
+        coverage = history_coverage_ratio(model_input.observed_returns)
         out: list[ForecastResult] = []
         for horizon in horizons:
             expected = mean * horizon
