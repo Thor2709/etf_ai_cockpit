@@ -345,9 +345,16 @@ def toto_quantiles_to_log_return_results(
                 )
             )
             continue
-        q10 = float(np.sum(target[0, :horizon]))
-        q50 = float(np.sum(target[4, :horizon]))
-        q90 = float(np.sum(target[8, :horizon]))
+        # Toto returns per-step marginal quantiles of daily log returns. Summing
+        # marginal q10/q90 assumes perfectly correlated days and inflates the
+        # band by ~sqrt(horizon). Aggregate the median additively and the
+        # lower/upper half-widths in quadrature (independent daily returns).
+        steps = target[:, :horizon]
+        q50 = float(np.sum(steps[4]))
+        lower = float(np.sqrt(np.sum(np.square(steps[4] - steps[0]))))
+        upper = float(np.sqrt(np.sum(np.square(steps[8] - steps[4]))))
+        q10 = q50 - lower
+        q90 = q50 + upper
         results.append(
             ForecastResult(
                 run_id=run_id,

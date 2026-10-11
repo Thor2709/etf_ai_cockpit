@@ -358,6 +358,12 @@ def forecast_component_maps(forecasts: pd.DataFrame) -> dict[str, dict[str, floa
             if row is None:
                 continue
             output[model_name][str(etf_id)] = _forecast_score(float(row["expected_return"]), int(row["horizon_days"]))
+    # TimesFM 3 shares the single TimesFM family weight. Rows only reach this
+    # point once promotion allows them in score; the newer version then wins.
+    for etf_id, group in frame[frame["model_name"] == "timesfm3"].groupby("etf_id", sort=False):
+        row = _choose_horizon_row(group)
+        if row is not None:
+            output["timesfm"][str(etf_id)] = _forecast_score(float(row["expected_return"]), int(row["horizon_days"]))
     return output
 
 

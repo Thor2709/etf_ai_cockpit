@@ -32,3 +32,22 @@ def test_pretraining_windows_are_flagged_and_never_promotion_evidence():
         assert row['promotion_evidence_allowed'] is False
         assert row['promotion_state'] == 'shadow_only'
         assert row['execution_allowed'] is False
+
+
+def test_promoted_timesfm3_takes_timesfm_family_slot_and_shadow_rows_do_not() -> None:
+    import pandas as pd
+    from etf_cockpit.models.forecast_scores import forecast_component_maps
+
+    rows = pd.DataFrame(
+        [
+            {"model_name": "timesfm", "etf_id": "A", "horizon_days": 60, "expected_return": -0.02, "status": "ok", "model_allowed_in_score": True, "forecast_date": "2026-10-09"},
+            {"model_name": "timesfm3", "etf_id": "A", "horizon_days": 60, "expected_return": 0.03, "status": "ok", "model_allowed_in_score": True, "forecast_date": "2026-10-09"},
+            {"model_name": "timesfm3", "etf_id": "B", "horizon_days": 60, "expected_return": 0.05, "status": "ok", "model_allowed_in_score": False, "forecast_date": "2026-10-09"},
+        ]
+    )
+    maps = forecast_component_maps(rows)
+    only_v25 = forecast_component_maps(rows.iloc[[0]])
+
+    assert maps["timesfm"]["A"] > only_v25["timesfm"]["A"]
+    assert "B" not in maps["timesfm"]
+    assert "timesfm3" not in maps

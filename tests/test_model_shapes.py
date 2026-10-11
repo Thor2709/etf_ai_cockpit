@@ -194,7 +194,27 @@ def test_toto_quantiles_convert_daily_return_paths_to_horizon_returns() -> None:
 
     assert result[0].status == "ok"
     assert result[0].expected_return == pytest.approx(0.02)
-    assert result[1].q10_return == pytest.approx(-0.03)
+    # Median adds per step; half-widths add in quadrature (independent days).
+    assert result[1].q10_return == pytest.approx(0.06 - 0.03 * 3**0.5)
     assert result[1].q50_return == pytest.approx(0.06)
-    assert result[1].q90_return == pytest.approx(0.12)
+    assert result[1].q90_return == pytest.approx(0.06 + 0.02 * 3**0.5)
     assert result[2].status == "skipped"
+
+
+def test_toto_horizon_band_scales_with_sqrt_horizon_not_linearly() -> None:
+    quantiles = np.zeros((9, 1, 1, 60))
+    quantiles[0, 0, 0, :] = -0.0128
+    quantiles[8, 0, 0, :] = 0.0128
+
+    result = toto_quantiles_to_log_return_results(
+        quantiles=quantiles,
+        horizons=[1, 60],
+        etf_id="WORLD_CORE",
+        forecast_date=pd.Timestamp("2026-06-26").date(),
+        run_id="test",
+        model_version="toto_2_0_4m",
+    )
+
+    one_day = result[0].q90_return - result[0].q10_return
+    sixty_day = result[1].q90_return - result[1].q10_return
+    assert sixty_day == pytest.approx(one_day * 60**0.5)
