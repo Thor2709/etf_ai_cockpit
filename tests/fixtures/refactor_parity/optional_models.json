@@ -258,7 +258,13 @@
      "reason_unavailable": "TimesFM disabled or compatible package/checkpoint missing.",
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": null,
+     "q25_return": null,
+     "q75_return": null,
+     "q95_return": null,
+     "quantile_method": null,
+     "coverage_ratio": null
     },
     {
      "run_id": "parity-run",
@@ -284,7 +290,13 @@
      "reason_unavailable": "TimesFM disabled or compatible package/checkpoint missing.",
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": null,
+     "q25_return": null,
+     "q75_return": null,
+     "q95_return": null,
+     "quantile_method": null,
+     "coverage_ratio": null
     },
     {
      "run_id": "parity-run",
@@ -310,7 +322,13 @@
      "reason_unavailable": "TimesFM disabled or compatible package/checkpoint missing.",
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": null,
+     "q25_return": null,
+     "q75_return": null,
+     "q95_return": null,
+     "quantile_method": null,
+     "coverage_ratio": null
     },
     {
      "run_id": "parity-run",
@@ -336,7 +354,13 @@
      "reason_unavailable": "TimesFM disabled or compatible package/checkpoint missing.",
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": null,
+     "q25_return": null,
+     "q75_return": null,
+     "q95_return": null,
+     "quantile_method": null,
+     "coverage_ratio": null
     }
    ],
    "toto_is_available": false,
@@ -365,7 +389,13 @@
      "reason_unavailable": "Toto is disabled.",
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": null,
+     "q25_return": null,
+     "q75_return": null,
+     "q95_return": null,
+     "quantile_method": null,
+     "coverage_ratio": null
     },
     {
      "run_id": "parity-run",
@@ -391,7 +421,13 @@
      "reason_unavailable": "Toto is disabled.",
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": null,
+     "q25_return": null,
+     "q75_return": null,
+     "q95_return": null,
+     "quantile_method": null,
+     "coverage_ratio": null
     },
     {
      "run_id": "parity-run",
@@ -417,7 +453,13 @@
      "reason_unavailable": "Toto is disabled.",
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": null,
+     "q25_return": null,
+     "q75_return": null,
+     "q95_return": null,
+     "quantile_method": null,
+     "coverage_ratio": null
     },
     {
      "run_id": "parity-run",
@@ -443,7 +485,13 @@
      "reason_unavailable": "Toto is disabled.",
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": null,
+     "q25_return": null,
+     "q75_return": null,
+     "q95_return": null,
+     "quantile_method": null,
+     "coverage_ratio": null
     }
    ]
   },
@@ -474,7 +522,13 @@
      "reason_unavailable": "TimesFM disabled or compatible package/checkpoint missing.",
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": null,
+     "q25_return": null,
+     "q75_return": null,
+     "q95_return": null,
+     "quantile_method": null,
+     "coverage_ratio": null
     },
     {
      "run_id": "parity-run",
@@ -500,7 +554,13 @@
      "reason_unavailable": "TimesFM disabled or compatible package/checkpoint missing.",
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": null,
+     "q25_return": null,
+     "q75_return": null,
+     "q95_return": null,
+     "quantile_method": null,
+     "coverage_ratio": null
     },
     {
      "run_id": "parity-run",
@@ -526,7 +586,13 @@
      "reason_unavailable": "TimesFM disabled or compatible package/checkpoint missing.",
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": null,
+     "q25_return": null,
+     "q75_return": null,
+     "q95_return": null,
+     "quantile_method": null,
+     "coverage_ratio": null
     },
     {
      "run_id": "parity-run",
@@ -552,7 +618,13 @@
      "reason_unavailable": "TimesFM disabled or compatible package/checkpoint missing.",
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": null,
+     "q25_return": null,
+     "q75_return": null,
+     "q95_return": null,
+     "quantile_method": null,
+     "coverage_ratio": null
     }
    ],
    "toto_is_available": false,
@@ -581,7 +653,13 @@
      "reason_unavailable": "Toto 2 checkpoint missing or incomplete at None; config.json and safetensors weights are required.",
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": null,
+     "q25_return": null,
+     "q75_return": null,
+     "q95_return": null,
+     "quantile_method": null,
+     "coverage_ratio": null
     },
     {
      "run_id": "parity-run",
@@ -607,7 +685,13 @@
      "reason_unavailable": "Toto 2 checkpoint missing or incomplete at None; config.json and safetensors weights are required.",
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": null,
+     "q25_return": null,
+     "q75_return": null,
+     "q95_return": null,
+     "quantile_method": null,
+     "coverage_ratio": null
     },
     {
      "run_id": "parity-run",
@@ -633,7 +717,13 @@
      "reason_unavailable": "Toto 2 checkpoint missing or incomplete at None; config.json and safetensors weights are required.",
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": null,
+     "q25_return": null,
+     "q75_return": null,
+     "q95_return": null,
+     "quantile_method": null,
+     "coverage_ratio": null
     },
     {
      "run_id": "parity-run",
@@ -659,7 +749,13 @@
      "reason_unavailable": "Toto 2 checkpoint missing or incomplete at None; config.json and safetensors weights are required.",
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": null,
+     "q25_return": null,
+     "q75_return": null,
+     "q95_return": null,
+     "quantile_method": null,
+     "coverage_ratio": null
     }
    ]
   },
@@ -690,7 +786,13 @@
      "reason_unavailable": null,
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "mock_not_for_live_scoring"
+     "calibration_status": "mock_not_for_live_scoring",
+     "q05_return": -0.014928115769617957,
+     "q25_return": -0.006313616634495667,
+     "q75_return": 0.0056620793057555775,
+     "q95_return": 0.014276578440877865,
+     "quantile_method": "normal_from_q10_q90.v1",
+     "coverage_ratio": 1.0
     },
     {
      "run_id": "parity-run",
@@ -716,7 +818,13 @@
      "reason_unavailable": null,
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "mock_not_for_live_scoring"
+     "calibration_status": "mock_not_for_live_scoring",
+     "q05_return": -0.03428068408023182,
+     "q25_return": -0.015018078421985244,
+     "q75_return": 0.011760391778284794,
+     "q95_return": 0.03102299743653137,
+     "quantile_method": "normal_from_q10_q90.v1",
+     "coverage_ratio": 1.0
     },
     {
      "run_id": "parity-run",
@@ -742,7 +850,13 @@
      "reason_unavailable": null,
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "mock_not_for_live_scoring"
+     "calibration_status": "mock_not_for_live_scoring",
+     "q05_return": -0.07181905480416409,
+     "q25_return": -0.033293843487670935,
+     "q75_return": 0.020263096912869143,
+     "q95_return": 0.05878830822936229,
+     "quantile_method": "normal_from_q10_q90.v1",
+     "coverage_ratio": 1.0
     },
     {
      "run_id": "parity-run",
@@ -768,7 +882,13 @@
      "reason_unavailable": null,
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "mock_not_for_live_scoring"
+     "calibration_status": "mock_not_for_live_scoring",
+     "q05_return": -0.13265541417053317,
+     "q25_return": -0.06592779079803954,
+     "q75_return": 0.026835551073634147,
+     "q95_return": 0.09356317444612777,
+     "quantile_method": "normal_from_q10_q90.v1",
+     "coverage_ratio": 1.0
     }
    ],
    "toto_is_available": true,
@@ -797,7 +917,13 @@
      "reason_unavailable": null,
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "mock_not_for_live_scoring"
+     "calibration_status": "mock_not_for_live_scoring",
+     "q05_return": -0.015104468922693178,
+     "q25_return": -0.006093842040316677,
+     "q75_return": 0.006432542382248263,
+     "q95_return": 0.015443169264624763,
+     "quantile_method": "normal_from_q10_q90.v1",
+     "coverage_ratio": 1.0
     },
     {
      "run_id": "parity-run",
@@ -823,7 +949,13 @@
      "reason_unavailable": null,
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "mock_not_for_live_scoring"
+     "calibration_status": "mock_not_for_live_scoring",
+     "q05_return": -0.033306546914626714,
+     "q25_return": -0.013158172685745859,
+     "q75_return": 0.014851674395403792,
+     "q95_return": 0.035000048624284644,
+     "quantile_method": "normal_from_q10_q90.v1",
+     "coverage_ratio": 1.0
     },
     {
      "run_id": "parity-run",
@@ -849,7 +981,13 @@
      "reason_unavailable": null,
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "mock_not_for_live_scoring"
+     "calibration_status": "mock_not_for_live_scoring",
+     "q05_return": -0.06491959211959548,
+     "q25_return": -0.024622843661833784,
+     "q75_return": 0.03139685050046552,
+     "q95_return": 0.07169359895822722,
+     "quantile_method": "normal_from_q10_q90.v1",
+     "coverage_ratio": 1.0
     },
     {
      "run_id": "parity-run",
@@ -875,7 +1013,13 @@
      "reason_unavailable": null,
      "oos_mase": null,
      "oos_directional_accuracy": null,
-     "calibration_status": "mock_not_for_live_scoring"
+     "calibration_status": "mock_not_for_live_scoring",
+     "q05_return": -0.1081494837075045,
+     "q25_return": -0.03835346799883843,
+     "q75_return": 0.0586754885147336,
+     "q95_return": 0.12847150422339967,
+     "quantile_method": "normal_from_q10_q90.v1",
+     "coverage_ratio": 1.0
     }
    ]
   }
@@ -906,7 +1050,13 @@
     "reason_unavailable": null,
     "oos_mase": null,
     "oos_directional_accuracy": null,
-    "calibration_status": "not_evaluated"
+    "calibration_status": "not_evaluated",
+    "q05_return": -0.021278976126251226,
+    "q25_return": 0.004975165426584046,
+    "q75_return": 0.05352953614670393,
+    "q95_return": 0.07845942547539153,
+    "quantile_method": "native_deciles_q25_q75_interpolated+normal_tails_q05_q95.v1",
+    "coverage_ratio": null
    },
    {
     "run_id": "parity-run",
@@ -932,7 +1082,13 @@
     "reason_unavailable": null,
     "oos_mase": null,
     "oos_directional_accuracy": null,
-    "calibration_status": "not_evaluated"
+    "calibration_status": "not_evaluated",
+    "q05_return": -0.021278976126251226,
+    "q25_return": 0.004975165426584046,
+    "q75_return": 0.05352953614670393,
+    "q95_return": 0.07845942547539153,
+    "quantile_method": "native_deciles_q25_q75_interpolated+normal_tails_q05_q95.v1",
+    "coverage_ratio": null
    },
    {
     "run_id": "parity-run",
@@ -958,7 +1114,13 @@
     "reason_unavailable": "TimesFM returned 2 forecast steps; requested horizon 3.",
     "oos_mase": null,
     "oos_directional_accuracy": null,
-    "calibration_status": "unsupported_horizon"
+    "calibration_status": "unsupported_horizon",
+    "q05_return": null,
+    "q25_return": null,
+    "q75_return": null,
+    "q95_return": null,
+    "quantile_method": null,
+    "coverage_ratio": null
    }
   ],
   "toto_quantiles_to_results": [
@@ -986,7 +1148,13 @@
     "reason_unavailable": null,
     "oos_mase": null,
     "oos_directional_accuracy": null,
-    "calibration_status": "not_evaluated"
+    "calibration_status": "not_evaluated",
+    "q05_return": -0.018504583143772724,
+    "q25_return": 0.0,
+    "q75_return": 0.04,
+    "q95_return": 0.045669722095848485,
+    "quantile_method": "native_deciles_q25_q75_interpolated+normal_tails_q05_q95.v1",
+    "coverage_ratio": null
    },
    {
     "run_id": "parity-run",
@@ -1012,7 +1180,13 @@
     "reason_unavailable": null,
     "oos_mase": null,
     "oos_directional_accuracy": null,
-    "calibration_status": "not_evaluated"
+    "calibration_status": "not_evaluated",
+    "q05_return": -0.006691894329274528,
+    "q25_return": 0.02535898384862245,
+    "q75_return": 0.09464101615137754,
+    "q95_return": 0.10446126288618302,
+    "quantile_method": "native_deciles_q25_q75_interpolated+normal_tails_q05_q95.v1",
+    "coverage_ratio": null
    },
    {
     "run_id": "parity-run",
@@ -1038,7 +1212,13 @@
     "reason_unavailable": "Toto returned 3 forecast steps; requested horizon 4.",
     "oos_mase": null,
     "oos_directional_accuracy": null,
-    "calibration_status": "unsupported_horizon"
+    "calibration_status": "unsupported_horizon",
+    "q05_return": null,
+    "q25_return": null,
+    "q75_return": null,
+    "q95_return": null,
+    "quantile_method": null,
+    "coverage_ratio": null
    }
   ]
  },
@@ -1068,7 +1248,13 @@
     "reason_unavailable": null,
     "oos_mase": null,
     "oos_directional_accuracy": null,
-    "calibration_status": "not_evaluated"
+    "calibration_status": "not_evaluated",
+    "q05_return": -0.014813903554133314,
+    "q25_return": -0.006199404419011025,
+    "q75_return": 0.00577629152124022,
+    "q95_return": 0.014390790656362508,
+    "quantile_method": "normal_from_q10_q90.v1",
+    "coverage_ratio": 1.0
    },
    {
     "run_id": "parity-run",
@@ -1094,7 +1280,13 @@
     "reason_unavailable": null,
     "oos_mase": null,
     "oos_directional_accuracy": null,
-    "calibration_status": "not_evaluated"
+    "calibration_status": "not_evaluated",
+    "q05_return": -0.03370962300280861,
+    "q25_return": -0.014447017344562033,
+    "q75_return": 0.012331452855708006,
+    "q95_return": 0.03159405851395458,
+    "quantile_method": "normal_from_q10_q90.v1",
+    "coverage_ratio": 1.0
    },
    {
     "run_id": "parity-run",
@@ -1120,7 +1312,13 @@
     "reason_unavailable": null,
     "oos_mase": null,
     "oos_directional_accuracy": null,
-    "calibration_status": "not_evaluated"
+    "calibration_status": "not_evaluated",
+    "q05_return": -0.06953481049447124,
+    "q25_return": -0.031009599177978093,
+    "q75_return": 0.022547341222561985,
+    "q95_return": 0.061072552539055136,
+    "quantile_method": "normal_from_q10_q90.v1",
+    "coverage_ratio": 1.0
    },
    {
     "run_id": "parity-run",
@@ -1146,7 +1344,13 @@
     "reason_unavailable": null,
     "oos_mase": null,
     "oos_directional_accuracy": null,
-    "calibration_status": "not_evaluated"
+    "calibration_status": "not_evaluated",
+    "q05_return": -0.12580268124145463,
+    "q25_return": -0.059075057868961,
+    "q75_return": 0.033688284002712676,
+    "q95_return": 0.10041590737520631,
+    "quantile_method": "normal_from_q10_q90.v1",
+    "coverage_ratio": 1.0
    }
   ],
   "with_benchmark": [
@@ -1174,7 +1378,13 @@
     "reason_unavailable": null,
     "oos_mase": null,
     "oos_directional_accuracy": null,
-    "calibration_status": "not_evaluated"
+    "calibration_status": "not_evaluated",
+    "q05_return": -0.014813903554133314,
+    "q25_return": -0.006199404419011025,
+    "q75_return": 0.00577629152124022,
+    "q95_return": 0.014390790656362508,
+    "quantile_method": "normal_from_q10_q90.v1",
+    "coverage_ratio": 1.0
    },
    {
     "run_id": "parity-run",
@@ -1200,7 +1410,13 @@
     "reason_unavailable": null,
     "oos_mase": null,
     "oos_directional_accuracy": null,
-    "calibration_status": "not_evaluated"
+    "calibration_status": "not_evaluated",
+    "q05_return": -0.03370962300280861,
+    "q25_return": -0.014447017344562033,
+    "q75_return": 0.012331452855708006,
+    "q95_return": 0.03159405851395458,
+    "quantile_method": "normal_from_q10_q90.v1",
+    "coverage_ratio": 1.0
    },
    {
     "run_id": "parity-run",
@@ -1226,7 +1442,13 @@
     "reason_unavailable": null,
     "oos_mase": null,
     "oos_directional_accuracy": null,
-    "calibration_status": "not_evaluated"
+    "calibration_status": "not_evaluated",
+    "q05_return": -0.06953481049447124,
+    "q25_return": -0.031009599177978093,
+    "q75_return": 0.022547341222561985,
+    "q95_return": 0.061072552539055136,
+    "quantile_method": "normal_from_q10_q90.v1",
+    "coverage_ratio": 1.0
    },
    {
     "run_id": "parity-run",
@@ -1252,7 +1474,13 @@
     "reason_unavailable": null,
     "oos_mase": null,
     "oos_directional_accuracy": null,
-    "calibration_status": "not_evaluated"
+    "calibration_status": "not_evaluated",
+    "q05_return": -0.12580268124145463,
+    "q25_return": -0.059075057868961,
+    "q75_return": 0.033688284002712676,
+    "q95_return": 0.10041590737520631,
+    "quantile_method": "normal_from_q10_q90.v1",
+    "coverage_ratio": 1.0
    }
   ],
   "empty_series": []

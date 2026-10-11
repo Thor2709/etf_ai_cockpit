@@ -2159,7 +2159,7 @@
   "data/forecasts/forecast_results_yfinance_20260930.csv": {
    "kind": "csv",
    "rows": 855,
-   "columns": ["run_id", "model_name", "model_version", "etf_id", "forecast_date", "horizon_days", "expected_return", "expected_excess_return", "q10_return", "q50_return", "q90_return", "forecast_vol", "prob_positive_return", "prob_beat_benchmark", "forecast_drawdown_prob", "status", "error_message", "model_allowed_in_score", "is_fallback", "fallback_model", "reason_unavailable", "oos_mase", "oos_directional_accuracy", "calibration_status"]
+   "columns": ["run_id", "model_name", "model_version", "etf_id", "forecast_date", "horizon_days", "expected_return", "expected_excess_return", "q10_return", "q50_return", "q90_return", "forecast_vol", "prob_positive_return", "prob_beat_benchmark", "forecast_drawdown_prob", "status", "error_message", "model_allowed_in_score", "is_fallback", "fallback_model", "reason_unavailable", "oos_mase", "oos_directional_accuracy", "calibration_status", "q05_return", "q25_return", "q75_return", "q95_return", "quantile_method", "coverage_ratio"]
   },
   "data/forecasts/forecast_results_yfinance_20260930.csv.meta.json": {
    "kind": "json",
@@ -2252,8 +2252,8 @@
   "file": "forecast_results_yfinance_20260930.csv",
   "frame": {
    "excluded_columns": [],
-   "shape": [855, 24],
-   "columns": ["run_id", "model_name", "model_version", "etf_id", "forecast_date", "horizon_days", "expected_return", "expected_excess_return", "q10_return", "q50_return", "q90_return", "forecast_vol", "prob_positive_return", "prob_beat_benchmark", "forecast_drawdown_prob", "status", "error_message", "model_allowed_in_score", "is_fallback", "fallback_model", "reason_unavailable", "oos_mase", "oos_directional_accuracy", "calibration_status"],
+   "shape": [855, 30],
+   "columns": ["run_id", "model_name", "model_version", "etf_id", "forecast_date", "horizon_days", "expected_return", "expected_excess_return", "q10_return", "q50_return", "q90_return", "forecast_vol", "prob_positive_return", "prob_beat_benchmark", "forecast_drawdown_prob", "status", "error_message", "model_allowed_in_score", "is_fallback", "fallback_model", "reason_unavailable", "oos_mase", "oos_directional_accuracy", "calibration_status", "q05_return", "q25_return", "q75_return", "q95_return", "quantile_method", "coverage_ratio"],
    "dtypes": {
     "run_id": "object",
     "model_name": "object",
@@ -2278,7 +2278,13 @@
     "reason_unavailable": "object",
     "oos_mase": "float64",
     "oos_directional_accuracy": "float64",
-    "calibration_status": "object"
+    "calibration_status": "object",
+    "q05_return": "float64",
+    "q25_return": "float64",
+    "q75_return": "float64",
+    "q95_return": "float64",
+    "quantile_method": "object",
+    "coverage_ratio": "float64"
    },
    "numeric_columns": {
     "horizon_days": {
@@ -2376,9 +2382,49 @@
      "mean": null,
      "min": null,
      "max": null
+    },
+    "q05_return": {
+     "nan_count": 570,
+     "count": 285,
+     "sum": -40.6541454419996,
+     "mean": -0.14264612435789334,
+     "min": -0.3609447070327429,
+     "max": -0.0319649866474761
+    },
+    "q25_return": {
+     "nan_count": 570,
+     "count": 285,
+     "sum": -16.309275305073584,
+     "mean": -0.0572255273862231,
+     "min": -0.2067682109577756,
+     "max": 0.0067565119354044
+    },
+    "q75_return": {
+     "nan_count": 570,
+     "count": 285,
+     "sum": 17.534452332678367,
+     "mean": 0.061524394149748654,
+     "min": 0.0075647188116737,
+     "max": 0.2044852952212625
+    },
+    "q95_return": {
+     "nan_count": 570,
+     "count": 285,
+     "sum": 41.87932246960438,
+     "mean": 0.14694499112141887,
+     "min": 0.03111661061939,
+     "max": 0.3467179004162364
+    },
+    "coverage_ratio": {
+     "nan_count": 570,
+     "count": 285,
+     "sum": 285.0,
+     "mean": 1.0,
+     "min": 1.0,
+     "max": 1.0
     }
    },
-   "non_float_digest": "05096ce3c958cdcc288cb1b272c209eeda3d5237ab572c871a120fd541833a9a",
+   "non_float_digest": "c56240006f899e9f1abce8d4746668cbd58201e3aab0f15b57451c092ae6b26a",
    "first_rows": [
     {
      "run_id": "forecast_20260930__s2e451e324e57",
@@ -2404,7 +2450,13 @@
      "reason_unavailable": "<NaN>",
      "oos_mase": "<NaN>",
      "oos_directional_accuracy": "<NaN>",
-     "calibration_status": "not_evaluated"
+     "calibration_status": "not_evaluated",
+     "q05_return": -0.039627228386019,
+     "q25_return": -0.0148704342330746,
+     "q75_return": 0.0195459415283749,
+     "q95_return": 0.0443027356813192,
+     "quantile_method": "normal_from_q10_q90.v1",
+     "coverage_ratio": 1.0
     },
     {
      "run_id": "forecast_20260930__s2e451e324e57",
@@ -2430,7 +2482,13 @@
      "reason_unavailable": "<NaN>",
      "oos_mase": "<NaN>",
      "oos_directional_accuracy": "<NaN>",
-     "calibration_status": "not_evaluated"
+     "calibration_status": "not_evaluated",
+     "q05_return": -0.0745789494767378,
+     "q25_return": -0.0250653611708491,
+     "q75_return": 0.04376739035205,
+     "q95_return": 0.0932809786579387,
+     "quantile_method": "normal_from_q10_q90.v1",
+     "coverage_ratio": 1.0
     },
     {
      "run_id": "forecast_20260930__s2e451e324e57",
@@ -2456,7 +2514,13 @@
      "reason_unavailable": "<NaN>",
      "oos_mase": "<NaN>",
      "oos_directional_accuracy": "<NaN>",
-     "calibration_status": "not_evaluated"
+     "calibration_status": "not_evaluated",
+     "q05_return": -0.1173179182702587,
+     "q25_return": -0.0315578676594113,
+     "q75_return": 0.087663955203014,
+     "q95_return": 0.1734240058138614,
+     "quantile_method": "normal_from_q10_q90.v1",
+     "coverage_ratio": 1.0
     }
    ],
    "last_rows": [
@@ -2484,7 +2548,13 @@
      "reason_unavailable": "Toto 2 checkpoint missing or incomplete at models/toto/Toto-2.0-1B; config.json and safetensors weights are required.",
      "oos_mase": "<NaN>",
      "oos_directional_accuracy": "<NaN>",
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": "<NaN>",
+     "q25_return": "<NaN>",
+     "q75_return": "<NaN>",
+     "q95_return": "<NaN>",
+     "quantile_method": "<NaN>",
+     "coverage_ratio": "<NaN>"
     },
     {
      "run_id": "forecast_20260930__s2e451e324e57",
@@ -2510,7 +2580,13 @@
      "reason_unavailable": "Toto 2 checkpoint missing or incomplete at models/toto/Toto-2.0-1B; config.json and safetensors weights are required.",
      "oos_mase": "<NaN>",
      "oos_directional_accuracy": "<NaN>",
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": "<NaN>",
+     "q25_return": "<NaN>",
+     "q75_return": "<NaN>",
+     "q95_return": "<NaN>",
+     "quantile_method": "<NaN>",
+     "coverage_ratio": "<NaN>"
     },
     {
      "run_id": "forecast_20260930__s2e451e324e57",
@@ -2536,7 +2612,13 @@
      "reason_unavailable": "Toto 2 checkpoint missing or incomplete at models/toto/Toto-2.0-1B; config.json and safetensors weights are required.",
      "oos_mase": "<NaN>",
      "oos_directional_accuracy": "<NaN>",
-     "calibration_status": "unavailable"
+     "calibration_status": "unavailable",
+     "q05_return": "<NaN>",
+     "q25_return": "<NaN>",
+     "q75_return": "<NaN>",
+     "q95_return": "<NaN>",
+     "quantile_method": "<NaN>",
+     "coverage_ratio": "<NaN>"
     }
    ]
   },

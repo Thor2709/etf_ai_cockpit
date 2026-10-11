@@ -68,6 +68,14 @@ class ForecastResult:
     oos_mase: float | None = None
     oos_directional_accuracy: float | None = None
     calibration_status: str = "not_evaluated"
+    # Full return distribution contract: the remaining levels, their provenance and the observed
+    # fraction of the required input history window (None when not computable).
+    q05_return: float | None = None
+    q25_return: float | None = None
+    q75_return: float | None = None
+    q95_return: float | None = None
+    quantile_method: str | None = None
+    coverage_ratio: float | None = None
 
 
 @dataclass(frozen=True)

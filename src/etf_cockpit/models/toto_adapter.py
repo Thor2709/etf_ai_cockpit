@@ -12,6 +12,13 @@ from etf_cockpit.core.config import ModelRuntimeConfig
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.core.types import ForecastResult
 from etf_cockpit.models.base import ModelInput
+from etf_cockpit.models.distribution_store import (
+    QUANTILE_METHOD_DECILES,
+    QUANTILE_METHOD_NORMAL,
+    complete_return_quantiles,
+    derived_quantile_columns,
+    history_coverage_ratio,
+)
 from etf_cockpit.models.timesfm_adapter import _has_weight_files, _quantile_vol_proxy
 
 
@@ -206,6 +213,7 @@ class TotoAdapter:
             forecast_date=as_of_date,
             run_id=run_id,
             model_version=f"toto_2_0_{self.config.model_size or 'live'}",
+            observed_returns=int(series[etf_id].notna().sum()),
         )
 
     def _mock_forecast(
@@ -224,13 +232,18 @@ class TotoAdapter:
             vol = 0.0
         else:
             market = model_input.series.drop(columns=[etf_id], errors="ignore").mean(axis=1)
-            blended = 0.65 * target.tail(180).mean() + 0.35 * market.tail(180).mean()
+            peer_mean = market.tail(180).mean()
+            # Without peer series the blend would be NaN; fall back to the target's own history.
+            blended = 0.65 * target.tail(180).mean() + 0.35 * peer_mean if np.isfinite(peer_mean) else target.tail(180).mean()
             mean = float(blended * 0.45)
             vol = float(target.tail(60).std() * np.sqrt(252))
+        coverage = history_coverage_ratio(len(target))
         out: list[ForecastResult] = []
         for horizon in horizons:
             expected = mean * horizon
             horizon_vol = vol * np.sqrt(horizon / 252) if vol else 0.0
+            q10 = expected - 1.28 * horizon_vol
+            q90 = expected + 1.28 * horizon_vol
             out.append(
                 ForecastResult(
                     run_id=run_id,
@@ -241,9 +254,11 @@ class TotoAdapter:
                     horizon_days=horizon,
                     expected_return=expected,
                     expected_excess_return=expected,
-                    q10_return=expected - 1.28 * horizon_vol,
+                    q10_return=q10,
                     q50_return=expected,
-                    q90_return=expected + 1.28 * horizon_vol,
+                    q90_return=q90,
+                    **derived_quantile_columns(complete_return_quantiles(q10, expected, q90), QUANTILE_METHOD_NORMAL),
+                    coverage_ratio=coverage,
                     forecast_vol=horizon_vol,
                     prob_positive_return=float(1 / (1 + np.exp(-expected / max(horizon_vol, 1e-6)))),
                     status="ok",
@@ -316,6 +331,7 @@ def toto_quantiles_to_log_return_results(
     forecast_date: date,
     run_id: str,
     model_version: str,
+    observed_returns: int | None = None,
 ) -> list[ForecastResult]:
     values = np.asarray(quantiles, dtype=float)
     if values.ndim != 4 or values.shape[0] != 9 or values.shape[1] < 1 or values.shape[2] < 1:
@@ -323,6 +339,7 @@ def toto_quantiles_to_log_return_results(
     target = values[:, 0, 0, :]
     if not np.isfinite(target).all():
         raise ValueError("Toto returned nonfinite target quantiles; no return can be reported.")
+    coverage = history_coverage_ratio(observed_returns)
     results: list[ForecastResult] = []
     for horizon in horizons:
         if horizon < 1 or horizon > target.shape[1]:
@@ -355,6 +372,13 @@ def toto_quantiles_to_log_return_results(
         upper = float(np.sqrt(np.sum(np.square(steps[8] - steps[4]))))
         q10 = q50 - lower
         q90 = q50 + upper
+        # The same quadrature rule for the inner levels: q25/q75 are the midpoints of the per-step
+        # q20/q30 and q70/q80; the tails follow the shared normal rule from the aggregated q10/q90.
+        step_q25 = (steps[1] + steps[2]) / 2.0
+        step_q75 = (steps[6] + steps[7]) / 2.0
+        q25 = q50 - float(np.sqrt(np.sum(np.square(steps[4] - step_q25))))
+        q75 = q50 + float(np.sqrt(np.sum(np.square(step_q75 - steps[4]))))
+        completed = complete_return_quantiles(q10, q50, q90, q25=q25, q75=q75)
         results.append(
             ForecastResult(
                 run_id=run_id,
@@ -368,6 +392,8 @@ def toto_quantiles_to_log_return_results(
                 q10_return=q10,
                 q50_return=q50,
                 q90_return=q90,
+                **derived_quantile_columns(completed, QUANTILE_METHOD_DECILES),
+                coverage_ratio=coverage,
                 forecast_vol=_quantile_vol_proxy(q10, q90, horizon),
                 prob_positive_return=float(q50 > 0),
                 status="ok",

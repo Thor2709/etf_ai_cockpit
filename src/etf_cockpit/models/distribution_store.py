@@ -13,6 +13,75 @@ RETURN_DISTRIBUTION_VERSION = "expected-return-distribution.v1"
 HORIZON_VALIDATION_STATUSES = frozenset({"good", "mixed", "weak", "limited"})
 
 
+REQUIRED_HISTORY_RETURNS = 252
+"""Adjusted daily log returns that make the input history window complete (one trading year)."""
+NORMAL_Z_90 = 1.2815515655446004
+NORMAL_Z_95 = 1.6448536269514722
+NORMAL_Z_75 = 0.6744897501960817
+TAIL_SCALE = NORMAL_Z_95 / NORMAL_Z_90
+INNER_SCALE = NORMAL_Z_75 / NORMAL_Z_90
+QUANTILE_METHOD_NORMAL = "normal_from_q10_q90.v1"
+QUANTILE_METHOD_DECILES = "native_deciles_q25_q75_interpolated+normal_tails_q05_q95.v1"
+DERIVED_QUANTILE_FIELDS = ("q05_return", "q25_return", "q75_return", "q95_return")
+
+
+def history_coverage_ratio(observed_returns: object) -> float | None:
+    """Observed fraction of the required input history window, using data up to the forecast date.
+
+    The window is :data:`REQUIRED_HISTORY_RETURNS` finite adjusted daily log returns. No observation
+    means no coverage figure (``None``), never zero.
+    """
+
+    count = _finite(observed_returns)
+    if count is None or count < 1:
+        return None
+    return min(1.0, count / REQUIRED_HISTORY_RETURNS)
+
+
+def complete_return_quantiles(
+    q10: object,
+    q50: object,
+    q90: object,
+    *,
+    q25: object = None,
+    q75: object = None,
+) -> dict[str, float] | None:
+    """Return the full monotone quantile vector for one model/horizon, or ``None``.
+
+    Every producer shares this rule. The model's own q10/q50/q90 (and q25/q75 when the model supplies
+    them) are kept. The missing levels follow a normal approximation of the model's own half-widths:
+    ``q05/q95 = q50 -/+ (q50-q10 | q90-q50) * z95/z90`` and, when no native value is given,
+    ``q25/q75 = q50 -/+ (half-width) * z75/z90``. Crossing or non-finite inputs yield ``None``;
+    nothing is zero-filled.
+    """
+
+    low, mid, high = _finite(q10), _finite(q50), _finite(q90)
+    if low is None or mid is None or high is None or not low <= mid <= high:
+        return None
+    lower, upper = mid - low, high - mid
+    inner_low = _finite(q25) if q25 is not None else mid - lower * INNER_SCALE
+    inner_high = _finite(q75) if q75 is not None else mid + upper * INNER_SCALE
+    if inner_low is None or inner_high is None:
+        return None
+    return normalise_quantiles({
+        "q05_return": mid - lower * TAIL_SCALE,
+        "q10_return": low,
+        "q25_return": inner_low,
+        "q50_return": mid,
+        "q75_return": inner_high,
+        "q90_return": high,
+        "q95_return": mid + upper * TAIL_SCALE,
+    })
+
+
+def derived_quantile_columns(quantiles: Mapping[str, float] | None, method: str) -> dict[str, object]:
+    """Row fields for the levels beyond q10/q50/q90, with their provenance; all missing when ``None``."""
+
+    if quantiles is None:
+        return {**{field: None for field in DERIVED_QUANTILE_FIELDS}, "quantile_method": None}
+    return {**{field: quantiles[field] for field in DERIVED_QUANTILE_FIELDS}, "quantile_method": method}
+
+
 def normalise_quantiles(values: Mapping[str, object] | None) -> dict[str, float] | None:
     """Return a complete, finite, monotone quantile vector or ``None``."""
 
@@ -184,6 +253,13 @@ def _probability(value: object) -> float | None:
 
 __all__ = [
     "COST_DEDUCTION_FIELDS",
+    "DERIVED_QUANTILE_FIELDS",
+    "QUANTILE_METHOD_DECILES",
+    "QUANTILE_METHOD_NORMAL",
+    "REQUIRED_HISTORY_RETURNS",
+    "complete_return_quantiles",
+    "derived_quantile_columns",
+    "history_coverage_ratio",
     "HORIZON_VALIDATION_STATUSES",
     "QUANTILE_FIELDS",
     "QUANTILE_LEVELS",
