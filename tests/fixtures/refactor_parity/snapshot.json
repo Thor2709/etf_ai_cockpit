@@ -1303,7 +1303,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": 0.6047741391628182,
@@ -1404,7 +1404,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score 0.60 with confidence 0.86. Momentum 0.60, trend 0.68, risk 0.41, baseline 0.64, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score 0.60 with confidence 0.00. Momentum 0.60, trend 0.68, risk 0.41, baseline 0.64, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -1430,7 +1430,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": 0.5587327655667369,
@@ -1531,7 +1531,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score 0.56 with confidence 0.85. Momentum 0.60, trend 0.71, risk -0.07, baseline 0.65, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score 0.56 with confidence 0.00. Momentum 0.60, trend 0.71, risk -0.07, baseline 0.65, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -1557,7 +1557,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": 0.4976295949475895,
@@ -1658,7 +1658,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score 0.50 with confidence 0.82. Momentum 0.48, trend 0.77, risk 0.08, baseline 0.61, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score 0.50 with confidence 0.00. Momentum 0.48, trend 0.77, risk 0.08, baseline 0.61, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -1684,7 +1684,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": 0.4962800673134036,
@@ -1785,7 +1785,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score 0.50 with confidence 0.82. Momentum 0.35, trend 0.66, risk 0.48, baseline 0.49, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score 0.50 with confidence 0.00. Momentum 0.35, trend 0.66, risk 0.48, baseline 0.49, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -1811,7 +1811,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": 0.48621135344314603,
@@ -1912,7 +1912,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score 0.49 with confidence 0.81. Momentum 0.32, trend 0.63, risk 0.64, baseline 0.46, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score 0.49 with confidence 0.00. Momentum 0.32, trend 0.63, risk 0.64, baseline 0.46, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -1938,7 +1938,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": 0.48409695069779335,
@@ -2039,7 +2039,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score 0.48 with confidence 0.81. Momentum 0.64, trend 0.27, risk 0.38, baseline 0.47, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score 0.48 with confidence 0.00. Momentum 0.64, trend 0.27, risk 0.38, baseline 0.47, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -2065,7 +2065,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": 0.4743133500034108,
@@ -2166,7 +2166,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score 0.47 with confidence 0.81. Momentum 0.45, trend 0.78, risk 0.67, baseline 0.60, Toto nan, TimesFM nan, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score 0.47 with confidence 0.00. Momentum 0.45, trend 0.78, risk 0.67, baseline 0.60, Toto unavailable, TimesFM unavailable, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 9.0
     }
    },
@@ -2192,7 +2192,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": 0.4151076943248452,
@@ -2293,7 +2293,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score 0.42 with confidence 0.80. Momentum 0.38, trend 0.74, risk 0.64, baseline 0.54, Toto nan, TimesFM nan, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score 0.42 with confidence 0.00. Momentum 0.38, trend 0.74, risk 0.64, baseline 0.54, Toto unavailable, TimesFM unavailable, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 11.0
     }
    },
@@ -2319,7 +2319,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": 0.307886693409361,
@@ -2420,7 +2420,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score 0.31 with confidence 0.80. Momentum 0.34, trend 0.15, risk 0.50, baseline 0.25, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score 0.31 with confidence 0.00. Momentum 0.34, trend 0.15, risk 0.50, baseline 0.25, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -2446,7 +2446,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": 0.25198528136560405,
@@ -2547,7 +2547,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score 0.25 with confidence 0.80. Momentum 0.42, trend 0.23, risk 0.35, baseline 0.33, Toto nan, TimesFM nan, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score 0.25 with confidence 0.00. Momentum 0.42, trend 0.23, risk 0.35, baseline 0.33, Toto unavailable, TimesFM unavailable, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 12.0
     }
    },
@@ -2573,7 +2573,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": 0.24222368026683494,
@@ -2674,7 +2674,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score 0.24 with confidence 0.79. Momentum 0.37, trend 0.18, risk 0.63, baseline 0.28, Toto nan, TimesFM nan, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score 0.24 with confidence 0.00. Momentum 0.37, trend 0.18, risk 0.63, baseline 0.28, Toto unavailable, TimesFM unavailable, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 16.0
     }
    },
@@ -2700,7 +2700,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": 0.24003762635502707,
@@ -2801,7 +2801,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score 0.24 with confidence 0.79. Momentum 0.31, trend 0.08, risk 0.00, baseline 0.20, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score 0.24 with confidence 0.00. Momentum 0.31, trend 0.08, risk 0.00, baseline 0.20, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -2827,7 +2827,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": 0.2041327174268249,
@@ -2928,7 +2928,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score 0.20 with confidence 0.81. Momentum 0.16, trend 0.19, risk 0.20, baseline 0.18, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score 0.20 with confidence 0.00. Momentum 0.16, trend 0.19, risk 0.20, baseline 0.18, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -2954,7 +2954,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": 0.059002854744467745,
@@ -3055,7 +3055,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score 0.06 with confidence 0.67. Momentum 0.25, trend -0.69, risk 0.34, baseline -0.17, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score 0.06 with confidence 0.00. Momentum 0.25, trend -0.69, risk 0.34, baseline -0.17, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -3081,7 +3081,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": 0.04963718225180083,
@@ -3182,7 +3182,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score 0.05 with confidence 0.69. Momentum 0.23, trend -0.55, risk 0.05, baseline -0.12, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score 0.05 with confidence 0.00. Momentum 0.23, trend -0.55, risk 0.05, baseline -0.12, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -3208,7 +3208,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": 0.0215506433279155,
@@ -3309,7 +3309,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score 0.02 with confidence 0.70. Momentum 0.15, trend -0.53, risk 0.33, baseline -0.16, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score 0.02 with confidence 0.00. Momentum 0.15, trend -0.53, risk 0.33, baseline -0.16, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -3335,7 +3335,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": 0.017060651960762924,
@@ -3436,7 +3436,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score 0.02 with confidence 0.67. Momentum 0.16, trend -0.75, risk 0.14, baseline -0.25, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score 0.02 with confidence 0.00. Momentum 0.16, trend -0.75, risk 0.14, baseline -0.25, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -3462,7 +3462,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.0062123926254272505,
@@ -3563,7 +3563,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.01 with confidence 0.67. Momentum 0.15, trend -0.70, risk 0.07, baseline -0.23, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.01 with confidence 0.00. Momentum 0.15, trend -0.70, risk 0.07, baseline -0.23, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -3589,7 +3589,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.012442636283039975,
@@ -3690,7 +3690,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.01 with confidence 0.67. Momentum 0.11, trend -0.76, risk 0.34, baseline -0.28, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.01 with confidence 0.00. Momentum 0.11, trend -0.76, risk 0.34, baseline -0.28, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -3716,7 +3716,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.03362890452823811,
@@ -3817,7 +3817,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.03 with confidence 0.69. Momentum 0.11, trend -0.66, risk -0.09, baseline -0.24, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.03 with confidence 0.00. Momentum 0.11, trend -0.66, risk -0.09, baseline -0.24, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -3843,7 +3843,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.036259137547193725,
@@ -3944,7 +3944,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.04 with confidence 0.69. Momentum 0.24, trend -0.57, risk 0.09, baseline -0.12, Toto nan, TimesFM nan, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.04 with confidence 0.00. Momentum 0.24, trend -0.57, risk 0.09, baseline -0.12, Toto unavailable, TimesFM unavailable, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 12.0
     }
    },
@@ -3970,7 +3970,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.0403407903495045,
@@ -4071,7 +4071,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.04 with confidence 0.68. Momentum 0.07, trend -0.76, risk 0.26, baseline -0.30, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.04 with confidence 0.00. Momentum 0.07, trend -0.76, risk 0.26, baseline -0.30, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -4097,7 +4097,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.04314289102976769,
@@ -4198,7 +4198,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.04 with confidence 0.68. Momentum 0.11, trend -0.73, risk 0.01, baseline -0.27, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.04 with confidence 0.00. Momentum 0.11, trend -0.73, risk 0.01, baseline -0.27, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -4224,7 +4224,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.0628959788748494,
@@ -4325,7 +4325,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.06 with confidence 0.73. Momentum -0.01, trend -0.49, risk 0.18, baseline -0.22, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.06 with confidence 0.00. Momentum -0.01, trend -0.49, risk 0.18, baseline -0.22, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -4351,7 +4351,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.07766866413850614,
@@ -4452,7 +4452,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.08 with confidence 0.71. Momentum -0.01, trend -0.65, risk 0.34, baseline -0.30, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.08 with confidence 0.00. Momentum -0.01, trend -0.65, risk 0.34, baseline -0.30, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -4478,7 +4478,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.0800857978946566,
@@ -4579,7 +4579,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.08 with confidence 0.70. Momentum -0.00, trend -0.76, risk 0.11, baseline -0.34, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.08 with confidence 0.00. Momentum -0.00, trend -0.76, risk 0.11, baseline -0.34, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -4605,7 +4605,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.08409761397530867,
@@ -4706,7 +4706,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.08 with confidence 0.72. Momentum -0.10, trend -0.69, risk 0.51, baseline -0.36, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.08 with confidence 0.00. Momentum -0.10, trend -0.69, risk 0.51, baseline -0.36, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -4732,7 +4732,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.0852926070764415,
@@ -4833,7 +4833,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.09 with confidence 0.71. Momentum 0.02, trend -0.68, risk 0.19, baseline -0.29, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.09 with confidence 0.00. Momentum 0.02, trend -0.68, risk 0.19, baseline -0.29, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -4859,7 +4859,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.0859859027759007,
@@ -4960,7 +4960,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.09 with confidence 0.69. Momentum 0.00, trend -0.78, risk 0.15, baseline -0.35, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.09 with confidence 0.00. Momentum 0.00, trend -0.78, risk 0.15, baseline -0.35, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -4986,7 +4986,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.10147810616108326,
@@ -5087,7 +5087,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.10 with confidence 0.73. Momentum -0.07, trend -0.60, risk 0.30, baseline -0.30, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.10 with confidence 0.00. Momentum -0.07, trend -0.60, risk 0.30, baseline -0.30, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -5113,7 +5113,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.10258045165908213,
@@ -5214,7 +5214,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.10 with confidence 0.71. Momentum 0.05, trend -0.66, risk -0.28, baseline -0.27, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.10 with confidence 0.00. Momentum 0.05, trend -0.66, risk -0.28, baseline -0.27, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -5240,7 +5240,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.11026050033576583,
@@ -5341,7 +5341,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.11 with confidence 0.71. Momentum -0.05, trend -0.75, risk 0.14, baseline -0.37, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.11 with confidence 0.00. Momentum -0.05, trend -0.75, risk 0.14, baseline -0.37, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -5367,7 +5367,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.1264481850001342,
@@ -5468,7 +5468,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.13 with confidence 0.73. Momentum -0.10, trend -0.63, risk 0.20, baseline -0.34, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.13 with confidence 0.00. Momentum -0.10, trend -0.63, risk 0.20, baseline -0.34, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -5494,7 +5494,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.12855087129627318,
@@ -5595,7 +5595,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.13 with confidence 0.72. Momentum -0.07, trend -0.70, risk -0.16, baseline -0.35, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.13 with confidence 0.00. Momentum -0.07, trend -0.70, risk -0.16, baseline -0.35, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -5621,7 +5621,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.13102304762515474,
@@ -5722,7 +5722,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.13 with confidence 0.71. Momentum -0.03, trend -0.71, risk 0.80, baseline -0.33, Toto nan, TimesFM nan, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.13 with confidence 0.00. Momentum -0.03, trend -0.71, risk 0.80, baseline -0.33, Toto unavailable, TimesFM unavailable, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -5748,7 +5748,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.13235186320275633,
@@ -5849,7 +5849,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.13 with confidence 0.71. Momentum 0.06, trend -0.62, risk 0.27, baseline -0.25, Toto nan, TimesFM nan, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.13 with confidence 0.00. Momentum 0.06, trend -0.62, risk 0.27, baseline -0.25, Toto unavailable, TimesFM unavailable, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -5875,7 +5875,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.13475498813451633,
@@ -5976,7 +5976,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.13 with confidence 0.69. Momentum 0.07, trend -0.79, risk 0.39, baseline -0.32, Toto nan, TimesFM nan, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.13 with confidence 0.00. Momentum 0.07, trend -0.79, risk 0.39, baseline -0.32, Toto unavailable, TimesFM unavailable, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 19.0
     }
    },
@@ -6002,7 +6002,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.1358226846657905,
@@ -6103,7 +6103,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.14 with confidence 0.72. Momentum -0.09, trend -0.71, risk 0.06, baseline -0.37, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.14 with confidence 0.00. Momentum -0.09, trend -0.71, risk 0.06, baseline -0.37, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -6129,7 +6129,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.14416375961095743,
@@ -6230,7 +6230,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.14 with confidence 0.73. Momentum -0.12, trend -0.68, risk 0.11, baseline -0.37, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.14 with confidence 0.00. Momentum -0.12, trend -0.68, risk 0.11, baseline -0.37, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -6256,7 +6256,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.15675115268752682,
@@ -6357,7 +6357,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.16 with confidence 0.71. Momentum -0.14, trend -0.91, risk 0.39, baseline -0.49, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.16 with confidence 0.00. Momentum -0.14, trend -0.91, risk 0.39, baseline -0.49, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -6383,7 +6383,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.16872423217304,
@@ -6484,7 +6484,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.17 with confidence 0.71. Momentum -0.08, trend -0.84, risk 0.65, baseline -0.42, Toto nan, TimesFM nan, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.17 with confidence 0.00. Momentum -0.08, trend -0.84, risk 0.65, baseline -0.42, Toto unavailable, TimesFM unavailable, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -6510,7 +6510,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.17026788953847688,
@@ -6611,7 +6611,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.17 with confidence 0.71. Momentum -0.03, trend -0.75, risk 0.44, baseline -0.35, Toto nan, TimesFM nan, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.17 with confidence 0.00. Momentum -0.03, trend -0.75, risk 0.44, baseline -0.35, Toto unavailable, TimesFM unavailable, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 15.0
     }
    },
@@ -6637,7 +6637,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.17834167259880024,
@@ -6738,7 +6738,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.18 with confidence 0.73. Momentum -0.02, trend -0.66, risk 0.32, baseline -0.31, Toto nan, TimesFM nan, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.18 with confidence 0.00. Momentum -0.02, trend -0.66, risk 0.32, baseline -0.31, Toto unavailable, TimesFM unavailable, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -6764,7 +6764,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.19758732845976926,
@@ -6865,7 +6865,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.20 with confidence 0.74. Momentum -0.22, trend -0.81, risk 0.03, baseline -0.49, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.20 with confidence 0.00. Momentum -0.22, trend -0.81, risk 0.03, baseline -0.49, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -6891,7 +6891,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.2151163258451151,
@@ -6992,7 +6992,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.22 with confidence 0.74. Momentum -0.29, trend -0.83, risk 0.31, baseline -0.53, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.22 with confidence 0.00. Momentum -0.29, trend -0.83, risk 0.31, baseline -0.53, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -7018,7 +7018,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.2719975912352258,
@@ -7119,7 +7119,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.27 with confidence 0.77. Momentum -0.33, trend -0.73, risk 0.08, baseline -0.51, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.27 with confidence 0.00. Momentum -0.33, trend -0.73, risk 0.08, baseline -0.51, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -7145,7 +7145,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.29403743909630614,
@@ -7246,7 +7246,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.29 with confidence 0.80. Momentum -0.40, trend -0.62, risk 0.01, baseline -0.50, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.29 with confidence 0.00. Momentum -0.40, trend -0.62, risk 0.01, baseline -0.50, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -7272,7 +7272,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.29415904762662604,
@@ -7373,7 +7373,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.29 with confidence 0.74. Momentum -0.31, trend -0.95, risk 0.09, baseline -0.60, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.29 with confidence 0.00. Momentum -0.31, trend -0.95, risk 0.09, baseline -0.60, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -7399,7 +7399,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.30480376495485895,
@@ -7500,7 +7500,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.30 with confidence 0.77. Momentum -0.28, trend -0.76, risk 0.49, baseline -0.50, Toto nan, TimesFM nan, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.30 with confidence 0.00. Momentum -0.28, trend -0.76, risk 0.49, baseline -0.50, Toto unavailable, TimesFM unavailable, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -7526,7 +7526,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.3488989168709423,
@@ -7627,7 +7627,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.35 with confidence 0.79. Momentum -0.37, trend -0.70, risk 0.43, baseline -0.52, Toto nan, TimesFM nan, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.35 with confidence 0.00. Momentum -0.37, trend -0.70, risk 0.43, baseline -0.52, Toto unavailable, TimesFM unavailable, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -7653,7 +7653,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.35206355456960736,
@@ -7754,7 +7754,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.35 with confidence 0.80. Momentum -0.45, trend -0.71, risk 0.70, baseline -0.57, Toto nan, TimesFM nan, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.35 with confidence 0.00. Momentum -0.45, trend -0.71, risk 0.70, baseline -0.57, Toto unavailable, TimesFM unavailable, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -7780,7 +7780,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.35447753134805293,
@@ -7881,7 +7881,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.35 with confidence 0.79. Momentum -0.47, trend -0.84, risk -0.02, baseline -0.64, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.35 with confidence 0.00. Momentum -0.47, trend -0.84, risk -0.02, baseline -0.64, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -7907,7 +7907,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.3568149131744441,
@@ -8008,7 +8008,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.36 with confidence 0.79. Momentum -0.53, trend -0.92, risk 0.30, baseline -0.71, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.36 with confidence 0.00. Momentum -0.53, trend -0.92, risk 0.30, baseline -0.71, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -8034,7 +8034,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.38627998473977476,
@@ -8135,7 +8135,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.39 with confidence 0.80. Momentum -0.44, trend -0.76, risk 0.30, baseline -0.58, Toto nan, TimesFM nan, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.39 with confidence 0.00. Momentum -0.44, trend -0.76, risk 0.30, baseline -0.58, Toto unavailable, TimesFM unavailable, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -8161,7 +8161,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.47167824812679493,
@@ -8262,7 +8262,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.47 with confidence 0.82. Momentum -0.66, trend -0.88, risk 0.04, baseline -0.76, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.47 with confidence 0.00. Momentum -0.66, trend -0.88, risk 0.04, baseline -0.76, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -8288,7 +8288,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.4861787095833804,
@@ -8389,7 +8389,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.49 with confidence 0.83. Momentum -0.67, trend -0.85, risk -0.14, baseline -0.75, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.49 with confidence 0.00. Momentum -0.67, trend -0.85, risk -0.14, baseline -0.75, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -8415,7 +8415,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": -0.5362373751067608,
@@ -8516,7 +8516,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score -0.54 with confidence 0.85. Momentum -0.80, trend -0.89, risk 0.12, baseline -0.84, Toto nan, TimesFM nan, portfolio drift +nan%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score -0.54 with confidence 0.00. Momentum -0.80, trend -0.89, risk 0.12, baseline -0.84, Toto unavailable, TimesFM unavailable, portfolio drift unavailable. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 13.0
     }
    },
@@ -8542,7 +8542,7 @@
     },
     "blocked_by": ["forecast_uncertainty_unavailable"],
     "warnings": ["target_total_invalid", "nonfinite_score_narrative_suppressed"],
-    "reason_short": "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields.",
+    "reason_short": "Hold after evidence scoring; execution guardrails flag forecast_uncertainty_unavailable.",
     "horizon_primary": "1-3 months",
     "supporting_metrics": {
      "raw_signal_score": "<NaN>",
@@ -8643,7 +8643,7 @@
      "min_trade_value_eur": 100.0,
      "blocked_by": "forecast_uncertainty_unavailable",
      "final_action": "hold",
-     "reason_full": "Total score nan with confidence nan. Momentum 0.49, trend 0.17, risk 0.28, baseline 0.35, Toto nan, TimesFM nan, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
+     "reason_full": "Total score unavailable with confidence unavailable. Momentum 0.49, trend 0.17, risk 0.28, baseline 0.35, Toto unavailable, TimesFM unavailable, portfolio drift +0.0%. Primary horizon is 1-3 months, with 3-6 months used as confirmation. This is an advisory analysis score; models do not execute trades or invent missing data. Blocked by: forecast_uncertainty_unavailable.",
      "cost_bps": 7.0
     }
    }
