@@ -4,7 +4,8 @@ This module deliberately evaluates stored forecast rows rather than training or
 promoting models.  Outcomes are matured only from adjusted prices known at the
 evaluation as-of date, each forecast is valued net of the canonical round-trip
 execution cost, walk-forward folds are evaluated per model, and measured local
-run durations are reported as resource use.  Promotion stays shadow-only.
+run durations are reported as resource use.  Promotion is decided by
+``models.model_promotion``; this module never grants score authority.
 """
 
 from __future__ import annotations
@@ -356,11 +357,12 @@ def build_forecast_lab_report(
         "uses only prices up to that date.",
         "Net forward value = forecast direction x matured adjusted return - canonical round-trip cost "
         "(2 x estimated_cost_bps); it is unavailable when a cost is unavailable.",
-        "Walk-forward folds evaluate stored forecasts per model; model fitting and promotion belong to later issues.",
+        "Walk-forward folds evaluate stored forecasts per model; no model is fitted here.",
         "Resource use is the duration measured for the displayed forecast run; not_recorded when no matching run measurement exists.",
         "A forecast is graded only from its exact origin session to the exact target session; missing or stale sessions are unavailable.",
         "Forecasts are low-authority and cannot rescue or upgrade weak deterministic evidence.",
-        "TimesFM and Toto remain optional challengers and are shadow-only.",
+        "TimesFM and Toto are optional models: each counts in scores only after it beats the baseline on matured "
+        "out-of-sample forecasts dated after its pretraining cutoff or first local run.",
     ]
     return {
         "status": "ok",

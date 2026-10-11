@@ -28,7 +28,7 @@ from etf_cockpit.app.pages import _p4_common as common
 from etf_cockpit.app.pages._p4_common import workflow_button as _workflow_button
 from etf_cockpit.app.pages.dashboard import _run_action
 from etf_cockpit.app.state import AppState
-from etf_cockpit.application.forecast_service import build_forecast_lab_workspace
+from etf_cockpit.application.forecast_service import build_forecast_lab_workspace, forecast_lab_inputs, load_forecast_history
 from etf_cockpit.application.ui_views import forecast_lab as lab_view
 
 _HORIZONS = list(lab_view.HORIZON_LIMITS)
@@ -37,6 +37,9 @@ _MODEL_LINES = (ck.palette.P, *ck.palette.CATEGORICAL[1:])  # accent first; the 
 _BASELINE_LINE = ck.palette.BM
 _GAP = 16
 _COMPARISON_ROW = 78
+# Stored promotion states; "shadow_only" is what rows written before automatic promotion carry.
+_PROMOTION_LABELS = {"counting": "Counting in scores", "not_proven": "Not yet proven", "shadow_only": "Not yet proven", "reference": "Reference"}
+_PROMOTION_TONES = {"counting": "ok", "not_proven": "warn", "shadow_only": "warn", "reference": "mute"}
 _CALIBRATION_NOTE = "Calibration compares the stored conformal coverage interval with its 90% target."
 
 
@@ -101,7 +104,8 @@ def _status_tag(model_id: str, row: pd.Series | None, card: pd.Series | None) ->
         return tag
     if lab_view.is_baseline(model_id):
         return Tag("Reference", "mute", dense=True)
-    return Tag("Shadow" if str(row["promotion_state"]) == "shadow_only" else "Available", "warn" if str(row["promotion_state"]) == "shadow_only" else "ok", dense=True)
+    state = str(row["promotion_state"])
+    return Tag(_PROMOTION_LABELS.get(state, "Not yet proven"), _PROMOTION_TONES.get(state, "warn"), dense=True)
 
 
 def _net_cell(value: str, sub: str | None) -> ft.Control:
@@ -181,6 +185,13 @@ def _run_status(state: AppState) -> ft.Control:
     return common.text(text, 13, 400, theme.INK2, max_lines=2)
 
 
+def _promotion_tile(promotion: pd.DataFrame) -> tuple[str, str, str, str | None]:
+    if promotion.empty:
+        return ("Promotion", "Not evaluated", "execution off", "attention")
+    counting = int(promotion["state"].eq("counting").sum())
+    return ("Promotion", f"{counting} of {len(promotion)} counting", "automatic · execution off", None if counting else "attention")
+
+
 def _run_card(
     layout: common.GridLayout,
     page: object,
@@ -205,7 +216,7 @@ def _run_card(
             ("Forecast rows", None if forecast_rows is None else format_count(forecast_rows), f"Source: stored local forecast rows · {len(models)} model summary rows" if forecast_rows is not None else "Source: local forecast store · no rows are stored", None),
             ("Matured outcomes", None if matured is None else format_count(matured), f"Source: stored model outcome rows · {share}", None),
             ("Walk-forward splits", format_count(len(splits)) if report["status"] == "ok" else None, "Source: stored walk-forward splits · expanding folds" if report["status"] == "ok" else "Source: walk-forward evaluation · not enough forecast dates", None),
-            ("Promotion", "Shadow only", "execution off", "attention"),
+            _promotion_tile(report.get("promotion", pd.DataFrame())),
         )
     )
     run = _workflow_button(
@@ -263,7 +274,53 @@ def _comparison_card(layout: common.GridLayout, ids: list[str], models: pd.DataF
             spacing=12,
             width=width,
         )
-    return GlassCard("Model comparison", "descriptive metrics · no model is promoted", body=body, width=layout.span_width(8), height=layout.row_heights[0])
+    return GlassCard("Model comparison", "walk-forward metrics · promotion by evidence", body=body, width=layout.span_width(8), height=layout.row_heights[0])
+
+
+def _ratio(value: object, other: object, *, percent: bool = False) -> str:
+    if value is None or other is None or pd.isna(value) or pd.isna(other):
+        return "pending"
+    return f"{float(value) * 100:.1f}% vs {float(other) * 100:.1f}%" if percent else f"{float(value):.3f} vs {float(other):.3f}"
+
+
+def _leakage_text(row: pd.Series) -> str:
+    cutoff = str(row["pretraining_cutoff"])
+    window = (
+        f"after {row['evidence_after']}" if cutoff != "unknown" and row["evidence_after"] else
+        f"after first local run {row['evidence_after']}" if row["evidence_after"] else "no window yet"
+    )
+    cutoff_text = f"cutoff {cutoff}" if cutoff != "unknown" else "cutoff unknown"
+    return f"{cutoff_text}; counted origins {window}; {int(row['excluded_pre_cutoff'])} earlier excluded"
+
+
+def _promotion_card(layout: common.GridLayout, promotion: pd.DataFrame, names: dict[str, str]) -> ft.Control:
+    rows = []
+    for _, row in promotion.iterrows():
+        state = str(row["state"])
+        rows.append({
+            "model": names.get(str(row["model_name"]), str(row["model_name"])),
+            "state": Tag(_PROMOTION_LABELS.get(state, "Not yet proven"), _PROMOTION_TONES.get(state, "warn"), dense=True),
+            "evidence": f"{int(row['matured_forecasts'])} of {int(row['required_forecasts'])} matured · {int(row['forecast_origins'])} of {int(row['required_origins'])} dates",
+            "mase": _ratio(row["model_mase"], row["baseline_mase"]),
+            "direction": _ratio(row["model_directional"], row["baseline_directional"], percent=True),
+            "leakage": _leakage_text(row),
+            "reason": str(row["reason"]),
+        })
+    table = _table_or_empty(
+        [
+            TableColumn("model", "Model", flex=2), TableColumn("state", "Promotion", flex=2),
+            TableColumn("evidence", "Matured evidence", flex=3), TableColumn("mase", "MASE vs baseline", flex=2, numeric=True),
+            TableColumn("direction", "Direction vs baseline", flex=3, numeric=True), TableColumn("leakage", "Leakage flags", flex=4),
+            TableColumn("reason", "Why", flex=5),
+        ],
+        rows, "No optional models are registered.", key="forecast-lab.promotion", max_rows=6,
+    )
+    note = Note(
+        "A model counts in scores only after its matured out-of-sample forecasts beat the baseline on the same instruments and dates "
+        "(lower MASE, no lower direction accuracy, calibration not weak) with the minimum evidence shown. Origins before the "
+        "pretraining cutoff, or before an unpublished-cutoff model's first local run, never count."
+    )
+    return GlassCard("Promotion and leakage", "automatic · evidence-based · risk and data-quality gates still override", body=[table, note], width=layout.span_width(12))
 
 
 def _folds_card(layout: common.GridLayout, folds: lab_view.FoldBars) -> ft.Control:
@@ -373,7 +430,7 @@ def _governance_card(layout: common.GridLayout, state: AppState, report: dict, i
             ListRow("ok" if available else "bad", f"{_display_name(model_id, catalogue)}: {'Available' if available else 'Unavailable'}", reason, ("Available" if available else "Unavailable", "ok" if available else "bad"), last=index == len(ids) - 1, key=f"forecast-lab.model-status.{model_id}")
         )
     notes = [
-        Note("Promotion: shadow_only; execution_allowed=false"),
+        Note("Promotion is automatic and evidence-based (see Promotion and leakage); execution_allowed=false"),
         Note("Conformal intervals are diagnostic until minimum prior matured samples exist."),
         Note("Net value: forecast direction x matured adjusted return less the canonical round-trip cost; unavailable when a cost is unavailable."),
         Note("Resource use: duration measured for the displayed forecast run; not_recorded when no matching run measurement exists."),
@@ -406,13 +463,14 @@ def _cards_card(layout: common.GridLayout, catalogue: pd.DataFrame, models: pd.D
 
 def forecast_lab_page(page: ft.Page, state: AppState) -> PageView:
     """Render local forecast comparison and validation evidence (read-only; the run button uses the guarded workflow)."""
-    report = build_forecast_lab_workspace(state.snapshot.config, state.snapshot.forecasts, state.snapshot.prices)
+    history = load_forecast_history()
+    forecasts = forecast_lab_inputs(getattr(state.snapshot, "forecasts", pd.DataFrame()), history, state.snapshot.prices)
+    report = build_forecast_lab_workspace(state.snapshot.config, forecasts, state.snapshot.prices, forecast_history=history)
     models, catalogue = report["models"], report["model_catalogue"]
     layout = common.make_layout(page)
     ids = _model_ids(models, catalogue)
     names = {model_id: _display_name(model_id, catalogue) for model_id in ids}
     stored_ids = [str(name) for name in models["model_name"]] if not models.empty else []
-    forecasts = getattr(state.snapshot, "forecasts", pd.DataFrame())
     first_date = forecasts["forecast_date"].min() if hasattr(forecasts, "columns") and "forecast_date" in forecasts.columns and not forecasts.empty else None
     folds = lab_view.fold_bars(report["walk_forward_splits"], first_date)
     ui = {"model": "All models", "horizon": "1Y"}
@@ -471,6 +529,7 @@ def forecast_lab_page(page: ft.Page, state: AppState) -> PageView:
                 [(_folds_card(layout, folds), 6), (_error_card(layout, error, names), 6)],
             ],
             below=[
+                _promotion_card(layout, report["promotion"], names),
                 _runs_card(layout, report["runs"], report["walk_forward_evaluation"]),
                 _horizon_card(layout, models),
                 governance_feedback,
@@ -499,7 +558,7 @@ def forecast_lab_page(page: ft.Page, state: AppState) -> PageView:
         SegmentGroup("model", model_items, ui["model"], select_model),
         SegmentGroup("horizon", _HORIZONS, ui["horizon"], select_horizon),
     )
-    return common.page_view("Forecast Lab", "Forecast comparison and validation evidence · shadow only", holder, groups)
+    return common.page_view("Forecast Lab", "Forecast comparison, promotion and validation evidence", holder, groups)
 
 
 __all__ = ["forecast_lab_page"]
