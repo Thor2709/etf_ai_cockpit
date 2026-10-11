@@ -23,7 +23,7 @@ def prices():
 
 
 def test_toto2_local_loading_mask_and_shadow(monkeypatch, tmp_path):
-    import torch
+    torch = pytest.importorskip('torch')
     calls = {}
     class Model:
         @staticmethod
@@ -110,7 +110,10 @@ def test_toto2_loader_errors_do_not_retry_without_local_only(monkeypatch, tmp_pa
             calls.append(kwargs)
             raise TypeError('invalid checkpoint config')
     original = builtins.__import__
-    monkeypatch.setattr(builtins, '__import__', lambda name, *a, **kw: SimpleNamespace(Toto2Model=Loader) if name == 'toto2' else original(name, *a, **kw))
+    # A stand-in torch keeps this mock test independent of the optional torch install.
+    fake_torch = SimpleNamespace(device=lambda name: name, cuda=SimpleNamespace(is_available=lambda: False))
+    stand_ins = {'toto2': SimpleNamespace(Toto2Model=Loader), 'torch': fake_torch}
+    monkeypatch.setattr(builtins, '__import__', lambda name, *a, **kw: stand_ins[name] if name in stand_ins else original(name, *a, **kw))
     row = TotoAdapter(checkpoint(tmp_path)).forecast_etf('ETF', date(2025, 1, 1), [5], prices=prices())[0]
     assert row.status == 'failed' and row.expected_return is None
     assert len(calls) == 1 and calls[0]['local_files_only'] is True

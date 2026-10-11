@@ -119,7 +119,8 @@ def test_snapshot_retains_configured_manual_holdings_for_audit_export(monkeypatc
         universe=SimpleNamespace(
             enabled_ids=[],
             configured_enabled_ids=["MANUAL"],
-        )
+        ),
+        models=SimpleNamespace(shadow_optional_models=False),
     )
     holdings = pd.DataFrame([{"etf_id": "MANUAL", "current_weight": 0.35}])
 
