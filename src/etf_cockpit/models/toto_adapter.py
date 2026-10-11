@@ -41,7 +41,7 @@ class TotoAdapter:
         if not self.config.enabled or self.config.mode == "disabled":
             return "Toto is disabled."
         if self._checkpoint_reference() is None:
-            return f"Toto 2 checkpoint missing or incomplete at {self._local_model_path()}; config.json and safetensors weights are required."
+            return f"Toto 2 checkpoint missing or incomplete at {self.config.model_path}; config.json and safetensors weights are required."
         default = "Toto 2 runtime unavailable: toto2.Toto2Model is required (package toto-2)."
         try:
             module = __import__("toto.model.toto", fromlist=["Toto"])

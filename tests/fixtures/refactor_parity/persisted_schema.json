@@ -1156,7 +1156,7 @@
     ["calibration_label", "string"]
    ]
   },
-  "data/derived/run_manifests/backtest__s153d62356354.json": {
+  "data/derived/run_manifests/backtest__s2e451e324e57.json": {
    "kind": "json",
    "structure": {
     "dependencies": {
@@ -1209,7 +1209,7 @@
    ],
    "run_id_pattern": "backtest__s<12hex>"
   },
-  "data/derived/run_manifests/features_2026-09-30__s153d62356354.json": {
+  "data/derived/run_manifests/features_2026-09-30__s2e451e324e57.json": {
    "kind": "json",
    "structure": {
     "dependencies": {
@@ -1258,7 +1258,7 @@
    ],
    "run_id_pattern": "features_2026-09-30__s<12hex>"
   },
-  "data/derived/run_manifests/forecast_20260930__s153d62356354.json": {
+  "data/derived/run_manifests/forecast_20260930__s2e451e324e57.json": {
    "kind": "json",
    "structure": {
     "dependencies": {
@@ -2374,10 +2374,10 @@
      "max": null
     }
    },
-   "non_float_digest": "810844b0b58f1cf92d40bbb21c04aa31516cbfbc16a6ee9d25d8f6b244cdb57c",
+   "non_float_digest": "05096ce3c958cdcc288cb1b272c209eeda3d5237ab572c871a120fd541833a9a",
    "first_rows": [
     {
-     "run_id": "forecast_20260930__s153d62356354",
+     "run_id": "forecast_20260930__s2e451e324e57",
      "model_name": "baseline",
      "model_version": "momentum_shrunk_v1",
      "etf_id": "VWCE",
@@ -2403,7 +2403,7 @@
      "calibration_status": "not_evaluated"
     },
     {
-     "run_id": "forecast_20260930__s153d62356354",
+     "run_id": "forecast_20260930__s2e451e324e57",
      "model_name": "baseline",
      "model_version": "momentum_shrunk_v1",
      "etf_id": "VWCE",
@@ -2429,7 +2429,7 @@
      "calibration_status": "not_evaluated"
     },
     {
-     "run_id": "forecast_20260930__s153d62356354",
+     "run_id": "forecast_20260930__s2e451e324e57",
      "model_name": "baseline",
      "model_version": "momentum_shrunk_v1",
      "etf_id": "VWCE",
@@ -2457,7 +2457,7 @@
    ],
    "last_rows": [
     {
-     "run_id": "forecast_20260930__s153d62356354",
+     "run_id": "forecast_20260930__s2e451e324e57",
      "model_name": "toto",
      "model_version": "toto_2_0_optional",
      "etf_id": "SPOG",
@@ -2473,17 +2473,17 @@
      "prob_beat_benchmark": "<NaN>",
      "forecast_drawdown_prob": "<NaN>",
      "status": "unavailable",
-     "error_message": "Toto disabled or compatible package/checkpoint missing.",
+     "error_message": "Toto 2 checkpoint missing or incomplete at models/toto/Toto-2.0-1B; config.json and safetensors weights are required.",
      "model_allowed_in_score": false,
      "is_fallback": false,
      "fallback_model": "baseline",
-     "reason_unavailable": "Toto disabled or compatible package/checkpoint missing.",
+     "reason_unavailable": "Toto 2 checkpoint missing or incomplete at models/toto/Toto-2.0-1B; config.json and safetensors weights are required.",
      "oos_mase": "<NaN>",
      "oos_directional_accuracy": "<NaN>",
      "calibration_status": "unavailable"
     },
     {
-     "run_id": "forecast_20260930__s153d62356354",
+     "run_id": "forecast_20260930__s2e451e324e57",
      "model_name": "toto",
      "model_version": "toto_2_0_optional",
      "etf_id": "SPOG",
@@ -2499,17 +2499,17 @@
      "prob_beat_benchmark": "<NaN>",
      "forecast_drawdown_prob": "<NaN>",
      "status": "unavailable",
-     "error_message": "Toto disabled or compatible package/checkpoint missing.",
+     "error_message": "Toto 2 checkpoint missing or incomplete at models/toto/Toto-2.0-1B; config.json and safetensors weights are required.",
      "model_allowed_in_score": false,
      "is_fallback": false,
      "fallback_model": "baseline",
-     "reason_unavailable": "Toto disabled or compatible package/checkpoint missing.",
+     "reason_unavailable": "Toto 2 checkpoint missing or incomplete at models/toto/Toto-2.0-1B; config.json and safetensors weights are required.",
      "oos_mase": "<NaN>",
      "oos_directional_accuracy": "<NaN>",
      "calibration_status": "unavailable"
     },
     {
-     "run_id": "forecast_20260930__s153d62356354",
+     "run_id": "forecast_20260930__s2e451e324e57",
      "model_name": "toto",
      "model_version": "toto_2_0_optional",
      "etf_id": "SPOG",
@@ -2525,11 +2525,11 @@
      "prob_beat_benchmark": "<NaN>",
      "forecast_drawdown_prob": "<NaN>",
      "status": "unavailable",
-     "error_message": "Toto disabled or compatible package/checkpoint missing.",
+     "error_message": "Toto 2 checkpoint missing or incomplete at models/toto/Toto-2.0-1B; config.json and safetensors weights are required.",
      "model_allowed_in_score": false,
      "is_fallback": false,
      "fallback_model": "baseline",
-     "reason_unavailable": "Toto disabled or compatible package/checkpoint missing.",
+     "reason_unavailable": "Toto 2 checkpoint missing or incomplete at models/toto/Toto-2.0-1B; config.json and safetensors weights are required.",
      "oos_mase": "<NaN>",
      "oos_directional_accuracy": "<NaN>",
      "calibration_status": "unavailable"
