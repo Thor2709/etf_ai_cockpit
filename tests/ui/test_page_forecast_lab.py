@@ -53,7 +53,8 @@ def test_page_renders_cards_segments_and_run_key() -> None:
         assert title in titles
     assert [list(g.items)[:2] for g in result.chrome.segment_groups][0] == ["All models", "Baseline"]
     assert list(result.chrome.segment_groups[1].items) == ["1M", "3M", "1Y"]
-    assert "shadow_only" in all_text(result.body)
+    # Automatic promotion replaced the fixed shadow-only framing; toto has no matured post-run evidence here.
+    assert "Not yet proven" in all_text(result.body)
     result.chrome.segment_groups[0].on_change("Baseline")
     result.chrome.segment_groups[1].on_change("1M")
 

@@ -1,4 +1,6 @@
-# Owner opt-in (inference only; forecasts remain SHADOW): shadow_optional_models: true
+# Owner opt-in: shadow_optional_models: true runs the optional models (TimesFM 2.5/3.0,
+# Toto 2.0) in every forecast run of the refresh workflow. Whether their forecasts count in
+# scores is decided automatically by the `promotion` block below, never by this flag.
 # Optional model family: timesfm3 uses backend timesfm3 and local
 # model_path models/timesfm/timesfm-3.0-pytorch; enabled: true, mode: live,
 # device: auto, local_files_only: true, allow_remote_download: false.
@@ -39,6 +41,17 @@ models:
     decode_block_size: 768
   lightgbm:
     enabled: false
+# Automatic, evidence-based promotion. An optional model counts in scores only when its matured
+# out-of-sample forecasts beat the baseline (lower MASE, no lower direction accuracy, calibration
+# not weak) on the same instruments and dates. Origins on or before the pretraining cutoff
+# (TimesFM 3.0: 2023-11-30) or, for unknown cutoffs, on or before the model's first local run never
+# count. 100 matured pairs over 5 forecast dates is deliberately conservative: pairs from one date
+# share the market move, so the date minimum limits that clustering. enabled: false = diagnostic only.
+promotion:
+  enabled: true
+  minimum_matured_forecasts: 100
+  minimum_forecast_origins: 5
+  evidence_horizon_days: 60
 ensemble:
   weights:
     momentum: 0.20

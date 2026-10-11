@@ -670,6 +670,18 @@ def _actual_horizon_return(series: pd.Series, forecast_date: pd.Timestamp, horiz
     return float(np.log(target_price / start_price))
 
 
+def realised_horizon_return(series: pd.Series, forecast_date: pd.Timestamp, horizon_days: int) -> float | None:
+    """Public view of the matured log return used by calibration; None until the target session exists."""
+
+    return _actual_horizon_return(series, forecast_date, horizon_days)
+
+
+def calibration_grade(matured: int, mase: float | None, directional: float) -> str:
+    """Return the good/mixed/weak/limited grade the calibration table assigns to pooled evidence."""
+
+    return _calibration_score_and_label(matured, mase, directional)[1]
+
+
 def _mase_scale(series: pd.Series, horizon_days: int) -> float:
     clean = series.dropna().sort_index().astype(float)
     log_prices = np.log(clean.where(clean > 0))

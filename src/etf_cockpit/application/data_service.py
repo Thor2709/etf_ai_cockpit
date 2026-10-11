@@ -360,6 +360,7 @@ class DataService:
                     publish_guard=publish_guard,
                     cache_request_identity=request_identity,
                     live_optional_models=live_optional_models,
+                    promotion_prices=prices,
                 )
                 universe_summary = _forecast_status_summary(universe_forecasts)
                 universe_mode = "refreshed"
@@ -377,6 +378,7 @@ class DataService:
                 publish_guard=publish_guard,
                 cache_request_identity=request_identity,
                 live_optional_models=live_optional_models,
+                promotion_prices=prices,
             )
             universe_summary = _forecast_status_summary(universe_forecasts)
             universe_mode = "refreshed"
@@ -454,6 +456,7 @@ class DataService:
                         publish_guard=publish_guard,
                         cache_request_identity=request_identity,
                         live_optional_models=live_optional_models,
+                        promotion_prices=prices,
                     )
                     candidate_summary = _forecast_status_summary(candidate_forecasts)
                     candidate_as_of = candidate_data.effective_as_of
@@ -478,6 +481,7 @@ class DataService:
                     publish_guard=publish_guard,
                     cache_request_identity=request_identity,
                     live_optional_models=live_optional_models,
+                    promotion_prices=prices,
                 )
                 candidate_summary = _forecast_status_summary(candidate_forecasts)
                 candidate_as_of = candidate_data.effective_as_of

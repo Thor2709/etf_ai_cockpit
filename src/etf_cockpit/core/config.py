@@ -214,8 +214,22 @@ class ModelMonitoringSettings(BaseModel):
     alert_threshold: float = Field(default=1.0, gt=0)
 
 
+class ModelPromotionSettings(BaseModel):
+    """Evidence an optional model needs before its forecasts count in scores.
+
+    100 matured pairs across 5 forecast dates is conservative: pairs from one
+    date share the market move, so the date count limits that clustering.
+    ``enabled=false`` returns every optional model to diagnostic-only output.
+    """
+
+    enabled: bool = True
+    minimum_matured_forecasts: int = Field(default=100, ge=2)
+    minimum_forecast_origins: int = Field(default=5, ge=1)
+    evidence_horizon_days: int = Field(default=60, ge=1)
+
+
 class ModelSettings(BaseModel):
-    # Owner opt-in controls inference only; optional output remains SHADOW.
+    # Owner opt-in runs optional models in the refresh workflow; promotion decides whether they count.
     shadow_optional_models: bool = False
     forecast_horizons_trading_days: list[int] = Field(default_factory=lambda: [5, 20, 60, 120, 180])
     models: dict[str, Any] = Field(default_factory=dict)
@@ -223,6 +237,7 @@ class ModelSettings(BaseModel):
     forecast_uncertainty: ForecastUncertaintySettings = Field(default_factory=ForecastUncertaintySettings)
     calibration: ForecastCalibrationSettings = Field(default_factory=ForecastCalibrationSettings)
     monitoring: ModelMonitoringSettings = Field(default_factory=ModelMonitoringSettings)
+    promotion: ModelPromotionSettings = Field(default_factory=ModelPromotionSettings)
 
     def runtime(self, name: str) -> ModelRuntimeConfig:
         raw = self.models.get(name, {})
