@@ -158,6 +158,33 @@ def quality_momentum_evidence_checksum(evidence: pd.DataFrame | bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+MIN_INSTRUMENT_HISTORY_SESSIONS = 260
+
+
+def _exclude_late_listed_short_history(pivot: pd.DataFrame, columns: list[str]) -> tuple[list[str], tuple[str, ...]]:
+    """Leave out instruments that started trading late and lack one year of sessions.
+
+    Only late listings are dropped: an instrument whose history starts with the
+    window but stops early (for example a delisting) stays in, so the complete-
+    session rule still fails closed instead of hiding survivorship gaps.
+    """
+    if not columns:
+        return columns, ()
+    observed = pivot[columns].notna()
+    counts = observed.sum()
+    first_seen = observed.idxmax()
+    window_start = first_seen.min()
+    short = [
+        column
+        for column in columns
+        if int(counts[column]) < MIN_INSTRUMENT_HISTORY_SESSIONS and first_seen[column] > window_start
+    ]
+    if len(short) == len(columns):
+        return columns, ()
+    kept = [column for column in columns if column not in short]
+    return kept, tuple(short)
+
+
 def _price_pivot(prices: pd.DataFrame) -> pd.DataFrame:
     if not isinstance(prices, pd.DataFrame) or prices.empty:
         raise BacktestDataUnavailableError("not_enough_data: no price rows were supplied")
@@ -1091,6 +1118,7 @@ def run_backtest(
     columns = [column for column in config.universe.enabled_ids if column in pivot_raw.columns]
     if not columns:
         raise BacktestDataUnavailableError("not_enough_data: no configured instruments have adjusted-close history")
+    columns, short_history_ids = _exclude_late_listed_short_history(pivot_raw, columns)
     selected_raw = pivot_raw.reindex(columns=columns)
     column_set = set(columns)
     complete_mask = selected_raw.notna().all(axis=1)
@@ -1159,6 +1187,13 @@ def run_backtest(
     }
     if missing_observation_rows:
         metadata["data_warning"] = "Incomplete adjusted-price rows were excluded; no forward-fill was applied."
+    metadata["excluded_short_history_instruments"] = list(short_history_ids)
+    if short_history_ids:
+        metadata["data_status"] = "warning"
+        metadata["short_history_warning"] = (
+            f"{len(short_history_ids)} instrument(s) listed later with fewer than {MIN_INSTRUMENT_HISTORY_SESSIONS} "
+            "adjusted-price sessions were left out of this backtest: " + ", ".join(short_history_ids)
+        )
     # The first complete price row is a zero-return warm-up placeholder; it is never traded, and pre-listing rows were excluded above.
     # Holdings accounting aggregates SIMPLE returns across instruments (log returns do not add across assets).
     simple_returns = (pivot / pivot.shift(1) - 1.0).fillna(0.0)

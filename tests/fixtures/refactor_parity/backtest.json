@@ -1194,6 +1194,7 @@
   "quality_momentum_strategy_version": "quality_momentum.v1",
   "quality_momentum_evidence": "unavailable",
   "input_checksum": "<sha256>",
+  "excluded_short_history_instruments": [],
   "walk_forward_periods": 32,
   "strategies": ["buy_and_hold", "equal_weight", "momentum_only", "trend_only", "quality_only", "quality_momentum", "signal_strategy"],
   "same_bar_execution_count": 0,

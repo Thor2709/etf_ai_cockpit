@@ -117,6 +117,10 @@
     "data_status": "str",
     "date_range_end": "str",
     "date_range_start": "str",
+    "excluded_short_history_instruments": {
+     "list_length": 0,
+     "item": null
+    },
     "execution_delay_sessions": "int",
     "forward_fill_used": "bool",
     "input_checksum": "str",
