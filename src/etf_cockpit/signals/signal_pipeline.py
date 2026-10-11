@@ -207,7 +207,8 @@ def generate_signals(
             warnings = list(dict.fromkeys([*warnings, "nonfinite_score_narrative_suppressed"]))
         explanation_row = row.copy()
         explanation_row["total_score"] = total_score
-        explanation_row["confidence"] = action_confidence * structure_cap
+        # The explanation states the same rounded confidence that is published below.
+        explanation_row["confidence"] = round(action_confidence * structure_cap, 4)
         reason_short, reason_long = explain_signal(explanation_row, final_action, blocked_by)
         if calibration_reason is not None:
             reason_short = f"{reason_short}; forecast calibration reduced authority"

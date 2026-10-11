@@ -33,7 +33,7 @@ from etf_cockpit.data.validation import validate_prices
 from etf_cockpit.data.price_quarantine import quarantine_invalid_ohlc
 from etf_cockpit.core.types import DataQualityIssue
 from etf_cockpit.data.yfinance_provider import YFinanceProvider
-from etf_cockpit.data.etf_structure import LocalStructuralEvidence, load_local_structural_evidence, structure_confidence_caps
+from etf_cockpit.data.etf_structure import LocalStructuralEvidence, load_local_structural_evidence, structure_cap_scope, structure_confidence_caps
 from etf_cockpit.data.fund_documents import read_document_registry
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
 from etf_cockpit.data.parsed_disclosures import read_etf_report_records
@@ -114,6 +114,7 @@ def main() -> int:
     structure_reports = structure_evidence.report_records
     structure_supplemental_rows = structure_evidence.supplemental_rows
     structure_holdings = structure_evidence.holdings
+    scope = structure_cap_scope(config)
     try:
         structure_caps = structure_confidence_caps(
             config.universe.enabled_ids,
@@ -122,9 +123,14 @@ def main() -> int:
             supplemental_rows=structure_supplemental_rows,
             holdings=structure_holdings,
             decision_time=effective_as_of,
+            **({"not_applicable_types": scope} if scope else {}),
         )
     except (OSError, TypeError, ValueError):
-        structure_caps = {str(instrument_id): 0.0 for instrument_id in config.universe.enabled_ids}
+        structure_caps = structure_confidence_caps(
+            config.universe.enabled_ids,
+            decision_time=effective_as_of,
+            not_applicable_types=scope,
+        )
     data_report = validation
     if target_policy_issues(config):
         data_report = data_report.__class__(

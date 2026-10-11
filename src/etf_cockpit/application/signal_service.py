@@ -139,7 +139,7 @@ class SignalService:
             if price_binding is not None
             else pd.DataFrame()
         )
-        structure_caps = _load_structure_caps(self.config.universe.enabled_ids, effective_date)
+        structure_caps = _load_structure_caps(self.config.universe.enabled_ids, effective_date, config=self.config)
         signals = generate_signals(
             self.config,
             latest,

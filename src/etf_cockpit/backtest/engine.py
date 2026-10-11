@@ -32,7 +32,7 @@ from etf_cockpit.data.market_calendar import (
     MarketCalendarService,
     MarketClockError,
 )
-from etf_cockpit.data.etf_structure import structure_confidence_caps, structure_input_checksum
+from etf_cockpit.data.etf_structure import structure_cap_scope, structure_confidence_caps, structure_input_checksum
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
 from etf_cockpit.portfolio.costs import COST_MODEL_ID, CostEstimate, estimate_rebalance_cost
 from etf_cockpit.portfolio.benchmark_reference_contract import (
@@ -1429,6 +1429,7 @@ def run_backtest(
                 supplemental_rows=structure_supplemental_rows,
                 holdings=structure_holdings,
                 decision_time=dt.date(),
+                not_applicable_types=structure_cap_scope(config),
             )
             signals = generate_signals(
                 config,
