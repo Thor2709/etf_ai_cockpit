@@ -544,15 +544,15 @@ etfs:
     isin: NO0006000900
     ticker: SBNOR.OL
     provider_symbol: SBNOR.OL
-    exchange: unverified
+    exchange: OSE
     currency: NOK
     asset_class: equity
-    instrument_type: stock
-    analysis_tier: secondary
+    instrument_type: equity_certificate
+    analysis_tier: sparebanken
     data_policy: yfinance_only
-    region: Europe
+    region: Norway
     sector: Banks
-    theme: Nordic financials
+    theme: Norwegian savings-bank equity certificates
     role: watchlist
     isin_status: verified
     enabled: true
