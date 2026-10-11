@@ -73,7 +73,6 @@ SECONDARY_IDS = {
     "RR",
     "SAAB_B",
     "SPCX",
-    "SBNOR",
     "HO",
     "TKA",
     "TKMS",
@@ -92,6 +91,7 @@ SECONDARY_IDS = {
 SPAREBANKEN_IDS = {
     "AURG",
     "HELG",
+    "SBNOR",
     "HSPG",
     "SOGN",
     "JAEREN",
