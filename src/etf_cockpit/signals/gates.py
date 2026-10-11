@@ -8,6 +8,12 @@ from etf_cockpit.core.values import finite_float_or_none as _finite_float
 from etf_cockpit.portfolio.risk import projected_weight_allowed
 
 
+# Owner decision 2026-10-11: these block codes describe one instrument's own
+# evidence and block only that instrument (via its own issue code below). Every
+# other block, including unknown future codes, still blocks the whole portfolio.
+INSTRUMENT_SCOPED_BLOCK_CODES = frozenset({"insufficient_history"})
+
+
 def evaluate_risk_gates(
     config: AppConfig,
     row: pd.Series,
@@ -22,7 +28,10 @@ def evaluate_risk_gates(
     blocked: list[str] = []
     warnings: list[str] = []
 
-    if not data_report.analysis_allowed:
+    if any(
+        issue.severity == "block" and issue.code not in INSTRUMENT_SCOPED_BLOCK_CODES
+        for issue in data_report.issues
+    ):
         blocked.append("portfolio_validation_block")
 
     for issue in data_report.issues:

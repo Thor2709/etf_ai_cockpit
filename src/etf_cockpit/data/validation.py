@@ -194,7 +194,8 @@ def validate_holdings(
     if holdings.empty:
         return DataQualityReport(
             as_of_date=as_of_date or date.today(),
-            issues=[DataQualityIssue("ALL", "block", "empty_holdings", "No portfolio holdings rows are available.")],
+            # Owner decision 2026-10-11: no holdings is a valid watchlist-only state, not a block.
+            issues=[DataQualityIssue("ALL", "warning", "empty_holdings", "No portfolio holdings yet; watchlist mode.")],
         )
 
     missing = REQUIRED_HOLDINGS_COLUMNS - set(holdings.columns)
