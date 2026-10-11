@@ -13,7 +13,6 @@ import etf_cockpit.data.universe_store as universe_store
 
 from etf_cockpit.data.universe_store import (
     CURRENT_INVESTABILITY_POLICY_VERSION,
-    SPAREBANKEN_ROWS,
     InvestabilityPolicyProfile,
     UniverseRecord,
     UniverseRevisionConflict,
@@ -25,6 +24,7 @@ from etf_cockpit.data.universe_store import (
     export_compatibility,
     import_legacy_universe,
     load_universe,
+    load_sparebank_records,
     migrate_legacy_universe,
     remove_record,
     save_universe,
@@ -368,12 +368,12 @@ def test_legacy_import_keeps_sparebanken_rows_and_unknown_isin_states(tmp_path: 
     candidate.write_text("name,symbol,yahoo_symbol,isin,analysis_tier,asset_type\nAurskog Sparebank,AURG,AURG.OL,needs_verification,sparebanken,equity_certificate\n", encoding="utf-8")
     result = import_legacy_universe(primary, candidate)
     rows = tuple(result.records)
-    assert len([row for row in rows if row.tier == "sparebanken"]) == 15
+    assert len([row for row in rows if row.tier == "sparebanken"]) == 1
     assert any(row.ticker == "AURG.OL" and row.isin_status == "needs_verification" for row in rows)
     assert any(row.instrument_id == "CORE" for row in rows)
 
 
-def test_primary_sparebanken_identity_is_replaced_by_authoritative_fallback(tmp_path: Path) -> None:
+def test_primary_universe_identity_is_not_replaced_by_a_hardcoded_fallback(tmp_path: Path) -> None:
     primary = tmp_path / "universe.yaml"
     primary.write_text(
         "etfs:\n  - id: NONG\n    name: Wrong primary\n    ticker: NONG.OL\n    isin: NO0006000801\n    analysis_tier: primary\n",
@@ -382,12 +382,11 @@ def test_primary_sparebanken_identity_is_replaced_by_authoritative_fallback(tmp_
     result = import_legacy_universe(primary)
     nong = [row for row in result.records if row.instrument_id.casefold() == "nong"]
     assert len(nong) == 1
-    assert nong[0].tier == "sparebanken"
-    assert nong[0].name == "SpareBank 1 Nord-Norge"
-    assert sum(row.tier == "sparebanken" for row in result.records) == 15
+    assert nong[0].tier == "primary"
+    assert nong[0].name == "Wrong primary"
 
 
-def test_secondary_nong_is_replaced_by_authoritative_sparebanken_fallback(tmp_path: Path) -> None:
+def test_candidate_rows_are_not_overridden_by_a_hardcoded_sparebank_fallback(tmp_path: Path) -> None:
     primary = tmp_path / "universe.yaml"
     primary.write_text("etfs:\n", encoding="utf-8")
     candidate = tmp_path / "candidates.csv"
@@ -399,9 +398,8 @@ def test_secondary_nong_is_replaced_by_authoritative_sparebanken_fallback(tmp_pa
     result = import_legacy_universe(primary, candidate)
     nong = [row for row in result.records if row.instrument_id.casefold() == "nong"]
     assert len(nong) == 1
-    assert nong[0].tier == "sparebanken"
-    assert nong[0].name == "SpareBank 1 Nord-Norge"
-    assert sum(row.tier == "sparebanken" for row in result.records) == 15
+    assert nong[0].tier == "secondary"
+    assert nong[0].name == "Wrong secondary"
 
 
 def test_sparebanken_yaml_and_legacy_import_paths_have_identical_identity(tmp_path: Path) -> None:
@@ -419,8 +417,9 @@ def test_sparebanken_yaml_and_legacy_import_paths_have_identical_identity(tmp_pa
     with_candidates = _load_universe_config(config_dir)
 
     expected = {
-        instrument_id: (name, ticker, None if _isin == "needs_verification" else _isin)
-        for name, instrument_id, ticker, _isin in SPAREBANKEN_ROWS
+        record.id: (record.name, record.ticker, record.isin)
+        for record in without_candidates.etfs
+        if record.analysis_tier == "sparebanken"
     }
     for config in (without_candidates, with_candidates):
         actual = {
@@ -438,6 +437,33 @@ def test_sparebanken_yaml_and_legacy_import_paths_have_identical_identity(tmp_pa
         for record in with_candidates.etfs
         if record.id in expected
     }
+
+
+def test_sparebank_records_are_read_from_universe_data_with_optional_lei(tmp_path: Path) -> None:
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    (config_dir / "universe.yaml").write_text(
+        "etfs:\n"
+        "  - id: SYNTHETIC-EC\n"
+        "    name: Synthetic Sparebank\n"
+        "    isin: NO0000000001\n"
+        "    ticker: SYNTHETIC.OL\n"
+        "    lei: SYNTHETICLEI00000001\n"
+        "    instrument_type: equity_certificate\n"
+        "    analysis_tier: sparebanken\n"
+        "    region: Norway\n"
+        "    sector: Banks\n"
+        "    enabled: true\n",
+        encoding="utf-8",
+    )
+
+    records = load_sparebank_records(tmp_path)
+
+    assert len(records) == 1
+    assert records[0].instrument_id == "SYNTHETIC-EC"
+    assert records[0].ticker == "SYNTHETIC.OL"
+    assert records[0].isin == "NO0000000001"
+    assert records[0].lei == "SYNTHETICLEI00000001"
 
 
 def test_leveraged_inverse_state_round_trips_and_is_not_score_eligible(tmp_path: Path) -> None:

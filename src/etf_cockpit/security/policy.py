@@ -14,12 +14,11 @@ from urllib.parse import urlparse
 import yaml
 
 from etf_cockpit.core.paths import CONFIG_DIR, ROOT
-from etf_cockpit.core.session_log import redact_text
+from etf_cockpit.core.session_log import SECRET_KEY_RE, redact_text
 
 
 POLICY_SCHEMA_VERSION = "security-policy.v1"
 POLICY_PATH = CONFIG_DIR / "security_policy.yaml"
-_SECRET_KEY_WORDS = frozenset({"api_key", "apikey", "authorization", "bearer", "password", "passwd", "secret", "token"})
 _REDACTED = "***redacted***"
 _ACTIVE_FINDING_STATUSES = frozenset({"active", "new", "open", "unresolved"})
 
@@ -83,18 +82,25 @@ def load_security_policy(path: Path = POLICY_PATH) -> SecurityPolicy:
         raise SecurityPolicyError("at least one blocking security severity is required")
     return SecurityPolicy(
         schema_version=POLICY_SCHEMA_VERSION,
-        default_deny=bool(network.get("default_deny")),
+        default_deny=_strict_bool(network, "default_deny"),
         allowed_schemes=schemes,
         local_ui_host=local_host,
-        http_api_exposed=bool(network.get("http_api_exposed")),
-        require_authentication_if_exposed=bool(network.get("require_authentication_if_exposed")),
-        require_csrf_if_exposed=bool(network.get("require_csrf_if_exposed")),
+        http_api_exposed=_strict_bool(network, "http_api_exposed"),
+        require_authentication_if_exposed=_strict_bool(network, "require_authentication_if_exposed"),
+        require_csrf_if_exposed=_strict_bool(network, "require_csrf_if_exposed"),
         parser_limits=parser_limits,
         persistent_storage=str(credentials.get("persistent_storage", "")),
-        export_allowed=bool(credentials.get("export_allowed")),
-        log_allowed=bool(credentials.get("log_allowed")),
+        export_allowed=_strict_bool(credentials, "export_allowed"),
+        log_allowed=_strict_bool(credentials, "log_allowed"),
         blocking_severities=blocking,
     )
+
+
+def _strict_bool(section: Mapping[str, Any], key: str) -> bool:
+    value = section.get(key)
+    if not isinstance(value, bool):
+        raise SecurityPolicyError(f"security policy flag {key!r} must be a boolean")
+    return value
 
 
 def redact_secrets(value: Any) -> Any:
@@ -104,8 +110,7 @@ def redact_secrets(value: Any) -> Any:
         result: dict[str, Any] = {}
         for key, item in value.items():
             key_text = str(key)
-            normalised = key_text.casefold().replace("-", "_").replace(" ", "_")
-            result[key_text] = _REDACTED if normalised in _SECRET_KEY_WORDS else redact_secrets(item)
+            result[key_text] = _REDACTED if SECRET_KEY_RE.search(key_text) else redact_secrets(item)
         return result
     if isinstance(value, list):
         return [redact_secrets(item) for item in value]
@@ -212,6 +217,10 @@ def build_security_report(root: Path = ROOT, *, findings: list[Mapping[str, Any]
         policy = load_security_policy(root / "configs" / "security_policy.yaml")
     except SecurityPolicyError as exc:
         return {"schema_version": POLICY_SCHEMA_VERSION, "status": "failed", "failures": [str(exc)], "network_calls": False}
+    if not policy.default_deny:
+        failures.append("default_deny must be enabled")
+    if policy.http_api_exposed and not (policy.require_authentication_if_exposed and policy.require_csrf_if_exposed):
+        failures.append("an exposed HTTP API requires authentication and CSRF protection")
     plugin_path = root / "configs" / "plugin_registry.yaml"
     try:
         plugin_payload = yaml.safe_load(plugin_path.read_text(encoding="utf-8"))

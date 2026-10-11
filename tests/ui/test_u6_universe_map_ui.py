@@ -14,8 +14,11 @@ def _walk(control):
     if control is None:
         return
     yield control
+    body = getattr(control, "body", None)
+    if body is not None:
+        yield from _walk(body)
     content = getattr(control, "content", None)
-    if content is not None:
+    if content is not None and content is not body:
         yield from _walk(content)
     for child in getattr(control, "controls", ()) or ():
         yield from _walk(child)
@@ -50,7 +53,7 @@ def test_catalogue_unreadable_state_is_honest(monkeypatch) -> None:
     monkeypatch.setattr(catalogue, "DataCatalogue", broken)
     page = catalogue.catalogue_page(None, SimpleNamespace(selected_etf=""))
     texts = _texts(page)
-    assert texts.count(UNAVAILABLE) == 3
+    assert texts.count(UNAVAILABLE) == 4
     assert "Manual review required" in texts
     assert any("Execution allowed: false" in item for item in texts)
     assert {"catalogue.status-tag", "catalogue.kpi.0", "catalogue.status"} <= set(_keys(page))

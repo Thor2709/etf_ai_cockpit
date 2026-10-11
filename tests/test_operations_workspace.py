@@ -163,9 +163,8 @@ def test_operations_explicit_policy_disables_confirmation_on_missing_calendar(tm
     state.application_api = type(state.application_api)(lambda: state.snapshot, root=tmp_path)
     rendered = module.operations_page(None, state)
     controls = {getattr(item, "key", None): item for item in _walk(rendered)}
-    assert controls["operations.event-policy"].value is False
-    controls["operations.event-policy"].value = True
-    controls["operations.event-policy"].on_change(None)
+    assert controls["operations.event-policy"].data["on"] is False
+    controls["operations.event-policy"].on_click(None)
     controls["operations.preview"].on_click(None)
     assert controls["operations.confirm"].disabled
     controls["operations.confirm"].on_click(None)
@@ -190,6 +189,7 @@ def test_operations_workspace_exposes_paper_live_training_and_audit_states() -> 
     assert any(getattr(item, "key", None) == "operations.confirm" for item in _walk(rendered))
     assert any(getattr(item, "key", None) == "operations.cancel" for item in _walk(rendered))
     assert any(getattr(item, "key", None) == "operations.proposal-review" for item in _walk(rendered))
+    rendered.chrome.segment_groups[0].on_change("Paper ledger")
     assert any(getattr(item, "key", None) == "operations.paper-open" for item in _walk(rendered))
     assert any(getattr(item, "key", None) == "operations.paper-auto" for item in _walk(rendered))
     assert any(getattr(item, "key", None) == "operations.paper-defer" for item in _walk(rendered))
@@ -226,6 +226,10 @@ def test_operations_workspace_can_open_local_paper_account(tmp_path: Path) -> No
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     state.application_api = type(state.application_api)(lambda: state.snapshot, root=tmp_path)
     rendered = operations_page(None, state)
+    rendered.chrome.segment_groups[0].on_change("Paper ledger")
+    controls = {getattr(item, "key", None): item for item in _walk(rendered)}
+    controls["operations.paper-account-id"].value = "local-paper"
+    controls["operations.paper-opening-cash"].value = "100000"
     open_button = next(item for item in _walk(rendered) if getattr(item, "key", None) == "operations.paper-open")
 
     open_button.on_click(None)
@@ -233,6 +237,13 @@ def test_operations_workspace_can_open_local_paper_account(tmp_path: Path) -> No
     assert "Paper account: ready" in text
     assert "execution_allowed=false" in text
 
+    import hashlib
+    price = snapshot.prices.loc[snapshot.prices["etf_id"].eq(state.selected_etf)].sort_values("date").iloc[-1]
+    controls["operations.paper-mark-instrument"].value = state.selected_etf
+    controls["operations.paper-adjusted-close"].value = str(price["adjusted_close"])
+    controls["operations.paper-mark-as-of"].value = str(price["date"])
+    controls["operations.paper-mark-authority"].value = "local_manual_adjusted_close"
+    controls["operations.paper-mark-checksum"].value = hashlib.sha256(price.to_json().encode()).hexdigest()
     mark_button = next(item for item in _walk(rendered) if getattr(item, "key", None) == "operations.paper-mark")
     mark_button.on_click(None)
     assert "Adjusted-close mark recorded" in _text(rendered)

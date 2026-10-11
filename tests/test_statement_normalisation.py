@@ -175,4 +175,5 @@ def test_fundamentals_surface_exposes_reported_and_restated_statement_history() 
     from etf_cockpit.application.instrument_detail_view import _fundamentals_panel
 
     assert "statement_history" in inspect.getsource(_fundamentals_panel)
-    assert "statement_history" in inspect.getsource(_render_evidence_section)
+    panel = _render_evidence_section("Fundamentals", {"statement_history": [{"status": "restated"}]})
+    assert "statement_history" in repr(panel) and "restated" in repr(panel)

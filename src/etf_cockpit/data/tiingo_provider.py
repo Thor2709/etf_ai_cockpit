@@ -17,6 +17,7 @@ import pandas as pd
 import requests
 
 from etf_cockpit.core.config import ProviderSection
+from etf_cockpit.core.values import years_before
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority, redact_text
 from etf_cockpit.data.ohlcv_discrepancy import normalise_ohlcv
 from etf_cockpit.data.provenance import metadata_from_frame
@@ -277,7 +278,7 @@ class TiingoProvider(DataProvider, PriceProvider):
         if not clean:
             return False
         end = date.today()
-        start = end.replace(year=end.year - 1)
+        start = years_before(end, 1)
         try:
             return not self.fetch_daily_prices(clean, start, end).empty
         except Exception:

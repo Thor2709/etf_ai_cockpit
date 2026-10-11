@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -58,6 +58,8 @@ def normalise_statement_facts(records: Iterable[object] | pd.DataFrame) -> pd.Da
         "fiscal_year": None,
         "fiscal_period": None,
         "source_id": "",
+        "context_id": None,
+        "sha256": None,
         "canonical_metric": None,
         "dimensions": "",
         "currency": None,
@@ -108,8 +110,16 @@ def statement_view(
     if view == "as_known_at":
         if as_known_at is None:
             raise ValueError("as_known_at requires a date or ISO timestamp")
-        cutoff = _date_text(as_known_at)
-        available = frame[frame["known_at"].map(lambda value: bool(_text(value))) & (frame["known_at"].astype(str) <= cutoff)].copy()
+        cutoff = pd.to_datetime(as_known_at, errors="coerce", utc=True)
+        if pd.isna(cutoff):
+            raise ValueError("as_known_at requires a valid date or ISO timestamp")
+        date_only = (isinstance(as_known_at, date) and not isinstance(as_known_at, datetime)) or (
+            isinstance(as_known_at, str) and len(as_known_at.strip()) == 10
+        )
+        if date_only:
+            cutoff += pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+        known_at = pd.to_datetime(frame["known_at"], errors="coerce", utc=True)
+        available = frame[known_at.notna() & known_at.le(cutoff)].copy()
         return _latest_per_period(available)
     if view == "latest_restated":
         return _latest_per_period(frame)
@@ -228,7 +238,19 @@ def _object_dict(item: object) -> dict[str, object]:
     return {key: getattr(item, key) for key in dir(item) if not key.startswith("_") and not callable(getattr(item, key))}
 
 
+_EMPTY_FRAME_TEMPLATE: pd.DataFrame | None = None
+
+
 def _empty_frame() -> pd.DataFrame:
+    """A fresh empty statement frame (the schema is built once; each caller gets its own copy)."""
+
+    global _EMPTY_FRAME_TEMPLATE
+    if _EMPTY_FRAME_TEMPLATE is None:
+        _EMPTY_FRAME_TEMPLATE = _build_empty_frame()
+    return _EMPTY_FRAME_TEMPLATE.copy()
+
+
+def _build_empty_frame() -> pd.DataFrame:
     return pd.DataFrame(
         columns=[
             "instrument_id",
@@ -245,6 +267,8 @@ def _empty_frame() -> pd.DataFrame:
             "fiscal_year",
             "fiscal_period",
             "source_id",
+            "context_id",
+            "sha256",
             "dimensions",
             "currency",
             "period_type",

@@ -14,6 +14,7 @@ from etf_cockpit.app.router import PAGES
 from etf_cockpit.app.state import AppState
 from etf_cockpit.app.workspaces import load_workspace, save_workspace
 from etf_cockpit.application.snapshot_builder import build_snapshot
+from etf_cockpit.core.paths import safe_file_stem
 
 
 _SNAPSHOT_TEMPLATE = None
@@ -110,7 +111,8 @@ def test_formatting_is_explicit_and_uses_european_currency_labels() -> None:
 
 def test_saved_workspace_is_local_versioned_and_reproducible(tmp_path: Path) -> None:
     path = save_workspace("latest comparison", {"instrument_ids": ["VWCE", "SPY"]}, directory=tmp_path)
-    assert path.name == "latest_comparison.json"
+    assert path.name == f"{safe_file_stem('latest comparison')}.json"
+    assert path.name.startswith("latest_comparison-")  # a cleaned name carries a hash so colliding names get separate files
     payload = load_workspace("latest comparison", directory=tmp_path)
     assert payload == {"execution_allowed": False, "instrument_ids": ["VWCE", "SPY"], "schema_version": "1.0"}
     assert json.loads(path.read_text(encoding="utf-8"))["execution_allowed"] is False
@@ -121,7 +123,10 @@ def test_comparison_workspace_is_registered_and_has_explicit_authority_text() ->
     snapshot = _snapshot_copy()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     rendered = comparison_page(None, state)
-    text = _text(rendered)
+    text = _text(rendered.body)
     assert "Comparison workspace" in text or "Comparison unavailable" in text
-    assert "disabled" in text
-    assert "local" in text.casefold()
+    # the redesigned table shows execution authority as the "None" tag (spec 6.5) instead of the word "disabled"
+    assert "Execution authority" in text and "None" in text
+    # the redesigned card keeps the locality statement as the Export CSV tooltip (spec 6.5)
+    tooltips = " ".join(str(getattr(item, "tooltip", "") or "") for item in _walk(rendered.body))
+    assert "local file only" in tooltips

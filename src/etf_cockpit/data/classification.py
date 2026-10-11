@@ -1063,7 +1063,7 @@ def _canonical_instrument_type(value: str | None) -> str | None:
 
 def _canonical_instrument_subtype(value: str | None) -> str | None:
     normalized = str(value or "").strip().casefold().replace("-", "_").replace(" ", "_")
-    if normalized in {"equity_certificate", "certificate", "ec"}:
+    if normalized in {"equity_certificate", "ec"}:
         return "equity_certificate"
     return "ordinary_share" if normalized == "ordinary_share" else None
 

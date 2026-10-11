@@ -8,6 +8,8 @@ from dataclasses import asdict
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+from run_pipeline_cli import run_cli
+
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,12 +19,14 @@ if str(SRC) not in sys.path:
 
 # The script adds the local source tree before its application imports.
 # ruff: noqa: E402
-from etf_cockpit.backtest.engine import run_backtest
+from etf_cockpit.backtest.engine import BacktestDataUnavailableError, run_backtest
 from etf_cockpit.core.config import load_config
-from etf_cockpit.core.paths import FORECASTS_DIR, REPORTS_DIR
+from etf_cockpit.core.paths import FORECASTS_DIR, REPORTS_DIR, ROOT as DATA_ROOT
 from etf_cockpit.data.import_pipeline import commit_price_import
 from etf_cockpit.data.reference_data import commit_reference_import
 from etf_cockpit.data.validation import validate_prices
+from etf_cockpit.data.price_quarantine import quarantine_invalid_ohlc
+from etf_cockpit.core.types import DataQualityIssue
 from etf_cockpit.data.yfinance_provider import YFinanceProvider
 from etf_cockpit.data.etf_structure import LocalStructuralEvidence, load_local_structural_evidence, structure_confidence_caps
 from etf_cockpit.data.fund_documents import read_document_registry
@@ -33,6 +37,7 @@ from etf_cockpit.features.feature_pipeline import compute_features, latest_featu
 from etf_cockpit.models.forecast_scores import forecast_component_maps
 from etf_cockpit.models.registry import model_availability
 from etf_cockpit.portfolio.risk import target_policy_issues
+from etf_cockpit.core.values import years_before  # noqa: E402
 from etf_cockpit.application.forecast_service import ForecastService
 from etf_cockpit.signals.signal_pipeline import generate_signals
 from etf_cockpit.data.duckdb_store import load_holdings, write_features
@@ -50,17 +55,31 @@ def main() -> int:
     config = load_config()
     provider = YFinanceProvider.from_config(config)
     as_of = pd.to_datetime(args.as_of).date() if args.as_of else date.today()
-    start = as_of.replace(year=as_of.year - args.years)
+    if args.years <= 0:
+        raise ValueError("--years must be positive.")
+    start = years_before(as_of, args.years)
     result = provider.fetch_prices([], start, as_of)
     if not result.ok or result.data is None:
         print(result.message)
         return 1
 
+    downloaded_ids = set(result.data["etf_id"])
+    downloaded_as_of = pd.to_datetime(result.data["date"]).max().date()
+    result, quarantined = quarantine_invalid_ohlc(result)
     prices = result.data.copy()
     prices["date"] = pd.to_datetime(prices["date"]).dt.date
-    effective_as_of = max(prices["date"])
+    effective_as_of = downloaded_as_of
     validation = validate_prices(prices, as_of_date=effective_as_of)
-    block_messages = [issue.message for issue in validation.issues if issue.severity == "block"]
+    for instrument_id in sorted(downloaded_ids - set(prices["etf_id"])):
+        validation.issues.append(DataQualityIssue(
+            instrument_id, "block", "insufficient_history",
+            "Only 0 valid rows available; 252 required for main signal.",
+        ))
+    # History length remains a per-instrument signal gate, as in the application refresh.
+    block_messages = [
+        issue.message for issue in validation.issues
+        if issue.severity == "block" and issue.code != "insufficient_history"
+    ]
     if block_messages:
         print("YFinance prices failed validation and were not analysed:")
         for message in block_messages:
@@ -69,6 +88,11 @@ def main() -> int:
 
     commit_summary: dict[str, object] = {"committed": False}
     if not args.no_commit:
+        if quarantined is not None and not quarantined.empty:
+            quarantine_path = DATA_ROOT / "data" / "quality" / f"price_quarantine_{as_of.isoformat()}.parquet"
+            quarantine_path.parent.mkdir(parents=True, exist_ok=True)
+            quarantined.to_parquet(quarantine_path, index=False)
+            print(f"Quarantined {len(quarantined)} invalid OHLC rows to {quarantine_path}.")
         commit = commit_price_import(result)
         commit_summary = {
             "committed": True,
@@ -96,7 +120,7 @@ def main() -> int:
         )
     except (OSError, TypeError, ValueError):
         structure_caps = {str(instrument_id): 0.0 for instrument_id in config.universe.enabled_ids}
-    data_report = validate_prices(prices, as_of_date=effective_as_of)
+    data_report = validation
     if target_policy_issues(config):
         data_report = data_report.__class__(
             as_of_date=data_report.as_of_date,
@@ -130,14 +154,24 @@ def main() -> int:
         forecast_scores=forecast_component_maps(forecasts_frame),
         structure_confidence_caps=structure_caps,
     )
-    backtest = run_backtest(
-        config,
-        prices,
-        structure_document_registry=structure_registry,
-        structure_report_records=structure_reports,
-        structure_supplemental_rows=structure_supplemental_rows,
-        structure_holdings=structure_holdings,
-    )
+    try:
+        backtest = run_backtest(
+            config,
+            prices,
+            structure_document_registry=structure_registry,
+            structure_report_records=structure_reports,
+            structure_supplemental_rows=structure_supplemental_rows,
+            structure_holdings=structure_holdings,
+        )
+    except BacktestDataUnavailableError as exc:
+        backtest_summary = {"status": "unavailable", "reason": str(exc)}
+    else:
+        backtest_summary = {
+            "status": "ok",
+            "rows": len(backtest.results),
+            "ai_added_value": backtest.ai_added_value,
+            "quality": backtest.quality_label,
+        }
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -146,6 +180,7 @@ def main() -> int:
         "source": "Yahoo Finance via yfinance",
         "as_of_date": effective_as_of.isoformat(),
         "price_rows": len(prices),
+        "quarantined_price_rows": len(quarantined) if quarantined is not None else 0,
         "instrument_count": int(prices["etf_id"].nunique()),
         "price_commit": commit_summary,
         "reference_data": reference_summary,
@@ -166,11 +201,7 @@ def main() -> int:
             }
             for signal in signals
         ],
-        "backtest": {
-            "rows": len(backtest.results),
-            "ai_added_value": backtest.ai_added_value,
-            "quality": backtest.quality_label,
-        },
+        "backtest": backtest_summary,
     }
     report_path.write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
 
@@ -179,7 +210,7 @@ def main() -> int:
     print(f"Validation: {validation.status}")
     print(f"Signals: {len(signals)}")
     print(f"Forecast statuses: {forecast_statuses or 'skipped'}")
-    print(f"Backtest quality: {backtest.quality_label}")
+    print(f"Backtest: {backtest_summary}")
     print(f"Wrote {report_path}")
     return 0
 
@@ -234,4 +265,4 @@ def _fetch_reference_data(provider: YFinanceProvider, config, *, skip: bool) -> 
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run_cli(main))

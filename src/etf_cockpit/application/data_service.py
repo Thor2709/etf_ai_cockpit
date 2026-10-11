@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 from datetime import date
 from io import BytesIO
@@ -9,10 +10,11 @@ from pathlib import Path
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
-from etf_cockpit.core.paths import FORECASTS_DIR
+from etf_cockpit.core.paths import CLEAN_DIR, FORECASTS_DIR, ROOT
 from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.core.timing import record_cache_event
 from etf_cockpit.core.types import DataQualityReport
+from etf_cockpit.core.values import years_before
 from etf_cockpit.core.workflow import (
     PublicationScopeFactory,
     WorkflowTransitionError,
@@ -56,10 +58,12 @@ from etf_cockpit.data.trade_candidate_analysis import (
     refresh_candidate_analysis,
     write_candidate_price_snapshot,
 )
+from etf_cockpit.data.price_quarantine import quarantine_invalid_ohlc as _quarantine_invalid_ohlc
 from etf_cockpit.data.validation import (
     validate_holdings,
     validate_prices,
 )
+from etf_cockpit.data.provenance import sha256_dataframe
 from etf_cockpit.data.yfinance_provider import YFinanceProvider
 from etf_cockpit.portfolio.risk import target_policy_issues
 from etf_cockpit.application.derived_cache import (
@@ -187,17 +191,30 @@ class DataService:
     ) -> str:
         self.last_operation_succeeded = False
         end_date = date.today()
-        start_date = end_date.replace(year=end_date.year - years)
+        start_date = years_before(end_date, years)
         provider = YFinanceProvider.from_config(self.config)
         messages: list[str] = []
 
         result = provider.fetch_prices([], start_date, end_date)
+        result = _carry_forward_failed_instruments(result)
         if not result.ok or result.data is None:
             return redact_text(str(result.message))
+        result, quarantined = _quarantine_invalid_ohlc(result)
         report = validate_prices(result.data, as_of_date=end_date)
-        block_issues = [issue.message for issue in report.issues if issue.severity == "block"]
+        # Vendor OHLC glitches are quarantined row by row above, and a short history is a per-instrument
+        # signal gate the snapshot re-applies; neither should block committing every other instrument.
+        commit_tolerated = {"insufficient_history"}
+        block_issues = [
+            f"{issue.etf_id}: {issue.message}" for issue in report.issues
+            if issue.severity == "block" and issue.code not in commit_tolerated
+        ]
         if block_issues:
             return "Yahoo Finance prices fetched but not committed because validation blocked them: " + "; ".join(block_issues)
+        if quarantined is not None and not quarantined.empty:
+            quarantine_path = ROOT / "data" / "quality" / f"price_quarantine_{end_date.isoformat()}.parquet"
+            quarantine_path.parent.mkdir(parents=True, exist_ok=True)
+            quarantined.to_parquet(quarantine_path, index=False)
+            messages.append(f"Quarantined {len(quarantined)} invalid OHLC rows to {quarantine_path.name}.")
         with publication_scope(publish_guard):
             commit_result = commit_price_import(result)
         messages.append(
@@ -208,11 +225,14 @@ class DataService:
         )
 
         if include_reference_data:
+            from etf_cockpit.data.etf_e1_fetch import fetch_etf_e1_reference_data
+
             context = self._reference_context()
-            for dataset_type, reference_result in (
-                ("etf_metadata", provider.fetch_etf_metadata([])),
-                ("etf_holdings", provider.fetch_etf_holdings([])),
-            ):
+            reference_results, source_messages = fetch_etf_e1_reference_data(
+                self.config, provider, checkpoint=lambda: _cancellation_checkpoint(publish_guard)
+            )
+            messages.extend(redact_text(message) for message in source_messages)
+            for dataset_type, reference_result in reference_results:
                 if not reference_result.ok or reference_result.data is None:
                     messages.append(f"{dataset_type}: {redact_text(str(reference_result.message))}")
                     continue
@@ -239,6 +259,7 @@ class DataService:
                         f"Clean data: {reference_commit.clean_path}.{warning_suffix}"
                     )
                 )
+        messages.append(_refresh_stock_fundamentals(self.config, publish_guard))
         self.last_operation_succeeded = True
         return "\n".join(messages)
 
@@ -366,7 +387,13 @@ class DataService:
             )
         ]
         if include_candidates:
-            candidate_data = fetch_candidate_prices(self.config, years=years)
+            try:
+                candidate_data = fetch_candidate_prices(self.config, years=years)
+            except RuntimeError as exc:
+                # Candidate forecasts are optional extras; the configured forecasts above stand.
+                messages.append(f"Candidate forecasts skipped: {redact_text(str(exc))[:300]}")
+                self.last_operation_succeeded = True
+                return "\n".join(messages)
             candidate_ids = list(candidate_data.candidates["instrument_id"].astype(str))
             candidate_output = FORECASTS_DIR / f"yfinance_candidate_forecasts_{candidate_data.effective_as_of:%Y%m%d}.csv"
             candidate_window = _calculation_window(
@@ -664,3 +691,51 @@ class DataService:
             f"Rolled back prices to {rollback.restored_snapshot_path}. "
             f"Rows: {rollback.rows}. Current replaced copy: {rollback.current_snapshot_path or 'none'}."
         )
+
+
+def _carry_forward_failed_instruments(result: ProviderResult, *, clean_path: Path | None = None) -> ProviderResult:
+    """One instrument the provider could not return must not block every other refresh.
+
+    The price store is replaced on commit, so the instruments missing from a partial fetch keep
+    their stored history unchanged (they turn stale and the staleness gate reports them) instead
+    of being dropped. Nothing is filled or estimated."""
+
+    if result.ok or result.data is None or result.data.empty:
+        return result
+    path = clean_path or CLEAN_DIR / "prices.parquet"
+    fetched = set(result.data["etf_id"].astype(str))
+    stored = pd.read_parquet(path) if path.is_file() else pd.DataFrame(columns=["etf_id"])
+    kept = stored[~stored["etf_id"].astype(str).isin(fetched)]
+    data = pd.concat([result.data, kept], ignore_index=True) if not kept.empty else result.data
+    kept_ids = sorted(set(kept["etf_id"].astype(str)))
+    message = (
+        f"Downloaded fresh prices for {len(fetched)} instruments. Not refreshed, stored history kept: "
+        + (", ".join(kept_ids) if kept_ids else "none (no stored history)")
+        + ". Provider detail: "
+        + str(result.message).replace("Partial refresh rejected; no incomplete Yahoo Finance price set was committed. ", "")
+    )
+    metadata = dataclasses.replace(result.metadata, checksum=sha256_dataframe(data)) if result.metadata else None
+    return ProviderResult(result.provider_name, result.dataset_type, "ok", message, data, metadata)
+
+
+def _refresh_stock_fundamentals(config: AppConfig, publish_guard: PublicationScopeFactory | None) -> str:
+    """Normal-stock fundamentals ride along with the price refresh; a failure never blocks prices."""
+
+    from etf_cockpit.application.stock_service import refresh_universe_stock_fundamentals
+
+    try:
+        with publication_scope(publish_guard):
+            report = refresh_universe_stock_fundamentals(config)
+    except WorkflowTransitionError:
+        raise  # a user cancellation must reach the workflow, never become a soft message
+    except Exception as exc:  # read-only, best-effort source; the reason is shown, prices stand
+        return f"Stock fundamentals not refreshed: {type(exc).__name__}: {redact_text(str(exc))[:200]}"
+    missing = f" Without data: {', '.join(sorted(report.failures))}." if report.failures else ""
+    return f"Stock fundamentals refreshed: {report.rows_added} new rows.{missing}"
+
+
+def _cancellation_checkpoint(publish_guard: PublicationScopeFactory | None) -> None:
+    """Raise the workflow's cancellation error between long network steps (no-op otherwise)."""
+
+    with publication_scope(publish_guard):
+        pass

@@ -25,8 +25,9 @@ _SEQUENCE = 0
 _INITIALISED = False
 _EVENT_COUNTS: dict[Path, int] = {}
 
-_SECRET_KEY_RE = re.compile(
-    r"(api[_-]?key|access[_-]?token|client[_-]?secret|token|secret|password|passwd|authorization|bearer)",
+# The one secret-key matcher; etf_cockpit.security.policy re-exports it (policy imports this module).
+SECRET_KEY_RE = re.compile(
+    r"(api[_-]?key|private[_-]?key|signing[_-]?key|access[_-]?token|client[_-]?secret|credential|token|secret|password|passwd|authorization|bearer)",
     re.IGNORECASE,
 )
 _SECRET_VALUE_RE = re.compile(
@@ -372,7 +373,7 @@ def _redact(value: Any) -> Any:
         redacted: dict[str, Any] = {}
         for key, item in value.items():
             key_text = str(key)
-            if _SECRET_KEY_RE.search(key_text):
+            if SECRET_KEY_RE.search(key_text):
                 redacted[key_text] = "***redacted***" if item is not None and item != "" else item
             else:
                 redacted[key_text] = _redact(item)

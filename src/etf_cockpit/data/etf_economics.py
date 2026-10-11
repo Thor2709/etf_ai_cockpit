@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from etf_cockpit.data.etf_cutoff import etf_decision_cutoff
 from etf_cockpit.core.paths import (
     ETF_CLOSURE_POLICY_PATH,
     ETF_ECONOMICS_PATH,
@@ -931,6 +932,142 @@ def load_etf_economics_records(
         )
     except (EtfEconomicsError, TypeError, ValueError):
         return ()
+
+
+def load_etf_reference_context(dataset_type: str, *, root: Path | None = None) -> pd.DataFrame:
+    """Read reference evidence with its verified acquisition time, for display.
+
+    Old rows lack known_at. Only a matching reference-import manifest can
+    supply it; file timestamps and observation dates are not publication times.
+    Vendor context never becomes trusted canonical tracking/scoring evidence.
+    """
+    from etf_cockpit.core.paths import ROOT
+    from etf_cockpit.data.provenance import sha256_dataframe
+
+    if dataset_type not in {"etf_metadata", "etf_holdings"}:
+        raise ValueError("Unsupported ETF reference context")
+    base = Path(root or ROOT)
+    path = base / "data" / "clean" / f"{dataset_type}.parquet"
+    if not path.is_file():
+        return pd.DataFrame()
+    try:
+        frame = pd.read_parquet(path)
+    except (OSError, ValueError):
+        unavailable = pd.DataFrame()
+        unavailable.attrs["unavailable_reason"] = f"{dataset_type}_store_unreadable"
+        return unavailable
+    digest = sha256_dataframe(frame)
+    acquisitions = []
+    for manifest_path in (base / "data" / "snapshots" / dataset_type).glob("*_metadata.json"):
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if manifest.get("checksum") != digest or manifest.get("dataset_type") != dataset_type:
+                continue
+            acquired = pd.to_datetime(manifest.get("metadata", {}).get("ingested_at"), utc=True, errors="coerce")
+            if not pd.isna(acquired):
+                acquisitions.append((acquired, manifest.get("provider_name")))
+        except (OSError, TypeError, ValueError):
+            continue
+    if acquisitions:
+        acquired, provider = min(acquisitions, key=lambda item: item[0])
+        known = pd.to_datetime(frame.get("known_at", pd.Series(pd.NaT, index=frame.index)), utc=True, errors="coerce")
+        frame["known_at"] = known.where(known.ge(acquired), acquired).map(lambda value: value.isoformat())
+        if "source" not in frame:
+            frame["source"] = provider
+    from etf_cockpit.data.etf_e1_fetch import decode_e1_reference_context
+
+    return decode_e1_reference_context(frame)
+
+
+def load_etf_e1_fields(
+    instrument_id: str,
+    *,
+    decision_time: object,
+    issuer_records: Iterable[EtfEconomicsObservation | Mapping[str, object]] = (),
+    public_records: Iterable[Mapping[str, object]] = (),
+    vendor_records: Iterable[Mapping[str, object]] = (),
+) -> dict[str, dict[str, object]]:
+    """One per-field issuer -> public page -> vendor fallback, dated and sourced.
+
+    Inputs must already be bound to the requested identity. This is display
+    context only; canonical tracking remains calculate_etf_economics.
+    """
+    cutoff = etf_decision_cutoff(decision_time)
+    candidates: list[tuple[int, dict[str, object]]] = []
+    rejected = False
+    for rank, rows in enumerate((issuer_records, public_records, vendor_records)):
+        for item in rows:
+            row = item.as_dict() if isinstance(item, EtfEconomicsObservation) else dict(item)
+            identity = _text(row.get("instrument_id")) or _text(row.get("etf_id"))
+            if identity != instrument_id:
+                continue
+            if row.get("scope") == "share_class" and row.get("share_class_id") != instrument_id:
+                continue
+            effective = pd.to_datetime(row.get("as_of", row.get("as_of_date")), utc=True, errors="coerce")
+            known = pd.to_datetime(row.get("known_at"), utc=True, errors="coerce")
+            source = _text(row.get("source_id")) or _text(row.get("source")) or _text(row.get("provider"))
+            if pd.isna(cutoff) or pd.isna(effective) or pd.isna(known) or known < effective or known > cutoff or effective > cutoff or not source:
+                rejected = True
+                continue
+            row.update(as_of=effective.isoformat(), known_at=known.isoformat(), source=source)
+            candidates.append((rank, row))
+    candidates.sort(key=lambda item: (item[0], -pd.Timestamp(item[1]["as_of"]).value, -pd.Timestamp(item[1]["known_at"]).value))
+    result = {}
+    for field_name, aliases in {
+        "ter": ("ter", "total_expense_ratio"),
+        "aum": ("aum", "total_assets"),
+        "distribution_policy": ("distribution_policy", "share_class_structure"),
+        "country_split": ("country_split",),
+        "sector_split": ("sector_split",),
+    }.items():
+        available = []
+        rejections = []
+        for rank, row in candidates:
+            value = next((row.get(alias) for alias in aliases if not _missing(row.get(alias))), None)
+            if value is None:
+                continue
+            if field_name in {"ter", "aum"}:
+                try:
+                    value = _number(value, field_name, minimum=0)
+                except EtfEconomicsError:
+                    continue
+                if field_name == "ter":
+                    unit = row.get("fee_unit", "decimal_fraction" if rank == 2 else None)
+                    if unit not in _SUPPORTED_FEE_UNITS:
+                        continue
+                    value = value / 100 if unit == "percent" else value
+                elif row.get("aum_unit", "currency_units" if "total_assets" in row else None) != "currency_units":
+                    continue
+            elif field_name == "distribution_policy":
+                value = str(value).strip().casefold()
+                if value not in {"accumulating", "distributing"}:
+                    continue
+            else:
+                weights = pd.to_numeric(pd.Series(dict(value), dtype=object), errors="coerce") if isinstance(value, Mapping) else pd.Series(dtype=float)
+                total = float(weights.sum())
+                if weights.empty or weights.isna().any() or weights.lt(0).any() or not math.isfinite(total) or not 0 < total <= 1.01:
+                    rejections.append({"source": row["source"], "as_of": row["as_of"], "known_at": row["known_at"], "reason": f"{field_name}_weights_not_usable"})
+                    continue
+                value = weights.to_dict()
+                if total < 1:
+                    value["Other/unclassified"] = value.get("Other/unclassified", 0) + 1 - total
+            available.append({"value": value, "source": row["source"], "as_of": row["as_of"], "known_at": row["known_at"], "currency": row.get("aum_currency") if field_name == "aum" else None})
+        if available:
+            selected = dict(available[0])
+            selected["alternates"] = available[1:]
+            selected["difference"] = any(other["value"] != selected["value"] for other in available[1:])
+            selected["reason"] = None
+            result[field_name] = selected
+        else:
+            failures = {key: value for _, row in candidates for key, value in (row.get("source_failures") or {}).items()}
+            reason = f"{field_name}_no_dated_source" if rejected else f"{field_name}_missing_all_sources"
+            if failures:
+                reason += ": " + "; ".join(f"{key}={value}" for key, value in sorted(failures.items()))
+            result[field_name] = {"value": None, "source": None, "as_of": None, "known_at": None, "alternates": [], "difference": False, "reason": reason}
+        result[field_name]["rejections"] = rejections
+        if not available and rejections:
+            result[field_name]["reason"] = f"{field_name}_weights_not_usable"
+    return result
 
 
 def load_total_return_evidence(

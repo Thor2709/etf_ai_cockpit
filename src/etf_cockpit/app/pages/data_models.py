@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 import math
 
@@ -7,6 +8,19 @@ import flet as ft
 import pandas as pd
 
 from etf_cockpit.app import theme
+from etf_cockpit.app.components.kit import (
+    Button,
+    CardMenu,
+    DataTable,
+    Disclosure,
+    GlassCard,
+    ListRow,
+    Note,
+    TableColumn,
+)
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
+from etf_cockpit.app.formatting import format_date, format_percent
+from etf_cockpit.app.components import chartkit as ck
 from etf_cockpit.app.pages._lab_style import lab_page, model_status_row, panel, section_header
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
@@ -29,7 +43,7 @@ from etf_cockpit.application.diagnostics_views import plugin_status_rows
 
 
 @lab_page("data_models")
-def data_models_page(_page: ft.Page, state: AppState) -> ft.Control:
+def _legacy_data_models_page(_page: ft.Page, state: AppState) -> ft.Control:
     latest_dates = state.snapshot.prices.groupby("etf_id")["date"].max().reset_index()
     rows = [
         ft.DataRow(
@@ -248,13 +262,13 @@ def data_models_page(_page: ft.Page, state: AppState) -> ft.Control:
                 )
             ),
         ],
-        spacing=14,
+        spacing=16,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
     )
     return ft.Row(
         [latest_status_panel, evidence_panels],
-        spacing=14,
+        spacing=16,
         expand=True,
         vertical_alignment=ft.CrossAxisAlignment.START,
     )
@@ -660,3 +674,292 @@ def _optional_number(value: object) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None
+
+
+def data_models_page(page: ft.Page, state: AppState) -> PageView:
+    """Build the local availability and freshness surface from the current snapshot."""
+    snapshot = getattr(state, "snapshot", None)
+    models = getattr(snapshot, "model_status", {}) or {}
+
+    def go(route: str) -> Callable[[object], None]:
+        def open_route(_event: object = None) -> None:
+            if page is not None and callable(getattr(page, "go", None)):
+                page.go(route)
+
+        return open_route
+
+    def opens(card: ft.Container, route: str, label: str) -> ft.Container:
+        """A card that opens the page that owns its data (a click on text, a chip or empty space; inner controls keep their own clicks)."""
+        card.on_click = go(route)
+        card.ink = True
+        card.tooltip = f"Open {label}"
+        return card
+
+    def display_value(value: object) -> str:
+        if value is None:
+            return "—"
+        text = str(value).strip()
+        return text if text.casefold() not in {"", "none", "nan", "nat"} else "—"
+
+    model_rows = [
+        ListRow(
+            "ok" if available else "bad",
+            f"{name}: {'Available' if available else 'Unavailable'}",
+            "Local deterministic model is available."
+            if name == "baseline" and available
+            else "Optional package or weights are not installed; disabled-safe, baseline used."
+            if name in {"timesfm", "toto"} and not available
+            else "Model status is unavailable from this snapshot.",
+            tag=("Available" if available else "Unavailable", "ok" if available else "bad"),
+            on_click=go("/forecasts"),
+        )
+        for name, available in (("baseline", True), ("reasons", bool(models.get("reasons"))), ("timesfm", bool(models.get("timesfm"))), ("toto", bool(models.get("toto"))))
+    ]
+    model_details = [format_model_inventory_line(item) for item in getattr(snapshot, "model_inventory", ())]
+    prices = getattr(snapshot, "prices", None)
+    latest_rows: list[dict[str, object]] = []
+    if isinstance(prices, pd.DataFrame) and not prices.empty and {"etf_id", "date"}.issubset(prices.columns):
+        latest = prices.groupby("etf_id", sort=True)["date"].max()
+        latest_rows = [
+            {"instrument": display_value(instrument), "date": format_date(value, unavailable="—")}
+            for instrument, value in latest.items()
+        ]
+    coverage_rows: list[dict[str, object]] = []
+    coverage_lines = "No coverage audit result is available."
+    coverage_report = None
+    config = getattr(snapshot, "config", None)
+    if snapshot is not None and config is not None:
+        try:
+            coverage_report = build_coverage_audit(
+                config.universe.etfs,
+                prices,
+                getattr(snapshot, "forecasts", pd.DataFrame()),
+                getattr(snapshot, "signals", ()),
+                as_of_date=getattr(getattr(snapshot, "data_report", None), "as_of_date", None),
+            )
+            coverage_rows = [
+                {
+                    "group": f"{item.dimension}: {item.bucket}",
+                    "coverage": format_percent(item.observation_coverage, unavailable="—"),
+                    "status": display_value(item.status).replace("_", " ").title(),
+                    "authority": display_value(item.authority).replace("_", " ").title(),
+                    "mase": item.mean_mase,
+                    "direction": format_percent(item.directional_accuracy, unavailable="—"),
+                }
+                for item in coverage_report.groups
+            ]
+            coverage_lines = "\n".join(coverage_summary_lines(coverage_report)) or "No coverage summary is available."
+        except (AttributeError, KeyError, TypeError, ValueError):
+            coverage_rows = []
+    metadata_rows = [
+        {
+            "dataset": getattr(item, "source_type", None),
+            "source": getattr(item, "source_name", None),
+            "as_of": getattr(item, "as_of_date", None),
+            "staleness": getattr(item, "staleness_status", None),
+            "currency": getattr(item, "currency", None),
+            "checksum": getattr(item, "checksum", None),
+        }
+        for item in getattr(getattr(snapshot, "data_report", None), "dataset_metadata", ())
+    ]
+    try:
+        manual_notes = load_manual_news()
+        if manual_notes.empty:
+            manual_note_detail = "No manual thesis/news notes imported; credibility flags are unavailable."
+        else:
+            recent_notes = manual_notes.copy()
+            recent_notes["as_of_date"] = recent_notes["as_of_date"].astype(str)
+            recent_notes = recent_notes.sort_values("as_of_date", ascending=False).head(8)
+            manual_note_detail = "\n".join(
+                f"{row['as_of_date']} | {row.get('etf_id') or 'portfolio'} | {row.get('title') or 'Untitled note'} | "
+                f"credibility_flag_status={row.get('credibility_flag_status', 'unavailable')} | "
+                f"credibility_flags={row.get('credibility_flags', 'unknown')} | executable_authority=false"
+                for _, row in recent_notes.iterrows()
+            )
+    except Exception:
+        manual_note_detail = "Manual note credibility evidence unavailable; manual review required. executable_authority=false"
+    forecast_files = sorted(FORECASTS_DIR.glob("*.csv"), key=lambda path: path.stat().st_mtime, reverse=True)[:6]
+    derived_files = sorted(DERIVED_DIR.glob("*"), key=lambda path: path.stat().st_mtime, reverse=True)[:10]
+    report_files = sorted(REPORTS_DIR.glob("yfinance_trade_candidate_analysis_*.csv"), key=lambda path: path.stat().st_mtime, reverse=True)[:3]
+    try:
+        monthly_detail = _monthly_decision_text(state)
+    except Exception:
+        monthly_detail = "Monthly decision template unavailable for this snapshot."
+    reference_lines = []
+    try:
+        for item in reference_data_inventory():
+            if item.get("present"):
+                reference_lines.append(
+                    f"{item.get('dataset_type')}: rows={item.get('rows')}, as_of={item.get('as_of_date')}, "
+                    f"staleness={item.get('staleness_status')}, checksum={item.get('checksum')}"
+                )
+            else:
+                reference_lines.append(f"{item.get('dataset_type')}: not imported")
+        fx_inventory = fx_data_inventory()
+        if fx_inventory.get("present"):
+            reference_lines.append(f"fx: rows={fx_inventory.get('rows')}, as_of={fx_inventory.get('as_of_date')}, checksum={fx_inventory.get('checksum')}")
+        else:
+            reference_lines.append("fx: not imported")
+    except Exception:
+        reference_lines = ["Reference inventory is unavailable."]
+
+    data_quality = getattr(snapshot, "data_report", None)
+    findings = getattr(data_quality, "issues", ()) if data_quality is not None else ()
+    validation_detail = (
+        "\n".join(f"{display_value(getattr(issue, 'severity', None))}: {display_value(getattr(issue, 'code', None))}: {display_value(getattr(issue, 'message', None))}" for issue in findings)
+        if findings
+        else "No data-quality validation findings are available for this snapshot."
+    )
+
+    def export_coverage(_event: object) -> None:
+        if coverage_report is None:
+            return
+        try:
+            json_path, markdown_path = write_coverage_audit(coverage_report)
+            coverage_export_status.value = f"Coverage audit exported: {json_path.name}, {markdown_path.name}"
+            state.last_message = coverage_export_status.value
+        except (OSError, ValueError, TypeError) as exc:
+            coverage_export_status.value = f"Coverage audit export failed: {type(exc).__name__}: {exc}"
+            state.last_message = coverage_export_status.value
+        if callable(getattr(page, "update", None)):
+            page.update()
+
+    coverage_export_status = Note("Coverage audit export is unavailable.")
+    price_table = Disclosure(
+        "Price rows",
+        DataTable([TableColumn("instrument", "Instrument"), TableColumn("date", "Latest date")], latest_rows, empty_title="No local price data", empty_reason="The clean price store has no rows for this snapshot."),
+        expanded=True,
+    )
+    price_table.visible = False
+
+    def show_price_table(_event: object = None) -> None:
+        price_table.visible = True
+        if callable(getattr(page, "update", None)):
+            page.update()
+
+    coverage_authorities = sorted({row["authority"] for row in coverage_rows if row.get("authority") and row["authority"] != "—"})
+    coverage_note = (
+        f"Authority: {', '.join(coverage_authorities)}"
+        if coverage_authorities
+        else "Coverage authority is unavailable for this snapshot."
+    )
+    plugin_table = DataTable(
+        [TableColumn("plugin", "Plugin"), TableColumn("kind", "Kind"), TableColumn("status", "Status"), TableColumn("authority", "Authority"), TableColumn("execution", "Execution")],
+        [
+            {
+                "plugin": row.get("provider_id"),
+                "kind": row.get("dataset_type"),
+                "status": row.get("status"),
+                "authority": row.get("authority"),
+                "execution": "disabled",
+            }
+            for row in plugin_status_rows()
+        ],
+        empty_title="No plugin capability rows",
+        empty_reason="No local capability status is available.",
+    )
+    cards = [
+        ft.Row(
+            [
+                opens(GlassCard(
+                    "Model availability",
+                    body=ft.Column([*model_rows, Disclosure("Local model file details", "\n".join(model_details) or "No local model files detected.")], spacing=8),
+                    expand=True,
+                    key=ft.ScrollKey("Model availability"),
+                ), "/forecasts", "Forecast Lab"),
+                opens(GlassCard(
+                    "Latest local price data",
+                    note="Per instrument · clean store",
+                    insight="Unavailable: the snapshot has no precomputed days-since-last-price series.",
+                    menu=CardMenu([("Show table", show_price_table)]),
+                    body=ft.Column(
+                        [
+                            Note("Days since last price"),
+                            ck.bar_chart([], [], x_name="Instrument", y_name="Days since last price (days)", unit="days", unavailable_reason="A precomputed local freshness series is not available.", insight="Unavailable: the snapshot has no precomputed days-since-last-price series."),
+                            price_table,
+                        ],
+                        spacing=8,
+                    ),
+                    expand=True,
+                    key=ft.ScrollKey("Latest local price data"),
+                ), "/data-health", "Data Health"),
+            ],
+            spacing=16,
+            vertical_alignment=ft.CrossAxisAlignment.START,
+        ),
+        ft.Row(
+            [
+                opens(GlassCard(
+                    "Data coverage and model monitoring",
+                    note=coverage_note,
+                    body=ft.Column(
+                        [
+                            Button.secondary(
+                                "Export coverage audit",
+                                on_click=export_coverage,
+                                disabled=coverage_report is None,
+                                disabled_reason="No coverage audit result is available." if coverage_report is None else None,
+                                key="data-models.export-coverage",
+                            ),
+                            Disclosure("Coverage summary", coverage_lines),
+                            DataTable(
+                                [TableColumn("group", "Group"), TableColumn("coverage", "Coverage"), TableColumn("status", "Status"), TableColumn("authority", "Authority"), TableColumn("mase", "MASE"), TableColumn("direction", "Direction")],
+                                coverage_rows,
+                                empty_title="Coverage unavailable",
+                                empty_reason="No existing coverage-monitoring result is available in this snapshot.",
+                            ),
+                            Disclosure("Export status", coverage_export_status),
+                        ],
+                        spacing=8,
+                    ),
+                    expand=True,
+                ), "/diagnostics", "Diagnostics"),
+                opens(GlassCard("Unified plugin capability status", body=plugin_table, expand=True), "/diagnostics", "Diagnostics"),
+            ],
+            spacing=16,
+            vertical_alignment=ft.CrossAxisAlignment.START,
+        ),
+        ft.Row([opens(GlassCard("Forecast artefacts", body=Disclosure("Local artefact details", "\n".join(str(path) for path in forecast_files) or "No forecast artefacts are available."), expand=True, key=ft.ScrollKey("Forecast artefacts")), "/forecasts", "Forecast Lab"), opens(GlassCard("Derived evidence artefacts", body=Disclosure("Local artefact details", "\n".join(str(path) for path in derived_files) or "No derived evidence artefacts are available."), expand=True), "/evidence", "Evidence Ledger")], spacing=16),
+        ft.Row([opens(GlassCard("Market regime", body=Disclosure("Regime details", _market_regime_text()), expand=True), "/macro", "Macro and Factors"), opens(GlassCard("Forecast calibration", insight="Unavailable: saved calibration summaries do not provide reliability-curve points.", body=ft.Column([ck.line_chart([], [], x_name="Predicted probability (proportion)", y_name="Observed frequency (proportion)", unavailable_reason="No saved calibration reliability points are available.", empty_title="Forecast calibration unavailable", insight="Unavailable: saved calibration summaries do not provide reliability-curve points."), Disclosure("Calibration details", _calibration_text())], spacing=8), expand=True), "/forecasts", "Forecast Lab")], spacing=16),
+        ft.Row([opens(GlassCard("Strategy templates", body=ft.Column([Disclosure("Template details", _strategy_template_text()), Disclosure("Monthly decision template", monthly_detail)], spacing=8), expand=True), "/strategy-builder", "Strategy Builder"), opens(GlassCard("Candidate reports", body=Disclosure("Report details", "\n".join(str(path) for path in report_files) or "No candidate reports are available."), expand=True), "/screener", "Fundamentals Screener")], spacing=16),
+        ft.Row(
+            [
+                opens(GlassCard(
+                    "Dataset provenance",
+                    body=Disclosure(
+                        "Provenance details",
+                        DataTable([TableColumn("dataset", "Dataset"), TableColumn("source", "Source"), TableColumn("as_of", "As of"), TableColumn("staleness", "Staleness"), TableColumn("currency", "Currency"), TableColumn("checksum", "Checksum")], metadata_rows, empty_title="No provenance rows", empty_reason="No dataset provenance result is available."),
+                    ),
+                    expand=True,
+                ), "/catalogue", "Data Catalogue"),
+                opens(GlassCard("Reference data", body=Disclosure("Reference details", "\n".join(reference_lines)), expand=True), "/catalogue", "Data Catalogue"),
+            ],
+            spacing=16,
+        ),
+        ft.Row([opens(GlassCard("Manual thesis and news notes", body=Disclosure("Manual note details", manual_note_detail), expand=True), "/news-context", "News & Context"), opens(GlassCard("Validation findings", body=Disclosure("Validation details", validation_detail), expand=True), "/data-health", "Data Health")], spacing=16),
+    ]
+
+    body = ft.Column(cards, spacing=16, expand=True, scroll=ft.ScrollMode.AUTO)
+
+    def jump_to(value: str) -> None:
+        # The body column scrolls (not the Flet page), and Flet only targets ScrollKey-keyed controls.
+        title = {"Models": "Model availability", "Data": "Latest local price data", "Artefacts": "Forecast artefacts"}.get(value)
+        runner = getattr(page, "run_task", None)
+        if title is None:
+            return
+        if not callable(runner):
+            state.last_message = f"Jump to the {value.lower()} section is unavailable in this view."
+            return
+
+        async def scroll() -> None:
+            await body.scroll_to(scroll_key=ft.ScrollKey(title), duration=300)
+
+        try:
+            runner(scroll)
+        except Exception:
+            state.last_message = f"Could not jump to the {value.lower()} section."
+
+    return PageView(
+        chrome=PageChrome("Data & Models", "Model availability, local data freshness and derived artefacts", (SegmentGroup("data-models", ("Models", "Data", "Artefacts"), "Models", on_change=jump_to),)),
+        body=body,
+    )

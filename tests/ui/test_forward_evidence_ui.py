@@ -11,6 +11,9 @@ from etf_cockpit.application.snapshot_builder import build_snapshot
 
 def _walk(control):
     yield control
+    page_body = getattr(control, "body", None)  # PageView wraps the page body
+    if page_body is not None and page_body is not control:
+        yield from _walk(page_body)
     for child in getattr(control, "controls", []) or []:
         yield from _walk(child)
     content = getattr(control, "content", None)
@@ -21,7 +24,10 @@ def _walk(control):
 def test_forward_evidence_route_and_controls_are_visible_and_non_executable() -> None:
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
-    controls = list(_walk(forward_evidence_page(None, state)))
+    view = forward_evidence_page(None, state)
+    controls = list(_walk(view))
+    view.chrome.segment_groups[0].on_change("Mature")  # the Update outcome form is the second segment
+    controls += list(_walk(view))
     text = "\n".join(str(getattr(item, "value", "") or getattr(item, "text", "")) for item in controls)
     keys = {getattr(item, "key", "") for item in controls}
 

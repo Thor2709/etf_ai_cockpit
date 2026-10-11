@@ -7,6 +7,9 @@ from etf_cockpit.application.snapshot_builder import build_snapshot
 
 def _walk(control):
     yield control
+    page_body = getattr(control, "body", None)
+    if page_body is not None and page_body is not control:
+        yield from _walk(page_body)
     for child in getattr(control, "controls", []) or []:
         yield from _walk(child)
     content = getattr(control, "content", None)
@@ -17,7 +20,9 @@ def _walk(control):
 def test_settings_exposes_privacy_backup_and_recovery_controls() -> None:
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
-    controls = list(_walk(settings_page(None, state)))
+    page = settings_page(None, state)
+    page.chrome.segment_groups[0].on_change("Privacy")
+    controls = list(_walk(page))
     keys = {getattr(control, "key", None) for control in controls}
     labels = {getattr(control, "value", None) or getattr(control, "text", None) for control in controls}
     assert {"settings.backup-create", "settings.backup-validate", "settings.recovery-drill", "settings.delete-private"} <= keys

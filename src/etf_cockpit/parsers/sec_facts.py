@@ -7,7 +7,7 @@ from contextlib import ExitStack, contextmanager
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group, parquet_payload, validate_parquet_file, wait_for_atomic_group
 from etf_cockpit.core.file_guard import persistent_file_guard
@@ -53,6 +53,8 @@ class StatementFact:
     source_url: str | None = None
     filing_version: str | None = None
     consolidation_scope: str | None = None
+    context_id: str | None = None
+    sha256: str | None = None
 
     @property
     def canonical_mapping(self) -> str | None:
@@ -72,6 +74,8 @@ def statement_facts_from_esef(
     source_sha256: str,
     source_provider: str = "filings_xbrl_org",
     known_at: str | None = None,
+    extension_namespace: str | None = None,
+    extension_mappings: Mapping[str, str] | None = None,
 ) -> tuple[StatementFact, ...]:
     """Adapt parsed ESEF facts to the versioned statement-facts contract.
 
@@ -92,13 +96,17 @@ def statement_facts_from_esef(
         period_start = _record_value(record, "period_start") or None
         dimensions = _esef_dimensions(getattr(record, "context_dimensions", ()))
         mapping_status = str(getattr(record, "mapping_status", "") or "")
-        canonical_metric = map_ifrs_fact(concept, _record_value(record, "namespace") or None)
+        namespace = str(_record_value(record, "namespace") or "")
+        canonical_metric = map_ifrs_fact(concept, namespace or None)
+        if canonical_metric is None and extension_namespace and namespace == extension_namespace:
+            canonical_metric = (extension_mappings or {}).get(concept)
+        if namespace and "ifrs" in namespace.lower():
+            canonical_metric = _ESEF_IFRS_METRIC_OVERRIDES.get(concept, canonical_metric)
         if dimensions or mapping_status == "unsupported_numeric":
             canonical_metric = None
         source_anchor = f"{concept}:{unit}:{period_start}:{period_end}:{_record_value(record, 'context_id')}"
         provider_id = str(source_provider or "filings_xbrl_org").strip() or "filings_xbrl_org"
         source_id = f"{provider_id}:{source_sha256[:16]}:{hashlib.sha256(source_anchor.encode('utf-8')).hexdigest()[:16]}"
-        namespace = str(_record_value(record, "namespace") or "")
         is_extension = mapping_status == "unmapped_extension" or (namespace and "ifrs" not in namespace.lower())
         result.append(
             StatementFact(
@@ -132,9 +140,23 @@ def statement_facts_from_esef(
                 source_url=None,
                 filing_version=source_sha256,
                 consolidation_scope=_record_value(record, "consolidation_scope") or None,
+                context_id=_record_value(record, "context_id") or None,
+                sha256=source_sha256,
             )
         )
     return tuple(result)
+
+
+# These IFRS concepts are directly reported in bank statements and have a
+# canonical input name used by the financial-sector evidence adapter.  The
+# aliases are explicit; extension concepts remain gated by their issuer
+# namespace and per-issuer mapping table.
+_ESEF_IFRS_METRIC_OVERRIDES = {
+    "Assets": "total_assets",
+    "ProfitLoss": "net_profit",
+    "OtherIncome": "other_operating_income",
+    "ImpairmentLossImpairmentGainAndReversalOfImpairmentLossDeterminedInAccordanceWithIFRS9": "impairment_losses",
+}
 
 
 def _esef_dimensions(value: object) -> str:

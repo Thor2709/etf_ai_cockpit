@@ -119,8 +119,11 @@ class LocalTrainingRegistry:
             raise TrainingRegistryError(f"unknown experiment: {experiment_id}")
         for label, value in (("dataset_hash", dataset_hash), ("feature_hash", feature_hash), ("code_hash", code_hash), ("environment_hash", environment_hash)):
             _require_hash(value, label)
-        run_id = _identifier(run_id or f"run_{_hash_payload([experiment_id, dataset_hash, feature_hash, code_hash, environment_hash])[:16]}", "run_id")
         safe_parameters = _safe_mapping(parameters or {})
+        run_identity: list[object] = [experiment_id, dataset_hash, feature_hash, code_hash, environment_hash]
+        if safe_parameters:
+            run_identity.append(_hash_payload(safe_parameters))
+        run_id = _identifier(run_id or f"run_{_hash_payload(run_identity)[:16]}", "run_id")
         lineage = {
             "dataset_hash": dataset_hash,
             "feature_hash": feature_hash,
@@ -193,7 +196,7 @@ class LocalTrainingRegistry:
         next_status = str(status or run["status"])
         if next_status not in {"queued", "running", "completed", "failed", "cancelled"}:
             raise TrainingRegistryError(f"invalid run status: {next_status}")
-        if next_status in {"completed", "failed", "cancelled"} and str(run["status"]) in {"completed", "failed", "cancelled"} and next_status != str(run["status"]):
+        if str(run["status"]) in {"completed", "failed", "cancelled"} and next_status != str(run["status"]):
             raise TrainingRegistryError("terminal run status cannot be changed")
         value = float(run.get("progress", 0.0) if progress is None else progress)
         if not 0.0 <= value <= 1.0:

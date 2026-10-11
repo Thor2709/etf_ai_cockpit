@@ -297,8 +297,8 @@ def test_diagnostics_ui_displays_redacted_exception_fingerprint(tmp_path, monkey
                 yield from text_values(item)
 
     rendered_text = "\n".join(text_values(diagnostics_page(page, state)))
-    assert "fingerprint=" in rendered_text
-    assert "exception=" in rendered_text
+    assert f"fingerprint: {failure['traceback_fingerprint']}" in rendered_text
+    assert "exception: RuntimeError:" in rendered_text
     assert "SHOULD_NOT_APPEAR" not in rendered_text
 
 
@@ -317,7 +317,7 @@ def test_static_trust_artifacts_cover_providers_and_identity() -> None:
     assert not yfinance_rows.empty
     assert yfinance_rows["status"].ne("ok").all()
     assert identity.shape[0] >= 45
-    assert {"VWCE", "UCG", "AIR", "MSFT", "RABO"} <= set(identity["instrument_id"])
+    assert {"VWCE", "UCG", "AIR", "MSFT", "MING"} <= set(identity["instrument_id"])
     assert identity["executable_authority"].eq(False).all()
     assert {
         "identity_decision_id",

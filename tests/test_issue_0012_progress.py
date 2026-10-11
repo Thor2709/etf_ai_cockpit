@@ -75,7 +75,7 @@ def _texts(control: object) -> list[str]:
     value = getattr(control, "value", None)
     if value is not None:
         values.append(str(value))
-    for attribute in ("controls", "content"):
+    for attribute in ("controls", "content", "body"):
         child = getattr(control, attribute, None)
         children = child if isinstance(child, (list, tuple)) else (child,) if child is not None else ()
         for item in children:
@@ -265,6 +265,9 @@ def test_activity_panel_renders_spinner_step_progress_and_terminal_error() -> No
 
 
 def _walk(control: object):
+    page_body = getattr(control, "body", None)  # PageView wraps the page body
+    if page_body is not None and page_body is not control:
+        yield from _walk(page_body)
     yield control
     for child in getattr(control, "controls", []) or []:
         yield from _walk(child)

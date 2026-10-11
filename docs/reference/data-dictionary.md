@@ -1,6 +1,6 @@
 # Data dictionary
 
-Release version: `0.1.0rc1`.
+Release version: `1.1.0b1`.
 
 Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a contract change; use `python scripts/generate_data_dictionary.py --check` to detect drift.
 
@@ -324,6 +324,7 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/decision_cutover_v1.yaml | monitoring, rankers, replay, schema_version, validation, version | schema_version=1; version=decision-cutover-v1.0.0 |
 | configs/decision_domains_v1.yaml | etf_decision_graph, hash_scheme, metrics, rank_cutover, schema_version, stock_decision, version | schema_version=1; version=decision-domains-v1.0.0 |
 | configs/decision_opportunity_v1.yaml | labels, minimum_exposure_peer_sector_share, minimum_peer_support, minimum_universe_support, schema_version, timing, version | schema_version=1; version=opportunity-v1.0.0 |
+| configs/esef_extension_concepts.yaml | equity_member_rules, issuers | — |
 | configs/etf_tax_assumptions_v1.yaml | hedge_enabled, hedge_ratio, hedge_target_currency, known_at, source_withholding_label, source_withholding_rate, tax_enabled, tax_residence_country, version | version=1 |
 | configs/euronext_listing_v1.yaml | endpoint, markets, minimum_rows, provider_id, savings_bank_exclude_names, savings_bank_include_names, savings_bank_patterns, schema_version, scope, timeout_seconds, user_agent | schema_version=euronext-listing.v1 |
 | configs/feature_registry.yaml | executable_authority, execution_allowed, features, policy_id, policy_version, schema_version | policy_version="2026-07-12"; schema_version="1.0" |
@@ -351,7 +352,8 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/security_policy.yaml | credentials, network, parser_limits, schema_version, security_findings | schema_version="security-policy.v1" |
 | configs/settings.yaml | controls, execution_allowed, revision, schema_version, semantic_version, settings_version | schema_version=settings_bundle.v1; semantic_version=1.0.0; settings_version=0 |
 | configs/settlement_v1.yaml | settlement_lags | — |
-| configs/sparebank_scorecard_v1.yaml | axes, formula_version, hard_gates, horizons, judgement, schema_version | formula_version=sparebank-scorecard-v1.0.0; schema_version=1 |
+| configs/sparebank_scorecard_v1.yaml | axes, formula_version, hard_gates, horizons, judgement, schema_version, scorecard, valuation_defaults | formula_version=sparebank-scorecard-v1.2.0; schema_version=1 |
+| configs/stock_fundamentals_v1.yaml | growth, peers, reporting, schema_version, scope, scoring, sec_edgar_concepts, sources, text, valuation, yfinance_labels | schema_version=1 |
 | configs/storage_policy.yaml | analytics, backups, encryption, exports, integrity, local_first, migrations, policy_id, recovery, retention, schema_version, storage_schema_version, transactional | schema_version=1; storage_schema_version=4 |
 | configs/strategy_scope.yaml | capability_profiles, exclusion_policy, executable_authority, execution_allowed, instrument_rules, matrix_version, policy_id, policy_version, profile_assignments, schema_version, strategies, ui_surface | matrix_version="2026-07-21"; policy_version="2026-07-21"; schema_version="2.0" |
 | configs/strategy_templates_v1.yaml | default_enabled, execution_allowed, registry_version, rejected_strategy_types, schema_version, templates | registry_version="strategy_templates.v1"; schema_version="1.0" |

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import functools
+
 import json
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -162,21 +164,35 @@ def _inspect_latest_csv(dataset: str, directory: Path, provider: str, required: 
 def _inspect_file(dataset: str, path: Path, provider: str, required: tuple[str, ...], as_of: date, stale_after_days: int) -> DataHealthRow:
     if not path.exists():
         return _make_row(dataset, DataHealthStatus.MISSING, path, provider, warnings=("store_missing",), history_root=_history_root(path))
+    stat = path.stat()
+    checksum, read_error, columns, row_count, as_of_value = _file_facts(str(path), stat.st_mtime_ns, stat.st_size, required)
+    if read_error is not None:
+        return _make_row(dataset, DataHealthStatus.CORRUPT, path, provider, row_count=0, checksum=checksum, warnings=(f"read_failed:{read_error}",), history_root=_history_root(path))
+    missing = tuple(column for column in required if column not in columns)
+    if missing:
+        return _make_row(dataset, DataHealthStatus.SCHEMA_MISMATCH, path, provider, row_count=row_count, checksum=checksum, warnings=(f"missing_columns:{','.join(missing)}",), history_root=_history_root(path))
+    if as_of_value is None:
+        return _make_row(dataset, DataHealthStatus.UNAVAILABLE, path, provider, row_count=row_count, checksum=checksum, freshness="unknown", warnings=("as_of_unavailable",), history_root=_history_root(path))
+    status = DataHealthStatus.HEALTHY if as_of_value >= as_of - timedelta(days=stale_after_days) else DataHealthStatus.STALE
+    freshness = "fresh" if status is DataHealthStatus.HEALTHY else "stale"
+    warnings = () if status is DataHealthStatus.HEALTHY else (f"as_of_older_than_{stale_after_days}_days",)
+    return _make_row(dataset, status, path, provider, row_count=row_count, checksum=checksum, as_of=as_of_value.isoformat(), freshness=freshness, warnings=warnings, history_root=_history_root(path))
+
+
+@functools.lru_cache(maxsize=256)
+def _file_facts(path_text: str, _mtime_ns: int, _size: int, required: tuple[str, ...]):
+    """Checksum, read error, columns, row count and latest date of one file version (keyed by mtime/size)."""
+
+    path = Path(path_text)
     checksum = _sha256(path)
     try:
         frame = pd.read_csv(path) if path.suffix.lower() == ".csv" else pd.read_parquet(path)
     except Exception as exc:
-        return _make_row(dataset, DataHealthStatus.CORRUPT, path, provider, row_count=0, checksum=checksum, warnings=(f"read_failed:{type(exc).__name__}",), history_root=_history_root(path))
-    missing = tuple(column for column in required if column not in frame.columns)
-    if missing:
-        return _make_row(dataset, DataHealthStatus.SCHEMA_MISMATCH, path, provider, row_count=len(frame), checksum=checksum, warnings=(f"missing_columns:{','.join(missing)}",), history_root=_history_root(path))
-    as_of_value = _latest_date(frame, required)
-    if as_of_value is None:
-        return _make_row(dataset, DataHealthStatus.UNAVAILABLE, path, provider, row_count=len(frame), checksum=checksum, freshness="unknown", warnings=("as_of_unavailable",), history_root=_history_root(path))
-    status = DataHealthStatus.HEALTHY if as_of_value >= as_of - timedelta(days=stale_after_days) else DataHealthStatus.STALE
-    freshness = "fresh" if status is DataHealthStatus.HEALTHY else "stale"
-    warnings = () if status is DataHealthStatus.HEALTHY else (f"as_of_older_than_{stale_after_days}_days",)
-    return _make_row(dataset, status, path, provider, row_count=len(frame), checksum=checksum, as_of=as_of_value.isoformat(), freshness=freshness, warnings=warnings, history_root=_history_root(path))
+        return checksum, type(exc).__name__, (), 0, None
+    columns = tuple(str(column) for column in frame.columns)
+    if any(column not in frame.columns for column in required):
+        return checksum, None, columns, len(frame), None
+    return checksum, None, columns, len(frame), _latest_date(frame, required)
 
 
 def _inspect_macro(path: Path, as_of: date, stale_after_days: int) -> DataHealthRow:
@@ -505,6 +521,14 @@ def _event_matches_path(event: dict[str, object], root: Path, target: Path) -> b
 
 
 def _normalise_path(path: Path) -> str:
+    return _normalise_path_text(str(path))
+
+
+@functools.lru_cache(maxsize=8192)
+def _normalise_path_text(text: str) -> str:
+    # Event logs repeat the same few paths thousands of times; resolving each one hits the
+    # filesystem (realpath), which dominated every Home render.
+    path = Path(text)
     try:
         return str(path.resolve()).replace("/", "\\").rstrip("\\").lower()
     except OSError:

@@ -1,0 +1,37 @@
+prompt chars 186820 | tests: 1001 collected, 18 failed. Failures: tests.bughunt.test_fix_p_extras::test_s8_03_serialized_appends_preserve_both_runs;  | prefetched: 10
+SBFIX DONE
+VERDICT: CHANGES_NEEDED
+
+BLOCKING:
+
+1. `src/etf_cockpit/application/instrument_detail_view.py:2792`; `src/etf_cockpit/data/score_history.py:83` — Both files are outside the authorised write set. Passing the workspace cutoff and persisting `effective_at` depend on these unauthorised edits. Concrete fix: obtain the required scope decision before retaining them; flag NEEDS_OPUS_DECISION.
+
+2. `src/etf_cockpit/analysis/sparebank/bank_economics.py:357` — Evidenced sustainable ROE can never resolve: `missing_components` unconditionally includes securities/alliance history and rate-cycle history. The previous preservation of an existing resolved bridge is also removed. Consequently, even supplied evidenced normalisation is replaced with unavailable output unless an explicit assumption bypasses it. Concrete fix: recognise evidenced bridge components through the existing evidence path and preserve a valid evidenced bridge; list only genuinely missing components.
+
+3. `src/etf_cockpit/analysis/sparebank/valuation.py:378` — The legacy reverse branch bypasses normalised assumptions and validation errors. With `price_to_book`, `k=0.15`, `cost_of_equity=0.10`, and `g=0.03`, normalisation records an alias conflict and `_book_valuation` returns unavailable, but `valuation` still calls `reverse_valuation` using raw `k` and publishes that result. Concrete fix: apply assumption errors before every valuation branch and consume canonical keys throughout.
+
+4. `src/etf_cockpit/application/sparebank_evidence.py:29` — `_filing_identity` accepts `filing_version` alone even when stronger identity fields differ. Two filings with the same version label but different hashes or URLs therefore match, allowing their flow metrics to be combined. Concrete fix: use a coherent document identity that distinguishes those filings and reject conflicting identities.
+
+5. `src/etf_cockpit/application/sparebank_evidence.py:29` — Statement incompatibility can lose its reason entirely. An anchor with no start date causes every flow to be rejected; with no matching stocks, `return result if result["current"] else {}` discards all `unavailable_reasons`. An unconsolidated anchor can similarly exclude the usable consolidated filing. Concrete fix: filter anchor eligibility consistently and retain the unavailable result and reason codes when no current values survive.
+
+6. `src/etf_cockpit/analysis/sparebank/bank_economics.py:357` — Missing owner earnings or capital returns `normalised={}` before constructing the missing-component list. This publishes neither sustainable-ROE status nor its reason code or missing components, contrary to criterion 4 and the required unavailable result shape. Concrete fix: return the same structured unavailable normalisation result for these early failure paths.
+
+7. `src/etf_cockpit/application/sparebank_peers.py:146` — History remains ordered by run timestamp after grouping, rather than reporting period. A March run for FY2025 followed by an April rerun for FY2024 yields FY2025 before FY2024 and computes the latter’s change against the future reporting period. Concrete fix: sort selected rows by reporting quarter before building entries and calculating changes.
+
+UNMET_CRITERIA:
+
+- 1: Supersession and cutoff tests are present; workspace cutoff wiring violates the write set.
+- 2: Filing identity can mix documents; incompatible statements can lose their unavailable reason.
+- 3: Weighted/closing separation and missing-gavefond tests are present. The specifically required 15m weighted-count case is absent; the supplied regression uses a derived approximate count.
+- 4: Evidenced resolution is unreachable; early failures lack the required structured missing-component result.
+- 5: Legacy reverse valuation bypasses canonical assumptions and alias errors.
+- 6: NIM and timestamp display changes are present; reporting-period chronology is incorrect.
+- Validation: Passing evidence for the exact required command is absent. Supplied results report 18 failures and failing Ruff.
+- Escalation: Out-of-write-set edits require NEEDS_OPUS_DECISION.
+
+NOTES:
+- Review used supplied material only; no commands were run.
+- The reported 18 failures list only eight test identifiers; failure causes and baseline attribution are unverified.
+- No network, secret disclosure, execution-authority change, or scorecard-weight edit is established by the supplied diff.
+
+QUALITY_SCORE: 4

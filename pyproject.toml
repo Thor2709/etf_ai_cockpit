@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "etf-ai-cockpit"
-version = "0.1.0rc1"
+version = "1.1.0b1"
 description = "Private local-first investment research and decision-support cockpit."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -59,7 +59,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "etf_cockpit.resources" = ["benchmark_reference_registry.json"]
-"etf_cockpit.app" = ["assets/icons/*.png"]
+"etf_cockpit.app" = ["assets/icons/*.png", "assets/fonts/*", "assets/background/*", "assets/globe/*", "assets/geo/*"]
 
 [tool.setuptools.data-files]
 "configs" = ["configs/ui_acceptance.yaml"]

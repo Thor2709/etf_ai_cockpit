@@ -127,6 +127,8 @@ class MarketEvent:
             "low_price": _number(self.low_price, field_name="low_price", minimum=0.0),
             "close_price": _number(self.close_price, field_name="close_price", minimum=0.0),
         }
+        if any(value <= 0 for value in values.values()):
+            raise EventReplayError("market OHLC prices must be strictly positive")
         if values["high_price"] < max(values["open_price"], values["close_price"]) or values["low_price"] > min(values["open_price"], values["close_price"]):
             raise EventReplayError("market high/low do not contain open and close")
         if self.available_quantity is not None:
@@ -308,9 +310,9 @@ def _priority(event: ReplayInput) -> int:
     return {"market": 0, "signal": 1, "target": 2, "proposal": 3, "cancel": 4, "expiry": 4, "order": 5}[event.kind]
 
 
-def _event_key(event: ReplayInput) -> tuple[datetime, int, str, str]:
+def _event_key(event: ReplayInput) -> tuple[datetime, int, str, int]:
     identifier = getattr(event, "order_id", None) or getattr(event, "proposal_id", None) or getattr(event, "signal_id", None) or getattr(event, "target_id", None) or getattr(event, "instrument_id", "")
-    return (_as_timestamp(event.timestamp), _priority(event), str(identifier), str(event.sequence))
+    return (_as_timestamp(event.timestamp), _priority(event), str(identifier), int(event.sequence))
 
 
 def _serialise_event(event: ReplayEvent, sequence: int) -> dict[str, object]:
@@ -415,6 +417,7 @@ class EventDrivenBacktest:
         states: dict[str, OrderState],
         output: list[ReplayEvent],
     ) -> None:
+        left = market.available_quantity
         for order_id in sorted(tuple(active)):
             record = active[order_id]
             request = record["request"]
@@ -428,10 +431,12 @@ class EventDrivenBacktest:
                 continue
             filled = float(record["filled"])
             remaining = request.quantity - filled
-            capacity = market.available_quantity if market.available_quantity is not None else remaining
+            capacity = left if left is not None else remaining
             quantity = min(remaining, capacity)
             if quantity <= 0:
                 continue
+            if left is not None:
+                left -= quantity
             price = _fill_price(request, market)
             count = int(record["fill_count"]) + 1
             record["filled"] = filled + quantity

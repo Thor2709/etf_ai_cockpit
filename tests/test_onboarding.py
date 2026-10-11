@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import threading
+import types
 
 import pytest
 
@@ -394,37 +395,58 @@ def test_offline_onboarding_keeps_configured_local_ticker_enabled(tmp_path) -> N
     assert by_ticker["MISSING"].enabled is False
 
 
+
+def _walk_page(item):
+    """Yield every control of a rebuilt PageView (or plain control) tree."""
+    if hasattr(item, "body") and hasattr(item, "chrome"):
+        yield from _walk_page(item.body)
+        return
+    if not isinstance(item, ft.Control):
+        return
+    yield item
+    for attr in ("controls", "actions"):
+        for child in getattr(item, attr, ()) or ():
+            yield from _walk_page(child)
+    content = getattr(item, "content", None)
+    if content is not None:
+        yield from _walk_page(content)
+
+
+def _by_key(view, key):
+    return next(item for item in _walk_page(view) if getattr(item, "key", None) == key)
+
+
+def _open_step(view, index):
+    _by_key(view, f"onboarding.step.{index}").on_click(None)
+
+
+def _field_text_input(view, label):
+    column = next(
+        item for item in _walk_page(view)
+        if isinstance(getattr(item, "data", None), dict) and item.data.get("kit") == "Field" and item.data.get("label") == label
+    )
+    return next(item for item in _walk_page(column) if isinstance(item, ft.TextField))
+
 def test_onboarding_ui_exposes_opt_in_online_validator_seam() -> None:
     control = onboarding_page(None, None, validator=lambda _ticker: True)
-
-    def walk(item):
-        if not isinstance(item, ft.Control):
-            return
-        yield item
-        for attr in ("controls", "actions"):
-            values = getattr(item, attr, None)
-            if values:
-                for child in values:
-                    yield from walk(child)
-        content = getattr(item, "content", None)
-        if content is not None:
-            yield from walk(content)
-
-    toggle = next(item for item in walk(control) if isinstance(item, ft.Checkbox) and item.key == "onboarding.online-validation")
-    assert toggle.value is False
+    _open_step(control, 2)
+    toggle = _by_key(control, "onboarding.online-validation")
+    assert toggle.data["on"] is False
+    assert toggle.on_click is not None
 
 
 def test_online_toggle_is_disabled_without_validator() -> None:
     control = onboarding_page(None, None)
-    toggle = next(item for item in control.controls[0].content.controls if isinstance(item, ft.Checkbox) and item.key == "onboarding.online-validation")
-    assert toggle.disabled is True
-    assert "unavailable" in str(toggle.label).lower()
+    _open_step(control, 2)
+    toggle = _by_key(control, "onboarding.online-validation")
+    assert toggle.on_click is None
+    assert "validator" in str(toggle.tooltip).lower()
 
 
 def test_onboarding_page_constructs_from_empty_cwd_with_bundled_policy(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     control = onboarding_page(None, None)
-    assert isinstance(control, ft.Column)
+    assert hasattr(control, "body") and hasattr(control, "chrome")
     assert "Data source policy unavailable" not in str(control)
 
 
@@ -467,7 +489,8 @@ def test_persisted_hardware_profile_is_used_by_onboarding_readiness(tmp_path, mo
 
     monkeypatch.setattr(onboarding_module, "resource_profile_report", report)
     monkeypatch.chdir(tmp_path)
-    onboarding_page(None, None)
+    # The rebuilt page reports resource readiness only when it has an active state.
+    onboarding_page(None, types.SimpleNamespace(snapshot=None))
     assert observed["requested_profile"] == "recommended"
 
 
@@ -501,23 +524,8 @@ def test_onboarding_save_reloads_active_state(monkeypatch) -> None:
     state = _State()
     page = _Page()
     control = onboarding_page(page, state, validator=lambda _ticker: True)
-
-    def walk(item):
-        if not isinstance(item, ft.Control):
-            return
-        yield item
-        for attr in ("controls", "actions"):
-            for child in getattr(item, attr, ()) or ():
-                yield from walk(child)
-        content = getattr(item, "content", None)
-        if content is not None:
-            yield from walk(content)
-
-    save = next(
-        item
-        for item in walk(control)
-        if isinstance(item, ft.Button) and item.key == "onboarding.save"
-    )
+    _open_step(control, 3)
+    save = _by_key(control, "onboarding.save")
     save.on_click(None)
     assert state.applied == (refreshed_config, "onboarding-revision")
     assert state.refreshed_profile == "auto"
@@ -793,27 +801,19 @@ def test_ui_typed_quota_result_is_visible_and_saves_offline_setup(tmp_path, monk
         calls.append(ticker)
         return TickerValidationResult("quota_unavailable", "yfinance")
 
-    def walk(item):
-        if not isinstance(item, ft.Control):
-            return
-        yield item
-        for attr in ("controls", "actions"):
-            for child in getattr(item, attr, ()) or ():
-                yield from walk(child)
-        content = getattr(item, "content", None)
-        if content is not None:
-            yield from walk(content)
-
     page = _Page()
     control = onboarding_page(page, None, validator=quota_validator)
-    controls = tuple(walk(control))
-    toggle = next(item for item in controls if isinstance(item, ft.Checkbox) and item.key == "onboarding.online-validation")
-    ticker_field = next(item for item in controls if isinstance(item, ft.TextField) and item.label == "Initial tickers (comma separated)")
-    save = next(item for item in controls if isinstance(item, ft.Button) and item.key == "onboarding.save")
-    status = next(item for item in controls if isinstance(item, ft.Text) and item.key == "onboarding.status")
-    toggle.value = True
+    _open_step(control, 2)
+    toggle = _by_key(control, "onboarding.online-validation")
+    ticker_field = _field_text_input(control, "Initial tickers (comma separated)")
+    status = _by_key(control, "onboarding.status")
+    toggle.on_click(None)
+    assert toggle.data["on"] is True
     ticker_field.value = "ONE, TWO"
     monkeypatch.chdir(tmp_path)
+    _open_step(control, 3)
+    save = _by_key(control, "onboarding.save")
+    page.updates = 0
 
     save.on_click(None)
 

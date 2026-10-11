@@ -21,6 +21,12 @@ from etf_cockpit.data.manual_notes import (
 
 
 def _text_values(node: object) -> list[str]:
+    if hasattr(node, "chrome") and hasattr(node, "body"):
+        chrome = node.chrome
+        values = [str(getattr(chrome, "title", "")), str(getattr(chrome, "subtitle", ""))]
+        for group in getattr(chrome, "segment_groups", ()) or ():
+            values.extend(str(item) for item in getattr(group, "items", ()) or ())
+        return values + _text_values(node.body)
     values: list[str] = []
     value = getattr(node, "value", None)
     if value:
@@ -262,7 +268,7 @@ def test_issue_0058_data_models_surface_shows_structured_flags(monkeypatch) -> N
     )
 
     rendered = data_models_page(None, SimpleNamespace(snapshot=snapshot, last_message=""))
-    text = "\n".join(_text_values(rendered))
+    text = "\n".join(_text_values(rendered.body))
 
     assert "credibility_flags=" in text
     assert "missing_benchmark" in text

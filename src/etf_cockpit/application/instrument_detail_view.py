@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date, datetime
 import math
 from numbers import Integral, Real
 from pathlib import Path
+import re
+import threading
 from typing import TYPE_CHECKING, Any, Mapping
 
 import pandas as pd
 
+from etf_cockpit.core.paths import REPORTS_DIR, ROOT
+from etf_cockpit.core.session_log import log_event
 from etf_cockpit.application.ui_facade import (
     DecisionJournal,
     JournalIntegrityError,
@@ -62,6 +67,8 @@ from etf_cockpit.application.ui_facade import (
     allocation_frame,
     model_zoo_frame,
 )
+from etf_cockpit.application.overlap import load_direct_holdings
+from etf_cockpit.core.frame_signature import content_signature
 from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.core.paths import ETF_QUOTES_PATH
 from etf_cockpit.analysis.candles import (
@@ -410,6 +417,7 @@ def _load_parquet(path: object) -> pd.DataFrame:
         candidates.append(candidate.with_suffix(".csv"))  # type: ignore[union-attr]
     except (AttributeError, TypeError, ValueError):
         pass
+    failures: list[str] = []
     for source in candidates:
         try:
             if not source.exists():  # type: ignore[union-attr]
@@ -418,9 +426,53 @@ def _load_parquet(path: object) -> pd.DataFrame:
             if frame.empty and source.suffix.lower() == ".parquet":
                 continue
             return frame
-        except Exception:
+        except Exception as exc:
+            failures.append(type(exc).__name__)
+            log_event(
+                event_type="data_read_failed",
+                severity="warning",
+                component="instrument_detail_artifact",
+                operation="read_optional_local_artifact",
+                file_paths=source,
+                exception_type=type(exc).__name__,
+                exception_message_redacted=str(exc),
+            )
             continue
-    return pd.DataFrame()
+    frame = pd.DataFrame()
+    if failures:
+        frame.attrs["unavailable_reason"] = "local_artifact_unreadable:" + ",".join(dict.fromkeys(failures))
+    return frame
+
+
+_IDENTIFIER_CACHE: OrderedDict[tuple[object, ...], pd.DataFrame] = OrderedDict()
+_IDENTIFIER_CACHE_LOCK = threading.Lock()
+_IDENTIFIER_CACHE_SIZE = 8
+
+
+def _normalised_identifiers(source: pd.DataFrame, available: list[str]) -> pd.DataFrame:
+    """Normalise the ID columns once per distinct content (many instruments scope the same frame)."""
+
+    def build() -> pd.DataFrame:
+        return pd.DataFrame(
+            {column: source[column].map(_normalise_identifier) for column in available},
+            index=source.index,
+        )
+
+    signatures = [content_signature(source[column]) for column in available] + [content_signature(source.index)]
+    if any(signature is None for signature in signatures):
+        return build()
+    key = (tuple(available), len(source), tuple(signatures))
+    with _IDENTIFIER_CACHE_LOCK:
+        cached = _IDENTIFIER_CACHE.get(key)
+        if cached is not None:
+            _IDENTIFIER_CACHE.move_to_end(key)
+            return cached
+    identifiers = build()
+    with _IDENTIFIER_CACHE_LOCK:
+        _IDENTIFIER_CACHE[key] = identifiers
+        while len(_IDENTIFIER_CACHE) > _IDENTIFIER_CACHE_SIZE:
+            _IDENTIFIER_CACHE.popitem(last=False)
+    return identifiers
 
 
 def _instrument_rows(frame: object, instrument_id: str, *, columns: tuple[str, ...] = _CANONICAL_ID_COLUMNS) -> pd.DataFrame:
@@ -431,9 +483,9 @@ def _instrument_rows(frame: object, instrument_id: str, *, columns: tuple[str, .
     instrument's identifiers, or no usable identifier, are ignored.
     """
 
-    source = _safe_frame(frame)
+    source = frame if isinstance(frame, pd.DataFrame) else pd.DataFrame()  # read-only here; results are copies
     if source.empty:
-        return source
+        return source.copy()
     if bool(source.columns.duplicated().any()):
         return source.iloc[0:0].copy()
     available = [column for column in columns if column in source.columns]
@@ -442,15 +494,10 @@ def _instrument_rows(frame: object, instrument_id: str, *, columns: tuple[str, .
     target = _normalise_identifier(instrument_id)
     if target is None:
         return source.iloc[0:0].copy()
-    identifiers = pd.DataFrame(
-        {column: source[column].map(_normalise_identifier) for column in available},
-        index=source.index,
-    )
+    identifiers = _normalised_identifiers(source, available)
     matches = identifiers.eq(target).any(axis=1)
-    contradictory = identifiers.apply(
-        lambda row: any(not _is_missing_scalar(value) and value != target for value in row),
-        axis=1,
-    )
+    # Normalised identifiers are str or None, so "populated and different" is vectorisable.
+    contradictory = (identifiers.notna() & identifiers.ne(target)).any(axis=1)
     return source.loc[matches & ~contradictory].copy()
 
 
@@ -637,24 +684,64 @@ def normalise_feature_driver_frame(frame: pd.DataFrame) -> pd.DataFrame:
 def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
     try:
         statement_evidence = load_statement_evidence(instrument_id=instrument_id)
-    except Exception:
+    except Exception as exc:
+        log_event(
+            event_type="data_read_failed",
+            severity="warning",
+            component="instrument_fundamentals",
+            operation="read_statement_evidence",
+            instrument_id=str(instrument_id),
+            exception_type=type(exc).__name__,
+            exception_message_redacted=str(exc),
+        )
         statement_evidence = {
             "status": "unavailable",
-            "message": "Canonical statement evidence unavailable; the local statement store is malformed.",
+            "message": f"Canonical statement evidence unavailable; the local statement store could not be read ({type(exc).__name__}).",
             "statement_history": [],
             "execution_allowed": False,
         }
     try:
         source = frame if isinstance(frame, pd.DataFrame) else load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
-    except Exception:
+    except Exception as exc:
+        log_event(
+            event_type="data_read_failed",
+            severity="warning",
+            component="instrument_fundamentals",
+            operation="read_fundamentals",
+            instrument_id=str(instrument_id),
+            file_paths=FUNDAMENTAL_CLEAN_PATH,
+            exception_type=type(exc).__name__,
+            exception_message_redacted=str(exc),
+        )
+        if frame is None:
+            candidate = _candidate_report_fundamentals(instrument_id)
+            if candidate is not None:
+                return candidate | {"score_eligible": False, **_statement_panel_fields(statement_evidence)}
         return _unavailable("Fundamental evidence unavailable; the optional local store is missing or corrupt.") | {"score_eligible": False, **_statement_panel_fields(statement_evidence)}
     if source.empty or "instrument_id" not in source.columns:
+        if frame is None:
+            candidate = _candidate_report_fundamentals(instrument_id)
+            if candidate is not None:
+                return candidate | {"score_eligible": False, **_statement_panel_fields(statement_evidence)}
         return _unavailable("Fundamental evidence unavailable; no complete local five-section record is registered.") | {"score_eligible": False, **_statement_panel_fields(statement_evidence)}
     try:
         scoped = latest_fundamental_rows(_instrument_rows(source, instrument_id))
-    except Exception:
+    except Exception as exc:
+        log_event(
+            event_type="data_read_failed",
+            severity="warning",
+            component="instrument_fundamentals",
+            operation="scope_fundamentals",
+            instrument_id=str(instrument_id),
+            exception_type=type(exc).__name__,
+            exception_message_redacted=str(exc),
+        )
         return _unavailable("Fundamental evidence unavailable; the optional local store is malformed.") | {"score_eligible": False, **_statement_panel_fields(statement_evidence)}
     if scoped.empty:
+        if frame is None:
+            candidate = _candidate_report_fundamentals(instrument_id)
+            if candidate is not None:
+                return candidate | {"score_eligible": False, **_statement_panel_fields(statement_evidence)}
         return _unavailable("Fundamental evidence unavailable for this instrument.") | {"score_eligible": False, **_statement_panel_fields(statement_evidence)}
     row = scoped.iloc[-1]
     eligibility = _safe_known_text(row.get("eligibility"), _KNOWN_FUNDAMENTAL_ELIGIBILITY)
@@ -704,6 +791,78 @@ def _fundamentals_panel(instrument_id: str, frame: pd.DataFrame | None = None) -
     }
 
 
+def _candidate_report_fundamentals(instrument_id: str) -> dict[str, Any] | None:
+    """Expose recorded candidate-report fundamentals as partial, non-score evidence."""
+
+    paths = sorted(REPORTS_DIR.glob("yfinance_trade_candidate_analysis_*.csv"), reverse=True)
+    if not paths:
+        return None
+    path = paths[0]
+    try:
+        reports = pd.read_csv(path)
+    except (OSError, ValueError, UnicodeError) as exc:
+        log_event(
+            event_type="data_read_failed",
+            severity="warning",
+            component="candidate_fundamentals",
+            operation="read_candidate_report",
+            instrument_id=str(instrument_id),
+            file_paths=path,
+            exception_type=type(exc).__name__,
+            exception_message_redacted=str(exc),
+        )
+        return None
+    if not {"instrument_id", "latest_date"}.issubset(reports.columns):
+        return None
+    rows = reports.loc[reports["instrument_id"].astype(str).eq(str(instrument_id))]
+    if rows.empty:
+        return None
+    row = rows.sort_values("latest_date", kind="stable").iloc[-1]
+    metric_columns = (
+        "trailing_pe", "forward_pe", "price_to_book", "earnings_yield", "fcf_yield",
+        "roe", "operating_margin", "profit_margin", "debt_to_equity",
+    )
+    values = {name: _safe_float(row.get(name)) for name in metric_columns}
+    values = {name: value for name, value in values.items() if value is not None}
+    if not values:
+        return None
+    return {
+        "status": "partial",
+        "reason_code": "candidate_report_fundamentals_partial",
+        "message": "Partial fundamentals from the yfinance candidate report; these unofficial metrics do not form a complete five-section record and are not score eligible.",
+        "eligibility": "not_score_eligible",
+        "score_eligible": False,
+        "manual_review": True,
+        "source": _value_or(row.get("fundamental_source"), "yfinance_candidate_report"),
+        "source_id": path.name,
+        "source_authority": "vendor_unofficial",
+        "as_of": _value_or(row.get("latest_date"), "unavailable"),
+        "freshness_status": "source_dated",
+        "freshness_days": None,
+        "review_reasons": ("candidate_report_does_not_supply_a_complete_five_section_record",),
+        "values": values,
+        "section_metadata": {
+            "valuation": {name: values.get(name) for name in metric_columns[:5]},
+            "profitability": {name: values.get(name) for name in metric_columns[5:8]},
+            "leverage": {"debt_to_equity": values.get("debt_to_equity")},
+            "growth": {"value": None, "reason": "candidate_report_growth_fundamentals_unavailable"},
+            "shareholder_return": {"value": None, "reason": "candidate_report_shareholder_return_unavailable"},
+        },
+        "missing_fields": "growth|shareholder_return",
+        "warnings": _value_or(row.get("fundamental_warnings"), ""),
+        "stale_fields": "",
+        "limitations": _value_or(row.get("fundamental_limitations"), "Unofficial vendor data; not a complete fundamental record."),
+        "sector_relative_status": "unavailable",
+        "sector_relative_value": None,
+        "sector_relative_peer": "",
+        "sector_relative_benchmark": "",
+        "sector_relative_delta": None,
+        "sector_relative_limitation": "No sector-relative comparison evidence supplied.",
+        "executable_authority": False,
+        "execution_allowed": False,
+    }
+
+
 def _statement_panel_fields(evidence: Mapping[str, object]) -> dict[str, object]:
     return {
         "statement_history": evidence.get("statement_history", []),
@@ -748,6 +907,7 @@ def _event_calendar_panel(
     frame: pd.DataFrame | None = None,
     *,
     decision_time: object = None,
+    prices: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """Return upcoming event evidence without allowing it into score paths."""
 
@@ -770,16 +930,44 @@ def _event_calendar_panel(
 
     try:
         source = frame if isinstance(frame, pd.DataFrame) else load_calendar_events(EVENT_CLEAN_PATH)
-    except Exception:
+    except Exception as exc:
+        log_event(
+            event_type="data_read_failed",
+            severity="warning",
+            component="event_calendar",
+            operation="read_calendar_events",
+            instrument_id=str(instrument_id),
+            file_paths=EVENT_CLEAN_PATH,
+            exception_type=type(exc).__name__,
+            exception_message_redacted=str(exc),
+        )
         return unavailable("Event calendar unavailable; the optional local store is missing or corrupt.")
-    if source.empty or "instrument_id" not in source.columns:
-        return unavailable("Event calendar unavailable; no local earnings, dividend or action records are registered.")
-    try:
-        scoped = events_available_as_of(source, cutoff, instrument_id)
-    except Exception:
-        return unavailable("Event calendar unavailable; the local store is malformed.")
+    scoped = pd.DataFrame()
+    if not source.empty and "instrument_id" in source.columns:
+        try:
+            scoped = events_available_as_of(source, cutoff, instrument_id)
+        except Exception as exc:
+            log_event(
+                event_type="data_read_failed",
+                severity="warning",
+                component="event_calendar",
+                operation="validate_calendar_events",
+                instrument_id=str(instrument_id),
+                exception_type=type(exc).__name__,
+                exception_message_redacted=str(exc),
+            )
+            return unavailable("Event calendar unavailable; the local store is malformed.")
     if scoped.empty:
-        return unavailable("Event calendar unavailable; no records were available for this instrument at the snapshot decision time.")
+        price_rows = _historical_price_dividends(instrument_id, prices, cutoff)
+        if not price_rows:
+            return unavailable("Event calendar unavailable; no timestamp-validated event or recorded dividend rows exist for this instrument at the snapshot decision time.")
+        return {
+            "status": "partial",
+            "reason_code": "event_calendar_partial_from_price_dividends",
+            "message": "Historical dividends recorded in local price history; this is not a full event calendar or a forecast.",
+            "events": price_rows,
+            **panel_metadata,
+        }
     events = []
     for row in scoped.to_dict("records")[:30]:
         item = dict(row)
@@ -794,6 +982,40 @@ def _event_calendar_panel(
         )
         events.append(item)
     return {"status": "available", "message": "Events are context-only risk evidence and cannot change deterministic scores or actions.", "events": events, **panel_metadata}
+
+
+def _historical_price_dividends(
+    instrument_id: str,
+    prices: pd.DataFrame | None,
+    cutoff: pd.Timestamp,
+) -> list[dict[str, object]]:
+    if not isinstance(prices, pd.DataFrame) or prices.empty or not {"etf_id", "date", "dividends"}.issubset(prices.columns):
+        return []
+    rows = _instrument_rows(prices, instrument_id, columns=("etf_id",))
+    dates = pd.to_datetime(rows["date"], errors="coerce", utc=True)
+    amounts = pd.to_numeric(rows["dividends"], errors="coerce")
+    known = dates.notna() & (dates <= cutoff) & amounts.notna() & amounts.ne(0)
+    events: list[dict[str, object]] = []
+    for index, row in rows.loc[known].iterrows():
+        events.append(
+            {
+                "instrument_id": str(instrument_id),
+                "event_type": "dividend",
+                "event_date": dates.loc[index].tz_convert(None).date().isoformat(),
+                "title": "Dividend recorded in price history",
+                "amount": float(amounts.loc[index]),
+                "currency": _value_or(row.get("currency"), "unavailable"),
+                "source_dataset": "clean_prices",
+                "source_column": "dividends",
+                "source": _value_or(row.get("source"), "unavailable"),
+                "available_at_decision_time": True,
+                "decision_time": cutoff.isoformat(),
+                "context_only": True,
+                "execution_allowed": False,
+                "executable_authority": False,
+            }
+        )
+    return events[-30:]
 def _news_item_record(row: Mapping[str, Any]) -> dict[str, Any]:
     """Normalise every row to the provenance fields rendered by Instrument Detail."""
 
@@ -903,10 +1125,14 @@ def _etf_disclosure_panel(
         )
 
     if holdings is None:
-        holdings = _load_parquet(FUND_HOLDINGS_PATH)
+        holdings = load_direct_holdings()
     holdings_frame = holdings.copy() if isinstance(holdings, pd.DataFrame) else pd.DataFrame()
     holdings_manual_review = False
-    holdings_message = ""
+    holdings_message = (
+        "ETF holdings could not be read from the local store."
+        if holdings_frame.attrs.get("unavailable_reason")
+        else ""
+    )
     if not holdings_frame.empty:
         holdings_frame, holdings_manual_review = _scope_identifier_rows(holdings_frame, instrument_id)
         if holdings_manual_review:
@@ -1530,6 +1756,22 @@ def _scoreboard_lookup(
     rows = _instrument_rows(frame, instrument_id, columns=("instrument_id", "display_id", "etf_id"))
     if rows.empty:
         return {}, "scoreboard_row_missing_for_instrument"
+    pending_labels = {"pending_refresh", "pending", "unavailable"}
+    if "final_label" in rows.columns:
+        not_pending = ~rows["final_label"].fillna("").astype(str).str.casefold().isin(pending_labels)
+    else:
+        not_pending = pd.Series(True, index=rows.index)
+    numeric_columns = [
+        name for name in ("evidence_score_10", "evidence_score", "final_combined_score_10", "current_price")
+        if name in rows.columns
+    ]
+    if numeric_columns:
+        has_numeric = rows[numeric_columns].apply(pd.to_numeric, errors="coerce").notna().any(axis=1)
+        scored = rows.loc[not_pending & has_numeric]
+        if not scored.empty:
+            rows = scored
+        elif bool(not_pending.any()):
+            rows = rows.loc[not_pending]
     return rows.iloc[-1].to_dict(), None
 
 
@@ -1540,6 +1782,7 @@ def _score_panel(
     friction: Mapping[str, Any],
     *,
     scoreboard_reason_code: str | None = None,
+    financial_projection: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
     if signal is None and not scoreboard:
         return _unavailable("Score evidence unavailable for this instrument.") | {
@@ -1564,11 +1807,43 @@ def _score_panel(
         label = _safe_text(getattr(signal, "research_state", None))
     label_valid = label is not None
     label = label or "manual_review"
-    reason = next((_safe_text(scoreboard.get(key)) for key in ("one_line_reason", "reason") if _safe_text(scoreboard.get(key)) is not None), None)
+    reason = next((_safe_text(scoreboard.get(key)) for key in ("one_line_reason", "reason_short", "reason") if _safe_text(scoreboard.get(key)) is not None), None)
     if reason is None:
         reason = _safe_text(getattr(signal, "reason_long", None))
     reason_valid = reason is not None
     reason = reason or "Score reason unavailable."
+    if label == "scorecard_owned" and evidence_score is None and financial_projection is not None:
+        # The native Sparebank scorecard is independent of the generic adapter status: use it whenever present.
+        identity = financial_projection.get("share_class_identity")
+        analysis = identity.get("sparebank_analysis") if isinstance(identity, Mapping) else None
+        analysis = analysis if isinstance(analysis, Mapping) else {}
+        scorecard = analysis.get("scorecard")
+        scorecard = scorecard if isinstance(scorecard, Mapping) else {}
+        if not scorecard and str(financial_projection.get("status") or "").casefold() != "available":
+            projection_reason = _safe_text(financial_projection.get("reason_code")) or "financial_projection_unavailable"
+            reason = f"Score unavailable: the bank scorecard could not be built ({projection_reason})."
+        else:
+            composite = _safe_float(scorecard.get("composite_10"))
+            if composite is not None:
+                evidence_score = composite
+                reason = "Score supplied by the native Sparebank scorecard."
+            else:
+                missing_axes = [str(value) for value in _safe_sequence(scorecard.get("missing_axes")) if str(value).strip()]
+                gate_reasons = [str(value) for value in _safe_sequence(scorecard.get("gate_reasons")) if str(value).strip()]
+                history_status = analysis.get("history_status")
+                history_reason = _safe_text(history_status.get("reason")) if isinstance(history_status, Mapping) else None
+                detail = "; ".join(
+                    value
+                    for value in (
+                        f"missing axes: {', '.join(missing_axes)}" if missing_axes else None,
+                        f"scorecard reasons: {', '.join(gate_reasons)}" if gate_reasons else None,
+                        f"history: {history_reason}" if history_reason else None,
+                    )
+                    if value
+                ) or "the native scorecard returned no composite or blocking reason"
+                reason = f"Score unavailable at score: Sparebank composite unavailable; {detail}."
+    if re.search(r"\bnan\b", reason, re.IGNORECASE) or "n/ad" in reason.casefold():
+        reason = "Score explanation unavailable because one or more component values are nonfinite; see component status and reason fields."
     signal_score = _safe_float(getattr(signal, "total_score", None))
     canonical = getattr(signal, "canonical_score", None)
     canonical_payload = canonical.as_dict() if canonical is not None else {}
@@ -1580,7 +1855,9 @@ def _score_panel(
     )
     canonical_confidence = _safe_float(canonical_payload.get("evidence_confidence_10"))
     scoreboard_confidence = _safe_float(scoreboard.get("canonical_evidence_confidence_10"))
-    freshness = _safe_text(scoreboard.get("freshness_status"))
+    freshness = (_safe_text(scoreboard.get("freshness_status")) or _safe_text(scoreboard.get("freshness")))
+    if freshness is None and _safe_text(scoreboard.get("latest_price_date")) is not None:
+        freshness = "source_dated"
     freshness_valid = freshness is not None
     numeric_available = any(value is not None for value in (evidence_score, quality, signal_score))
     status = "available" if numeric_available and label_valid and reason_valid and freshness_valid else "manual_review"
@@ -1600,6 +1877,12 @@ def _score_panel(
         "evidence_score": evidence_score,
         "evidence_quality": quality,
         "signal_score": signal_score,
+        "coverage": _safe_float(scoreboard.get("coverage")),
+        "missing_components": (
+            [item for item in scoreboard["missing_components"].split("|") if item]
+            if isinstance(scoreboard.get("missing_components"), str)
+            else list(_safe_sequence(scoreboard.get("missing_components")))
+        ),
         "canonical_attractiveness_10": _safe_float(scoreboard.get("canonical_attractiveness_10")) or _safe_float(canonical_payload.get("attractiveness_10")),
         "canonical_expected_return_10": _safe_float(scoreboard.get("canonical_expected_return_10")) or _safe_float(canonical_payload.get("expected_return_10")),
         "canonical_risk_implementation_10": _safe_float(scoreboard.get("canonical_risk_implementation_10")) or _safe_float(canonical_payload.get("risk_implementation_10")),
@@ -1611,9 +1894,9 @@ def _score_panel(
             else scoreboard_confidence
         ),
         "canonical_coverage": _safe_float(scoreboard.get("canonical_coverage")) or _safe_float(canonical_payload.get("coverage")) or 0.0,
-        "formula_version": scoreboard.get("formula_version") or canonical_payload.get("formula_version", "unavailable"),
-        "formula_checksum": scoreboard.get("formula_checksum") or canonical_payload.get("formula_checksum", "unavailable"),
-        "source_vintage_hash": scoreboard.get("source_vintage_hash") or canonical_payload.get("source_vintage_hash", "unavailable"),
+        "formula_version": _safe_text(scoreboard.get("formula_version")) or _safe_text(canonical_payload.get("formula_version")) or "unavailable",
+        "formula_checksum": _safe_text(scoreboard.get("formula_checksum")) or _safe_text(canonical_payload.get("formula_checksum")) or "unavailable",
+        "source_vintage_hash": _safe_text(scoreboard.get("source_vintage_hash")) or _safe_text(canonical_payload.get("source_vintage_hash")) or "unavailable",
         "final_label": label,
         "final_reason": reason,
         "reason": reason,
@@ -2491,7 +2774,13 @@ def _tactical_scorecard_evidence(signal: object, candidate_score: object) -> dic
     }
 
 
-def _sparebank_workspace(financial_institutions: object) -> dict[str, object]:
+def _sparebank_workspace(
+    financial_institutions: object,
+    *,
+    instrument_id: str | None = None,
+    score_history: pd.DataFrame | None = None,
+    decision_time: object = None,
+) -> dict[str, object]:
     """Project the facade's native analysis into the one Sparebank workspace."""
 
     if not isinstance(financial_institutions, Mapping):
@@ -2505,7 +2794,20 @@ def _sparebank_workspace(financial_institutions: object) -> dict[str, object]:
     scorecard = analysis.get("scorecard")
     scorecard = scorecard if isinstance(scorecard, Mapping) else {}
     claim = analysis.get("claim_state")
+    context: dict[str, object] = {}
+    if instrument_id:
+        from etf_cockpit.application.sparebank_peers import load_peer_rows, picked_peers, quarterly_score_history
+        from etf_cockpit.data.pillar3_queue import load_queue
+
+        context = {
+            "instrument_id": instrument_id,
+            "history": quarterly_score_history(score_history, instrument_id, decision_time),
+            "peers": load_peer_rows(ROOT, instrument_id, decision_time),
+            "picked_peers": picked_peers(ROOT, instrument_id),
+            "pillar3": load_queue(ROOT, instrument_id),
+        }
     return {
+        **context,
         "status": "available",
         "contract": analysis.get("contract"),
         "ownership_passport": claim,
@@ -2523,6 +2825,8 @@ def _sparebank_workspace(financial_institutions: object) -> dict[str, object]:
         "scorecard": scorecard,
         "underwriting_horizon": scorecard.get("underwriting", {"label": "Underwriting", "status": "UNAVAILABLE"}),
         "tactical_horizon": scorecard.get("tactical", {"label": "Tactical", "status": "UNAVAILABLE", "horizon": "1-3 months"}),
+        "dividends": analysis.get("dividends"),
+        "decision_price": analysis.get("decision_price"),
         "evidence_and_coverage": {
             "coverage": analysis.get("coverage"),
             "reason_codes": analysis.get("reason_codes", ()),
@@ -2749,8 +3053,9 @@ def build_instrument_detail(
     financial_institutions = load_financial_institution_projection(
         instrument_id,
         projection=financial_projection,
-        decision_time=projection_time or None,
-        effective_at=projection_time or None,
+        # Live view: decide as of now on the latest reported period (an as-of date is not a reporting period).
+        decision_time=None,
+        effective_at=None,
         tactical_evidence=_tactical_scorecard_evidence(signal, candidate),
     )
     real_assets = load_real_asset_projection(
@@ -2794,13 +3099,25 @@ def build_instrument_detail(
             "fixed_income_risk": fixed_income_risk,
             "peer_cohort": peer_cohort,
             "financial_institutions": financial_institutions,
-            "sparebank_workspace": _sparebank_workspace(financial_institutions),
+            "sparebank_workspace": _sparebank_workspace(
+                financial_institutions,
+                instrument_id=instrument_id,
+                score_history=score_history,
+                decision_time=projection_time or None,
+            ),
             "real_assets": real_assets,
             "cyclicals": cyclicals,
             "innovation": innovation,
             "etf_liquidity": liquidity,
             "etf_economics": economics,
-            "scores": _score_panel(signal, scoreboard, derived, friction, scoreboard_reason_code=scoreboard_reason_code),
+            "scores": _score_panel(
+                signal,
+                scoreboard,
+                derived,
+                friction,
+                scoreboard_reason_code=scoreboard_reason_code,
+                financial_projection=financial_institutions,
+            ),
             "opportunity": opportunity,
             "feature_drivers": _feature_driver_panel(instrument_id),
             "risk": _risk_panel(features, friction, derived["crowding"]),
@@ -2817,7 +3134,12 @@ def build_instrument_detail(
             "etf_holdings": disclosure.get("exposure", _unavailable("ETF holdings/exposure unavailable.")),
             "etf_overlap": direct_overlap_payload(overlap),
             "news": _news_panel(instrument_id, news),
-            "events": _event_calendar_panel(instrument_id, events, decision_time=projection_time or decision_time),
+            "events": _event_calendar_panel(
+                instrument_id,
+                events,
+                decision_time=projection_time or decision_time,
+                prices=getattr(snapshot, "prices", None),
+            ),
             "forecasts": _forecast_panel(snapshot, instrument_id),
             "backtests": _backtest_panel(snapshot, instrument_id, scoreboard),
             "paper_trades": _paper_trade_panel(instrument_id, paper_trades),

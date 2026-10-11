@@ -128,7 +128,7 @@ def test_strategy_builder_page_renders_registry_and_matches_from_facade(tmp_path
     state = SimpleNamespace(snapshot=SimpleNamespace(signals=[{"instrument_id": "ETF-1", "asset_type": "etf", "trend": 0.2}]))
     page = SimpleNamespace(update=lambda: None)
     rendered = strategy_builder.strategy_builder_page(page, state)
-    rendered_text = " ".join(_texts(rendered))
-    assert "Strategy builder" in rendered_text
+    rendered_text = " ".join(_texts(rendered.body))
+    assert rendered.chrome.title == "Strategy Builder"
     assert "ETF dual momentum" in rendered_text
     assert "execution_allowed=false" in rendered_text

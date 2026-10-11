@@ -32,7 +32,7 @@ def test_dashboard_news_digest_shows_unavailable_or_canonical_context(monkeypatc
     monkeypatch.setattr(dashboard, "load_news_items", lambda _path: pd.DataFrame([
         {"headline": "Headline", "provider_name": "Provider", "published_at": "2026-07-10T10:00:00+00:00", "timestamp_status": "valid_context"},
     ]))
-    rendered = "\n".join(_text_values(_news_digest(None, SimpleNamespace())))
+    rendered = "\n".join(_text_values(_news_digest(None, SimpleNamespace(snapshot=SimpleNamespace(data_report=SimpleNamespace(as_of_date="2026-07-10"))))))
     assert "News & context digest" in rendered
     assert "Headline" in rendered
     assert "context_only=true" in rendered

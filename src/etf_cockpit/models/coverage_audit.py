@@ -116,8 +116,21 @@ def build_coverage_audit(
     instrument_ids = tuple(sorted(records))
     effective_as_of = _date_text(as_of_date)
     price_ids = _observed_price_ids(prices, effective_as_of, policy.minimum_history_observations)
-    calibration = _calibration_by_instrument(forecasts, prices, effective_as_of)
-    forecast_counts = _forecast_counts(forecasts)
+    bounded_forecasts = forecasts
+    if forecasts is not None:
+        if effective_as_of is None or "forecast_date" not in forecasts.columns:
+            bounded_forecasts = forecasts.iloc[0:0].copy()
+        else:
+            cutoff = pd.to_datetime(effective_as_of, errors="coerce", utc=True)
+            if pd.isna(cutoff):
+                bounded_forecasts = forecasts.iloc[0:0].copy()
+            else:
+                if len(effective_as_of) == 10:
+                    cutoff += pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+                dates = pd.to_datetime(forecasts["forecast_date"], errors="coerce", utc=True)
+                bounded_forecasts = forecasts.loc[dates.notna() & dates.le(cutoff)].copy()
+    calibration = _calibration_by_instrument(bounded_forecasts, prices, effective_as_of)
+    forecast_counts = _forecast_counts(bounded_forecasts)
     selected_counts = _selected_counts(signals)
     groups: list[CoverageGroup] = []
     supported_by_instrument: dict[str, bool] = {instrument_id: True for instrument_id in instrument_ids}
@@ -268,8 +281,11 @@ def _observed_price_ids(prices: pd.DataFrame | None, as_of_date: str | None, min
         if pd.isna(upper_bound):
             return set()
         valid &= dates <= upper_bound
-    bounded = prices.loc[valid].assign(_instrument=prices.loc[valid, "etf_id"].astype(str).str.strip())
-    counts = bounded.groupby("_instrument").size()
+    bounded = prices.loc[valid].assign(
+        _instrument=prices.loc[valid, "etf_id"].astype(str).str.strip(),
+        _date=dates.loc[valid],
+    )
+    counts = bounded.groupby("_instrument")["_date"].nunique()
     return set(counts[counts >= minimum_history_observations].index)
 
 

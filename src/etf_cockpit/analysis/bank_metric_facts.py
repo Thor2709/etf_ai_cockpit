@@ -14,6 +14,54 @@ def _row_period(row: Mapping[str, object]) -> pd.Timestamp | None:
     return None if pd.isna(parsed) else pd.Timestamp(parsed)
 
 
+_OPENING_SOURCES = {
+    "equity": "opening_equity",
+    "closing_equity": "opening_equity",
+    "total_assets": "opening_total_assets",
+    "closing_total_assets": "opening_total_assets",
+    "loans_to_customers": "opening_loans_to_customers",
+    "deposits_from_customers": "opening_deposits_from_customers",
+}
+
+
+def _add_opening_balances(rows: list[dict[str, object]], candidates: dict[str, dict[str, object]], aliases: Mapping[str, str]) -> None:
+    """Add opening balances from the prior-year comparatives published in the same filing.
+
+    A filing carries its own comparative column, so these rows share the filing's ``known_at`` and
+    cannot be look-ahead. Only an exact one-year-earlier instant (within 10 days) is accepted;
+    a missing comparative leaves the opening balance missing (never zero).
+    """
+
+    for source_metric, opening_metric in _OPENING_SOURCES.items():
+        current = candidates.get(source_metric)
+        if current is None or opening_metric in candidates:
+            continue
+        current_period = _row_period(current)
+        if current_period is None:
+            continue
+        wanted = current_period - pd.DateOffset(years=1)
+        best: dict[str, object] | None = None
+        for row in rows:
+            raw_metric = str(row.get("canonical_metric") or row.get("concept") or "").strip().casefold()
+            if aliases.get(raw_metric, raw_metric) != source_metric:
+                continue
+            if row.get("dimensions") not in (None, "") and not (isinstance(row.get("dimensions"), float) and math.isnan(row["dimensions"])):
+                continue
+            period = _row_period(row)
+            if period is None or abs((period - wanted).days) > 10:
+                continue
+            if str(row.get("currency") or "").upper() != str(current.get("currency") or "").upper():
+                continue
+            if str(row.get("consolidation_scope") or "consolidated").casefold() != str(current.get("consolidation_scope") or "consolidated").casefold():
+                continue
+            if best is None or row["_known"] > best["_known"]:
+                best = row
+        if best is not None:
+            candidates[opening_metric] = dict(best, canonical_metric=opening_metric)
+            if opening_metric == "opening_total_assets":
+                candidates.setdefault("closing_total_assets", dict(current, canonical_metric="closing_total_assets"))
+
+
 def _financial_metric_facts(
     rows: list[dict[str, object]], context: object, cutoff: str, *, target_period: str | None = None
 ) -> list[FinancialMetricEvidence]:
@@ -48,6 +96,7 @@ def _financial_metric_facts(
         "net_profit_attributable": "net_profit_attributable",
         "net_income_attributable": "net_profit_attributable",
         "profit_attributable": "net_profit_attributable",
+        "net_income_attributable_to_owners": "net_profit_attributable",
         "opening_equity": "opening_equity",
         "closing_equity": "closing_equity",
         "equity": "closing_equity",
@@ -100,6 +149,8 @@ def _financial_metric_facts(
         if previous is not None and (row["_effective"], row["_known"]) <= (previous["_effective"], previous["_known"]):
             continue
         candidates[metric] = row
+
+    _add_opening_balances(rows, candidates, aliases)
 
     def numeric(row: dict[str, object]) -> float | None:
         try:
@@ -277,13 +328,41 @@ def _financial_metric_facts(
 
     loans_open = candidates.get("opening_gross_loans")
     loans_close = candidates.get("closing_gross_loans")
+    cost_of_risk_definition = "impairment_losses / average(gross_loans)"
+    proxy_reasons: tuple[str, ...] = ()
+    if not (loans_open and loans_close) and candidates.get("gross_loans") is None and candidates.get("loans_to_customers") is not None:
+        # Book eq. 4.59 uses average gross loans; statements disclose net customer loans, a close proxy
+        # (the allowance is typically below 1 % of the book), so the limitation is stated, never hidden.
+        loans_close = dict(candidates["loans_to_customers"], canonical_metric="closing_gross_loans")
+        loans_open = candidates.get("opening_loans_to_customers")
+        loans_open = dict(loans_open, canonical_metric="opening_gross_loans") if loans_open else None
+        candidates["closing_gross_loans"] = loans_close
+        if loans_open:
+            candidates["opening_gross_loans"] = loans_open
+        cost_of_risk_definition = "impairment_losses / average(net customer loans) (disclosed proxy for gross loans)"
+        proxy_reasons = ("net_loans_proxy_for_gross_loans",)
     if loans_open and loans_close:
         selected, reasons = compatible(("impairment_losses", "opening_gross_loans", "closing_gross_loans"), allow_opening=True)
         denominator = (float(loans_open.get("value")) + float(loans_close.get("value"))) / 2
     else:
         selected, reasons = compatible(("impairment_losses", "gross_loans"))
         denominator = float(selected[1].get("value")) if len(selected) == 2 else None
-    emit("cost_of_risk", None if reasons or len(selected) < 2 or denominator is None or denominator <= 0 else float(selected[0].get("value")) / denominator, selected, reasons + (("invalid_denominator",) if denominator is None or denominator <= 0 else ()), "impairment_losses / average(gross_loans)")
+    emit("cost_of_risk", None if reasons or len(selected) < 2 or denominator is None or denominator <= 0 else float(selected[0].get("value")) / denominator, selected, reasons + proxy_reasons + (("invalid_denominator",) if denominator is None or denominator <= 0 else ()), cost_of_risk_definition)
+    for growth_metric, balance, opening_balance in (
+        ("loan_growth", "loans_to_customers", "opening_loans_to_customers"),
+        ("deposit_growth", "deposits_from_customers", "opening_deposits_from_customers"),
+    ):
+        selected, reasons = compatible((balance, opening_balance), allow_opening=True)
+        opening_row = candidates.get(opening_balance)
+        opening_value = float(opening_row.get("value")) if opening_row else None
+        closing_row = candidates.get(balance)
+        emit(
+            growth_metric,
+            None if reasons or opening_value is None or opening_value <= 0 or closing_row is None else float(closing_row.get("value")) / opening_value - 1.0,
+            tuple(item for item in (closing_row, opening_row) if item is not None),
+            reasons + (("missing_prior_year_comparative",) if opening_row is None else ()) + (("invalid_denominator",) if opening_value is not None and opening_value <= 0 else ()),
+            f"{balance} / prior-year {balance} - 1",
+        )
     selected, reasons = compatible(("loss_allowance", "stage_3_exposure"))
     emit("coverage_ratio", None if reasons or len(selected) != 2 or float(selected[1].get("value")) <= 0 else float(selected[0].get("value")) / float(selected[1].get("value")), selected, reasons + (("invalid_denominator",) if len(selected) != 2 or float(selected[1].get("value")) <= 0 else ()), "loss_allowance / stage_3_exposure")
     selected, reasons = compatible(("dividends", "net_profit"))

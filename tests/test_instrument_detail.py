@@ -89,6 +89,13 @@ def test_instrument_detail_snapshot_fixture_is_deep_isolated(
 
 def _walk_controls(control):
     yield control
+    if hasattr(control, "chrome") and hasattr(control, "body"):
+        yield from _walk_controls(control.chrome)
+        yield from _walk_controls(control.body)
+        return
+    for group in getattr(control, "segment_groups", ()) or ():
+        yield group
+        yield from getattr(group, "items", ()) or ()
     for child in getattr(control, "controls", []) or []:
         yield from _walk_controls(child)
     content = getattr(control, "content", None)
@@ -1212,10 +1219,16 @@ def test_detail_summary_stays_outside_research_scroll(monkeypatch):
         monkeypatch.setattr(detail, name, lambda *_: ft.Text("Preserved evidence"))
     state = SimpleNamespace(snapshot=SimpleNamespace(data_report=SimpleNamespace(as_of_date="2026-07-01")), selected_etf="ACME")
     rendered = detail.instrument_detail_page(SimpleNamespace(route="/instrument/ACME"), state)
-    summary, research = rendered.controls
+    research = rendered.body.content if isinstance(rendered.body, ft.Container) else rendered.body  # in-place section holder
+    summary = research.controls[0]
     assert any(getattr(control, "key", None) == "instrument-detail.export-evidence" for control in _walk_controls(summary))
     assert research.expand is True and research.scroll == ft.ScrollMode.AUTO
-    titles = [control.title.value for control in _walk_controls(research) if isinstance(control, ft.ExpansionTile)]
+    titles = []
+    for control in _walk_controls(research):
+        if isinstance(control, ft.ExpansionTile):
+            titles.append(control.title.value)
+        elif isinstance(getattr(control, "data", None), dict) and control.data.get("kit") == "GlassCard":
+            titles.append(control.data.get("title"))
     assert "Identity and provenance" in titles and "Stock valuation and scenarios" in titles
     assert not any(isinstance(control, ft.ExpansionTile) for control in _walk_controls(summary))
 

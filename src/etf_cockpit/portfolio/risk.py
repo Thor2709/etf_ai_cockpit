@@ -29,9 +29,10 @@ def target_policy_issues(config: AppConfig) -> list[DataQualityIssue]:
         issues.append(
             DataQualityIssue(
                 etf_id="ALL",
-                severity="block",
+                # Portfolio context like target_policy_violation: it must not block every instrument's analysis.
+                severity="warning",
                 code="target_total_invalid",
-                message=f"Target weights plus cash equal {target_total:.2%}; expected approximately 100%.",
+                message=f"Target weights plus cash equal {target_total:.2%}; expected approximately 100%. Shown as portfolio context.",
             )
         )
     return issues

@@ -32,25 +32,8 @@ TICKER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._=-]{0,31}$")
 _LOG = logging.getLogger(__name__)
 CURRENT_INVESTABILITY_POLICY_VERSION = "investability-v1"
 POLICY_AUTHORITIES = {"official", "user_reviewed", "manual_review"}
-SPAREBANKEN_ROWS: tuple[tuple[str, str, str, str], ...] = (
-    ("Aurskog Sparebank", "AURG", "AURG.OL", "needs_verification"),
-    ("Helgeland Sparebank", "HELG", "HELG.OL", "NO0010029804"),
-    ("Høland og Setskog Sparebank", "HSPG", "HSPG.OL", "NO0010012636"),
-    ("Sogn Sparebank", "SOGN", "SOGN.OL", "needs_verification"),
-    ("Jæren Sparebank", "JAEREN", "JAEREN.OL", "NO0010359433"),
-    ("Melhus Sparebank", "MELG", "MELG.OL", "needs_verification"),
-    ("Sandnes Sparebank", "SADG", "SADG.OL", "needs_verification"),
-    ("Skue Sparebank", "SKUE", "SKUE.OL", "needs_verification"),
-    ("SpareBank 1 Nord-Norge", "NONG", "NONG.OL", "NO0006000801"),
-    ("SpareBank 1 Ringerike Hadeland", "RING", "RING.OL", "NO0006390400"),
-    ("SpareBank 1 SMN", "MING", "MING.OL", "NO0006390301"),
-    ("SpareBank 1 Østfold Akershus", "SOAG", "SOAG.OL", "NO0010285562"),
-    ("SpareBank 1 Østlandet", "SPOL", "SPOL.OL", "NO0010751910"),
-    ("Sparebanken Møre", "MORG", "MORG.OL", "NO0006390004"),
-    ("Sparebanken Øst", "SPOG", "SPOG.OL", "NO0006222009"),
-)
-
-
+# "" = trading; delisted/merged instruments keep their stored history but no new data is fetched.
+LIFECYCLES = ("", "delisted", "merged")
 @dataclass(frozen=True)
 class UniverseRecord:
     instrument_id: str
@@ -71,6 +54,8 @@ class UniverseRecord:
     # Added in schema v2.  Missing legacy values are deliberately safe.
     leveraged: bool = False
     inverse: bool = False
+    lei: str = ""
+    lifecycle: str = ""
 
 
 @dataclass(frozen=True)
@@ -219,6 +204,8 @@ def _normalise_record(record: UniverseRecord) -> UniverseRecord:
         enabled=_as_bool(record.enabled),
         leveraged=_as_bool(record.leveraged),
         inverse=_as_bool(record.inverse),
+        lei=_text(record.lei).upper(),
+        lifecycle=_text(record.lifecycle).lower(),
     )
 
 
@@ -279,6 +266,8 @@ def validate_universe(
             warnings.append(f"research_only: {record.instrument_id}")
         elif not decision.supported:
             errors.append(f"unsupported asset type/frequency: {record.asset_type}/{record.data_policy}")
+        if record.lifecycle not in LIFECYCLES:
+            errors.append(f"invalid lifecycle: {record.lifecycle}")
         if not record.enabled:
             warnings.append(f"disabled: {record.instrument_id}")
         if isin_status != "verified":
@@ -1204,17 +1193,9 @@ def _record_from_mapping(raw: Mapping[str, object], *, default_tier: str) -> Uni
             notes=_field(raw, "notes", "comment"),
             leveraged=leveraged,
             inverse=inverse,
+            lei=_field(raw, "lei", "LEI").upper(),
+            lifecycle=_field(raw, "lifecycle").lower(),
         )
-    )
-
-
-def _sparebanken_fallback() -> tuple[UniverseRecord, ...]:
-    return tuple(
-        _record_from_mapping(
-            {"name": name, "symbol": symbol, "yahoo_symbol": ticker, "isin": isin, "analysis_tier": "sparebanken"},
-            default_tier="sparebanken",
-        )
-        for name, symbol, ticker, isin in SPAREBANKEN_ROWS
     )
 
 
@@ -1229,25 +1210,11 @@ def import_legacy_universe(primary_yaml: Path, candidate_csv: Path | None = None
     if candidate_path and candidate_path.exists():
         with candidate_path.open(newline="", encoding="utf-8-sig") as handle:
             candidate_rows = list(csv.DictReader(handle))
-    fallback = _sparebanken_fallback()
-    fallback_by_id = {record.instrument_id.casefold(): record for record in fallback}
-    fallback_by_ticker = {record.ticker.casefold(): record for record in fallback}
     if candidate_rows:
         for raw in candidate_rows:
             records.append(_record_from_mapping(raw, default_tier="secondary"))
     else:
-        warnings.append("candidate CSV unavailable; retained built-in Sparebanken identity rows")
-    # Both primary YAML and candidate feeds historically mixed Sparebanken
-    # rows into other tiers. Canonical fallback identity always wins.
-    canonical_ids = set(fallback_by_id)
-    canonical_tickers = set(fallback_by_ticker)
-    records = [
-        record
-        for record in records
-        if record.instrument_id.casefold() not in canonical_ids
-        and record.ticker.casefold() not in canonical_tickers
-    ]
-    records.extend(fallback)
+        warnings.append("candidate CSV unavailable; configured universe records retained")
     # Preserve one authoritative row per canonical ID even if an unusual
     # legacy source repeats a row under a case variant.
     seen: set[str] = set()
@@ -1262,6 +1229,29 @@ def import_legacy_universe(primary_yaml: Path, candidate_csv: Path | None = None
     if not report.valid:
         raise ValueError("Legacy universe validation failed: " + "; ".join(report.errors))
     return LegacyImportResult(tuple(deduped), tuple(warnings), tuple(path for path in (primary_yaml, candidate_path) if path is not None and path.exists()))
+
+
+def load_sparebank_records(
+    root: Path | None = None,
+    *,
+    primary_yaml: Path | None = None,
+    enabled_only: bool = True,
+) -> tuple[UniverseRecord, ...]:
+    """Return equity certificates from the active universe source."""
+
+    canonical_root = Path(root or ROOT).resolve()
+    snapshot = load_universe(canonical_root)
+    records = snapshot.records
+    if not records:
+        source_yaml = Path(primary_yaml) if primary_yaml is not None else canonical_root / "configs" / "universe.yaml"
+        candidate_csv = canonical_root / "__no_candidate_universe__.csv"
+        records = import_legacy_universe(source_yaml, candidate_csv).records
+    return tuple(
+        record
+        for record in records
+        if record.asset_type == "equity_certificate"
+        and (record.enabled or not enabled_only)
+    )
 
 
 def migrate_legacy_universe(
@@ -1332,14 +1322,22 @@ def export_compatibility(records: Iterable[UniverseRecord], export_root: Path) -
     export_root.mkdir(parents=True, exist_ok=True)
     items = tuple(_normalise_record(record) for record in records)
     yaml_path = export_root / "universe.yaml"
-    yaml_payload = {"etfs": [{"id": row.instrument_id, "name": row.name, "isin": row.isin, "ticker": row.ticker, "provider_symbol": row.ticker, "instrument_type": row.asset_type, "analysis_tier": row.tier, "data_policy": row.data_policy, "currency": row.currency, "region": row.region, "sector": row.sector, "theme": row.theme, "enabled": row.enabled, "leveraged": row.leveraged, "inverse": row.inverse, "role": "core" if row.tier == "primary" else "watchlist", "notes": row.notes} for row in items if row.tier == "primary"]}
+    yaml_payload = {"etfs": [{"id": row.instrument_id, "name": row.name, "isin": row.isin, "ticker": row.ticker, "provider_symbol": row.ticker, "lei": row.lei, "instrument_type": row.asset_type, "analysis_tier": row.tier, "data_policy": row.data_policy, "currency": row.currency, "region": row.region, "sector": row.sector, "theme": row.theme, "enabled": row.enabled, "leveraged": row.leveraged, "inverse": row.inverse, "role": "core" if row.tier == "primary" else "watchlist", "notes": row.notes} for row in items if row.tier == "primary"]}
     yaml_path.write_text(yaml.safe_dump(yaml_payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
     csv_path = export_root / "yahoo_trade_candidates.csv"
-    fieldnames = ["instrument_id", "name", "isin", "isin_status", "ticker", "asset_type", "analysis_tier", "group", "enabled", "data_policy", "currency", "region", "sector", "theme", "notes", "leveraged", "inverse"]
+    fieldnames = ["instrument_id", "name", "isin", "isin_status", "ticker", "lei", "asset_type", "analysis_tier", "group", "enabled", "data_policy", "currency", "region", "sector", "theme", "notes", "leveraged", "inverse"]
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         for row in items:
             if row.tier != "primary":
-                writer.writerow({"instrument_id": row.instrument_id, "name": row.name, "isin": row.isin, "isin_status": row.isin_status, "ticker": row.ticker, "asset_type": row.asset_type, "analysis_tier": row.tier, "group": row.group, "enabled": row.enabled, "data_policy": row.data_policy, "currency": row.currency, "region": row.region, "sector": row.sector, "theme": row.theme, "notes": row.notes, "leveraged": row.leveraged, "inverse": row.inverse})
+                writer.writerow({"instrument_id": row.instrument_id, "name": row.name, "isin": row.isin, "isin_status": row.isin_status, "ticker": row.ticker, "lei": row.lei, "asset_type": row.asset_type, "analysis_tier": row.tier, "group": row.group, "enabled": row.enabled, "data_policy": row.data_policy, "currency": row.currency, "region": row.region, "sector": row.sector, "theme": row.theme, "notes": row.notes, "leveraged": row.leveraged, "inverse": row.inverse})
     return CompatibilityExport(yaml_path, csv_path)
+
+
+# Compatibility view for older readers; identities come only from the active
+# universe source above.
+SPAREBANKEN_ROWS: tuple[tuple[str, str, str, str], ...] = tuple(
+    (record.name, record.instrument_id, record.ticker, record.isin)
+    for record in load_sparebank_records()
+)

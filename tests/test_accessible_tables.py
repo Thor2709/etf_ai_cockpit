@@ -150,9 +150,9 @@ def test_backtests_page_connects_real_chart_and_accessible_table_helpers() -> No
     from etf_cockpit.app.pages.backtests import backtests_page
 
     source = inspect.getsource(backtests_page)
-    assert "history_chart" in source
-    assert "accessible_table" in source
-    assert "recent_evidence" in source
+    assert "price_drawdown_chart" in source
+    assert "DataTable" in source
+    assert "Search strategy results" in source
 
 
 def test_settings_page_documents_issue_0044_packaged_update_workflow() -> None:

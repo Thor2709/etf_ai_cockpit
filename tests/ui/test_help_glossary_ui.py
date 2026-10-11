@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import cast
 
 import flet as ft
+from etf_cockpit.app.components.shell.page_descriptions import PAGE_DESCRIPTIONS
 from etf_cockpit.app.pages.help_glossary import PAGE_HELP, help_glossary_page
 from etf_cockpit.app.router import PAGES, build_shell
 from etf_cockpit.app.state import AppState
@@ -21,6 +22,17 @@ def _walk(control):
         yield from _walk(content)
 
 
+def _body(view, segment: str | None = None):
+    """The control tree of a page builder result; ``segment`` first switches the top-bar segment in place."""
+    if segment is not None:
+        view.chrome.segment_groups[0].on_change(segment)
+    return getattr(view, "body", view)
+
+
+def _all_text(control) -> str:
+    return "\n".join(str(getattr(item, "value", "") or getattr(item, "text", "")) for item in _walk(control))
+
+
 def _text_content(control) -> str:
     return "\n".join(
         item if isinstance(item, str) else str(getattr(item, "value", "") or getattr(item, "text", ""))
@@ -32,17 +44,18 @@ def test_help_glossary_explains_authority_and_unavailable_states() -> None:
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     view = help_glossary_page(None, state)
-    text = "\n".join(str(getattr(item, "value", "") or getattr(item, "text", "")) for item in _walk(view))
+    text = _all_text(_body(view))
     assert "Authority" in text
-    assert "Manual review" in text
     assert "Unavailable" in text
+    # The authority rows moved to the Boundaries segment (spec 6.9).
+    assert "Manual review" in _all_text(_body(view, "Boundaries"))
 
 
 def test_help_glossary_retains_hash_target_for_keyboard_navigation() -> None:
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     page = type("Page", (), {"route": "/help#manual_review"})()
-    text = "\n".join(str(getattr(item, "value", "") or getattr(item, "text", "")) for item in _walk(help_glossary_page(page, state)))
+    text = "\n".join(str(getattr(item, "value", "") or getattr(item, "text", "")) for item in _walk(_body(help_glossary_page(page, state))))
     assert "Selected definition" in text
 
 
@@ -53,9 +66,12 @@ def test_help_route_renders_through_shared_shell() -> None:
 
     text = _text_content(build_shell(page, state, "/help"))
 
-    assert "Help and glossary" in text
-    assert "User guide: docs/user/USER_GUIDE.md" in text
-    assert "N/A denotes unavailable" in text
+    # Moved (spec 5.2, 6.9): the title lives in the top bar, the guide path in the Terms card,
+    # and the unavailable convention in the footer rail's "Unavailable" values.
+    assert "Help & Glossary" in text
+    assert "docs/user/USER_GUIDE.md" in text
+    assert "Terms and use boundaries" in text
+    assert "execution_allowed=false" in text
 
 
 def test_every_registered_route_has_page_specific_help() -> None:
@@ -68,8 +84,10 @@ def test_every_registered_route_has_page_specific_help() -> None:
     view = build_shell(page, state, "/signals")
     text = _text_content(view)
 
-    assert PAGE_HELP["/signals"] in text
-    assert "Help & Glossary" in text
+    # The About panel is gone (spec 5.3): its first sentence is the page-menu description.
+    assert set(PAGE_DESCRIPTIONS) == set(PAGES)
+    assert PAGE_HELP["/signals"].startswith(PAGE_DESCRIPTIONS["/signals"])
+    assert "Scores" in text
 
 
 def test_glossary_covers_scores_authority_and_required_user_terms() -> None:

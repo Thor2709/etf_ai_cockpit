@@ -107,6 +107,7 @@
     "benchmark_strategy_identity": {
      "benchmark_data_id": "null",
      "reference_identity_hash": "str",
+     "relative_strength_fallback_anchor": "str",
      "strategy": "str"
     },
     "complete_price_rows": "int",
@@ -124,24 +125,10 @@
     "not_enough_data_policy": "str",
     "operational_evidence_input_binding": "str",
     "operational_evidence_rows": {
-     "list_length": 6215,
+     "list_length": 6121,
      "item": {
       "arrival_price_assumption": "str",
       "auction_state": "null",
-      "calendar_closing_auction_minutes": "int",
-      "calendar_id": "str",
-      "calendar_identity_decision_id": "str",
-      "calendar_identity_lineage_hash": "str",
-      "calendar_known_at": "str",
-      "calendar_listing_id": "str",
-      "calendar_mic": "str",
-      "calendar_opening_auction_minutes": "int",
-      "calendar_session_lineage_hash": "str",
-      "calendar_source_checksum": "str",
-      "calendar_source_id": "str",
-      "calendar_source_version": "str",
-      "calendar_timezone": "str",
-      "calendar_valid_from": "str",
       "close_to_next_open_gap": "float",
       "cost_spread_assumption_bps": "float",
       "cost_spread_assumption_source": "str",
@@ -154,8 +141,8 @@
       "evidence_status": "str",
       "execution_allowed": false,
       "execution_date": "str",
-      "execution_delay_sessions": "int",
-      "execution_timestamp": "str",
+      "execution_delay_sessions": "null",
+      "execution_timestamp": "null",
       "expiry_state": "null",
       "fill_source": "str",
       "instrument_id": "str",
@@ -175,7 +162,7 @@
       "same_bar_execution_avoided": "bool",
       "session_state": "null",
       "signal_date": "str",
-      "signal_timestamp": "str",
+      "signal_timestamp": "null",
       "spread_proxy": "float",
       "strategy": "str"
      }
@@ -340,7 +327,7 @@
   },
   "data/backtests/quality_momentum_evidence.csv": {
    "kind": "csv",
-   "rows": 1888,
+   "rows": 1856,
    "columns": ["instrument_id", "signal_date", "fundamental_as_of", "fundamental_available_at", "sector", "profitability", "leverage", "growth", "shareholder_return", "quality_score", "momentum_score", "composite_score", "momentum_raw", "status", "reason", "source_id", "source_authority", "strategy_version", "execution_allowed"]
   },
   "data/backtests/quality_momentum_evidence.csv.meta.json": {
@@ -380,7 +367,7 @@
   },
   "data/backtests/signal_log.csv": {
    "kind": "csv",
-   "rows": 1888,
+   "rows": 1856,
    "columns": ["date", "signal_timestamp", "etf_id", "action", "score", "canonical_attractiveness_10", "canonical_expected_return_10", "canonical_risk_implementation_10", "canonical_evidence_confidence_10", "canonical_coverage", "formula_version", "formula_checksum", "source_vintage_hash", "structural_confidence_cap", "structural_provenance_hash"]
   },
   "data/backtests/signal_log.csv.meta.json": {
@@ -460,12 +447,12 @@
   },
   "data/clean/etf_disclosures.csv": {
    "kind": "csv",
-   "rows": 80,
+   "rows": 85,
    "columns": ["document_id", "source_id", "instrument_id", "document_type", "document_kind", "path", "source_url", "source_authority", "as_of_date", "ingested_at", "checksum", "coverage_status", "extraction_status", "executable_authority"]
   },
   "data/clean/etf_disclosures.parquet": {
    "kind": "parquet",
-   "rows": 80,
+   "rows": 85,
    "schema": [
     ["document_id", "string"],
     ["source_id", "string"],
@@ -838,17 +825,17 @@
   },
   "data/derived/benchmark_attribution.csv": {
    "kind": "csv",
-   "rows": 59,
+   "rows": 58,
    "columns": ["instrument_id", "instrument_currency", "benchmark_id", "benchmark_period_days", "benchmark_return", "instrument_period_return", "benchmark_beta", "benchmark_correlation", "alpha_proxy", "alpha_t_stat", "sector_theme_warning", "source_dataset", "as_of_date", "sector_return", "sector_relative_return", "sector_beta", "sector_correlation", "sector_alpha_proxy", "sector_attribution_status", "attribution_sample_size", "attribution_source_dataset", "theme_return", "theme_relative_return", "theme_beta", "theme_correlation", "theme_alpha_proxy", "theme_attribution_status", "theme_sample_size", "gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio", "cost_stress_scenario", "friction_status", "friction_reason", "cash_instrument_return", "cash_return", "excess_over_cash", "cash_instrument_id", "cash_currency", "cash_unit", "cash_dataset_kind", "cash_start_date", "cash_end_date", "cash_horizon_years", "cash_rate", "cash_vintage", "cash_comparison_status", "cash_comparison_reason", "cash_source_id", "cash_source_authority", "cash_source_checksum", "cash_source_terms", "cash_methodology", "cash_mapping_methodology", "cash_day_count", "cash_compounding", "cash_reinvestment", "cash_effective_at", "cash_published_at", "cash_available_at", "cash_curve_id", "cash_curve_version", "cash_curve_revision", "cash_curve_type", "cash_extrapolation_allowed", "cash_fallback", "cash_fallback_from", "cash_interpolation", "cash_freshness", "cash_freshness_status", "cash_decision_time", "cash_knowledge_cutoff", "inflation_context", "status", "execution_allowed"]
   },
   "data/derived/benchmark_attribution.parquet": {
    "kind": "parquet",
-   "rows": 59,
+   "rows": 58,
    "schema": [
     ["instrument_id", "string"],
     ["instrument_currency", "string"],
     ["benchmark_id", "null"],
-    ["benchmark_period_days", "double"],
+    ["benchmark_period_days", "int64"],
     ["benchmark_return", "null"],
     ["instrument_period_return", "null"],
     ["benchmark_beta", "null"],
@@ -864,7 +851,7 @@
     ["sector_correlation", "null"],
     ["sector_alpha_proxy", "null"],
     ["sector_attribution_status", "string"],
-    ["attribution_sample_size", "double"],
+    ["attribution_sample_size", "int64"],
     ["attribution_source_dataset", "string"],
     ["theme_return", "null"],
     ["theme_relative_return", "null"],
@@ -872,7 +859,7 @@
     ["theme_correlation", "null"],
     ["theme_alpha_proxy", "null"],
     ["theme_attribution_status", "string"],
-    ["theme_sample_size", "double"],
+    ["theme_sample_size", "int64"],
     ["gross_expected_edge_bps", "null"],
     ["estimated_total_cost_bps", "null"],
     ["net_expected_edge_bps", "null"],
@@ -925,12 +912,12 @@
   },
   "data/derived/correlation_clusters.csv": {
    "kind": "csv",
-   "rows": 59,
+   "rows": 58,
    "columns": ["instrument_id", "cluster_id", "cluster_label", "benchmark_id", "correlation_to_benchmark", "average_peer_correlation", "crowding_warning", "calculation_window_days", "as_of_date", "sector", "theme", "theme_warning", "sample_size", "pair_sample_size", "ranking_weight", "cluster_weight", "cluster_risk_contribution", "ranking_coverage", "top_ranked_concentration", "top_ranked_theme_concentration", "top_ranked_theme_warning", "source_dataset", "status", "execution_allowed"]
   },
   "data/derived/correlation_clusters.parquet": {
    "kind": "parquet",
-   "rows": 59,
+   "rows": 58,
    "schema": [
     ["instrument_id", "string"],
     ["cluster_id", "string"],
@@ -960,12 +947,12 @@
   },
   "data/derived/evidence_ledger.csv": {
    "kind": "csv",
-   "rows": 484,
+   "rows": 662,
    "columns": ["evidence_id", "run_id", "instrument_id", "component", "source_id", "source_dataset", "source_name", "source_authority", "authority_rank", "as_of_date", "freshness_status", "conflict_status", "conflict_id", "confidence", "evidence_quality", "provider_id", "calculation_method", "score_eligible", "executable_authority", "evidence_value", "reason", "created_at"]
   },
   "data/derived/evidence_ledger.parquet": {
    "kind": "parquet",
-   "rows": 484,
+   "rows": 662,
    "schema": [
     ["evidence_id", "string"],
     ["run_id", "string"],
@@ -993,12 +980,12 @@
   },
   "data/derived/feature_drivers.csv": {
    "kind": "csv",
-   "rows": 484,
+   "rows": 662,
    "columns": ["instrument", "instrument_id", "component", "source_id", "raw_metric", "normalised_score", "peer_group", "peer_percentile", "historical_contribution", "coverage", "uncertainty", "interaction", "counterfactual_sensitivity", "direction", "authority", "source_authority", "driver_text", "source_dataset", "source_span", "source_vintage_hash", "claim_hash", "as_of_date", "freshness_status", "missingness", "conflict", "conflict_id", "contribution", "classification", "authority_classification", "freshness_classification", "flags", "execution_allowed"]
   },
   "data/derived/feature_drivers.parquet": {
    "kind": "parquet",
-   "rows": 484,
+   "rows": 662,
    "schema": [
     ["instrument", "string"],
     ["instrument_id", "string"],
@@ -1150,12 +1137,12 @@
   },
   "data/derived/model_calibration.csv": {
    "kind": "csv",
-   "rows": 59,
+   "rows": 58,
    "columns": ["instrument_id", "model_name", "evaluated_forecasts", "matured_forecasts", "oos_mase", "oos_directional_accuracy", "q10_q90_coverage", "calibration_score_10", "calibration_status", "calibration_label"]
   },
   "data/derived/model_calibration.parquet": {
    "kind": "parquet",
-   "rows": 59,
+   "rows": 58,
    "schema": [
     ["instrument_id", "string"],
     ["model_name", "string"],
@@ -1169,7 +1156,7 @@
     ["calibration_label", "string"]
    ]
   },
-  "data/derived/run_manifests/backtest__s54eb00f2a924.json": {
+  "data/derived/run_manifests/backtest__s5944577a97bd.json": {
    "kind": "json",
    "structure": {
     "dependencies": {
@@ -1222,7 +1209,7 @@
    ],
    "run_id_pattern": "backtest__s<12hex>"
   },
-  "data/derived/run_manifests/features_2026-09-30__s54eb00f2a924.json": {
+  "data/derived/run_manifests/features_2026-09-30__s5944577a97bd.json": {
    "kind": "json",
    "structure": {
     "dependencies": {
@@ -1271,7 +1258,7 @@
    ],
    "run_id_pattern": "features_2026-09-30__s<12hex>"
   },
-  "data/derived/run_manifests/forecast_20260930__s54eb00f2a924.json": {
+  "data/derived/run_manifests/forecast_20260930__s5944577a97bd.json": {
    "kind": "json",
    "structure": {
     "dependencies": {
@@ -1383,12 +1370,12 @@
   },
   "data/derived/score_components.csv": {
    "kind": "csv",
-   "rows": 484,
+   "rows": 662,
    "columns": ["run_id", "instrument_id", "component", "source_id", "raw_metric", "normalised_score_10", "status", "authority", "source_dataset", "as_of_date", "freshness_status", "conflict_status", "conflict_id", "source_authority", "authority_rank", "evidence_quality", "confidence", "calculation_method", "score_eligible", "driver_text", "canonical_score_role", "canonical_contribution_raw", "peer_group", "uncertainty", "formula_version", "formula_checksum", "source_vintage_hash", "executable_authority"]
   },
   "data/derived/score_components.parquet": {
    "kind": "parquet",
-   "rows": 484,
+   "rows": 662,
    "schema": [
     ["run_id", "string"],
     ["instrument_id", "string"],
@@ -1490,12 +1477,12 @@
   },
   "data/derived/score_history.csv": {
    "kind": "csv",
-   "rows": 59,
-   "columns": ["run_id", "run_started_at", "run_completed_at", "instrument_id", "display_name", "yahoo_ticker", "asset_type", "analysis_tier", "source_group", "data_as_of_date", "price_as_of_date", "evidence_score_10", "evidence_quality_10", "risk_friction_10", "final_combined_score_10", "rank", "score_rank", "warnings", "freshness_status", "model_available", "model_availability", "forecast_status", "news_inventory", "backtest_trust", "portfolio_risk", "gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio", "cost_stress_scenario", "friction_status", "friction_reason", "gross_expected_return", "q10_expected_return", "q50_expected_return", "q90_expected_return", "expected_return_horizon_days", "net_q10_expected_return", "net_expected_return", "net_q90_expected_return", "expected_return_order_value_eur", "expected_return_cost_bps", "expected_return_cost_eur", "expected_return_cost_ratio", "expected_return_distribution_version", "expected_return_source_dataset", "final_label", "final_action", "reason_short", "reason_full", "blocked_by", "source_snapshot_hash", "score_schema_version", "canonical_attractiveness_10", "canonical_expected_return_10", "canonical_risk_implementation_10", "canonical_evidence_confidence_10", "canonical_coverage", "formula_version", "formula_checksum", "source_vintage_hash", "classification_version_id", "classification_invalidation_hash", "classification_dependency_status", "version_registry_signature", "dependency_graph_hash", "snapshot_hash", "execution_allowed"]
+   "rows": 58,
+   "columns": ["run_id", "run_started_at", "run_completed_at", "instrument_id", "display_name", "yahoo_ticker", "asset_type", "analysis_tier", "source_group", "data_as_of_date", "price_as_of_date", "evidence_score_10", "evidence_quality_10", "risk_friction_10", "final_combined_score_10", "rank", "score_rank", "warnings", "freshness_status", "model_available", "model_availability", "forecast_status", "news_inventory", "backtest_trust", "portfolio_risk", "gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio", "cost_stress_scenario", "friction_status", "friction_reason", "gross_expected_return", "q10_expected_return", "q50_expected_return", "q90_expected_return", "expected_return_horizon_days", "net_q10_expected_return", "net_expected_return", "net_q90_expected_return", "expected_return_order_value_eur", "expected_return_cost_bps", "expected_return_cost_eur", "expected_return_cost_ratio", "expected_return_distribution_version", "expected_return_source_dataset", "final_label", "final_action", "reason_short", "reason_full", "blocked_by", "source_snapshot_hash", "score_schema_version", "canonical_attractiveness_10", "canonical_expected_return_10", "canonical_risk_implementation_10", "canonical_evidence_confidence_10", "canonical_coverage", "coverage", "missing_components", "formula_version", "formula_checksum", "source_vintage_hash", "classification_version_id", "classification_invalidation_hash", "classification_dependency_status", "version_registry_signature", "dependency_graph_hash", "snapshot_hash", "execution_allowed"]
   },
   "data/derived/score_history.parquet": {
    "kind": "parquet",
-   "rows": 59,
+   "rows": 58,
    "schema": [
     ["run_id", "string"],
     ["run_started_at", "string"],
@@ -1555,6 +1542,8 @@
     ["canonical_risk_implementation_10", "double"],
     ["canonical_evidence_confidence_10", "double"],
     ["canonical_coverage", "double"],
+    ["coverage", "double"],
+    ["missing_components", "string"],
     ["formula_version", "string"],
     ["formula_checksum", "string"],
     ["source_vintage_hash", "string"],
@@ -1569,12 +1558,12 @@
   },
   "data/derived/score_metric_history.csv": {
    "kind": "csv",
-   "rows": 484,
+   "rows": 662,
    "columns": ["run_id", "instrument_id", "component_group", "component_name", "source_id", "raw_metric_value", "normalised_score_10", "score_available", "na_reason", "source_dataset", "as_of_date", "freshness_status", "authority_label", "formula_version", "formula_checksum", "source_vintage_hash", "execution_allowed"]
   },
   "data/derived/score_metric_history.parquet": {
    "kind": "parquet",
-   "rows": 484,
+   "rows": 662,
    "schema": [
     ["run_id", "string"],
     ["instrument_id", "string"],
@@ -1597,13 +1586,13 @@
   },
   "data/derived/scoreboard.csv": {
    "kind": "csv",
-   "rows": 59,
-   "columns": ["instrument_id", "symbol", "name", "instrument_currency", "isin", "isin_status", "asset_type", "analysis_tier", "data_policy", "source_group", "current_price", "latest_price_date", "evidence_score_10", "evidence_quality_10", "risk_friction_10", "final_label", "research_state", "portfolio_review_state", "analysis_status", "research_promotion_allowed", "portfolio_review_allowed", "execution_allowed", "legacy_action", "migration_version", "gate_policy_version", "gate_policy_checksum", "schema_version", "decision", "blocked_by", "reason_short", "model_authority_label", "backtest_trust_label", "backtest_trust_score_10", "model_calibration_label", "model_calibration_score_10", "market_regime_label", "market_regime_score_10", "portfolio_fit_label", "portfolio_fit_score_10", "strategy_template_label", "strategy_template_descriptions", "evidence_sample_days", "evidence_maturity_state", "evidence_maturity_label", "too_good_to_be_true_warning", "evidence_sanity_warnings", "evidence_warning_count", "benchmark_id", "benchmark_period_days", "benchmark_return", "instrument_period_return", "benchmark_beta", "benchmark_correlation", "alpha_proxy", "alpha_t_stat", "benchmark_attribution_label", "cash_instrument_return", "cash_return", "excess_over_cash", "cash_instrument_id", "cash_currency", "cash_unit", "cash_dataset_kind", "cash_start_date", "cash_end_date", "cash_horizon_years", "cash_rate", "cash_vintage", "cash_comparison_status", "cash_comparison_reason", "cash_source_id", "cash_source_authority", "cash_source_checksum", "cash_source_terms", "cash_methodology", "cash_mapping_methodology", "cash_day_count", "cash_compounding", "cash_reinvestment", "cash_effective_at", "cash_published_at", "cash_available_at", "cash_curve_id", "cash_curve_version", "cash_curve_revision", "cash_curve_type", "cash_extrapolation_allowed", "cash_fallback", "cash_fallback_from", "cash_interpolation", "cash_freshness", "cash_freshness_status", "cash_decision_time", "cash_knowledge_cutoff", "inflation_context", "sector_theme_warning", "backtest_validity", "model_contamination_risk", "model_authority_reason", "calibration_required", "gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio", "cost_stress_scenario", "gross_expected_return", "q10_expected_return", "q50_expected_return", "q90_expected_return", "expected_return_horizon_days", "net_q10_expected_return", "net_expected_return", "net_q90_expected_return", "expected_return_order_value_eur", "expected_return_cost_bps", "expected_return_cost_eur", "expected_return_cost_ratio", "expected_return_distribution_version", "expected_return_source_dataset", "crowding_cluster_id", "crowding_cluster_label", "crowding_warning", "crowding_average_peer_correlation", "crowding_sample_size", "crowding_as_of", "crowding_source_dataset", "crowding_pair_sample_size", "crowding_cluster_weight", "crowding_cluster_risk_contribution", "crowding_ranking_coverage", "crowding_top_ranked_concentration", "crowding_top_ranked_theme_concentration", "crowding_top_ranked_theme_warning", "sector_return", "sector_relative_return", "sector_beta", "sector_correlation", "sector_alpha_proxy", "sector_attribution_status", "attribution_sample_size", "attribution_as_of", "attribution_source_dataset", "theme_return", "theme_relative_return", "theme_beta", "theme_correlation", "theme_alpha_proxy", "theme_attribution_status", "theme_sample_size", "friction_status", "friction_reason", "formula_version", "formula_checksum", "source_vintage_hash", "classification_version_id", "classification_invalidation_hash", "classification_dependency_status", "canonical_attractiveness_10", "canonical_expected_return_10", "canonical_risk_implementation_10", "canonical_evidence_confidence_10", "canonical_coverage", "canonical_warnings", "valid_components", "total_components", "source_quality", "data_quality_score_10", "data_quality_status", "data_quality_authority", "momentum_score_10", "momentum_status", "momentum_authority", "trend_score_10", "trend_status", "trend_authority", "risk_score_10", "risk_status", "risk_authority", "relative_strength_score_10", "relative_strength_status", "relative_strength_authority", "liquidity_cost_score_10", "liquidity_cost_status", "liquidity_cost_authority", "etf_exposure_score_10", "etf_exposure_status", "etf_exposure_authority", "baseline_score_10", "baseline_status", "baseline_authority", "timesfm_score_10", "timesfm_status", "timesfm_authority", "toto_score_10", "toto_status", "toto_authority", "stock_value_score_10", "stock_value_status", "stock_value_authority", "stock_quality_score_10", "stock_quality_status", "stock_quality_authority", "analyst_revision_score_10", "analyst_revision_status", "analyst_revision_authority"]
+   "rows": 58,
+   "columns": ["instrument_id", "symbol", "name", "instrument_currency", "isin", "isin_status", "asset_type", "analysis_tier", "data_policy", "source_group", "current_price", "latest_price_date", "evidence_score_10", "evidence_quality_10", "risk_friction_10", "final_label", "research_state", "portfolio_review_state", "analysis_status", "research_promotion_allowed", "portfolio_review_allowed", "execution_allowed", "legacy_action", "migration_version", "gate_policy_version", "gate_policy_checksum", "schema_version", "decision", "blocked_by", "reason_short", "final_combined_score_10", "coverage", "missing_components", "identity_conflict_reason", "model_authority_label", "backtest_trust_label", "backtest_trust_score_10", "model_calibration_label", "model_calibration_score_10", "market_regime_label", "market_regime_score_10", "portfolio_fit_label", "portfolio_fit_score_10", "strategy_template_label", "strategy_template_descriptions", "evidence_sample_days", "evidence_maturity_state", "evidence_maturity_label", "too_good_to_be_true_warning", "evidence_sanity_warnings", "evidence_warning_count", "benchmark_id", "benchmark_period_days", "benchmark_return", "instrument_period_return", "benchmark_beta", "benchmark_correlation", "alpha_proxy", "alpha_t_stat", "benchmark_attribution_label", "cash_instrument_return", "cash_return", "excess_over_cash", "cash_instrument_id", "cash_currency", "cash_unit", "cash_dataset_kind", "cash_start_date", "cash_end_date", "cash_horizon_years", "cash_rate", "cash_vintage", "cash_comparison_status", "cash_comparison_reason", "cash_source_id", "cash_source_authority", "cash_source_checksum", "cash_source_terms", "cash_methodology", "cash_mapping_methodology", "cash_day_count", "cash_compounding", "cash_reinvestment", "cash_effective_at", "cash_published_at", "cash_available_at", "cash_curve_id", "cash_curve_version", "cash_curve_revision", "cash_curve_type", "cash_extrapolation_allowed", "cash_fallback", "cash_fallback_from", "cash_interpolation", "cash_freshness", "cash_freshness_status", "cash_decision_time", "cash_knowledge_cutoff", "inflation_context", "sector_theme_warning", "backtest_validity", "model_contamination_risk", "model_authority_reason", "calibration_required", "gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio", "cost_stress_scenario", "gross_expected_return", "q10_expected_return", "q50_expected_return", "q90_expected_return", "expected_return_horizon_days", "net_q10_expected_return", "net_expected_return", "net_q90_expected_return", "expected_return_order_value_eur", "expected_return_cost_bps", "expected_return_cost_eur", "expected_return_cost_ratio", "expected_return_distribution_version", "expected_return_source_dataset", "crowding_cluster_id", "crowding_cluster_label", "crowding_warning", "crowding_average_peer_correlation", "crowding_sample_size", "crowding_as_of", "crowding_source_dataset", "crowding_pair_sample_size", "crowding_cluster_weight", "crowding_cluster_risk_contribution", "crowding_ranking_coverage", "crowding_top_ranked_concentration", "crowding_top_ranked_theme_concentration", "crowding_top_ranked_theme_warning", "sector_return", "sector_relative_return", "sector_beta", "sector_correlation", "sector_alpha_proxy", "sector_attribution_status", "attribution_sample_size", "attribution_as_of", "attribution_source_dataset", "theme_return", "theme_relative_return", "theme_beta", "theme_correlation", "theme_alpha_proxy", "theme_attribution_status", "theme_sample_size", "friction_status", "friction_reason", "formula_version", "formula_checksum", "source_vintage_hash", "classification_version_id", "classification_invalidation_hash", "classification_dependency_status", "canonical_attractiveness_10", "canonical_expected_return_10", "canonical_risk_implementation_10", "canonical_evidence_confidence_10", "canonical_coverage", "canonical_warnings", "valid_components", "total_components", "source_quality", "data_quality_score_10", "data_quality_status", "data_quality_authority", "momentum_score_10", "momentum_status", "momentum_authority", "trend_score_10", "trend_status", "trend_authority", "risk_score_10", "risk_status", "risk_authority", "relative_strength_score_10", "relative_strength_status", "relative_strength_authority", "liquidity_cost_score_10", "liquidity_cost_status", "liquidity_cost_authority", "etf_exposure_score_10", "etf_exposure_status", "etf_exposure_authority", "baseline_score_10", "baseline_status", "baseline_authority", "timesfm_score_10", "timesfm_status", "timesfm_authority", "toto_score_10", "toto_status", "toto_authority", "stock_value_score_10", "stock_value_status", "stock_value_authority", "stock_quality_score_10", "stock_quality_status", "stock_quality_authority", "analyst_revision_score_10", "analyst_revision_status", "analyst_revision_authority"]
   },
   "data/derived/scoreboard.json": {
    "kind": "json",
    "structure": {
-    "list_length": 59,
+    "list_length": 58,
     "item": {
      "alpha_proxy": "null",
      "alpha_t_stat": "null",
@@ -1614,10 +1603,10 @@
      "analyst_revision_status": "null",
      "asset_type": "str",
      "attribution_as_of": "null",
-     "attribution_sample_size": "float",
+     "attribution_sample_size": "int",
      "attribution_source_dataset": "str",
      "backtest_trust_label": "str",
-     "backtest_trust_score_10": "float",
+     "backtest_trust_score_10": "null",
      "backtest_validity": "str",
      "baseline_authority": "str",
      "baseline_score_10": "null",
@@ -1626,7 +1615,7 @@
      "benchmark_beta": "null",
      "benchmark_correlation": "null",
      "benchmark_id": "null",
-     "benchmark_period_days": "float",
+     "benchmark_period_days": "int",
      "benchmark_return": "null",
      "blocked_by": "str",
      "calibration_required": "bool",
@@ -1677,6 +1666,7 @@
      "classification_invalidation_hash": "str",
      "classification_version_id": "str",
      "cost_stress_scenario": "str",
+     "coverage": "float",
      "crowding_as_of": "str",
      "crowding_average_peer_correlation": "float",
      "crowding_cluster_id": "str",
@@ -1705,7 +1695,7 @@
      "evidence_maturity_label": "str",
      "evidence_maturity_state": "str",
      "evidence_quality_10": "float",
-     "evidence_sample_days": "float",
+     "evidence_sample_days": "int",
      "evidence_sanity_warnings": "str",
      "evidence_score_10": "float",
      "evidence_warning_count": "int",
@@ -1718,6 +1708,7 @@
      "expected_return_horizon_days": "null",
      "expected_return_order_value_eur": "null",
      "expected_return_source_dataset": "str",
+     "final_combined_score_10": "float",
      "final_label": "str",
      "formula_checksum": "str",
      "formula_version": "score-engine-v3.0.0",
@@ -1727,11 +1718,12 @@
      "gate_policy_version": "str",
      "gross_expected_edge_bps": "null",
      "gross_expected_return": "null",
+     "identity_conflict_reason": "null",
      "inflation_context": "null",
      "instrument_currency": "str",
      "instrument_id": "str",
      "instrument_period_return": "null",
-     "isin": "null",
+     "isin": "str",
      "isin_status": "str",
      "latest_price_date": "str",
      "legacy_action": "str",
@@ -1741,6 +1733,7 @@
      "market_regime_label": "str",
      "market_regime_score_10": "null",
      "migration_version": "str",
+     "missing_components": "str",
      "model_authority_label": "str",
      "model_authority_reason": "str",
      "model_calibration_label": "str",
@@ -1763,7 +1756,7 @@
      "q90_expected_return": "null",
      "reason_short": "str",
      "relative_strength_authority": "str",
-     "relative_strength_score_10": "null",
+     "relative_strength_score_10": "float",
      "relative_strength_status": "str",
      "research_promotion_allowed": "bool",
      "research_state": "str",
@@ -1797,7 +1790,7 @@
      "theme_correlation": "null",
      "theme_relative_return": "null",
      "theme_return": "null",
-     "theme_sample_size": "float",
+     "theme_sample_size": "int",
      "timesfm_authority": "str",
      "timesfm_score_10": "null",
      "timesfm_status": "str",
@@ -1815,7 +1808,7 @@
   },
   "data/derived/scoreboard.parquet": {
    "kind": "parquet",
-   "rows": 59,
+   "rows": 58,
    "schema": [
     ["instrument_id", "string"],
     ["symbol", "string"],
@@ -1847,9 +1840,13 @@
     ["decision", "string"],
     ["blocked_by", "string"],
     ["reason_short", "string"],
+    ["final_combined_score_10", "double"],
+    ["coverage", "double"],
+    ["missing_components", "string"],
+    ["identity_conflict_reason", "null"],
     ["model_authority_label", "string"],
     ["backtest_trust_label", "string"],
-    ["backtest_trust_score_10", "double"],
+    ["backtest_trust_score_10", "null"],
     ["model_calibration_label", "string"],
     ["model_calibration_score_10", "null"],
     ["market_regime_label", "string"],
@@ -1858,14 +1855,14 @@
     ["portfolio_fit_score_10", "null"],
     ["strategy_template_label", "string"],
     ["strategy_template_descriptions", "string"],
-    ["evidence_sample_days", "double"],
+    ["evidence_sample_days", "int64"],
     ["evidence_maturity_state", "string"],
     ["evidence_maturity_label", "string"],
     ["too_good_to_be_true_warning", "string"],
     ["evidence_sanity_warnings", "string"],
     ["evidence_warning_count", "int64"],
     ["benchmark_id", "null"],
-    ["benchmark_period_days", "double"],
+    ["benchmark_period_days", "int64"],
     ["benchmark_return", "null"],
     ["instrument_period_return", "null"],
     ["benchmark_beta", "null"],
@@ -1956,7 +1953,7 @@
     ["sector_correlation", "null"],
     ["sector_alpha_proxy", "null"],
     ["sector_attribution_status", "string"],
-    ["attribution_sample_size", "double"],
+    ["attribution_sample_size", "int64"],
     ["attribution_as_of", "null"],
     ["attribution_source_dataset", "string"],
     ["theme_return", "null"],
@@ -1965,7 +1962,7 @@
     ["theme_correlation", "null"],
     ["theme_alpha_proxy", "null"],
     ["theme_attribution_status", "string"],
-    ["theme_sample_size", "double"],
+    ["theme_sample_size", "int64"],
     ["friction_status", "string"],
     ["friction_reason", "string"],
     ["formula_version", "string"],
@@ -2004,13 +2001,13 @@
     ["etf_exposure_score_10", "double"],
     ["etf_exposure_status", "string"],
     ["etf_exposure_authority", "string"],
-    ["baseline_score_10", "double"],
+    ["baseline_score_10", "null"],
     ["baseline_status", "string"],
     ["baseline_authority", "string"],
-    ["timesfm_score_10", "double"],
+    ["timesfm_score_10", "null"],
     ["timesfm_status", "string"],
     ["timesfm_authority", "string"],
-    ["toto_score_10", "double"],
+    ["toto_score_10", "null"],
     ["toto_status", "string"],
     ["toto_authority", "string"],
     ["stock_value_score_10", "double"],
@@ -2026,7 +2023,7 @@
   },
   "data/derived/strategy_templates.csv": {
    "kind": "csv",
-   "rows": 59,
+   "rows": 58,
    "columns": ["instrument_id", "symbol", "asset_type", "evidence_score_10", "risk_friction_10", "strategy_template_label", "strategy_template_descriptions", "market_regime_label", "benchmark_id", "benchmark_period_days", "benchmark_return", "instrument_period_return", "cash_return", "excess_over_cash", "cash_comparison_status", "gross_expected_return", "q10_expected_return", "q50_expected_return", "q90_expected_return", "net_q10_expected_return", "net_expected_return", "net_q90_expected_return", "expected_return_horizon_days", "expected_return_order_value_eur", "expected_return_cost_bps", "expected_return_cost_eur", "expected_return_cost_ratio", "expected_return_distribution_version", "expected_return_source_dataset", "sector_theme_warning", "crowding_top_ranked_concentration", "crowding_top_ranked_theme_concentration", "crowding_top_ranked_theme_warning", "evidence_maturity_state", "evidence_sample_days", "backtest_validity", "execution_allowed"]
   },
   "data/derived/version_registry.json": {
@@ -2081,7 +2078,7 @@
   },
   "data/features/features_daily.parquet": {
    "kind": "parquet",
-   "rows": 15458,
+   "rows": 15196,
    "schema": [
     ["date", "timestamp[ns]"],
     ["etf_id", "string"],
@@ -2157,7 +2154,7 @@
   },
   "data/forecasts/forecast_results_yfinance_20260930.csv": {
    "kind": "csv",
-   "rows": 885,
+   "rows": 870,
    "columns": ["run_id", "model_name", "model_version", "etf_id", "forecast_date", "horizon_days", "expected_return", "expected_excess_return", "q10_return", "q50_return", "q90_return", "forecast_vol", "prob_positive_return", "prob_beat_benchmark", "forecast_drawdown_prob", "status", "error_message", "model_allowed_in_score", "is_fallback", "fallback_model", "reason_unavailable", "oos_mase", "oos_directional_accuracy", "calibration_status"]
   },
   "data/forecasts/forecast_results_yfinance_20260930.csv.meta.json": {
@@ -2222,6 +2219,9 @@
    "rows": 53100,
    "columns": ["date", "etf_id", "provider_symbol", "open", "high", "low", "close", "adjusted_close", "volume", "currency", "source", "is_adjusted", "ingested_at", "calendar_identity"]
   },
+  "data/storage/cockpit.sqlite3": {
+   "kind": "other"
+  },
   "data/validated/prices/prices_daily.parquet": {
    "kind": "parquet",
    "rows": 53100,
@@ -2248,7 +2248,7 @@
   "file": "forecast_results_yfinance_20260930.csv",
   "frame": {
    "excluded_columns": [],
-   "shape": [885, 24],
+   "shape": [870, 24],
    "columns": ["run_id", "model_name", "model_version", "etf_id", "forecast_date", "horizon_days", "expected_return", "expected_excess_return", "q10_return", "q50_return", "q90_return", "forecast_vol", "prob_positive_return", "prob_beat_benchmark", "forecast_drawdown_prob", "status", "error_message", "model_allowed_in_score", "is_fallback", "fallback_model", "reason_unavailable", "oos_mase", "oos_directional_accuracy", "calibration_status"],
    "dtypes": {
     "run_id": "object",
@@ -2279,22 +2279,22 @@
    "numeric_columns": {
     "horizon_days": {
      "nan_count": 0,
-     "count": 885,
-     "sum": 68145.0,
+     "count": 870,
+     "sum": 66990.0,
      "mean": 77.0,
      "min": 5.0,
      "max": 180.0
     },
     "expected_return": {
-     "nan_count": 590,
-     "count": 295,
-     "sum": 0.5879154247674752,
-     "mean": 0.001992933643279577,
+     "nan_count": 580,
+     "count": 290,
+     "sum": 0.6053910381913706,
+     "mean": 0.0020875553041081745,
      "min": -0.0996017460730509,
      "max": 0.1056209035783334
     },
     "expected_excess_return": {
-     "nan_count": 885,
+     "nan_count": 870,
      "count": 0,
      "sum": null,
      "mean": null,
@@ -2302,47 +2302,47 @@
      "max": null
     },
     "q10_return": {
-     "nan_count": 590,
-     "count": 295,
-     "sum": -32.64403842869774,
-     "mean": -0.11065775738541607,
+     "nan_count": 580,
+     "count": 290,
+     "sum": -32.090846675014284,
+     "mean": -0.11065809198280788,
      "min": -0.3032213723267831,
      "max": -0.024998508309107
     },
     "q50_return": {
-     "nan_count": 590,
-     "count": 295,
-     "sum": 0.5879154247674752,
-     "mean": 0.001992933643279577,
+     "nan_count": 580,
+     "count": 290,
+     "sum": 0.6053910381913706,
+     "mean": 0.0020875553041081745,
      "min": -0.0996017460730509,
      "max": 0.1056209035783334
     },
     "q90_return": {
-     "nan_count": 590,
-     "count": 295,
-     "sum": 33.819869278232694,
-     "mean": 0.11464362467197524,
+     "nan_count": 580,
+     "count": 290,
+     "sum": 33.301628751397025,
+     "mean": 0.11483320259102422,
      "min": 0.0240819433646433,
      "max": 0.293466331696073
     },
     "forecast_vol": {
-     "nan_count": 590,
-     "count": 295,
-     "sum": 25.962463948019696,
-     "mean": 0.08800835236616845,
+     "nan_count": 580,
+     "count": 290,
+     "sum": 25.54393571344191,
+     "mean": 0.08808253694290315,
      "min": 0.0191986877305187,
      "max": 0.1874858495742374
     },
     "prob_positive_return": {
-     "nan_count": 590,
-     "count": 295,
-     "sum": 148.90235558382406,
-     "mean": 0.5047537477417765,
+     "nan_count": 580,
+     "count": 290,
+     "sum": 146.4432194607383,
+     "mean": 0.5049766188301321,
      "min": 0.3483909309896892,
      "max": 0.6725437676536453
     },
     "prob_beat_benchmark": {
-     "nan_count": 885,
+     "nan_count": 870,
      "count": 0,
      "sum": null,
      "mean": null,
@@ -2350,7 +2350,7 @@
      "max": null
     },
     "forecast_drawdown_prob": {
-     "nan_count": 885,
+     "nan_count": 870,
      "count": 0,
      "sum": null,
      "mean": null,
@@ -2358,7 +2358,7 @@
      "max": null
     },
     "oos_mase": {
-     "nan_count": 885,
+     "nan_count": 870,
      "count": 0,
      "sum": null,
      "mean": null,
@@ -2366,7 +2366,7 @@
      "max": null
     },
     "oos_directional_accuracy": {
-     "nan_count": 885,
+     "nan_count": 870,
      "count": 0,
      "sum": null,
      "mean": null,
@@ -2374,10 +2374,10 @@
      "max": null
     }
    },
-   "non_float_digest": "3b2ed6e0ed2b913dd33546af58c1b2bdf966f6d672e3d8ac3c373d293bd36c53",
+   "non_float_digest": "bc53a5c0dbdb95f4845ab91e1eef9458ff3c0f3a5b81754e8b8fecb92b06dcac",
    "first_rows": [
     {
-     "run_id": "forecast_20260930__s54eb00f2a924",
+     "run_id": "forecast_20260930__s5944577a97bd",
      "model_name": "baseline",
      "model_version": "momentum_shrunk_v1",
      "etf_id": "VWCE",
@@ -2403,7 +2403,7 @@
      "calibration_status": "not_evaluated"
     },
     {
-     "run_id": "forecast_20260930__s54eb00f2a924",
+     "run_id": "forecast_20260930__s5944577a97bd",
      "model_name": "baseline",
      "model_version": "momentum_shrunk_v1",
      "etf_id": "VWCE",
@@ -2429,7 +2429,7 @@
      "calibration_status": "not_evaluated"
     },
     {
-     "run_id": "forecast_20260930__s54eb00f2a924",
+     "run_id": "forecast_20260930__s5944577a97bd",
      "model_name": "baseline",
      "model_version": "momentum_shrunk_v1",
      "etf_id": "VWCE",
@@ -2457,7 +2457,7 @@
    ],
    "last_rows": [
     {
-     "run_id": "forecast_20260930__s54eb00f2a924",
+     "run_id": "forecast_20260930__s5944577a97bd",
      "model_name": "toto",
      "model_version": "toto_2_0_optional",
      "etf_id": "SPOG",
@@ -2483,7 +2483,7 @@
      "calibration_status": "unavailable"
     },
     {
-     "run_id": "forecast_20260930__s54eb00f2a924",
+     "run_id": "forecast_20260930__s5944577a97bd",
      "model_name": "toto",
      "model_version": "toto_2_0_optional",
      "etf_id": "SPOG",
@@ -2509,7 +2509,7 @@
      "calibration_status": "unavailable"
     },
     {
-     "run_id": "forecast_20260930__s54eb00f2a924",
+     "run_id": "forecast_20260930__s5944577a97bd",
      "model_name": "toto",
      "model_version": "toto_2_0_optional",
      "etf_id": "SPOG",
@@ -2539,8 +2539,8 @@
   "by_model_status": {
    "model_name": ["baseline", "timesfm", "toto"],
    "status": ["ok", "unavailable", "unavailable"],
-   "rows": [295, 295, 295],
-   "instruments": [59, 59, 59],
+   "rows": [290, 290, 290],
+   "instruments": [58, 58, 58],
    "horizons": [
     [5, 20, 60, 120, 180],
     [5, 20, 60, 120, 180],

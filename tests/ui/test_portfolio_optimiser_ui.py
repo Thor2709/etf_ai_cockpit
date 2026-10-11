@@ -14,6 +14,9 @@ def _walk(control):
     if control is None:
         return
     yield control
+    page_body = getattr(control, "body", None)  # PageView wraps the page body
+    if page_body is not None and page_body is not control:
+        yield from _walk(page_body)
     content = getattr(control, "content", None)
     if content is not None:
         yield from _walk(content)
@@ -25,7 +28,9 @@ def _walk(control):
 
 
 def _text(root) -> str:
-    return "\n".join(str(control.value) for control in _walk(root) if isinstance(control, ft.Text))
+    chrome = getattr(root, "chrome", None)  # the page title and subtitle live in the shell chrome
+    header = [getattr(chrome, "title", ""), getattr(chrome, "subtitle", "")]
+    return "\n".join([*header, *(str(control.value) for control in _walk(root) if isinstance(control, ft.Text))])
 
 
 def _state(with_prices: bool = True):

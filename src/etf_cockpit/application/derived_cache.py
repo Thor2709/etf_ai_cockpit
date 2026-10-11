@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from etf_cockpit.features.feature_pipeline import RELATIVE_STRENGTH_FALLBACK_ANCHOR
+
 from collections.abc import (
     Callable,
     Mapping,
@@ -374,6 +376,7 @@ def _reference_binding(reference_context: CanonicalReferenceContext) -> dict[str
     strategy_identity = {
         "strategy": strategy,
         "benchmark_data_id": reference_context.benchmark_data_id,
+        "relative_strength_fallback_anchor": RELATIVE_STRENGTH_FALLBACK_ANCHOR,
         "reference_identity_hash": identity_hash,
     }
     return {

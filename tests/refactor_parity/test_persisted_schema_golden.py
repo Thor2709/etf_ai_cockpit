@@ -34,9 +34,9 @@ def test_persisted_schema_golden_covers_the_required_families(pipeline_capture: 
         "data/features/features_daily.parquet",
         "data/features/features_daily.parquet.meta.json",
         "data/derived/scoreboard.parquet",
-        "data/derived/run_manifests/backtest__s54eb00f2a924.json",
+        "data/derived/run_manifests/backtest__s5944577a97bd.json",
     ):
         assert required in files, required
-    manifest = section["files"]["data/derived/run_manifests/backtest__s54eb00f2a924.json"]
+    manifest = section["files"]["data/derived/run_manifests/backtest__s5944577a97bd.json"]
     assert ["dataset:prices", "dataset", "1.0.0"] in manifest["dataset_tuples"]
     assert section["forecast_file"]["present"] is True

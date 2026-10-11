@@ -112,7 +112,11 @@ def _safe_name(value: str, label: str) -> str:
     cleaned = _SAFE_NAME.sub("_", str(value).strip()).strip("._")
     if not cleaned or cleaned in {".", ".."}:
         raise BulkCacheError(f"{label} must contain a safe name")
-    return cleaned[:160]
+    cleaned = cleaned[:160]
+    if cleaned != str(value):
+        # Literal safe names cannot contain '~', reserving a separate namespace.
+        cleaned += "~" + hashlib.sha256(str(value).encode("utf-8")).hexdigest()
+    return cleaned
 
 
 def _json_bytes(value: Mapping[str, object]) -> bytes:
@@ -294,6 +298,8 @@ class ContentAddressedCache:
         except Exception:
             # The part is intentionally retained for a caller-controlled retry.
             raise
+        if response.total_size is not None and written - offset != response.total_size:
+            raise BulkCacheError(f"bulk source size mismatch: server declared {response.total_size}, got {written - offset}")
         if request.expected_size is not None and written != request.expected_size:
             raise BulkCacheError(f"bulk source size mismatch: expected {request.expected_size}, got {written}")
         digest = _sha256_file(part)
@@ -313,7 +319,8 @@ class ContentAddressedCache:
         self._prepare()
         object_path = self._object_path(digest)
         object_path.parent.mkdir(parents=True, exist_ok=True)
-        deduplicated = object_path.is_file()
+        # An existing object is trusted only when its bytes still hash to the digest.
+        deduplicated = object_path.is_file() and _sha256_file(object_path) == digest
         if deduplicated:
             part.unlink(missing_ok=True)
         else:
@@ -323,7 +330,7 @@ class ContentAddressedCache:
         version = int(previous.get("version", 0)) + 1 if previous else 1
         manifest = CacheManifest(
             schema_version=BULK_CACHE_SCHEMA_VERSION,
-            source_id=_safe_name(request.source_id, "source_id"),
+            source_id=request.source_id,
             source_url=request.url,
             content_sha256=digest,
             size_bytes=size,
@@ -372,7 +379,7 @@ class ContentAddressedCache:
         atomic_write_bytes(path, payload, lambda _path: None)
         if metadata:
             atomic_write_bytes(path.with_suffix(".json"), _json_bytes(dict(metadata)), lambda _path: None)
-        return GenerationRecord(dataset, generation_id, source_digest, str(path.relative_to(self.root)).replace("\\", "/"), "staged", _utc_now())
+        return GenerationRecord(dataset_id, generation_id, source_digest, str(path.relative_to(self.root)).replace("\\", "/"), "staged", _utc_now())
 
     def promote_generation(self, record: GenerationRecord) -> GenerationRecord:
         staged = (self.root / record.relative_path).resolve()
@@ -382,7 +389,7 @@ class ContentAddressedCache:
         destination = self.generations / dataset / f"{record.generation_id}.bin"
         destination.parent.mkdir(parents=True, exist_ok=True)
         staged.replace(destination)
-        promoted = GenerationRecord(dataset, record.generation_id, record.source_sha256, str(destination.relative_to(self.root)).replace("\\", "/"), "promoted", _utc_now())
+        promoted = GenerationRecord(record.dataset_id, record.generation_id, record.source_sha256, str(destination.relative_to(self.root)).replace("\\", "/"), "promoted", _utc_now())
         atomic_write_bytes(destination.with_suffix(".json"), _json_bytes(promoted.__dict__), lambda _path: None)
         return promoted
 

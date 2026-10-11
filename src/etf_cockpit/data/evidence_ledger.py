@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from typing import Any
 
+from etf_cockpit.core.values import finite_float_or_none
 from etf_cockpit.data.contracts import SourceAuthority
 
 
@@ -141,7 +142,7 @@ def _eligibility(value: object, source: EvidenceSource | None, conflict_id: str 
         return False, "ineligible: source is unavailable"
     if conflict_id:
         return False, f"ineligible: material conflict {conflict_id} requires manual review"
-    if source.freshness_status in {"stale", "stale_block", "unavailable", "missing", "unknown", "missing_or_pending", "not_checked"}:
+    if source.freshness_status not in {"fresh", "ok", "current", "warning"}:
         return False, f"ineligible: evidence freshness is {source.freshness_status}"
     if source.authority in {SourceAuthority.MODEL, SourceAuthority.COMMUNITY, SourceAuthority.MANUAL}:
         return False, f"ineligible: {source.authority.value} evidence is context-only"
@@ -154,17 +155,10 @@ def _quality_acceptable(value: float | str | None) -> bool:
     if value is None:
         return True
     if isinstance(value, str):
-        return value.strip().casefold() not in {"low", "poor", "unavailable", "unknown"}
-    try:
-        return float(value) >= 0.5
-    except (TypeError, ValueError):
-        return False
+        return value.strip().casefold() in {"high", "medium", "good", "ok"}
+    number = finite_float_or_none(value)
+    return number is not None and number >= 0.5
 
 
 def _number_or_none(value: object) -> float | None:
-    try:
-        if value is None:
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+    return finite_float_or_none(value)

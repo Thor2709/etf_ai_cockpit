@@ -8,6 +8,8 @@ import pandas as pd
 from etf_cockpit.core.types import ForecastResult
 from etf_cockpit.features.returns import daily_log_returns
 
+MIN_BASELINE_OBSERVATIONS = 20
+
 
 def baseline_forecast(
     etf_id: str,
@@ -17,14 +19,13 @@ def baseline_forecast(
     run_id: str,
     benchmark_returns: pd.Series | None = None,
 ) -> list[ForecastResult]:
-    log_returns = daily_log_returns(adjusted_close).dropna()
-    if log_returns.empty:
-        mean = 0.0
-        vol = 0.0
-    else:
-        # Conservative shrinkage toward no edge.
-        mean = float(log_returns.tail(180).mean() * 0.35)
-        vol = float(log_returns.tail(60).std() * np.sqrt(252))
+    log_returns = daily_log_returns(adjusted_close)
+    log_returns = log_returns[np.isfinite(log_returns)]
+    if len(log_returns) < MIN_BASELINE_OBSERVATIONS:
+        return []
+    # Conservative shrinkage toward no edge.
+    mean = float(log_returns.tail(180).mean() * 0.35)
+    vol = float(log_returns.tail(60).std() * np.sqrt(252))
     results: list[ForecastResult] = []
     benchmark_mean = float(benchmark_returns.tail(180).mean() * 0.35) if benchmark_returns is not None and not benchmark_returns.empty else 0.0
     for horizon in horizons:

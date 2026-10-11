@@ -1,6 +1,6 @@
 # Operator runbook and troubleshooting
 
-Release version: `0.1.0rc1`.
+Release version: `1.1.0b1`.
 
 For the person running a local installation. The application is local-first and
 `execution_allowed=false`; nothing here involves a broker or live orders. Paper
@@ -74,7 +74,7 @@ gate is `python scripts/release_gate.py`; see
 | Symptom | Likely cause | What to do |
 | --- | --- | --- |
 | Browser window is blank, or the page does not load | Native renderer selected, port in use or app not running | Open `http://127.0.0.1:8550` in a browser; unset `ETF_COCKPIT_VIEW` or set it to `web`; set another `ETF_COCKPIT_PORT`; rerun `python scripts/run_app.py --smoke` and read the error. |
-| `Route unavailable` | Link to an unregistered route | Pick a page from the dock or **Command palette**; see [Workspaces](../user/WORKSPACES.md). |
+| `Route unavailable` | Link to an unregistered route | Pick a page from the dock or **Search or jump to**; see [Workspaces](../user/WORKSPACES.md). |
 | Scores show `N/A` or `not scoreable` | Required evidence missing, stale or conflicted | Data Health and Provider Status show which input is missing; import it. `N/A` is not zero. |
 | No prices after First-run Setup | Sample bootstrap has no prices; bulk bootstrap only validates the file | Import prices on Simple Scores (**Import prices**). |
 | Safety rail shows `Unavailable` | Snapshot has no value for that item | Hover for the reason; refresh or re-import data. |

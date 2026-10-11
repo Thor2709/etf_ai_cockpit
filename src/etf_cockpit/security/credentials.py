@@ -9,6 +9,7 @@ from pathlib import Path
 import tempfile
 from typing import Any
 
+from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.security.policy import SecurityPolicyError
 
 
@@ -52,9 +53,10 @@ class CredentialVault:
         assert path is not None
         _invalidate_probe_cache(name)
         try:
-            entries = self._read_entries(path) if path.exists() else {}
-            entries[name] = secret
-            self._write_entries(path, entries)
+            with persistent_file_guard(path.with_suffix(".guard")):
+                entries = self._read_entries(path) if path.exists() else {}
+                entries[name] = secret
+                self._write_entries(path, entries)
         except CredentialVaultError:
             raise
         except Exception:
@@ -68,12 +70,14 @@ class CredentialVault:
         _invalidate_probe_cache(name)
         if path is not None and path.exists():
             try:
-                entries = self._read_entries(path)
-                entries.pop(name, None)
-                if entries:
-                    self._write_entries(path, entries)
-                else:
-                    path.unlink(missing_ok=True)
+                with persistent_file_guard(path.with_suffix(".guard")):
+                    if path.exists():
+                        entries = self._read_entries(path)
+                        entries.pop(name, None)
+                        if entries:
+                            self._write_entries(path, entries)
+                        else:
+                            path.unlink(missing_ok=True)
             except CredentialVaultError:
                 raise
             except Exception:

@@ -15,7 +15,7 @@ The supplied package is immutable evidence. It is archived under `docs/product-c
 
 - Raw package candidate graph cycles: `543`. The canonical blocking graph contains zero cycles; converted candidates and reasons are recorded in `dependency-reconciliation.csv`.
 - External or historical dependency references are retained as related context; `UPDATEV2-0028` is the known package reference outside the package snapshot.
-- The current router exposes `41` registered routes. This is recorded as source evidence because the supplied plan's earlier route estimate was lower; no routes were removed in this documentation task.
+- The current router exposes `42` registered routes. This is recorded as source evidence because the supplied plan's earlier route estimate was lower; no routes were removed in this documentation task.
 
 ## Scope boundary
 

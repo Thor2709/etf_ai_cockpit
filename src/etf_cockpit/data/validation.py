@@ -70,7 +70,7 @@ def validate_prices(
         affected = frame.loc[nonfinite_prices.any(axis=1), "etf_id"].astype(str).unique()
         for etf_id in affected:
             issues.append(DataQualityIssue(etf_id, "block", "invalid_price_values", "Required price values must be finite numbers."))
-    parsed_dates = pd.to_datetime(frame["date"])
+    parsed_dates = pd.to_datetime(frame["date"], errors="coerce")
     missing_date = parsed_dates.isna()
     if missing_date.any():
         # A NaT cannot be compared with a date: report the rows as a blocking issue and validate the rest.

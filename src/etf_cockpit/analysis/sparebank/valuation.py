@@ -13,6 +13,7 @@ from collections.abc import Iterable, Mapping
 from etf_cockpit.core.values import finite_float_or_none as _num
 from etf_cockpit.portfolio.costs import COST_MODEL_ID
 
+from . import book_calcs
 from .models import ECClaimState, UNAVAILABLE
 
 
@@ -27,11 +28,13 @@ def owner_valuation(
     *,
     price: float | None = None,
     count_convention: Mapping[str, str] | None = None,
+    allow_partial: bool = False,
 ) -> dict[str, object]:
-    """Value the resolved claim using matched period-end and weighted counts."""
+    """Value the claim with each available matched filing input."""
 
     state = _state(claim)
-    if state.get("claim_status") != "resolved":
+    resolved = state.get("claim_status") == "resolved"
+    if not resolved and not allow_partial:
         return {"status": "unavailable", "reason_code": "OWNER_VALUATION_CLAIM_NOT_RESOLVED", "execution_allowed": False}
     supplied_conventions = state.get("count_conventions")
     conventions = dict(count_convention or (supplied_conventions if isinstance(supplied_conventions, Mapping) else {
@@ -40,20 +43,46 @@ def owner_valuation(
     }))
     if conventions.get("book") != "period_end_ec_count" or conventions.get("earnings") != "weighted_average_ec_count":
         raise ValueError("owner book and earnings require their matched count conventions")
-    book, earnings = _num(state.get("owner_attributable_book")), _num(state.get("owner_attributable_earnings"))
-    period_count, weighted_count = _num(state.get("period_end_ec_count")), _num(state.get("weighted_average_ec_count"))
-    if None in (book, earnings, period_count, weighted_count) or period_count <= 0 or weighted_count <= 0:
+    book = _num(state.get("owner_attributable_book"))
+    book_source = "owner_attributable_book"
+    if book is None:
+        book = _num(state.get("owner_pool_total"))
+        book_source = "owner_pool_total"
+    earnings = _num(state.get("owner_attributable_earnings"))
+    period_count = _num(state.get("period_end_ec_count"))
+    count_source = "period_end_ec_count"
+    if period_count is None:
+        period_count = _num(state.get("outstanding_ec_count"))
+        count_source = "outstanding_ec_count"
+    if period_count is None:
+        registered = _num(state.get("registered_ec_count"))
+        treasury = _num(state.get("treasury_ec_count"))
+        if registered is not None:
+            period_count = registered - treasury if treasury is not None else registered
+            count_source = "registered_ec_count_less_treasury" if treasury is not None else "registered_ec_count"
+    weighted_count = _num(state.get("weighted_average_ec_count"))
+    earnings_count_source = "weighted_average_ec_count"
+    if weighted_count is None and period_count is not None:
+        # The filing does not tag a weighted average. Period-end certificates are the conservative stand-in
+        # (more certificates than the weighted average whenever new ECs were issued in the year); stated, not hidden.
+        weighted_count = period_count
+        earnings_count_source = f"{count_source} (weighted average not reported; proxy)"
+    if book is None or period_count is None or period_count <= 0:
         return {"status": "unavailable", "reason_code": "OWNER_VALUATION_EVIDENCE_MISSING", "execution_allowed": False}
-    book_per_ec, eps = book / period_count, earnings / weighted_count
+    book_per_ec = book / period_count
+    eps = earnings / weighted_count if earnings is not None and weighted_count is not None and weighted_count > 0 else None
     px = _num(price)
+    if px is not None and px <= 0:
+        px = None
     tangible_book = _num(state.get("owner_attributable_tangible_book", state.get("tangible_owner_book")))
     result: dict[str, object] = {
-        "status": "resolved", "owner_book_per_ec": book_per_ec, "owner_eps": eps,
-        "owner_pb": None if px is None or book_per_ec == 0 else px / book_per_ec,
-        "owner_pe": None if px is None or eps == 0 else px / eps,
-        "roe": earnings / book if book else None,
+        "status": "resolved" if resolved and eps is not None else "partial", "owner_book_per_ec": book_per_ec, "owner_eps": eps,
+        "owner_pb": None if px is None or book_per_ec <= 0 else px / book_per_ec,
+        "owner_pe": None if px is None or eps is None or eps <= 0 else px / eps,
+        "roe": earnings / book if earnings is not None and book else None,
         "rote": earnings / tangible_book if tangible_book else None,
         "count_conventions": conventions,
+        "count_sources": {"book": book_source, "book_count": count_source, "earnings_count": earnings_count_source},
         "execution_allowed": False,
     }
     return result
@@ -179,14 +208,14 @@ def implied_roe(price_to_book: float, required_return: float, growth: float) -> 
     pb, k, g = _num(price_to_book), _num(required_return), _num(growth)
     if None in (pb, k, g) or pb <= 0 or k <= g:
         raise ValueError("positive P/B and k > g are required")
-    return g + pb * (k - g)
+    return book_calcs.implied_roe(pb, k, g)
 
 
 def implied_required_return(price_to_book: float, sustainable_roe: float, growth: float) -> float:
     pb, r, g = _num(price_to_book), _num(sustainable_roe), _num(growth)
     if None in (pb, r, g) or pb <= 0:
         raise ValueError("positive P/B is required")
-    return g + (r - g) / pb
+    return book_calcs.implied_cost_of_equity(pb, r, g)
 
 
 def reverse_valuation(price_to_book: float, *, k: float | None = None, r: float | None = None, g: float) -> dict[str, float]:
@@ -248,14 +277,19 @@ def price_implied_state_weight(price: float, reference_value: float, improvement
 
 
 def implementation_shortfall(*, reference_price: float, filled_quantity: float, fill_price: float, unfilled_quantity: float = 0.0, end_price: float | None = None, fees: float = 0.0) -> dict[str, object]:
-    """Calculate shortfall only when a fill simulation supplies the inputs."""
+    """Require fill inputs and a finite end price for any unfilled quantity."""
 
     reference, filled, fill, unfilled, end, fee = map(_num, (reference_price, filled_quantity, fill_price, unfilled_quantity, end_price, fees))
     if None in (reference, filled, fill, unfilled, fee) or reference <= 0 or filled < 0 or unfilled < 0:
         return {"status": "unavailable", "reason_code": "FILL_SIMULATION_MISSING"}
-    opportunity = unfilled * max(0.0, (end if end is not None else reference) - reference)
+    total_quantity = filled + unfilled
+    if total_quantity <= 0:
+        return {"status": "unavailable", "reason_code": "FILL_SIMULATION_MISSING"}
+    if unfilled > 0 and end is None:
+        return {"status": "unavailable", "reason_code": "END_PRICE_MISSING"}
+    opportunity = unfilled * max(0.0, end - reference) if unfilled > 0 else 0.0
     implementation = filled * (fill - reference) + fee + opportunity
-    return {"status": "resolved", "shortfall": implementation, "shortfall_pct": implementation / (reference * max(1.0, filled + unfilled)), "filled_quantity": filled, "unfilled_quantity": unfilled, "execution_allowed": False}
+    return {"status": "resolved", "shortfall": implementation, "shortfall_pct": implementation / (reference * total_quantity), "filled_quantity": filled, "unfilled_quantity": unfilled, "execution_allowed": False}
 
 
 def decision_price(value: float, hurdle: float, *, years: float = 1.0, exit_cost: float = 0.0) -> float:
@@ -300,7 +334,9 @@ def executable_order(quantity: float, asks: Iterable[Mapping[str, object]] | Non
         remaining, cost, filled = qty, 0.0, 0.0
         for row in levels:
             px, available = _num(row.get("price")), _num(row.get("quantity", row.get("size")))
-            if px is None or available is None or available <= 0 or (limit_price is not None and px > limit_price):
+            if px is None or px <= 0:
+                return {"status": "unavailable", "reason_code": "INVALID_ORDER_BOOK", "filled_quantity": 0.0, "unfilled_quantity": qty, "execution_allowed": False}
+            if available is None or available <= 0 or (limit_price is not None and px > limit_price):
                 continue
             take = min(remaining, available)
             cost += take * px
@@ -319,15 +355,116 @@ def executable_order(quantity: float, asks: Iterable[Mapping[str, object]] | Non
     return {"status": "unavailable", "reason_code": "DEPTH_UNAVAILABLE", "filled_quantity": 0.0, "unfilled_quantity": qty, "execution_cost_model": COST_MODEL_ID, "estimate_kind": "labelled_estimate", "execution_allowed": False}
 
 
+def _book_valuation(standalone: Mapping[str, object], assumptions: Mapping[str, object]) -> tuple[dict[str, object], dict[str, object]]:
+    """Justified value per EC (eq. 5.22) and the reverse inversion (eq. 5.32-5.34) on the matched owner claim.
+
+    Cost of equity and long-run growth are assumptions, not evidence; the caller labels their source.
+    The book's own worked examples use 10 % and 3 % (p. 16, p. 111).
+    """
+
+    errors = assumptions.get("assumption_errors")
+    if isinstance(errors, Mapping) and errors:
+        reason = str(next(iter(errors.values())))
+        missing = {"status": "unavailable", "reason_code": reason}
+        return missing, dict(missing)
+    coe = _num(assumptions.get("cost_of_equity"))
+    growth = _num(assumptions.get("long_run_growth"))
+    sustainable = _num(assumptions.get("sustainable_roe"))
+    book_per_ec = _num(standalone.get("owner_book_per_ec"))
+    owner_pb = _num(standalone.get("owner_pb"))
+    source = str(assumptions.get("assumption_source") or "assumptions supplied to the valuation")
+    if coe is None or growth is None:
+        missing = {"status": "unavailable", "reason_code": "COST_OF_EQUITY_OR_GROWTH_ASSUMPTION_MISSING"}
+        return missing, dict(missing)
+    justified = book_calcs.justified_price_to_book(sustainable, coe, growth)
+    if justified is None or book_per_ec is None or book_per_ec <= 0:
+        reason = "SUSTAINABLE_ROE_UNAVAILABLE" if sustainable is None else "SUSTAINABLE_ROE_NOT_POSITIVE_OR_BELOW_COST_OF_GROWTH" if justified is None else "OWNER_BOOK_PER_EC_UNAVAILABLE"
+        central: dict[str, object] = {"status": "unavailable", "reason_code": reason}
+    else:
+        central = {
+            "status": "resolved",
+            "value_per_ec": justified * book_per_ec,
+            "justified_pb": justified,
+            "sustainable_roe": sustainable,
+            "cost_of_equity": coe,
+            "growth": growth,
+            "residual_income_per_ec_next_year": book_calcs.residual_income_per_unit(sustainable, coe, book_per_ec),
+            "equation": "justified P/B = (ROE - g) / (COE - g), book eq. 5.22 p. 107",
+            "assumption_source": source,
+        }
+    implied = book_calcs.implied_roe(owner_pb, coe, growth)
+    reverse: dict[str, object]
+    if sustainable is None:
+        reverse = {"status": "unavailable", "reason_code": "SUSTAINABLE_ROE_UNAVAILABLE"}
+    elif implied is None:
+        reverse = {"status": "unavailable", "reason_code": "OWNER_PRICE_TO_BOOK_UNAVAILABLE"}
+    else:
+        reverse = {
+            "status": "resolved",
+            "price_to_book": owner_pb,
+            "implied_r": implied,
+            "implied_k": book_calcs.implied_cost_of_equity(owner_pb, sustainable, growth),
+            "expectations_gap": book_calcs.expectations_gap(sustainable, implied),
+            "cost_of_equity": coe,
+            "g": growth,
+            "wording": "At this cost of equity and growth, the price is consistent with the implied sustainable ROE; this is a conditional inversion, not a market forecast (book p. 110).",
+            "assumption_source": source,
+        }
+    return central, reverse
+
+
+def normalise_valuation_assumptions(
+    assumptions: Mapping[str, object],
+    *,
+    defaults: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Map supported valuation aliases to canonical ratios before valuation."""
+
+    result = dict(assumptions)
+    errors: dict[str, str] = {}
+    aliases = (
+        ("cost_of_equity", ("cost_of_equity", "k", "cost_of_equity_pct"), "COST_OF_EQUITY_ALIAS_CONFLICT"),
+        ("long_run_growth", ("long_run_growth", "g", "long_run_growth_pct"), "GROWTH_ALIAS_CONFLICT"),
+    )
+    default_values = defaults or {}
+    for canonical, names, conflict_code in aliases:
+        supplied = [(name, result[name]) for name in names if name in result]
+        if supplied:
+            converted: list[float] = []
+            invalid = False
+            for name, raw in supplied:
+                value = _num(raw)
+                if value is None:
+                    invalid = True
+                    continue
+                converted.append(value / 100.0 if name.endswith("_pct") else value)
+            if invalid:
+                errors[canonical] = f"{canonical.upper()}_ASSUMPTION_INVALID"
+            elif converted and any(not math.isclose(value, converted[0], rel_tol=0.0, abs_tol=1e-12) for value in converted[1:]):
+                errors[canonical] = conflict_code
+            elif converted:
+                result[canonical] = converted[0]
+        elif default_values.get(canonical) is not None:
+            result[canonical] = default_values[canonical]
+    if errors:
+        result["assumption_errors"] = errors
+    else:
+        result.pop("assumption_errors", None)
+    return result
+
+
 def valuation(claim: ECClaimState | Mapping[str, object], *, price: float | None = None, assumptions: Mapping[str, object] | None = None) -> dict[str, object]:
     """Build the explicit valuation section used by the suite entry point."""
 
-    standalone = owner_valuation(claim, price=price)
-    if standalone.get("status") != "resolved":
+    standalone = owner_valuation(claim, price=price, allow_partial=True)
+    if standalone.get("status") not in {"resolved", "partial"}:
         return {"status": "unavailable", "standalone": standalone, "reverse": {"status": "unavailable"}, "execution_allowed": False}
     assumptions = assumptions or {}
     if not isinstance(assumptions, Mapping):
         return {"status": "unavailable", "standalone": standalone, "reason_code": "VALUATION_ASSUMPTIONS_INVALID", "execution_allowed": False}
+    assumptions = normalise_valuation_assumptions(assumptions)
+    if assumptions.get("assumption_errors"):
+        return {"status": "unavailable", "standalone": standalone, "reverse": {"status": "unavailable", "reason_code": "VALUATION_ASSUMPTIONS_INVALID"}, "reason_code": "VALUATION_ASSUMPTIONS_INVALID", "assumption_errors": assumptions["assumption_errors"], "execution_allowed": False}
     reverse = None
     if "price_to_book" in assumptions and "k" in assumptions and "g" in assumptions:
         reverse = reverse_valuation(float(assumptions["price_to_book"]), k=float(assumptions["k"]), g=float(assumptions["g"]))
@@ -335,6 +472,12 @@ def valuation(claim: ECClaimState | Mapping[str, object], *, price: float | None
         reverse = reverse_valuation(float(assumptions["price_to_book"]), r=float(assumptions["r"]), g=float(assumptions["g"]))
     else:
         reverse = {"status": "unavailable", "reason_code": "REVERSE_INPUTS_MISSING"}
+    central, reverse_book = _book_valuation(standalone, assumptions)
+    if reverse.get("status") == "unavailable" and (
+        reverse_book.get("status") == "resolved"
+        or reverse_book.get("reason_code") == "SUSTAINABLE_ROE_UNAVAILABLE"
+    ):
+        reverse = reverse_book
     scenarios = scenario_value(assumptions.get("scenarios")) if "scenarios" in assumptions else {"status": "unavailable", "reason_code": "SCENARIO_ASSUMPTIONS_MISSING", "scenarios": ()}
 
     recovery_inputs = assumptions.get("recovery")
@@ -369,12 +512,13 @@ def valuation(claim: ECClaimState | Mapping[str, object], *, price: float | None
     if isinstance(marketability_inputs, Mapping):
         with_value = _num(marketability_inputs.get("with_marketability"))
         without_value = _num(marketability_inputs.get("without_marketability"))
-        marketability = {
-            "status": "resolved" if None not in (with_value, without_value) else "unavailable",
-            "with_marketability": with_value,
-            "without_marketability": without_value,
-            "reason_code": None if None not in (with_value, without_value) else "MARKETABILITY_VALUES_MISSING",
-        }
+        marketability = dict(marketability_inputs)
+        marketability.update(
+            status="resolved" if None not in (with_value, without_value) else "partial",
+            with_marketability=with_value,
+            without_marketability=without_value,
+            reason_code=None if None not in (with_value, without_value) else "MARKETABILITY_VALUES_MISSING",
+        )
     else:
         marketability = {"status": "unavailable", "reason_code": "MARKETABILITY_ASSUMPTIONS_MISSING"}
 
@@ -416,6 +560,7 @@ def valuation(claim: ECClaimState | Mapping[str, object], *, price: float | None
     resolved = any(section.get("status") == "resolved" for section in (recovery, four_state, marketability, capital_policy, irr_section, decision_section))
     return {
         "status": "resolved" if resolved else "partial", "standalone": standalone, "reverse": reverse,
+        "central_owner_value_per_ec": central,
         "scenarios": scenarios, "recovery": recovery, "four_state": four_state,
         "marketability": marketability, "capital_policy": capital_policy, "irr": irr_section,
         "decision_price": decision_section, "implementation": implementation,

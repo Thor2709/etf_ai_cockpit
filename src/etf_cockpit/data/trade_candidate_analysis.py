@@ -11,10 +11,11 @@ from pathlib import Path
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig, ProviderSection
-from etf_cockpit.core.values import dict_or_empty as _safe_dict
+from etf_cockpit.core.values import dict_or_empty as _safe_dict, years_before
 from etf_cockpit.portfolio.benchmark_reference import adjusted_price_snapshot_binding
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, read_atomic_group
 from etf_cockpit.core.paths import FORECASTS_DIR, RAW_DIR, REPORTS_DIR
+from etf_cockpit.core.session_log import log_event
 from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.data.yfinance_provider import YFinanceProvider
 
@@ -92,8 +93,45 @@ def load_candidate_price_binding(*, path: Path | None = None) -> dict[str, objec
         if replayed is None or any(metadata.get(key) != value for key, value in replayed.items()):
             return None
         return replayed
-    except (OSError, TypeError, ValueError, RecursionError):
+    except (OSError, TypeError, ValueError, RecursionError) as exc:
+        if target.exists() or metadata_path.exists():
+            log_event(
+                event_type="data_read_failed",
+                severity="warning",
+                component="candidate_price_snapshot",
+                operation="validate_candidate_price_binding",
+                file_paths=[target, metadata_path],
+                exception_type=type(exc).__name__,
+                exception_message_redacted=str(exc),
+            )
         return None
+
+
+def load_candidate_price_snapshot(*, path: Path | None = None) -> pd.DataFrame:
+    """Load retained candidate price history only when its binding replays."""
+
+    target = path or CANDIDATE_PRICE_SNAPSHOT_PATH
+    if not target.is_file():
+        return pd.DataFrame()
+    if load_candidate_price_binding(path=target) is None:
+        frame = pd.DataFrame()
+        frame.attrs["unavailable_reason"] = "candidate_price_snapshot_binding_invalid"
+        return frame
+    try:
+        return pd.read_csv(target)
+    except (OSError, TypeError, ValueError, UnicodeError) as exc:
+        log_event(
+            event_type="data_read_failed",
+            severity="warning",
+            component="candidate_price_snapshot",
+            operation="read_candidate_price_history",
+            file_paths=target,
+            exception_type=type(exc).__name__,
+            exception_message_redacted=str(exc),
+        )
+        frame = pd.DataFrame()
+        frame.attrs["unavailable_reason"] = "candidate_price_snapshot_unreadable"
+        return frame
 
 
 def latest_candidate_input(directory: Path = RAW_DIR / "trade_candidates") -> Path:
@@ -145,6 +183,26 @@ def refresh_candidate_analysis(
     publish_guard: PublicationScopeFactory | None = None,
 ) -> CandidateAnalysisResult:
     data = fetch_candidate_prices(config, years=years, as_of_date=as_of_date, candidate_path=candidate_path)
+    # Retaining the price snapshot is best-effort: a failed binding is logged, never blocks the refresh.
+    price_dates = pd.to_datetime(data.prices.get("date"), errors="coerce", utc=True).dropna()
+    price_binding = None
+    if not price_dates.empty:
+        calculation_window = {
+            "start_date": price_dates.min().date().isoformat(),
+            "end_date": data.effective_as_of.isoformat(),
+            "decision_time": data.effective_as_of.isoformat(),
+        }
+        price_binding = adjusted_price_snapshot_binding(data.prices, calculation_window=calculation_window)
+    if price_binding is None:
+        log_event(
+            event_type="data_write_skipped",
+            severity="warning",
+            component="candidate_price_snapshot",
+            operation="retain_candidate_price_history",
+            exception_message_redacted="no valid dates" if price_dates.empty else "price binding unavailable",
+        )
+    else:
+        write_candidate_price_snapshot(data.prices, price_binding, publish_guard=publish_guard)
     fundamentals = fetch_candidate_fundamentals(data.candidates)
     report = analyse_candidate_prices(data.candidates, data.prices, fundamentals=fundamentals)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -709,7 +767,4 @@ def _fmt_number(value: object) -> str:
 
 
 def _years_back(as_of: date, years: int) -> date:
-    try:
-        return as_of.replace(year=as_of.year - years)
-    except ValueError:
-        return as_of.replace(month=2, day=28, year=as_of.year - years)
+    return years_before(as_of, years)

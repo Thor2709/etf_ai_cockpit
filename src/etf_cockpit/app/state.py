@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
+import copy
 import threading
 from typing import TYPE_CHECKING, Any, Callable, TypeVar, cast
 
@@ -26,7 +27,6 @@ from etf_cockpit.application.api import LocalApplicationApi
 from etf_cockpit.application.sec_bulk_import import BulkImportResult  # noqa: F401 - compatibility re-export
 from etf_cockpit.application.sec_submissions_import import SubmissionsImportResult  # noqa: F401 - compatibility re-export
 from etf_cockpit.application.runtime import DurableJobScheduler
-from etf_cockpit.application.scoreboard_publication import refresh_static_trust_artifacts
 if TYPE_CHECKING:
     from etf_cockpit.data.instrument_identity import CanonicalIdentity
     from etf_cockpit.parsers.contracts import RawDocument
@@ -282,6 +282,54 @@ def _read_recent_activity(limit: int = 8) -> list[ActivityEntry]:
     return entries[-limit:]
 
 
+_SHARED_SNAPSHOT: dict[str, object] = {}
+_SHARED_SNAPSHOT_LOCK = threading.Lock()
+
+
+def _data_fingerprint() -> tuple[object, ...]:
+    """Cheap change detector for the inputs of a snapshot (file and folder modification times)."""
+
+    paths = (
+        ROOT / "configs",
+        ROOT / "configs" / "universe.yaml",
+        ROOT / "data" / "clean",
+        ROOT / "data" / "clean" / "prices.parquet",
+        ROOT / "data" / "forecasts",
+        ROOT / "data" / "derived",
+    )
+    return tuple(path.stat().st_mtime_ns if path.exists() else None for path in paths)
+
+
+def _shared_snapshot():
+    """One snapshot per process for unchanged data: every browser session reuses it instead of rebuilding."""
+
+    with _SHARED_SNAPSHOT_LOCK:
+        key = _data_fingerprint()
+        if _SHARED_SNAPSHOT.get("key") != key or _SHARED_SNAPSHOT.get("snapshot") is None:
+            _SHARED_SNAPSHOT["snapshot"] = build_snapshot()
+            _SHARED_SNAPSHOT["key"] = _data_fingerprint()
+        return _SHARED_SNAPSHOT["snapshot"]
+
+
+def shared_snapshot_is_current() -> bool:
+    """True when the shared snapshot exists and no input changed since it was built."""
+
+    with _SHARED_SNAPSHOT_LOCK:
+        return _SHARED_SNAPSHOT.get("snapshot") is not None and _SHARED_SNAPSHOT.get("key") == _data_fingerprint()
+
+
+def reseal_shared_snapshot() -> None:
+    """Re-record the data fingerprint after the app's own startup writes (static trust artifacts).
+
+    Those writes touch ``data/derived``; without this every browser session saw a "changed" fingerprint and rebuilt
+    the whole snapshot (5-8 s) and rewrote the artifacts again, so each reload was cold.
+    """
+
+    with _SHARED_SNAPSHOT_LOCK:
+        if _SHARED_SNAPSHOT.get("snapshot") is not None:
+            _SHARED_SNAPSHOT["key"] = _data_fingerprint()
+
+
 @dataclass
 class AppState:
     snapshot: CockpitSnapshot
@@ -308,8 +356,68 @@ class AppState:
     score_history_warning: str | None = None
     application_api: LocalApplicationApi = field(init=False, repr=False)
 
+    message_serial = 0  # counts last_message assignments, so a repeated text is still a new event
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if name == "last_message":
+            object.__setattr__(self, "message_serial", self.message_serial + 1)
+        object.__setattr__(self, name, value)
+
     def __post_init__(self) -> None:
         self.refresh_runtime_profile()
+        self.assign_sector_projections()
+
+    def assign_sector_projections(self, instrument_id: str | None = None) -> None:
+        """Attach verified or explicitly unavailable sector evidence for the selected instrument."""
+
+        from etf_cockpit.application.financial_institution_views import unavailable_financial_projection
+        from etf_cockpit.application.financial_institution_views import load_financial_institution_projection
+        from etf_cockpit.application.sector_views import (
+            load_cyclical_projection,
+            load_innovation_projection,
+            load_real_asset_projection,
+        )
+        from etf_cockpit.application.identity_views import load_classification_projection
+
+        selected = str(instrument_id or self.selected_etf)
+        cutoff_value = getattr(getattr(self.snapshot, "data_report", None), "as_of_date", None)
+        cutoff = f"{cutoff_value}T00:00:00Z" if cutoff_value is not None else None
+        load_classification_projection(
+            selected,
+            storage_root=ROOT,
+            effective_at=cutoff,
+            decision_time=cutoff,
+        )
+        if self.real_asset_projection is None or str(self.real_asset_projection.get("instrument_id")) != selected:
+            self.real_asset_projection = load_real_asset_projection(selected)
+        if self.cyclical_projection is None or str(self.cyclical_projection.get("instrument_id")) != selected:
+            self.cyclical_projection = load_cyclical_projection(selected)
+            self.cyclical_source_digest = None
+        if self.innovation_projection is None or str(self.innovation_projection.get("instrument_id")) != selected:
+            self.innovation_projection = load_innovation_projection(selected)
+            self.innovation_source_digest = None
+        if self.financial_projection is None or str(self.financial_projection.get("instrument_id")) != selected:
+            try:
+                self.financial_projection = load_financial_institution_projection(
+                    selected,
+                    storage_root=ROOT,
+                    decision_time=None,  # live view decides as of now
+                    effective_at=None,  # latest reported period; an as-of date is not a reporting period
+                )
+            except Exception as exc:
+                log_event(
+                    event_type="data_read_failed",
+                    severity="warning",
+                    component="sector_projection",
+                    operation="build_financial_projection",
+                    instrument_id=selected,
+                    exception_type=type(exc).__name__,
+                    exception_message_redacted=str(exc),
+                )
+                self.financial_projection = unavailable_financial_projection(
+                    selected,
+                    "financial_evidence_invalid",
+                )
 
     def refresh_runtime_profile(self, resource_profile: str | None = None) -> str:
         """Rebuild the local runtime boundary from persisted onboarding hardware."""
@@ -339,6 +447,24 @@ class AppState:
             raise ValueError(f"Unsupported evidence mode: {mode}")
         self.evidence_mode = value
         self.last_message = theme.EVIDENCE_MODE_LABELS[value]
+        return value
+
+    def set_missing_data_penalty(self, enabled: bool) -> bool:
+        """Save the global missing-data penalty preference; every score list follows it."""
+
+        from etf_cockpit.application.settings import MISSING_DATA_PENALTY, save_preference
+
+        value = bool(enabled)
+        try:
+            save_preference(MISSING_DATA_PENALTY, value, root=self.settings_root)
+            saved = ""
+        except (OSError, ValueError) as exc:
+            saved = f" (not saved: {exc})"
+        self.last_message = (
+            "Missing-data penalty on: thin-evidence scores are pulled toward neutral 5"
+            if value
+            else "Missing-data penalty off: scores use the available evidence only"
+        ) + saved
         return value
 
     def set_analysis_depth(self, depth: str) -> str:
@@ -384,11 +510,7 @@ class AppState:
         with timed_step("startup", "migrations"):
             run_startup_migrations()
         with timed_step("startup", "snapshot"):
-            snapshot = build_snapshot()
-        try:
-            refresh_static_trust_artifacts(snapshot.config)
-        except Exception:
-            pass
+            snapshot = copy.copy(_shared_snapshot())  # per-session shell; heavy frames stay shared read-only
         state = cls(
             snapshot=snapshot,
             selected_etf=snapshot.config.ui.default_etf,
@@ -438,6 +560,7 @@ class AppState:
         self.snapshot.config = config
         self.snapshot.universe_revision = revision
         self.universe_cache_revision = revision
+        self.snapshot._backtest_loader = None
         enabled = set(config.universe.enabled_ids)
         for attribute in ("prices", "holdings", "features", "latest_features"):
             frame = getattr(self.snapshot, attribute, None)
@@ -462,6 +585,11 @@ class AppState:
             except (AttributeError, TypeError):
                 # Lightweight embedding snapshots may not carry a full report.
                 self.snapshot.backtest = None
+
+    def ensure_backtest(self):
+        """Return the snapshot's cached backtest, calculating it on demand once."""
+
+        return self.snapshot.ensure_backtest()
 
     @property
     def shared_activity_id(self) -> str | None:
@@ -731,6 +859,12 @@ class AppState:
                 return None
             if expected_action_id is not None and entry.action_id != expected_action_id:
                 raise WorkflowTransitionError("The requested activity is owned by another action.")
+            # A terminal worker keeps the slot until it exits. Repeated UI clicks
+            # must report that result without asking the controller to finish twice.
+            terminal = self.workflow_controller.get(entry.action_id)
+            if terminal is not None and terminal.status is not WorkflowStatus.RUNNING:
+                self.last_message = terminal.message
+                return entry
             result = self.workflow_controller.cancel(entry.action_id, message)
             entry.status = result.status.value
             entry.step = "Cancelled"
@@ -1085,7 +1219,7 @@ class AppState:
             self.snapshot.holdings,
             self.snapshot.features,
             self.snapshot.signals,
-            self.snapshot.backtest,
+            self.ensure_backtest(),
             self.snapshot.data_report,
             publish_guard=self.activity_publication,
         )

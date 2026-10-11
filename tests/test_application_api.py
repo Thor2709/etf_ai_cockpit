@@ -293,7 +293,7 @@ def test_jobs_page_consumes_application_api_view_models() -> None:
     from etf_cockpit.app.pages.jobs import jobs_page
 
     source = inspect.getsource(jobs_page)
-    assert "state.application_api" in source
+    assert 'getattr(state, "application_api", None)' in source
     assert "get_jobs" in source
     assert "SubmitWorkflowCommand" in source
 

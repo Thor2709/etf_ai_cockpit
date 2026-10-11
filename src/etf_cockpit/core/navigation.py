@@ -53,21 +53,37 @@ ROUTE_TITLES: tuple[tuple[str, str], ...] = (
     ("/operations", "Operations Centre"),
     ("/release-readiness", "Release Readiness"),
     ("/roadmap", "Programme Map"),
+    ("/sectors", "Sectors & Countries"),
 )
 
+# Dock order and page-menu order of FINAL_UI_SPEC 7.0 (the first route is the workspace default).
 # One stable information architecture for the existing routes. The pages stay
 # independently testable while the shell gives them a decision-oriented home.
 WORKSPACE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Home", ("/", "/onboarding")),
-    ("Research", ("/stock-research", "/etf", "/instrument", "/signals", "/screener", "/strategy-builder")),
+    ("Universe", ("/universe", "/data-health", "/providers", "/catalogue", "/filings", "/etf-disclosures", "/news-context")),
+    ("Research", ("/stock-research", "/instrument", "/etf", "/signals", "/screener", "/strategy-builder")),
+    ("Portfolio", ("/portfolio", "/risk", "/portfolio-optimiser", "/stress-lab", "/decision-journal", "/forward-evidence", "/operations")),
     ("Compare", ("/comparison",)),
-    ("Map", ("/macro",)),
-    ("Universe", ("/universe", "/catalogue", "/providers", "/filings", "/etf-disclosures", "/news-context", "/data-health")),
-    ("Portfolio", ("/portfolio", "/portfolio-optimiser", "/risk", "/stress-lab", "/decision-journal", "/forward-evidence", "/operations")),
-    ("Lab", ("/forecasts", "/training-centre", "/feature-catalogue", "/data-models", "/backtests")),
+    ("Lab", ("/forecasts", "/backtests", "/training-centre", "/feature-catalogue", "/data-models")),
+    ("Map", ("/sectors", "/macro")),
     ("Changes", ("/what-changed", "/jobs")),
-    ("Help", ("/help", "/settings", "/diagnostics", "/errors", "/import-export", "/system-map", "/chatgpt", "/evidence", "/release-readiness", "/roadmap")),
+    ("Help", ("/help", "/settings", "/import-export", "/diagnostics", "/errors", "/evidence", "/chatgpt", "/system-map", "/release-readiness", "/roadmap")),
 )
+
+
+# Package icon (assets/icons/<name>.png) of each dock workspace; shared by the shell and its loading view.
+WORKSPACE_ICONS: dict[str, str] = {
+    "Home": "house",
+    "Universe": "globe",
+    "Research": "telescope",
+    "Portfolio": "briefcase",
+    "Compare": "abacus",
+    "Lab": "alembic",
+    "Map": "compass",
+    "Changes": "newspaper",
+    "Help": "bulb",
+}
 
 
 @dataclass(frozen=True)
@@ -129,11 +145,24 @@ def search_commands(
     commands = all_commands(pages, workspace_groups)
     if not needle:
         return commands[:limit]
-    return tuple(
-        command
-        for command in commands
+    ranked = [
+        (_match_rank(command, needle), index, command)
+        for index, command in enumerate(commands)
         if needle in f"{command.title} {command.route} {command.workspace}".casefold()
-    )[:limit]
+    ]
+    # Best match first (exact title, title start, word start, title text, then route/workspace); catalogue order breaks ties.
+    return tuple(command for _rank, _index, command in sorted(ranked, key=lambda item: item[:2]))[:limit]
 
 
-__all__ = ["PaletteCommand", "ROUTE_TITLES", "WORKSPACE_GROUPS", "all_commands", "search_commands"]
+def _match_rank(command: PaletteCommand, needle: str) -> int:
+    title = command.title.casefold()
+    if title == needle:
+        return 0
+    if title.startswith(needle):
+        return 1
+    if any(word.startswith(needle) for word in title.replace("-", " ").replace("&", " ").split()):
+        return 2
+    return 3 if needle in title else 4
+
+
+__all__ = ["PaletteCommand", "ROUTE_TITLES", "WORKSPACE_GROUPS", "WORKSPACE_ICONS", "all_commands", "search_commands"]

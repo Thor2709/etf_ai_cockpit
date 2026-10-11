@@ -48,7 +48,8 @@ def test_ordinary_or_missing_ec_evidence_does_not_route(evidence: dict[str, str]
 
 def test_teaching_bank_owner_figures_reject_whole_bank_pe() -> None:
     result = analyse_sparebank_ec(_fixture("teaching_bank.json"), price=100.0)
-    assert result.claim_state.reconstructed_eierbrok == pytest.approx(0.4)
+    assert result.claim_state.reconstructed_eierbrok is None
+    assert result.claim_state.reported_eierbrok == pytest.approx(0.4)
     assert result.owner_eps == pytest.approx(12.0)
     assert result.owner_book_per_ec == pytest.approx(100.0)
     assert result.owner_pe == pytest.approx(100 / 12)
@@ -57,8 +58,8 @@ def test_teaching_bank_owner_figures_reject_whole_bank_pe() -> None:
 
 def test_haugesund_reconstruction_uses_owner_pools_not_accounting_equity() -> None:
     state = build_claim_state(_fixture("haugesund_2025.json"))
-    assert state.reconstructed_eierbrok == pytest.approx(625.430 / 2420.602)
-    assert state.reconstructed_eierbrok == pytest.approx(state.reported_eierbrok, abs=0.0001)
+    assert state.reconstructed_eierbrok is None  # gavefond is not reported, so its value is not inferred as zero
+    assert state.reported_eierbrok == pytest.approx(0.2584)
     assert state.accounting_equity == pytest.approx(2760.431)
     assert reconstruct_eierbrok({"ec_capital": 625.430}, {"sparebankens_fond": 1795.172}) != pytest.approx(625.430 / 2760.431)
 
@@ -92,7 +93,9 @@ def test_foundation_ecs_are_outstanding_not_treasury() -> None:
 
 
 def test_eierbrok_path_uses_each_side_payout() -> None:
-    state = build_claim_state(_fixture("teaching_bank.json"))
+    evidence = _fixture("teaching_bank.json")
+    evidence["facts"]["gavefond"] = {"available": True, "value": 0.0}
+    state = build_claim_state(evidence)
     equal = build_claim_path(state, [{"period": "equal", "profit": 120.0, "owner_payout_ratio": 0.5, "self_owned_payout_ratio": 0.5}])
     unequal = build_claim_path(state, [{"period": "unequal", "profit": 120.0, "owner_payout_ratio": 0.75, "self_owned_payout_ratio": 0.25}])
     retained = build_claim_path(state, [{"period": "retained", "profit": 120.0, "owner_payout_ratio": 0.75, "self_owned_payout_ratio": 0.25}])
@@ -195,7 +198,10 @@ def test_missing_optional_fields_lower_coverage_without_zero_fill() -> None:
     evidence = _fixture("teaching_bank.json")
     evidence["facts"].pop("weighted_average_ec_count")
     result = analyse_sparebank_ec(evidence)
-    assert result.owner_eps is None
+    # SB2: without a reported weighted average the EPS uses the period-end certificate count and says so
+    # (a labelled, conservative stand-in; it is never a fabricated or zero-filled count).
+    assert result.owner_eps == pytest.approx(result.claim_state.owner_attributable_earnings / result.claim_state.period_end_ec_count)
+    assert result.claim_state.weighted_average_ec_count is None
     assert result.claim_state.coverage < 1.0
     assert "weighted_average_ec_count" in result.claim_state.unavailable_fields
 

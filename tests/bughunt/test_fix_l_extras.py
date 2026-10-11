@@ -63,3 +63,29 @@ def test_prices_holdings_and_fx_reject_nonfinite_required_values():
         {"as_of_date": [as_of], "pair": ["EUR/USD"], "rate": [float("inf")]}
     )
     assert not validate_fx_rates(rates, today=as_of).ok
+
+
+def _pence_stub(currency):
+    frame = pd.DataFrame(
+        {"Open": [250.0], "High": [260.0], "Low": [240.0], "Close": [255.0], "Adj Close": [255.0], "Volume": [10.0], "Dividends": [5.0]},
+        index=pd.to_datetime(["2026-10-02"]),
+    )
+    ticker = SimpleNamespace(fast_info={"currency": currency})
+    return SimpleNamespace(download=lambda *args, **kwargs: frame, Ticker=lambda symbol: ticker)
+
+
+def test_london_pence_quotes_are_scaled_to_pounds(monkeypatch):
+    monkeypatch.setattr(yfinance_provider, "_import_yfinance", lambda: _pence_stub("GBp"))
+    provider = yfinance_provider.YFinanceProvider({}, instrument_metadata={"BA": {"currency": "GBP"}})
+    output = provider._download_one(symbol="BA.L", etf_id="BA", start_date=date(2026, 10, 1), end_date=date(2026, 10, 5))
+    assert output["close"].iloc[0] == 2.55
+    assert output["dividends"].iloc[0] == 0.05
+    assert output["currency"].iloc[0] == "GBP"
+
+
+def test_major_unit_and_unknown_currency_are_not_scaled(monkeypatch):
+    for currency in ("GBP", None):
+        monkeypatch.setattr(yfinance_provider, "_import_yfinance", lambda: _pence_stub(currency))
+        provider = yfinance_provider.YFinanceProvider({}, instrument_metadata={"VUSA": {"currency": "GBP"}})
+        output = provider._download_one(symbol="VUSA.L", etf_id="VUSA", start_date=date(2026, 10, 1), end_date=date(2026, 10, 5))
+        assert output["close"].iloc[0] == 255.0

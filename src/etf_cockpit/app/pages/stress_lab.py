@@ -1,12 +1,26 @@
-"""Stress Lab: local, deterministic scenario evidence without execution authority."""
-
 from __future__ import annotations
 
 import flet as ft
+import pandas as pd
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import evidence_chip, section_header
-from etf_cockpit.app.components.portfolio_b_style import panel, restyle
+from etf_cockpit.app.components import chartkit as ck
+from etf_cockpit.app.components.kit import (
+    Button,
+    DataTable,
+    Disclosure,
+    EmptyState,
+    GlassCard,
+    KpiTile,
+    Note,
+    Segmented,
+    TableColumn,
+    Tag,
+    Well,
+)
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView
+from etf_cockpit.app.formatting import format_currency, format_number, format_percent, format_timestamp
+from etf_cockpit.app.pages._l4a_common import input_of, page_body, text_field
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.stress_lab import (
     StressLabFacade,
@@ -15,192 +29,360 @@ from etf_cockpit.application.stress_lab import (
 )
 
 
-def stress_lab_page(page: ft.Page | None, state: AppState) -> ft.Control:
-    facade = StressLabFacade(state.snapshot)
-    scenario_id = ft.TextField(label="Scenario ID", value="baseline-stress", key="stress-lab.scenario-id", width=180, dense=True)
-    name = ft.TextField(label="Scenario name", value="Equity drawdown", key="stress-lab.name", width=220, dense=True)
-    equity = ft.TextField(label="Equity (%)", value="-10", key="stress-lab.equity", width=120, dense=True)
-    rates = ft.TextField(label="Rates (%)", value="0", key="stress-lab.rates", width=120, dense=True)
-    fx = ft.TextField(label="FX (%)", value="0", key="stress-lab.fx", width=120, dense=True)
-    credit = ft.TextField(label="Credit (%)", value="0", key="stress-lab.credit", width=120, dense=True)
-    commodity = ft.TextField(label="Commodity (%)", value="0", key="stress-lab.commodity", width=140, dense=True)
-    liquidity = ft.TextField(label="Liquidity cost (%)", value="0", key="stress-lab.liquidity", width=150, dense=True)
-    historical_date = ft.TextField(label="Historical adjusted-return date (optional)", key="stress-lab.historical-date", width=280, dense=True)
-    notional = ft.TextField(label="Notional", value="100000", key="stress-lab.notional", width=140, dense=True)
-    loss_limit = ft.TextField(label="Reverse loss limit", value="10000", key="stress-lab.loss-limit", width=160, dense=True)
-    reverse_name = ft.Dropdown(
-        label="Reverse shock",
-        value="equity",
-        key="stress-lab.reverse-shock",
-        width=150,
-        dense=True,
-        options=[ft.dropdown.Option(value) for value in ("equity", "rates", "fx", "credit", "commodity", "liquidity")],
-    )
-    status = ft.Text("No probability or execution authority is created; execution_allowed=false.", color=theme.MUTED, selectable=True, key="stress-lab.status")
-    result_host = ft.Column(
-        [ft.Text("Instrument contributions and factor contributions (including residual) appear after a scenario run.", color=theme.MUTED, selectable=True)],
-        spacing=8,
-    )
-    revision = 0
-    current_scenario = None
+_SHOCKS = {
+    "Equity": "equity",
+    "Rates": "rates",
+    "FX": "fx",
+    "Credit": "credit",
+    "Commodity": "commodity",
+    "Liquidity": "liquidity",
+}
+_SCENARIO_FACTORS = {
+    "Equity": "equity",
+    "Rates": "rates",
+    "FX": "fx",
+    "Credit": "credit",
+    "Commodity": "commodity",
+    "Liquidity": "liquidity",
+    "Residual": "residual",
+}
 
-    def show(message: str, colour: str = theme.MUTED) -> None:
-        status.value = message
-        status.color = colour
-        _safe_update(page)
+
+def stress_lab_page(page: ft.Page | None, state: AppState) -> PageView:
+    facade = StressLabFacade(state.snapshot)
+    currency = str(state.snapshot.config.targets.base_currency)
+    fields = {
+        "scenario_id": text_field("Scenario ID", "stress-lab.scenario-id"),
+        "name": text_field("Scenario name", "stress-lab.name"),
+        "historical_date": text_field("Historical adjusted-return date (optional)", "stress-lab.historical-date"),
+        "equity": text_field("Equity (%)", "stress-lab.equity"),
+        "rates": text_field("Rates (%)", "stress-lab.rates"),
+        "fx": text_field("FX (%)", "stress-lab.fx"),
+        "credit": text_field("Credit (%)", "stress-lab.credit"),
+        "commodity": text_field("Commodity (%)", "stress-lab.commodity"),
+        "liquidity": text_field("Liquidity cost (%)", "stress-lab.liquidity"),
+        "notional": text_field("Notional", "stress-lab.notional"),
+        "reverse_limit": text_field("Reverse loss limit", "stress-lab.loss-limit"),
+    }
+    reverse_shock = {"value": "equity"}
+    revisions: dict[str, int] = {}
+    result_host = Well(
+        EmptyState(
+            "No scenario run yet",
+            "Instrument contributions and factor contributions (including residual) appear after a scenario run.",
+        )
+    )
+    instrument_host = Well(EmptyState("Unavailable", "Instrument contributions appear after a scenario run."))
+    result_note = Note("Scenario result unavailable until a scenario has been run.")
+    result_insight = Note("Scenario result is not a forecast.")
+    result_card_host: dict[str, ft.Control | None] = {"control": None}
+    reverse_host = Well(
+        ck.line_chart(
+            [],
+            [],
+            x_name="Dimension shock (%)",
+            y_name=f"Loss ({currency})",
+            unavailable_reason="Run reverse stress to receive a threshold; an existing loss curve is not available.",
+            insight="Reverse stress threshold evidence.",
+        )
+    )
+    reverse_threshold = ft.Column(
+        [KpiTile("Reverse shock threshold", None, sub="No reverse stress result is available.")],
+        spacing=theme.SPACE_2,
+    )
+    reverse_details = ft.Container(content=Disclosure("reverse result", "Reverse stress has not been run."))
+    status_note = Note("No probability or execution authority is created; execution_allowed=false.")
 
     def scenario_from_controls():
+        shocks = {}
+        for name in _SHOCKS.values():
+            value = input_of(fields[name]).value
+            if value:
+                shocks[name] = float(value) / 100.0
         return build_stress_scenario(
-            scenario_id=scenario_id.value or "",
-            name=name.value or "",
-            shocks={
-                "equity": _percent_value(equity.value),
-                "rates": _percent_value(rates.value),
-                "fx": _percent_value(fx.value),
-                "credit": _percent_value(credit.value),
-                "commodity": _percent_value(commodity.value),
-                "liquidity": _percent_value(liquidity.value),
-            },
-            historical_date=(historical_date.value or "").strip() or None,
+            scenario_id=input_of(fields["scenario_id"]).value or "",
+            name=input_of(fields["name"]).value or "",
+            shocks=shocks,
+            historical_date=(input_of(fields["historical_date"]).value or "").strip() or None,
         )
 
+    def show_status(message: str) -> None:
+        status_note.value = message
+        if page is not None:
+            page.update()
+
     def run(_event: ft.ControlEvent | None) -> None:
-        nonlocal current_scenario
         try:
-            current_scenario = scenario_from_controls()
-            result = facade.run(current_scenario, notional=_number(notional.value, "notional"))
-            result_host.controls = [_result_view(result)]
-            restyle(result_host, "stress-lab.result")
-            show(f"{current_scenario.name}: {result.status}; scenario PnL is evidence only.", theme.GREEN if result.status == "available" else theme.AMBER)
-        except Exception as exc:
-            result_host.controls = [ft.Text(f"Stress scenario unavailable: {exc}", color=theme.AMBER, selectable=True)]
-            show(f"Stress scenario unavailable: {exc}", theme.AMBER)
+            raw_notional = input_of(fields["notional"]).value
+            if not raw_notional:
+                raise ValueError
+            notional = float(raw_notional)
+            result = facade.run(scenario_from_controls(), notional=notional)
+            factor_values = {
+                str(row.get("factor")): row.get("pnl")
+                for row in result.factor_contributions
+                if row.get("pnl") is not None and pd.notna(row.get("pnl"))
+            }
+            categories = [*_SCENARIO_FACTORS, "Total"]
+            values = []
+            bases = []
+            cumulative = 0.0
+            for label, key in _SCENARIO_FACTORS.items():
+                value = factor_values.get(key)
+                if value is None:
+                    values.append(None)
+                    bases.append(None)
+                else:
+                    values.append(float(value))
+                    bases.append(cumulative)
+                    cumulative += float(value)
+            values.append(float(result.total_pnl) if result.total_pnl is not None else None)
+            bases.append(0.0 if result.total_pnl is not None else None)
+            if result.total_pnl is None:
+                result_host.content = EmptyState(
+                    "Scenario result unavailable",
+                    "No complete adjusted-return or explicit-shock result is available for the selected holdings.",
+                )
+                result_insight.value = "Scenario P&L is unavailable for the selected evidence."
+            else:
+                result_host.content = ck.bar_chart(
+                    categories,
+                    values,
+                    bases=bases,
+                    kinds=["neg" if value is not None and value < 0 else "pos" for value in values],
+                    x_name="Shock factor",
+                    y_name=f"P&L ({currency})",
+                    unit=currency,
+                    insight="Scenario factor contributions, including residual and total.",
+                    unavailable_reason="Scenario factor contributions are unavailable.",
+                )
+                equity_share = next(
+                    (row.get("share") for row in result.factor_contributions if row.get("factor") == "equity"),
+                    None,
+                )
+                loss_label = "gains" if result.total_pnl > 0 else "loses" if result.total_pnl < 0 else "is unchanged"
+                loss_percent = format_percent(result.total_pnl / notional, decimals=2, unavailable="—")
+                equity_percent = format_percent(equity_share, decimals=1, unavailable="—")
+                result_insight.value = (
+                    f"The scenario {loss_label} {format_currency(result.total_pnl, currency=currency).replace('-', '−')} "
+                    f"({loss_percent}); equity explains {equity_percent}."
+                )
+            instruments = list(result.instrument_contributions)
+            if instruments:
+                instrument_host.content = ck.bar_chart(
+                    [str(row.get("instrument_id", "—")) for row in instruments],
+                    [row.get("pnl") for row in instruments],
+                    kinds=["neg" if row.get("pnl") is not None and row["pnl"] < 0 else "pos" for row in instruments],
+                    x_name="Instrument",
+                    y_name=f"P&L ({currency})",
+                    unit=currency,
+                    insight="Instrument contributions to the scenario result.",
+                    unavailable_reason="Instrument contributions are unavailable.",
+                )
+            else:
+                instrument_host.content = EmptyState(
+                    "Instrument contributions unavailable",
+                    "No instrument contributions were returned for this scenario.",
+                )
+            scenario_status = {"available": "Available", "partial": "Partial", "unavailable": "Unavailable"}.get(
+                str(result.status),
+                "Unavailable",
+            )
+            result_note.value = (
+                f"{scenario_status} · Total P&L: {format_currency(result.total_pnl, currency=currency).replace('-', '−')}"
+                if result.total_pnl is not None
+                else f"{scenario_status} · Total P&L is unavailable for the selected evidence."
+            )
+            result_details.content = str(result.to_payload())
+            if result_card_host["control"] is not None:
+                result_card_host["control"].data["note_control"].value = f"{result.scenario.name} · P&L in {currency}"
+            show_status("Scenario result is local evidence only; no execution authority was created.")
+        except (TypeError, ValueError):
+            result_host.content = EmptyState(
+                "Scenario unavailable",
+                "Complete the required scenario inputs and use adjusted-price evidence.",
+            )
+            instrument_host.content = EmptyState(
+                "Instrument contributions unavailable",
+                "No scenario result is available.",
+            )
+            result_note.value = "Total P&L is unavailable."
+            result_insight.value = "Scenario P&L is unavailable for the selected evidence."
+            result_details.content = "Scenario result is unavailable."
+            show_status("Scenario unavailable: complete the required inputs.")
 
     def save(_event: ft.ControlEvent | None) -> None:
-        nonlocal current_scenario, revision
         try:
-            current_scenario = scenario_from_controls()
-            saved = facade.save(current_scenario, expected_revision=revision)
-            revision = saved.revision
-            show(f"Saved local scenario {saved.scenario.scenario_id} revision {saved.revision}; prior revisions remain auditable.", theme.GREEN)
-        except Exception as exc:
-            show(f"Scenario was not saved: {exc}", theme.AMBER)
+            scenario = scenario_from_controls()
+            saved = facade.save(scenario, expected_revision=revisions.get(scenario.scenario_id, 0))
+            revisions[scenario.scenario_id] = saved.revision
+            show_status("Scenario saved locally.")
+        except Exception:
+            show_status("Scenario was not saved; local storage may be unavailable or conflicting.")
 
     def load(_event: ft.ControlEvent | None) -> None:
-        nonlocal current_scenario, revision
         try:
-            saved = facade.load((scenario_id.value or "").strip())
-            current_scenario = saved.scenario
-            revision = saved.revision
-            name.value = saved.scenario.name
-            historical_date.value = saved.scenario.historical_date or ""
-            for field, shock_name in ((equity, "equity"), (rates, "rates"), (fx, "fx"), (credit, "credit"), (commodity, "commodity"), (liquidity, "liquidity")):
-                field.value = f"{float(saved.scenario.shocks.get(shock_name, 0.0)) * 100:g}"
-            show(f"Loaded local scenario {saved.scenario.scenario_id} revision {saved.revision}; assumptions were checksum-verified.", theme.GREEN)
-        except Exception as exc:
-            show(f"Scenario was not loaded: {exc}", theme.AMBER)
+            saved = facade.load((input_of(fields["scenario_id"]).value or "").strip())
+            revisions[saved.scenario.scenario_id] = saved.revision
+            input_of(fields["name"]).value = saved.scenario.name
+            input_of(fields["historical_date"]).value = saved.scenario.historical_date or ""
+            for name in _SHOCKS.values():
+                input_of(fields[name]).value = ""
+            for name, value in saved.scenario.shocks.items():
+                if name in fields:
+                    input_of(fields[name]).value = format_number(float(value) * 100, decimals=2, unavailable="")
+            show_status("Saved local scenario loaded and verified.")
+        except Exception:
+            show_status("Saved scenario unavailable; it may be missing, corrupt or conflicting.")
 
     def reverse(_event: ft.ControlEvent | None) -> None:
         try:
             result = facade.reverse(
-                shock_name=str(reverse_name.value or "equity"),
-                loss_limit=_number(loss_limit.value, "loss limit"),
-                notional=_number(notional.value, "notional"),
+                shock_name=reverse_shock["value"],
+                loss_limit=float(input_of(fields["reverse_limit"]).value),
+                notional=float(input_of(fields["notional"]).value),
             )
-            result_host.controls = [_reverse_view(result)]
-            restyle(result_host, "stress-lab.result")
-            show(f"Reverse stress: {result['status']}; threshold remains a deterministic scenario boundary.", theme.GREEN if result["status"] == "available" else theme.AMBER)
-        except Exception as exc:
-            show(f"Reverse stress unavailable: {exc}", theme.AMBER)
+            threshold = result.get("threshold")
+            reverse_threshold.controls = [
+                KpiTile(
+                    "Reverse shock threshold",
+                    format_percent(threshold, decimals=2, unavailable="—") if threshold is not None else None,
+                    sub=(
+                        "Smallest shock that breaches the configured limit"
+                        if threshold is not None
+                        else "The configured loss limit was not reached or a threshold is unavailable"
+                    ),
+                )
+            ]
+            status_label = {"available": "Available", "not_reached": "Limit not reached", "unavailable": "Unavailable"}.get(
+                str(result.get("status")),
+                "Unavailable",
+            )
+            reverse_details.content = Disclosure("reverse result", str(result))
+            reverse_host.content = ck.line_chart(
+                [],
+                [],
+                x_name="Dimension shock (%)",
+                y_name=f"Loss ({currency})",
+                unavailable_reason="The reverse stress result provides a threshold, not a loss curve.",
+                insight="Reverse stress threshold evidence.",
+            )
+            show_status(f"Reverse stress result: {status_label}.")
+        except (TypeError, ValueError):
+            reverse_threshold.controls = [
+                KpiTile("Reverse shock threshold", None, sub="Complete the reverse shock, loss limit and notional inputs.")
+            ]
+            reverse_details.content = Disclosure("reverse result", "Reverse stress result is unavailable.")
+            show_status("Reverse stress unavailable: complete the required inputs.")
 
-    saved = _saved_view(facade)
-    root = ft.Column(
-        [
-            panel(ft.Column([
-                section_header("Stress Lab", "Replay adjusted-price history or apply explicit hypothetical shocks. Coverage, limitations and nonlinear gaps remain visible."),
-                ft.Row([
-                    evidence_chip("Authority", "evidence only", theme.CYAN),
-                    evidence_chip("Data", "adjusted prices", theme.BLUE_GREY),
-                    evidence_chip("Execution", "disabled", theme.GREEN),
-                    evidence_chip("Probability", "not estimated", theme.AMBER),
-                ], wrap=True),
-            ], spacing=10)),
-            panel(ft.Column([
-                section_header("Scenario assumptions", "Values are decimal shocks entered as percentages. Saved scenarios are versioned local records with checksums."),
-                ft.Row([scenario_id, name, historical_date], wrap=True),
-                ft.Row([equity, rates, fx, credit, commodity, liquidity], wrap=True),
-                ft.Row([notional, ft.Button("Run scenario", key="stress-lab.run", on_click=run), ft.Button("Save scenario", key="stress-lab.save", on_click=save), ft.Button("Load scenario", key="stress-lab.load", on_click=load)], wrap=True),
-            ], spacing=8)),
-            panel(ft.Column([
-                section_header("Reverse stress", "Find the smallest monotonic shock in the selected dimension that breaches the loss limit."),
-                ft.Row([reverse_name, loss_limit, ft.Button("Run reverse stress", key="stress-lab.reverse", on_click=reverse)], wrap=True),
-            ], spacing=8)),
-            status,
-            result_host,
-            saved,
-        ],
-        expand=True,
-        scroll=ft.ScrollMode.AUTO,
-        spacing=14,
+    shock_selector = Segmented(list(_SHOCKS), "Equity", on_change=lambda label: reverse_shock.update(value=_SHOCKS[label]))
+    shock_selector_field = ft.Column([Note("Reverse shock"), shock_selector], spacing=theme.SPACE_1)
+
+    assumptions = GlassCard(
+        "Scenario assumptions",
+        note="shocks in % · versioned with checksums",
+        body=ft.Column(
+            [
+                ft.Row(
+                    [
+                        KpiTile("Authority", "evidence only"),
+                        KpiTile("Data", "adjusted prices"),
+                        KpiTile("Execution", "disabled", tone="neg"),
+                    ],
+                    spacing=theme.SPACE_2,
+                    wrap=True,
+                ),
+                ft.Column(
+                    [fields[name] for name in ("scenario_id", "name", "historical_date", "equity", "rates", "fx", "credit", "commodity", "liquidity", "notional")],
+                    spacing=theme.SPACE_2,
+                    tight=True,
+                ),
+                ft.Row(
+                    [
+                        Button.primary("Run scenario", key="stress-lab.run", on_click=run),
+                        Button.secondary("Save scenario", key="stress-lab.save", on_click=save),
+                        Button.secondary("Load scenario", key="stress-lab.load", on_click=load),
+                    ],
+                    spacing=theme.SPACE_2,
+                    wrap=True,
+                ),
+                status_note,
+            ],
+            spacing=theme.SPACE_2,
+        ),
     )
-    return restyle(root, "stress-lab")
-
-
-def _result_view(result) -> ft.Control:
-    instrument_rows = [
-        ft.DataRow(cells=[ft.DataCell(ft.Text(str(row["instrument_id"]))), ft.DataCell(ft.Text(_display(row["pnl"]))), ft.DataCell(ft.Text(str(row["source"]))), ft.DataCell(ft.Text(str(row["factor_components"])))])
-        for row in result.instrument_contributions
-    ]
-    factor_rows = [
-        ft.DataRow(cells=[ft.DataCell(ft.Text(str(row["factor"]))), ft.DataCell(ft.Text(_display(row["pnl"]))), ft.DataCell(ft.Text(_display(row["share"])))])
-        for row in result.factor_contributions
-    ]
-    rows = [
-        ft.Text(f"status={result.status} | total_pnl={_display(result.total_pnl)} | execution_allowed=false", selectable=True),
-        ft.Text(f"coverage={result.coverage}", selectable=True, size=11),
-        ft.Text("Instrument contributions", weight=ft.FontWeight.BOLD),
-        ft.DataTable(columns=[ft.DataColumn(ft.Text(label)) for label in ("Instrument", "PnL", "Source", "Components")], rows=instrument_rows),
-        ft.Text("Factor contributions (including residual)", weight=ft.FontWeight.BOLD),
-        ft.DataTable(columns=[ft.DataColumn(ft.Text(label)) for label in ("Factor", "PnL", "Share")], rows=factor_rows),
-        ft.Text("limitations=" + " | ".join(result.limitations), selectable=True, size=11),
-    ]
-    return panel(ft.Column(rows, spacing=6))
-
-
-def _reverse_view(result: dict[str, object]) -> ft.Control:
-    return panel(ft.Text(f"{result['shock_name']} | status={result['status']} | threshold={_display(result['threshold'])} | binding={result['binding_exposure']} | execution_allowed=false", selectable=True))
-
-
-def _saved_view(facade: StressLabFacade) -> ft.Control:
+    result_details = ft.Container(content=Disclosure("scenario details", "No scenario run yet."))
+    result_card = GlassCard(
+        "Scenario result",
+        note=f"Scenario · P&L in {currency}",
+        insight="The scenario result is evidence, not a forecast.",
+        body=ft.Column(
+            [
+                result_note,
+                result_insight,
+                result_host,
+                result_details,
+            ],
+            spacing=theme.SPACE_2,
+        ),
+    )
+    result_card_host["control"] = result_card
+    instrument_card = GlassCard("Instrument contributions", body=instrument_host)
+    reverse_card = GlassCard(
+        "Reverse stress",
+        note="smallest shock that breaches the limit",
+        body=ft.Column(
+            [
+                shock_selector_field,
+                fields["reverse_limit"],
+                reverse_threshold,
+                reverse_host,
+                Button.primary("Run reverse stress", key="stress-lab.reverse", on_click=reverse),
+                reverse_details,
+                ft.Row([Tag("Probability: not estimated", "warn")]),
+                Note("No probability or execution authority is created; execution_allowed=false."),
+            ],
+            spacing=theme.SPACE_2,
+        ),
+    )
     try:
-        rows = [ft.Text(f"{item.scenario.scenario_id} | v{item.scenario.version} | revision={item.revision} | assumptions={item.scenario.shocks}", selectable=True, size=11) for item in facade.list_saved()]
-    except StressLabPersistenceError as exc:
-        rows = [ft.Text(f"Saved scenarios unavailable: {exc}", color=theme.AMBER, selectable=True)]
-    return panel(ft.Column([section_header("Saved local scenarios", "Corrupt or conflicting records remain visible as unavailable and never grant execution authority."), *rows], spacing=6))
-
-
-def _percent_value(value: str | None) -> float:
-    return float(str(value or "0")) / 100.0
-
-
-def _number(value: str | None, label: str) -> float:
-    parsed = float(str(value or ""))
-    if parsed <= 0:
-        raise ValueError(f"{label} must be greater than zero")
-    return parsed
-
-
-def _display(value: object) -> str:
-    return "unavailable" if value is None else f"{float(value):.4f}"
-
-
-def _safe_update(page: ft.Page | None) -> None:
-    if page is None:
-        return
-    try:
-        page.update()
-    except (AssertionError, RuntimeError):
-        return
+        saved_rows = [
+            {
+                "scenario": item.scenario.scenario_id or "—",
+                "name": item.scenario.name or "—",
+                "saved": format_timestamp(item.updated_at, unavailable="—"),
+                "checksum": Disclosure("checksum", "No checksum is returned by the saved scenario view."),
+                "status": Tag("Available", "ok"),
+            }
+            for item in facade.list_saved()
+        ]
+        saved_reason = "No readable local scenarios are available."
+    except StressLabPersistenceError:
+        saved_rows = []
+        saved_reason = "Saved scenarios are unavailable; local storage may be unavailable or conflicting."
+    saved_table = DataTable(
+        [
+            TableColumn("scenario", "Scenario"),
+            TableColumn("name", "Name"),
+            TableColumn("saved", "Saved"),
+            TableColumn("checksum", "Checksum"),
+            TableColumn("status", "Status"),
+        ],
+        saved_rows,
+        empty_title="Saved scenarios unavailable",
+        empty_reason=saved_reason,
+    )
+    cards = [
+        assumptions,
+        result_card,
+        instrument_card,
+        reverse_card,
+        GlassCard("Saved local scenarios", body=Well(saved_table)),
+    ]
+    return PageView(
+        chrome=PageChrome("Stress Lab", "Historical replay and explicit hypothetical shocks · not forecasts"),
+        body=page_body(cards),
+    )
 
 
 __all__ = ["stress_lab_page"]

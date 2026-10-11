@@ -20,6 +20,7 @@ from pathlib import Path
 import re
 from typing import Any, Iterable, Mapping, Sequence, cast
 
+import numpy as np
 import pandas as pd
 
 from etf_cockpit.data.bitemporal import BitemporalError, BitemporalObservation, BitemporalStore
@@ -743,8 +744,8 @@ def apply_total_return_adjustments(
     frame = raw_prices.copy(deep=True)
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce", utc=True)
     frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
-    if frame["date"].isna().any() or frame["close"].isna().any() or frame["close"].le(0).any():
-        raise MarketAdjustmentError("raw prices contain invalid dates or non-positive close values")
+    if frame["date"].isna().any() or not np.isfinite(frame["close"]).all() or frame["close"].le(0).any():
+        raise MarketAdjustmentError("raw prices contain invalid dates or non-finite/non-positive close values")
     frame = frame.sort_values("date", kind="stable").reset_index(drop=True)
     frame["raw_close"] = frame["close"].astype(float)
 
@@ -769,6 +770,14 @@ def apply_total_return_adjustments(
         event_value = action.event_at if convention == "reinvest_on_ex_date" else action.payable_at or action.event_at
         event_date = pd.Timestamp(_utc(event_value, "action_event_at")).normalize()
         events[event_date].append(action)
+
+    candle_dates = {pd.Timestamp(value).normalize() for value in frame["date"]}
+    unmatched = [action for event_date, event_actions in events.items() if event_date not in candle_dates for action in event_actions]
+    if unmatched:
+        warnings.extend(f"unmatched_action_date:{action.action_id}" for action in unmatched)
+        return _mark_canonical_adjustment(
+            AdjustmentResult("quarantined", _unavailable_adjustment_frame(frame), convention, tuple(reconciliations), tuple(warnings))
+        )
 
     local_returns: list[float] = [math.nan]
     price_returns: list[float] = [math.nan]

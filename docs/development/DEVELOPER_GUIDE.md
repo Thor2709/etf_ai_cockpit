@@ -1,6 +1,6 @@
 # Developer guide
 
-Release version: `0.1.0rc1`.
+Release version: `1.1.0b1`.
 
 Orientation for a new contributor. The rules, checklists and clean-checkout
 commands are in [CONTRIBUTING](../../CONTRIBUTING.md); the architecture is in the

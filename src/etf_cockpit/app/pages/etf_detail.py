@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import flet as ft
 
 from etf_cockpit.app import theme
@@ -38,7 +40,9 @@ def etf_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             [
                 section_header(f"Instrument Detail: {etf.name}", "Canonical identity remains available even when score or feature evidence is unavailable."),
                 ft.Text(f"{etf.ticker} | {etf.isin or 'ISIN needs verification'}", color=theme.TEXT),
-                ft.Text("No score or feature evidence is loaded for this instrument. Refresh validated local data before using this view.", color=theme.AMBER, selectable=True),
+                _etf_score_panel(state.snapshot, selected),
+                _etf_e1_panel(state.snapshot, selected),
+                ft.Text("Feature display unavailable: no latest feature row is loaded. Refresh validated local data to restore the price metrics.", color=theme.AMBER, selectable=True),
                 _fundamentals_panel(selected),
                 _news_panel(selected),
             ],
@@ -119,14 +123,14 @@ def etf_detail_page(page: ft.Page, state: AppState) -> ft.Control:
                         on_select=change_etf,
                         width=220,
                     ),
-                    ft.Text(f"{etf.name} | {etf.ticker} | {etf.isin or 'No ISIN'} | {etf.exchange} | TER {etf.ter or 0:.2%}", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD),
+                    ft.Text(f"{etf.name} | {etf.ticker} | {etf.isin or 'No ISIN'} | {etf.exchange} | {_ter_label(etf)}", color=theme.TEXT, size=15, weight=ft.FontWeight.BOLD),
                     _decision_badge(evidence_score),
                 ],
                 spacing=14,
             ),
             ft.Row(
                 [
-                    metric_card("Evidence score", _score_label(signal.total_score), f"{decision_from_score(evidence_score)} | confidence {signal.confidence:.2f}", score_colour(evidence_score)),
+                    _etf_score_panel(state.snapshot, selected),
                     metric_card("Toto score", _score_label(signal.components.toto), "latest valid forecast row", score_colour(raw_to_score_10(signal.components.toto))),
                     metric_card("TimesFM score", _score_label(signal.components.timesfm), "latest valid forecast row", score_colour(raw_to_score_10(signal.components.timesfm))),
                     metric_card("Baseline score", _score_label(signal.components.baseline_ml), "algorithm/model baseline", score_colour(raw_to_score_10(signal.components.baseline_ml))),
@@ -191,11 +195,48 @@ def etf_detail_page(page: ft.Page, state: AppState) -> ft.Control:
             unavailable_card("Expected-return range", "ETF forecast rows store one expected return per model and horizon, not a q10/q50/q90 distribution; no fan chart is drawn.", key="instrument-detail.expected-return-range"),
             _fundamentals_panel(selected),
             _news_panel(selected),
+            _etf_e1_panel(state.snapshot, selected),
         ],
         expand=True,
         spacing=14,
         scroll=ft.ScrollMode.AUTO,
     )
+
+
+def _etf_score_panel(snapshot: object, instrument_id: str) -> ft.Control:
+    """Use the shared score list even when the legacy feature display is empty."""
+    from etf_cockpit.application.score_views import snapshot_scores
+
+    score = next((row for row in snapshot_scores(snapshot) if row.display_id == instrument_id), None)
+    if score is None or score.final_score_10 is None:
+        reason = score.one_line_reason if score is not None else "Identity/routing: the instrument is absent from the canonical score list."
+        return unavailable_card("Evidence score", reason)
+    return metric_card(
+        "Evidence score", f"{score.final_score_10:.1f}/10",
+        f"Coverage {score.score_coverage:.1%}; missing: {', '.join(score.missing_components) or 'none'}",
+        score_colour(score.final_score_10),
+    )
+
+
+def _etf_e1_panel(snapshot: object, instrument_id: str) -> ft.Control:
+    from etf_cockpit.application.etf_economics_view import build_etf_economics_panel
+    from etf_cockpit.app.pages.instrument_detail import render_etf_e1_panel
+
+    return render_etf_e1_panel(build_etf_economics_panel(snapshot, instrument_id))
+
+
+def _ter_label(instrument: object) -> str:
+    value = getattr(instrument, "ter", None)
+    if value is None:
+        reason = str(getattr(instrument, "ter_reason", None) or "TER is not supplied in the local instrument configuration.")
+        return f"TER unavailable: {reason}"
+    try:
+        rate = float(value)
+    except (TypeError, ValueError):
+        return "TER unavailable: the local instrument configuration contains no numeric TER."
+    if not math.isfinite(rate):
+        return "TER unavailable: the local instrument configuration contains no finite TER."
+    return f"TER {rate:.2%}"
 
 
 def _fundamentals_panel(instrument_id: str) -> ft.Control:

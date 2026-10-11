@@ -4,13 +4,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
+from collections import OrderedDict
+from copy import deepcopy
 from datetime import date
 import hashlib
 import json
 import math
+import threading
 from types import MappingProxyType
 
 import pandas as pd
+
+from etf_cockpit.core.frame_signature import columns_key
 
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     AnalysisDeclaration,
@@ -503,6 +508,29 @@ def adjusted_price_snapshot_binding(
     if not isinstance(prices, pd.DataFrame) or not {"date", "etf_id", "adjusted_close"}.issubset(prices.columns):
         return None
     window = {key: str(calculation_window[key]) for key in required_window}
+    # Pure function of the three price columns and the window: memoised on their exact content.
+    prices_key = columns_key(prices, ("date", "etf_id", "adjusted_close"))
+    if prices_key is None:
+        return _adjusted_price_snapshot_binding(prices, window)
+    key = (prices_key, tuple(window[name] for name in required_window))
+    with _BINDING_CACHE_LOCK:
+        if key in _BINDING_CACHE:
+            _BINDING_CACHE.move_to_end(key)
+            return deepcopy(_BINDING_CACHE[key])
+    binding = _adjusted_price_snapshot_binding(prices, window)
+    with _BINDING_CACHE_LOCK:
+        _BINDING_CACHE[key] = deepcopy(binding)
+        while len(_BINDING_CACHE) > _BINDING_CACHE_SIZE:
+            _BINDING_CACHE.popitem(last=False)
+    return binding
+
+
+_BINDING_CACHE: OrderedDict[tuple[object, ...], dict[str, object] | None] = OrderedDict()
+_BINDING_CACHE_LOCK = threading.Lock()
+_BINDING_CACHE_SIZE = 16
+
+
+def _adjusted_price_snapshot_binding(prices: pd.DataFrame, window: dict[str, str]) -> dict[str, object] | None:
     clipped = clip_to_decision_window(prices, **window)
     if clipped.empty:
         return None

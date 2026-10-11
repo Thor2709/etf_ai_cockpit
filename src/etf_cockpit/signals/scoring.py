@@ -68,12 +68,10 @@ def component_scores(
     forecast_scores = forecast_scores or {}
     frame["score_toto"] = frame["etf_id"].map(forecast_scores.get("toto", {})).clip(-1, 1)
     frame["score_timesfm"] = frame["etf_id"].map(forecast_scores.get("timesfm", {})).clip(-1, 1)
-    baseline_forecast_score = frame["etf_id"].map(forecast_scores.get("baseline", {})).fillna(0.0)
+    baseline_forecast_score = frame["etf_id"].map(forecast_scores.get("baseline", {}))
     deterministic_baseline_score = (0.55 * frame["score_momentum"] + 0.45 * frame["score_trend"]).clip(-1, 1)
-    frame["score_baseline_ml"] = np.where(
-        baseline_forecast_score.abs() > 0,
-        baseline_forecast_score.clip(-1, 1),
-        deterministic_baseline_score,
+    frame["score_baseline_ml"] = baseline_forecast_score.clip(-1, 1).where(
+        baseline_forecast_score.notna(), deterministic_baseline_score
     )
     frame["score_chatgpt_thesis"] = frame["etf_id"].map(chatgpt_scores or {}).fillna(0.0).clip(-1, 1)
     frame["cost_penalty"] = frame["etf_id"].map(lambda etf_id: estimated_cost_bps(config, str(etf_id)) / 1000).clip(0, 0.08)

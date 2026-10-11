@@ -7,6 +7,8 @@ never stores credentials, performs provider I/O or grants execution authority.
 
 from __future__ import annotations
 
+from copy import deepcopy
+from functools import lru_cache
 import hashlib
 import json
 from pathlib import Path
@@ -250,11 +252,17 @@ def _is_secret_field_name(name: str) -> bool:
     return any(normalised.endswith(suffix) for suffix in _SECRET_FIELD_SUFFIXES)
 
 
+@lru_cache(maxsize=32)
+def _parse_yaml_text(text: str) -> object:
+    return yaml.safe_load(text)
+
+
 def _read_yaml(path: Path) -> dict[str, object]:
     if not path.is_file():
         return {}
     try:
-        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        # Parsed once per distinct file text; every caller gets a private copy.
+        payload = deepcopy(_parse_yaml_text(path.read_text(encoding="utf-8"))) or {}
     except (OSError, yaml.YAMLError) as exc:
         raise SettingsError("SETTINGS_SCHEMA_INVALID", f"cannot read {path}: {exc}") from exc
     if not isinstance(payload, dict):
@@ -419,11 +427,23 @@ def load_settings_bundle_with_issues(root: Path) -> tuple[SettingsBundle, tuple[
     base = _base_bundle(root, controls).model_copy(update={"settings_version": settings_version, "revision": ""})
     expected = _revision_for(base)
     supplied = str(raw.get("revision") or "")
+    issues: tuple[SettingsMigrationIssue, ...] = ()
     if supplied != expected:
-        raise SettingsError("SETTINGS_SCHEMA_INVALID", "settings revision does not match companion configuration")
+        if settings_version != 0:
+            raise SettingsError("SETTINGS_SCHEMA_INVALID", "settings revision does not match companion configuration")
+        # A never-saved shipped default (version 0) holds no user choice to protect; it is
+        # re-bound to this install's companion configuration in memory (startup never writes).
+        issues = (
+            SettingsMigrationIssue(
+                code="SETTINGS_DEFAULT_REBOUND",
+                field="revision",
+                legacy_value=supplied,
+                message="Shipped default settings were re-bound to this install's local configuration.",
+            ),
+        )
     bundle = base.model_copy(update={"revision": expected})
     _validate_bundle(bundle)
-    return bundle, ()
+    return bundle, issues
 
 
 def _validate_bundle(bundle: SettingsBundle) -> None:
