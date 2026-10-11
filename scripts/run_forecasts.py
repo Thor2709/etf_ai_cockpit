@@ -48,7 +48,8 @@ def main() -> int:
     request_identity = configured_forecast_request_identity(config)
     live_optional_models = request_identity["live_optional_models"]
     forecast_config = config if live_optional_models else _config_with_optional_models_disabled(config)
-    forecasts = ForecastService(forecast_config, reference_context=reference_context).run_forecasts(
+    service = ForecastService(forecast_config, reference_context=reference_context)
+    forecasts = service.run_forecasts(
         as_of_date, etf_ids, prices,
         horizons=request_identity["requested_horizons"],
         cache_request_identity=request_identity,
@@ -59,9 +60,12 @@ def main() -> int:
     print(f"Forecast date: {as_of_date}")
     print(f"ETF count: {len(etf_ids)}")
     print(f"Rows: {len(forecasts)}")
-    print(f"SHADOW optional inference: {config.models.shadow_optional_models}; execution_allowed=false")
+    print(f"Optional models run: {live_optional_models}; automatic promotion: {config.models.promotion.enabled}; execution_allowed=false")
     for (model_name, status), count in sorted(counts.items()):
         print(f"{model_name:10s} {status:12s} {count}")
+    if config.models.promotion.enabled:
+        for name, decision in service.evaluate_promotions(as_of_date, prices).items():
+            print(f"promotion {name:10s} {decision.state:11s} {decision.reason}")
     print(f"Wrote {FORECASTS_DIR / f'forecast_results_{as_of_date:%Y%m%d}.csv'}")
     print(f"Runtime seconds: {time.perf_counter() - started:.3f}")
     return 1 if any(forecast.status == "failed" for forecast in forecasts) else 0

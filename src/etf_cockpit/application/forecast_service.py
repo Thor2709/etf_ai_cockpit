@@ -28,7 +28,18 @@ from etf_cockpit.data.duckdb_store import load_prices
 from etf_cockpit.features.forecast_lab import build_forecast_lab_workspace as _build_forecast_lab_workspace
 from etf_cockpit.features.returns import daily_log_returns
 from etf_cockpit.models.baseline_models import baseline_forecast
+from etf_cockpit.models.calibration import load_forecast_history
 from etf_cockpit.models.forecast_scores import configured_forecast_request_identity as configured_forecast_request_identity, forecast_request_identity
+from etf_cockpit.models.model_promotion import (
+    OPTIONAL_MODELS,
+    PRETRAINING_CUTOFFS,
+    PRETRAINING_SOURCES,
+    COUNTING,
+    NOT_PROVEN,
+    ModelPromotion,
+    evaluate_model_promotions,
+    promotion_frame,
+)
 from etf_cockpit.portfolio.benchmark_reference_contract import CanonicalBenchmarkRegistry
 from etf_cockpit.portfolio.benchmark_reference import (
     CanonicalReferenceContext,
@@ -72,11 +83,15 @@ class ForecastService:
         reference_context: CanonicalReferenceContext | None = None,
         cache_request_identity: Mapping[str, object] | None = None,
         live_optional_models: bool | None = None,
+        promotions: Mapping[str, ModelPromotion] | None = None,
+        promotion_prices: pd.DataFrame | None = None,
     ) -> list[ForecastResult]:
         settings_identity = current_settings_identity()
         price_frame = prices if prices is not None else load_prices()
         price_frame = price_frame.copy()
         price_frame["date"] = pd.to_datetime(price_frame["date"], errors="coerce", utc=True, format="mixed")
+        # Promotion evidence is graded on the full stored history, not the shorter forecast calculation window.
+        evidence_prices = price_frame
         context = reference_context if reference_context is not None else self.reference_context
         calculation_window = _calculation_window(context, as_of_date, price_frame)
         if calculation_window is None:
@@ -150,7 +165,12 @@ class ForecastService:
         with timed_step("forecasts", "model:toto", run_id=run_id):
             forecasts.extend(self._run_toto_forecasts(price_frame, etf_ids, horizons, as_of_date, run_id))
         forecasts = _postprocess_forecast_benchmark_fields(forecasts, benchmark_returns)
-        if self.config.models.shadow_optional_models:
+        if self.config.models.promotion.enabled:
+            if promotions is None:
+                # Candidate runs pass the configured universe's prices so every run in a workflow shares one decision.
+                promotions = self.evaluate_promotions(as_of_date, promotion_prices if promotion_prices is not None else evidence_prices)
+            forecasts = [_apply_promotion(row, promotions, self.config.models.shadow_optional_models) for row in forecasts]
+        elif self.config.models.shadow_optional_models:
             forecasts = [_shadow_forecast(row) for row in forecasts]
         with publication_scope(publish_guard):
             ensure_run_manifest(
@@ -178,8 +198,20 @@ class ForecastService:
             cache_request_identity=derived_request_identity,
             live_optional_models=resolved_live_optional_models,
             publish_guard=publish_guard,
+            promotions=promotions,
         )
         return forecasts
+
+    def evaluate_promotions(
+        self,
+        as_of_date: date,
+        prices: pd.DataFrame,
+        history: pd.DataFrame | None = None,
+    ) -> dict[str, ModelPromotion]:
+        """Decide which optional models count, from stored forecasts and prices known at ``as_of_date``."""
+
+        stored = load_forecast_history() if history is None else history
+        return evaluate_model_promotions(stored, prices, as_of_date, self.config.models.promotion)
 
     def _run_timesfm_forecasts(
         self,
@@ -251,6 +283,7 @@ class ForecastService:
         cache_request_identity: Mapping[str, object] | None = None,
         live_optional_models: bool | None = None,
         publish_guard: PublicationScopeFactory | None = None,
+        promotions: Mapping[str, ModelPromotion] | None = None,
     ) -> None:
         output = output_path or FORECASTS_DIR / f"forecast_results_{as_of_date:%Y%m%d}.csv"
         if cache_request_identity is None:
@@ -276,7 +309,7 @@ class ForecastService:
             output_horizons = {forecast.horizon_days for forecast in forecasts}
             if dict(cache_request_identity) != validated_identity or not output_horizons.issubset(requested_horizons):
                 raise ValueError("forecast cache request identity does not match forecast output")
-        payload = pd.DataFrame([_forecast_to_row(forecast) for forecast in forecasts]).to_csv(index=False).encode("utf-8")
+        payload = pd.DataFrame([_forecast_to_row(forecast, promotions) for forecast in forecasts]).to_csv(index=False).encode("utf-8")
 
         def validate(path: Path) -> None:
             _validate_csv(path)
@@ -295,26 +328,74 @@ class ForecastService:
                 )
 
 
-def _forecast_to_row(forecast: ForecastResult) -> dict[str, object]:
+def _forecast_to_row(forecast: ForecastResult, promotions: Mapping[str, ModelPromotion] | None = None) -> dict[str, object]:
     data = asdict(forecast)
     data["forecast_date"] = forecast.forecast_date.isoformat()
-    if forecast.calibration_status.startswith("shadow_"):
+    promotion = (promotions or {}).get(forecast.model_name)
+    if forecast.calibration_status.startswith(_PROMOTION_PREFIXES) and promotion is not None:
+        data.update(_promotion_evidence(forecast, promotion))
+    elif forecast.calibration_status.startswith("shadow_"):
         data.update(_pretraining_evidence(forecast.model_name, forecast.forecast_date))
         data["promotion_state"] = "shadow_only"
         data["execution_allowed"] = False
     return data
 
 
+_PROMOTION_PREFIXES = ("promoted_", "unproven_")
+
+
 def _pretraining_evidence(model_name: str, forecast_date: date) -> dict[str, object]:
-    cutoff = date(2023, 11, 30) if model_name == "timesfm3" else None
+    cutoff = PRETRAINING_CUTOFFS.get(model_name)
     possibly_leaked = cutoff is None or forecast_date <= cutoff
     return {
         "pretraining_cutoff": cutoff.isoformat() if cutoff is not None else "unknown",
-        "pretraining_sources": "Wikipedia through Nov 2023; Google Trends through Dec 2022" if cutoff else "unknown",
+        "pretraining_sources": PRETRAINING_SOURCES.get(model_name, "unknown"),
         "contamination_status": "possibly_leaked" if possibly_leaked else "after_declared_cutoff",
         "promotion_evidence_allowed": False,
         "evaluation_scope": "diagnostic_only; existing governance approval required",
     }
+
+
+def _promotion_evidence(forecast: ForecastResult, promotion: ModelPromotion) -> dict[str, object]:
+    """Leakage flags for one row: its origin must follow the cutoff, or the model's first local run when the cutoff is unknown."""
+
+    window_open = forecast.status == "ok" and promotion.evidence_window_open(forecast.forecast_date)
+    declared = promotion.pretraining_cutoff != "unknown"
+    return {
+        "pretraining_cutoff": promotion.pretraining_cutoff,
+        "pretraining_sources": PRETRAINING_SOURCES.get(forecast.model_name, "unknown"),
+        "contamination_status": (
+            ("after_declared_cutoff" if declared else "after_first_local_run") if window_open else "possibly_leaked"
+        ),
+        "promotion_evidence_allowed": window_open,
+        "evaluation_scope": "matured out-of-sample evidence against the baseline",
+        "promotion_state": promotion.state,
+        "promotion_reason": promotion.reason,
+        "execution_allowed": False,
+    }
+
+
+def _apply_promotion(
+    row: ForecastResult,
+    promotions: Mapping[str, ModelPromotion],
+    shadow_flag: bool,
+) -> ForecastResult:
+    """Let an optional model's successful rows count only while its promotion decision says so."""
+
+    if row.model_name not in OPTIONAL_MODELS:
+        return row
+    promotion = promotions.get(row.model_name)
+    if row.status != "ok" or promotion is None:
+        return _shadow_forecast(row) if shadow_flag else row
+    counting = promotion.state == COUNTING
+    prefix = "promoted" if counting else "unproven"
+    return replace(
+        row,
+        model_allowed_in_score=counting,
+        oos_mase=promotion.model_mase,
+        oos_directional_accuracy=promotion.model_directional,
+        calibration_status=f"{prefix}_{promotion.calibration_status or 'not_evaluated'}",
+    )
 
 
 def _shadow_forecast(row: ForecastResult) -> ForecastResult:
@@ -328,8 +409,19 @@ def _shadow_forecast(row: ForecastResult) -> ForecastResult:
     )
 
 
-def build_forecast_lab_workspace(config: AppConfig, forecasts: pd.DataFrame, prices: pd.DataFrame, **kwargs: object) -> dict[str, object]:
-    """Expose TimesFM3 artifact availability through the application boundary."""
+def build_forecast_lab_workspace(
+    config: AppConfig,
+    forecasts: pd.DataFrame,
+    prices: pd.DataFrame,
+    *,
+    forecast_history: pd.DataFrame | None = None,
+    **kwargs: object,
+) -> dict[str, object]:
+    """Forecast Lab report with TimesFM3 availability and each optional model's promotion state.
+
+    ``forecast_history`` is every stored forecast row (promotion needs matured runs, not only the latest);
+    it defaults to ``forecasts``.
+    """
     report = _build_forecast_lab_workspace(config, forecasts, prices, **kwargs)
     models = report.get("models")
     catalogue = report.get("model_catalogue")
@@ -339,7 +431,77 @@ def build_forecast_lab_workspace(config: AppConfig, forecasts: pd.DataFrame, pri
         catalogue = catalogue.copy()
         catalogue.loc[catalogue["model_id"].eq("timesfm3"), "state"] = "available" if ready else "unavailable"
         report["model_catalogue"] = catalogue
+    history = forecasts if forecast_history is None else pd.concat([forecast_history, forecasts], ignore_index=True)
+    as_of = _promotion_as_of(kwargs.get("as_of_date"), prices, history)
+    if config.models.promotion.enabled:
+        promotions = evaluate_model_promotions(history, prices, as_of, config.models.promotion)
+    else:
+        promotions = {
+            model: ModelPromotion(model, NOT_PROVEN, "Automatic promotion is disabled in model settings.")
+            for model in OPTIONAL_MODELS
+        }
+    report["promotion"] = promotion_frame(promotions)
+    return _stamp_promotion_states(report, promotions)
+
+
+def forecast_lab_inputs(latest: pd.DataFrame, history: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
+    """Every stored forecast that can be graded, so matured outcomes and walk-forward folds are not limited to the latest run.
+
+    Instruments without any stored price cannot be graded and are left out; a repeated forecast keeps its newest row.
+    """
+
+    parts = [frame for frame in (history, latest) if isinstance(frame, pd.DataFrame) and not frame.empty]
+    if not parts:
+        return latest
+    combined = pd.concat(parts, ignore_index=True)
+    key = ["model_name", "etf_id", "forecast_date", "horizon_days"]
+    if not {*key, "status"}.issubset(combined.columns) or "etf_id" not in prices.columns:
+        return latest
+    stamp = pd.to_datetime(combined["forecast_date"], errors="coerce", utc=True, format="mixed").dt.normalize()
+    combined = combined.assign(_day=stamp).drop_duplicates(["model_name", "etf_id", "_day", "horizon_days"], keep="last").drop(columns="_day")
+    return combined.loc[combined["etf_id"].astype(str).isin(set(prices["etf_id"].astype(str)))].reset_index(drop=True)
+
+
+def _promotion_as_of(requested: object, prices: pd.DataFrame, history: pd.DataFrame) -> date:
+    """Evidence cutoff: an explicit replay date, else the latest known price session."""
+
+    if requested is not None:
+        parsed = pd.to_datetime(requested, errors="coerce")
+        if pd.notna(parsed):
+            return parsed.date()
+    for frame, column in ((prices, "date"), (history, "forecast_date")):
+        if isinstance(frame, pd.DataFrame) and column in frame.columns:
+            latest = pd.to_datetime(frame[column], errors="coerce", utc=True, format="mixed").max()
+            if pd.notna(latest):
+                return latest.date()
+    return date.today()
+
+
+def _stamp_promotion_states(report: dict[str, object], promotions: Mapping[str, ModelPromotion]) -> dict[str, object]:
+    """Replace the diagnostic placeholder state in the report tables with each model's promotion decision."""
+
+    models, runs = report.get("models"), report.get("runs")
+    if isinstance(models, pd.DataFrame) and not models.empty:
+        models = models.copy()
+        models["promotion_state"] = [
+            promotions[name].state if name in promotions else ("reference" if name == "baseline" else "not_proven")
+            for name in models["model_name"].astype(str)
+        ]
+        report["models"] = models
+    if isinstance(runs, pd.DataFrame) and not runs.empty:
+        runs = runs.copy()
+        runs["promotion_state"] = [_run_promotion_text(str(members), promotions) for members in runs["models"]]
+        report["runs"] = runs
     return report
+
+
+def _run_promotion_text(members: str, promotions: Mapping[str, ModelPromotion]) -> str:
+    parts = [
+        f"{name}: {'counting' if promotions[name].counting else 'not yet proven'}"
+        for name in (item.strip() for item in members.split(","))
+        if name in promotions
+    ]
+    return "; ".join(parts) or "reference"
 
 
 def _postprocess_forecast_benchmark_fields(

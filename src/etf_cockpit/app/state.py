@@ -987,7 +987,7 @@ class AppState:
             )
             summary = "; ".join(line.split(". Output:", 1)[0] for line in message.splitlines() if line.strip())
             return self._with_score_history_warning(
-                f"{summary}. Optional TimesFM/Toto live models are kept out of the main workflow if they are not already cached. Scoreboard updated: {scoreboard_path.name}."
+                f"{summary}. Optional TimesFM/Toto models run with every forecast run and count in scores only once they beat the baseline on matured forecasts (see Forecast Lab). Scoreboard updated: {scoreboard_path.name}."
             )
 
     @_tracked_activity("Rollback prices", "Searching previous clean price snapshot")
