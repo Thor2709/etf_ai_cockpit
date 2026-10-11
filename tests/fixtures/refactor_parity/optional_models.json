@@ -266,7 +266,9 @@
      "quantile_method": null,
      "coverage_ratio": null,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     },
     {
      "run_id": "parity-run",
@@ -300,7 +302,9 @@
      "quantile_method": null,
      "coverage_ratio": null,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     },
     {
      "run_id": "parity-run",
@@ -334,7 +338,9 @@
      "quantile_method": null,
      "coverage_ratio": null,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     },
     {
      "run_id": "parity-run",
@@ -368,7 +374,9 @@
      "quantile_method": null,
      "coverage_ratio": null,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     }
    ],
    "toto_is_available": false,
@@ -405,7 +413,9 @@
      "quantile_method": null,
      "coverage_ratio": null,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     },
     {
      "run_id": "parity-run",
@@ -439,7 +449,9 @@
      "quantile_method": null,
      "coverage_ratio": null,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     },
     {
      "run_id": "parity-run",
@@ -473,7 +485,9 @@
      "quantile_method": null,
      "coverage_ratio": null,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     },
     {
      "run_id": "parity-run",
@@ -507,7 +521,9 @@
      "quantile_method": null,
      "coverage_ratio": null,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     }
    ]
   },
@@ -546,7 +562,9 @@
      "quantile_method": null,
      "coverage_ratio": null,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     },
     {
      "run_id": "parity-run",
@@ -580,7 +598,9 @@
      "quantile_method": null,
      "coverage_ratio": null,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     },
     {
      "run_id": "parity-run",
@@ -614,7 +634,9 @@
      "quantile_method": null,
      "coverage_ratio": null,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     },
     {
      "run_id": "parity-run",
@@ -648,7 +670,9 @@
      "quantile_method": null,
      "coverage_ratio": null,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     }
    ],
    "toto_is_available": false,
@@ -685,7 +709,9 @@
      "quantile_method": null,
      "coverage_ratio": null,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     },
     {
      "run_id": "parity-run",
@@ -719,7 +745,9 @@
      "quantile_method": null,
      "coverage_ratio": null,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     },
     {
      "run_id": "parity-run",
@@ -753,7 +781,9 @@
      "quantile_method": null,
      "coverage_ratio": null,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     },
     {
      "run_id": "parity-run",
@@ -787,7 +817,9 @@
      "quantile_method": null,
      "coverage_ratio": null,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     }
    ]
   },
@@ -826,7 +858,9 @@
      "quantile_method": "normal_from_q10_q90.v1",
      "coverage_ratio": 1.0,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     },
     {
      "run_id": "parity-run",
@@ -860,7 +894,9 @@
      "quantile_method": "normal_from_q10_q90.v1",
      "coverage_ratio": 1.0,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     },
     {
      "run_id": "parity-run",
@@ -894,7 +930,9 @@
      "quantile_method": "normal_from_q10_q90.v1",
      "coverage_ratio": 1.0,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     },
     {
      "run_id": "parity-run",
@@ -928,7 +966,9 @@
      "quantile_method": "normal_from_q10_q90.v1",
      "coverage_ratio": 1.0,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     }
    ],
    "toto_is_available": true,
@@ -965,7 +1005,9 @@
      "quantile_method": "normal_from_q10_q90.v1",
      "coverage_ratio": 1.0,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     },
     {
      "run_id": "parity-run",
@@ -999,7 +1041,9 @@
      "quantile_method": "normal_from_q10_q90.v1",
      "coverage_ratio": 1.0,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     },
     {
      "run_id": "parity-run",
@@ -1033,7 +1077,9 @@
      "quantile_method": "normal_from_q10_q90.v1",
      "coverage_ratio": 1.0,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     },
     {
      "run_id": "parity-run",
@@ -1067,7 +1113,9 @@
      "quantile_method": "normal_from_q10_q90.v1",
      "coverage_ratio": 1.0,
      "promotion_status": "not_proven",
-     "calibration_horizon_days": null
+     "calibration_horizon_days": null,
+     "point_statistic": null,
+     "distribution_status": null
     }
    ]
   }
@@ -1106,7 +1154,9 @@
     "quantile_method": "native_deciles_q25_q75_interpolated+normal_tails_q05_q95.v1",
     "coverage_ratio": null,
     "promotion_status": "not_proven",
-    "calibration_horizon_days": null
+    "calibration_horizon_days": null,
+    "point_statistic": null,
+    "distribution_status": null
    },
    {
     "run_id": "parity-run",
@@ -1140,7 +1190,9 @@
     "quantile_method": "native_deciles_q25_q75_interpolated+normal_tails_q05_q95.v1",
     "coverage_ratio": null,
     "promotion_status": "not_proven",
-    "calibration_horizon_days": null
+    "calibration_horizon_days": null,
+    "point_statistic": null,
+    "distribution_status": null
    },
    {
     "run_id": "parity-run",
@@ -1174,7 +1226,9 @@
     "quantile_method": null,
     "coverage_ratio": null,
     "promotion_status": "not_proven",
-    "calibration_horizon_days": null
+    "calibration_horizon_days": null,
+    "point_statistic": null,
+    "distribution_status": null
    }
   ],
   "toto_quantiles_to_results": [
@@ -1210,7 +1264,9 @@
     "quantile_method": "native_deciles_q25_q75_interpolated+normal_tails_q05_q95.v1",
     "coverage_ratio": null,
     "promotion_status": "not_proven",
-    "calibration_horizon_days": null
+    "calibration_horizon_days": null,
+    "point_statistic": null,
+    "distribution_status": null
    },
    {
     "run_id": "parity-run",
@@ -1244,7 +1300,9 @@
     "quantile_method": "native_deciles_q25_q75_interpolated+normal_tails_q05_q95.v1",
     "coverage_ratio": null,
     "promotion_status": "not_proven",
-    "calibration_horizon_days": null
+    "calibration_horizon_days": null,
+    "point_statistic": null,
+    "distribution_status": null
    },
    {
     "run_id": "parity-run",
@@ -1278,7 +1336,9 @@
     "quantile_method": null,
     "coverage_ratio": null,
     "promotion_status": "not_proven",
-    "calibration_horizon_days": null
+    "calibration_horizon_days": null,
+    "point_statistic": null,
+    "distribution_status": null
    }
   ]
  },
@@ -1316,7 +1376,9 @@
     "quantile_method": "normal_from_q10_q90.v1",
     "coverage_ratio": 1.0,
     "promotion_status": "not_proven",
-    "calibration_horizon_days": null
+    "calibration_horizon_days": null,
+    "point_statistic": null,
+    "distribution_status": null
    },
    {
     "run_id": "parity-run",
@@ -1350,7 +1412,9 @@
     "quantile_method": "normal_from_q10_q90.v1",
     "coverage_ratio": 1.0,
     "promotion_status": "not_proven",
-    "calibration_horizon_days": null
+    "calibration_horizon_days": null,
+    "point_statistic": null,
+    "distribution_status": null
    },
    {
     "run_id": "parity-run",
@@ -1384,7 +1448,9 @@
     "quantile_method": "normal_from_q10_q90.v1",
     "coverage_ratio": 1.0,
     "promotion_status": "not_proven",
-    "calibration_horizon_days": null
+    "calibration_horizon_days": null,
+    "point_statistic": null,
+    "distribution_status": null
    },
    {
     "run_id": "parity-run",
@@ -1418,7 +1484,9 @@
     "quantile_method": "normal_from_q10_q90.v1",
     "coverage_ratio": 1.0,
     "promotion_status": "not_proven",
-    "calibration_horizon_days": null
+    "calibration_horizon_days": null,
+    "point_statistic": null,
+    "distribution_status": null
    }
   ],
   "with_benchmark": [
@@ -1454,7 +1522,9 @@
     "quantile_method": "normal_from_q10_q90.v1",
     "coverage_ratio": 1.0,
     "promotion_status": "not_proven",
-    "calibration_horizon_days": null
+    "calibration_horizon_days": null,
+    "point_statistic": null,
+    "distribution_status": null
    },
    {
     "run_id": "parity-run",
@@ -1488,7 +1558,9 @@
     "quantile_method": "normal_from_q10_q90.v1",
     "coverage_ratio": 1.0,
     "promotion_status": "not_proven",
-    "calibration_horizon_days": null
+    "calibration_horizon_days": null,
+    "point_statistic": null,
+    "distribution_status": null
    },
    {
     "run_id": "parity-run",
@@ -1522,7 +1594,9 @@
     "quantile_method": "normal_from_q10_q90.v1",
     "coverage_ratio": 1.0,
     "promotion_status": "not_proven",
-    "calibration_horizon_days": null
+    "calibration_horizon_days": null,
+    "point_statistic": null,
+    "distribution_status": null
    },
    {
     "run_id": "parity-run",
@@ -1556,7 +1630,9 @@
     "quantile_method": "normal_from_q10_q90.v1",
     "coverage_ratio": 1.0,
     "promotion_status": "not_proven",
-    "calibration_horizon_days": null
+    "calibration_horizon_days": null,
+    "point_statistic": null,
+    "distribution_status": null
    }
   ],
   "empty_series": []

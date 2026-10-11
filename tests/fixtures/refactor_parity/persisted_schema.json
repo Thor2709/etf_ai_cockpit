@@ -2159,7 +2159,7 @@
   "data/forecasts/forecast_results_yfinance_20260930.csv": {
    "kind": "csv",
    "rows": 855,
-   "columns": ["run_id", "model_name", "model_version", "etf_id", "forecast_date", "horizon_days", "expected_return", "expected_excess_return", "q10_return", "q50_return", "q90_return", "forecast_vol", "prob_positive_return", "prob_beat_benchmark", "forecast_drawdown_prob", "status", "error_message", "model_allowed_in_score", "is_fallback", "fallback_model", "reason_unavailable", "oos_mase", "oos_directional_accuracy", "calibration_status", "q05_return", "q25_return", "q75_return", "q95_return", "quantile_method", "coverage_ratio"]
+   "columns": ["run_id", "model_name", "model_version", "etf_id", "forecast_date", "horizon_days", "expected_return", "expected_excess_return", "q10_return", "q50_return", "q90_return", "forecast_vol", "prob_positive_return", "prob_beat_benchmark", "forecast_drawdown_prob", "status", "error_message", "model_allowed_in_score", "is_fallback", "fallback_model", "reason_unavailable", "oos_mase", "oos_directional_accuracy", "calibration_status", "q05_return", "q25_return", "q75_return", "q95_return", "quantile_method", "coverage_ratio", "promotion_status", "calibration_horizon_days", "point_statistic", "distribution_status", "pretraining_cutoff", "pretraining_sources", "contamination_status", "promotion_evidence_allowed", "evaluation_scope", "promotion_state", "promotion_reason", "execution_allowed"]
   },
   "data/forecasts/forecast_results_yfinance_20260930.csv.meta.json": {
    "kind": "json",
@@ -2252,8 +2252,8 @@
   "file": "forecast_results_yfinance_20260930.csv",
   "frame": {
    "excluded_columns": [],
-   "shape": [855, 30],
-   "columns": ["run_id", "model_name", "model_version", "etf_id", "forecast_date", "horizon_days", "expected_return", "expected_excess_return", "q10_return", "q50_return", "q90_return", "forecast_vol", "prob_positive_return", "prob_beat_benchmark", "forecast_drawdown_prob", "status", "error_message", "model_allowed_in_score", "is_fallback", "fallback_model", "reason_unavailable", "oos_mase", "oos_directional_accuracy", "calibration_status", "q05_return", "q25_return", "q75_return", "q95_return", "quantile_method", "coverage_ratio"],
+   "shape": [855, 42],
+   "columns": ["run_id", "model_name", "model_version", "etf_id", "forecast_date", "horizon_days", "expected_return", "expected_excess_return", "q10_return", "q50_return", "q90_return", "forecast_vol", "prob_positive_return", "prob_beat_benchmark", "forecast_drawdown_prob", "status", "error_message", "model_allowed_in_score", "is_fallback", "fallback_model", "reason_unavailable", "oos_mase", "oos_directional_accuracy", "calibration_status", "q05_return", "q25_return", "q75_return", "q95_return", "quantile_method", "coverage_ratio", "promotion_status", "calibration_horizon_days", "point_statistic", "distribution_status", "pretraining_cutoff", "pretraining_sources", "contamination_status", "promotion_evidence_allowed", "evaluation_scope", "promotion_state", "promotion_reason", "execution_allowed"],
    "dtypes": {
     "run_id": "object",
     "model_name": "object",
@@ -2284,7 +2284,19 @@
     "q75_return": "float64",
     "q95_return": "float64",
     "quantile_method": "object",
-    "coverage_ratio": "float64"
+    "coverage_ratio": "float64",
+    "promotion_status": "object",
+    "calibration_horizon_days": "float64",
+    "point_statistic": "float64",
+    "distribution_status": "float64",
+    "pretraining_cutoff": "object",
+    "pretraining_sources": "object",
+    "contamination_status": "object",
+    "promotion_evidence_allowed": "object",
+    "evaluation_scope": "object",
+    "promotion_state": "object",
+    "promotion_reason": "object",
+    "execution_allowed": "object"
    },
    "numeric_columns": {
     "horizon_days": {
@@ -2422,9 +2434,33 @@
      "mean": 1.0,
      "min": 1.0,
      "max": 1.0
+    },
+    "calibration_horizon_days": {
+     "nan_count": 855,
+     "count": 0,
+     "sum": null,
+     "mean": null,
+     "min": null,
+     "max": null
+    },
+    "point_statistic": {
+     "nan_count": 855,
+     "count": 0,
+     "sum": null,
+     "mean": null,
+     "min": null,
+     "max": null
+    },
+    "distribution_status": {
+     "nan_count": 855,
+     "count": 0,
+     "sum": null,
+     "mean": null,
+     "min": null,
+     "max": null
     }
    },
-   "non_float_digest": "c56240006f899e9f1abce8d4746668cbd58201e3aab0f15b57451c092ae6b26a",
+   "non_float_digest": "f01af0e72e7f748f18067b71aded5cf128c3fd512a4f0eadbfe212db39e42ffa",
    "first_rows": [
     {
      "run_id": "forecast_20260930__s2e451e324e57",
@@ -2456,7 +2492,19 @@
      "q75_return": 0.0195459415283749,
      "q95_return": 0.0443027356813192,
      "quantile_method": "normal_from_q10_q90.v1",
-     "coverage_ratio": 1.0
+     "coverage_ratio": 1.0,
+     "promotion_status": "not_proven",
+     "calibration_horizon_days": "<NaN>",
+     "point_statistic": "<NaN>",
+     "distribution_status": "<NaN>",
+     "pretraining_cutoff": "<NaN>",
+     "pretraining_sources": "<NaN>",
+     "contamination_status": "<NaN>",
+     "promotion_evidence_allowed": "<NaN>",
+     "evaluation_scope": "<NaN>",
+     "promotion_state": "<NaN>",
+     "promotion_reason": "<NaN>",
+     "execution_allowed": "<NaN>"
     },
     {
      "run_id": "forecast_20260930__s2e451e324e57",
@@ -2488,7 +2536,19 @@
      "q75_return": 0.04376739035205,
      "q95_return": 0.0932809786579387,
      "quantile_method": "normal_from_q10_q90.v1",
-     "coverage_ratio": 1.0
+     "coverage_ratio": 1.0,
+     "promotion_status": "not_proven",
+     "calibration_horizon_days": "<NaN>",
+     "point_statistic": "<NaN>",
+     "distribution_status": "<NaN>",
+     "pretraining_cutoff": "<NaN>",
+     "pretraining_sources": "<NaN>",
+     "contamination_status": "<NaN>",
+     "promotion_evidence_allowed": "<NaN>",
+     "evaluation_scope": "<NaN>",
+     "promotion_state": "<NaN>",
+     "promotion_reason": "<NaN>",
+     "execution_allowed": "<NaN>"
     },
     {
      "run_id": "forecast_20260930__s2e451e324e57",
@@ -2520,7 +2580,19 @@
      "q75_return": 0.087663955203014,
      "q95_return": 0.1734240058138614,
      "quantile_method": "normal_from_q10_q90.v1",
-     "coverage_ratio": 1.0
+     "coverage_ratio": 1.0,
+     "promotion_status": "not_proven",
+     "calibration_horizon_days": "<NaN>",
+     "point_statistic": "<NaN>",
+     "distribution_status": "<NaN>",
+     "pretraining_cutoff": "<NaN>",
+     "pretraining_sources": "<NaN>",
+     "contamination_status": "<NaN>",
+     "promotion_evidence_allowed": "<NaN>",
+     "evaluation_scope": "<NaN>",
+     "promotion_state": "<NaN>",
+     "promotion_reason": "<NaN>",
+     "execution_allowed": "<NaN>"
     }
    ],
    "last_rows": [
@@ -2554,7 +2626,19 @@
      "q75_return": "<NaN>",
      "q95_return": "<NaN>",
      "quantile_method": "<NaN>",
-     "coverage_ratio": "<NaN>"
+     "coverage_ratio": "<NaN>",
+     "promotion_status": "not_proven",
+     "calibration_horizon_days": "<NaN>",
+     "point_statistic": "<NaN>",
+     "distribution_status": "<NaN>",
+     "pretraining_cutoff": "unknown",
+     "pretraining_sources": "unknown",
+     "contamination_status": "possibly_leaked",
+     "promotion_evidence_allowed": false,
+     "evaluation_scope": "matured out-of-sample evidence against the baseline",
+     "promotion_state": "not_proven",
+     "promotion_reason": "No verified local forecasts for this version; 0 unverifiable forecasts.",
+     "execution_allowed": false
     },
     {
      "run_id": "forecast_20260930__s2e451e324e57",
@@ -2586,7 +2670,19 @@
      "q75_return": "<NaN>",
      "q95_return": "<NaN>",
      "quantile_method": "<NaN>",
-     "coverage_ratio": "<NaN>"
+     "coverage_ratio": "<NaN>",
+     "promotion_status": "not_proven",
+     "calibration_horizon_days": "<NaN>",
+     "point_statistic": "<NaN>",
+     "distribution_status": "<NaN>",
+     "pretraining_cutoff": "unknown",
+     "pretraining_sources": "unknown",
+     "contamination_status": "possibly_leaked",
+     "promotion_evidence_allowed": false,
+     "evaluation_scope": "matured out-of-sample evidence against the baseline",
+     "promotion_state": "not_proven",
+     "promotion_reason": "No verified local forecasts for this version; 0 unverifiable forecasts.",
+     "execution_allowed": false
     },
     {
      "run_id": "forecast_20260930__s2e451e324e57",
@@ -2618,7 +2714,19 @@
      "q75_return": "<NaN>",
      "q95_return": "<NaN>",
      "quantile_method": "<NaN>",
-     "coverage_ratio": "<NaN>"
+     "coverage_ratio": "<NaN>",
+     "promotion_status": "not_proven",
+     "calibration_horizon_days": "<NaN>",
+     "point_statistic": "<NaN>",
+     "distribution_status": "<NaN>",
+     "pretraining_cutoff": "unknown",
+     "pretraining_sources": "unknown",
+     "contamination_status": "possibly_leaked",
+     "promotion_evidence_allowed": false,
+     "evaluation_scope": "matured out-of-sample evidence against the baseline",
+     "promotion_state": "not_proven",
+     "promotion_reason": "No verified local forecasts for this version; 0 unverifiable forecasts.",
+     "execution_allowed": false
     }
    ]
   },
