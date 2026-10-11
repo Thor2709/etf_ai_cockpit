@@ -44,14 +44,19 @@ parsers = [
   "feedparser>=6.0.11,<7"
 ]
 models = [
-  "torch>=2.4.0",
-  "safetensors>=0.5.3",
-  "huggingface-hub>=0.23.0",
-  "transformers>=4.57.0",
-  "einops>=0.7.0",
-  "gluonts[torch]>=0.16.0",
-  "jaxtyping>=0.2.25",
-  "dd-unit-scaling>=0.1.0"
+  # Keep in step with requirements-models.txt (exact verified pins live there).
+  "torch>=2.11,<2.13",
+  "safetensors>=0.8,<0.9",
+  "huggingface-hub>=1.27,<2",
+  "transformers>=5.15,<6",
+  "timesfm==3.0.2",
+  "toto-2==2.0.0",
+  "einops>=0.8,<0.9",
+  "gluonts[torch]>=0.17,<0.18",
+  "jaxtyping>=0.3,<0.4",
+  "dd-unit-scaling>=0.1.0,<0.2",
+  "rotary-embedding-torch>=0.9,<0.10",
+  "lightning>=2.6.6,<2.7"
 ]
 
 [tool.setuptools.packages.find]

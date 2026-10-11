@@ -1,21 +1,34 @@
-# Optional live-forecast runtime.
-# Install only when you want to run TimesFM/Toto inference locally.
-# The normal app works without this file and remains baseline-only when these packages are absent.
-# This local workstation uses an RTX 5070 Laptop GPU; use the CUDA 13.0 PyTorch wheel.
+# Optional live-forecast runtime (TimesFM 2.5, TimesFM 3.0, Toto 2.0).
+# The normal app works without this file and stays baseline-only when these packages are absent.
+# Pins are the set verified together on the owner workstation (RTX 5070 Laptop, CUDA 12.8 wheels)
+# on 2026-10-11. Install torch FIRST from the CUDA index, then this file, so pip never swaps the
+# GPU build for a CPU wheel:
+#   pip install torch==2.11.0+cu128 torchvision==0.26.0+cu128 torchaudio==2.11.0+cu128 --index-url https://download.pytorch.org/whl/cu128
+#   pip install -r requirements-models.txt
+# Resolving this file also pulls setuptools<82 and toolz<0.13 (gluonts/lightning constraints); harmless.
+# Model weights are not in git; they live in models/ (see models/source_archives/MODEL_ARCHIVE_MANIFEST.md).
 
---extra-index-url https://download.pytorch.org/whl/cu130
+--extra-index-url https://download.pytorch.org/whl/cu128
 
-torch==2.12.1+cu130
-safetensors>=0.5.3
-huggingface-hub>=0.23.0
-transformers>=4.57.0
-einops>=0.7.0
-gluonts[torch]>=0.16.0
-lightning>=2.6.5
-pytorch-lightning>=2.6.5
-jaxtyping>=0.2.25
-dd-unit-scaling>=0.1.0
+torch==2.11.0+cu128
+numpy==2.4.4
+safetensors==0.8.0
+huggingface-hub==1.27.0
+transformers==5.15.0
+tokenizers==0.22.2
 
-# Local source archives supplied with the project.
--e ./models/source_archives/timesfm-2.0.1[torch]
--e ./models/source_archives/toto-toto-models-v1.0.0/toto2
+# TimesFM: one package serves both models. 3.0.2 provides TimesFM3Torch (TimesFM 3.0) and
+# TimesFM_2p5_200M_torch; TimesFM 2.5 itself loads through transformers (TimesFm2_5ModelForPrediction).
+# Do NOT install models/source_archives/timesfm-2.0.1: it has the same package name and would
+# replace 3.0.2, removing TimesFM 3 support.
+timesfm==3.0.2
+
+# Toto 2.0 (import name toto2). Same release as models/source_archives/toto-toto-models-v1.0.0/toto2.
+toto-2==2.0.0
+einops==0.8.2
+gluonts[torch]==0.17.0
+jaxtyping==0.3.11
+dd-unit-scaling==0.1.0
+rotary-embedding-torch==0.9.1
+lightning==2.6.6
+pytorch-lightning==2.6.6

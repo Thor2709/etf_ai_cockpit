@@ -20,7 +20,7 @@ cd "path\to\etf_ai_cockpit"
 python -m venv .venv
 .\.venv\Scripts\python -m pip install --upgrade pip
 .\.venv\Scripts\pip install -r requirements-dev.txt
-.\.venv\Scripts\pip install -r requirements-models.txt
+.\.venv\Scripts\pip install torch==2.11.0+cu128 --index-url https://download.pytorch.org/whl/cu128; .\.venv\Scripts\pip install -r requirements-models.txt
 .\.venv\Scripts\python scripts\run_app.py
 ```
 
