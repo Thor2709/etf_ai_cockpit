@@ -38,9 +38,11 @@ class TotoAdapter:
             return False
 
     def _unavailable_reason(self) -> str:
-        default = "Toto disabled or compatible package/checkpoint missing."
-        if not self.config.enabled or self.config.mode == "disabled" or self._checkpoint_reference() is None:
-            return default
+        if not self.config.enabled or self.config.mode == "disabled":
+            return "Toto is disabled."
+        if self._checkpoint_reference() is None:
+            return f"Toto 2 checkpoint missing or incomplete at {self._local_model_path()}; config.json and safetensors weights are required."
+        default = "Toto 2 runtime unavailable: toto2.Toto2Model is required (package toto-2)."
         try:
             module = __import__("toto.model.toto", fromlist=["Toto"])
             if hasattr(module, "Toto"):
@@ -63,10 +65,7 @@ class TotoAdapter:
         torch = __import__("torch")
         module = __import__("toto2", fromlist=["Toto2Model"])
         kwargs = {"local_files_only": self.config.local_files_only, "map_location": _torch_device(torch, self.config.device)}
-        try:
-            model = module.Toto2Model.from_pretrained(checkpoint, **kwargs)
-        except TypeError:
-            model = module.Toto2Model.from_pretrained(checkpoint)
+        model = module.Toto2Model.from_pretrained(checkpoint, **kwargs)
         self._device = _torch_device(torch, self.config.device)
         self._model = model.to(self._device).eval()
 
@@ -75,14 +74,21 @@ class TotoAdapter:
         frame["date"] = pd.to_datetime(frame["date"]).dt.date
         frame = frame[frame["date"] <= as_of_date]
         pivot = frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
-        returns = np.log(pivot / pivot.shift(1)).dropna(how="all")
+        pivot = pivot.where(np.isfinite(pivot) & (pivot > 0))
+        returns = np.log(pivot / pivot.shift(1)).replace([np.inf, -np.inf], np.nan).dropna(how="all")
+        if etf_id not in returns or returns[etf_id].dropna().empty:
+            raise ValueError(f"{etf_id}: no finite adjusted log-return history at or before {as_of_date}.")
         columns = [etf_id] + [column for column in returns.columns if column != etf_id]
         series = returns[columns].tail(self.config.context_length)
         patch_size = self._patch_size()
         usable_rows = (len(series) // patch_size) * patch_size
         if usable_rows <= 0:
             raise ValueError(f"Toto requires at least one complete {patch_size}-step context patch.")
-        return ModelInput(etf_id=etf_id, as_of_date=as_of_date, series=series.tail(usable_rows))
+        series = series.tail(usable_rows)
+        observed = int(series[etf_id].notna().sum())
+        if observed < patch_size:
+            raise ValueError(f"{etf_id}: Toto requires at least {patch_size} finite adjusted log-return observations in context; found {observed}.")
+        return ModelInput(etf_id=etf_id, as_of_date=as_of_date, series=series)
 
     def forecast_etf(
         self,
@@ -179,6 +185,8 @@ class TotoAdapter:
         series = model_input.series.dropna(how="all")
         if series.empty or etf_id not in series.columns:
             raise ValueError("No adjusted return history available for Toto live forecast.")
+        # Zero is only the tensor placeholder for missing observations; the
+        # explicit mask keeps those values out of the model's observed history.
         values = series.fillna(0.0).to_numpy(dtype=float).T[None, :, :]
         mask = series.notna().to_numpy(dtype=bool).T[None, :, :]
         target = torch.tensor(values, dtype=torch.float32, device=self._device)
@@ -310,9 +318,11 @@ def toto_quantiles_to_log_return_results(
     model_version: str,
 ) -> list[ForecastResult]:
     values = np.asarray(quantiles, dtype=float)
-    if values.ndim != 4 or values.shape[0] < 9 or values.shape[1] < 1 or values.shape[2] < 1:
+    if values.ndim != 4 or values.shape[0] != 9 or values.shape[1] < 1 or values.shape[2] < 1:
         raise ValueError("Expected Toto quantiles with shape (9, batch, n_variates, horizon).")
     target = values[:, 0, 0, :]
+    if not np.isfinite(target).all():
+        raise ValueError("Toto returned nonfinite target quantiles; no return can be reported.")
     results: list[ForecastResult] = []
     for horizon in horizons:
         if horizon < 1 or horizon > target.shape[1]:
@@ -335,9 +345,9 @@ def toto_quantiles_to_log_return_results(
                 )
             )
             continue
-        q10 = float(np.nansum(target[0, :horizon]))
-        q50 = float(np.nansum(target[4, :horizon]))
-        q90 = float(np.nansum(target[8, :horizon]))
+        q10 = float(np.sum(target[0, :horizon]))
+        q50 = float(np.sum(target[4, :horizon]))
+        q90 = float(np.sum(target[8, :horizon]))
         results.append(
             ForecastResult(
                 run_id=run_id,
