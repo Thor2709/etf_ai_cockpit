@@ -218,7 +218,7 @@ def _build_snapshot(
             data_report.as_of_date,
             allowed_ids=current_ids.intersection(set(prices.get("etf_id", pd.Series(dtype=str)).astype(str))),
         )
-    structure_caps = _load_structure_caps(config.universe.enabled_ids, data_report.as_of_date)
+    structure_caps = _load_structure_caps(config.universe.enabled_ids, data_report.as_of_date, config=config)
     signals = (
         []
         if latest.empty

@@ -353,7 +353,7 @@ def test_p04_n012_signal_adapter_uses_report_staleness_for_component_eligibility
     monkeypatch.setattr(service_module.DataService, "validate_prices", lambda *_args, **_kwargs: report)
     monkeypatch.setattr(service_module, "model_availability", lambda _config: {"toto": False, "timesfm": False})
     monkeypatch.setattr(service_module, "load_latest_forecasts", lambda **_kwargs: pd.DataFrame())
-    monkeypatch.setattr(service_module, "_load_structure_caps", lambda *_args: None)
+    monkeypatch.setattr(service_module, "_load_structure_caps", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(service_module, "forecast_component_maps", lambda _frame: {})
     monkeypatch.setattr(service_module, "forecast_return_distributions", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(service_module, "load_forecast_history", lambda: pd.DataFrame())

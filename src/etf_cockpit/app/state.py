@@ -986,8 +986,15 @@ class AppState:
                 "Fast forecasts refreshed from yfinance data for the 60-trading-day scoring horizon."
             )
             summary = "; ".join(line.split(". Output:", 1)[0] for line in message.splitlines() if line.strip())
+            optional_note = (
+                "Optional TimesFM/Toto models run with every forecast run and count in scores only once they beat "
+                "the baseline on matured forecasts (see Forecast Lab)."
+                if request_identity["live_optional_models"]
+                else "Optional TimesFM/Toto live models are off (model_settings shadow_optional_models: false); "
+                "the deterministic baseline is used."
+            )
             return self._with_score_history_warning(
-                f"{summary}. Optional TimesFM/Toto models run with every forecast run and count in scores only once they beat the baseline on matured forecasts (see Forecast Lab). Scoreboard updated: {scoreboard_path.name}."
+                f"{summary}. {optional_note} Scoreboard updated: {scoreboard_path.name}."
             )
 
     @_tracked_activity("Rollback prices", "Searching previous clean price snapshot")

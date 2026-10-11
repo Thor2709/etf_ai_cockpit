@@ -511,6 +511,21 @@ build_etf_structure_analysis = project_etf_structure
 build_etf_structure_projection = project_etf_structure
 
 
+def structure_cap_scope(config: object) -> dict[str, str]:
+    """Select enabled non-funds from the configured universe, failing closed.
+
+    Only these two explicit instrument types exempt an instrument from fund
+    structure evidence. Missing and unrecognised types remain in scope.
+    """
+
+    universe = getattr(config, "universe", None)
+    return {
+        str(item.id): item.instrument_type
+        for item in getattr(universe, "etfs", ())
+        if item.enabled and getattr(item, "instrument_type", None) in {"stock", "equity_certificate"}
+    }
+
+
 def structure_confidence_caps(
     instrument_ids: Iterable[object],
     *,
@@ -519,15 +534,36 @@ def structure_confidence_caps(
     supplemental_rows: object = None,
     holdings: object = None,
     decision_time: object = None,
+    not_applicable_types: Mapping[str, str] | None = None,
 ) -> dict[str, float]:
     """Project a fail-closed cap for every instrument at one decision time.
 
     Evidence is intentionally supplied by the caller so a service/backtest
     boundary can load each local evidence source once and reuse the immutable
-    rows for every point-in-time projection.
+    rows for every point-in-time projection. Pass ``structure_cap_scope(config)``
+    as ``not_applicable_types`` at configured consumer boundaries.
     """
 
     caps = StructureConfidenceCaps()
+    fund_ids = []
+    for instrument_id in instrument_ids:
+        target = str(instrument_id)
+        if not_applicable_types is not None and target in not_applicable_types:
+            caps[target] = 1.0
+            caps.provenance[target] = {
+                "structure_projection_version": STRUCTURE_PROJECTION_VERSION,
+                "structure_schema_version": STRUCTURE_SCHEMA_VERSION,
+                "structure_confidence_version": STRUCTURE_CONFIDENCE_VERSION,
+                "structure_provenance_hash": "unavailable",
+                "structure_confidence_cap": 1.0,
+                "status": "not_applicable",
+                "reason_code": "structure_not_applicable_instrument_type",
+                "instrument_type": not_applicable_types[target],
+            }
+        else:
+            fund_ids.append(target)
+    if not fund_ids:
+        return caps
     try:
         registry_rows = _strict_rows(document_registry, "document registry")
         supplemental = _strict_channel_rows(supplemental_rows, "supplemental rows", "factsheet")
@@ -547,7 +583,7 @@ def structure_confidence_caps(
     else:
         invalid_reports = False
     if invalid_reports or invalid_channels:
-        for instrument_id in instrument_ids:
+        for instrument_id in fund_ids:
             target = str(instrument_id)
             caps[target] = 0.0
             caps.provenance[target] = {
@@ -559,7 +595,7 @@ def structure_confidence_caps(
             }
         return caps
     if not any((registry_rows, report_rows, supplemental, holding_rows)):
-        for instrument_id in instrument_ids:
+        for instrument_id in fund_ids:
             target = str(instrument_id)
             caps[target] = 0.0
             caps.provenance[target] = {
@@ -570,7 +606,7 @@ def structure_confidence_caps(
                 "structure_confidence_cap": 0.0,
             }
         return caps
-    for instrument_id in instrument_ids:
+    for instrument_id in fund_ids:
         target = str(instrument_id)
         try:
             projection = project_etf_structure(
@@ -1903,7 +1939,7 @@ def _parse_timestamp(value: str) -> datetime:
 __all__ = [
     "BASE_REQUIRED_STRUCTURE_FIELDS", "DOCUMENT_FAMILIES", "NumericCandidate", "NumericEvidence", "STRESS_FORMULA_VERSION", "STRUCTURAL_FIELDS", "StructureCandidate",
     "LocalStructuralEvidence", "STRUCTURE_CONFIDENCE_VERSION", "STRUCTURE_SCHEMA_VERSION", "build_etf_structure_analysis", "build_etf_structure_projection",
-    "STRUCTURE_PROJECTION_VERSION", "calculate_counterparty_collateral_stress", "calculate_structural_stress", "load_local_structural_evidence", "project_etf_structure", "structure_confidence_caps", "structure_input_checksum",
+    "STRUCTURE_PROJECTION_VERSION", "calculate_counterparty_collateral_stress", "calculate_structural_stress", "load_local_structural_evidence", "project_etf_structure", "structure_cap_scope", "structure_confidence_caps", "structure_input_checksum",
 ]
 
 

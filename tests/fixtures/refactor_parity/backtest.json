@@ -743,10 +743,10 @@
    "structural_confidence_cap": {
     "nan_count": 0,
     "count": 1824,
-    "sum": 0.0,
-    "mean": 0.0,
+    "sum": 1280.0,
+    "mean": 0.7017543859649122,
     "min": 0.0,
-    "max": 0.0
+    "max": 1.0
    }
   },
   "non_float_digest": "39ec02449f1390333456900d50358fe85988b96c10db022f8bc1996607a041c5",
@@ -765,7 +765,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "structural_confidence_cap": 0.0,
+    "structural_confidence_cap": 1.0,
     "structural_provenance_hash": "unavailable"
    },
    {
@@ -782,7 +782,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "structural_confidence_cap": 0.0,
+    "structural_confidence_cap": 1.0,
     "structural_provenance_hash": "unavailable"
    },
    {
@@ -799,7 +799,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "structural_confidence_cap": 0.0,
+    "structural_confidence_cap": 1.0,
     "structural_provenance_hash": "unavailable"
    }
   ],
@@ -818,7 +818,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "structural_confidence_cap": 0.0,
+    "structural_confidence_cap": 1.0,
     "structural_provenance_hash": "unavailable"
    },
    {
@@ -835,7 +835,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "structural_confidence_cap": 0.0,
+    "structural_confidence_cap": 1.0,
     "structural_provenance_hash": "unavailable"
    },
    {
