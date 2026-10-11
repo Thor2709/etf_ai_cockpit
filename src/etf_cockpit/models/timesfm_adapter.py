@@ -73,9 +73,11 @@ class TimesFMAdapter:
                 status="unavailable",
                 message="TimesFM disabled or compatible package/checkpoint missing.",
             )
+        series = series.loc[pd.to_datetime(series.index).date <= forecast_date].sort_index()
         if self.config.mode == "mock":
             return self._mock_forecast(series, horizons, etf_id=etf_id, forecast_date=forecast_date, run_id=run_id)
         try:
+            _trim_to_complete_patches(_clean_positive_series(series), self._patch_length())
             if self._model is None:
                 self.load_model()
             if self._runtime_backend == "timesfm":
@@ -87,7 +89,7 @@ class TimesFMAdapter:
                 etf_id=etf_id,
                 forecast_date=forecast_date,
                 run_id=run_id,
-                status="failed",
+                status="unavailable" if isinstance(exc, ValueError) else "failed",
                 message=f"TimesFM live forecast failed: {type(exc).__name__}: {exc}",
             )
 
@@ -132,11 +134,10 @@ class TimesFMAdapter:
         module = __import__("transformers", fromlist=["TimesFm2_5ModelForPrediction"])
         cls = module.TimesFm2_5ModelForPrediction
         kwargs: dict[str, Any] = {"local_files_only": self.config.local_files_only}
-        if self.config.device == "auto" and _torch_cuda_available() and _package_available("accelerate"):
-            kwargs["device_map"] = "auto"
-        elif self.config.device and self.config.device != "cpu" and _package_available("accelerate"):
-            kwargs["device_map"] = self.config.device
-        self._model = cls.from_pretrained(checkpoint, **kwargs).eval()
+        device = self.config.device
+        if device == "auto" or (device.startswith("cuda") and not _torch_cuda_available()):
+            device = "cuda" if _torch_cuda_available() else "cpu"
+        self._model = cls.from_pretrained(checkpoint, **kwargs).to(device).eval()
         self._runtime_backend = "transformers"
 
     def _load_timesfm_package_model(self, checkpoint: str) -> None:
@@ -317,6 +318,7 @@ def timesfm_level_forecast_to_results(
     forecast_date: date,
     run_id: str,
     model_version: str,
+    model_name: str = "timesfm",
 ) -> list[ForecastResult]:
     mean = _first_series(np.asarray(mean_predictions, dtype=float))
     quantiles = _first_quantile_matrix(quantile_predictions)
@@ -328,7 +330,7 @@ def timesfm_level_forecast_to_results(
             results.append(
                 ForecastResult(
                     run_id=run_id,
-                    model_name="timesfm",
+                    model_name=model_name,
                     model_version=model_version,
                     etf_id=etf_id,
                     forecast_date=forecast_date,
@@ -350,7 +352,7 @@ def timesfm_level_forecast_to_results(
         results.append(
             ForecastResult(
                 run_id=run_id,
-                model_name="timesfm",
+                model_name=model_name,
                 model_version=model_version,
                 etf_id=etf_id,
                 forecast_date=forecast_date,

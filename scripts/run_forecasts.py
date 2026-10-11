@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from etf_cockpit.models.forecast_scores import configured_forecast_request_ident
 
 
 def main() -> int:
+    started = time.perf_counter()
     parser = argparse.ArgumentParser(description="Run baseline, TimesFM and Toto forecasts for the local ETF universe.")
     parser.add_argument("--date", default="latest")
     parser.add_argument("--etf", action="append", default=[], help="ETF id to forecast. Can be supplied more than once.")
@@ -57,9 +59,11 @@ def main() -> int:
     print(f"Forecast date: {as_of_date}")
     print(f"ETF count: {len(etf_ids)}")
     print(f"Rows: {len(forecasts)}")
+    print(f"SHADOW optional inference: {config.models.shadow_optional_models}; execution_allowed=false")
     for (model_name, status), count in sorted(counts.items()):
         print(f"{model_name:10s} {status:12s} {count}")
     print(f"Wrote {FORECASTS_DIR / f'forecast_results_{as_of_date:%Y%m%d}.csv'}")
+    print(f"Runtime seconds: {time.perf_counter() - started:.3f}")
     return 1 if any(forecast.status == "failed" for forecast in forecasts) else 0
 
 

@@ -121,7 +121,7 @@ def _model_ids(models: pd.DataFrame, catalogue: pd.DataFrame) -> list[str]:
         if not catalogue.empty
         else []
     )
-    return [*stored, *[name for name in optional if name in ("timesfm", "toto")]]
+    return [*stored, *[name for name in optional if name in ("timesfm", "timesfm3", "toto")]]
 
 
 def _comparison_rows(ids: list[str], models: pd.DataFrame, catalogue: pd.DataFrame) -> list[dict[str, object]]:

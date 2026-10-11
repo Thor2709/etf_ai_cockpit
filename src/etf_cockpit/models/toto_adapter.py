@@ -37,6 +37,20 @@ class TotoAdapter:
         except Exception:
             return False
 
+    def _unavailable_reason(self) -> str:
+        default = "Toto disabled or compatible package/checkpoint missing."
+        if not self.config.enabled or self.config.mode == "disabled" or self._checkpoint_reference() is None:
+            return default
+        try:
+            module = __import__("toto.model.toto", fromlist=["Toto"])
+            if hasattr(module, "Toto"):
+                return ("Toto 2 checkpoint is incompatible with the installed toto-ts runtime "
+                        "(Toto 1 architecture); the required toto2.Toto2Model runtime is absent. "
+                        "Package changes require owner authority.")
+        except Exception:
+            pass
+        return default
+
     def load_model(self) -> None:
         if not self.is_available():
             raise RuntimeError("Toto unavailable - using baselines only.")
@@ -85,7 +99,7 @@ class TotoAdapter:
                 as_of_date=as_of_date,
                 run_id=run_id,
                 status="unavailable",
-                message="Toto disabled or compatible package/checkpoint missing.",
+                message=self._unavailable_reason(),
             )
         if prices is None:
             if self.config.mode == "mock":
@@ -110,7 +124,7 @@ class TotoAdapter:
                 etf_id=etf_id,
                 as_of_date=as_of_date,
                 run_id=run_id,
-                status="failed",
+                status="unavailable" if isinstance(exc, ValueError) else "failed",
                 message=f"Toto live forecast failed: {type(exc).__name__}: {exc}",
             )
 

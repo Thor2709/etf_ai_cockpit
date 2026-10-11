@@ -215,6 +215,8 @@ class ModelMonitoringSettings(BaseModel):
 
 
 class ModelSettings(BaseModel):
+    # Owner opt-in controls inference only; optional output remains SHADOW.
+    shadow_optional_models: bool = False
     forecast_horizons_trading_days: list[int] = Field(default_factory=lambda: [5, 20, 60, 120, 180])
     models: dict[str, Any] = Field(default_factory=dict)
     ensemble: dict[str, Any] = Field(default_factory=dict)

@@ -25,7 +25,7 @@ from etf_cockpit.core.versioning import (
     settings_bound_run_id,
 )
 from etf_cockpit.data.duckdb_store import load_prices
-from etf_cockpit.features.forecast_lab import build_forecast_lab_workspace as build_forecast_lab_workspace
+from etf_cockpit.features.forecast_lab import build_forecast_lab_workspace as _build_forecast_lab_workspace
 from etf_cockpit.features.returns import daily_log_returns
 from etf_cockpit.models.baseline_models import baseline_forecast
 from etf_cockpit.models.forecast_scores import configured_forecast_request_identity as configured_forecast_request_identity, forecast_request_identity
@@ -46,7 +46,7 @@ from etf_cockpit.application.derived_cache import (
 def _live_optional_models_from_config(config: AppConfig) -> bool:
     return any(
         config.models.runtime(name).enabled and config.models.runtime(name).mode == "live"
-        for name in ("timesfm", "toto")
+        for name in ("timesfm", "timesfm3", "toto")
     )
 
 
@@ -142,11 +142,16 @@ class ForecastService:
             progress_callback("Checking cached TimesFM forecasts", 2, 4)
         with timed_step("forecasts", "model:timesfm", run_id=run_id):
             forecasts.extend(self._run_timesfm_forecasts(pivot, etf_ids, horizons, as_of_date, run_id))
+        if "timesfm3" in self.config.models.models:
+            with timed_step("forecasts", "model:timesfm3", run_id=run_id):
+                forecasts.extend(self._run_timesfm_forecasts(pivot, etf_ids, horizons, as_of_date, run_id, model_name="timesfm3"))
         if progress_callback is not None:
             progress_callback("Checking cached Toto forecasts", 3, 4)
         with timed_step("forecasts", "model:toto", run_id=run_id):
             forecasts.extend(self._run_toto_forecasts(price_frame, etf_ids, horizons, as_of_date, run_id))
         forecasts = _postprocess_forecast_benchmark_fields(forecasts, benchmark_returns)
+        if self.config.models.shadow_optional_models:
+            forecasts = [_shadow_forecast(row) for row in forecasts]
         with publication_scope(publish_guard):
             ensure_run_manifest(
                 run_id,
@@ -183,18 +188,20 @@ class ForecastService:
         horizons: list[int],
         as_of_date: date,
         run_id: str,
+        *,
+        model_name: str = "timesfm",
     ) -> list[ForecastResult]:
         from etf_cockpit.models.timesfm_adapter import TimesFMAdapter
+        from etf_cockpit.models.timesfm3_adapter import TimesFM3Adapter
 
-        adapter = TimesFMAdapter(self.config.models.runtime("timesfm"))
+        adapter_class = TimesFM3Adapter if model_name == "timesfm3" else TimesFMAdapter
+        adapter = adapter_class(self.config.models.runtime(model_name))
         forecasts: list[ForecastResult] = []
         try:
             for etf_id in etf_ids:
-                if etf_id not in pivot:
-                    continue
                 forecasts.extend(
                     adapter.forecast_series(
-                        pivot[etf_id].dropna(),
+                        pivot[etf_id].dropna() if etf_id in pivot else pd.Series(dtype=float, index=pd.DatetimeIndex([])),
                         horizons,
                         etf_id=etf_id,
                         forecast_date=as_of_date,
@@ -291,7 +298,48 @@ class ForecastService:
 def _forecast_to_row(forecast: ForecastResult) -> dict[str, object]:
     data = asdict(forecast)
     data["forecast_date"] = forecast.forecast_date.isoformat()
+    if forecast.calibration_status.startswith("shadow_"):
+        data.update(_pretraining_evidence(forecast.model_name, forecast.forecast_date))
+        data["promotion_state"] = "shadow_only"
+        data["execution_allowed"] = False
     return data
+
+
+def _pretraining_evidence(model_name: str, forecast_date: date) -> dict[str, object]:
+    cutoff = date(2023, 11, 30) if model_name == "timesfm3" else None
+    possibly_leaked = cutoff is None or forecast_date <= cutoff
+    return {
+        "pretraining_cutoff": cutoff.isoformat() if cutoff is not None else "unknown",
+        "pretraining_sources": "Wikipedia through Nov 2023; Google Trends through Dec 2022" if cutoff else "unknown",
+        "contamination_status": "possibly_leaked" if possibly_leaked else "after_declared_cutoff",
+        "promotion_evidence_allowed": False,
+        "evaluation_scope": "diagnostic_only; existing governance approval required",
+    }
+
+
+def _shadow_forecast(row: ForecastResult) -> ForecastResult:
+    if row.model_name not in {"timesfm", "timesfm3", "toto"}:
+        return row
+    evidence = _pretraining_evidence(row.model_name, row.forecast_date)
+    return replace(
+        row,
+        model_allowed_in_score=False,
+        calibration_status=f"shadow_{evidence['contamination_status']}_{row.calibration_status}",
+    )
+
+
+def build_forecast_lab_workspace(config: AppConfig, forecasts: pd.DataFrame, prices: pd.DataFrame, **kwargs: object) -> dict[str, object]:
+    """Expose TimesFM3 artifact availability through the application boundary."""
+    report = _build_forecast_lab_workspace(config, forecasts, prices, **kwargs)
+    models = report.get("models")
+    catalogue = report.get("model_catalogue")
+    if isinstance(models, pd.DataFrame) and isinstance(catalogue, pd.DataFrame):
+        # The report has already removed future rows; raw inputs cannot set this label.
+        ready = bool((models.loc[models["model_name"].eq("timesfm3"), "ok_rows"] > 0).any()) if not models.empty else False
+        catalogue = catalogue.copy()
+        catalogue.loc[catalogue["model_id"].eq("timesfm3"), "state"] = "available" if ready else "unavailable"
+        report["model_catalogue"] = catalogue
+    return report
 
 
 def _postprocess_forecast_benchmark_fields(
@@ -362,7 +410,9 @@ def _forecast_frame_status_summary(frame: pd.DataFrame) -> str:
 
 def _config_with_optional_models_disabled(config: AppConfig) -> AppConfig:
     quick_config = config.model_copy(deep=True)
-    for model_name in ("timesfm", "toto"):
+    for model_name in ("timesfm", "timesfm3", "toto"):
+        if model_name not in quick_config.models.models:
+            continue
         model_config = dict(quick_config.models.models.get(model_name, {}))
         model_config.update(
             {

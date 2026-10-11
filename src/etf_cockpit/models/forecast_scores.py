@@ -52,7 +52,7 @@ def configured_forecast_request_identity(config: AppConfig) -> dict[str, object]
     return forecast_request_identity(
         config,
         [PRIMARY_MODEL_HORIZON_DAYS],
-        live_optional_models=False,
+        live_optional_models=config.models.shadow_optional_models,
     )
 
 

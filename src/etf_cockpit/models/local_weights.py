@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import struct
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -45,11 +45,31 @@ class LocalModelStatus:
 
 
 def model_weight_inventory(config: AppConfig) -> list[LocalModelStatus]:
-    return [
+    inventory = [
         _timesfm_status(config),
         _toto_status(config, "4m", "Toto-2.0-4m"),
         _toto_status(config, "1b", "Toto-2.0-1B"),
     ]
+    if "timesfm3" in config.models.models:
+        runtime = config.models.runtime("timesfm3")
+        cloned = config.model_copy(deep=True)
+        path = _resolve_model_path(runtime.model_path, MODEL_DIR / "timesfm" / "timesfm-3.0-pytorch")
+        cloned.models.models["timesfm"] = dict(config.models.models["timesfm3"], backend="timesfm", model_path=str(path))
+        status = _timesfm_status(cloned)
+        from etf_cockpit.models.timesfm3_adapter import TimesFM3Adapter
+        ready = TimesFM3Adapter(runtime).is_available() and runtime.mode == "live"
+        metadata_ready = status.has_config_json and (path / "model.safetensors").is_file()
+        message = _readiness_message(
+            enabled=runtime.enabled, mode=runtime.mode, weight_files=status.weight_files,
+            runtime_ready=ready, metadata_ready=metadata_ready,
+            runtime_hint="TimesFM3Forecaster and a configured local TimesFM 3 checkpoint are required.",
+        )
+        inventory.insert(1, replace(
+            status, model_name="timesfm3", model_id="TimesFM 3.0", live_ready=ready,
+            status="live_ready" if ready else ("weights_present" if status.weight_files else "missing_weights"),
+            message=message,
+        ))
+    return inventory
 
 
 def format_model_inventory_line(status: LocalModelStatus) -> str:
