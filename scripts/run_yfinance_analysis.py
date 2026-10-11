@@ -8,7 +8,12 @@ from dataclasses import asdict
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from run_pipeline_cli import run_cli
+
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from run_pipeline_cli import run_cli  # noqa: E402 - follows the scripts-dir bootstrap
 
 import pandas as pd
 

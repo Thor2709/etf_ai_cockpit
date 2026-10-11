@@ -3,7 +3,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from run_pipeline_cli import require_cached_inputs, run_cli
+
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from run_pipeline_cli import require_cached_inputs, run_cli  # noqa: E402 - follows the scripts-dir bootstrap
 
 ROOT = Path(__file__).resolve().parents[1]
 for candidate in (ROOT / "src", ROOT / "app" / "src"):

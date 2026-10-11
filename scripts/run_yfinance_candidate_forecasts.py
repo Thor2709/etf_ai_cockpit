@@ -6,9 +6,14 @@ from collections import Counter
 from datetime import date
 from pathlib import Path
 
-from run_pipeline_cli import run_cli
 
-import pandas as pd
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from run_pipeline_cli import run_cli  # noqa: E402 - follows the scripts-dir bootstrap
+
+import pandas as pd  # noqa: E402 - follows the scripts-dir bootstrap
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
