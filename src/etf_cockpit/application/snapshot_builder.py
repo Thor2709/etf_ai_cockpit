@@ -234,6 +234,7 @@ def _build_snapshot(
                 forecast_scores=forecast_component_maps(forecasts),
                 forecast_distributions=forecast_return_distributions(forecasts),
                 structure_confidence_caps=structure_caps,
+                preserve_snapshot_narrative_warning=True,
             )
         )
     )

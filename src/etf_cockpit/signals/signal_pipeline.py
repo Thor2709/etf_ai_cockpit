@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import date, datetime, timezone
-from math import isfinite
+from math import isfinite, isnan
 from collections.abc import Mapping
 
 import pandas as pd
@@ -43,6 +43,7 @@ def generate_signals(
     run_id: str | None = None,
     decision_timestamp: datetime | pd.Timestamp | None = None,
     publish: bool = True,
+    preserve_snapshot_narrative_warning: bool = False,
     toto_available: bool = False,
     timesfm_available: bool = False,
     forecast_scores: dict[str, dict[str, float]] | None = None,
@@ -194,6 +195,16 @@ def generate_signals(
                 blocked_by = ["inside_deadband"]
             else:
                 blocked_by = ["no_trade_conservative"]
+        # The snapshot's legacy NaN-narrative warning contributes to evidence
+        # quality. Preserve its raw NaN provenance before component cleaning;
+        # safer wording must not silently increase decision authority. Missing
+        # (None) and infinity were not NaN narratives and gain no new warning.
+        narrative_keys = (
+            "total_score", "confidence", "score_momentum", "score_trend", "score_risk",
+            "score_baseline_ml", "score_toto", "score_timesfm", "drift",
+        )
+        if preserve_snapshot_narrative_warning and any(_is_nan_narrative_value(row.get(key)) for key in narrative_keys):
+            warnings = list(dict.fromkeys([*warnings, "nonfinite_score_narrative_suppressed"]))
         explanation_row = row.copy()
         explanation_row["total_score"] = total_score
         explanation_row["confidence"] = action_confidence * structure_cap
@@ -335,6 +346,13 @@ def generate_signals(
             run_id=run_id,
         )
     return signals
+
+
+def _is_nan_narrative_value(value: object) -> bool:
+    try:
+        return isnan(float(value))
+    except (TypeError, ValueError):
+        return False
 
 
 def _signal_timestamp(decision_timestamp: datetime | pd.Timestamp | None) -> datetime:
