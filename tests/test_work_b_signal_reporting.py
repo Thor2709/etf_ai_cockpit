@@ -1,3 +1,4 @@
+import pytest
 """Missing signal evidence stays unavailable in CLI, JSON and explanations."""
 
 from dataclasses import replace
@@ -56,3 +57,21 @@ def test_signal_runner_prints_unavailable_confidence(monkeypatch, capsys):
     monkeypatch.setattr(runner, "SignalService", lambda config: SimpleNamespace(generate_signals=lambda **kwargs: [signal]))
     assert runner.main() == 0
     assert "confidence=unavailable" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+def test_signal_runner_prints_unavailable_total_score(monkeypatch, capsys, bad):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
+    runner = importlib.import_module("run_signals")
+    config = load_config()
+    signal = SimpleNamespace(
+        etf_id=config.universe.enabled_ids[0], action="manual_review",
+        confidence=0.5, total_score=bad, blocked_by=[],
+    )
+    monkeypatch.setattr(sys, "argv", ["run_signals.py"])
+    monkeypatch.setattr(runner, "require_cached_inputs", lambda *paths: None)
+    monkeypatch.setattr(runner, "load_config", lambda: config)
+    monkeypatch.setattr(runner, "SignalService", lambda config: SimpleNamespace(generate_signals=lambda **kwargs: [signal]))
+    assert runner.main() == 0
+    out = capsys.readouterr().out
+    assert "score=unavailable" in out and "nan" not in out and "inf" not in out

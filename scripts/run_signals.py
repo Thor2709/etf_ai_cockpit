@@ -28,7 +28,8 @@ def main() -> int:
     signals = SignalService(config).generate_signals(as_of_date=as_of_date)
     for signal in signals:
         confidence = f"{signal.confidence:.2f}" if isfinite(signal.confidence) else "unavailable"
-        print(f"{signal.etf_id:16s} {signal.action:13s} confidence={confidence} score={signal.total_score:+.2f} blocked={','.join(signal.blocked_by) or '-'}")
+        score = f"{signal.total_score:+.2f}" if isfinite(signal.total_score) else "unavailable"
+        print(f"{signal.etf_id:16s} {signal.action:13s} confidence={confidence} score={score} blocked={','.join(signal.blocked_by) or '-'}")
 
     return 0
 
