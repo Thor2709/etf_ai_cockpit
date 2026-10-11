@@ -2,7 +2,7 @@
 
 Place TimesFM 2.5 model files here after downloading them from the official source. The app remains usable in baseline-only mode when this folder is empty.
 
-The supplied TimesFM source archive has been extracted to `models/source_archives/timesfm-2.0.1` for reference. It is source code and examples, not local model weights.
+The supplied TimesFM source archive has been extracted to `models/source_archives/timesfm-2.0.1` for reference only. It is source code and examples, not local model weights, and must not be pip-installed: it shares the package name `timesfm` with the runtime `timesfm==3.0.2` from `requirements-models.txt` and would replace it.
 
 The optional live adapter supports the Hugging Face Transformers implementation documented at:
 
