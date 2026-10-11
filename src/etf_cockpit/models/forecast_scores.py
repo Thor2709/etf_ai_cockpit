@@ -781,6 +781,7 @@ def _attach_distribution_contract(
         "components_status": canonical["components_status"],
         "cost_deductions": canonical["cost_deductions"],
         "per_model_distributions": canonical.get("per_model_distributions"),
+        "uncertainty_band": _uncertainty_band(canonical),
         "net_status": canonical["net_status"],
         "net_reason": canonical["net_reason"],
         "probability_loss": probabilities.get("probability_loss") if canonical["status"] == "available" else None,
@@ -810,6 +811,21 @@ def _attach_distribution_contract(
         unavailable_decomposition("Uncertainty thresholds are applied by the signal pipeline."),
     )
     return distribution
+
+
+def _uncertainty_band(canonical: Mapping[str, object]) -> dict[str, float] | None:
+    """Coverage-widened gross q10/q90 for the uncertainty gate, independent of the total-return contract.
+
+    The band exists whenever every selected model supplied a complete quantile vector and a coverage
+    ratio at the exact horizon and the forecast is point-in-time bound. Missing return components,
+    costs, identities or horizon validation close the canonical total-return contract, not the
+    description of how wide the models' own distribution is.
+    """
+
+    gross = canonical.get("gross_quantiles")
+    if canonical.get("point_in_time_status") != "available" or not isinstance(gross, Mapping):
+        return None
+    return {field: gross[field] for field in ("q10_return", "q90_return")}
 
 
 def _bounded_probability(value: object) -> float | None:

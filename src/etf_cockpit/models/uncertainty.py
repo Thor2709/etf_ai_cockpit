@@ -1,7 +1,9 @@
 """Return uncertainty decomposition and replayable forecast scenarios.
 
 Uncertainty components are expressed in decimal-return units. Aleatoric
-uncertainty is the q90-q10 interval width, epistemic uncertainty is the
+uncertainty is the q90-q10 interval width (the canonical band, else the
+point-in-time ``uncertainty_band`` that needs complete quantiles and coverage
+only), epistemic uncertainty is the
 population standard deviation of independent model medians, and the
 data-quality term scales the aleatoric width by the larger of missing
 coverage and forecast age as a fraction of its configured maximum. The
@@ -60,8 +62,12 @@ def decompose_forecast_uncertainty(
     disagreement = statistics.pstdev(model_returns) if len(model_returns) > 1 else 0.0
     flagged = disagreement > float(threshold)
 
+    band = distribution.get("uncertainty_band")
+    band = band if isinstance(band, Mapping) else {}
     q10 = _finite(distribution.get("q10_return"))
     q90 = _finite(distribution.get("q90_return"))
+    if q10 is None or q90 is None:
+        q10, q90 = _finite(band.get("q10_return")), _finite(band.get("q90_return"))
     aleatoric = q90 - q10 if q10 is not None and q90 is not None and q90 >= q10 else None
 
     coverage = _probability(distribution.get("coverage_ratio"))
