@@ -170,8 +170,8 @@ class ForecastService:
                 # Candidate runs pass the configured universe's prices so every run in a workflow shares one decision.
                 promotions = self.evaluate_promotions(as_of_date, promotion_prices if promotion_prices is not None else evidence_prices)
             forecasts = [_apply_promotion(row, promotions, self.config.models.shadow_optional_models) for row in forecasts]
-        elif self.config.models.shadow_optional_models:
-            forecasts = [_shadow_forecast(row) for row in forecasts]
+        else:
+            forecasts = [_apply_promotion(row, {}, self.config.models.shadow_optional_models) for row in forecasts]
         with publication_scope(publish_guard):
             ensure_run_manifest(
                 run_id,
@@ -329,19 +329,19 @@ class ForecastService:
 
 
 def _forecast_to_row(forecast: ForecastResult, promotions: Mapping[str, ModelPromotion] | None = None) -> dict[str, object]:
+    if forecast.model_name == "baseline":
+        forecast = _apply_promotion(forecast, {}, False)
     data = asdict(forecast)
     data["forecast_date"] = forecast.forecast_date.isoformat()
-    promotion = (promotions or {}).get(forecast.model_name)
-    if forecast.calibration_status.startswith(_PROMOTION_PREFIXES) and promotion is not None:
+    promotion = _promotion_for_row(forecast, promotions or {})
+    if forecast.promotion_status in {COUNTING, NOT_PROVEN} and promotion is not None:
         data.update(_promotion_evidence(forecast, promotion))
-    elif forecast.calibration_status.startswith("shadow_"):
+    elif forecast.promotion_status == "shadow_only":
         data.update(_pretraining_evidence(forecast.model_name, forecast.forecast_date))
         data["promotion_state"] = "shadow_only"
         data["execution_allowed"] = False
     return data
 
-
-_PROMOTION_PREFIXES = ("promoted_", "unproven_")
 
 
 def _pretraining_evidence(model_name: str, forecast_date: date) -> dict[str, object]:
@@ -357,9 +357,14 @@ def _pretraining_evidence(model_name: str, forecast_date: date) -> dict[str, obj
 
 
 def _promotion_evidence(forecast: ForecastResult, promotion: ModelPromotion) -> dict[str, object]:
-    """Leakage flags for one row: its origin must follow the cutoff, or the model's first local run when the cutoff is unknown."""
+    """Leakage flags: every optional origin must follow its first verified local run and known cutoff."""
 
-    window_open = forecast.status == "ok" and promotion.evidence_window_open(forecast.forecast_date)
+    window_open = (
+        forecast.status == "ok"
+        and forecast.model_version == promotion.model_version
+        and forecast.horizon_days == promotion.evidence_horizon_days
+        and promotion.evidence_window_open(forecast.forecast_date)
+    )
     declared = promotion.pretraining_cutoff != "unknown"
     return {
         "pretraining_cutoff": promotion.pretraining_cutoff,
@@ -369,10 +374,20 @@ def _promotion_evidence(forecast: ForecastResult, promotion: ModelPromotion) -> 
         ),
         "promotion_evidence_allowed": window_open,
         "evaluation_scope": "matured out-of-sample evidence against the baseline",
-        "promotion_state": promotion.state,
+        "promotion_state": forecast.promotion_status,
         "promotion_reason": promotion.reason,
         "execution_allowed": False,
     }
+
+
+def _promotion_for_row(row: ForecastResult, promotions: Mapping[str, ModelPromotion]) -> ModelPromotion | None:
+    """Select only this row's version; older versions keep their own evidence."""
+    decision = promotions.get(row.model_name)
+    if decision is not None and decision.model_version != row.model_version:
+        for candidate in decision.version_evidence:
+            if candidate["model_version"] == row.model_version:
+                return ModelPromotion(**candidate)
+    return decision
 
 
 def _apply_promotion(
@@ -382,31 +397,33 @@ def _apply_promotion(
 ) -> ForecastResult:
     """Let an optional model's successful rows count only while its promotion decision says so."""
 
-    if row.model_name not in OPTIONAL_MODELS:
-        return row
-    promotion = promotions.get(row.model_name)
+    if row.model_name == "baseline":
+        return replace(row, model_allowed_in_score=row.status == "ok" and row.expected_return is not None)
+    promotion = _promotion_for_row(row, promotions)
     if row.status != "ok" or promotion is None:
-        return _shadow_forecast(row) if shadow_flag else row
-    counting = promotion.state == COUNTING
-    prefix = "promoted" if counting else "unproven"
+        return _shadow_forecast(row) if shadow_flag else replace(row, model_allowed_in_score=False, promotion_status=NOT_PROVEN)
+    counting = (
+        promotion.counting
+        and promotion.model_name == row.model_name
+        and promotion.model_version == row.model_version
+        and row.horizon_days == promotion.evidence_horizon_days
+    )
+    matched = row.model_version == promotion.model_version and row.horizon_days == promotion.evidence_horizon_days
     return replace(
         row,
         model_allowed_in_score=counting,
-        oos_mase=promotion.model_mase,
-        oos_directional_accuracy=promotion.model_directional,
-        calibration_status=f"{prefix}_{promotion.calibration_status or 'not_evaluated'}",
+        promotion_status=COUNTING if counting else NOT_PROVEN,
+        oos_mase=promotion.model_mase if matched else None,
+        oos_directional_accuracy=promotion.model_directional if matched else None,
+        calibration_status=(promotion.calibration_status if promotion.calibration_status in {"good", "mixed", "weak", "limited"} else "limited") if matched else "limited",
+        calibration_horizon_days=promotion.evidence_horizon_days if matched else None,
     )
 
 
 def _shadow_forecast(row: ForecastResult) -> ForecastResult:
-    if row.model_name not in {"timesfm", "timesfm3", "toto"}:
+    if row.model_name == "baseline":
         return row
-    evidence = _pretraining_evidence(row.model_name, row.forecast_date)
-    return replace(
-        row,
-        model_allowed_in_score=False,
-        calibration_status=f"shadow_{evidence['contamination_status']}_{row.calibration_status}",
-    )
+    return replace(row, model_allowed_in_score=False, promotion_status="shadow_only")
 
 
 def build_forecast_lab_workspace(

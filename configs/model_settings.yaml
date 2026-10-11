@@ -43,9 +43,10 @@ models:
     enabled: false
 # Automatic, evidence-based promotion. An optional model counts in scores only when its matured
 # out-of-sample forecasts beat the baseline (lower MASE, no lower direction accuracy, calibration
-# not weak) on the same instruments and dates. Origins on or before the pretraining cutoff
-# (TimesFM 3.0: 2023-11-30) or, for unknown cutoffs, on or before the model's first local run never
-# count. 100 matured pairs over 5 forecast dates is deliberately conservative: pairs from one date
+# not weak) on the same instruments, dates, version and evidence horizon only.
+# Every optional model's prospective evidence starts after its first verified local run (created_at).
+# TimesFM 3.0's 2023-11-30 cutoff covers only some pretraining corpora; it is not a complete cutoff.
+# Origins on or before that declared cutoff are excluded too. 100 matured pairs over 5 forecast dates is deliberately conservative: pairs from one date
 # share the market move, so the date minimum limits that clustering. enabled: false = diagnostic only.
 promotion:
   enabled: true
