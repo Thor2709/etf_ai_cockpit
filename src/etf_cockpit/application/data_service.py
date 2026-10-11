@@ -58,6 +58,7 @@ from etf_cockpit.data.trade_candidate_analysis import (
     refresh_candidate_analysis,
     write_candidate_price_snapshot,
 )
+from etf_cockpit.data.price_quarantine import quarantine_invalid_ohlc as _quarantine_invalid_ohlc
 from etf_cockpit.data.validation import (
     validate_holdings,
     validate_prices,
@@ -690,28 +691,6 @@ class DataService:
             f"Rolled back prices to {rollback.restored_snapshot_path}. "
             f"Rows: {rollback.rows}. Current replaced copy: {rollback.current_snapshot_path or 'none'}."
         )
-
-
-def _quarantine_invalid_ohlc(result):
-    """Split vendor rows with impossible OHLC values off the import; return (clean result, quarantined rows)."""
-    import dataclasses
-
-    frame = result.data
-    needed = {"open", "high", "low", "close"}
-    if frame is None or not needed.issubset(frame.columns):
-        return result, None
-    bad = (
-        (frame["open"] <= 0)
-        | (frame["close"] <= 0)
-        | (frame["high"] < frame["low"])
-        | (frame["high"] < frame[["open", "close"]].max(axis=1))
-        | (frame["low"] > frame[["open", "close"]].min(axis=1))
-    )
-    if not bad.any():
-        return result, None
-    quarantined = frame.loc[bad].copy()
-    quarantined["quarantine_reason"] = "invalid_ohlc"
-    return dataclasses.replace(result, data=frame.loc[~bad].reset_index(drop=True)), quarantined
 
 
 def _carry_forward_failed_instruments(result: ProviderResult, *, clean_path: Path | None = None) -> ProviderResult:
