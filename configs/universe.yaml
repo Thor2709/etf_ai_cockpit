@@ -828,7 +828,7 @@ etfs:
     role: watchlist
     isin_status: verified
     # disabled: Rabobank certificates trade on Euronext Amsterdam; Yahoo RABO.AS has 1 row in 12 months (2026-10-09)
-    enabled: true
+    enabled: false
   - id: AURG
     name: Aurskog Sparebank
     isin: NO0006001601
