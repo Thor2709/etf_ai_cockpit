@@ -14,7 +14,7 @@ from typing import Callable
 
 try:
     from scripts.issue_registry_core import load_control_state
-except ModuleNotFoundError:
+except ImportError:  # also pywin32's top-level 'scripts' namespace
     from issue_registry_core import load_control_state
 
 SRC = Path(__file__).resolve().parents[1] / "src"

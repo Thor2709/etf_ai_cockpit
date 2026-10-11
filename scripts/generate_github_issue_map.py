@@ -10,7 +10,7 @@ from pathlib import Path
 try:
     from scripts.issue_registry_core import deterministic_json
     from scripts.sync_github_issues import DEFAULT_MAP_PATH, gh_list_issues, marker_ids
-except ModuleNotFoundError:
+except ImportError:  # also pywin32's top-level 'scripts' namespace
     from issue_registry_core import deterministic_json
     from sync_github_issues import DEFAULT_MAP_PATH, gh_list_issues, marker_ids
 

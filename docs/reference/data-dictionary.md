@@ -335,7 +335,7 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/legal_terms_registry.yaml | code_and_packages, export_policy, jurisdictions, mandatory_model_ids, mandatory_source_ids, models, network_policy, professional_review_required, registry_version, review_status, schema_version, sources, terms_change_policy | registry_version="2026-07-17"; schema_version="legal-terms.v1" |
 | configs/local_llm.yaml | api_key, base_url, enabled, max_tokens, model, timeout_seconds | — |
 | configs/market_calendar_corrections.yaml | corrections, ledger_version, schema_version | ledger_version="2026-07-22"; schema_version=market-calendar-corrections.v1 |
-| configs/model_settings.yaml | ensemble, forecast_horizons_trading_days, models | — |
+| configs/model_settings.yaml | ensemble, forecast_horizons_trading_days, models, promotion | — |
 | configs/mutation_thresholds_v1.yaml | critical_mutants, required_kill_rate, scope, version | version=1 |
 | configs/performance_budgets.yaml | budgets, policy_version, regression_tolerance_pct, schema_version | policy_version="2026-07-17"; schema_version="performance-budgets.v1" |
 | configs/plugin_registry.yaml | allowlist, execution_allowed, schema_version | schema_version="plugin-registry.v1" |

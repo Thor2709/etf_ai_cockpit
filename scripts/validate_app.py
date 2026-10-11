@@ -21,7 +21,7 @@ from typing import Iterable, cast
 try:
     from scripts import release_gate
     from scripts.git_change_paths import changed_paths, working_paths
-except ModuleNotFoundError:
+except ImportError:  # also pywin32's top-level 'scripts' namespace
     import release_gate  # type: ignore[no-redef]
     from git_change_paths import changed_paths, working_paths  # type: ignore[no-redef]
 
