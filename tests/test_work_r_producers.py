@@ -115,6 +115,16 @@ def test_model_without_native_tails_gets_the_documented_normal_values_with_prove
     assert live.q25_return == pytest.approx((q20 + q30) / 2.0)
     assert live.q05_return == pytest.approx(live.q50_return - (live.q50_return - live.q10_return) * TAIL_SCALE)
 
+    # A missing native interior decile or median is never back-filled from the normal rule.
+    for column in (2, 5):
+        broken = matrix.copy()
+        broken[:, column] = np.nan
+        row = timesfm_level_forecast_to_results(
+            mean_predictions=mean, quantile_predictions=broken[None], last_value=100.0, horizons=[5], etf_id="ETF",
+            forecast_date=FORECAST_DATE, run_id="r", model_version="v", observed_returns=400,
+        )[0]
+        assert all(getattr(row, field) is None for field in DERIVED_QUANTILE_FIELDS)
+
 
 def test_missing_history_leaves_coverage_missing() -> None:
     assert history_coverage_ratio(None) is None

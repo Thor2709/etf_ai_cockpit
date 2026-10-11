@@ -367,7 +367,13 @@ def timesfm_level_forecast_to_results(
         q75 = _midpoint(_level_to_log_return(_quantile_at(quantiles, index, "q70"), last_value),
                         _level_to_log_return(_quantile_at(quantiles, index, "q80"), last_value))
         q50_value = q50 if q50 is not None else expected
-        completed = complete_return_quantiles(q10, q50_value, q90, q25=q25, q75=q75)
+        # The decile head is the only source of this distribution: a missing native
+        # median or interior decile leaves the vector missing instead of derived.
+        completed = (
+            complete_return_quantiles(q10, q50, q90, q25=q25, q75=q75)
+            if q50 is not None and q25 is not None and q75 is not None
+            else None
+        )
         results.append(
             ForecastResult(
                 run_id=run_id,
