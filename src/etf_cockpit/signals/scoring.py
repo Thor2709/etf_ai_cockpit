@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 
-import numpy as np
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
@@ -80,7 +79,13 @@ def component_scores(
     frame["concentration_penalty"] = ((frame["current_weight"].fillna(0) / max_cap) - 0.85).clip(lower=0, upper=0.25)
 
     raw_weights = config.models.ensemble["weights"]
-    weights = effective_ensemble_weights(raw_weights, toto_available=toto_available, timesfm_available=timesfm_available)
+    # A live model that no promoted forecast row backs (shadow or unproven) contributes no score; its weight
+    # is renormalised away instead of turning every composite score and confidence into NaN.
+    weights = effective_ensemble_weights(
+        raw_weights,
+        toto_available=bool(toto_available and forecast_scores.get("toto")),
+        timesfm_available=bool(timesfm_available and forecast_scores.get("timesfm")),
+    )
     active_weighted_scores = [
         weight * frame[column]
         for key, column in (

@@ -13,6 +13,13 @@ from etf_cockpit.core.config import ModelRuntimeConfig
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.core.types import ForecastResult
 from etf_cockpit.features.returns import daily_log_returns
+from etf_cockpit.models.distribution_store import (
+    QUANTILE_METHOD_DECILES,
+    QUANTILE_METHOD_NORMAL,
+    complete_return_quantiles,
+    derived_quantile_columns,
+    history_coverage_ratio,
+)
 
 
 WEIGHT_SUFFIXES = (".safetensors", ".bin", ".pt", ".pth", ".ckpt")
@@ -171,10 +178,8 @@ class TimesFMAdapter:
         forecast_date: date,
         run_id: str,
     ) -> list[ForecastResult]:
-        values = _trim_to_complete_patches(
-            _clean_positive_series(series).tail(self.config.context_length),
-            self._patch_length(),
-        )
+        cleaned = _clean_positive_series(series)
+        values = _trim_to_complete_patches(cleaned.tail(self.config.context_length), self._patch_length())
         torch = __import__("torch")
         device = getattr(self._model, "device", None)
         try:
@@ -196,6 +201,7 @@ class TimesFMAdapter:
             forecast_date=forecast_date,
             run_id=run_id,
             model_version="timesfm_2_5_transformers",
+            observed_returns=len(cleaned) - 1,
         )
 
     def _forecast_with_timesfm_package(
@@ -207,10 +213,8 @@ class TimesFMAdapter:
         forecast_date: date,
         run_id: str,
     ) -> list[ForecastResult]:
-        values = _trim_to_complete_patches(
-            _clean_positive_series(series).tail(self.config.context_length),
-            self._patch_length(),
-        )
+        cleaned = _clean_positive_series(series)
+        values = _trim_to_complete_patches(cleaned.tail(self.config.context_length), self._patch_length())
         point, quantile = self._model.forecast(
             horizon=max(horizons),
             inputs=[values.to_numpy(dtype=float)],
@@ -224,6 +228,7 @@ class TimesFMAdapter:
             forecast_date=forecast_date,
             run_id=run_id,
             model_version="timesfm_2_5_pytorch",
+            observed_returns=len(cleaned) - 1,
         )
 
     def _mock_forecast(
@@ -236,12 +241,15 @@ class TimesFMAdapter:
         run_id: str,
     ) -> list[ForecastResult]:
         returns = daily_log_returns(series.astype(float)).dropna()
+        coverage = history_coverage_ratio(len(returns))
         mean = float(returns.tail(120).mean() * 0.4) if not returns.empty else 0.0
         vol = float(returns.tail(60).std() * np.sqrt(252)) if len(returns) >= 60 else 0.0
         out: list[ForecastResult] = []
         for horizon in horizons:
             expected = mean * horizon
             horizon_vol = vol * np.sqrt(horizon / 252) if vol else 0.0
+            q10 = expected - 1.28 * horizon_vol
+            q90 = expected + 1.28 * horizon_vol
             out.append(
                 ForecastResult(
                     run_id=run_id,
@@ -252,9 +260,11 @@ class TimesFMAdapter:
                     horizon_days=horizon,
                     expected_return=expected,
                     expected_excess_return=expected,
-                    q10_return=expected - 1.28 * horizon_vol,
+                    q10_return=q10,
                     q50_return=expected,
-                    q90_return=expected + 1.28 * horizon_vol,
+                    q90_return=q90,
+                    **derived_quantile_columns(complete_return_quantiles(q10, expected, q90), QUANTILE_METHOD_NORMAL),
+                    coverage_ratio=coverage,
                     forecast_vol=horizon_vol,
                     prob_positive_return=float(1 / (1 + np.exp(-expected / max(horizon_vol, 1e-6)))),
                     status="ok",
@@ -319,9 +329,11 @@ def timesfm_level_forecast_to_results(
     run_id: str,
     model_version: str,
     model_name: str = "timesfm",
+    observed_returns: int | None = None,
 ) -> list[ForecastResult]:
     mean = _first_series(np.asarray(mean_predictions, dtype=float))
     quantiles = _first_quantile_matrix(quantile_predictions)
+    coverage = history_coverage_ratio(observed_returns)
     results: list[ForecastResult] = []
     for horizon in horizons:
         index = horizon - 1
@@ -349,6 +361,19 @@ def timesfm_level_forecast_to_results(
         q10 = _level_to_log_return(_quantile_at(quantiles, index, "q10"), last_value)
         q50 = _level_to_log_return(_quantile_at(quantiles, index, "q50"), last_value)
         q90 = _level_to_log_return(_quantile_at(quantiles, index, "q90"), last_value)
+        # The head returns deciles; q25/q75 are the midpoints of its own q20/q30 and q70/q80.
+        q25 = _midpoint(_level_to_log_return(_quantile_at(quantiles, index, "q20"), last_value),
+                        _level_to_log_return(_quantile_at(quantiles, index, "q30"), last_value))
+        q75 = _midpoint(_level_to_log_return(_quantile_at(quantiles, index, "q70"), last_value),
+                        _level_to_log_return(_quantile_at(quantiles, index, "q80"), last_value))
+        q50_value = q50 if q50 is not None else expected
+        # The decile head is the only source of this distribution: a missing native
+        # median or interior decile leaves the vector missing instead of derived.
+        completed = (
+            complete_return_quantiles(q10, q50, q90, q25=q25, q75=q75)
+            if q50 is not None and q25 is not None and q75 is not None
+            else None
+        )
         results.append(
             ForecastResult(
                 run_id=run_id,
@@ -360,8 +385,10 @@ def timesfm_level_forecast_to_results(
                 expected_return=expected,
                 expected_excess_return=expected,
                 q10_return=q10,
-                q50_return=q50 if q50 is not None else expected,
+                q50_return=q50_value,
                 q90_return=q90,
+                **derived_quantile_columns(completed, QUANTILE_METHOD_DECILES),
+                coverage_ratio=coverage,
                 forecast_vol=_quantile_vol_proxy(q10, q90, horizon),
                 prob_positive_return=float(expected is not None and expected > 0),
                 status="ok",
@@ -466,15 +493,19 @@ def _quantile_at(matrix: np.ndarray | None, horizon_index: int, label: str) -> f
         return None
     width = matrix.shape[1]
     if width >= 10:
-        indices = {"q10": 1, "q50": 5, "q90": 9}
+        indices = {"q10": 1, "q20": 2, "q30": 3, "q50": 5, "q70": 7, "q80": 8, "q90": 9}
     elif width >= 9:
-        indices = {"q10": 0, "q50": 4, "q90": 8}
+        indices = {"q10": 0, "q20": 1, "q30": 2, "q50": 4, "q70": 6, "q80": 7, "q90": 8}
     else:
         return None
     index = indices[label]
     if index >= width:
         return None
     return float(matrix[horizon_index, index])
+
+
+def _midpoint(left: float | None, right: float | None) -> float | None:
+    return None if left is None or right is None else (left + right) / 2.0
 
 
 def _level_to_log_return(level: float | None, last_value: float) -> float | None:

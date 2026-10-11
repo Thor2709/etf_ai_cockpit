@@ -43,7 +43,8 @@ class TimesFM3Adapter(TimesFMAdapter):
         self._runtime_backend = "timesfm3"
 
     def _forecast_with_transformers(self, series: Any, horizons: list[int], *, etf_id: str, forecast_date: Any, run_id: str):
-        values = _clean_positive_series(series).tail(self.config.context_length)
+        cleaned = _clean_positive_series(series)
+        values = cleaned.tail(self.config.context_length)
         output = self._model.predict(
             context=values.to_numpy(dtype=float), horizon=max(horizons),
             return_quantiles=self.config.use_quantiles,
@@ -53,4 +54,5 @@ class TimesFM3Adapter(TimesFMAdapter):
             last_value=float(values.iloc[-1]), horizons=horizons, etf_id=etf_id,
             forecast_date=forecast_date, run_id=run_id,
             model_version="timesfm_3_0_pytorch", model_name=self.model_name,
+            observed_returns=len(cleaned) - 1,
         )
