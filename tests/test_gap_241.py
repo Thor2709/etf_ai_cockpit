@@ -85,7 +85,7 @@ def _metric(name: str, value: float | None, unit: str, model: str = "energy"):
         metric=name,
         value=value,
         unit=unit,
-        period="through-cycle" if name == "normalised_margin" else "TTM-2024",
+        period="through-cycle" if name in {"normalised_margin", "revenue"} else "TTM-2024",
         reporting_standard="IFRS",
         jurisdiction="AU",
         business_model=model,
@@ -93,7 +93,7 @@ def _metric(name: str, value: float | None, unit: str, model: str = "energy"):
         source_authority=SourceAuthority.ISSUER,
         as_of="2024-12-31T00:00:00Z",
         known_at="2025-02-15T00:00:00Z",
-        normalisation_cycle_ids=("cycle-0", "cycle-1") if name == "normalised_margin" else (),
+        normalisation_cycle_ids=("cycle-0", "cycle-1") if name in {"normalised_margin", "revenue"} else (),
     )
 
 
@@ -125,8 +125,7 @@ def _projection(*, history_count: int = 2, model: str = "energy", omit=(), overr
     )
 
 
-@pytest.mark.parametrize("model", ("energy", "materials", "industrials"))
-def test_peak_year_earnings_do_not_make_cyclical_look_cheap(model):
+def _assert_peak_year_earnings_do_not_make_cyclical_look_cheap(model):
     projection = _projection(model=model)
     multiple = next(row for row in projection.metrics if row.metric == "cycle_adjusted_ev_to_earnings")
     check = next(row for row in projection.checks if row.check == "cycle_adjusted_ev_to_earnings")
@@ -139,6 +138,34 @@ def test_peak_year_earnings_do_not_make_cyclical_look_cheap(model):
         projection, expected_source_digest=cyclical_source_digest(projection.source_payload)
     )
     assert replay["result_hash"] == projection.result_hash
+
+    # A normalised margin does not normalise peak activity: 1,000 of spot
+    # revenue would produce a misleading 5x rather than the verified 50x.
+    for changed in (
+        {"value": 1000.0, "period": "TTM-2024", "normalisation_cycle_ids": ()},
+        {"value": 1000.0, "period": "TTM-2024"},
+        {"normalisation_cycle_ids": ()},
+        {"normalisation_cycle_ids": ("cycle-0",)},
+        {"known_at": "2025-01-31T00:00:00Z"},
+        {"as_of": "2018-12-31T00:00:00Z"},
+    ):
+        unverified = _projection(model=model, overrides={
+            "revenue": replace(_metric("revenue", 100.0, "currency:AUD"), **changed),
+        })
+        rejected = next(row for row in unverified.metrics if row.metric == multiple.metric)
+        assert rejected.status == "unavailable" and rejected.value is None
+        assert "normalised_revenue_history_or_basis_unverified" in rejected.limitations
+        assert rejected.basis == "unavailable:normalised_revenue_history_or_basis_unverified"
+        replay = verify_cyclical_projection(
+            unverified, expected_source_digest=cyclical_source_digest(unverified.source_payload),
+        )
+        assert replay["result_hash"] == unverified.result_hash
+        components = _stock_fundamental_components(
+            None, cyclical_projection=unverified, instrument_id=INSTRUMENT,
+            decision_time=DECISION_TIME, sector=model,
+        )
+        assert all(row.score_10 is None and not row.score_eligible for row in components[:2])
+    assert "normalised_revenue" in multiple.basis and "revenue_basis=through-cycle" in multiple.basis
 
 
 def _candidate_components(monkeypatch, projection=None, *, sector="energy"):
@@ -156,14 +183,14 @@ def _candidate_components(monkeypatch, projection=None, *, sector="energy"):
     return {row.key: row for row in result[0].components}
 
 
-@pytest.mark.parametrize("model", ("energy", "materials", "industrials"))
-def test_synthetic_energy_stock_scores_consume_adapter_basis_end_to_end(monkeypatch, model):
+def _assert_synthetic_energy_stock_scores_consume_adapter_basis_end_to_end(monkeypatch, model):
     projection = _projection(model=model)
     components = _stock_fundamental_components(
         None,
         cyclical_projection=projection,
         instrument_id=INSTRUMENT,
         decision_time=DECISION_TIME,
+        sector=model,
     )
     value = next(row for row in components if row.key == "stock_value")
     quality = next(row for row in components if row.key == "stock_quality")
@@ -230,14 +257,14 @@ def test_synthetic_energy_stock_scores_consume_adapter_basis_end_to_end(monkeypa
     assert decision["execution_allowed"] is False
 
 
-@pytest.mark.parametrize("history_count", (0, 1))
-def test_insufficient_cycle_history_makes_sector_scores_unavailable_with_reason(monkeypatch, history_count):
+def _assert_insufficient_cycle_history_makes_sector_scores_unavailable_with_reason(monkeypatch, history_count):
     projection = _projection(history_count=history_count)
     components = _stock_fundamental_components(
         None,
         cyclical_projection=projection,
         instrument_id=INSTRUMENT,
         decision_time=DECISION_TIME,
+        sector="energy",
     )
 
     assert all(row.score_10 is None for row in components[:2])
@@ -257,7 +284,7 @@ def test_insufficient_cycle_history_makes_sector_scores_unavailable_with_reason(
     assert decision["valuation_z_score"] is None
 
 
-def test_non_cyclical_stock_components_keep_the_existing_values(monkeypatch):
+def _assert_non_cyclical_stock_components_keep_the_existing_values(monkeypatch):
     evidence = SimpleNamespace(
         components={
             "stock_value": SimpleNamespace(score_10=7.5, why="generic value basis", source_id="sec_edgar:fundamentals", as_of="2025-02-15", freshness="ok"),
@@ -277,9 +304,32 @@ def test_non_cyclical_stock_components_keep_the_existing_values(monkeypatch):
     decision = compose_stock_decision(INSTRUMENT, _context(model="technology"), DECISION_TIME, {})
     assert decision["route"] == "generic_stock"
 
+    # The instrument and cutoff match, but the supplied energy projection's
+    # family must never override the technology target's generic scores.
+    projection = _projection()
+    supplied = _stock_fundamental_components(
+        evidence, sector="technology", cyclical_projection=projection,
+        instrument_id=INSTRUMENT, decision_time=DECISION_TIME,
+    )
+    assert supplied == components
+    supplied_public = _candidate_components(monkeypatch, projection, sector="technology")
+    assert supplied_public["stock_value"] == public["stock_value"]
+    assert supplied_public["stock_quality"] == public["stock_quality"]
+    for target in ("materials", "industrials", None, "", pd.NA, float("nan"), "unknown", "unresolved"):
+        mismatched = _stock_fundamental_components(
+            evidence, sector=target, cyclical_projection=projection,
+            instrument_id=INSTRUMENT, decision_time=DECISION_TIME,
+        )
+        assert all(row.score_10 is None and not row.score_eligible for row in mismatched[:2])
+        assert all("target sector classification" in row.why for row in mismatched[:2])
+    matched = _stock_fundamental_components(
+        evidence, sector="Oil & Gas", cyclical_projection=projection,
+        instrument_id=INSTRUMENT, decision_time=DECISION_TIME,
+    )
+    assert matched[0].score_10 == 2.0 and matched[1].score_10 == 4.0
 
-@pytest.mark.parametrize("omit", (("enterprise_value",), ("revenue",), ("normalised_margin",)))
-def test_reported_peak_multiple_cannot_bypass_missing_through_cycle_inputs(monkeypatch, omit):
+
+def _assert_reported_peak_multiple_cannot_bypass_missing_through_cycle_inputs(monkeypatch, omit):
     projection = _projection(omit=omit)
     public = _candidate_components(monkeypatch, projection)
     assert public["stock_value"].score_10 is None and not public["stock_value"].score_eligible
@@ -293,16 +343,7 @@ def test_reported_peak_multiple_cannot_bypass_missing_through_cycle_inputs(monke
         assert "basis_unverified" in multiple.basis
 
 
-@pytest.mark.parametrize("changed", (
-    {"known_at": "2025-02-20T00:00:00Z"},
-    {"end_at": "2025-01-01T00:00:00Z"},
-    {"score_cutoff": "2025-02-28T00:00:00+01:00"},
-    {"source_authority": SourceAuthority.MODEL},
-    {"source_authority": SourceAuthority.VENDOR},
-    {"source_authority": SourceAuthority.MANUAL},
-    {"source_authority": SourceAuthority.COMMUNITY},
-))
-def test_normalised_basis_cannot_use_history_after_its_evidence_cutoff(monkeypatch, changed):
+def _assert_normalised_basis_cannot_use_history_after_its_evidence_cutoff(monkeypatch, changed):
     if "source_authority" in changed:
         margin = replace(_metric("normalised_margin", 0.10, "ratio"), **changed)
         projection = _projection(overrides={"normalised_margin": margin})
@@ -317,7 +358,8 @@ def test_normalised_basis_cannot_use_history_after_its_evidence_cutoff(monkeypat
         )
         assert replay["result_hash"] == projection.result_hash
         configured = _stock_fundamental_components(
-            None, cyclical_projection=projection, instrument_id=INSTRUMENT, decision_time=DECISION_TIME
+            None, cyclical_projection=projection, instrument_id=INSTRUMENT,
+            decision_time=DECISION_TIME, sector="energy",
         )
         public = _candidate_components(monkeypatch, projection)
         assert all(row.score_10 is None and not row.score_eligible for row in configured[:2])
@@ -337,11 +379,13 @@ def test_normalised_basis_cannot_use_history_after_its_evidence_cutoff(monkeypat
         components = _stock_fundamental_components(
             None, cyclical_projection=projection, instrument_id=INSTRUMENT,
             decision_time=changed["score_cutoff"],
+            sector="energy",
         )
         assert all(row.score_10 is None and "cutoff" in row.why for row in components[:2])
         equivalent = _stock_fundamental_components(
             None, cyclical_projection=projection, instrument_id=INSTRUMENT,
             decision_time="2025-02-28T01:00:00+01:00",
+            sector="energy",
         )
         assert equivalent[0].score_10 == 2.0 and equivalent[1].score_10 == 4.0
         return
@@ -356,8 +400,7 @@ def test_normalised_basis_cannot_use_history_after_its_evidence_cutoff(monkeypat
     assert public["stock_value"].score_10 is None and public["stock_quality"].score_10 is None
 
 
-@pytest.mark.parametrize("label", ("Energy", "Basic Materials", "Capital Goods", "Industrial", "oil & gas"))
-def test_classified_cyclical_without_projection_is_unavailable_not_generic(label):
+def _assert_classified_cyclical_without_projection_is_unavailable_not_generic(label):
     evidence = SimpleNamespace(
         components={
             key: SimpleNamespace(score_10=7.5, why="generic peak-year basis", source_id="sec_edgar:fundamentals", as_of="2025-02-15", freshness="ok")
@@ -368,20 +411,20 @@ def test_classified_cyclical_without_projection_is_unavailable_not_generic(label
     assert all(row.score_10 is None and not row.score_eligible and "unavailable" in row.why for row in components[:2])
 
 
-def test_percent_margin_is_canonicalised_to_a_fraction_before_valuation_and_scoring():
+def _assert_percent_margin_is_canonicalised_to_a_fraction_before_valuation_and_scoring():
     overrides = {"normalised_margin": replace(_metric("normalised_margin", 10.0, "percent"))}
     projection = _projection(overrides=overrides)
     rows = {row.metric: row for row in projection.metrics}
     assert rows["normalised_margin"].value == pytest.approx(0.10) and rows["normalised_margin"].unit == "ratio"
     assert rows["cycle_adjusted_ev_to_earnings"].value == pytest.approx(50.0)
     components = _stock_fundamental_components(
-        None, cyclical_projection=projection, instrument_id=INSTRUMENT, decision_time=DECISION_TIME
+        None, cyclical_projection=projection, instrument_id=INSTRUMENT,
+        decision_time=DECISION_TIME, sector="energy",
     )
     assert components[0].score_10 == 2.0 and components[1].score_10 == 4.0
 
 
-@pytest.mark.parametrize("omit", (("revenue",), ("enterprise_value",), ("normalised_margin",)))
-def test_reported_multiple_without_own_through_cycle_linkage_is_unavailable(omit):
+def _assert_reported_multiple_without_own_through_cycle_linkage_is_unavailable(omit):
     projection = _projection(omit=omit)
     multiple = next(row for row in projection.metrics if row.metric == "cycle_adjusted_ev_to_earnings")
     assert multiple.status == "unavailable" and multiple.value is None
@@ -389,15 +432,61 @@ def test_reported_multiple_without_own_through_cycle_linkage_is_unavailable(omit
     assert "basis_unverified" in multiple.basis
 
 
-def test_projection_built_later_the_same_day_cannot_score_an_earlier_cutoff():
+def _assert_projection_built_later_the_same_day_cannot_score_an_earlier_cutoff():
     projection = _projection(decision_time="2025-02-28T18:00:00Z")
-    kwargs = dict(cyclical_projection=projection, instrument_id=INSTRUMENT)
+    kwargs = dict(cyclical_projection=projection, instrument_id=INSTRUMENT, sector="energy")
     for early in ("2025-02-28", date(2025, 2, 28), "2025-02-28T09:00:00Z"):
         components = _stock_fundamental_components(None, decision_time=early, **kwargs)
         assert all(row.score_10 is None and "cutoff" in row.why for row in components[:2])
     same = _stock_fundamental_components(None, decision_time="2025-02-28T18:00:00Z", **kwargs)
     assert same[0].score_10 == 2.0 and same[1].score_10 == 4.0
     midnight = _stock_fundamental_components(
-        None, cyclical_projection=_projection(), instrument_id=INSTRUMENT, decision_time=date(2025, 2, 28)
+        None, cyclical_projection=_projection(), instrument_id=INSTRUMENT,
+        decision_time=date(2025, 2, 28), sector="energy",
     )
     assert midnight[0].score_10 == 2.0
+
+
+@pytest.mark.parametrize("model", ("energy", "materials", "industrials"))
+def test_peak_year_earnings_do_not_make_cyclical_look_cheap(model):
+    _assert_peak_year_earnings_do_not_make_cyclical_look_cheap(model)
+
+
+@pytest.mark.parametrize("model", ("energy", "materials", "industrials"))
+def test_synthetic_energy_stock_scores_consume_adapter_basis_end_to_end(monkeypatch, model):
+    _assert_synthetic_energy_stock_scores_consume_adapter_basis_end_to_end(monkeypatch, model)
+    if model == "energy":
+        _assert_percent_margin_is_canonicalised_to_a_fraction_before_valuation_and_scoring()
+
+
+@pytest.mark.parametrize("history_count", (0, 1))
+def test_insufficient_cycle_history_makes_sector_scores_unavailable_with_reason(monkeypatch, history_count):
+    _assert_insufficient_cycle_history_makes_sector_scores_unavailable_with_reason(monkeypatch, history_count)
+    if history_count == 0:
+        for label in ("Energy", "Basic Materials", "Capital Goods", "Industrial", "oil & gas"):
+            _assert_classified_cyclical_without_projection_is_unavailable_not_generic(label)
+
+
+def test_non_cyclical_stock_components_keep_the_existing_values(monkeypatch):
+    _assert_non_cyclical_stock_components_keep_the_existing_values(monkeypatch)
+
+
+@pytest.mark.parametrize("omit", (("enterprise_value",), ("revenue",), ("normalised_margin",)))
+def test_reported_peak_multiple_cannot_bypass_missing_through_cycle_inputs(monkeypatch, omit):
+    _assert_reported_peak_multiple_cannot_bypass_missing_through_cycle_inputs(monkeypatch, omit)
+    _assert_reported_multiple_without_own_through_cycle_linkage_is_unavailable(omit)
+
+
+@pytest.mark.parametrize("changed", (
+    {"known_at": "2025-02-20T00:00:00Z"},
+    {"end_at": "2025-01-01T00:00:00Z"},
+    {"score_cutoff": "2025-02-28T00:00:00+01:00"},
+    {"source_authority": SourceAuthority.MODEL},
+    {"source_authority": SourceAuthority.VENDOR},
+    {"source_authority": SourceAuthority.MANUAL},
+    {"source_authority": SourceAuthority.COMMUNITY},
+))
+def test_normalised_basis_cannot_use_history_after_its_evidence_cutoff(monkeypatch, changed):
+    _assert_normalised_basis_cannot_use_history_after_its_evidence_cutoff(monkeypatch, changed)
+    if changed == {"known_at": "2025-02-20T00:00:00Z"}:
+        _assert_projection_built_later_the_same_day_cannot_score_an_earlier_cutoff()

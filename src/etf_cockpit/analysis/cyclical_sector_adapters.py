@@ -206,7 +206,7 @@ def cyclical_formula_registry() -> tuple[CyclicalFormulaDefinition, ...]:
     definitions = {
         "spot_cycle_margin": "current reported operating margin at the observed cycle point",
         "normalised_margin": "through-cycle margin supported by distinct historical cycles",
-        "cycle_adjusted_ev_to_earnings": "enterprise value / revenue / through-cycle normalised operating margin; an issuer-reported cycle-adjusted multiple retains its stated basis",
+        "cycle_adjusted_ev_to_earnings": "enterprise value / through-cycle normalised revenue / through-cycle normalised operating margin; an issuer-reported cycle-adjusted multiple retains its stated basis",
         "resource_life": "reported reserves divided by current annual production",
         "book_to_bill": "orders received divided by recognised revenue",
         "backlog_quality": "supported executable backlog divided by total reported backlog",
@@ -308,9 +308,15 @@ def build_cyclical_projection(
     adequate = len(history) >= 2
     history_ids = tuple(sorted(row.cycle_id for row in history))
     margin = next(row for row in results if row.metric == "normalised_margin")
+    revenue = next(row for row in results if row.metric == "revenue")
     normalisation_linked = (
         tuple(sorted(margin.normalisation_cycle_ids)) == history_ids
         and all(row.end_at <= margin.as_of and row.known_at <= margin.known_at for row in history)
+    )
+    revenue_normalisation_linked = (
+        revenue.period == "through-cycle"
+        and revenue.normalisation_cycle_ids == history_ids
+        and all(row.end_at <= revenue.as_of and row.known_at <= revenue.known_at for row in history)
     )
     if adequate and normalisation_linked:
         results = [
@@ -322,12 +328,19 @@ def build_cyclical_projection(
             else row
             for row in results
         ]
+    if adequate and revenue_normalisation_linked:
+        results = [
+            replace(row, basis="normalised_revenue_over_completed_cycles; cycles=" + ",".join(history_ids))
+            if row.metric == "revenue" and row.status == "available" else row
+            for row in results
+        ]
     results = _cycle_adjusted_valuation(
         results,
         history_ids=history_ids,
         history_adequate=adequate,
         normalised_margin_supplied="normalised_margin" in seen,
         normalised_margin_history_linked=normalisation_linked,
+        normalised_revenue_history_linked=revenue_normalisation_linked,
     )
     if not adequate or not normalisation_linked:
         limitations.add("cycle_history:insufficient_distinct_cycles")
@@ -711,6 +724,7 @@ def _cycle_adjusted_valuation(
     history_adequate: bool,
     normalised_margin_supplied: bool,
     normalised_margin_history_linked: bool,
+    normalised_revenue_history_linked: bool,
 ) -> list[CyclicalMetricResult]:
     rows = {row.metric: row for row in results}
     multiple = rows["cycle_adjusted_ev_to_earnings"]
@@ -735,12 +749,16 @@ def _cycle_adjusted_valuation(
         rows[multiple.metric] = unavailable("normalised_margin_unavailable")
     elif (margin.status == "available" and enterprise_value.status == "available"
           and revenue.status == "available"):
-        if margin.value is None or margin.value <= 0:
+        if not normalised_revenue_history_linked:
+            rows[multiple.metric] = unavailable("normalised_revenue_history_or_basis_unverified")
+        elif margin.value is None or margin.value <= 0:
             rows[multiple.metric] = unavailable("normalised_earnings_non_positive")
         elif (enterprise_value.unit != revenue.unit
               or enterprise_value.reporting_standard != revenue.reporting_standard
               or enterprise_value.jurisdiction != revenue.jurisdiction
-              or enterprise_value.period != revenue.period):
+              # EV is a valuation snapshot; the earnings inputs share the
+              # through-cycle period rather than borrowing a spot revenue period.
+              or margin.period != revenue.period):
             rows[multiple.metric] = unavailable("valuation_currency_or_period_mismatch")
         elif (margin.reporting_standard != enterprise_value.reporting_standard
               or margin.jurisdiction != enterprise_value.jurisdiction):
@@ -753,7 +771,7 @@ def _cycle_adjusted_valuation(
                 rows[multiple.metric] = unavailable("cycle_adjusted_multiple_non_finite")
             else:
                 basis = (
-                    "enterprise_value / revenue / normalised_margin; cycles="
+                    "enterprise_value / normalised_revenue / normalised_margin; revenue_basis=through-cycle; cycles="
                     + ",".join(history_ids)
                     + "; sources="
                     + ",".join((enterprise_value.source_id, revenue.source_id, margin.source_id))

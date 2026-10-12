@@ -2708,8 +2708,15 @@ def _cyclical_stock_components(
     decision_time: object | None,
     sector: object | None = None,
 ) -> list[SimpleScoreComponent] | None:
+    sector = _noneable_str(sector)
+    if sector is not None and sector.casefold() in {"unknown", "unresolved", "unavailable", "n/a"}:
+        sector = None
+    family = cyclical_family_from_labels((sector,))
+    # A confirmed non-cyclical target retains its generic fundamentals even
+    # when a caller supplies a valid projection for a different classification.
+    if sector is not None and family is None:
+        return None
     if projection is None:
-        family = cyclical_family_from_labels((sector,))
         source_id = f"sector:{family}"
         if family is not None and source_id in CYCLICAL_SCORE_SOURCE_IDS:
             return [
@@ -2753,6 +2760,8 @@ def _cyclical_stock_components(
         source_id = str(payload["adapter_id"])
         if source_id not in CYCLICAL_SCORE_SOURCE_IDS:
             raise CyclicalAdapterError("cyclical adapter identity is unsupported")
+        if family is None or source_id != f"sector:{family}":
+            raise CyclicalAdapterError("cyclical projection family does not match the target sector classification")
         if payload.get("execution_allowed") is not False or payload.get("cycle_history_adequate") is not True:
             raise CyclicalAdapterError("insufficient distinct-cycle history is unavailable")
         rows = payload.get("metrics", ())
