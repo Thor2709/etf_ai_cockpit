@@ -571,10 +571,64 @@ def _junit_key(nodeid: str) -> tuple[str, str]:
     return ".".join([module.replace("/", "."), *parts[1:-1]]), parts[-1]
 
 
+# Skips are evidence that a test did NOT run. Only these documented environment-capability reasons
+# (symlink/junction privileges, OS-specific semantics, golden refresh) may be skipped; any other skip fails.
+SKIP_REASON_ALLOWLIST = (
+    re.compile(r"(?i)\b(symlinks?|junctions?|directory links?)\b.*\b(unavailable|unsupported|not permitted|cannot|requires|does not permit)\b"),
+    re.compile(r"(?i)\b(cannot|unable to) create (a )?(file |directory )?(symlink|junction)"),
+    re.compile(r"(?i)\bHost does not permit creating symlink"),
+    re.compile(r"(?i)\brequires Windows\b"),
+    re.compile(r"(?i)\bunavailable on Windows\b"),
+    re.compile(r"(?i)\bresolved via /proc\b"),
+    re.compile(r"(?i)\bgolden refresh run\b"),
+    re.compile(r"(?i)could not import '(torch|timesfm|toto)'"),  # optional model packages stay disabled-safe
+)
+# Gate / evidence / safety test modules: a skip here is never acceptable, whatever the reason.
+PROTECTED_TEST_MODULES = (
+    "tests.test_release_gate",
+    "tests.test_issue_0179_validation_summary",
+    "tests.test_bug_e21_validation_evidence",
+    "tests.test_architecture_boundaries",
+    "tests.test_b00_control_plane",
+)
+
+
+def _skip_reason_allowed(reason: str) -> bool:
+    return any(pattern.search(reason) for pattern in SKIP_REASON_ALLOWLIST)
+
+
+def _junit_outcome(case: ET.Element) -> tuple[str, str]:
+    """Classify one JUnit testcase as (passed|failed|error|skipped|xfail, reason)."""
+
+    if case.find("failure") is not None:
+        return "failed", ""
+    if case.find("error") is not None:
+        return "error", ""
+    skipped = case.find("skipped")
+    if skipped is None:
+        return "passed", ""
+    reason = skipped.get("message") or (skipped.text or "")
+    if skipped.get("type") == "pytest.xfail" or reason.startswith("xfail"):
+        return "xfail", reason
+    return "skipped", reason
+
+
+def _junit_outcome_counts(reports: tuple[Path, ...]) -> dict[str, int]:
+    counts = {"passed": 0, "failed": 0, "error": 0, "skipped": 0, "xfail": 0}
+    for report in reports:
+        for case in ET.parse(report).getroot().iter("testcase"):
+            error = case.find("error")
+            if error is not None and (error.get("message") or "").startswith("failed on teardown"):
+                continue
+            counts[_junit_outcome(case)[0]] += 1
+    return counts
+
+
 def _junit_execution_problems(reports: tuple[Path, ...], expected_nodeids: set[str]) -> list[str]:
-    """Every collected test must appear exactly once across the phase reports."""
+    """Every collected test must appear exactly once across the phase reports and actually execute."""
 
     executed: dict[tuple[str, str], int] = {}
+    skipped: dict[tuple[str, str], str] = {}
     for report in reports:
         for case in ET.parse(report).getroot().iter("testcase"):
             error = case.find("error")
@@ -583,12 +637,23 @@ def _junit_execution_problems(reports: tuple[Path, ...], expected_nodeids: set[s
             # Same normalisation as _nodeids_from_collection, which maps every backslash to "/".
             key = (case.get("classname", "").replace("\\", "/"), case.get("name", "").replace("\\", "/"))
             executed[key] = executed.get(key, 0) + 1
+            outcome, reason = _junit_outcome(case)
+            if outcome == "skipped":
+                skipped[key] = reason
     expected = {_junit_key(nodeid) for nodeid in expected_nodeids}
     missing = sorted(expected - executed.keys())
     unexpected = sorted(executed.keys() - expected)
     duplicated = sorted(key for key, count in executed.items() if count > 1)
+    protected = sorted(key for key in skipped if key[0].startswith(PROTECTED_TEST_MODULES))
+    unallowed = sorted(key for key, reason in skipped.items() if key not in protected and not _skip_reason_allowed(reason))
     problems = []
-    for label, keys in (("not executed", missing), ("not collected", unexpected), ("executed more than once", duplicated)):
+    for label, keys in (
+        ("not executed", missing),
+        ("not collected", unexpected),
+        ("executed more than once", duplicated),
+        ("protected test(s) skipped", protected),
+        ("skipped without a documented reason", unallowed),
+    ):
         if keys:
             problems.append(f"{len(keys)} test(s) {label}: " + ", ".join("::".join(key) for key in keys[:3]))
     return problems
@@ -732,6 +797,9 @@ def full_tests(root: Path, output_dir: Path, xdist_workers: int = 0) -> CheckRes
         execution_problems = _junit_execution_problems(
             (output_dir / "junit-parallel.xml", output_dir / "junit-serial.xml"),
             full_nodes,
+        )
+        evidence["junit_outcomes"] = _junit_outcome_counts(
+            (output_dir / "junit-parallel.xml", output_dir / "junit-serial.xml")
         )
         evidence["execution_parity"] = execution_problems or "every collected test executed exactly once"
         failures.extend(f"execution parity failed: {problem}" for problem in execution_problems)

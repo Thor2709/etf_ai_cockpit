@@ -40,6 +40,7 @@ UI_CONTRACT_SWEEP = (
     "tests/test_accessibility_contracts.py",
 )
 LARGE_SELECTION = 150
+UI_ACCEPTANCE_CONFIG = "configs/ui_acceptance.yaml"
 
 
 class SelectionError(RuntimeError):
@@ -151,6 +152,19 @@ def _all_test_files(root: Path) -> list[str]:
     )
 
 
+def _tests_naming(root: Path, needle: str) -> set[str]:
+    """Test files whose source mentions ``needle`` (unreadable files are selected, never skipped)."""
+
+    found: set[str] = set()
+    for test_path in _all_test_files(root):
+        try:
+            if needle in (root / test_path).read_text(encoding="utf-8"):
+                found.add(test_path)
+        except (OSError, UnicodeDecodeError):
+            found.add(test_path)
+    return found
+
+
 def select_tests(root: Path, paths: list[str]) -> list[str]:
     """Return the sorted focused test selection for the changed ``paths``."""
 
@@ -168,11 +182,17 @@ def select_tests(root: Path, paths: list[str]) -> list[str]:
                 continue
             if _matches(imported, modules):
                 selected.add(test_path)
-    if any(path.startswith(APP_PREFIX) for path in paths):
+    if any(PurePosixPath(path).name == "conftest.py" and path.startswith(TESTS_PREFIX) for path in paths):
+        selected.update(_all_test_files(root))  # shared fixtures/hooks can change every test
+    if UI_ACCEPTANCE_CONFIG in paths:
+        selected.update(_tests_naming(root, "ui_acceptance"))
+    if any(path.startswith(APP_PREFIX) or path == UI_ACCEPTANCE_CONFIG for path in paths):
         for sweep in UI_CONTRACT_SWEEP:
             if not (root / sweep).is_file():
                 raise SelectionError(f"unavailable: UI contract sweep file {sweep} is missing")
             selected.add(sweep)
+    if len(selected) > LARGE_SELECTION:
+        return _all_test_files(root)  # "running all" must actually expand to the whole suite
     return sorted(selected)
 
 

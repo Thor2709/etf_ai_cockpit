@@ -127,6 +127,8 @@ def validate_summary(report: dict[str, Any]) -> list[str]:
         or any(not isinstance(value, int) or value < 1 for value in junit.values())
     ):
         errors.append("terminal summary platform JUnit counts are required")
+    elif package is True:
+        errors.extend(_shard_coverage_errors(report))
     artifact_paths = {
         str(item.get("path", ""))
         for item in artifacts
@@ -173,6 +175,122 @@ def _junit_tests(node: ET.Element) -> int:
     if child_suites:
         return sum(_junit_tests(child) for child in child_suites)
     return int(node.attrib.get("tests", 0))
+
+
+RELEASE_ARTIFACT_RE = re.compile(
+    r"release-gate-(?P<sha>[^-]+)-(?P<platform>windows|linux)(?:-s(?P<shard>[0-9]+))?", re.IGNORECASE
+)
+EXPECTED_SHARD_COUNT = 3  # .github/workflows/release-gate.yml matrix.shard [1, 2, 3]
+SHARD_KEYS = {"collected", "duplicates", "head_sha", "labels", "shards", "tests"}
+CANONICAL_JUNIT = "junit-full.xml"
+PHASE_JUNIT = ("junit-parallel.xml", "junit-serial.xml")
+EVIDENCE_LOG = "full_tests.log"
+EVIDENCE_PREFIX = "Two-phase xdist evidence: "  # scripts/release_gate.py::_FULL_TEST_EVIDENCE_PREFIX
+
+
+def _junit_keys(node: ET.Element) -> list[tuple[str, str]]:
+    keys = []
+    for case in node.iter():
+        if case.tag.rsplit("}", 1)[-1] != "testcase":
+            continue
+        error = case.find("error")
+        if error is not None and (error.get("message") or "").startswith("failed on teardown"):
+            continue  # a teardown error is a second entry of an already counted test
+        keys.append((case.get("classname", ""), case.get("name", "")))
+    return keys
+
+
+def _shard_reports(directory: Path) -> list[Path]:
+    """One canonical report per shard: the merged junit-full.xml, else the two phase reports.
+
+    Never both: junit-full.xml is the merge of the phase reports, so summing every XML counts ~2x.
+    """
+
+    merged = directory / CANONICAL_JUNIT
+    if merged.is_file():
+        return [merged]
+    return [directory / name for name in PHASE_JUNIT if (directory / name).is_file()]
+
+
+def _shard_evidence(directory: Path) -> dict[str, Any]:
+    """The release gate's own two-phase evidence line (shard label, collected node count), if present."""
+
+    try:
+        for line in (directory / EVIDENCE_LOG).read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith(EVIDENCE_PREFIX):
+                evidence = json.loads(line[len(EVIDENCE_PREFIX):])
+                return evidence if isinstance(evidence, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {}
+
+
+def _collect_platform_junit(artifacts_root: Path, head: str) -> tuple[dict[str, int], dict[str, Any]]:
+    """Per-platform unique test counts and shard coverage from the release-gate artifacts.
+
+    Test totals count each (classname, name) once; ``platform_shards`` records, per platform, the head
+    SHA of every shard artifact, the shard numbers and labels present, the nodes the gate collected,
+    and the number of tests seen more than once across shards.
+    """
+
+    platforms = ("windows", "linux")
+    shards: dict[str, Any] = {
+        platform: {"head_sha": set(), "shards": [], "labels": [], "collected": 0, "duplicates": 0, "tests": 0}
+        for platform in platforms
+    }
+    seen: dict[str, set[tuple[str, str]]] = {platform: set() for platform in platforms}
+    for directory in sorted(path for path in artifacts_root.iterdir() if path.is_dir()):
+        match = RELEASE_ARTIFACT_RE.fullmatch(directory.name)
+        if match is None:
+            continue
+        record = shards[match["platform"].lower()]
+        platform_seen = seen[match["platform"].lower()]
+        record["head_sha"].add(match["sha"].lower())
+        record["shards"].append(int(match["shard"]) if match["shard"] else 0)
+        evidence = _shard_evidence(directory)
+        record["labels"].append(str(evidence.get("test_shard", "")))
+        counts = evidence.get("collection_node_counts")
+        collected = counts.get("full") if isinstance(counts, dict) else None
+        record["collected"] += collected if isinstance(collected, int) else -(10**9)  # unprovable collection
+        for report in _shard_reports(directory):
+            try:
+                keys = _junit_keys(ET.parse(report).getroot())
+            except (ET.ParseError, ValueError):
+                continue
+            for key in keys:
+                record["duplicates"] += key in platform_seen
+                platform_seen.add(key)
+    for platform in platforms:
+        record = shards[platform]
+        record["tests"] = len(seen[platform])
+        record["head_sha"] = sorted(record["head_sha"])
+        record["shards"] = sorted(record["shards"])
+        record["labels"] = sorted(record["labels"])
+    return {platform: shards[platform]["tests"] for platform in platforms}, shards
+
+
+def _shard_coverage_errors(report: dict[str, Any]) -> list[str]:
+    shards = report.get("platform_shards")
+    head = report.get("head_sha")
+    if not isinstance(shards, dict) or set(shards) != {"windows", "linux"}:
+        return ["terminal summary shard coverage is required"]
+    errors: list[str] = []
+    expected_numbers = list(range(1, EXPECTED_SHARD_COUNT + 1))
+    expected_labels = [f"{number}/{EXPECTED_SHARD_COUNT}" for number in expected_numbers]
+    junit = report.get("platform_junit")
+    for platform, record in shards.items():
+        if not isinstance(record, dict) or set(record) != SHARD_KEYS:
+            errors.append(f"terminal summary {platform} shard coverage is malformed")
+            continue
+        if record["head_sha"] != [head]:
+            errors.append(f"terminal summary {platform} shard evidence is not for the exact head SHA")
+        if record["shards"] != expected_numbers or record["labels"] != expected_labels:
+            errors.append(f"terminal summary {platform} shards are incomplete (expected 1/3 to 3/3)")
+        if record["duplicates"] != 0:
+            errors.append(f"terminal summary {platform} shards executed {record['duplicates']} duplicate test(s)")
+        if record["tests"] != record["collected"] or (isinstance(junit, dict) and junit.get(platform) != record["tests"]):
+            errors.append(f"terminal summary {platform} executed test union does not equal the collection")
+    return errors
 
 
 def _candidate_changed(classifier: dict[str, Any]) -> bool:
@@ -669,22 +787,7 @@ def collect_summary(
         for path in sorted(artifacts_root.rglob("*"))
         if path.is_file()
     ]
-    junit = {"windows": 0, "linux": 0}
-    for path in artifacts_root.rglob("*.xml"):
-        artifact_name = path.relative_to(artifacts_root).parts[0].lower()
-        if not artifact_name.startswith("release-gate-"):
-            continue
-        if "windows" in artifact_name:
-            platform = "windows"
-        elif "linux" in artifact_name:
-            platform = "linux"
-        else:
-            continue
-        try:
-            root_node = ET.parse(path).getroot()
-            junit[platform] += _junit_tests(root_node)
-        except (ET.ParseError, ValueError):
-            continue
+    junit, shards = _collect_platform_junit(artifacts_root, head)
     groups = identity_groups()
     report = {
         "schema_version": SCHEMA_VERSION,
@@ -702,6 +805,7 @@ def collect_summary(
         },
         "job_results": job_results,
         "platform_junit": junit if package else {},
+        "platform_shards": shards if package else {},
         "artifacts": artifacts,
         "identities": {key: _tree_identity(root, head, paths) for key, paths in groups.items()},
         "controls": {
