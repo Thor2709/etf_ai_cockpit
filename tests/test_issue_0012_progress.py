@@ -1676,7 +1676,7 @@ def test_api_status_publication_scope_serialises_cancel_and_redacts_unavailable(
     assert not cancelled.wait(0.1)
     release.set()
     assert cancelled.wait(_WAIT_S)
-    worker.join(timeout=2)
+    worker.join(timeout=_WAIT_S)
     canceller.join(timeout=2)
     assert any(isinstance(exc, WorkflowTransitionError) for exc in worker_errors)
     assert state.recent_activity[-1].status == "cancelled"
