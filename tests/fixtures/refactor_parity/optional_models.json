@@ -1002,12 +1002,12 @@
      "q25_return": -0.006093842040316677,
      "q75_return": 0.006432542382248263,
      "q95_return": 0.015443169264624763,
-     "quantile_method": "normal_from_q10_q90.v1",
+     "quantile_method": "toto_daily_quadrature_approx",
      "coverage_ratio": 1.0,
      "promotion_status": "not_proven",
      "calibration_horizon_days": null,
-     "point_statistic": null,
-     "distribution_status": null
+     "point_statistic": "median_sum_of_daily_medians",
+     "distribution_status": "available"
     },
     {
      "run_id": "parity-run",
@@ -1038,12 +1038,12 @@
      "q25_return": -0.013158172685745859,
      "q75_return": 0.014851674395403792,
      "q95_return": 0.035000048624284644,
-     "quantile_method": "normal_from_q10_q90.v1",
+     "quantile_method": "toto_daily_quadrature_approx",
      "coverage_ratio": 1.0,
      "promotion_status": "not_proven",
      "calibration_horizon_days": null,
-     "point_statistic": null,
-     "distribution_status": null
+     "point_statistic": "median_sum_of_daily_medians",
+     "distribution_status": "available"
     },
     {
      "run_id": "parity-run",
@@ -1074,12 +1074,12 @@
      "q25_return": -0.024622843661833784,
      "q75_return": 0.03139685050046552,
      "q95_return": 0.07169359895822722,
-     "quantile_method": "normal_from_q10_q90.v1",
+     "quantile_method": "toto_daily_quadrature_approx",
      "coverage_ratio": 1.0,
      "promotion_status": "not_proven",
      "calibration_horizon_days": null,
-     "point_statistic": null,
-     "distribution_status": null
+     "point_statistic": "median_sum_of_daily_medians",
+     "distribution_status": "available"
     },
     {
      "run_id": "parity-run",
@@ -1110,12 +1110,12 @@
      "q25_return": -0.03835346799883843,
      "q75_return": 0.0586754885147336,
      "q95_return": 0.12847150422339967,
-     "quantile_method": "normal_from_q10_q90.v1",
+     "quantile_method": "toto_daily_quadrature_approx",
      "coverage_ratio": 1.0,
      "promotion_status": "not_proven",
      "calibration_horizon_days": null,
-     "point_statistic": null,
-     "distribution_status": null
+     "point_statistic": "median_sum_of_daily_medians",
+     "distribution_status": "available"
     }
    ]
   }
@@ -1261,12 +1261,12 @@
     "q25_return": 0.0,
     "q75_return": 0.04,
     "q95_return": 0.045669722095848485,
-    "quantile_method": "native_deciles_q25_q75_interpolated+normal_tails_q05_q95.v1",
+    "quantile_method": "toto_daily_quadrature_approx",
     "coverage_ratio": null,
     "promotion_status": "not_proven",
     "calibration_horizon_days": null,
-    "point_statistic": null,
-    "distribution_status": null
+    "point_statistic": "median_sum_of_daily_medians",
+    "distribution_status": "available"
    },
    {
     "run_id": "parity-run",
@@ -1297,12 +1297,12 @@
     "q25_return": 0.02535898384862245,
     "q75_return": 0.09464101615137754,
     "q95_return": 0.10446126288618302,
-    "quantile_method": "native_deciles_q25_q75_interpolated+normal_tails_q05_q95.v1",
+    "quantile_method": "toto_daily_quadrature_approx",
     "coverage_ratio": null,
     "promotion_status": "not_proven",
     "calibration_horizon_days": null,
-    "point_statistic": null,
-    "distribution_status": null
+    "point_statistic": "median_sum_of_daily_medians",
+    "distribution_status": "available"
    },
    {
     "run_id": "parity-run",

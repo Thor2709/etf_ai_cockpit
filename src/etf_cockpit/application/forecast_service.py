@@ -255,21 +255,13 @@ class ForecastService:
         from etf_cockpit.models.toto_adapter import TotoAdapter
 
         adapter = TotoAdapter(self.config.models.runtime("toto"))
-        forecasts: list[ForecastResult] = []
         try:
-            for etf_id in etf_ids:
-                forecasts.extend(
-                    adapter.forecast_etf(
-                        etf_id,
-                        as_of_date,
-                        horizons,
-                        prices=price_frame[["date", "etf_id", "adjusted_close"]],
-                        run_id=run_id,
-                    )
-                )
+            return adapter.forecast_universe(
+                etf_ids, as_of_date, horizons,
+                prices=price_frame[["date", "etf_id", "adjusted_close"]], run_id=run_id,
+            )
         finally:
             adapter.unload_model()
-        return forecasts
 
     def _write_forecasts(
         self,
