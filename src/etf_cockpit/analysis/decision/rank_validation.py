@@ -1505,6 +1505,391 @@ def _canonical_json(value: Any) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
 
 
+# ---------------------------------------------------------------------------
+# Stored-data runner support (DA-005 safe point)
+#
+# Everything below turns *stored* point-in-time inputs into the replay inputs
+# above and renders a report.  Nothing here writes settings, champion state or
+# promotion records; missing history is reported, never filled.
+# ---------------------------------------------------------------------------
+
+_MOMENTUM_HORIZONS = (20, 60, 120, 180)
+_MOMENTUM_WEIGHTS = (0.15, 0.35, 0.35, 0.15)
+_RISK_WINDOW_SESSIONS = 60
+_MAX_PRICE_STALENESS_DAYS = 7
+_HOLDOUT_FRACTION = 0.25
+_RESEARCH_RANKERS = {
+    "momentum": RankerSpec("research-momentum-v1", {"momentum": 1.0}),
+    "low_risk": RankerSpec("research-low-risk-v1", {"risk": 1.0}),
+    "momentum_low_risk": RankerSpec("research-momentum-low-risk-v1", {"momentum": 0.5, "risk": 0.5}),
+}
+
+
+def lookback_sessions_required() -> int:
+    """Adjusted-close observations needed for every momentum horizon plus the risk window."""
+
+    return max(max(_MOMENTUM_HORIZONS), _RISK_WINDOW_SESSIONS) + 1
+
+
+def _session_end(value: object) -> pd.Timestamp | None:
+    day = _date_value(value)
+    if day is None:
+        return None
+    return pd.Timestamp(day, tz="UTC") + pd.Timedelta(hours=23, minutes=59, seconds=59)
+
+
+def with_price_stamps(prices: pd.DataFrame) -> pd.DataFrame:
+    """Return prices with explicit ``known_at``; a missing column is a documented default.
+
+    The stored daily price table carries no knowledge timestamp.  Conservative
+    default: a close is known at the end (23:59:59 UTC) of its own session date,
+    so it can enter a cutoff at or after that moment and never earlier.
+    """
+
+    frame = prices.copy()
+    if "known_at" not in frame.columns:
+        frame["known_at"] = frame["date"].map(_session_end)
+    return frame
+
+
+def window_decision_times(
+    prices: pd.DataFrame,
+    years: int,
+    *,
+    step_sessions: int,
+    holding_period_sessions: int,
+    end: date | None = None,
+) -> tuple[tuple[str, ...], dict[str, str]]:
+    """Non-overlapping decision times for the last ``years`` years, plus excluded dates.
+
+    Dates lacking the full indicator lookback, or whose forward window has not
+    matured, are returned in the reason mapping instead of being included.
+    """
+
+    if not _has_columns(prices, {"instrument_id", "date"}) or prices.empty:
+        return (), {"window": "stored_prices_unavailable"}
+    sessions = sorted({item for item in prices["date"].map(_date_value) if item is not None})
+    if not sessions:
+        return (), {"window": "stored_prices_unavailable"}
+    last = end or sessions[-1]
+    first_wanted = (pd.Timestamp(last) - pd.DateOffset(years=years)).date()
+    needed = lookback_sessions_required()
+    times: list[str] = []
+    excluded: dict[str, str] = {}
+    candidates = [item for item in sessions if first_wanted < item <= last]
+    position_of = {item: index for index, item in enumerate(sessions)}
+    for index in range(0, len(candidates), step_sessions):
+        day = candidates[index]
+        position = position_of[day]
+        text = _session_end(day).isoformat().replace("+00:00", "Z")
+        if position + 1 < needed:
+            excluded[text] = "insufficient_price_history_for_indicator_lookback"
+        elif len(sessions) - position - 1 < holding_period_sessions:
+            excluded[text] = "forward_window_not_matured"
+        else:
+            times.append(text)
+    return tuple(times), excluded
+
+
+def price_momentum_risk_evidence(
+    prices: pd.DataFrame,
+    decision_times: Sequence[datetime | date | str],
+) -> tuple[pd.DataFrame, dict[str, dict[str, str]]]:
+    """Point-in-time momentum and risk scores from stored adjusted closes.
+
+    Momentum reuses the canonical 20/60/120/180-session weighted log-return and
+    risk the canonical annualised realised volatility.  Scores are
+    cross-sectional percentile ranks at each cutoff (risk inverted so a higher
+    score means lower risk).  Instruments without the full lookback or with a
+    stale last close are omitted and listed per cutoff; nothing is filled.
+    """
+
+    from etf_cockpit.features.momentum import momentum
+    from etf_cockpit.features.returns import daily_log_returns
+    from etf_cockpit.features.volatility import realised_volatility
+
+    columns = ["instrument_id", "effective_at", "known_at", "quality_score", "value_score",
+               "v3_score", "momentum_score", "risk_score", "momentum_raw", "volatility_raw"]
+    skipped: dict[str, dict[str, str]] = {}
+    if not _has_columns(prices, {"instrument_id", "date", "adjusted_close"}):
+        return pd.DataFrame(columns=columns), skipped
+    frame = with_price_stamps(prices)
+    frame["_date"] = frame["date"].map(_date_value)
+    frame["_known"] = frame["known_at"].map(_aware_timestamp)
+    frame["_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
+    frame = frame.loc[frame["_date"].notna() & frame["_known"].notna() & frame["_close"].gt(0)]
+    needed = lookback_sessions_required()
+    records: list[dict[str, object]] = []
+    for cutoff in _decision_times(decision_times):
+        text = cutoff.isoformat().replace("+00:00", "Z")
+        known = frame.loc[frame["_known"].le(cutoff) & frame["_date"].map(lambda value: value <= cutoff.date())]
+        cross: list[dict[str, object]] = []
+        reasons: dict[str, str] = {}
+        for instrument, group in known.groupby(known["instrument_id"].astype(str), sort=True):
+            series = group.sort_values(["_date", "_known"], kind="stable").drop_duplicates("_date", keep="last")
+            if len(series) < needed:
+                reasons[str(instrument)] = "insufficient_price_history"
+                continue
+            if (cutoff.date() - series["_date"].iloc[-1]).days > _MAX_PRICE_STALENESS_DAYS:
+                reasons[str(instrument)] = "stale_last_close"
+                continue
+            close = series.set_index("_date")["_close"].astype(float)
+            moves = [float(momentum(close, horizon).iloc[-1]) for horizon in _MOMENTUM_HORIZONS]
+            vol = float(realised_volatility(daily_log_returns(close), _RISK_WINDOW_SESSIONS).iloc[-1])
+            if not all(math.isfinite(item) for item in (*moves, vol)):
+                reasons[str(instrument)] = "non_finite_indicator"
+                continue
+            cross.append(
+                {
+                    "instrument_id": str(instrument),
+                    "momentum_raw": math.fsum(w * m for w, m in zip(_MOMENTUM_WEIGHTS, moves)),
+                    "volatility_raw": vol,
+                }
+            )
+        if reasons:
+            skipped[text] = reasons
+        if not cross:
+            continue
+        block = pd.DataFrame(cross)
+        block["momentum_score"] = block["momentum_raw"].rank(method="average", pct=True)
+        block["risk_score"] = 1.0 - block["volatility_raw"].rank(method="average", pct=True) + 1.0 / len(block)
+        block["effective_at"] = text
+        block["known_at"] = text
+        block["quality_score"] = float("nan")
+        block["value_score"] = float("nan")
+        block["v3_score"] = float("nan")
+        records.extend(block.to_dict("records"))
+    return pd.DataFrame.from_records(records, columns=columns), skipped
+
+
+def attach_fundamental_evidence(
+    price_evidence: pd.DataFrame,
+    fundamentals: pd.DataFrame,
+) -> pd.DataFrame:
+    """Attach supplied quality/value/v3 scores to each cutoff using only rows known by it.
+
+    ``fundamentals`` needs ``instrument_id``, ``effective_at``, ``known_at`` and
+    the score columns.  Instruments with no row known by the cutoff keep NaN, so
+    the fundamental rankers report that date as insufficient.
+    """
+
+    required = {"instrument_id", "effective_at", "known_at", "quality_score", "value_score", "v3_score"}
+    result = price_evidence.copy()
+    if not _has_columns(fundamentals, required) or result.empty:
+        return result
+    funds = fundamentals.copy()
+    funds["_known"] = funds["known_at"].map(_aware_timestamp)
+    funds["_effective"] = funds["effective_at"].map(_date_value)
+    funds["instrument_id"] = funds["instrument_id"].astype(str)
+    funds = funds.loc[funds["_known"].notna() & funds["_effective"].notna()]
+    for cutoff_text, group in result.groupby("known_at", sort=False):
+        cutoff = _aware_timestamp(cutoff_text)
+        if cutoff is None:
+            continue
+        usable = funds.loc[funds["_known"].le(cutoff) & funds["_effective"].map(lambda value: value <= cutoff.date())]
+        if usable.empty:
+            continue
+        latest = usable.sort_values(["_effective", "_known"], kind="stable").groupby("instrument_id").tail(1)
+        by_instrument = latest.set_index("instrument_id")
+        for column in ("quality_score", "value_score", "v3_score"):
+            result.loc[group.index, column] = pd.to_numeric(
+                group["instrument_id"].astype(str).map(by_instrument[column]), errors="coerce"
+            )
+    return result
+
+
+def research_policy(policy: RankValidationPolicy, *, fundamentals: bool) -> RankValidationPolicy:
+    """Policy copy limited to the rankers whose inputs the runner can supply.
+
+    Without PIT fundamentals only the price-derived research rankers run; with
+    them the frozen QV/QVM/v3/challenger set runs.  The policy file is untouched.
+    """
+
+    from dataclasses import replace
+
+    return replace(policy, rankers=dict(policy.rankers) if fundamentals else dict(_RESEARCH_RANKERS))
+
+
+def forward_comparator_frame(
+    prices: pd.DataFrame,
+    instrument_id: str,
+    decision_times: Sequence[datetime | date | str],
+    holding_period_sessions: int,
+) -> pd.DataFrame:
+    """Forward holding-period returns of one stored instrument (benchmark comparator)."""
+
+    rows: list[dict[str, object]] = []
+    if _has_columns(prices, {"instrument_id", "date", "adjusted_close"}):
+        frame = with_price_stamps(prices)
+        frame["_date"] = frame["date"].map(_date_value)
+        for cutoff in _decision_times(decision_times):
+            value, status = _forward_return(frame, str(instrument_id), cutoff, holding_period_sessions)
+            if value is not None and status.startswith("available"):
+                rows.append({"decision_date": cutoff.date().isoformat(), "net_return": float(value)})
+    return pd.DataFrame(rows, columns=["decision_date", "net_return"])
+
+
+def fixed_terminal_holdout(
+    replay: RankReplayReport,
+    *,
+    fraction: float = _HOLDOUT_FRACTION,
+) -> tuple[str, ...]:
+    """Terminal holdout fixed from decision *dates only*; returns are never inspected."""
+
+    if replay.rows.empty or "decision_time" not in replay.rows.columns:
+        return ()
+    times = sorted(replay.rows["decision_time"].dropna().astype(str).unique())
+    count = max(1, math.ceil(len(times) * fraction))
+    return tuple(times[-count:]) if len(times) > count else ()
+
+
+def run_stored_rank_validation(
+    evidence: pd.DataFrame,
+    memberships: pd.DataFrame,
+    prices: pd.DataFrame,
+    costs: pd.DataFrame,
+    benchmark_returns: pd.DataFrame,
+    cash_returns: pd.DataFrame,
+    decision_times: Sequence[datetime | date | str],
+    *,
+    policy: RankValidationPolicy,
+    holdout_fraction: float = _HOLDOUT_FRACTION,
+) -> tuple[RankReplayReport, RankValidationReport]:
+    """Replay then validate; the holdout is fixed from dates before any metric is computed."""
+
+    stamped = with_price_stamps(prices)
+    replay = replay_rank_panel(
+        evidence, memberships, stamped, costs, benchmark_returns, cash_returns,
+        decision_times, policy=policy,
+    )
+    holdout = fixed_terminal_holdout(replay, fraction=holdout_fraction)
+    if not holdout:
+        return replay, _empty_validation(
+            replay, (), "no terminal holdout window can be fixed from the covered decision dates"
+        )
+    return replay, evaluate_rank_validation(
+        replay, holdout_decision_times=holdout, prices=stamped, policy=policy
+    )
+
+
+def champion_monitoring_registration(monitoring: Mapping[str, object]) -> dict[str, object]:
+    """JSON-safe monitoring registration record built from ``monitor_champion_rank`` output.
+
+    Nothing is persisted here: the record is returned for a reviewed lifecycle
+    step to store.  ``persisted`` and ``retired`` are always False.
+    """
+
+    drift = monitoring.get("drift")
+    performance = monitoring.get("performance")
+    return {
+        "schema_version": 1,
+        "model_id": str(monitoring.get("model_id", "")),
+        "promotion_record_id": str(monitoring.get("promotion_record_id", "")),
+        "validation_id": str(monitoring.get("validation_id", "")),
+        "drift_status": str(getattr(drift, "status", "unavailable")),
+        "performance_status": str(getattr(performance, "status", "unavailable")),
+        "retirement_state": str(monitoring.get("retirement_state", "review_required")),
+        "retirement_requires_reviewer": bool(monitoring.get("retirement_requires_reviewer", True)),
+        "persisted": False,
+        "retired": False,
+        "execution_allowed": False,
+    }
+
+
+def decision_doc_entry(promotion_record: Mapping[str, object]) -> str:
+    """Markdown decision-record text for the decision doc; returned, never written."""
+
+    pit = promotion_record.get("pit_availability")
+    coverage = pit.get("coverage_fraction") if isinstance(pit, Mapping) else None
+    lines = [
+        f"### Rank decision {promotion_record.get('record_id', 'unrecorded')}",
+        f"- Validation id: {promotion_record.get('validation_id') or 'unavailable'}",
+        f"- Status: {promotion_record.get('status', 'unavailable')}; selected rank: {promotion_record.get('selected_rank', 'v3')}",
+        f"- Reason: {promotion_record.get('reason', 'unavailable')}",
+        f"- Rationale: {promotion_record.get('rationale', 'unavailable')}",
+        f"- PIT coverage fraction: {coverage if coverage is not None else 'unavailable'}",
+        f"- Incremental IC vs QV: {promotion_record.get('incremental_ic')}",
+        f"- rank_authority: {promotion_record.get('rank_authority') is True}; execution_allowed: false",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def cutover_consumer_evidence(
+    rank_scores: Mapping[str, Mapping[str, object]],
+    *,
+    promotion_record: Mapping[str, object] | None = None,
+    cutover_enabled: bool | None = None,
+) -> dict[str, dict[str, object]]:
+    """Per-consumer routing outcome (rank used plus the v3 comparator) for audit."""
+
+    return {
+        consumer: route_consumer_rank(
+            consumer,
+            rank_scores.get(consumer, {}),
+            promotion_record=promotion_record,
+            cutover_enabled=cutover_enabled,
+        )
+        for consumer in sorted(_CUTOVER_CONSUMERS)
+    }
+
+
+_REPORT_METRIC_KEYS = (
+    "status", "reason", "decision_count", "instrument_observation_count", "rank_ic_mean", "rank_ic_t",
+    "rank_ic_positive_fraction", "top_net_return_mean", "bottom_net_return_mean", "benchmark_net_mean",
+    "cash_net_mean", "excess_vs_benchmark", "excess_vs_cash", "top_minus_bottom_mean", "top_minus_bottom_t",
+    "decile_monotonicity_fraction", "quintile_monotonicity_fraction", "turnover_mean",
+)
+
+
+def _mean_bucket_path(paths: Sequence[Sequence[float]]) -> list[float]:
+    usable = [list(path) for path in paths if path]
+    if not usable or len({len(path) for path in usable}) != 1:
+        return []
+    return [fmean(values) for values in zip(*usable)]
+
+
+def _report_metrics(metrics: Mapping[str, object]) -> dict[str, object]:
+    entry = {key: metrics.get(key) for key in _REPORT_METRIC_KEYS if key in metrics}
+    entry["mean_decile_net_returns"] = _mean_bucket_path(metrics.get("decile_paths") or [])
+    for key in ("sector_neutral", "size_neutral", "factor_attribution"):
+        value = metrics.get(key)
+        entry[key] = value.get("status", "unavailable") if isinstance(value, Mapping) else "unavailable"
+    return entry
+
+
+def rank_validation_report_dict(
+    replay: RankReplayReport,
+    validation: RankValidationReport,
+    *,
+    label: str,
+    requested_decision_times: Sequence[str],
+    excluded_decision_times: Mapping[str, str],
+) -> dict[str, object]:
+    """JSON-safe report: rank-IC, deciles, Top/Bottom net of cost, holdout kept separate.
+
+    The report never carries a promotion record and never sets ``rank_authority``.
+    """
+
+    insufficient = {**dict(excluded_decision_times), **dict(replay.pit_availability.get("reasons", {}))}
+    return {
+        "label": label,
+        "status": validation.status,
+        "reason": validation.reason or replay.reason,
+        "validation_id": validation.validation_id or None,
+        "requested_decision_times": list(requested_decision_times),
+        "covered_decisions": replay.pit_availability.get("covered_decisions", 0),
+        "coverage_fraction": replay.pit_availability.get("coverage_fraction", 0.0),
+        "insufficient_windows": insufficient,
+        "holdout_decision_times": list(validation.holdout_decision_times),
+        "config_hashes": dict(validation.replay_config_hashes or replay.config_hashes),
+        "development": {name: _report_metrics(item) for name, item in validation.development.items()},
+        "holdout": {name: _report_metrics(item) for name, item in validation.holdout.items()},
+        "promotion_applied": False,
+        "rank_authority": False,
+        "execution_allowed": False,
+    }
+
+
 __all__ = [
     "RankCutover",
     "RankReplayReport",
@@ -1522,4 +1907,17 @@ __all__ = [
     "route_consumer_rank",
     "route_ranked_frame",
     "select_challenger",
+    "attach_fundamental_evidence",
+    "champion_monitoring_registration",
+    "cutover_consumer_evidence",
+    "decision_doc_entry",
+    "fixed_terminal_holdout",
+    "forward_comparator_frame",
+    "lookback_sessions_required",
+    "price_momentum_risk_evidence",
+    "rank_validation_report_dict",
+    "research_policy",
+    "run_stored_rank_validation",
+    "window_decision_times",
+    "with_price_stamps",
 ]
