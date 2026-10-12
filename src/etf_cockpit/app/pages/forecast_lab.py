@@ -316,7 +316,7 @@ def _promotion_card(layout: common.GridLayout, promotion: pd.DataFrame, names: d
         rows, "No optional models are registered.", key="forecast-lab.promotion", max_rows=6,
     )
     note = Note(
-        "A model counts in scores only after its matured out-of-sample forecasts beat the baseline on the same instruments and dates "
+        "A model counts in scores only after its matured forecasts beat the baseline on the same instruments and dates "
         "(lower MASE, no lower direction accuracy, calibration not weak) with the minimum evidence shown. Origins before the "
         "pretraining cutoff, or before an unpublished-cutoff model's first local run, never count."
     )
@@ -337,19 +337,24 @@ def _folds_card(layout: common.GridLayout, folds: lab_view.FoldBars) -> ft.Contr
     return GlassCard("Walk-forward protocol", "expanding train window · test fold", insight, body=body, width=layout.span_width(6), height=layout.row_heights[1])
 
 
+def _error_insight(series: lab_view.ErrorSeries, names: dict[str, str]) -> str:
+    if series.reason:
+        return series.reason
+    challengers = [name for name in series.lines if name != series.baseline]
+    best = [(name, max((h for h, v in zip(series.horizons, series.lines[name], strict=True) if v is not None and v < 0), default=None)) for name in challengers]
+    best = [(name, horizon) for name, horizon in best if horizon is not None]
+    if not best:
+        return "No model showed lower observed MAE than the baseline at an evaluated horizon in this limited sample."
+    name, horizon = max(best, key=lambda item: item[1])
+    return (
+        f"{names.get(name, name)} showed lower observed MAE than the baseline at horizon {horizon} days in this limited "
+        "sample; other horizons may differ; not statistically tested."
+    )
+
+
 def _error_card(layout: common.GridLayout, series: lab_view.ErrorSeries, names: dict[str, str]) -> ft.Control:
     width, height = layout.card_body(6, 1, insight=True)
-    if series.reason:
-        insight = series.reason
-    else:
-        challengers = [name for name in series.lines if name != series.baseline]
-        best = [(name, max((h for h, v in zip(series.horizons, series.lines[name], strict=True) if v is not None and v < 0), default=None)) for name in challengers]
-        best = [(name, horizon) for name, horizon in best if horizon is not None]
-        if best:
-            name, horizon = max(best, key=lambda item: item[1])
-            insight = f"{names.get(name, name)} beats the baseline up to {horizon} days; beyond that it is not better."
-        else:
-            insight = "No model beats the baseline at an evaluated horizon."
+    insight = _error_insight(series, names)
     lines = [ck.Series(names.get(series.baseline or "", "Baseline"), series.lines.get(series.baseline or "", []), _BASELINE_LINE, 3.0, markers=8, decimals=2, dashed=True)] if series.baseline in series.lines else []
     for index, name in enumerate(name for name in series.lines if name != series.baseline):
         lines.append(ck.Series(names.get(name, name), series.lines[name], _MODEL_LINES[index % len(_MODEL_LINES)], 3.0, markers=8, decimals=2))
@@ -385,11 +390,17 @@ def _runs_card(layout: common.GridLayout, runs: pd.DataFrame, evaluation: pd.Dat
     return GlassCard("Experiment runs", "run identity and model membership from local forecast rows", body=ft.Column([runs_table, Note("Walk-forward fold evaluation"), fold_table], spacing=12), width=layout.span_width(12))
 
 
+def _simple_return_text(log_return: object) -> str:
+    """Forecast values are log returns; show the equivalent simple return at the UI boundary."""
+
+    return "unavailable" if log_return is None or pd.isna(log_return) else f"{math.expm1(float(log_return)):+.2%}"
+
+
 def _horizon_card(layout: common.GridLayout, models: pd.DataFrame) -> ft.Control:
     rows, coverage = [], []
     for _, row in models.iterrows():
         value = row["latest_forecast_value"]
-        latest_value = "unavailable" if value is None or pd.isna(value) else f"{float(value):+.2%}"
+        latest_value = _simple_return_text(value)
         latest = (
             f"{latest_value} on {row['latest_forecast_date']} "
             f"({row['latest_forecast_etf_id']}, {int(row['latest_forecast_horizon_days'])} trading days; {row['latest_forecast_status']})"
