@@ -38,6 +38,7 @@ from etf_cockpit.parsers.etf_report import (
     REPORT_FIELDS,
     EtfReportRecord,
     canonical_report_kind,
+    is_unavailable_report_field_value,
     parse_etf_report_in_child,
 )
 from etf_cockpit.parsers.contracts import ParseResult
@@ -1501,14 +1502,34 @@ def _row_is_verifiable(row: pd.Series) -> bool:
     if str(row.get("document_kind")) in {"annual_report", "half_year_report"}:
         required.add("reporting_period_end")
     by_field = {str(item.get("field_name")): item for item in evidence if isinstance(item, dict)}
+    if any(
+        str(item.get("status") or "").casefold() == "extracted"
+        and str(item.get("field_name") or "") in (required | {"legal_structure", "legal_form"})
+        and (
+            not str(item.get("value") or "").strip()
+            or is_unavailable_report_field_value(item.get("value"))
+        )
+        for item in evidence
+        if isinstance(item, dict)
+    ):
+        return False
     warning_codes = _warning_codes(row.get("warnings"))
     if warning_codes & {"field_conflict", "page_text_limit", "total_text_limit", "page_limit_applied", "required_field_missing", "identity_mismatch"}:
         return False
     legal_structure_ok = any(
-        by_field.get(field, {}).get("status") == "extracted" and by_field[field].get("candidate_pages")
+        by_field.get(field, {}).get("status") == "extracted"
+        and by_field[field].get("candidate_pages")
+        and str(by_field[field].get("value") or "").strip()
+        and not is_unavailable_report_field_value(by_field[field].get("value"))
         for field in ("legal_structure", "legal_form")
     )
-    return legal_structure_ok and all(by_field.get(field, {}).get("status") == "extracted" and by_field[field].get("candidate_pages") for field in required)
+    return legal_structure_ok and all(
+        by_field.get(field, {}).get("status") == "extracted"
+        and by_field[field].get("candidate_pages")
+        and str(by_field[field].get("value") or "").strip()
+        and not is_unavailable_report_field_value(by_field[field].get("value"))
+        for field in required
+    )
 
 
 def _warning_codes(value: Any) -> set[str]:

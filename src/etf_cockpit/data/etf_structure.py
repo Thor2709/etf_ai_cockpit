@@ -23,6 +23,7 @@ from etf_cockpit.data.parsed_disclosures import (
     REPORT_STABLE_CONFLICT_FIELDS,
     REPORT_TIME_VARYING_CONFLICT_FIELDS,
 )
+from etf_cockpit.parsers.etf_report import is_unavailable_report_field_value
 
 
 STRUCTURE_SCHEMA_VERSION = 1
@@ -443,11 +444,12 @@ def project_etf_structure(
     unknown_fields = tuple(field for field, value in fields.items() if value["status"] == "unknown")
     conflict_fields = tuple(field for field, value in fields.items() if value["status"] == "conflict")
     unusable_fields = tuple(field for field, value in fields.items() if value["status"] == "unusable")
+    assessment_fields = set(applicable_fields) | {"derivatives"}
     if rejected and not usable:
         status = "unusable"
-    elif conflict_fields:
+    elif assessment_fields.intersection(conflict_fields):
         status = "conflict"
-    elif unknown_fields or unusable_fields:
+    elif assessment_fields.intersection((*unknown_fields, *unusable_fields)):
         status = "partial"
     else:
         status = "available"
@@ -1158,6 +1160,8 @@ def _supplemental_candidates(
 
 
 def _make_candidate(target: str, field: str, value: str, source_id: str, registered: Mapping[str, object], page: int | None, confidence: object, decision: datetime | None, *, status: str = "extracted", review_event: Mapping[str, object] | None = None, reporting_period_end: str | None = None) -> tuple[StructureCandidate | None, str]:
+    if is_unavailable_report_field_value(value):
+        return None, "candidate_unusable"
     if page is None or page <= 0:
         return None, "candidate_page_invalid"
     confidence_value = _confidence_value(confidence)
@@ -1258,6 +1262,10 @@ def _risk_flags(fields: Mapping[str, Mapping[str, object]]) -> list[str]:
     synthetic = _synthetic_or_derivative_disclosure(replication, derivatives)
     if fields.get("replication_method", {}).get("status") in {"unknown", "conflict", "unusable"}:
         flags.append("replication_structure_unknown_or_conflicted")
+    if fields.get("derivatives", {}).get("status") in {"unknown", "conflict", "unusable"}:
+        flags.append("derivative_exposure_unknown_or_conflicted")
+    if fields.get("lending_policy", {}).get("status") in {"unknown", "conflict", "unusable"}:
+        flags.append("securities_lending_status_unknown_or_conflicted")
     if synthetic:
         if fields.get("counterparties", {}).get("status") != "resolved":
             flags.append("synthetic_counterparty_evidence_missing_or_conflicted")
