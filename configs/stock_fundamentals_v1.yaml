@@ -108,6 +108,10 @@ scoring:
     net_debt_to_ebitda: {low: 4.0, high: 0.0, weight: 1}
     fcf_conversion: {low: 0.0, high: 1.0, weight: 1}
     revenue_cagr: {low: -0.05, high: 0.10, weight: 1}
+  cyclical:
+    # Reuse the established value and operating-margin ranges for the sector adapter's core evidence.
+    value_ev_earnings_yield: {low: 0.0, high: 0.10}
+    quality_normalised_margin: {low: 0.0, high: 0.25}
   analyst_revision:
     min_inputs: 1
     eps_estimate_change_90d: {low: -0.10, high: 0.10, weight: 1}

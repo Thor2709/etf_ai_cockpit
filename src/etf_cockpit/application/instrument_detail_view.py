@@ -68,6 +68,7 @@ from etf_cockpit.application.ui_facade import (
     model_zoo_frame,
 )
 from etf_cockpit.application.overlap import load_direct_holdings
+from etf_cockpit.application.market_views import load_etf_look_through
 from etf_cockpit.core.frame_signature import content_signature
 from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.core.paths import ETF_QUOTES_PATH
@@ -83,6 +84,11 @@ from etf_cockpit.analysis.candles import (
 from etf_cockpit.core.values import finite_float_or_none as _safe_float
 from etf_cockpit.features.etf_economics import calculate_etf_liquidity
 from etf_cockpit.application.etf_economics_view import build_etf_economics_panel
+from etf_cockpit.analysis.etf_tax_context import (
+    ETFContextAssumptions,
+    build_etf_tax_context_panel,
+    load_tax_hedge_assumptions,
+)
 from etf_cockpit.application.ui_facade import SimpleInstrumentScore
 from etf_cockpit.application.ui_facade import load_peer_cohort_projection
 from etf_cockpit.application.ui_facade import (
@@ -143,6 +149,7 @@ _SECTION_NAMES = (
     "innovation",
     "etf_liquidity",
     "etf_economics",
+    "etf_look_through",
     "scores",
     "opportunity",
     "feature_drivers",
@@ -2872,6 +2879,8 @@ def build_instrument_detail(
     benchmark_total_return: object = None,
     economics_as_of: object = None,
     economics_horizon_days: int = 252,
+    look_through_identity_map: Mapping[str, str] | None = None,
+    look_through_minimum_aggregate_coverage: float = 0.80,
 ) -> InstrumentDetailViewModel:
     identity = next((item for item in snapshot.config.universe.etfs if item.id == instrument_id), None)
     # Configured identities remain backed by canonical snapshot stores.  The
@@ -3020,6 +3029,28 @@ def build_instrument_detail(
         as_of=economics_as_of,
         horizon_days=economics_horizon_days,
     )
+    asset_type = str(identity_panel.get("asset_type", "")).casefold().replace("-", "_").replace(" ", "_")
+    look_through = (
+        load_etf_look_through(
+            instrument_id,
+            decision_time=projection_time or decision_time or "",
+            analysis_date=projection_time[:10] if len(projection_time) >= 10 else None,
+            holdings_frame=holdings,
+            fundamentals_frame=fundamentals,
+            identity_map=look_through_identity_map,
+            minimum_aggregate_coverage=look_through_minimum_aggregate_coverage,
+            require_canonical_identity=True,
+        )
+        if asset_type in {"etf", "fund", "mutual_fund"}
+        else {"instrument_id": instrument_id, "status": "not_applicable", "execution_allowed": False}
+    )
+    _attach_etf_tax_context(
+        economics,
+        structure,
+        trading_currency=canonical_currency,
+        share_class_id=instrument_id,
+        decision_time=projection_time or decision_time,
+    )
     price = _price_panel(snapshot, instrument_id, candidate_score=candidate)
     candle_evidence = _candle_evidence_panel(snapshot, instrument_id, projection_time or decision_time)
     observed_at = price.get("latest_date") if isinstance(price, Mapping) else None
@@ -3028,6 +3059,8 @@ def build_instrument_detail(
         decision_time=projection_time or decision_time or "",
         observed_at=observed_at if observed_at not in {None, "unavailable"} else None,
     )
+
+
     fixed_income_terms = load_fixed_income_terms_projection(
         instrument_id,
         effective_at=projection_time or None,
@@ -3110,6 +3143,7 @@ def build_instrument_detail(
             "innovation": innovation,
             "etf_liquidity": liquidity,
             "etf_economics": economics,
+            "etf_look_through": look_through,
             "scores": _score_panel(
                 signal,
                 scoreboard,
@@ -3151,6 +3185,133 @@ def build_instrument_detail(
             "thesis_diary": _thesis_diary_panel(instrument_id, root=thesis_diary_root),
             "run_changes": _run_changes_panel(instrument_id, score_history),
         },
+    )
+
+
+def _attach_etf_tax_context(
+    economics: dict[str, Any],
+    structure: Mapping[str, object],
+    *,
+    trading_currency: str | None,
+    decision_time: object,
+    share_class_id: str | None = None,
+) -> dict[str, Any]:
+    """Expose the existing document/economics sources in the ETF panel."""
+
+    assumptions: ETFContextAssumptions | None
+    load_error: str | None = None
+    try:
+        assumptions = load_tax_hedge_assumptions(
+            ROOT / "configs" / "etf_tax_assumptions_v1.yaml"
+        )
+    except (OSError, TypeError, ValueError) as exc:
+        assumptions = None
+        load_error = f"Tax and hedge assumptions are unavailable ({type(exc).__name__}); no defaults were substituted."
+    context_decision_time: datetime | None = None
+    if isinstance(decision_time, datetime):
+        context_decision_time = decision_time
+    elif decision_time is not None:
+        parsed_decision_time = pd.to_datetime(decision_time, errors="coerce", utc=True)
+        if not pd.isna(parsed_decision_time):
+            context_decision_time = parsed_decision_time.to_pydatetime()
+        else:
+            assumptions = None
+            load_error = "Decision time is invalid; tax and hedge assumptions cannot be point-in-time bound."
+    elif assumptions is not None and assumptions.known_at is not None:
+        assumptions = None
+        load_error = "Decision time is unavailable; dated tax and hedge assumptions cannot be point-in-time bound."
+    context = build_etf_tax_context_panel(
+        structure,
+        economics,
+        trading_currency=trading_currency,
+        share_class_id=share_class_id,
+        assumptions=assumptions,
+        decision_time=context_decision_time,
+    )
+    if load_error:
+        context["assumptions"] = {
+            "status": "unavailable",
+            "reason": load_error,
+            "execution_allowed": False,
+        }
+        context["source_withholding"] = {
+            **context["source_withholding"],
+            "status": "unavailable",
+            "reason": load_error,
+            "net_return_rate": None,
+            "tax_drag_rate": None,
+            "included_tax_effects": (),
+        }
+        context["hedge_assumption"] = {
+            **context["hedge_assumption"],
+            "status": "unavailable",
+            "enabled": False,
+            "ratio": None,
+            "target_currency": None,
+            "reason": load_error,
+        }
+    else:
+        assumption_status = context.get("assumptions")
+        if (
+            assumptions is not None
+            and isinstance(assumption_status, Mapping)
+            and assumption_status.get("status") == "available"
+        ):
+            context["assumptions"] = {
+                **assumption_status,
+                "tax_enabled": assumptions.tax_enabled,
+                "hedge_enabled": assumptions.hedge_enabled,
+            }
+    economics["tax_context"] = context
+    economics["summary"] = " ".join(
+        part
+        for part in (
+            str(economics.get("summary") or "").strip(),
+            _etf_tax_context_summary(context),
+        )
+        if part
+    )
+    return context
+
+
+def _etf_tax_context_summary(context: Mapping[str, Any]) -> str:
+    domicile = context.get("domicile")
+    domicile = domicile if isinstance(domicile, Mapping) else {}
+    distribution = context.get("distribution")
+    distribution = distribution if isinstance(distribution, Mapping) else {}
+    policy = distribution.get("policy")
+    policy = policy if isinstance(policy, Mapping) else {}
+    frequency = distribution.get("frequency")
+    frequency = frequency if isinstance(frequency, Mapping) else {}
+    currency = context.get("currency")
+    currency = currency if isinstance(currency, Mapping) else {}
+    withholding = context.get("source_withholding")
+    withholding = withholding if isinstance(withholding, Mapping) else {}
+    residence = context.get("residence_tax")
+    residence = residence if isinstance(residence, Mapping) else {}
+    hedge = context.get("hedge_economics")
+    hedge = hedge if isinstance(hedge, Mapping) else {}
+    domicile_text = (
+        f"{domicile.get('value')} (source {domicile.get('source')}, as of {domicile.get('as_of')}, known {domicile.get('known_at')})"
+        if domicile.get("status") == "available"
+        else f"unavailable ({domicile.get('reason')})"
+    )
+    distribution_text = (
+        f"{policy.get('value')} (source {policy.get('source')}, as of {policy.get('as_of')}, known {policy.get('known_at')})"
+        if policy.get("status") == "available"
+        else f"unavailable ({policy.get('reason')})"
+    )
+    if frequency.get("status") == "available":
+        distribution_text += f", frequency {frequency.get('value')}"
+    currency_text = currency.get("trading_currency") or "unavailable"
+    economic_currency = currency.get("primary_economic_currency") or "unavailable"
+    withholding_text = withholding.get("reason") or "unavailable"
+    return (
+        "Informational ETF domicile/tax/distribution/hedging context: "
+        f"domicile {domicile_text}; distribution {distribution_text}; "
+        f"trading currency {currency_text}, primary economic currency {economic_currency}; "
+        f"source withholding {withholding_text}; residence tax unavailable "
+        f"({residence.get('reason')}); hedge economics unavailable ({hedge.get('reason')})."
     )
 
 

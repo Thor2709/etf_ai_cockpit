@@ -34,6 +34,13 @@ from etf_cockpit.analysis.financial_sector_adapters import (
     FINANCIAL_ADAPTER_ID,
     financial_adapter_definition,
 )
+from etf_cockpit.analysis.cyclical_sector_adapters import (
+    CyclicalAdapterError,
+    cyclical_adapter_definitions,
+    cyclical_business_model,
+    cyclical_source_digest,
+    verify_cyclical_projection,
+)
 from etf_cockpit.analysis.peer_cohorts import (
     AdapterRegistry,
     PeerObservation,
@@ -70,6 +77,7 @@ class StockDecisionMap:
     financial_sources: Mapping[str, str]
     financial_shapes: Mapping[str, str]
     financial_unscored_reasons: Mapping[str, str]
+    cyclical_sources: Mapping[str, str]
     rank_authority: bool
 
 
@@ -101,6 +109,7 @@ def _stock_decision_map_for_content(content: bytes) -> StockDecisionMap:
     financial_sources: dict[str, str] = {}
     financial_shapes: dict[str, str] = {}
     financial_unscored_reasons: dict[str, str] = {}
+    cyclical_sources: dict[str, str] = {}
     seen_domains: set[str] = set()
     domain_rows: list[Mapping[str, object]] = []
     for raw_domain in raw_domains:
@@ -171,6 +180,22 @@ def _stock_decision_map_for_content(content: bytes) -> StockDecisionMap:
                 raise ValueError("financial stock metric identifiers must be unique")
             definitions.append(definition)
             financial_sources[metric_id] = financial_name
+    raw_cyclical = stock.get("cyclical_metrics", [])
+    if not isinstance(raw_cyclical, list):
+        raise ValueError("cyclical stock mappings must be lists")
+    for raw_metric in raw_cyclical:
+        if not isinstance(raw_metric, Mapping):
+            raise ValueError("cyclical stock metrics must be mappings")
+        metric_id = str(raw_metric.get("metric_id", ""))
+        source_metric = str(raw_metric.get("source_metric", ""))
+        domain_id = str(raw_metric.get("domain", ""))
+        if not metric_id or not source_metric or not domain_id or metric_id in cyclical_sources:
+            raise ValueError("cyclical stock mappings require unique ids, source metrics, and domains")
+        definition = _definition_from_map(raw_metric, domain_id)
+        if definition.metric_id in stock_sources or definition.metric_id in financial_sources:
+            raise ValueError("cyclical stock metric identifiers must be unique")
+        definitions.append(definition)
+        cyclical_sources[metric_id] = source_metric
     if len(seen_domains) != 6:
         raise ValueError("stock decision map must name six distinct domains")
     stock_map = StockDecisionMap(
@@ -184,6 +209,7 @@ def _stock_decision_map_for_content(content: bytes) -> StockDecisionMap:
         financial_sources=financial_sources,
         financial_shapes=financial_shapes,
         financial_unscored_reasons=financial_unscored_reasons,
+        cyclical_sources=cyclical_sources,
         rank_authority=stock.get("rank_authority") is True,
     )
     return stock_map
@@ -197,6 +223,7 @@ def compose_stock_decision(
     *,
     capital_allocation: Mapping[str, object] | None = None,
     financial_projection: object | None = None,
+    cyclical_projection: object | None = None,
     native_spbk_result: object | None = None,
     peer_observations: Sequence[PeerObservation] = (),
     domain_reference_z: Mapping[str, Sequence[DomainReference]] | None = None,
@@ -208,7 +235,7 @@ def compose_stock_decision(
 
     Confirmed Norwegian equity certificates are delegated to the native SPBK
     result and cannot fall through into generic stock ranking. Classified
-    financial institutions use only their financial-sector projection.
+    financial institutions and cyclical stocks use their sector projection.
     """
 
     if target_context.instrument_id != instrument:
@@ -227,6 +254,7 @@ def compose_stock_decision(
     expectations_output = _copy_path(stock_research, "expectations")
     tactical_output = _tactical_components(tactical_evidence)
     valuation_assessment = None
+    cyclical_payload: Mapping[str, object] | None = None
     if ec_route.applies:
         native_valid = _is_native_spbk_result(native_spbk_result)
         assessment = native_spbk_result if native_valid else None
@@ -302,6 +330,34 @@ def compose_stock_decision(
                 target_context,
                 stock_map,
             )
+        elif (cyclical_model := cyclical_business_model(target_context)) is not None:
+            route = "cyclical_sector_adapter"
+            cyclical_payload, cyclical_reason = _verified_cyclical_projection(
+                cyclical_projection,
+                instrument=instrument,
+                context=target_context,
+                business_model=cyclical_model,
+                decision_time=decision_time,
+            )
+            cyclical_definitions = tuple(
+                item for item in stock_map.registry.metrics if item.metric_id in stock_map.cyclical_sources
+            )
+            quality_definitions = tuple(item for item in cyclical_definitions if item.domain != "valuation")
+            registry = DomainRegistry(
+                stock_map.registry.version,
+                stock_map.registry.checksum,
+                quality_definitions,
+            )
+            scored, input_evidence = _cyclical_scored_metrics(
+                cyclical_payload,
+                target_context,
+                stock_map,
+                definitions=quality_definitions,
+                unavailable_reason=cyclical_reason,
+            )
+            core_available = _cyclical_core_available(cyclical_payload, stock_map.cyclical_sources)
+            route_status = "available" if core_available else "unavailable"
+            route_reason = "" if core_available else cyclical_reason or "CYCLICAL_CORE_EVIDENCE_UNAVAILABLE"
         else:
             route = "generic_stock"
             route_status = "available"
@@ -342,22 +398,40 @@ def compose_stock_decision(
             if str(item["domain"]) in domains_by_name
         )
         valuation_registry = load_domain_registry(registry_path)
+        valuation_score_registry = valuation_registry
         valuation_definitions = tuple(
             item for item in valuation_registry.metrics if item.domain == "valuation"
         )
+        if route == "cyclical_sector_adapter":
+            valuation_score_registry = stock_map.registry
+            valuation_definitions = tuple(
+                item
+                for item in stock_map.registry.metrics
+                if item.metric_id in stock_map.cyclical_sources and item.domain == "valuation"
+            )
         valuation_assessment = build_instrument_assessment(
             instrument,
             "stock",
             _business_model(target_context),
             decision_time,
-            _valuation_scored_metrics(
-                stock_research,
-                valuation_definitions,
-                target_context,
+            (
+                _cyclical_scored_metrics(
+                    cyclical_payload,
+                    target_context,
+                    stock_map,
+                    definitions=valuation_definitions,
+                    unavailable_reason=route_reason or "CYCLICAL_CORE_EVIDENCE_UNAVAILABLE",
+                )[0]
+                if route == "cyclical_sector_adapter"
+                else _valuation_scored_metrics(
+                    stock_research,
+                    valuation_definitions,
+                    target_context,
+                )
             ),
             DomainRegistry(
-                valuation_registry.version,
-                valuation_registry.checksum,
+                valuation_score_registry.version,
+                valuation_score_registry.checksum,
                 valuation_definitions,
             ),
             target_context=target_context,
@@ -583,6 +657,123 @@ def _financial_scored_metrics(
             metric_id,
             raw,
             definition,
+            rank_authority=stock_map.rank_authority,
+            context=context,
+        )
+        if metric is not None:
+            scored.append(metric)
+    return scored, evidence
+
+
+def _verified_cyclical_projection(
+    projection: object | None,
+    *,
+    instrument: str,
+    context: InstrumentContextV2,
+    business_model: str,
+    decision_time: str,
+) -> tuple[Mapping[str, object] | None, str | None]:
+    if projection is None:
+        return None, "CYCLICAL_ADAPTER_RESULT_MISSING"
+    try:
+        source_payload = _projection_member(projection, "source_payload")
+        if not isinstance(source_payload, Mapping):
+            raise CyclicalAdapterError("cyclical source payload is unavailable")
+        payload = verify_cyclical_projection(
+            projection,
+            expected_source_digest=cyclical_source_digest(source_payload),
+        )
+        definitions = cyclical_adapter_definitions()
+        selection = AdapterRegistry(definitions).select(context)
+        lineage = payload.get("lineage")
+        if not isinstance(lineage, Mapping):
+            raise CyclicalAdapterError("cyclical projection lineage is unavailable")
+        actual_time = _known_at(str(lineage.get("decision_time", "")))
+        expected_time = _known_at(decision_time)
+        if (
+            payload.get("instrument_id") != instrument
+            or payload.get("business_model") != business_model
+            or payload.get("adapter_id") != selection.adapter_id
+            or selection.fallback
+            or payload.get("execution_allowed") is not False
+            or actual_time != expected_time
+            or lineage.get("classification_version") != context.version_id
+            or lineage.get("classification_token") != context.score_invalidation_token
+        ):
+            raise CyclicalAdapterError("cyclical projection route or point-in-time lineage does not match")
+        return payload, None
+    except (CyclicalAdapterError, PeerCohortError, TypeError, ValueError, OverflowError):
+        return None, "CYCLICAL_ADAPTER_RESULT_INVALID"
+
+
+def _cyclical_core_available(
+    projection: Mapping[str, object] | None,
+    configured_sources: Mapping[str, str],
+) -> bool:
+    if projection is None:
+        return False
+    required = {"normalised_margin", "cycle_adjusted_ev_to_earnings"}
+    if not required.issubset(set(configured_sources.values())):
+        return False
+    rows = _projection_member(projection, "metrics", ())
+    by_name = {
+        str(_projection_member(item, "metric", name)): item
+        for name, item in rows
+    } if isinstance(rows, Mapping) else {
+        str(_projection_member(item, "metric", "")): item
+        for item in rows
+    } if isinstance(rows, (tuple, list)) else {}
+    return all(
+        _projection_member(by_name.get(name), "status") == "available"
+        and _finite(_projection_member(by_name.get(name), "value")) is not None
+        for name in required
+    )
+
+
+def _cyclical_scored_metrics(
+    projection: Mapping[str, object] | None,
+    context: InstrumentContextV2,
+    stock_map: StockDecisionMap,
+    *,
+    definitions: Sequence[MetricDefinition],
+    unavailable_reason: str | None,
+) -> tuple[list[ScoredMetric], dict[str, object]]:
+    raw_metrics = _projection_member(projection, "metrics", ()) if projection is not None else ()
+    metric_rows = list(raw_metrics.items()) if isinstance(raw_metrics, Mapping) else [
+        (_projection_member(item, "metric"), item) for item in raw_metrics
+    ] if isinstance(raw_metrics, (tuple, list)) else []
+    by_name = {str(_projection_member(item, "metric", name)): item for name, item in metric_rows}
+    definitions_by_id = {item.metric_id: item for item in definitions}
+    scored: list[ScoredMetric] = []
+    evidence: dict[str, object] = {}
+    for metric_id, producer_name in stock_map.cyclical_sources.items():
+        if metric_id not in definitions_by_id:
+            continue
+        raw = by_name.get(producer_name)
+        record = _evidence_record(raw, f"cyclical_projection.{producer_name}")
+        basis = _projection_member(raw, "basis")
+        cycles = _projection_member(raw, "normalisation_cycle_ids", ())
+        record["basis"] = basis
+        record["normalisation_cycle_ids"] = cycles
+        if producer_name == "cycle_adjusted_ev_to_earnings" and not _cyclical_core_available(
+            projection, stock_map.cyclical_sources
+        ):
+            record["decision_status"] = "UNAVAILABLE"
+            record["reason_code"] = unavailable_reason or "CYCLICAL_CORE_EVIDENCE_UNAVAILABLE"
+            evidence[metric_id] = record
+            continue
+        if raw is None or _projection_member(raw, "status") != "available":
+            record["decision_status"] = "UNAVAILABLE"
+            record["reason_code"] = (
+                unavailable_reason
+                or ", ".join(str(value) for value in _projection_member(raw, "limitations", ()))
+                or "CYCLICAL_METRIC_UNAVAILABLE"
+            )
+        evidence[metric_id] = record
+        metric = _make_scored_metric(
+            metric_id,
+            raw,
+            definitions_by_id[metric_id],
             rank_authority=stock_map.rank_authority,
             context=context,
         )

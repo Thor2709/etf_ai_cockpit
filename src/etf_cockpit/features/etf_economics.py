@@ -14,6 +14,7 @@ import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.values import finite_float_or_none as _finite
+from etf_cockpit.data.fx_data import build_fx_rate_snapshot, fx_cross_rate
 from etf_cockpit.portfolio.costs import estimate_execution_cost
 
 
@@ -115,6 +116,12 @@ class EtfLiquidityReport:
     quote_mid_eur: float | None = None
     nav_eur: float | None = None
     premium_discount_bps: float | None = None
+    nav_freshness: str = "unavailable"
+    fx_status: str = "unavailable"
+    fx_rate_to_eur: float | None = None
+    fx_rate_as_of: str | None = None
+    fx_source_snapshot: str | None = None
+    fx_reason: str | None = None
     underlying_liquidity_eur: float | None = None
     primary_market_capacity_eur: float | None = None
     primary_market_minimum_eur: float | None = None
@@ -159,10 +166,10 @@ def _scope_quote(quote_evidence: pd.DataFrame | Mapping[str, object] | None, ins
         frame = quote_evidence.copy()
     else:
         return pd.DataFrame()
-    for column in _QUOTE_ID_COLUMNS:
-        if column in frame.columns:
-            frame = frame[frame[column].astype(str).eq(str(instrument_id))]
-            break
+    identity_column = next((column for column in _QUOTE_ID_COLUMNS if column in frame.columns), None)
+    if identity_column is None:
+        return pd.DataFrame()
+    frame = frame[frame[identity_column].astype(str).eq(str(instrument_id))]
     timestamp_column = next((column for column in ("quote_timestamp", "timestamp", "as_of", "date") if column in frame.columns), None)
     if timestamp_column is None:
         return pd.DataFrame()
@@ -185,10 +192,31 @@ def _quote_context(quote_evidence: pd.DataFrame | Mapping[str, object] | None, i
     reference = _as_of_timestamp(as_of, latest_price_date)
     frame = _scope_quote(quote_evidence, instrument_id, reference)
     if frame.empty:
+        if isinstance(quote_evidence, Mapping):
+            has_quote_records = bool(quote_evidence)
+            has_identity = any(column in quote_evidence for column in _QUOTE_ID_COLUMNS)
+        elif isinstance(quote_evidence, pd.DataFrame):
+            has_quote_records = not quote_evidence.empty
+            has_identity = any(column in quote_evidence.columns for column in _QUOTE_ID_COLUMNS)
+        else:
+            has_quote_records = has_identity = False
+        identity_matches = False
+        if isinstance(quote_evidence, Mapping):
+            identity_matches = any(str(quote_evidence.get(column, "")) == instrument_id for column in _QUOTE_ID_COLUMNS)
+        elif isinstance(quote_evidence, pd.DataFrame):
+            identity_matches = any(
+                quote_evidence[column].astype(str).eq(instrument_id).any()
+                for column in _QUOTE_ID_COLUMNS
+                if column in quote_evidence.columns
+            )
+        missing = {"bid_ask", "nav", "quote_timestamp"}
+        if has_quote_records and (not has_identity or not identity_matches):
+            missing.add("quote_identity")
         return {
             "quote_status": "unavailable",
             "quote_freshness": "unavailable",
-            "missing_evidence": {"bid_ask", "nav", "quote_timestamp"},
+            "nav_freshness": "unavailable",
+            "missing_evidence": missing,
         }
     row = frame.iloc[-1].to_dict()
     row_currency = _text(row.get("currency") or row.get("quote_currency"))
@@ -200,7 +228,8 @@ def _quote_context(quote_evidence: pd.DataFrame | Mapping[str, object] | None, i
         ask = ask if ask is not None else _quote_value(row, "ask")
     mid = (bid + ask) / 2.0 if bid is not None and ask is not None and ask >= bid else None
     nav = _quote_value(row, "nav_eur", "indicative_nav_eur")
-    if allow_untyped and nav is None:
+    nav_currency = (_text(row.get("nav_currency")) or row_currency or native_currency or "").upper()
+    if nav_currency == "EUR" and nav is None:
         nav = _quote_value(row, "nav", "indicative_nav")
     timestamp = _latest_timestamp(row.get("_timestamp")) or _latest_timestamp(row.get("quote_timestamp")) or _latest_timestamp(row.get("timestamp")) or _latest_timestamp(row.get("as_of"))
     age_hours = None
@@ -208,6 +237,20 @@ def _quote_context(quote_evidence: pd.DataFrame | Mapping[str, object] | None, i
     if timestamp is not None and reference is not None:
         age_hours = (reference - timestamp).total_seconds() / 3600.0
         stale = age_hours > 24.0
+    nav_timestamp_column = next((column for column in ("nav_timestamp", "nav_as_of") if column in row), None)
+    nav_timestamp = _latest_timestamp(row.get(nav_timestamp_column)) if nav_timestamp_column else timestamp
+    nav_identity = _text(row.get("nav_instrument_id")) or _text(row.get("nav_etf_id"))
+    nav_identity_valid = nav_identity is None or nav_identity == instrument_id
+    nav_timestamp_valid = (
+        nav_timestamp is not None
+        and timestamp is not None
+        and reference is not None
+        and nav_timestamp <= timestamp
+        and nav_timestamp <= reference
+        and (timestamp - nav_timestamp).total_seconds() <= 24.0 * 60.0 * 60.0
+    )
+    if not nav_identity_valid or not nav_timestamp_valid:
+        nav = None
     session = (_text(row.get("session")) or _text(row.get("quote_session")) or "").casefold().replace("-", "_").replace(" ", "_")
     off_hours = session in _OFF_HOURS_SESSIONS if session else None
     freshness = "unavailable"
@@ -224,14 +267,28 @@ def _quote_context(quote_evidence: pd.DataFrame | Mapping[str, object] | None, i
         missing.add("bid_ask")
     if nav is None:
         missing.add("nav")
+    if not nav_identity_valid:
+        missing.add("nav_identity")
+    if not nav_timestamp_valid:
+        missing.add("nav_timestamp")
     if timestamp is None:
         missing.add("quote_timestamp")
     untyped_fields = (("bid", "bid_eur"), ("ask", "ask_eur"), ("nav", "nav_eur"), ("indicative_nav", "indicative_nav_eur"))
     if not allow_untyped and any(_positive(row.get(plain)) is not None and _positive(row.get(eur)) is None for plain, eur in untyped_fields):
         missing.add("quote_currency_not_eur")
+    quote_complete = mid is not None and nav is not None and timestamp is not None and not missing.intersection(
+        {"bid_ask", "nav", "nav_identity", "nav_timestamp", "quote_timestamp", "quote_currency_not_eur"}
+    )
+    if nav is None:
+        nav_freshness = "unavailable"
+    elif nav_timestamp_column is None:
+        nav_freshness = "inherited_quote_timestamp"
+    else:
+        nav_freshness = "fresh" if nav_timestamp_valid else "unavailable"
     return {
-        "quote_status": "available",
+        "quote_status": "available" if quote_complete else "unavailable",
         "quote_freshness": freshness,
+        "nav_freshness": nav_freshness,
         "quote_age_hours": None if age_hours is None else round(age_hours, 4),
         "stale_quote": stale,
         "off_hours_quote": off_hours,
@@ -251,6 +308,59 @@ def _quote_context(quote_evidence: pd.DataFrame | Mapping[str, object] | None, i
     }
 
 
+def _fx_context(fx_evidence: pd.DataFrame | None, native_currency: str | None, decision_time: object) -> dict[str, object]:
+    currency = (native_currency or "").strip().upper()
+    if currency == "EUR":
+        return {
+            "fx_status": "not_required",
+            "fx_rate_to_eur": 1.0,
+            "fx_rate_as_of": None,
+            "fx_source_snapshot": None,
+            "fx_reason": None,
+        }
+    if len(currency) != 3 or not currency.isalpha():
+        return {
+            "fx_status": "unavailable",
+            "fx_rate_to_eur": None,
+            "fx_rate_as_of": None,
+            "fx_source_snapshot": None,
+            "fx_reason": "A valid native currency is unavailable for dated FX conversion.",
+        }
+    if fx_evidence is None or fx_evidence.empty:
+        return {
+            "fx_status": "unavailable",
+            "fx_rate_to_eur": None,
+            "fx_rate_as_of": None,
+            "fx_source_snapshot": None,
+            "fx_reason": f"Dated {currency}/EUR FX evidence is missing.",
+        }
+    snapshot = build_fx_rate_snapshot(fx_evidence, decision_time=decision_time, known_at=decision_time)
+    if not snapshot.available:
+        return {
+            "fx_status": "unavailable",
+            "fx_rate_to_eur": None,
+            "fx_rate_as_of": None,
+            "fx_source_snapshot": snapshot.source_snapshot,
+            "fx_reason": snapshot.reason or "A current point-in-time FX snapshot is unavailable.",
+        }
+    cross = fx_cross_rate(snapshot, currency, "EUR")
+    if cross is None:
+        return {
+            "fx_status": "unavailable",
+            "fx_rate_to_eur": None,
+            "fx_rate_as_of": None,
+            "fx_source_snapshot": snapshot.source_snapshot,
+            "fx_reason": f"No unambiguous dated {currency}/EUR FX rate is available.",
+        }
+    return {
+        "fx_status": "available",
+        "fx_rate_to_eur": cross.rate,
+        "fx_rate_as_of": None if cross.as_of_date is None else cross.as_of_date.isoformat(),
+        "fx_source_snapshot": cross.source_snapshot,
+        "fx_reason": None,
+    }
+
+
 def calculate_etf_liquidity(
     config: AppConfig,
     price_history: pd.DataFrame,
@@ -259,6 +369,7 @@ def calculate_etf_liquidity(
     order_value_eur: float = 0.0,
     horizon_days: int = 1,
     quote_evidence: pd.DataFrame | Mapping[str, object] | None = None,
+    fx_evidence: pd.DataFrame | None = None,
     as_of: object = None,
     stress_multiplier: float = 1.0,
     primary_market_capacity_eur: float | None = None,
@@ -281,17 +392,21 @@ def calculate_etf_liquidity(
     if frame.empty:
         return _empty_report(instrument, "No positive dated close values are available for ETF economics.")
     turnover = close * volume
-    # close * volume is in the instrument's native currency.  It is euro
-    # turnover only for an EUR-quoted instrument; without dated FX evidence any
-    # other (or unknown) currency leaves every euro capacity figure unavailable.
+    # close * volume is in the instrument's native currency. Convert it only
+    # through the canonical point-in-time FX snapshot; unknown or unverified
+    # currency evidence leaves euro turnover unavailable.
     native_currency = _native_currency(config, frame, instrument)
-    turnover_is_eur = native_currency == "EUR"
+    latest_date = frame["_date"].iloc[-1]
+    decision_time = as_of if as_of is not None else latest_date
+    fx = _fx_context(fx_evidence, native_currency, decision_time)
+    turnover_is_eur = fx["fx_rate_to_eur"] is not None
+    fx_rate_to_eur = fx["fx_rate_to_eur"]
     recent = frame.tail(60).copy()
     recent_close = close.loc[recent.index]
     recent_volume = volume.loc[recent.index]
     recent_turnover = turnover.loc[recent.index]
-    turnover_20 = _finite(recent_turnover.tail(20).median()) if turnover_is_eur else None
-    turnover_60 = _finite(recent_turnover.median()) if turnover_is_eur else None
+    turnover_20 = _finite(recent_turnover.tail(20).median() * fx_rate_to_eur) if turnover_is_eur else None
+    turnover_60 = _finite(recent_turnover.median() * fx_rate_to_eur) if turnover_is_eur else None
     high = pd.to_numeric(recent.get("high"), errors="coerce") if "high" in recent.columns else pd.Series(dtype=float)
     low = pd.to_numeric(recent.get("low"), errors="coerce") if "low" in recent.columns else pd.Series(dtype=float)
     spread = ((high - low) / recent_close).where(recent_close.gt(0)).dropna()
@@ -306,7 +421,6 @@ def calculate_etf_liquidity(
     volatility = _finite(returns.tail(60).std()) if len(returns) >= 2 else None
     zero_days = int((recent_volume <= 0).sum())
     zero_rate = zero_days / len(recent_volume) if len(recent_volume) else None
-    latest_date = frame["_date"].iloc[-1]
     quote = _quote_context(quote_evidence, instrument, as_of, latest_date, _native_currency(config, frame, instrument))
     effective_spread = quote.get("quoted_spread_bps") if quote.get("quoted_spread_bps") is not None else spread_bps
     spread_source = "quoted_bid_ask" if quote.get("quoted_spread_bps") is not None else "high_low_proxy" if spread_bps is not None else "unavailable"
@@ -356,8 +470,7 @@ def calculate_etf_liquidity(
     warnings: list[str] = []
     if not turnover_is_eur:
         warnings.append(
-            f"Turnover is quoted in {native_currency or 'an unknown currency'} and no dated FX rate is supplied, "
-            "so euro turnover and exchange capacity are unavailable."
+            f"{fx['fx_reason']} Euro turnover and exchange capacity are unavailable."
         )
     if zero_rate and zero_rate > 0:
         warnings.append(f"{zero_days} of {len(recent_volume)} recent rows have zero or missing volume.")
@@ -403,6 +516,12 @@ def calculate_etf_liquidity(
         quote_mid_eur=quote.get("quote_mid_eur"),
         nav_eur=quote.get("nav_eur"),
         premium_discount_bps=quote.get("premium_discount_bps"),
+        nav_freshness=str(quote.get("nav_freshness", "unavailable")),
+        fx_status=str(fx["fx_status"]),
+        fx_rate_to_eur=fx["fx_rate_to_eur"],
+        fx_rate_as_of=fx["fx_rate_as_of"],
+        fx_source_snapshot=fx["fx_source_snapshot"],
+        fx_reason=fx["fx_reason"],
         underlying_liquidity_eur=quote.get("underlying_liquidity_eur"),
         primary_market_capacity_eur=primary_market_capacity_eur if primary_market_capacity_eur is not None else quote.get("primary_market_capacity_eur"),
         primary_market_minimum_eur=primary_market_minimum_eur if primary_market_minimum_eur is not None else quote.get("primary_market_minimum_eur"),

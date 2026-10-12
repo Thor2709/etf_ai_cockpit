@@ -18,8 +18,16 @@ from etf_cockpit.portfolio.benchmark_reference import (
     adjusted_price_binding_for_reference,
     validate_benchmark_reference,
 )
-from etf_cockpit.analysis.stock_evidence import StockEvidence
+from etf_cockpit.analysis.cyclical_sector_adapters import (
+    CyclicalAdapterError,
+    cyclical_adapter_definitions,
+    cyclical_source_digest,
+    cyclical_family_from_labels,
+    verify_cyclical_projection,
+)
+from etf_cockpit.analysis.stock_evidence import StockEvidence, linear_score
 from etf_cockpit.analysis.stock_universe import get_universe_evidence, live_decision_time, records_from_config
+from etf_cockpit.data.stock_fundamentals import load_stock_config
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import BACKTESTS_DIR, DERIVED_DIR, FORECASTS_DIR, RAW_DIR, REPORTS_DIR, ROOT
@@ -185,7 +193,8 @@ COMPONENT_SOURCE_IDS = {
     "timesfm": "model:timesfm",
     "toto": "model:toto",
 }
-KNOWN_SCORE_SOURCE_IDS = frozenset(COMPONENT_SOURCE_IDS.values())
+CYCLICAL_SCORE_SOURCE_IDS = frozenset(item.adapter_id for item in cyclical_adapter_definitions())
+KNOWN_SCORE_SOURCE_IDS = frozenset((*COMPONENT_SOURCE_IDS.values(), *CYCLICAL_SCORE_SOURCE_IDS))
 
 
 @dataclass(frozen=True)
@@ -679,6 +688,7 @@ def _component_is_score_eligible(component: SimpleScoreComponent) -> bool:
         "eodhd",
         "alphavantage",
         "stooq",
+        "sector",
     }
     return (
         component.raw_score is not None
@@ -782,6 +792,7 @@ def build_simple_instrument_scores(
     reference_identity: Mapping[str, object] | None = None,
     peer_member_ids: tuple[str, ...] | None = None,
     cash_observation_time: object | None = None,
+    cyclical_projections: Mapping[str, object] | None = None,
 ) -> list[SimpleInstrumentScore]:
     signals, missing_signal_reasons = _generate_missing_price_signals(config, signals, prices)
     if universe_revision is None:
@@ -885,6 +896,7 @@ def build_simple_instrument_scores(
         crowding=crowding,
         backtest_trust=backtest_trust,
         missing_signal_reasons=missing_signal_reasons,
+        cyclical_projections=cyclical_projections,
     )
     candidate_scores = build_candidate_simple_scores(
         candidate_report,
@@ -894,6 +906,7 @@ def build_simple_instrument_scores(
         include_latest_input=True,
         decision_date=decision_as_of,
         excluded_instrument_ids=config.universe.by_id(),
+        cyclical_projections=cyclical_projections,
     )
     scores = sorted(
         [*universe_scores, *candidate_scores],
@@ -1440,6 +1453,7 @@ def build_universe_simple_scores(
     backtest_trust: dict[str, dict[str, object]] | None = None,
     crowding: ClusterReport | None = None,
     missing_signal_reasons: Mapping[str, str] | None = None,
+    cyclical_projections: Mapping[str, object] | None = None,
 ) -> list[SimpleInstrumentScore]:
     raw_forecast_scores = forecast_component_maps(forecasts)
     return_distributions = forecast_return_distributions(forecasts)
@@ -1524,7 +1538,14 @@ def build_universe_simple_scores(
             ),
             _liquidity_component(liquidity_info),
             *(
-                _stock_fundamental_components(stock_evidence.get(signal.etf_id), stock_evidence_error)
+                _stock_fundamental_components(
+                    stock_evidence.get(signal.etf_id),
+                    stock_evidence_error,
+                    cyclical_projection=(cyclical_projections or {}).get(signal.etf_id),
+                    instrument_id=signal.etf_id,
+                    decision_time=signal.signal_date,
+                    sector=identity.sector,
+                )
                 if stock_like
                 else [_etf_exposure_component(exposure_info, signal.signal_date)]
             ),
@@ -1730,6 +1751,7 @@ def build_candidate_simple_scores(
     include_latest_input: bool = False,
     decision_date: date | None = None,
     excluded_instrument_ids: Iterable[str] = (),
+    cyclical_projections: Mapping[str, object] | None = None,
 ) -> list[SimpleInstrumentScore]:
     report = candidate_report.copy() if candidate_report is not None else pd.DataFrame()
     forecasts = candidate_forecasts.copy() if candidate_forecasts is not None else pd.DataFrame()
@@ -1821,28 +1843,45 @@ def build_candidate_simple_scores(
         if asset_type == "ETF":
             component_rows.append(_etf_exposure_component(etf_exposure.get(instrument_id), decision_date))
         else:
-            component_rows.extend(
-                [
-                    _optional_score_component(
-                        "stock_value",
-                        row.get("value_score_10"),
-                        _candidate_value_why(row),
-                        authority="medium",
-                    ),
-                    _optional_score_component(
-                        "stock_quality",
-                        row.get("quality_score_10"),
-                        _candidate_quality_why(row),
-                        authority="medium",
-                    ),
+            cyclical_components = _cyclical_stock_components(
+                (cyclical_projections or {}).get(instrument_id),
+                instrument_id=instrument_id,
+                decision_time=decision_date,
+                sector=row.get("sector"),
+            )
+            if cyclical_components is not None and all(row.status == "OK" for row in cyclical_components):
+                component_rows.extend(cyclical_components)
+                component_rows.append(
                     _optional_score_component(
                         "analyst_revision",
                         row.get("analyst_revision_score_10"),
                         _candidate_revision_why(row),
                         authority="low",
-                    ),
-                ]
-            )
+                    )
+                )
+            else:
+                component_rows.extend(
+                    [
+                        _optional_score_component(
+                            "stock_value",
+                            row.get("value_score_10"),
+                            _candidate_value_why(row),
+                            authority="medium",
+                        ),
+                        _optional_score_component(
+                            "stock_quality",
+                            row.get("quality_score_10"),
+                            _candidate_quality_why(row),
+                            authority="medium",
+                        ),
+                        _optional_score_component(
+                            "analyst_revision",
+                            row.get("analyst_revision_score_10"),
+                            _candidate_revision_why(row),
+                            authority="low",
+                        ),
+                    ]
+                )
         component_rows.extend(
             [
                 _forecast_component(instrument_id, "baseline", raw_forecast_scores, forecast_details, forecasts),
@@ -2607,8 +2646,50 @@ def _stock_evidence_lookup(
         return {}, f"stock fundamentals could not be evaluated ({type(exc).__name__}: {str(exc)[:100]})"
 
 
-def _stock_fundamental_components(evidence: StockEvidence | None, error: str | None = None) -> list[SimpleScoreComponent]:
+def _stock_fundamental_components(
+    evidence: StockEvidence | None,
+    error: str | None = None,
+    *,
+    cyclical_projection: object | None = None,
+    instrument_id: str | None = None,
+    decision_time: object | None = None,
+    sector: object | None = None,
+) -> list[SimpleScoreComponent]:
     """Value, quality and analyst-revision components of one stock; a missing one states why."""
+
+    cyclical = _cyclical_stock_components(
+        cyclical_projection,
+        instrument_id=instrument_id,
+        decision_time=decision_time,
+        sector=sector,
+    )
+    # Unavailable adapter diagnostics do not replace the generic evidence or
+    # its actionable missing-input explanation and provenance.
+    if cyclical is not None and all(row.status == "OK" for row in cyclical):
+        revision = (
+            _optional_score_component(
+                "analyst_revision",
+                evidence.components["analyst_revision"].score_10,
+                evidence.components["analyst_revision"].why,
+                authority="low",
+            )
+            if evidence is not None
+            else _optional_score_component(
+                "analyst_revision",
+                None,
+                error or "analyst revision evidence is unavailable",
+                authority="low",
+            )
+        )
+        if evidence is not None:
+            revision = replace(
+                revision,
+                source_id=evidence.components["analyst_revision"].source_id,
+                source_authority=None,
+                as_of_date=evidence.components["analyst_revision"].as_of,
+                freshness_status=evidence.components["analyst_revision"].freshness,
+            )
+        return [*cyclical, revision]
 
     output = []
     for key, authority in (("stock_value", "medium"), ("stock_quality", "medium"), ("analyst_revision", "low")):
@@ -2620,6 +2701,147 @@ def _stock_fundamental_components(evidence: StockEvidence | None, error: str | N
         base = _optional_score_component(key, part.score_10, part.why, authority=authority)
         output.append(replace(base, source_id=part.source_id, source_authority=None, as_of_date=part.as_of, freshness_status=part.freshness))
     return output
+
+
+def _cyclical_stock_components(
+    projection: object | None,
+    *,
+    instrument_id: str | None,
+    decision_time: object | None,
+    sector: object | None = None,
+) -> list[SimpleScoreComponent] | None:
+    sector = _noneable_str(sector)
+    if sector is not None and sector.casefold() in {"unknown", "unresolved", "unavailable", "n/a"}:
+        sector = None
+    family = cyclical_family_from_labels((sector,))
+    # A confirmed non-cyclical target retains its generic fundamentals even
+    # when a caller supplies a valid projection for a different classification.
+    if sector is not None and family is None:
+        return None
+    if projection is None:
+        source_id = f"sector:{family}"
+        if family is not None and source_id in CYCLICAL_SCORE_SOURCE_IDS:
+            return [
+                _cyclical_component(
+                    key, None,
+                    "Through-cycle evidence and sufficient cycle history are unavailable",
+                    source_id, None,
+                )
+                for key in ("stock_value", "stock_quality")
+            ]
+        return None
+    adapter_id = _simple_projection_member(projection, "adapter_id")
+    source_id = adapter_id if adapter_id in CYCLICAL_SCORE_SOURCE_IDS else "unavailable"
+    authority = "unavailable"
+    try:
+        source_payload = _simple_projection_member(projection, "source_payload")
+        if not isinstance(source_payload, Mapping):
+            raise CyclicalAdapterError("cyclical source payload is unavailable")
+        payload = verify_cyclical_projection(
+            projection,
+            expected_source_digest=cyclical_source_digest(source_payload),
+        )
+        if payload.get("instrument_id") != instrument_id:
+            raise CyclicalAdapterError("cyclical projection instrument does not match the score target")
+        projected_time = _simple_projection_member(_simple_projection_member(projection, "lineage"), "decision_time")
+        # Full timezone-aware cutoffs are compared. A date-only caller means the
+        # start of that day in UTC, so a projection built later that day is rejected.
+        if isinstance(decision_time, datetime) or (
+            isinstance(decision_time, str) and len(decision_time.strip()) > 10
+        ):
+            target_cutoff = pd.Timestamp(decision_time)
+        else:
+            target_day = _parse_date(decision_time)
+            if target_day is None:
+                raise CyclicalAdapterError("cyclical projection decision cutoff does not match the score time")
+            target_cutoff = pd.Timestamp(target_day, tz="UTC")
+        projection_cutoff = pd.Timestamp(projected_time)
+        if (target_cutoff.tzinfo is None or projection_cutoff.tzinfo is None
+                or target_cutoff != projection_cutoff):
+            raise CyclicalAdapterError("cyclical projection decision cutoff does not match the score time")
+        source_id = str(payload["adapter_id"])
+        if source_id not in CYCLICAL_SCORE_SOURCE_IDS:
+            raise CyclicalAdapterError("cyclical adapter identity is unsupported")
+        if family is None or source_id != f"sector:{family}":
+            raise CyclicalAdapterError("cyclical projection family does not match the target sector classification")
+        if payload.get("execution_allowed") is not False or payload.get("cycle_history_adequate") is not True:
+            raise CyclicalAdapterError("insufficient distinct-cycle history is unavailable")
+        rows = payload.get("metrics", ())
+        metrics = {
+            str(_simple_projection_member(item, "metric")): item
+            for item in rows
+            if _simple_projection_member(item, "metric") is not None
+        } if isinstance(rows, (list, tuple)) else {}
+        margin = metrics.get("normalised_margin")
+        multiple = metrics.get("cycle_adjusted_ev_to_earnings")
+        if _simple_projection_member(margin, "status") != "available":
+            raise CyclicalAdapterError("through-cycle normalised margin is unavailable")
+        if _simple_projection_member(multiple, "status") != "available":
+            reason = _simple_projection_member(multiple, "limitations", ())
+            reason_text = ", ".join(str(item) for item in reason) if isinstance(reason, (list, tuple)) else ""
+            raise CyclicalAdapterError(reason_text or "cycle-adjusted valuation is unavailable")
+        margin_value = _safe_float(_simple_projection_member(margin, "value"))
+        multiple_value = _safe_float(_simple_projection_member(multiple, "value"))
+        if margin_value is None or margin_value <= 0 or multiple_value is None or multiple_value <= 0:
+            raise CyclicalAdapterError("through-cycle valuation inputs are invalid")
+        scoring = load_stock_config().get("scoring", {})
+        cyclical_scoring = scoring.get("cyclical", {}) if isinstance(scoring, Mapping) else {}
+        value_cfg = cyclical_scoring.get("value_ev_earnings_yield", {}) if isinstance(cyclical_scoring, Mapping) else {}
+        quality_cfg = cyclical_scoring.get("quality_normalised_margin", {}) if isinstance(cyclical_scoring, Mapping) else {}
+        if not isinstance(value_cfg, Mapping) or not isinstance(quality_cfg, Mapping):
+            raise CyclicalAdapterError("cyclical score calibration is unavailable")
+        value_score = linear_score(1.0 / multiple_value, float(value_cfg["low"]), float(value_cfg["high"]))
+        quality_score = linear_score(margin_value, float(quality_cfg["low"]), float(quality_cfg["high"]))
+        projected_date = _simple_score_date(projected_time)
+        cycle_ids = _simple_projection_member(margin, "normalisation_cycle_ids", ())
+        cycle_basis = ", ".join(str(item) for item in cycle_ids) if isinstance(cycle_ids, (list, tuple)) else ""
+        value_why = (
+            f"Cycle-adjusted EV / normalised operating earnings is {multiple_value:.2f}x; "
+            f"basis: {_simple_projection_member(multiple, 'basis')}; cycles: {cycle_basis}."
+        )
+        quality_why = (
+            f"Through-cycle normalised margin is {margin_value:.1%}; "
+            f"basis: {_simple_projection_member(margin, 'basis') or 'linked completed cycles'}; cycles: {cycle_basis}."
+        )
+        return [
+            _cyclical_component("stock_value", value_score, value_why, source_id, projected_date),
+            _cyclical_component("stock_quality", quality_score, quality_why, source_id, projected_date),
+        ]
+    except (CyclicalAdapterError, KeyError, TypeError, ValueError, OverflowError) as exc:
+        reason = str(exc) or "cyclical projection is unavailable"
+        unavailable = [
+            _optional_score_component(key, None, f"{COMPONENT_LABELS[key]}: cyclical adapter unavailable ({reason})", authority="medium")
+            for key in ("stock_value", "stock_quality")
+        ]
+        return [
+            replace(row, source_id=source_id, source_authority=authority, freshness_status="unavailable")
+            for row in unavailable
+        ]
+
+
+def _cyclical_component(key: str, score: float | None, why: str, source_id: str, as_of: str | None) -> SimpleScoreComponent:
+    component = _optional_score_component(key, score, why, authority="medium")
+    return replace(
+        component,
+        source_id=source_id,
+        source_authority="issuer_document" if component.score_10 is not None else "unavailable",
+        as_of_date=as_of,
+        freshness_status="ok" if score is not None else "unavailable",
+    )
+
+
+def _simple_projection_member(value: object, key: str, default: object = None) -> object:
+    if isinstance(value, Mapping):
+        return value.get(key, default)
+    return getattr(value, key, default)
+
+
+def _simple_score_date(value: object) -> str | None:
+    text = str(value or "")
+    if not text:
+        return None
+    parsed = _parse_date(text)
+    return parsed.isoformat() if parsed is not None else None
 
 
 def _optional_score_component(key: str, score_10: object, why: str, *, authority: str) -> SimpleScoreComponent:

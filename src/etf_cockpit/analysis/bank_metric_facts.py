@@ -274,11 +274,11 @@ def _financial_metric_facts(
                 reasons.add("period_mismatch")
         return tuple(selected), tuple(sorted(reasons))
 
-    def emit(metric: str, result: float | None, inputs: tuple[dict[str, object], ...], reasons: tuple[str, ...], definition: str, *, unit: str = "ratio", period: str | None = None) -> None:
+    def emit(metric: str, result: float | None, inputs: tuple[dict[str, object], ...], reasons: tuple[str, ...], definition: str, *, unit: str = "ratio", period: str | None = None, fact_category: str = "calculated") -> None:
         facts[:] = [item for item in facts if item.metric != metric]
         limitations = reasons or (() if result is not None else ("missing_input",))
         inferred_period = _row_period(inputs[0]).date().isoformat() if inputs and _row_period(inputs[0]) is not None else cutoff
-        facts.append(fact(metric, result, None, definition=definition, limitations=limitations, source_id_override=f"calculated:{metric}", inputs=inputs, calculated_period=period or target_period or inferred_period, calculated_unit=unit))
+        facts.append(fact(metric, result, None, definition=definition, limitations=limitations, source_id_override=f"calculated:{metric}", inputs=inputs, calculated_period=period or target_period or inferred_period, calculated_unit=unit, fact_category=fact_category))
 
     selected, reasons = compatible(("loans_to_customers", "deposits_from_customers"))
     denom = selected[1].get("value") if len(selected) == 2 else None
@@ -367,4 +367,44 @@ def _financial_metric_facts(
     emit("coverage_ratio", None if reasons or len(selected) != 2 or float(selected[1].get("value")) <= 0 else float(selected[0].get("value")) / float(selected[1].get("value")), selected, reasons + (("invalid_denominator",) if len(selected) != 2 or float(selected[1].get("value")) <= 0 else ()), "loss_allowance / stage_3_exposure")
     selected, reasons = compatible(("dividends", "net_profit"))
     emit("payout_headroom", None if reasons or len(selected) != 2 or float(selected[1].get("value")) == 0 else float(selected[0].get("value")) / float(selected[1].get("value")), selected, reasons + (("invalid_denominator",) if len(selected) != 2 or float(selected[1].get("value")) == 0 else ()), "dividends / net_profit")
+
+    for mix_metric, component in (("fee_income_mix", "net_fee_income"), ("other_income_mix", "other_operating_income")):
+        selected, reasons = compatible((component, "net_interest_income", "net_fee_income", "other_operating_income"))
+        total_income = sum(float(item.get("value")) for item in selected[1:]) if len(selected) == 4 else None
+        invalid = total_income is None or total_income <= 0
+        emit(
+            mix_metric,
+            None if reasons or invalid else float(selected[0].get("value")) / total_income,
+            selected,
+            reasons + (("invalid_denominator",) if invalid and not reasons and len(selected) == 4 else ()),
+            f"{component} / (net_interest_income + net_fee_income + other_operating_income)",
+        )
+
+    # Headroom is derived only from two disclosed Pillar 3/regulatory facts of the same period and unit
+    # whose requirement is stated to be a CET1 requirement; accounting fields never substitute for it.
+    disclosed_headroom = candidates.get("capital_headroom")
+    if disclosed_headroom is None or numeric(disclosed_headroom) is None:
+        ratio_row = candidates.get("cet1_ratio")
+        requirement_row = candidates.get("capital_requirement")
+        selected, reasons = compatible(("cet1_ratio", "capital_requirement"))
+        extra: tuple[str, ...] = ()
+        if len(selected) == 2:
+            if category(ratio_row, "cet1_ratio") != "pillar3" or category(requirement_row, "capital_requirement") != "pillar3":
+                extra += ("regulatory_fact_required",)
+            if str(requirement_row.get("capital_measure") or "").strip().casefold() not in {"cet1", "cet1_ratio"}:
+                extra += ("requirement_basis_unspecified",)
+            if str(ratio_row.get("unit") or "ratio").casefold() != str(requirement_row.get("unit") or "ratio").casefold():
+                extra += ("unit_mismatch",)
+        headroom = None
+        if len(selected) == 2 and not reasons and not extra and numeric(ratio_row) is not None and numeric(requirement_row) is not None:
+            headroom = numeric(ratio_row) - numeric(requirement_row)
+        emit(
+            "capital_headroom",
+            headroom,
+            selected,
+            reasons + extra,
+            "cet1_ratio - capital_requirement (disclosed CET1 requirement incl. buffers)",
+            unit=str((ratio_row or {}).get("unit") or "ratio"),
+            fact_category="pillar3",
+        )
     return facts

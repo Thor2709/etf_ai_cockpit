@@ -20,7 +20,7 @@ from typing import Any
 from etf_cockpit.parsers.contracts import ParseResult, ParseWarning
 
 
-PARSER_VERSION = "2.1"
+PARSER_VERSION = "2.2"
 REPORT_KINDS = ("prospectus", "annual_report", "half_year_report")
 DEFAULT_MAX_FILE_BYTES = 50 * 1024 * 1024
 DEFAULT_MAX_PAGES = 250
@@ -343,11 +343,15 @@ def parse_etf_report(
                 "truncated": "field_output_truncated",
             }[item.status]
             warnings.append(ParseWarning(code, f"Bounded report field is {item.status}: {item.field_name}", severity, _pages_location(item)))
-        elif item.status == "unknown" and item.field_name in required and not (
-            item.field_name == "legal_structure"
-            and any(candidate.field_name == "legal_form" and candidate.status == "extracted" for candidate in evidence)
-        ):
-            warnings.append(ParseWarning("required_field_missing", f"Required report field is unavailable: {item.field_name}", "error", "document"))
+        elif item.status == "unavailable":
+            required_missing = item.field_name in required and not (
+                item.field_name == "legal_structure"
+                and any(candidate.field_name == "legal_form" and candidate.status == "extracted" for candidate in evidence)
+            )
+            if required_missing:
+                warnings.append(ParseWarning("required_field_missing", f"Required report field is unavailable: {item.field_name}", "error", "document"))
+            else:
+                warnings.append(ParseWarning("field_evidence_unavailable", f"Report field evidence is unavailable: {item.field_name}", "warning", "document"))
     expected = str(expected_isin or "").strip().upper()
     actual = str(fields.get("isin") or "").strip().upper()
     if expected and actual != expected:
@@ -478,17 +482,32 @@ def _extract_field(pattern: _FieldPattern, pages: list[str]) -> EtfReportFieldEv
             grouped[key][1].add(number)
             grouped[key][2].append(page[max(0, match.start() - 80): match.end() + 80])
     if not grouped:
-        return EtfReportFieldEvidence(pattern.field_name, None, None, "unknown", "unknown", (), pattern.label, unit=pattern.unit)
+        return EtfReportFieldEvidence(pattern.field_name, None, None, "unknown", "unavailable", (), pattern.label, unit=pattern.unit)
     values = tuple(item[0] for item in grouped.values())
     candidate_pages = tuple(sorted(page for _, pages_for_value, _ in grouped.values() for page in pages_for_value))
     excerpts = " | ".join(f"page {page}: {excerpt}" for value, pages_for_value, excerpts_for_value in grouped.values() for page in sorted(pages_for_value) for excerpt in excerpts_for_value)
     excerpts = " ".join(excerpts.split())[:MAX_EXCERPT_CHARS]
+    if len(values) == 1 and is_unavailable_report_field_value(values[0]):
+        return EtfReportFieldEvidence(
+            pattern.field_name, None, min(candidate_pages), "unknown", "unavailable", values,
+            pattern.label, candidate_pages, excerpts, pattern.unit,
+        )
     if len(values) > 1:
         return EtfReportFieldEvidence(pattern.field_name, None, None, "low", "conflict", values, pattern.label, candidate_pages, excerpts, pattern.unit)
     value, pages_for_value, _ = next(iter(grouped.values()))
     if len(value) > MAX_FIELD_VALUE_CHARS:
         return EtfReportFieldEvidence(pattern.field_name, None, min(pages_for_value), "low", "truncated", (value[:MAX_FIELD_VALUE_CHARS],), pattern.label, tuple(sorted(pages_for_value)), excerpts, pattern.unit)
     return EtfReportFieldEvidence(pattern.field_name, value, min(pages_for_value), "high", "extracted", values, pattern.label, tuple(sorted(pages_for_value)), excerpts, pattern.unit)
+
+
+def is_unavailable_report_field_value(value: object) -> bool:
+    """Recognise explicit disclosure placeholders without treating negatives as missing."""
+
+    normalized = " ".join(re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).split())
+    return bool(re.match(
+        r"^(?:not disclosed|undisclosed|not available|unavailable|unknown|not reported|not provided|not stated|not specified|not applicable|n a|tbd|to be determined)(?:$| )",
+        normalized,
+    ))
 
 
 def _normalise_dates(evidence: list[EtfReportFieldEvidence], fields: dict[str, str | None]) -> tuple[list[EtfReportFieldEvidence], dict[str, str | None]]:
@@ -611,6 +630,7 @@ __all__ = [
     "configure_memory_limit",
     "memory_limit_backend",
     "normalise_bare_decimal_fraction",
+    "is_unavailable_report_field_value",
     "parse_etf_report",
     "parse_etf_report_in_child",
 ]
