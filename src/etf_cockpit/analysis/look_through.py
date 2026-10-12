@@ -270,7 +270,7 @@ def calculate_look_through(
         for dimension in ("sectors", "countries", "currencies"):
             field = {"sectors": "sector", "countries": "country", "currencies": "currency"}[dimension]
             if getattr(item, field):
-                bucket[dimension].append(getattr(item, field))
+                bucket[dimension].append((getattr(item, field), item.weight))
         for dimension, bucket_name in {
             "industry": "industries",
             "domicile": "domiciles",
@@ -280,7 +280,7 @@ def calculate_look_through(
         }.items():
             reported_value = reported_dimensions.get(item.identity, {}).get(dimension)
             if reported_value:
-                bucket[bucket_name].append(reported_value)
+                bucket[bucket_name].append((reported_value, item.weight))
         if not item.issuer and not item.company and not _mapped_identity(identity_map, item.identity):
             limitations.append(f"Issuer-level grouping is unavailable for {item.identity}; other listings may remain separate.")
 
@@ -293,24 +293,26 @@ def calculate_look_through(
             "factors": "factor",
             "cap_buckets": "cap bucket",
         }.items():
-            if len({_clean_text(value) for value in values[field] if _clean_text(value)}) > 1:
+            if len({_clean_text(value) for value, _ in values[field] if _clean_text(value)}) > 1:
                 limitations.append(f"Conflicting reported {dimension} evidence across listings was excluded for {key}.")
-        economic_rows.append(
-            {
-                "identity": key,
-                "display_name": min(values["display_names"]),
-                "weight": round(float(values["weight"]), 12),
-                "listing_identities": tuple(sorted(set(values["identities"]))),
-                "sector": _single_value(values["sectors"]),
-                "country": _single_value(values["countries"]),
-                "currency": _single_value(values["currencies"]),
-                "industry": _single_value(values["industries"]),
-                "domicile": _single_value(values["domiciles"]),
-                "economic_currency": _single_value(values["economic_currencies"]),
-                "factor": _single_value(values["factors"]),
-                "cap_bucket": _single_value(values["cap_buckets"]),
-            }
-        )
+        row = {
+            "identity": key,
+            "display_name": min(values["display_names"]),
+            "weight": round(float(values["weight"]), 12),
+            "listing_identities": tuple(sorted(set(values["identities"]))),
+        }
+        for dimension, field in {
+            "sector": "sectors",
+            "country": "countries",
+            "currency": "currencies",
+            "industry": "industries",
+            "domicile": "domiciles",
+            "economic_currency": "economic_currencies",
+            "factor": "factors",
+            "cap_bucket": "cap_buckets",
+        }.items():
+            row[dimension], row[f"{dimension}_weight"] = _single_weighted_value(values[field])
+        economic_rows.append(row)
     economic_rows.sort(key=lambda row: (-row["weight"], row["identity"]))
     concentration = _concentration(
         economic_rows, mapped_weight, reported_total, minimum_aggregate_coverage
@@ -819,6 +821,15 @@ def _concentration(
     reported_total: float,
     minimum_aggregate_coverage: float,
 ) -> dict[str, object]:
+    if mapped_weight <= 0:
+        return {
+            "top_holdings": (), "top_5_share": None, "top_10_share": None, "top_5_share_covered": None,
+            "top_10_share_covered": None, "hhi": None, "hhi_gross_weight_squared": None,
+            "effective_number_of_holdings": None, "denominator_weight": 0.0,
+            "denominator": "mapped operating-company weight", "coverage_fraction": 0.0,
+            "mapped_to_reported_weight_fraction": 0.0, "minimum_coverage": minimum_aggregate_coverage,
+            "status": "unavailable", "reason_code": "look_through_evidence_unavailable",
+        }
     square_sum = math.fsum(float(row["weight"]) ** 2 for row in rows)
     hhi = square_sum / (mapped_weight**2) if mapped_weight > 0 else 0.0
     top_5 = math.fsum(float(row["weight"]) for row in rows[:5])
@@ -888,7 +899,9 @@ def _exposures(economic_rows: list[dict[str, object]], direct_holdings: tuple[ob
         ):
             bucket = row[dimension]
             if bucket:
-                result[dimension][str(bucket)] = round(result[dimension].get(str(bucket), 0.0) + float(row["weight"]), 12)
+                result[dimension][str(bucket)] = round(
+                    result[dimension].get(str(bucket), 0.0) + float(row[f"{dimension}_weight"]), 12
+                )
     for item in direct_holdings:
         if item.exposure_type == "security":
             result["listing"][item.identity] = round(result["listing"].get(item.identity, 0.0) + item.weight, 12)
@@ -911,7 +924,7 @@ def _exposure_coverage(
             mapped_weight
             if dimension in {"issuer", "listing"}
             else math.fsum(
-                float(row["weight"])
+                float(row[f"{dimension}_weight"])
                 for row in economic_rows
                 if _clean_text(row.get(dimension))
             )
@@ -1151,9 +1164,12 @@ def _as_date(value: object) -> date | None:
     return None
 
 
-def _single_value(values: list[object]) -> str | None:
-    unique = sorted({_clean_text(value) for value in values if _clean_text(value)})
-    return unique[0] if len(unique) == 1 else None
+def _single_weighted_value(entries: list[tuple[object, float]]) -> tuple[str | None, float]:
+    """Return the unambiguous value and only the listing weight that evidences it."""
+    unique = {_clean_text(value) for value, _ in entries if _clean_text(value)}
+    if len(unique) != 1:
+        return None, 0.0
+    return next(iter(unique)), round(math.fsum(float(weight) for value, weight in entries if _clean_text(value)), 12)
 
 
 def _unique_text(values: object) -> tuple[str, ...]:

@@ -450,7 +450,7 @@ def _render_etf_look_through(value: object) -> ft.Control:
                 selectable=True,
             ),
         ],
-        spacing=6,
+        spacing=4,
     )
     return GlassCard(
         "ETF look-through",
@@ -471,7 +471,8 @@ def _render_etf_look_through(value: object) -> ft.Control:
             ft.Text(
                 f"Coverage {weight(concentration.get('coverage_fraction'))} · minimum {weight(concentration.get('minimum_coverage'))} · "
                 f"top 5 gross {weight(concentration.get('top_5_share'))} · top 10 gross {weight(concentration.get('top_10_share'))} · "
-                f"HHI {concentration.get('hhi', 'unavailable')} · effective holdings {concentration.get('effective_number_of_holdings', 'unavailable')} · "
+                f"HHI {concentration.get('hhi') if concentration.get('hhi') is not None else 'unavailable'} · "
+                f"effective holdings {concentration.get('effective_number_of_holdings') if concentration.get('effective_number_of_holdings') is not None else 'unavailable'} · "
                 f"status {concentration.get('status', 'unavailable')}",
                 size=11,
                 selectable=True,

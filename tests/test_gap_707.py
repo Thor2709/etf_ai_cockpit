@@ -185,6 +185,31 @@ def test_low_fundamental_and_dimension_coverage_withholds_aggregates() -> None:
     assert underreported.concentration["status"] == "partial"
     assert underreported.normalized_exposures["sector"] == {}
 
+    # A valid nondefault threshold is honoured; invalid thresholds fail closed.
+    relaxed = calculate_look_through(
+        pd.DataFrame([_holding(APPLE_ISIN, 1.0, sector="Technology")]),
+        instrument_id="TESTETF",
+        decision_time=DECISION_TIME,
+        analysis_date=HOLDINGS_DATE,
+        constituent_fundamentals=pd.DataFrame([_fundamental("SEC-APPLE", 20.0, 0.1)]),
+        identity_map={f"isin:{APPLE_ISIN.casefold()}": "SEC-APPLE"},
+        require_canonical_identity=True,
+        minimum_aggregate_coverage=0.99,
+    )
+    assert relaxed.minimum_aggregate_coverage == pytest.approx(0.99)
+    assert relaxed.calculated_metrics["pe_ratio"]["value"] == pytest.approx(20.0)
+    for bad in (-0.1, 1.5, float("nan"), True, "0.8"):
+        rejected = calculate_look_through(
+            pd.DataFrame([_holding(APPLE_ISIN, 1.0, sector="Technology")]),
+            instrument_id="TESTETF",
+            decision_time=DECISION_TIME,
+            analysis_date=HOLDINGS_DATE,
+            minimum_aggregate_coverage=bad,
+        )
+        assert rejected.status == "unavailable"
+        assert rejected.calculated_metrics["pe_ratio"]["value"] is None
+        assert any("Minimum aggregate coverage" in item for item in rejected.limitations)
+
 
 def test_full_coverage_exposes_reported_dimensions_and_calculated_metrics() -> None:
     summary = calculate_look_through(
@@ -211,6 +236,36 @@ def test_full_coverage_exposes_reported_dimensions_and_calculated_metrics() -> N
     assert summary.normalized_exposures["industry"] == {"Software": 1.0}
     assert summary.normalized_exposures["factor"] == {"Growth": 0.5, "Value": 0.5}
     assert summary.lineage["exposure_evidence"]["factor"]["label"] == "provider_reported_holdings_dimension"
+
+    # Missing, ambiguous or mismatched currency evidence withholds the metrics.
+    holdings = pd.DataFrame([_holding(APPLE_ISIN, 1.0, sector="Technology")])
+    mixed_currency = pd.DataFrame(
+        [
+            _holding(APPLE_ISIN, 0.5, sector="Technology"),
+            {**_holding(MICROSOFT_ISIN, 0.5, sector="Technology"), "currency": "EUR"},
+        ]
+    )
+    cases = {
+        "mismatch": (holdings, {**_fundamental("SEC-APPLE", 10.0, 0.1), "currency": "EUR"}),
+        "missing": (holdings, {**_fundamental("SEC-APPLE", 10.0, 0.1), "currency": ""}),
+        "ambiguous": (mixed_currency, _fundamental("SEC-APPLE", 10.0, 0.1)),
+    }
+    for name, (frame, fact) in cases.items():
+        result = calculate_look_through(
+            frame,
+            instrument_id="TESTETF",
+            decision_time=DECISION_TIME,
+            analysis_date=HOLDINGS_DATE,
+            constituent_fundamentals=pd.DataFrame([fact]),
+            identity_map={
+                f"isin:{APPLE_ISIN.casefold()}": "SEC-APPLE",
+                f"isin:{MICROSOFT_ISIN.casefold()}": "SEC-APPLE",
+            },
+            require_canonical_identity=True,
+        )
+        assert result.calculated_metrics["pe_ratio"]["value"] is None, name
+        assert result.calculated_metrics["roic"]["value"] is None, name
+        assert any("currency" in item for item in result.limitations), name
 
 
 def test_missing_canonical_master_returns_unavailable_without_values(
