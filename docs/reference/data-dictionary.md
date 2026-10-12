@@ -360,6 +360,7 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/supply_chain_intake.yaml | components, dependency_lock, policy, registry_version, review_status, schema_version, signature, third_party_notices | registry_version="2026-07-22"; schema_version="supply-chain-intake.v1" |
 | configs/supply_chain_policy.yaml | approved_mitigations, critical_vulnerabilities, dependency_cooldown_days, dependency_lock, emergency_patch_window_hours, end_of_life_policy, missing_license_metadata, policy_version, schema_version, secret_scan, signature_algorithm, signing_key_env, unclassified_vulnerabilities, update_mode, vulnerability_tool | policy_version="2026-07-17"; schema_version="1.0" |
 | configs/top_n_selection_v1.yaml | bootstrap_count, bootstrap_seed, maximum_top_n, minimum_effective_support, minimum_raw_support, schema_version, tie_break, top_n, utility_name, version, weights | schema_version=top_n_selection.v1; version=top_n_selection_v1 |
+| configs/tuning_v1.yaml | defaults, parameters, schema_version, version | schema_version=1; version=tuning-v1 |
 | configs/ui_acceptance.yaml | controls, version | version=3 |
 | configs/ui_settings.yaml | default_etf, default_page, theme_mode, window_height, window_min_height, window_min_width, window_width | — |
 | configs/universe.yaml | etfs, schema_version | schema_version=1 |
