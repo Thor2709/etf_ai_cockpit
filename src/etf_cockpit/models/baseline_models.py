@@ -41,8 +41,8 @@ def baseline_forecast(
         expected = mean * horizon
         expected_excess = expected - benchmark_mean * horizon
         horizon_vol = vol * np.sqrt(horizon / 252) if vol else 0.0
-        q10 = expected - 1.28 * horizon_vol
-        q90 = expected + 1.28 * horizon_vol
+        q10 = expected - 1.2816 * horizon_vol
+        q90 = expected + 1.2816 * horizon_vol
         results.append(
             ForecastResult(
                 run_id=run_id,

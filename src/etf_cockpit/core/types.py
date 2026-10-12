@@ -61,7 +61,7 @@ class ForecastResult:
     forecast_drawdown_prob: float | None = None
     status: ModelStatus = "ok"
     error_message: str | None = None
-    model_allowed_in_score: bool = True
+    model_allowed_in_score: bool = False
     is_fallback: bool = False
     fallback_model: str | None = None
     reason_unavailable: str | None = None
@@ -76,6 +76,10 @@ class ForecastResult:
     q95_return: float | None = None
     quantile_method: str | None = None
     coverage_ratio: float | None = None
+    promotion_status: str = "not_proven"
+    calibration_horizon_days: int | None = None
+    point_statistic: str | None = None
+    distribution_status: str | None = None
 
 
 @dataclass(frozen=True)

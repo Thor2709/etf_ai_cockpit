@@ -13,13 +13,15 @@ from etf_cockpit.core.paths import ROOT
 from etf_cockpit.core.types import ForecastResult
 from etf_cockpit.models.base import ModelInput
 from etf_cockpit.models.distribution_store import (
-    QUANTILE_METHOD_DECILES,
-    QUANTILE_METHOD_NORMAL,
     complete_return_quantiles,
     derived_quantile_columns,
     history_coverage_ratio,
 )
 from etf_cockpit.models.timesfm_adapter import _has_weight_files, _quantile_vol_proxy
+
+
+QUANTILE_METHOD_TOTO_QUADRATURE_APPROX = "toto_daily_quadrature_approx"
+POINT_STATISTIC_TOTO = "median_sum_of_daily_medians"
 
 
 class TotoAdapter:
@@ -76,27 +78,60 @@ class TotoAdapter:
         self._device = _torch_device(torch, self.config.device)
         self._model = model.to(self._device).eval()
 
-    def build_multivariate_input(self, etf_id: str, as_of_date: date, prices: pd.DataFrame) -> ModelInput:
+    def _return_history(self, as_of_date: date, prices: pd.DataFrame) -> pd.DataFrame:
         frame = prices.copy()
         frame["date"] = pd.to_datetime(frame["date"]).dt.date
         frame = frame[frame["date"] <= as_of_date]
         pivot = frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
         pivot = pivot.where(np.isfinite(pivot) & (pivot > 0))
-        returns = np.log(pivot / pivot.shift(1)).replace([np.inf, -np.inf], np.nan).dropna(how="all")
-        if etf_id not in returns or returns[etf_id].dropna().empty:
-            raise ValueError(f"{etf_id}: no finite adjusted log-return history at or before {as_of_date}.")
-        observed_target = int(returns[etf_id].notna().sum())
-        columns = [etf_id] + [column for column in returns.columns if column != etf_id]
-        series = returns[columns].tail(self.config.context_length)
+        # Compute on each instrument's own valid sessions before union-calendar
+        # alignment. A closed session stays missing, not a synthetic zero return.
+        returns = pivot.apply(lambda levels: np.log(levels.dropna() / levels.dropna().shift(1)))
+        return returns.reindex(pivot.index).replace([np.inf, -np.inf], np.nan).dropna(how="all")
+
+    def _context_series(self, returns: pd.DataFrame) -> pd.DataFrame:
+        series = returns.reindex(columns=sorted(returns.columns)).tail(self.config.context_length)
         patch_size = self._patch_size()
         usable_rows = (len(series) // patch_size) * patch_size
         if usable_rows <= 0:
             raise ValueError(f"Toto requires at least one complete {patch_size}-step context patch.")
-        series = series.tail(usable_rows)
+        return series.tail(usable_rows)
+
+    def _target_input(self, etf_id: str, as_of_date: date, returns: pd.DataFrame, series: pd.DataFrame) -> ModelInput:
+        if etf_id not in returns or returns[etf_id].dropna().empty:
+            raise ValueError(f"{etf_id}: no finite adjusted log-return history at or before {as_of_date}.")
+        observed_target = int(returns[etf_id].notna().sum())
+        patch_size = self._patch_size()
         observed = int(series[etf_id].notna().sum())
         if observed < patch_size:
             raise ValueError(f"{etf_id}: Toto requires at least {patch_size} finite adjusted log-return observations in context; found {observed}.")
         return ModelInput(etf_id=etf_id, as_of_date=as_of_date, series=series, observed_returns=observed_target)
+
+    def build_multivariate_input(self, etf_id: str, as_of_date: date, prices: pd.DataFrame) -> ModelInput:
+        returns = self._return_history(as_of_date, prices)
+        return self._target_input(etf_id, as_of_date, returns, self._context_series(returns))
+
+    def forecast_universe(
+        self, etf_ids: list[str], as_of_date: date, horizons: list[int],
+        prices: pd.DataFrame, *, run_id: str = "manual",
+    ) -> list[ForecastResult]:
+        targets = list(dict.fromkeys(etf_ids))
+        if not targets or not horizons:
+            return []
+        if not self.is_available() or self.config.mode == "mock":
+            return [row for target in targets for row in self.forecast_etf(
+                target, as_of_date, horizons, prices=prices, run_id=run_id,
+            )]
+        try:
+            if self._model is None:
+                self.load_model()
+            return self._forecast_universe_live(targets, as_of_date, horizons, prices, run_id=run_id)
+        except Exception as exc:
+            return [row for target in targets for row in self._status_results(
+                horizons, etf_id=target, as_of_date=as_of_date, run_id=run_id,
+                status="unavailable" if isinstance(exc, ValueError) else "failed",
+                message=f"Toto live forecast failed: {type(exc).__name__}: {exc}",
+            )]
 
     def forecast_etf(
         self,
@@ -188,18 +223,36 @@ class TotoAdapter:
         *,
         run_id: str,
     ) -> list[ForecastResult]:
+        return self._forecast_universe_live([etf_id], as_of_date, horizons, prices, run_id=run_id)
+
+    def _forecast_universe_live(
+        self, etf_ids: list[str], as_of_date: date, horizons: list[int],
+        prices: pd.DataFrame, *, run_id: str,
+    ) -> list[ForecastResult]:
         torch = __import__("torch")
-        model_input = self.build_multivariate_input(etf_id, as_of_date, prices)
-        series = model_input.series.dropna(how="all")
-        if series.empty or etf_id not in series.columns:
-            raise ValueError("No adjusted return history available for Toto live forecast.")
+        returns = self._return_history(as_of_date, prices)
+        series = self._context_series(returns)
+        inputs: dict[str, ModelInput] = {}
+        results: dict[str, list[ForecastResult]] = {}
+        for etf_id in etf_ids:
+            try:
+                inputs[etf_id] = self._target_input(etf_id, as_of_date, returns, series)
+            except ValueError as exc:
+                results[etf_id] = self._status_results(
+                    horizons, etf_id=etf_id, as_of_date=as_of_date, run_id=run_id,
+                    status="unavailable", message=str(exc),
+                )
+        if not inputs:
+            return [row for etf_id in etf_ids for row in results[etf_id]]
         # Zero is only the tensor placeholder for missing observations; the
         # explicit mask keeps those values out of the model's observed history.
         values = series.fillna(0.0).to_numpy(dtype=float).T[None, :, :]
         mask = series.notna().to_numpy(dtype=bool).T[None, :, :]
         target = torch.tensor(values, dtype=torch.float32, device=self._device)
         target_mask = torch.tensor(mask, dtype=torch.bool, device=self._device)
-        series_ids = torch.arange(values.shape[1], dtype=torch.long, device=self._device).reshape(1, values.shape[1])
+        # Toto2 group-id equality enables cross-variate attention. Keep the
+        # observation mask intact, including entirely unobserved peer variates.
+        series_ids = torch.zeros((1, values.shape[1]), dtype=torch.long, device=self._device)
         with torch.no_grad():
             quantiles = self._model.forecast(
                 {"target": target, "target_mask": target_mask, "series_ids": series_ids},
@@ -207,15 +260,24 @@ class TotoAdapter:
                 decode_block_size=self.config.decode_block_size,
                 has_missing_values=bool((~mask).any()),
             )
-        return toto_quantiles_to_log_return_results(
-            quantiles=_to_numpy(quantiles),
-            horizons=horizons,
-            etf_id=etf_id,
-            forecast_date=as_of_date,
-            run_id=run_id,
-            model_version=f"toto_2_0_{self.config.model_size or 'live'}",
-            observed_returns=model_input.observed_returns,
-        )
+        output = _to_numpy(quantiles)
+        if output.ndim != 4 or output.shape[:3] != (9, 1, len(series.columns)):
+            raise ValueError("Toto output does not match the input variates; target mapping is unavailable.")
+        for etf_id, model_input in inputs.items():
+            index = series.columns.get_loc(etf_id)
+            try:
+                results[etf_id] = toto_quantiles_to_log_return_results(
+                    quantiles=output[:, :, index:index + 1, :], horizons=horizons,
+                    etf_id=etf_id, forecast_date=as_of_date, run_id=run_id,
+                    model_version=f"toto_2_0_{self.config.model_size or 'live'}",
+                    observed_returns=model_input.observed_returns,
+                )
+            except ValueError as exc:
+                results[etf_id] = self._status_results(
+                    horizons, etf_id=etf_id, as_of_date=as_of_date, run_id=run_id,
+                    status="unavailable", message=str(exc),
+                )
+        return [row for etf_id in etf_ids for row in results[etf_id]]
 
     def _mock_forecast(
         self,
@@ -258,7 +320,9 @@ class TotoAdapter:
                     q10_return=q10,
                     q50_return=expected,
                     q90_return=q90,
-                    **derived_quantile_columns(complete_return_quantiles(q10, expected, q90), QUANTILE_METHOD_NORMAL),
+                    **derived_quantile_columns(complete_return_quantiles(q10, expected, q90), QUANTILE_METHOD_TOTO_QUADRATURE_APPROX),
+                    point_statistic=POINT_STATISTIC_TOTO,
+                    distribution_status="available",
                     coverage_ratio=coverage,
                     forecast_vol=horizon_vol,
                     prob_positive_return=float(1 / (1 + np.exp(-expected / max(horizon_vol, 1e-6)))),
@@ -282,6 +346,9 @@ class TotoAdapter:
                 q10_return=0.0,
                 q50_return=0.0,
                 q90_return=0.0,
+                quantile_method=QUANTILE_METHOD_TOTO_QUADRATURE_APPROX,
+                point_statistic=POINT_STATISTIC_TOTO,
+                distribution_status="available",
                 forecast_vol=0.0,
                 prob_positive_return=0.5,
                 status="ok",
@@ -393,10 +460,14 @@ def toto_quantiles_to_log_return_results(
                 q10_return=q10,
                 q50_return=q50,
                 q90_return=q90,
-                **derived_quantile_columns(completed, QUANTILE_METHOD_DECILES),
+                **derived_quantile_columns(completed, QUANTILE_METHOD_TOTO_QUADRATURE_APPROX),
+                point_statistic=POINT_STATISTIC_TOTO,
+                distribution_status="available",
                 coverage_ratio=coverage,
                 forecast_vol=_quantile_vol_proxy(q10, q90, horizon),
-                prob_positive_return=float(q50 > 0),
+                prob_positive_return=__import__(
+                    "etf_cockpit.models.timesfm_adapter", fromlist=["probability_positive_return"]
+                ).probability_positive_return(q10, q50, q90, completed),
                 status="ok",
                 calibration_status="not_evaluated",
             )

@@ -43,7 +43,7 @@ def _forecasts(prices: pd.DataFrame, origins: dict[str, list[str]], *, model_acc
                 # An origin whose target session is not yet priced stays unmatured; its value is irrelevant.
                 actual = 0.01 if start + HORIZON >= len(series) else float(np.log(series.iloc[start + HORIZON] / series.iloc[start]))
                 for name, expected in (("baseline", -0.5 * actual), (model, 0.9 * actual if model_accurate else -0.5 * actual)):
-                    rows.append({"run_id": f"r-{day}", "model_name": name, "etf_id": etf, "forecast_date": day, "horizon_days": HORIZON, "expected_return": expected, "status": "ok"})
+                    rows.append({"run_id": f"r-{day}", "model_name": name, "model_version": "v", "created_at": (pd.Timestamp(day) - pd.Timedelta(days=1 if name == "timesfm3" else 0)).isoformat(), "etf_id": etf, "forecast_date": day, "horizon_days": HORIZON, "expected_return": expected, "status": "ok"})
     return pd.DataFrame(rows).drop_duplicates(["model_name", "etf_id", "forecast_date"])
 
 
@@ -67,7 +67,8 @@ def test_model_below_the_evidence_minimum_is_not_counted() -> None:
     assert decision.matured_forecasts == 24 and decision.required_forecasts == 100
     assert "24 of 100 matured forecasts" in decision.reason
     row = _apply_promotion(_row("timesfm3"), {"timesfm3": decision}, False)
-    assert row.model_allowed_in_score is False and row.calibration_status.startswith("unproven_")
+    assert row.model_allowed_in_score is False and row.promotion_status == NOT_PROVEN
+    assert row.calibration_status in {"good", "mixed", "weak", "limited"}
     assert _forecast_to_row(row, {"timesfm3": decision})["promotion_state"] == NOT_PROVEN
 
 
@@ -125,7 +126,7 @@ def test_run_forecasts_applies_the_decision_to_stored_rows(tmp_path, monkeypatch
 
     def run(state: str):
         monkeypatch.setattr(ForecastService, "_run_timesfm_forecasts", fake_timesfm)
-        decision = ModelPromotion("timesfm", state, "test", matured_forecasts=120, required_forecasts=100, evidence_after="2020-01-01")
+        decision = ModelPromotion("timesfm", state, "test", matured_forecasts=120, required_forecasts=100, evidence_after="2020-01-01", model_version="v")
 
         def evaluate(self, as_of_date, evidence_prices, history=None):
             seen["first_price_day"] = pd.to_datetime(evidence_prices["date"], utc=True).min().tz_localize(None)

@@ -54,5 +54,5 @@ class TimesFM3Adapter(TimesFMAdapter):
             last_value=float(values.iloc[-1]), horizons=horizons, etf_id=etf_id,
             forecast_date=forecast_date, run_id=run_id,
             model_version="timesfm_3_0_pytorch", model_name=self.model_name,
-            observed_returns=len(cleaned) - 1,
+            observed_returns=int((cleaned.notna() & cleaned.shift().notna()).sum()),
         )

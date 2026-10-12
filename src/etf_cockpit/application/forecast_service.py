@@ -114,6 +114,11 @@ class ForecastService:
         if cache_request_identity is not None and dict(cache_request_identity) != derived_request_identity:
             raise ValueError("forecast cache request identity does not match the calculation request")
         pivot = price_frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
+        # Preserve row presence separately from the union pivot's holiday NaNs.
+        pivot.attrs["timesfm_price_rows"] = {
+            etf_id: group.sort_values("date")
+            for etf_id, group in price_frame.groupby("etf_id", sort=False)
+        }
         benchmark_id = context.benchmark_data_id if context is not None else None
         benchmark_returns = daily_log_returns(pivot[benchmark_id]).dropna() if benchmark_id in pivot else None
         forecasts: list[ForecastResult] = []
@@ -170,8 +175,8 @@ class ForecastService:
                 # Candidate runs pass the configured universe's prices so every run in a workflow shares one decision.
                 promotions = self.evaluate_promotions(as_of_date, promotion_prices if promotion_prices is not None else evidence_prices)
             forecasts = [_apply_promotion(row, promotions, self.config.models.shadow_optional_models) for row in forecasts]
-        elif self.config.models.shadow_optional_models:
-            forecasts = [_shadow_forecast(row) for row in forecasts]
+        else:
+            forecasts = [_apply_promotion(row, {}, self.config.models.shadow_optional_models) for row in forecasts]
         with publication_scope(publish_guard):
             ensure_run_manifest(
                 run_id,
@@ -231,9 +236,17 @@ class ForecastService:
         forecasts: list[ForecastResult] = []
         try:
             for etf_id in etf_ids:
+                try:
+                    series = _timesfm_price_series(pivot, etf_id, as_of_date)
+                except ValueError as exc:
+                    forecasts.extend(adapter._status_results(
+                        horizons, etf_id=etf_id, forecast_date=as_of_date,
+                        run_id=run_id, status="unavailable", message=str(exc),
+                    ))
+                    continue
                 forecasts.extend(
                     adapter.forecast_series(
-                        pivot[etf_id].dropna() if etf_id in pivot else pd.Series(dtype=float, index=pd.DatetimeIndex([])),
+                        series,
                         horizons,
                         etf_id=etf_id,
                         forecast_date=as_of_date,
@@ -255,21 +268,13 @@ class ForecastService:
         from etf_cockpit.models.toto_adapter import TotoAdapter
 
         adapter = TotoAdapter(self.config.models.runtime("toto"))
-        forecasts: list[ForecastResult] = []
         try:
-            for etf_id in etf_ids:
-                forecasts.extend(
-                    adapter.forecast_etf(
-                        etf_id,
-                        as_of_date,
-                        horizons,
-                        prices=price_frame[["date", "etf_id", "adjusted_close"]],
-                        run_id=run_id,
-                    )
-                )
+            return adapter.forecast_universe(
+                etf_ids, as_of_date, horizons,
+                prices=price_frame[["date", "etf_id", "adjusted_close"]], run_id=run_id,
+            )
         finally:
             adapter.unload_model()
-        return forecasts
 
     def _write_forecasts(
         self,
@@ -329,19 +334,19 @@ class ForecastService:
 
 
 def _forecast_to_row(forecast: ForecastResult, promotions: Mapping[str, ModelPromotion] | None = None) -> dict[str, object]:
+    if forecast.model_name == "baseline":
+        forecast = _apply_promotion(forecast, {}, False)
     data = asdict(forecast)
     data["forecast_date"] = forecast.forecast_date.isoformat()
-    promotion = (promotions or {}).get(forecast.model_name)
-    if forecast.calibration_status.startswith(_PROMOTION_PREFIXES) and promotion is not None:
+    promotion = _promotion_for_row(forecast, promotions or {})
+    if forecast.promotion_status in {COUNTING, NOT_PROVEN} and promotion is not None:
         data.update(_promotion_evidence(forecast, promotion))
-    elif forecast.calibration_status.startswith("shadow_"):
+    elif forecast.promotion_status == "shadow_only":
         data.update(_pretraining_evidence(forecast.model_name, forecast.forecast_date))
         data["promotion_state"] = "shadow_only"
         data["execution_allowed"] = False
     return data
 
-
-_PROMOTION_PREFIXES = ("promoted_", "unproven_")
 
 
 def _pretraining_evidence(model_name: str, forecast_date: date) -> dict[str, object]:
@@ -357,9 +362,14 @@ def _pretraining_evidence(model_name: str, forecast_date: date) -> dict[str, obj
 
 
 def _promotion_evidence(forecast: ForecastResult, promotion: ModelPromotion) -> dict[str, object]:
-    """Leakage flags for one row: its origin must follow the cutoff, or the model's first local run when the cutoff is unknown."""
+    """Leakage flags: every optional origin must follow its first verified local run and known cutoff."""
 
-    window_open = forecast.status == "ok" and promotion.evidence_window_open(forecast.forecast_date)
+    window_open = (
+        forecast.status == "ok"
+        and forecast.model_version == promotion.model_version
+        and forecast.horizon_days == promotion.evidence_horizon_days
+        and promotion.evidence_window_open(forecast.forecast_date)
+    )
     declared = promotion.pretraining_cutoff != "unknown"
     return {
         "pretraining_cutoff": promotion.pretraining_cutoff,
@@ -369,10 +379,20 @@ def _promotion_evidence(forecast: ForecastResult, promotion: ModelPromotion) -> 
         ),
         "promotion_evidence_allowed": window_open,
         "evaluation_scope": "matured out-of-sample evidence against the baseline",
-        "promotion_state": promotion.state,
+        "promotion_state": forecast.promotion_status,
         "promotion_reason": promotion.reason,
         "execution_allowed": False,
     }
+
+
+def _promotion_for_row(row: ForecastResult, promotions: Mapping[str, ModelPromotion]) -> ModelPromotion | None:
+    """Select only this row's version; older versions keep their own evidence."""
+    decision = promotions.get(row.model_name)
+    if decision is not None and decision.model_version != row.model_version:
+        for candidate in decision.version_evidence:
+            if candidate["model_version"] == row.model_version:
+                return ModelPromotion(**candidate)
+    return decision
 
 
 def _apply_promotion(
@@ -382,31 +402,33 @@ def _apply_promotion(
 ) -> ForecastResult:
     """Let an optional model's successful rows count only while its promotion decision says so."""
 
-    if row.model_name not in OPTIONAL_MODELS:
-        return row
-    promotion = promotions.get(row.model_name)
+    if row.model_name == "baseline":
+        return replace(row, model_allowed_in_score=row.status == "ok" and row.expected_return is not None)
+    promotion = _promotion_for_row(row, promotions)
     if row.status != "ok" or promotion is None:
-        return _shadow_forecast(row) if shadow_flag else row
-    counting = promotion.state == COUNTING
-    prefix = "promoted" if counting else "unproven"
+        return _shadow_forecast(row) if shadow_flag else replace(row, model_allowed_in_score=False, promotion_status=NOT_PROVEN)
+    counting = (
+        promotion.counting
+        and promotion.model_name == row.model_name
+        and promotion.model_version == row.model_version
+        and row.horizon_days == promotion.evidence_horizon_days
+    )
+    matched = row.model_version == promotion.model_version and row.horizon_days == promotion.evidence_horizon_days
     return replace(
         row,
         model_allowed_in_score=counting,
-        oos_mase=promotion.model_mase,
-        oos_directional_accuracy=promotion.model_directional,
-        calibration_status=f"{prefix}_{promotion.calibration_status or 'not_evaluated'}",
+        promotion_status=COUNTING if counting else NOT_PROVEN,
+        oos_mase=promotion.model_mase if matched else None,
+        oos_directional_accuracy=promotion.model_directional if matched else None,
+        calibration_status=(promotion.calibration_status if promotion.calibration_status in {"good", "mixed", "weak", "limited"} else "limited") if matched else "limited",
+        calibration_horizon_days=promotion.evidence_horizon_days if matched else None,
     )
 
 
 def _shadow_forecast(row: ForecastResult) -> ForecastResult:
-    if row.model_name not in {"timesfm", "timesfm3", "toto"}:
+    if row.model_name == "baseline":
         return row
-    evidence = _pretraining_evidence(row.model_name, row.forecast_date)
-    return replace(
-        row,
-        model_allowed_in_score=False,
-        calibration_status=f"shadow_{evidence['contamination_status']}_{row.calibration_status}",
-    )
+    return replace(row, model_allowed_in_score=False, promotion_status="shadow_only")
 
 
 def build_forecast_lab_workspace(
@@ -504,11 +526,65 @@ def _run_promotion_text(members: str, promotions: Mapping[str, ModelPromotion]) 
     return "; ".join(parts) or "reference"
 
 
+def _timesfm_price_series(pivot: pd.DataFrame, etf_id: str, as_of_date: date) -> pd.Series:
+    """Keep own-session gaps, exclude certified closures; never infer a holiday from NaN."""
+    from datetime import datetime, time, timezone
+    import json
+    from etf_cockpit.core.paths import CONFIG_DIR
+    from etf_cockpit.data.market_calendar import MarketCalendarService
+
+    rows = pivot.attrs.get("timesfm_price_rows", {}).get(etf_id)
+    if rows is None:
+        series = pivot[etf_id].copy() if etf_id in pivot else pd.Series(dtype=float, index=pd.DatetimeIndex([]))
+    else:
+        series = rows.set_index("date")["adjusted_close"].copy()
+    series = series.loc[pd.to_datetime(series.index).date <= as_of_date].sort_index()
+    if series.empty:
+        return series
+    series.index = pd.DatetimeIndex(series.index).normalize()
+    if series.index.has_duplicates:
+        raise ValueError("TimesFM session grid unavailable: duplicate instrument session dates.")
+    cutoff = datetime.combine(as_of_date, time.max, timezone.utc)
+    identity = None
+    if rows is not None and "calendar_identity" in rows:
+        candidates = rows.loc[pd.to_datetime(rows["date"]).dt.date <= as_of_date, "calendar_identity"].dropna()
+        if not candidates.empty:
+            identity = candidates.iloc[-1]
+            if isinstance(identity, str):
+                try:
+                    identity = json.loads(identity)
+                except ValueError:
+                    identity = None
+    if isinstance(identity, Mapping):
+        try:
+            calendar = MarketCalendarService.from_correction_ledger(CONFIG_DIR / "market_calendar_corrections.yaml")
+            listing = calendar.listing_from_identity_projection(identity)
+            if listing.instrument_id != etf_id:
+                raise ValueError("calendar identity does not match forecast instrument")
+            if listing.valid_from > series.index.min().date() or (
+                listing.valid_to is not None and listing.valid_to <= series.index.max().date()
+            ):
+                raise ValueError("calendar identity does not cover the historical context")
+            days = pd.date_range(series.index.min().normalize(), series.index.max().normalize(), freq="D")
+            sessions = days[[calendar.is_business_day(listing, day.date(), knowledge_cutoff=cutoff) for day in days]]
+            # An observed price is evidence of a session even if the calendar disagrees;
+            # certified sessions without a row become NaN gaps; NaN rows on certified
+            # closures are not sessions and are dropped.
+            grid = sessions.union(series.index)
+            restored = series.reindex(grid)
+            return restored.loc[restored.notna() | restored.index.isin(sessions)]
+        except ValueError as exc:
+            raise ValueError(f"TimesFM session calendar unavailable: {exc}") from exc
+    # Without certified calendar evidence the instrument's own observed dates are its
+    # session grid and absent dates are non-sessions (never invented). Without a calendar a NaN row cannot be told apart from a holiday row, so it is dropped.
+    return series.dropna()
+
+
 def _postprocess_forecast_benchmark_fields(
     forecasts: list[ForecastResult],
     benchmark_returns: pd.Series | None,
 ) -> list[ForecastResult]:
-    """Derive relative forecast fields uniformly after every model adapter."""
+    """Derive relative fields uniformly using horizon log-return sigma from every producer."""
 
     if benchmark_returns is None or benchmark_returns.empty:
         return [
@@ -518,7 +594,7 @@ def _postprocess_forecast_benchmark_fields(
     benchmark_daily = float(benchmark_returns.tail(180).mean() * 0.35)
     output: list[ForecastResult] = []
     for forecast in forecasts:
-        if forecast.expected_return is None:
+        if forecast.expected_return is None or not math.isfinite(forecast.expected_return) or not math.isfinite(benchmark_daily):
             output.append(replace(forecast, expected_excess_return=None, prob_beat_benchmark=None))
             continue
         excess = float(forecast.expected_return - benchmark_daily * forecast.horizon_days)
@@ -544,7 +620,10 @@ def _postprocess_forecast_benchmark_fields(
             replace(
                 forecast,
                 expected_excess_return=excess,
-                prob_beat_benchmark=float(1 / (1 + math.exp(-excess / volatility))),
+                prob_beat_benchmark=(
+                    1 / (1 + math.exp(-excess / volatility)) if excess >= 0
+                    else math.exp(excess / volatility) / (1 + math.exp(excess / volatility))
+                ),
             )
         )
     return output

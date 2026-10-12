@@ -65,9 +65,9 @@ def component_scores(
         robust_zscore(frame["relative_strength_60d"]).where(frame["relative_strength_60d"].notna()) / 3
     ).clip(-1, 1)
     forecast_scores = forecast_scores or {}
-    frame["score_toto"] = frame["etf_id"].map(forecast_scores.get("toto", {})).clip(-1, 1)
-    frame["score_timesfm"] = frame["etf_id"].map(forecast_scores.get("timesfm", {})).clip(-1, 1)
-    baseline_forecast_score = frame["etf_id"].map(forecast_scores.get("baseline", {}))
+    frame["score_toto"] = frame["etf_id"].map(forecast_scores.get("toto", {})).map(_clean_score).astype(float)
+    frame["score_timesfm"] = frame["etf_id"].map(forecast_scores.get("timesfm", {})).map(_clean_score).astype(float)
+    baseline_forecast_score = frame["etf_id"].map(forecast_scores.get("baseline", {})).map(_clean_score).astype(float)
     deterministic_baseline_score = (0.55 * frame["score_momentum"] + 0.45 * frame["score_trend"]).clip(-1, 1)
     frame["score_baseline_ml"] = baseline_forecast_score.clip(-1, 1).where(
         baseline_forecast_score.notna(), deterministic_baseline_score
@@ -86,8 +86,8 @@ def component_scores(
         toto_available=bool(toto_available and forecast_scores.get("toto")),
         timesfm_available=bool(timesfm_available and forecast_scores.get("timesfm")),
     )
-    active_weighted_scores = [
-        weight * frame[column]
+    active_components = [
+        (key, column, weight)
         for key, column in (
             ("momentum", "score_momentum"),
             ("trend", "score_trend"),
@@ -101,7 +101,25 @@ def component_scores(
         )
         if (weight := weights.get(key, 0)) > 0
     ]
-    frame["total_score"] = (sum(active_weighted_scores) - frame["cost_penalty"] - frame["turnover_penalty"]).clip(-1, 1)
+    finite_components = {
+        key: frame[column].map(lambda value: pd.notna(value) and math.isfinite(float(value)))
+        for key, column, _ in active_components
+    }
+    weighted_score = sum(
+        weight * frame[column].where(finite_components[key], 0.0)
+        for key, column, weight in active_components
+    )
+    retained_weight = sum(weight * finite_components[key] for key, _, weight in active_components)
+    all_present = pd.Series(True, index=frame.index)
+    for mask in finite_components.values():
+        all_present &= mask
+    # Preserve the original sum exactly for complete rows; renormalise only rows
+    # with missing components. With no finite weighted evidence, remain unavailable.
+    if active_components:
+        weighted_score = weighted_score.where(all_present, weighted_score / retained_weight.where(retained_weight > 0))
+    else:
+        weighted_score = pd.Series(float("nan"), index=frame.index)
+    frame["total_score"] = (weighted_score - frame["cost_penalty"] - frame["turnover_penalty"]).clip(-1, 1)
     agreement = 1 - frame[["score_momentum", "score_trend", "score_baseline_ml"]].std(axis=1).clip(0, 1)
     signal_strength = frame["total_score"].abs().clip(0, 1)
     cost_quality = (1 - frame["cost_penalty"].clip(0, 0.20) / 0.20).clip(0, 1)
@@ -114,7 +132,11 @@ def component_scores(
         ("score_timesfm", "timesfm_forecast_unavailable"),
     )
     frame["score_unavailable_reason_codes"] = frame.apply(
-        lambda row: "|".join(reason for column, reason in unavailable_reasons if pd.isna(row[column])),
+        lambda row: "|".join(
+            [reason for column, reason in unavailable_reasons if _clean_score(row[column]) is None]
+            + [f"model_missing:{key}" for key, column in (("toto", "score_toto"), ("timesfm", "score_timesfm"))
+               if (toto_available if key == "toto" else timesfm_available) and _clean_score(row[column]) is None]
+        ),
         axis=1,
     )
     return frame

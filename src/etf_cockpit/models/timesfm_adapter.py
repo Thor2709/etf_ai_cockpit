@@ -180,6 +180,8 @@ class TimesFMAdapter:
     ) -> list[ForecastResult]:
         cleaned = _clean_positive_series(series)
         values = _trim_to_complete_patches(cleaned.tail(self.config.context_length), self._patch_length())
+        if values.isna().any():
+            raise ValueError("TimesFM transformers backend has no documented NaN-context interpolation; session grid preserved, forecast unavailable.")
         torch = __import__("torch")
         device = getattr(self._model, "device", None)
         try:
@@ -201,7 +203,7 @@ class TimesFMAdapter:
             forecast_date=forecast_date,
             run_id=run_id,
             model_version="timesfm_2_5_transformers",
-            observed_returns=len(cleaned) - 1,
+            observed_returns=int((cleaned.notna() & cleaned.shift().notna()).sum()),
         )
 
     def _forecast_with_timesfm_package(
@@ -228,7 +230,7 @@ class TimesFMAdapter:
             forecast_date=forecast_date,
             run_id=run_id,
             model_version="timesfm_2_5_pytorch",
-            observed_returns=len(cleaned) - 1,
+            observed_returns=int((cleaned.notna() & cleaned.shift().notna()).sum()),
         )
 
     def _mock_forecast(
@@ -248,8 +250,8 @@ class TimesFMAdapter:
         for horizon in horizons:
             expected = mean * horizon
             horizon_vol = vol * np.sqrt(horizon / 252) if vol else 0.0
-            q10 = expected - 1.28 * horizon_vol
-            q90 = expected + 1.28 * horizon_vol
+            q10 = expected - 1.2816 * horizon_vol
+            q90 = expected + 1.2816 * horizon_vol
             out.append(
                 ForecastResult(
                     run_id=run_id,
@@ -266,7 +268,9 @@ class TimesFMAdapter:
                     **derived_quantile_columns(complete_return_quantiles(q10, expected, q90), QUANTILE_METHOD_NORMAL),
                     coverage_ratio=coverage,
                     forecast_vol=horizon_vol,
-                    prob_positive_return=float(1 / (1 + np.exp(-expected / max(horizon_vol, 1e-6)))),
+                    prob_positive_return=probability_positive_return(q10, expected, q90, complete_return_quantiles(q10, expected, q90)),
+                    point_statistic="median",
+                    distribution_status="available",
                     status="ok",
                     calibration_status="mock_not_for_live_scoring",
                 )
@@ -313,6 +317,8 @@ class TimesFMAdapter:
                 fallback_model="baseline",
                 reason_unavailable=message,
                 calibration_status="unavailable" if status == "unavailable" else "failed",
+                point_statistic="median",
+                distribution_status="unavailable",
             )
             for horizon in horizons
         ]
@@ -354,10 +360,26 @@ def timesfm_level_forecast_to_results(
                     model_allowed_in_score=False,
                     reason_unavailable=message,
                     calibration_status="unsupported_horizon",
+                    point_statistic="median",
+                    distribution_status="unavailable",
                 )
             )
             continue
         expected = _level_to_log_return(mean[index], last_value)
+        native_levels = None if quantiles is None or index >= len(quantiles) else quantiles[index]
+        if expected is None or (native_levels is not None and (
+            not np.isfinite(native_levels).all() or (native_levels <= 0).any()
+        )):
+            message = f"TimesFM invalid predicted level at horizon {horizon}: finite positive point and native quantile levels required."
+            results.append(ForecastResult(
+                run_id=run_id, model_name=model_name, model_version=model_version,
+                etf_id=etf_id, forecast_date=forecast_date, horizon_days=horizon,
+                expected_return=None, expected_excess_return=None, status="unavailable",
+                error_message=message, reason_unavailable=message,
+                calibration_status="unavailable", model_allowed_in_score=False,
+                point_statistic="median", distribution_status="unavailable",
+            ))
+            continue
         q10 = _level_to_log_return(_quantile_at(quantiles, index, "q10"), last_value)
         q50 = _level_to_log_return(_quantile_at(quantiles, index, "q50"), last_value)
         q90 = _level_to_log_return(_quantile_at(quantiles, index, "q90"), last_value)
@@ -390,7 +412,9 @@ def timesfm_level_forecast_to_results(
                 **derived_quantile_columns(completed, QUANTILE_METHOD_DECILES),
                 coverage_ratio=coverage,
                 forecast_vol=_quantile_vol_proxy(q10, q90, horizon),
-                prob_positive_return=float(expected is not None and expected > 0),
+                prob_positive_return=probability_positive_return(q10, q50, q90, completed),
+                point_statistic="median",
+                distribution_status="available" if completed is not None else "unavailable",
                 status="ok",
                 calibration_status="not_evaluated",
             )
@@ -439,11 +463,14 @@ def _is_compatible_local_checkpoint(path: Path, backend: str) -> bool:
 
 
 def _clean_positive_series(series: pd.Series) -> pd.Series:
-    values = pd.to_numeric(series, errors="coerce").dropna().astype(float)
-    values = values[np.isfinite(values)]
-    values = values[values > 0]
-    if len(values) < 2:
+    # NaNs retain their session positions for the official forecaster's interpolation.
+    values = pd.to_numeric(series, errors="coerce").astype(float)
+    if ((values.notna() & ~np.isfinite(values)) | (values <= 0)).any():
+        raise ValueError("TimesFM context contains non-finite or non-positive observed prices.")
+    if values.notna().sum() < 2:
         raise ValueError("TimesFM requires at least two positive price observations.")
+    if pd.isna(values.iloc[-1]):
+        raise ValueError("TimesFM last session price is missing; log-return anchor unavailable.")
     return values
 
 
@@ -511,11 +538,38 @@ def _midpoint(left: float | None, right: float | None) -> float | None:
 def _level_to_log_return(level: float | None, last_value: float) -> float | None:
     if level is None or not np.isfinite(level) or not np.isfinite(last_value) or level <= 0 or last_value <= 0:
         return None
-    return float(np.log(level / last_value))
+    return float(np.log(level) - np.log(last_value))
 
 
 def _quantile_vol_proxy(q10: float | None, q90: float | None, horizon: int) -> float | None:
-    if q10 is None or q90 is None or horizon <= 0:
+    """Normal-approximation horizon sigma in log-return units; never annualised."""
+    if q10 is None or q90 is None or horizon <= 0 or not np.isfinite([q10, q90]).all() or q90 < q10:
         return None
-    horizon_vol = max((q90 - q10) / 2.563, 0.0)
-    return float(horizon_vol / np.sqrt(horizon / 252))
+    sigma = (q90 / 2 - q10 / 2) / 1.2816
+    return float(sigma) if np.isfinite(sigma) else None
+
+
+def probability_positive_return(
+    q10: float | None, q50: float | None, q90: float | None,
+    quantiles: dict[str, float] | None = None,
+) -> float | None:
+    """Interpolate this row's log-return CDF at zero and return P(return > 0).
+
+    Use the row's full quantile vector when available, otherwise its q10/q50/q90.
+    Clamp the CDF to the outermost supplied probabilities (no tail extrapolation).
+    Missing, non-finite or crossing quantiles are unavailable. Equal quantiles use
+    the rightmost CDF probability at the tied value, including at zero.
+    """
+    if q10 is None or q50 is None or q90 is None:
+        return None
+    pairs = (
+        [(int(field[1:3]) / 100, value) for field, value in quantiles.items()]
+        if quantiles is not None else [(0.1, q10), (0.5, q50), (0.9, q90)]
+    )
+    pairs.sort()
+    if not pairs:
+        return None
+    probabilities, values = np.asarray(pairs, dtype=float).T
+    if not np.isfinite(values).all() or (np.diff(values) < 0).any():
+        return None
+    return float(1 - np.interp(0.0, values, probabilities))
