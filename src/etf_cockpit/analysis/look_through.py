@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field as dataclass_field
 from datetime import date, datetime
 import math
 from typing import Mapping
@@ -59,7 +59,7 @@ class LookThroughSummary:
     aggregation_conventions: tuple[str, ...]
     limitations: tuple[str, ...]
     execution_allowed: bool = False
-    normalized_exposures: Mapping[str, Mapping[str, float]] = field(default_factory=dict)
+    normalized_exposures: Mapping[str, Mapping[str, float]] = dataclass_field(default_factory=dict)
     minimum_aggregate_coverage: float = _DEFAULT_MINIMUM_AGGREGATE_COVERAGE
 
 
