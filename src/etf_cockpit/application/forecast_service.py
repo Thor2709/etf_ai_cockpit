@@ -114,6 +114,11 @@ class ForecastService:
         if cache_request_identity is not None and dict(cache_request_identity) != derived_request_identity:
             raise ValueError("forecast cache request identity does not match the calculation request")
         pivot = price_frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
+        # Preserve row presence separately from the union pivot's holiday NaNs.
+        pivot.attrs["timesfm_price_rows"] = {
+            etf_id: group.sort_values("date")
+            for etf_id, group in price_frame.groupby("etf_id", sort=False)
+        }
         benchmark_id = context.benchmark_data_id if context is not None else None
         benchmark_returns = daily_log_returns(pivot[benchmark_id]).dropna() if benchmark_id in pivot else None
         forecasts: list[ForecastResult] = []
@@ -231,9 +236,17 @@ class ForecastService:
         forecasts: list[ForecastResult] = []
         try:
             for etf_id in etf_ids:
+                try:
+                    series = _timesfm_price_series(pivot, etf_id, as_of_date)
+                except ValueError as exc:
+                    forecasts.extend(adapter._status_results(
+                        horizons, etf_id=etf_id, forecast_date=as_of_date,
+                        run_id=run_id, status="unavailable", message=str(exc),
+                    ))
+                    continue
                 forecasts.extend(
                     adapter.forecast_series(
-                        pivot[etf_id].dropna() if etf_id in pivot else pd.Series(dtype=float, index=pd.DatetimeIndex([])),
+                        series,
                         horizons,
                         etf_id=etf_id,
                         forecast_date=as_of_date,
@@ -521,11 +534,65 @@ def _run_promotion_text(members: str, promotions: Mapping[str, ModelPromotion]) 
     return "; ".join(parts) or "reference"
 
 
+def _timesfm_price_series(pivot: pd.DataFrame, etf_id: str, as_of_date: date) -> pd.Series:
+    """Keep own-session gaps, exclude certified closures; never infer a holiday from NaN."""
+    from datetime import datetime, time, timezone
+    import json
+    from etf_cockpit.core.paths import CONFIG_DIR
+    from etf_cockpit.data.market_calendar import MarketCalendarService
+
+    rows = pivot.attrs.get("timesfm_price_rows", {}).get(etf_id)
+    if rows is None:
+        series = pivot[etf_id].copy() if etf_id in pivot else pd.Series(dtype=float, index=pd.DatetimeIndex([]))
+    else:
+        series = rows.set_index("date")["adjusted_close"].copy()
+    series = series.loc[pd.to_datetime(series.index).date <= as_of_date].sort_index()
+    if series.empty:
+        return series
+    series.index = pd.DatetimeIndex(series.index).normalize()
+    if series.index.has_duplicates:
+        raise ValueError("TimesFM session grid unavailable: duplicate instrument session dates.")
+    cutoff = datetime.combine(as_of_date, time.max, timezone.utc)
+    identity = None
+    if rows is not None and "calendar_identity" in rows:
+        candidates = rows.loc[pd.to_datetime(rows["date"]).dt.date <= as_of_date, "calendar_identity"].dropna()
+        if not candidates.empty:
+            identity = candidates.iloc[-1]
+            if isinstance(identity, str):
+                try:
+                    identity = json.loads(identity)
+                except ValueError:
+                    identity = None
+    if isinstance(identity, Mapping):
+        try:
+            calendar = MarketCalendarService.from_correction_ledger(CONFIG_DIR / "market_calendar_corrections.yaml")
+            listing = calendar.listing_from_identity_projection(identity)
+            if listing.instrument_id != etf_id:
+                raise ValueError("calendar identity does not match forecast instrument")
+            if listing.valid_from > series.index.min().date() or (
+                listing.valid_to is not None and listing.valid_to <= series.index.max().date()
+            ):
+                raise ValueError("calendar identity does not cover the historical context")
+            days = pd.date_range(series.index.min().normalize(), series.index.max().normalize(), freq="D")
+            sessions = days[[calendar.is_business_day(listing, day.date(), knowledge_cutoff=cutoff) for day in days]]
+            if not series.index.difference(sessions).empty:
+                raise ValueError("observed price dates conflict with certified instrument sessions")
+            return series.reindex(sessions)
+        except ValueError as exc:
+            raise ValueError(f"TimesFM session calendar unavailable: {exc}") from exc
+    # Explicit own rows preserve NaN positions. Without certified calendar evidence,
+    # absent weekdays might be missing sessions or holidays: neither can be guessed.
+    expected_weekdays = pd.bdate_range(series.index.min().normalize(), series.index.max().normalize())
+    if not expected_weekdays.difference(series.index.normalize()).empty or (rows is None and series.isna().any()):
+        raise ValueError("TimesFM session grid unavailable: missing dates/union-calendar NaNs require certified instrument calendar evidence.")
+    return series
+
+
 def _postprocess_forecast_benchmark_fields(
     forecasts: list[ForecastResult],
     benchmark_returns: pd.Series | None,
 ) -> list[ForecastResult]:
-    """Derive relative forecast fields uniformly after every model adapter."""
+    """Derive relative fields uniformly using horizon log-return sigma from every producer."""
 
     if benchmark_returns is None or benchmark_returns.empty:
         return [
@@ -535,7 +602,7 @@ def _postprocess_forecast_benchmark_fields(
     benchmark_daily = float(benchmark_returns.tail(180).mean() * 0.35)
     output: list[ForecastResult] = []
     for forecast in forecasts:
-        if forecast.expected_return is None:
+        if forecast.expected_return is None or not math.isfinite(forecast.expected_return) or not math.isfinite(benchmark_daily):
             output.append(replace(forecast, expected_excess_return=None, prob_beat_benchmark=None))
             continue
         excess = float(forecast.expected_return - benchmark_daily * forecast.horizon_days)
@@ -561,7 +628,10 @@ def _postprocess_forecast_benchmark_fields(
             replace(
                 forecast,
                 expected_excess_return=excess,
-                prob_beat_benchmark=float(1 / (1 + math.exp(-excess / volatility))),
+                prob_beat_benchmark=(
+                    1 / (1 + math.exp(-excess / volatility)) if excess >= 0
+                    else math.exp(excess / volatility) / (1 + math.exp(excess / volatility))
+                ),
             )
         )
     return output

@@ -396,7 +396,9 @@ def toto_quantiles_to_log_return_results(
                 **derived_quantile_columns(completed, QUANTILE_METHOD_DECILES),
                 coverage_ratio=coverage,
                 forecast_vol=_quantile_vol_proxy(q10, q90, horizon),
-                prob_positive_return=float(q50 > 0),
+                prob_positive_return=__import__(
+                    "etf_cockpit.models.timesfm_adapter", fromlist=["probability_positive_return"]
+                ).probability_positive_return(q10, q50, q90, completed),
                 status="ok",
                 calibration_status="not_evaluated",
             )
