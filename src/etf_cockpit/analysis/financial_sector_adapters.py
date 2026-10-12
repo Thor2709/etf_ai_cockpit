@@ -554,6 +554,46 @@ def verify_financial_projection(
     return payload
 
 
+def bank_metric_acceptance_report(
+    value: FinancialInstitutionProjection | Mapping[str, object],
+) -> dict[str, object]:
+    """List which bank metrics were available, from which sources, and which stayed unavailable.
+
+    Read-only summary of a verified projection (the PR acceptance table); it adds no values.
+    """
+
+    payload = verify_financial_projection(value)
+    if payload.get("business_model") != "bank":
+        raise FinancialAdapterError("acceptance report requires a bank projection")
+    rows = {str(item["metric"]): item for item in payload["metrics"]}
+    available: dict[str, dict[str, object]] = {}
+    unavailable: dict[str, str] = {}
+    for metric in sorted(_METRICS["bank"]):
+        row = rows.get(metric)
+        if row is None:
+            unavailable[metric] = "missing"
+        elif row["status"] != "available":
+            unavailable[metric] = ",".join(row["limitations"]) or "unavailable"
+        else:
+            available[metric] = {
+                "value": row["value"],
+                "unit": row["unit"],
+                "fact_category": row["fact_category"],
+                "period": row["period"],
+                "known_at": row["known_at"],
+                "source": row["source"],
+            }
+    return {
+        "instrument_id": payload["instrument_id"],
+        "available": available,
+        "unavailable": unavailable,
+        "industrial_inapplicable": sorted(
+            item.split(":", 1)[0] for item in payload["limitations"] if item.endswith(":inapplicable")
+        ),
+        "execution_allowed": False,
+    }
+
+
 def _has_execution_authority(value: object) -> bool:
     if isinstance(value, Mapping):
         if value.get("execution_allowed") is True:
