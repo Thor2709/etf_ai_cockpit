@@ -10,8 +10,10 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import hashlib
+from itertools import combinations
 import json
 import math
+from statistics import NormalDist
 from typing import Mapping, Sequence
 
 import numpy as np
@@ -34,6 +36,7 @@ class ValidationSpec:
     bootstrap_repetitions: int = 200
     block_size: int = 5
     seed: int = 42
+    periods_per_year: float | None = None
 
     def __post_init__(self) -> None:
         positive = ("n_splits", "test_size", "horizon", "final_test_size", "bootstrap_repetitions", "block_size")
@@ -44,6 +47,10 @@ class ValidationSpec:
             raise ValueError("embargo must be non-negative")
         if self.train_size is not None and int(self.train_size) <= 0:
             raise ValueError("train_size must be positive when supplied")
+        if self.periods_per_year is not None and (
+            not math.isfinite(float(self.periods_per_year)) or float(self.periods_per_year) <= 0
+        ):
+            raise ValueError("periods_per_year must be positive and finite when supplied")
 
     @property
     def fingerprint(self) -> str:
@@ -88,6 +95,8 @@ class ValidationReport:
     false_discovery_rate: float | None
     promotion_eligible: bool
     warnings: tuple[str, ...]
+    total_trial_count: int = 0
+    holdout_status: str = "unavailable"
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -108,28 +117,47 @@ class ValidationReport:
             "false_discovery_rate": self.false_discovery_rate,
             "promotion_eligible": self.promotion_eligible,
             "warnings": list(self.warnings),
+            "total_trial_count": self.total_trial_count,
+            "holdout_status": self.holdout_status,
             "report_fingerprint": report_fingerprint(self),
         }
 
 
-def build_walk_forward_splits(n_samples: int, spec: ValidationSpec | None = None) -> tuple[ValidationFold, ...]:
+def build_walk_forward_splits(
+    n_samples: int,
+    spec: ValidationSpec | None = None,
+    *,
+    reserve_final_test: bool = True,
+) -> tuple[ValidationFold, ...]:
     """Return non-overlapping temporal folds with label purge and embargo."""
 
     definition = spec or ValidationSpec()
     n_samples = int(n_samples)
-    development_end = n_samples - definition.final_test_size
-    required = definition.final_test_size + definition.n_splits * definition.test_size + definition.horizon + definition.embargo
+    final_gap = definition.final_test_size + definition.horizon if reserve_final_test else 0
+    development_end = n_samples - final_gap
+    required = (
+        final_gap
+        + definition.n_splits * definition.test_size
+        + definition.horizon
+        + definition.embargo
+        + 2
+    )
     if n_samples < required:
-        raise ValueError(f"at least {required} observations are required for this validation spec")
+        raise ValueError(
+            f"at least {required} observations are required for this validation spec, "
+            "including two post-purge training observations"
+        )
     folds: list[ValidationFold] = []
     for fold in range(definition.n_splits):
         validation_start = development_end - (definition.n_splits - fold) * definition.test_size
         validation_end = validation_start + definition.test_size
-        purge_end = max(0, validation_start - definition.horizon + 1)
+        purge_end = max(0, validation_start - definition.horizon)
         embargo_start = validation_end
         embargo_end = min(development_end, validation_end + definition.embargo)
         train_start = 0 if definition.expanding or definition.train_size is None else max(0, purge_end - definition.train_size)
         train_indices = tuple(range(train_start, purge_end))
+        if len(train_indices) < 2:
+            raise ValueError("each fold requires at least two training observations after label purge")
         purged = tuple(range(purge_end, validation_start))
         embargoed = tuple(range(embargo_start, embargo_end))
         folds.append(ValidationFold(fold, train_indices, tuple(range(validation_start, validation_end)), purged, embargoed))
@@ -144,19 +172,59 @@ def evaluate_trials(
     regime_labels: Sequence[str] | None = None,
     subgroup_labels: Sequence[str] | None = None,
     baseline_trial_id: str = "baseline",
+    frozen_candidate_id: str | None = None,
+    predeclared_comparator_ids: Sequence[str] = (),
+    holdout_id: str | None = None,
+    holdout_use_recorded: bool = False,
+    holdout_reused: bool = False,
+    date_labels: Sequence[object] | None = None,
+    prior_trial_scores: Mapping[str, Sequence[float]] | None = None,
+    external_trial_count: int = 0,
 ) -> ValidationReport:
-    """Select on development folds and score the untouched final test once."""
+    """Select on development folds and score only an audited frozen holdout family.
+
+    ``date_labels`` groups cross-sectional rows into chronological date-level
+    observations before splitting or inference. Prior trial series may only be
+    supplied when their date alignment and data identity have been verified by
+    the caller. ``external_trial_count`` conservatively counts additional
+    ledger entries whose paired series are unavailable; such entries make the
+    FDR metric unavailable rather than silently shrinking its family.
+    """
 
     definition = spec or ValidationSpec()
     if not scores:
         raise ValueError("at least one trial score series is required")
-    arrays = {str(key): np.asarray(value, dtype=float) for key, value in scores.items()}
-    lengths = {len(value) for value in arrays.values()}
-    if len(lengths) != 1 or not np.isfinite(np.concatenate(list(arrays.values()))).all():
+    if isinstance(external_trial_count, bool) or int(external_trial_count) < 0:
+        raise ValueError("external_trial_count must be a non-negative integer")
+    raw_arrays = {str(key): np.asarray(value, dtype=float) for key, value in scores.items()}
+    for trial_id, values in raw_arrays.items():
+        if values.ndim != 1:
+            raise ValueError(f"trial scores for {trial_id} must be one-dimensional")
+    lengths = {len(value) for value in raw_arrays.values()}
+    if len(lengths) != 1 or not np.isfinite(np.concatenate(list(raw_arrays.values()))).all():
         raise ValueError("trial scores must have equal finite lengths")
-    n_samples = lengths.pop()
-    folds = build_walk_forward_splits(n_samples, definition)
-    final_indices = np.arange(n_samples - definition.final_test_size, n_samples)
+    raw_n_samples = lengths.pop()
+    groups = _date_groups(date_labels, raw_n_samples)
+    arrays = _aggregate_by_groups(raw_arrays, groups)
+    prior_arrays: dict[str, np.ndarray] = {}
+    for trial_id, series in (prior_trial_scores or {}).items():
+        values = np.asarray(series, dtype=float)
+        if values.ndim != 1 or len(values) != raw_n_samples or not np.isfinite(values).all():
+            raise ValueError(f"prior trial scores for {trial_id} are not aligned finite one-dimensional series")
+        prior_arrays[f"prior:{trial_id}"] = _aggregate_by_groups({"series": values}, groups)["series"]
+    if set(arrays).intersection(prior_arrays):
+        raise ValueError("current and prior trial identifiers must be distinct")
+    if holdout_reused and not holdout_id:
+        raise ValueError("a reused holdout requires its holdout_id")
+    reserve_final = not holdout_reused
+    n_samples = len(next(iter(arrays.values())))
+    folds = build_walk_forward_splits(n_samples, definition, reserve_final_test=reserve_final)
+    validation_indices = np.concatenate([np.asarray(fold.validation_indices, dtype=int) for fold in folds])
+    if reserve_final:
+        final_start = n_samples - definition.final_test_size
+        final_indices = np.arange(final_start, n_samples)
+    else:
+        final_indices = np.asarray([], dtype=int)
     trial_rows: list[ValidationTrial] = []
     validation_means: dict[str, float] = {}
     warnings: list[str] = []
@@ -171,8 +239,48 @@ def evaluate_trials(
     selected_id = max(validation_means, key=lambda key: (validation_means[key], key))
     selected_mean = validation_means[selected_id]
     baseline_mean = validation_means.get(baseline_trial_id)
-    final_score = float(arrays[selected_id][final_indices].mean())
-    final_scores = {trial_id: float(values[final_indices].mean()) for trial_id, values in arrays.items()}
+    comparator_ids = tuple(dict.fromkeys(str(item) for item in predeclared_comparator_ids))
+    requested_holdout_ids = set(comparator_ids)
+    if frozen_candidate_id is not None:
+        requested_holdout_ids.add(str(frozen_candidate_id))
+    missing_holdout_ids = sorted(requested_holdout_ids.difference(arrays))
+    holdout_ready = bool(
+        reserve_final
+        and holdout_id
+        and holdout_use_recorded
+        and not holdout_reused
+        and frozen_candidate_id in arrays
+        and bool(comparator_ids)
+        and not missing_holdout_ids
+        and str(frozen_candidate_id) not in comparator_ids
+    )
+    final_scores: dict[str, float | None] = {trial_id: None for trial_id in arrays}
+    if holdout_ready:
+        for trial_id in requested_holdout_ids:
+            final_scores[trial_id] = float(arrays[trial_id][final_indices].mean())
+        holdout_status = "scored"
+    elif holdout_reused:
+        holdout_status = "development_reuse"
+        warnings.append("holdout_reused_as_development")
+    elif requested_holdout_ids and missing_holdout_ids:
+        holdout_status = "unavailable"
+        warnings.append("holdout_predeclaration_missing_trial")
+    elif requested_holdout_ids and not holdout_id:
+        holdout_status = "unavailable"
+        warnings.append("holdout_identity_missing")
+    elif requested_holdout_ids and not holdout_use_recorded:
+        holdout_status = "unavailable"
+        warnings.append("holdout_audit_missing")
+    elif requested_holdout_ids and (not comparator_ids or str(frozen_candidate_id) in comparator_ids):
+        holdout_status = "unavailable"
+        warnings.append("holdout_candidate_or_comparator_declaration_invalid")
+    else:
+        holdout_status = "sealed_not_accessed"
+        if reserve_final:
+            warnings.append("holdout_not_authorized")
+    if holdout_reused:
+        final_scores = {trial_id: None for trial_id in arrays}
+    final_score = final_scores.get(str(frozen_candidate_id))
     baseline_final_score = final_scores.get(baseline_trial_id)
     if baseline_final_score is None:
         warnings.append("baseline_final_score_unavailable")
@@ -184,18 +292,67 @@ def evaluate_trials(
             row.validation_mean,
             final_scores[row.trial_id],
             row.trial_id == selected_id,
-            None if row.trial_id == selected_id else "not_selected_on_development_folds",
+            (
+                None
+                if row.trial_id == selected_id
+                else "not_selected_on_development_folds"
+                if final_scores[row.trial_id] is not None
+                else "not_predeclared_for_holdout"
+            ),
         )
         for row in trial_rows
     ]
-    selected_validation = arrays[selected_id][np.concatenate([np.asarray(fold.validation_indices) for fold in folds])]
-    uncertainty = _block_bootstrap(selected_validation, definition)
+    selected_validation = arrays[selected_id][validation_indices]
+    baseline_validation = arrays.get(baseline_trial_id)
+    if baseline_validation is None:
+        uncertainty = {"status": "unavailable", "reason": "baseline_trial_missing", "observations": 0}
+    else:
+        uncertainty = _paired_block_bootstrap(
+            selected_validation - baseline_validation[validation_indices],
+            definition,
+            paired_with=baseline_trial_id,
+        )
     regime_results = _group_results(arrays[selected_id], regime_labels, folds)
     subgroup_results = _group_results(arrays[selected_id], subgroup_labels, folds)
-    independent_count = _effective_trial_count(arrays)
-    deflated = _deflated_sharpe(selected_validation, independent_count)
-    pbo = _pbo_probability(validation_means, final_scores)
-    false_discovery = _false_discovery_rate(validation_means, baseline_mean)
+    family_arrays = {**arrays, **prior_arrays}
+    development_family = {trial_id: values[validation_indices] for trial_id, values in family_arrays.items()}
+    comparable_independent_count = _effective_trial_count(development_family)
+    independent_count = float(min(
+        max(1.0, len(family_arrays) + int(external_trial_count)),
+        comparable_independent_count + int(external_trial_count),
+    ))
+    total_trial_count = len(arrays) + len(prior_arrays) + int(external_trial_count)
+    deflated = _deflated_sharpe(selected_validation, independent_count, definition.periods_per_year)
+    if deflated is None:
+        warnings.append("dsr_unavailable_requires_frequency_sample_and_multiple_trials")
+    pbo, pbo_reason = _pbo_probability(development_family)
+    if pbo is None:
+        warnings.append(f"pbo_unavailable:{pbo_reason or 'insufficient_evidence'}")
+    p_values: list[float] = []
+    if baseline_validation is not None and total_trial_count >= 2 and external_trial_count == 0:
+        for trial_id, values in family_arrays.items():
+            if trial_id == baseline_trial_id or trial_id == f"prior:{baseline_trial_id}":
+                continue
+            paired = _paired_block_bootstrap(
+                values[validation_indices] - baseline_validation[validation_indices],
+                definition,
+                paired_with=baseline_trial_id,
+            )
+            p_value = paired.get("p_value")
+            if paired.get("status") != "available" or not isinstance(p_value, (int, float)):
+                p_values = []
+                break
+            p_values.append(float(p_value))
+    else:
+        p_values = []
+    false_discovery = _false_discovery_rate(p_values) if p_values else None
+    if false_discovery is None:
+        reason = "prior_trial_p_values_unavailable" if external_trial_count else "insufficient_paired_trials_or_dates"
+        warnings.append(f"fdr_unavailable:{reason}")
+    uncertainty["effective_dates"] = int(len(validation_indices))
+    uncertainty["total_trial_count"] = total_trial_count
+    uncertainty["effective_independent_trial_count"] = independent_count
+    uncertainty["false_discovery_rate_method"] = "Benjamini-Yekutieli minimum adjusted q-value" if false_discovery is not None else None
     stable = bool(
         baseline_mean is not None
         and selected_mean > baseline_mean
@@ -206,7 +363,14 @@ def evaluate_trials(
         stable = False
     if not stable:
         warnings.append("promotion_evidence_insufficient_or_unstable")
-    promotion = bool(stable and baseline_final_score is not None and final_score >= baseline_final_score)
+    promotion = bool(
+        stable
+        and holdout_status == "scored"
+        and frozen_candidate_id == selected_id
+        and baseline_final_score is not None
+        and final_score is not None
+        and final_score >= baseline_final_score
+    )
     return ValidationReport(
         VALIDATION_PROTOCOL_VERSION,
         definition,
@@ -224,6 +388,8 @@ def evaluate_trials(
         false_discovery,
         promotion,
         tuple(dict.fromkeys(warnings)),
+        total_trial_count,
+        holdout_status,
     )
 
 
