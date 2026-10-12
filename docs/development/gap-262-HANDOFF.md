@@ -9,6 +9,12 @@ DONE
 CORRECTION PASS
 - Retained trials carry a `search_fingerprint` bound to data dates, evaluator identity (mandatory for market/private data), registry, guards and penalty; mismatch -> unavailable. Failed/pruned baselines never supply a baseline score. Out-of-sample judging shares the run deadline (search uses 80%) and honours cancellation. Output dirs under `.owner-root`, `models`, `configs`, the settings dir or `Desktop/Trading App` are refused before any write. Registry/defaults validate fully (`TuningRegistryError`). Out-of-sample errors export the exception class only.
 
+CORRECTION PASS 2
+- Evaluator identity is mandatory for every provenance (synthetic included); a module/qualname fallback is gone, so closures over different data cannot share retained evidence. Missing identity -> `evaluator_identity_unverified`, nothing evaluated or retained. Resumption identity mismatch is refused (`retained_evidence_identity_mismatch`); use a new run ID for a fresh run.
+- Evidence identity now includes all search settings (max_memory_mb, patience, prune_warmup_trials, refine_after, max_trials, max_seconds, seed).
+- Registry: knob key, group and model must be bounded identifier strings, else `TuningRegistryError` (CLI -> unavailable).
+- Cancellation is re-checked after every out-of-sample evaluation and before the decision is built.
+
 SAFE_POINT
 - Real-data walk-forward is not wired (`--mode walk-forward` exits 2, unavailable): needs a point-in-time objective over real score/forecast history and owner-defined acceptance. "Then new data" stage not built.
 - Hard resource limits (process isolation, native memory, restart limits) not built: limits are cooperative (checked between trials and at `report`); a hung objective that never reports cannot be interrupted. Owner decides hard vs cooperative.

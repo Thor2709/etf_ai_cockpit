@@ -90,6 +90,7 @@ def test_walk_forward_never_shows_evaluation_or_final_data_to_the_search(tmp_pat
         calls.append((phase["name"], tuple(indices)))
         return inner(parameters, indices, context)
 
+    spy.identity = inner.identity  # type: ignore[attr-defined]
     proposal = run_walk_forward_tuning(tmp_path / "store", "split", registry, spy, dates, data_provenance="synthetic", defaults=DEFAULTS)
     windows = proposal.windows
     n = 500
@@ -117,6 +118,7 @@ def test_candidate_that_does_not_beat_current_out_of_sample_keeps_current(tmp_pa
         context.report(0, -abs(parameters["ens.z"] - target))
         return -abs(float(parameters["ens.z"]) - target)
 
+    regime_flip.identity = "synthetic:regime-flip"  # type: ignore[attr-defined]
     proposal = run_walk_forward_tuning(tmp_path / "store", "flip", registry, regime_flip, dates, data_provenance="synthetic", defaults=DEFAULTS)
 
     assert best_at["ens.z"] > 0.5
@@ -355,3 +357,88 @@ def test_out_of_sample_exception_text_never_reaches_exports(tmp_path: Path) -> N
     assert proposal.decision == "unavailable" and proposal.reasons == ("out_of_sample_evaluation_failed: RuntimeError",)
     exported = json.dumps(proposal.to_dict()) + render_tuning_report(proposal)
     assert "SECRET123" not in exported and "api_key" not in exported
+
+
+def test_unverifiable_objective_identity_never_reuses_retained_evidence_even_for_synthetic(tmp_path: Path) -> None:
+    registry, _ = _registry(tmp_path)
+    dates, _inner = synthetic_tuning_fixture(registry, PLANTED, n_samples=500)
+
+    def make_objective(target: float):
+        def objective(parameters, indices, context):  # noqa: ANN001  # same module + qualname for every target
+            return -abs(parameters["ens.z"] - target)
+
+        return objective
+
+    first, second = make_objective(0.8), make_objective(0.3)
+    assert first.__qualname__ == second.__qualname__ and not hasattr(first, "identity")
+    for objective in (first, second):
+        proposal = run_walk_forward_tuning(tmp_path / "store", "anon", registry, objective, dates, data_provenance="synthetic", defaults=DEFAULTS)
+        assert proposal.decision == "unavailable" and proposal.reasons == ("evaluator_identity_unverified",)
+        assert proposal.candidate is None
+    assert OptimisationLedger(tmp_path / "store").list("anon") in ([], ())  # nothing evaluated, nothing retained
+    named = run_walk_forward_tuning(tmp_path / "store", "anon", registry, first, dates, data_provenance="synthetic", defaults=DEFAULTS, evaluator_identity="synthetic:z=0.8")
+    assert named.decision != "unavailable" or named.reasons != ("evaluator_identity_unverified",)
+
+
+def test_retained_evidence_is_bound_to_every_effective_search_setting(tmp_path: Path) -> None:
+    registry, _ = _registry(tmp_path)
+    dates, evaluate = synthetic_tuning_fixture(registry, PLANTED, n_samples=500)
+    first = run_walk_forward_tuning(tmp_path / "store", "bound", registry, evaluate, dates, data_provenance="synthetic", defaults=DEFAULTS)
+    assert first.decision == "propose_change"
+    search = DEFAULTS.search
+    variants = {
+        "max_memory_mb": SearchDefaults(search.max_trials, search.max_seconds, 1, search.seed, search.refine_after, search.patience, search.prune_warmup_trials),
+        "patience": SearchDefaults(search.max_trials, search.max_seconds, search.max_memory_mb, search.seed, search.refine_after, 40, search.prune_warmup_trials),
+        "prune_warmup_trials": SearchDefaults(search.max_trials, search.max_seconds, search.max_memory_mb, search.seed, search.refine_after, search.patience, 9),
+    }
+    for name, changed in variants.items():
+        resumed = run_walk_forward_tuning(
+            tmp_path / "store", "bound", registry, evaluate, dates, data_provenance="synthetic", defaults=TuningDefaults(changed, DEFAULTS.guards, DEFAULTS.split)
+        )
+        assert resumed.decision == "unavailable" and resumed.reasons == ("retained_evidence_identity_mismatch",), name
+        assert resumed.candidate is None
+
+
+def test_invalid_knob_metadata_is_rejected_as_unavailable(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    _registry(tmp_path)
+    config = tmp_path / "cfg"
+    cases = {
+        REGISTRY.replace("group: ens.xy}", "group: [ens]}", 1): "group",
+        REGISTRY.replace("model: toto}", "model: {a: 1}}"): "model",
+        REGISTRY.replace("key: ens.z,", "key: 'bad key!',"): "knob key",
+        REGISTRY.replace("key: ens.z,", "key: [ens.z],"): "knob key",
+        REGISTRY.replace("key: ens.z,", "key: 7,"): "knob key",
+    }
+    cli = _load_cli("run_tuning_cli3")
+    for text, fragment in cases.items():
+        (config / "bad.yaml").write_text(text, encoding="utf-8")
+        with pytest.raises(TuningRegistryError, match=fragment):
+            load_tuning_registry(config / "bad.yaml")
+        assert cli.main(["--registry", str(config / "bad.yaml"), "--output-dir", str(tmp_path / "out")]) == 2
+        assert "tuning_status=unavailable" in capsys.readouterr().out
+    assert not (tmp_path / "out").exists()
+
+
+def test_cancellation_during_the_final_out_of_sample_call_never_proposes(tmp_path: Path) -> None:
+    registry, _ = _registry(tmp_path)
+    dates, inner = synthetic_tuning_fixture(registry, PLANTED, n_samples=500)
+    baseline = run_walk_forward_tuning(tmp_path / "store0", "plain", registry, inner, dates, data_provenance="synthetic", defaults=DEFAULTS)
+    assert baseline.decision == "propose_change"  # the same evaluator wins when nothing cancels
+
+    state = {"calls": 0, "cancelled": False}
+
+    def cancels_on_last_call(parameters, indices, context):  # noqa: ANN001
+        score = inner(parameters, indices, context)
+        if min(indices) >= _eval_start():
+            state["calls"] += 1
+            if state["calls"] == 8:  # last candidate block: the evaluator never reports after this point
+                state["cancelled"] = True
+        return score
+
+    cancels_on_last_call.identity = inner.identity  # type: ignore[attr-defined]
+    proposal = run_walk_forward_tuning(
+        tmp_path / "store1", "late", registry, cancels_on_last_call, dates, data_provenance="synthetic", defaults=DEFAULTS, cancel_check=lambda: state["cancelled"]
+    )
+    assert state["calls"] == 8
+    assert proposal.decision == "unavailable" and proposal.reasons == ("out_of_sample_interrupted",)
+    assert proposal.candidate is None

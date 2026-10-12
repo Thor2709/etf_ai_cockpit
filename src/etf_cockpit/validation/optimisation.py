@@ -695,10 +695,9 @@ def run_walk_forward_tuning(
         return unavailable(f"insufficient_evaluation_samples: {len(evaluation)} < {max(guards.min_eval_samples, guards.eval_blocks)}", windows)
     evidence = _cutoff_evidence(registry, dates[tune[0]], data_provenance, model_cutoffs)
     objective_identity = evaluator_identity if evaluator_identity is not None else getattr(evaluate, "identity", None)
-    if objective_identity is None and data_provenance != "synthetic":
+    if not isinstance(objective_identity, str) or not objective_identity.strip():
+        # a module/qualname fallback cannot distinguish closures over different data or targets, so no run (synthetic included) may reuse evidence without it
         return unavailable("evaluator_identity_unverified", windows, evidence)
-    if objective_identity is None:
-        objective_identity = "callable:" + str(getattr(evaluate, "__module__", "")) + "." + str(getattr(evaluate, "__qualname__", type(evaluate).__name__))
     penalty = float(guards.change_penalty)
     bound_identity = {
         "evaluator": str(objective_identity),
@@ -707,6 +706,15 @@ def run_walk_forward_tuning(
         "tune_indices": [tune[0], tune[-1]],
         "registry_fingerprint": base_inputs["registry_fingerprint"],
         "guards": guard_view,
+        "search_config": {  # every effective search setting, so a changed quota/stop rule never reuses earlier evidence
+            "max_trials": config.search.max_trials,
+            "max_seconds": config.search.max_seconds,
+            "max_memory_mb": config.search.max_memory_mb,
+            "seed": config.search.seed,
+            "refine_after": config.search.refine_after,
+            "patience": config.search.patience,
+            "prune_warmup_trials": config.search.prune_warmup_trials,
+        },
         "change_penalty": penalty,
         "model_cutoffs": {key: value.isoformat() for key, value in sorted((model_cutoffs or {}).items())},
     }
@@ -783,6 +791,8 @@ def run_walk_forward_tuning(
         value = _finite(evaluate(parameters, block, oos_context))
         if clock() >= deadline:
             raise TrialInterrupted("run time quota reached during evaluation")
+        if cancel_check is not None and cancel_check():
+            raise TrialInterrupted("cancel requested during evaluation")
         return value
 
     try:
@@ -792,6 +802,8 @@ def run_walk_forward_tuning(
         return unavailable("out_of_sample_interrupted", windows, evidence, search)
     except Exception as exc:  # category only: raw messages may carry secrets and are never exported
         return unavailable(f"out_of_sample_evaluation_failed: {type(exc).__name__}", windows, evidence, search)
+    if cancel_check is not None and cancel_check():  # final gate before any decision is published
+        return unavailable("out_of_sample_interrupted", windows, evidence, search)
     margins = [cand - cur - cost for cand, cur in zip(candidate_scores, current_scores)]
     wins = sum(margin > guards.min_improvement for margin in margins)
     mean_margin = sum(margins) / len(margins)

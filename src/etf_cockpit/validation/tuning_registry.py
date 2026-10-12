@@ -14,6 +14,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import re
 
 import yaml
 
@@ -213,6 +214,16 @@ def _rescale_group(members: list[TunableParameter], values: dict[str, float], to
         raise TuningRegistryError(f"group {members[0].group} could not be rescaled to its current total")
 
 
+def _metadata_identifier(value: object, label: str, *, optional: bool = False) -> str | None:
+    """Knob identifiers/group/model must be bounded identifier strings (same alphabet the search accepts)."""
+
+    if value is None and optional:
+        return None
+    if not isinstance(value, str) or not value.strip() or len(value.strip()) > 160 or not re.fullmatch(r"[A-Za-z0-9_.:-]+", value.strip()):
+        raise TuningRegistryError(f"{label} must be a bounded identifier string")
+    return value.strip()
+
+
 def load_tuning_registry(path: Path | None = None, *, config_dir: Path | None = None) -> TuningRegistry:
     """Load the registry and read every knob's current value from its source file."""
 
@@ -236,10 +247,12 @@ def load_tuning_registry(path: Path | None = None, *, config_dir: Path | None = 
     for entry in entries:
         if not isinstance(entry, Mapping):
             raise TuningRegistryError("tuning registry parameter entry must be a mapping")
-        key = str(entry.get("key", "")).strip()
-        if not key or key in seen:
+        key = _metadata_identifier(entry.get("key"), "knob key")
+        if key in seen:
             raise TuningRegistryError(f"knob key missing or duplicated: {key!r}")
         seen.add(key)
+        group = _metadata_identifier(entry.get("group"), f"knob {key}: group", optional=True)
+        model = _metadata_identifier(entry.get("model"), f"knob {key}: model", optional=True)
         file = entry.get("file")
         raw_path = entry.get("path")
         if not isinstance(file, str) or not file.strip() or not isinstance(raw_path, list) or not raw_path:
@@ -270,7 +283,7 @@ def load_tuning_registry(path: Path | None = None, *, config_dir: Path | None = 
         if not lower - _TOLERANCE <= current <= upper + _TOLERANCE:
             raise TuningRegistryError(f"knob {key}: current value {current} lies outside [{lower}, {upper}]")
         parameters.append(
-            TunableParameter(key, file, path_parts, lower, upper, step, current, entry.get("group") or None, entry.get("model") or None)
+            TunableParameter(key, file, path_parts, lower, upper, step, current, group, model)
         )
     defaults = _defaults(document.get("defaults"))
     registry = TuningRegistry(str(document.get("version", "")), tuple(parameters), defaults, dict(sorted(checksums.items())), hashlib.sha256(raw).hexdigest())
