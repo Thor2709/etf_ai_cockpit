@@ -27,7 +27,11 @@ def load_etf_look_through(
     minimum_aggregate_coverage: float = 0.80,
     require_canonical_identity: bool = False,
 ) -> dict[str, object]:
-    """Read local ETF holdings and constituent evidence for the pure analyzer."""
+    """Read local ETF holdings and constituent evidence for the pure analyzer.
+
+    Strict identity mode derives mappings exclusively from the dated security
+    master; caller-supplied aliases carry no verifiable temporal provenance.
+    """
     from dataclasses import asdict
 
     from etf_cockpit.analysis.look_through import calculate_look_through
@@ -51,7 +55,7 @@ def load_etf_look_through(
             "effective_at": str(analysis_date or str(decision_time)[:10]),
             "decision_time": str(decision_time),
         }
-        if require_canonical_identity and not resolved_identity_map:
+        if require_canonical_identity:
             resolved_identity_map, identity_resolution = _pit_identity_map(
                 analysis_date=analysis_date,
                 decision_time=decision_time,
