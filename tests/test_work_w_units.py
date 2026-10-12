@@ -144,7 +144,7 @@ def _pivot(rows):
     return pivot
 
 
-def test_service_preserves_explicit_missing_session_and_fails_closed_on_unknown_grid(monkeypatch):
+def test_service_preserves_explicit_missing_session_and_never_invents_sessions_without_calendar(monkeypatch):
     rows = pd.DataFrame({"date": pd.bdate_range("2026-01-26", periods=5), "etf_id": "AAA",
                          "adjusted_close": [100, 101, np.nan, 103, 104]})
     pivot = _pivot(rows)
@@ -157,8 +157,11 @@ def test_service_preserves_explicit_missing_session_and_fails_closed_on_unknown_
     monkeypatch.setattr(TimesFMAdapter, "forecast_series", forecast)
     ForecastService(load_config())._run_timesfm_forecasts(pivot, ["AAA"], [1], DAY, "work-w-test")
     pd.testing.assert_series_equal(seen["series"], series)
-    with pytest.raises(ValueError, match="session grid unavailable"):
-        _timesfm_price_series(_pivot(rows.drop(index=2)), "AAA", DAY)
+    # Without certified calendar evidence an absent date is a non-session: it is neither
+    # invented as a NaN gap nor does it disable the model; own explicit gaps stay NaN.
+    absent = _timesfm_price_series(_pivot(rows.drop(index=2)), "AAA", DAY)
+    assert len(absent) == 4 and not absent.isna().any()
+    assert pd.Timestamp("2026-01-28") not in absent.index
 
 
 def test_certified_calendar_excludes_holiday_and_restores_missing_session():

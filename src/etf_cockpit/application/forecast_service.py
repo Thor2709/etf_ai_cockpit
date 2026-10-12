@@ -572,11 +572,12 @@ def _timesfm_price_series(pivot: pd.DataFrame, etf_id: str, as_of_date: date) ->
             return series.reindex(sessions)
         except ValueError as exc:
             raise ValueError(f"TimesFM session calendar unavailable: {exc}") from exc
-    # Explicit own rows preserve NaN positions. Without certified calendar evidence,
-    # absent weekdays might be missing sessions or holidays: neither can be guessed.
-    expected_weekdays = pd.bdate_range(series.index.min().normalize(), series.index.max().normalize())
-    if not expected_weekdays.difference(series.index.normalize()).empty or (rows is None and series.isna().any()):
-        raise ValueError("TimesFM session grid unavailable: missing dates/union-calendar NaNs require certified instrument calendar evidence.")
+    # Without certified calendar evidence the instrument's own observed dates are its
+    # session grid: absent dates are treated as non-sessions (never invented), while
+    # explicit own rows with a missing price stay NaN for the forecaster to interpolate.
+    # NaNs that only come from the union-calendar pivot are not own sessions and are dropped.
+    if rows is None:
+        series = series.dropna()
     return series
 
 
