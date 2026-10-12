@@ -1,28 +1,15 @@
 # Gap #262 handoff: bounded parameter optimisation
-
-DONE
-- `validation/tuning_registry.py` + `configs/tuning_v1.yaml`: 16 knobs (ETF attractiveness 4, ETF expected-return 3, ensemble weights 9) with bounds/step from config; current value read live from `score_engine_v3.yaml` / `model_settings.yaml` (never written); group totals preserved; missing/out-of-bounds source value raises `TuningRegistryError` (-> unavailable).
-- `optimisation.py` extended (no parallel engine): mid-trial median pruning via `context.report`, cooperative time limit at each report, seeded local refinement (`refine_after`), `patience` stop, injectable `clock`; additive `intermediate` key on trial records (no schema migration; old records byte-identical).
-- `run_walk_forward_tuning`: reuses `build_walk_forward_splits` (tune window, purge, later evaluation window, reserved final tail never touched); min-sample, change-penalty, block-win and margin guards; candidate must beat current out of sample else `keep_current`; failures give `unavailable` with reason; pretraining-cutoff flags (`PRETRAINING_CUTOFFS`; unknown cutoff = flagged); synthetic data is `synthetic_machinery_only`, never promotion evidence.
-- `scripts/run_tuning.py`: writes `tuning_proposal.json` + `tuning_report.md` only; refuses an output dir inside the settings directory.
-
-CORRECTION PASS
-- Retained trials carry a `search_fingerprint` bound to data dates, evaluator identity (mandatory for market/private data), registry, guards and penalty; mismatch -> unavailable. Failed/pruned baselines never supply a baseline score. Out-of-sample judging shares the run deadline (search uses 80%) and honours cancellation. Output dirs under `.owner-root`, `models`, `configs`, the settings dir or `Desktop/Trading App` are refused before any write. Registry/defaults validate fully (`TuningRegistryError`). Out-of-sample errors export the exception class only.
-
-CORRECTION PASS 2
-- Evaluator identity is mandatory for every provenance (synthetic included); a module/qualname fallback is gone, so closures over different data cannot share retained evidence. Missing identity -> `evaluator_identity_unverified`, nothing evaluated or retained. Resumption identity mismatch is refused (`retained_evidence_identity_mismatch`); use a new run ID for a fresh run.
-- Evidence identity now includes all search settings (max_memory_mb, patience, prune_warmup_trials, refine_after, max_trials, max_seconds, seed).
-- Registry: knob key, group and model must be bounded identifier strings, else `TuningRegistryError` (CLI -> unavailable).
-- Cancellation is re-checked after every out-of-sample evaluation and before the decision is built.
-
-SAFE_POINT
-- Real-data walk-forward is not wired (`--mode walk-forward` exits 2, unavailable): needs a point-in-time objective over real score/forecast history and owner-defined acceptance. "Then new data" stage not built.
-- Hard resource limits (process isolation, native memory, restart limits) not built: limits are cooperative (checked between trials and at `report`); a hung objective that never reports cannot be interrupted. Owner decides hard vs cooperative.
-- No config knob exists for the final-score group blend; add it to the source config first, then to the registry.
-
-DEFAULTS (all in `configs/tuning_v1.yaml`)
-- Bounds current +/-0.10 (clamped to [0,1]), step 0.05. 60 trials, 60 s, 256 MB, seed 42, refine after 8, patience 25, prune warmup 5.
-- Guards: >=250 tuning samples, >=60 evaluation samples, 4 blocks, >=75% blocks must win, change penalty 0.02 per unit mean normalised move, extra margin 0. Split: eval 120, horizon 20, embargo 0, final tail 60.
-
-OPEN
-- Whether optional models with unpublished cutoffs (timesfm 2.5, toto 2.0) should block promotion evidence (current: flagged, not eligible unless the caller supplies a cutoff).
+DONE: Preserved the existing registry, CLI, walk-forward machinery and earlier tests; changes remain local proposals with execution_allowed=false and unchanged owner settings.
+DONE: Config supplies 16 knobs (ETF attractiveness 4, expected return 3, ensemble 9); current values read from score_engine_v3.yaml/model_settings.yaml, group totals preserved, missing/out-of-bounds values and invalid knob/group/model identifiers fail closed.
+DONE: Existing search retains seeded refinement, patience and context.report median pruning; additive intermediate/fingerprint fields require no schema migration. Retained evidence binds dates, evaluator, registry, guards, penalty and every effective search setting; verified mismatches are refused, failed/pruned baselines cannot support proposals.
+DONE: Existing build_walk_forward_splits keeps tune/purge/later evaluation/final tail separate; minimum samples, change penalty, block wins, margin and model pretraining cutoffs gate evidence. Synthetic runs remain synthetic_machinery_only.
+DONE: One _EvaluationGuard checks Python-tracked memory, deadline and cancellation before/after every tuning/current/candidate evaluator call and at reports, including error/pruning exits; out-of-sample memory breaches return unavailable. Search uses 80% of time and is capped by the whole-run deadline.
+DONE: Unknown evaluator identity executes fresh under a unique search.run_id with resume_allowed=false, preserving prior trials/summaries and disabling promotion eligibility; configured sampling seeds remain deterministic. Retained replay and every early/final decision poll cancellation; decisions also check the deadline.
+DONE: CLI writes tuning_proposal.json/tuning_report.md only, refuses protected/settings/configs/models/.owner-root/Desktop Trading App paths before writes, and exports out-of-sample exception categories without raw messages.
+SAFE_POINT: Real walk-forward CLI remains unavailable pending a point-in-time score/forecast-history objective and owner acceptance; new-data evaluation remains deferred. Final-score blend requires a source-config knob before registry extension.
+SAFE_POINT: Resource limits remain cooperative; hung evaluators without reports, native/process memory, hard interruption and restart limits require owner-defined isolation acceptance.
+TESTS: test_every_out_of_sample_call_enforces_the_memory_quota (4 cases); test_unknown_identity_executes_fresh_tuning_and_preserves_prior_scores (3); test_resumed_early_decisions_poll_cancellation (4), all passed. Earlier anonymous-identity tests now require fresh execution.
+TESTS: python -m pytest tests/test_gap_262.py tests/test_architecture_boundaries.py tests/test_optimisation.py -q --tb=line -p no:cacheprovider -o addopts='' => 36 passed (27 + 3 + 6); no network or package installs.
+DEFAULTS: Unchanged tuning_v1.yaml: bounds current +/-0.10 clamped to [0,1], step 0.05; 60 trials/60 s/256 MB, seed 42, refine after 8, patience 25, pruning warmup 5. Fresh namespace IDs are unique per invocation.
+DEFAULTS: Minimum tune/eval samples 250/60; 4 blocks, 75% wins, change penalty 0.02, extra margin 0; eval size 120, horizon 20, embargo 0, reserved final tail 60.
+OPEN: No remaining reported correction blockers. Owner decides hard versus cooperative limits, real/new-data acceptance and unpublished timesfm 2.5/toto 2.0 cutoffs (currently flagged and ineligible unless supplied); issue lifecycle remains unchanged.

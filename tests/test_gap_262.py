@@ -243,7 +243,9 @@ def test_resume_refuses_retained_trials_from_a_different_window_or_objective(tmp
         assert refused.decision == "unavailable" and refused.reasons == ("retained_evidence_identity_mismatch",)
         assert refused.candidate is None
     unverified = run_walk_forward_tuning(tmp_path / "store5", "m", registry, lambda p, i, c: 0.0, dates, data_provenance="market", defaults=DEFAULTS)
-    assert unverified.reasons == ("evaluator_identity_unverified",)  # market data needs a named evaluator/data identity
+    assert unverified.decision == "keep_current" and unverified.search["trial_count"] == DEFAULTS.search.max_trials
+    assert "evaluator_identity_unverified" in unverified.evidence["flags"]
+    assert unverified.evidence["promotion_evidence_eligible"] is False  # fresh machinery runs cannot establish market evidence identity
 
 
 def test_failed_baseline_cannot_support_a_proposal(tmp_path: Path) -> None:
@@ -371,13 +373,17 @@ def test_unverifiable_objective_identity_never_reuses_retained_evidence_even_for
 
     first, second = make_objective(0.8), make_objective(0.3)
     assert first.__qualname__ == second.__qualname__ and not hasattr(first, "identity")
+    fresh_ids = []
     for objective in (first, second):
         proposal = run_walk_forward_tuning(tmp_path / "store", "anon", registry, objective, dates, data_provenance="synthetic", defaults=DEFAULTS)
-        assert proposal.decision == "unavailable" and proposal.reasons == ("evaluator_identity_unverified",)
-        assert proposal.candidate is None
-    assert OptimisationLedger(tmp_path / "store").list("anon") in ([], ())  # nothing evaluated, nothing retained
+        assert proposal.decision == "propose_change" and proposal.candidate is not None
+        assert proposal.search["resume_allowed"] is False
+        fresh_ids.append(proposal.search["run_id"])
+        assert len(OptimisationLedger(tmp_path / "store").list(proposal.search["run_id"])) == DEFAULTS.search.max_trials
+    assert len(set(fresh_ids)) == 2
+    assert OptimisationLedger(tmp_path / "store").list("anon") == ()  # original namespace is untouched
     named = run_walk_forward_tuning(tmp_path / "store", "anon", registry, first, dates, data_provenance="synthetic", defaults=DEFAULTS, evaluator_identity="synthetic:z=0.8")
-    assert named.decision != "unavailable" or named.reasons != ("evaluator_identity_unverified",)
+    assert named.decision == "propose_change" and named.search["resume_allowed"] is True
 
 
 def test_retained_evidence_is_bound_to_every_effective_search_setting(tmp_path: Path) -> None:
@@ -442,3 +448,107 @@ def test_cancellation_during_the_final_out_of_sample_call_never_proposes(tmp_pat
     assert state["calls"] == 8
     assert proposal.decision == "unavailable" and proposal.reasons == ("out_of_sample_interrupted",)
     assert proposal.candidate is None
+
+
+@pytest.mark.parametrize("heavy_phase,expected_calls", [("current", 1), ("candidate", 5)])
+@pytest.mark.parametrize("report_after_allocation", [False, True])
+def test_every_out_of_sample_call_enforces_the_memory_quota(tmp_path: Path, heavy_phase: str, expected_calls: int, report_after_allocation: bool) -> None:
+    registry, _ = _registry(tmp_path)
+    dates, inner = synthetic_tuning_fixture(registry, PLANTED, n_samples=500)
+    current = registry.current_values()
+    calls = []
+
+    def heavy_oos(parameters, indices, context):  # noqa: ANN001
+        score = inner(parameters, indices, context)
+        if min(indices) >= _eval_start():
+            phase = "current" if parameters == current else "candidate"
+            calls.append(phase)
+            if phase == heavy_phase:
+                allocation = bytearray(4 * 1024 * 1024)
+                if report_after_allocation:
+                    context.report(99, score)
+                assert len(allocation) == 4 * 1024 * 1024  # freed before returning; its peak still counts
+        return score
+
+    heavy_oos.identity = inner.identity  # type: ignore[attr-defined]
+    tight = TuningDefaults(SearchDefaults(60, 60.0, 1, 11, 30, None, 5), DEFAULTS.guards, DEFAULTS.split)
+    proposal = run_walk_forward_tuning(tmp_path / "store", "heavy-oos", registry, heavy_oos, dates, data_provenance="synthetic", defaults=tight)
+
+    rows = OptimisationLedger(tmp_path / "store").list("heavy-oos")
+    assert rows[0]["status"] == "completed" and max(row["peak_memory_mb"] for row in rows) < 1
+    assert len(calls) == expected_calls and calls[-1] == heavy_phase
+    assert proposal.decision == "unavailable" and proposal.reasons == ("out_of_sample_memory_quota_exceeded",)
+    assert proposal.search["peak_memory_mb"] > 1
+    assert proposal.candidate is None and proposal.out_of_sample is None
+
+
+@pytest.mark.parametrize("provenance", ["synthetic", "market", "private"])
+def test_unknown_identity_executes_fresh_tuning_and_preserves_prior_scores(tmp_path: Path, provenance: str) -> None:
+    registry, _ = _registry(tmp_path)
+    dates, known = synthetic_tuning_fixture(registry, PLANTED, n_samples=500)
+    root = tmp_path / "store"
+    original = run_walk_forward_tuning(root, "same-run", registry, known, dates, data_provenance=provenance, defaults=DEFAULTS)
+    ledger = OptimisationLedger(root)
+    prior_rows, prior_summaries = ledger.list("same-run"), ledger.list_summaries()
+    assert original.search["resume_allowed"] is True
+    fresh_ids = []
+
+    def anonymous(target: float):
+        calls = []
+
+        def evaluate(parameters, indices, context):  # noqa: ANN001
+            calls.append(tuple(indices))
+            return -abs(parameters["ens.z"] - target)
+
+        return evaluate, calls
+
+    for target in (0.8, 0.3):
+        evaluate, calls = anonymous(target)
+        proposal = run_walk_forward_tuning(root, "same-run", registry, evaluate, dates, data_provenance=provenance, defaults=DEFAULTS)
+        assert proposal.decision == "propose_change" and proposal.candidate is not None
+        assert sum(max(indices) < _eval_start() for indices in calls) == DEFAULTS.search.max_trials
+        assert proposal.in_sample["baseline_score"] == pytest.approx(-abs(0.5 - target))
+        assert proposal.candidate["ens.z"] == pytest.approx(target, abs=0.1)
+        assert proposal.search["resume_allowed"] is False
+        assert proposal.evidence["promotion_evidence_eligible"] is False
+        fresh_id = proposal.search["run_id"]
+        fresh_ids.append(fresh_id)
+        assert ledger.list(fresh_id)[0]["score"] == pytest.approx(-abs(0.5 - target))
+        assert ledger.list("same-run") == prior_rows
+        assert next(item for item in ledger.list_summaries() if item["run_id"] == "same-run") == prior_summaries[0]
+    assert len(set(fresh_ids)) == 2 and "same-run" not in fresh_ids
+
+
+@pytest.mark.parametrize("early_reason", ["no_in_sample_improvement_over_current", "candidate_equals_current"])
+@pytest.mark.parametrize("cancel_poll", [1, 3])
+def test_resumed_early_decisions_poll_cancellation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, early_reason: str, cancel_poll: int) -> None:
+    registry, _ = _registry(tmp_path)
+    dates, _ = synthetic_tuning_fixture(registry, PLANTED, n_samples=500)
+    calls = []
+    if early_reason == "candidate_equals_current":
+        # Repeated current settings can receive different scores from a noisy evaluator.
+        monkeypatch.setattr(type(registry), "search_space", lambda self: {key: (value,) for key, value in self.current_values().items()})
+
+    def evaluate(parameters, indices, context):  # noqa: ANN001
+        calls.append(tuple(indices))
+        return float(len(calls)) if early_reason == "candidate_equals_current" else 1.0
+
+    evaluate.identity = "synthetic:early-decisions"  # type: ignore[attr-defined]
+    defaults = TuningDefaults(SearchDefaults(2, 60.0, 256, 11, None, None, 5), DEFAULTS.guards, DEFAULTS.split)
+    root = tmp_path / "store"
+    first = run_walk_forward_tuning(root, "early", registry, evaluate, dates, data_provenance="synthetic", defaults=defaults)
+    assert first.decision == "keep_current" and first.reasons == (early_reason,)
+    prior_rows = OptimisationLedger(root).list("early")
+    polls = 0
+
+    def cancel() -> bool:
+        nonlocal polls
+        polls += 1
+        return polls >= cancel_poll  # either already cancelled, or cancelled at the decision gate
+
+    resumed = run_walk_forward_tuning(root, "early", registry, evaluate, dates, data_provenance="synthetic", defaults=defaults, cancel_check=cancel)
+    assert len(calls) == 2  # retained scores were read without a new evaluator call
+    assert resumed.decision == "unavailable"
+    assert resumed.reasons == (("search_cancelled",) if cancel_poll == 1 else ("decision_interrupted",))
+    assert resumed.candidate is None and resumed.out_of_sample is None
+    assert OptimisationLedger(root).list("early") == prior_rows
