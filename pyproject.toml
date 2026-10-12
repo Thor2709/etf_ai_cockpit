@@ -50,7 +50,7 @@ models = [
   "huggingface-hub>=1.27,<2",
   "transformers>=5.15,<6",
   "timesfm==3.0.2",
-  "toto-2==2.0.0",
+  "toto-2==2.0.0; python_version >= '3.12'",  # toto-2 requires Python 3.12+
   "einops>=0.8,<0.9",
   "gluonts[torch]>=0.17,<0.18",
   "jaxtyping>=0.3,<0.4",
