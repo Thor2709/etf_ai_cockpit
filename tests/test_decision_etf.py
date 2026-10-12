@@ -138,10 +138,10 @@ def _economics_report(tmp_path: Path):
         "target",
         records,
         fund_total_return=_total_return_series(
-            tmp_path, [100.0, 102.0, 104.0, 106.0], instrument_id="target"
+            tmp_path, [100.0, 101.01, 102.040302, 103.10151106], instrument_id="target"
         ),
         benchmark_total_return=_total_return_series(
-            tmp_path, [100.0, 101.0, 102.0, 103.0], instrument_id="benchmark"
+            tmp_path, [100.0, 101.0, 102.01, 103.0301], instrument_id="benchmark"
         ),
         as_of=DECISION,
         horizon_days=3,

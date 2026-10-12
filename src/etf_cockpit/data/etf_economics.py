@@ -1500,11 +1500,10 @@ def calculate_etf_economics(
             if len(expected_dates) != expected_rows or not selected_window["date"].equals(pd.Series(expected_dates, name="date")):
                 missing.add("business_daily_coverage")
             else:
-                fund_return = float(selected_window["fund"].iloc[-1] / selected_window["fund"].iloc[0] - 1.0)
-                benchmark_return = float(selected_window["benchmark"].iloc[-1] / selected_window["benchmark"].iloc[0] - 1.0)
-                active = selected_window["fund"].pct_change().iloc[1:] - selected_window["benchmark"].pct_change().iloc[1:]
-                tracking_difference = round(fund_return - benchmark_return, 10)
-                tracking_error = round(float(active.std(ddof=1) * math.sqrt(252)), 10) if len(active) >= 2 else None
+                active_returns = selected_window["fund"].pct_change().iloc[1:] - selected_window["benchmark"].pct_change().iloc[1:]
+                annualization_periods = 252
+                tracking_difference = round(float(active_returns.mean() * annualization_periods), 10)
+                tracking_error = round(float(active_returns.std(ddof=1) * math.sqrt(annualization_periods)), 10) if len(active_returns) >= 2 else None
                 tracking_status = "available"
         else:
             missing.add("matched_total_return")

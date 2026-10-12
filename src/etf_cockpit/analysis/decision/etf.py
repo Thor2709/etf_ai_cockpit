@@ -66,7 +66,7 @@ def compose_etf_decision(
     comparison_groups: Mapping[str, Mapping[str, str]] | Mapping[str, str] | None = None,
     registry_path: str | Path = _DEFAULT_REGISTRY_PATH,
     minimum_support: int = 3,
-    strict_exposure_peers: bool = False,
+    strict_exposure_peers: bool = True,
 ) -> InstrumentDecisionAssessment:
     """Compose an ETF assessment from canonical local evidence.
 
@@ -85,6 +85,26 @@ def compose_etf_decision(
     vehicle_registry, exposure_registry, checksum = _load_etf_registries(registry_path)
     vehicle_metrics = dict(vehicle_metrics or {})
     structural_metrics = dict(structural_metrics or {})
+    vehicle_rank_peers = list(peer_observations)
+    exposure_rank_peers = list(exposure_peer_observations)
+    if strict_exposure_peers:
+        scoped_groups = comparison_groups
+        if comparison_groups is not None and any(
+            isinstance(value, Mapping) for value in comparison_groups.values()
+        ):
+            scoped_groups = comparison_groups.get("ETF_EXPOSURE_PEERS")
+        scoped_groups = scoped_groups if isinstance(scoped_groups, Mapping) else {}
+        target_group = scoped_groups.get(target_context.instrument_id)
+        vehicle_rank_peers = [
+            item
+            for item in vehicle_rank_peers
+            if target_group and scoped_groups.get(item.instrument_id) == target_group
+        ]
+        exposure_rank_peers = [
+            item
+            for item in exposure_rank_peers
+            if target_group and scoped_groups.get(item.instrument_id) == target_group
+        ]
     vehicle_evidence = _vehicle_scored_metrics(
         vehicle_registry,
         etf_economics,
@@ -105,7 +125,7 @@ def compose_etf_decision(
                 try:
                     construct_cohort(
                         target_context,
-                        peer_observations,
+                        vehicle_rank_peers,
                         metric=item.metric_id,
                         effective_at=decision_time,
                         decision_time=decision_time,
@@ -141,7 +161,7 @@ def compose_etf_decision(
                 try:
                     construct_cohort(
                         target_context,
-                        exposure_peer_observations,
+                        exposure_rank_peers,
                         metric=item.metric_id,
                         effective_at=decision_time,
                         decision_time=decision_time,
@@ -167,7 +187,7 @@ def compose_etf_decision(
         vehicle_evidence,
         vehicle_registry,
         target_context=target_context,
-        peer_observations=peer_observations,
+        peer_observations=vehicle_rank_peers,
         comparison_groups=comparison_groups,
         minimum_support=minimum_support,
     )
@@ -211,7 +231,7 @@ def compose_etf_decision(
             exposure_evidence,
             exposure_registry,
             target_context=target_context,
-            peer_observations=exposure_peer_observations,
+            peer_observations=exposure_rank_peers,
             comparison_groups=comparison_groups,
             minimum_support=minimum_support,
         )
@@ -447,8 +467,8 @@ def _add_tracking_metrics(
         "benchmark_source_id": _member(economics, "benchmark_source_id"),
         "matched_start": _member(economics, "matched_start"),
         "matched_end": _member(economics, "matched_end"),
-        "td_definition": "td_definition: compounded (canonical etf_economics)",
-        "te_definition": "sqrt(A) * sigma(a), from canonical etf_economics",
+        "td_definition": "252 * mean(active_returns), from canonical etf_economics",
+        "te_definition": "sqrt(252) * sample_std(active_returns), from canonical etf_economics",
     }
     if td is not None and "tracking_difference_abs" in definitions:
         evidence["tracking_difference_abs"] = _metric(
@@ -792,7 +812,7 @@ def _expected_return_record(
             "expected_return_method": method,
             "calculation": method,
             "components": {name: item.get("provenance") for name, item in components},
-            "td_definition": "td_definition: compounded (canonical etf_economics)" if use_tracking else None,
+            "td_definition": "252 * mean(active_returns), from canonical etf_economics" if use_tracking else None,
         },
         authority=min(float(item.get("authority", 0.35)) for _, item in components),
         reliability=min(float(item.get("reliability", 0.35)) for _, item in components),
@@ -820,7 +840,7 @@ def _tracking_record(economics: object, decision: datetime) -> dict[str, object]
         "coverage": 1.0,
         "provenance": {
             "source": "data.etf_economics.calculate_etf_economics",
-            "td_definition": "td_definition: compounded (canonical etf_economics)",
+            "td_definition": "252 * mean(active_returns), from canonical etf_economics",
         },
     }
 
