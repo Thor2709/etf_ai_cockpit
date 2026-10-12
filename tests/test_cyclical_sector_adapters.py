@@ -166,8 +166,16 @@ def test_commodity_mapping_and_metric_specific_units_fail_closed():
 
 
 def test_cycle_valuation_and_distress_checks_available_failed_and_unavailable():
+    def linked_multiple(value):
+        # A reported multiple needs its own through-cycle linkage beside the normalised margin.
+        return replace(
+            _metric("cycle_adjusted_ev_to_earnings", "industrials", value, unit="multiple"),
+            normalisation_cycle_ids=("cycle-0", "cycle-1"),
+        )
+
+    margin = _metric("normalised_margin", "industrials", 0.1, unit="ratio")
     passed = _build("industrials", (
-        _metric("cycle_adjusted_ev_to_earnings", "industrials", 8, unit="multiple"),
+        margin, linked_multiple(8),
         _metric("trough_interest_coverage", "industrials", 3, unit="multiple"),
     ))
     assert {row.check: row.status for row in passed.checks} == {
@@ -175,7 +183,7 @@ def test_cycle_valuation_and_distress_checks_available_failed_and_unavailable():
         "trough_interest_coverage": "available",
     }
     failed = _build("industrials", (
-        _metric("cycle_adjusted_ev_to_earnings", "industrials", 15, unit="multiple"),
+        margin, linked_multiple(15),
         _metric("trough_interest_coverage", "industrials", 1, unit="multiple"),
     ))
     assert all(row.status == "failed" for row in failed.checks)
