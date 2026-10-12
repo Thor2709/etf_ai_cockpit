@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field as dataclass_field
 from datetime import date, datetime
 import math
 from typing import Mapping
@@ -59,7 +59,7 @@ class LookThroughSummary:
     aggregation_conventions: tuple[str, ...]
     limitations: tuple[str, ...]
     execution_allowed: bool = False
-    normalized_exposures: Mapping[str, Mapping[str, float]] = field(default_factory=dict)
+    normalized_exposures: Mapping[str, Mapping[str, float]] = dataclass_field(default_factory=dict)
     minimum_aggregate_coverage: float = _DEFAULT_MINIMUM_AGGREGATE_COVERAGE
 
 
@@ -270,7 +270,7 @@ def calculate_look_through(
         for dimension in ("sectors", "countries", "currencies"):
             field = {"sectors": "sector", "countries": "country", "currencies": "currency"}[dimension]
             if getattr(item, field):
-                bucket[dimension].append(getattr(item, field))
+                bucket[dimension].append((getattr(item, field), item.weight))
         for dimension, bucket_name in {
             "industry": "industries",
             "domicile": "domiciles",
@@ -278,9 +278,12 @@ def calculate_look_through(
             "factor": "factors",
             "cap_bucket": "cap_buckets",
         }.items():
-            reported_value = reported_dimensions.get(item.identity, {}).get(dimension)
-            if reported_value:
-                bucket[bucket_name].append(reported_value)
+            reported = reported_dimensions.get(item.identity, {}).get(dimension)
+            if reported:
+                reported_value, evidenced_weight = reported
+                evidenced = min(item.weight, evidenced_weight)
+                if evidenced > 0:
+                    bucket[bucket_name].append((reported_value, evidenced))
         if not item.issuer and not item.company and not _mapped_identity(identity_map, item.identity):
             limitations.append(f"Issuer-level grouping is unavailable for {item.identity}; other listings may remain separate.")
 
@@ -293,24 +296,26 @@ def calculate_look_through(
             "factors": "factor",
             "cap_buckets": "cap bucket",
         }.items():
-            if len({_clean_text(value) for value in values[field] if _clean_text(value)}) > 1:
+            if len({_clean_text(value) for value, _ in values[field] if _clean_text(value)}) > 1:
                 limitations.append(f"Conflicting reported {dimension} evidence across listings was excluded for {key}.")
-        economic_rows.append(
-            {
-                "identity": key,
-                "display_name": min(values["display_names"]),
-                "weight": round(float(values["weight"]), 12),
-                "listing_identities": tuple(sorted(set(values["identities"]))),
-                "sector": _single_value(values["sectors"]),
-                "country": _single_value(values["countries"]),
-                "currency": _single_value(values["currencies"]),
-                "industry": _single_value(values["industries"]),
-                "domicile": _single_value(values["domiciles"]),
-                "economic_currency": _single_value(values["economic_currencies"]),
-                "factor": _single_value(values["factors"]),
-                "cap_bucket": _single_value(values["cap_buckets"]),
-            }
-        )
+        row = {
+            "identity": key,
+            "display_name": min(values["display_names"]),
+            "weight": round(float(values["weight"]), 12),
+            "listing_identities": tuple(sorted(set(values["identities"]))),
+        }
+        for dimension, field in {
+            "sector": "sectors",
+            "country": "countries",
+            "currency": "currencies",
+            "industry": "industries",
+            "domicile": "domiciles",
+            "economic_currency": "economic_currencies",
+            "factor": "factors",
+            "cap_bucket": "cap_buckets",
+        }.items():
+            row[dimension], row[f"{dimension}_weight"] = _single_weighted_value(values[field])
+        economic_rows.append(row)
     economic_rows.sort(key=lambda row: (-row["weight"], row["identity"]))
     concentration = _concentration(
         economic_rows, mapped_weight, reported_total, minimum_aggregate_coverage
@@ -340,6 +345,7 @@ def calculate_look_through(
         analysis,
         minimum_aggregate_coverage,
         reported_total,
+        {identity: values["currency"] for identity, values in reported_dimensions.items() if "currency" in values},
     )
     limitations.extend(metric_limitations)
 
@@ -411,14 +417,14 @@ def calculate_look_through(
         or "Holdings rows not known" in (selection_warning or "")
         else "available"
     )
-    if total_weight_status == "over_100":
-        status = "overreported"
-    elif require_canonical_identity and not identity_map:
+    if require_canonical_identity and not identity_map:
         status = "unavailable"
         limitations.append("Canonical identity-master evidence is unavailable; constituent look-through values are withheld.")
     elif require_canonical_identity and mapped_weight <= 0:
         status = "unavailable"
         limitations.append("No holdings have an unambiguous canonical identity-master mapping.")
+    elif total_weight_status == "over_100":
+        status = "overreported"
     return LookThroughSummary(
         instrument_id=str(instrument_id),
         status=status,
@@ -597,6 +603,7 @@ def _aggregate_fundamentals(
     analysis: date,
     minimum_aggregate_coverage: float,
     reported_total: float,
+    holding_currency_evidence: Mapping[str, tuple[str, float]],
 ) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, object]], list[str]]:
     mapped_weight = math.fsum(float(row["weight"]) for row in economic_rows)
     portfolio_denominator = max(1.0, reported_total)
@@ -690,7 +697,14 @@ def _aggregate_fundamentals(
         weight = float(economic["weight"])
         currencies = {holding.currency.upper() for holding in holdings_for_key if holding.currency}
         fact_currency = _clean_text(evidence.get("currency")).upper()
-        if not fact_currency or len(currencies) != 1:
+        # Every listing (and every merged row of a listing) must report its own
+        # currency; another listing's currency never stands in for a missing one.
+        currency_incomplete = any(
+            not holding.currency
+            or holding_currency_evidence.get(holding.identity, ("", 0.0))[1] < holding.weight - _RECONCILIATION_TOLERANCE
+            for holding in holdings_for_key
+        )
+        if not fact_currency or len(currencies) != 1 or currency_incomplete:
             limitations.append(f"Fundamental or holding currency evidence is missing or ambiguous for {key}; metrics were excluded.")
             continue
         if currencies != {fact_currency}:
@@ -819,55 +833,113 @@ def _concentration(
     reported_total: float,
     minimum_aggregate_coverage: float,
 ) -> dict[str, object]:
+    if mapped_weight <= 0:
+        return {
+            "top_holdings": (), "top_5_share": None, "top_10_share": None, "top_5_share_covered": None,
+            "top_10_share_covered": None, "hhi": None, "hhi_gross_weight_squared": None,
+            "effective_number_of_holdings": None, "denominator_weight": 0.0,
+            "denominator": "mapped operating-company weight", "coverage_fraction": 0.0,
+            "mapped_to_reported_weight_fraction": 0.0, "minimum_coverage": minimum_aggregate_coverage,
+            "status": "unavailable", "reason_code": "look_through_evidence_unavailable",
+        }
     square_sum = math.fsum(float(row["weight"]) ** 2 for row in rows)
     hhi = square_sum / (mapped_weight**2) if mapped_weight > 0 else 0.0
     top_5 = math.fsum(float(row["weight"]) for row in rows[:5])
     top_10 = math.fsum(float(row["weight"]) for row in rows[:10])
+    coverage_fraction = mapped_weight / max(1.0, reported_total)
+    # Normalised aggregates are published only at or above the coverage gate;
+    # gross weights and coverage stay visible so the gap itself is evidenced.
+    covered = coverage_fraction >= minimum_aggregate_coverage
     return {
         "top_holdings": tuple(rows[:10]),
         "top_5_share": round(top_5, 12),
         "top_10_share": round(top_10, 12),
-        "top_5_share_covered": round(top_5 / mapped_weight, 12) if mapped_weight > 0 else 0.0,
-        "top_10_share_covered": round(top_10 / mapped_weight, 12) if mapped_weight > 0 else 0.0,
-        "hhi": round(hhi, 12),
+        "top_5_share_covered": round(top_5 / mapped_weight, 12) if covered else None,
+        "top_10_share_covered": round(top_10 / mapped_weight, 12) if covered else None,
+        "hhi": round(hhi, 12) if covered else None,
         "hhi_gross_weight_squared": round(square_sum, 12),
-        "effective_number_of_holdings": round(1.0 / hhi, 12) if hhi > 0 else None,
+        "effective_number_of_holdings": round(1.0 / hhi, 12) if covered and hhi > 0 else None,
         "denominator_weight": round(mapped_weight, 12),
         "denominator": "mapped operating-company weight",
-        "coverage_fraction": round(mapped_weight / max(1.0, reported_total), 12),
+        "coverage_fraction": round(coverage_fraction, 12),
         "mapped_to_reported_weight_fraction": round(mapped_weight / reported_total, 12) if reported_total > 0 else 0.0,
         "minimum_coverage": minimum_aggregate_coverage,
-        "status": (
-            "unavailable"
-            if mapped_weight <= 0
-            else "available"
-            if mapped_weight / max(1.0, reported_total) >= minimum_aggregate_coverage
-            else "partial"
-        ),
+        "status": "available" if covered else "partial",
+        **({} if covered else {"reason_code": "minimum_aggregate_coverage_not_met"}),
     }
 
 
-def _reported_dimensions(frame: pd.DataFrame) -> tuple[dict[str, dict[str, str]], list[str]]:
-    fields = ("industry", "domicile", "economic_currency", "factor", "cap_bucket")
-    grouped: dict[str, dict[str, list[str]]] = {}
+# Columns the holdings normaliser keeps when it removes exact duplicate rows.
+# Rows identical on these columns are one holding, so they are one evidence row.
+_NORMALISER_SECURITY_COLUMNS = (
+    "security", "holding_name", "security_name", "name", "ticker", "symbol", "isin", "holding_id", "security_id",
+)
+_NORMALISER_WEIGHT_COLUMNS = ("weight", "weight_decimal", "weight_percent", "weight_pct")
+_NORMALISER_ROW_COLUMNS = (
+    "isin", "ticker", "sector", "region", "country", "currency", "issuer", "company", "holding_id",
+    "holding_id_namespace", "security_id", "security_id_namespace", "exchange", "venue", "identity_type",
+    "identity_namespace", "identity_value", "instrument_type", "field_name", "field", "value", "page",
+    "source_page", "status", "confidence",
+)
+
+
+def _reported_dimensions(
+    frame: pd.DataFrame,
+) -> tuple[dict[str, dict[str, tuple[str, float]]], list[str]]:
+    """Return each typed identity's unambiguous label and the weight that reports it.
+
+    Rows that repeat a typed identity are merged later, so a label reported by
+    only some of them evidences only that share of the merged weight. Exact
+    duplicate rows (as removed by the holdings normaliser) count once.
+    """
+    fields = ("industry", "domicile", "economic_currency", "factor", "cap_bucket", "currency")
+    security_column = next((c for c in _NORMALISER_SECURITY_COLUMNS if c in frame.columns), None)
+    weight_column = next((c for c in _NORMALISER_WEIGHT_COLUMNS if c in frame.columns), None)
+    scale = 0.01 if weight_column in {"weight_percent", "weight_pct"} else 1.0
+    key_columns = list(
+        dict.fromkeys(
+            c for c in (security_column, weight_column, *_NORMALISER_ROW_COLUMNS) if c and c in frame.columns
+        )
+    )
+    # One entry per deduplicated holding: its weight counts once and every
+    # dimension claim it carries is kept, so row order cannot pick a label.
+    holdings: dict[tuple[str, ...], tuple[str, float, dict[str, set[str]]]] = {}
     for _, row in frame.iterrows():
         identity = _typed_identity(row)
         if identity is None:
             continue
-        values = grouped.setdefault(identity, {field: [] for field in fields})
+        key = tuple(_clean_text(row.get(column)) for column in key_columns)
+        if key not in holdings:
+            raw_weight = pd.to_numeric(row.get(weight_column), errors="coerce") if weight_column else math.nan
+            weight = float(raw_weight) * scale if math.isfinite(raw_weight) else 0.0
+            holdings[key] = (identity, weight, {field: set() for field in fields})
+        claims = holdings[key][2]
         for field in fields:
             value = _clean_text(row.get(field))
+            if field == "currency":
+                value = value.upper()
             if value:
-                values[field].append(value)
-    result: dict[str, dict[str, str]] = {}
+                claims[field].add(value)
+    grouped: dict[str, dict[str, dict[str, float]]] = {}
     limitations: list[str] = []
+    for identity, weight, claims in holdings.values():
+        values = grouped.setdefault(identity, {field: {} for field in fields})
+        for field, labels in claims.items():
+            if len(labels) == 1:
+                value = next(iter(labels))
+                values[field][value] = values[field].get(value, 0.0) + weight
+            elif len(labels) > 1 and field != "currency":
+                message = f"Conflicting reported {field.replace('_', ' ')} evidence was excluded for {identity}."
+                if message not in limitations:
+                    limitations.append(message)
+    result: dict[str, dict[str, tuple[str, float]]] = {}
     for identity, values in grouped.items():
-        resolved: dict[str, str] = {}
+        resolved: dict[str, tuple[str, float]] = {}
         for field, entries in values.items():
-            distinct = sorted(set(entries))
-            if len(distinct) == 1:
-                resolved[field] = distinct[0]
-            elif len(distinct) > 1:
+            if len(entries) == 1:
+                value, evidenced = next(iter(entries.items()))
+                resolved[field] = (value, evidenced)
+            elif len(entries) > 1 and field != "currency":
                 limitations.append(f"Conflicting reported {field.replace('_', ' ')} evidence was excluded for {identity}.")
         result[identity] = resolved
     return result, limitations
@@ -888,7 +960,9 @@ def _exposures(economic_rows: list[dict[str, object]], direct_holdings: tuple[ob
         ):
             bucket = row[dimension]
             if bucket:
-                result[dimension][str(bucket)] = round(result[dimension].get(str(bucket), 0.0) + float(row["weight"]), 12)
+                result[dimension][str(bucket)] = round(
+                    result[dimension].get(str(bucket), 0.0) + float(row[f"{dimension}_weight"]), 12
+                )
     for item in direct_holdings:
         if item.exposure_type == "security":
             result["listing"][item.identity] = round(result["listing"].get(item.identity, 0.0) + item.weight, 12)
@@ -911,7 +985,7 @@ def _exposure_coverage(
             mapped_weight
             if dimension in {"issuer", "listing"}
             else math.fsum(
-                float(row["weight"])
+                float(row[f"{dimension}_weight"])
                 for row in economic_rows
                 if _clean_text(row.get(dimension))
             )
@@ -1151,9 +1225,12 @@ def _as_date(value: object) -> date | None:
     return None
 
 
-def _single_value(values: list[object]) -> str | None:
-    unique = sorted({_clean_text(value) for value in values if _clean_text(value)})
-    return unique[0] if len(unique) == 1 else None
+def _single_weighted_value(entries: list[tuple[object, float]]) -> tuple[str | None, float]:
+    """Return the unambiguous value and only the listing weight that evidences it."""
+    unique = {_clean_text(value) for value, _ in entries if _clean_text(value)}
+    if len(unique) != 1:
+        return None, 0.0
+    return next(iter(unique)), round(math.fsum(float(weight) for value, weight in entries if _clean_text(value)), 12)
 
 
 def _unique_text(values: object) -> tuple[str, ...]:

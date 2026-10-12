@@ -21,3 +21,16 @@ read-only with `execution_allowed=false`.
 Safe point reached on synthetic fixtures. Real ETF/share-class source evidence,
 canonical-master alias coverage, owner-defined full-parent scope, and real-data
 acceptance are still required before issue #245 can be marked complete.
+
+## Correction pass (2026-10-12)
+
+- Dimension weight is now evidence-based: each economic company row carries
+  `<dimension>_weight` (only the listing weight that reported the unambiguous
+  value). Buckets and coverage use it, so a company with one classified and one
+  unclassified listing shows partial coverage, not full.
+- Concentration with no mapped weight returns `None` values, status
+  `unavailable` and a reason code (no fabricated zero HHI/top shares); the
+  detail panel shows "unavailable" for missing HHI/effective holdings.
+- Default chosen: calculation-focused PIT fixture selects a 50% threshold
+  explicitly; the 80% default stays covered in `test_gap_707.py`.
+- Detail panel spacing uses the contract-allowed value 4.

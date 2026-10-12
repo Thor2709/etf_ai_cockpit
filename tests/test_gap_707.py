@@ -145,7 +145,64 @@ def test_pit_identity_master_mapping_uses_only_known_unambiguous_aliases(
     assert ambiguity["manual_review_candidate_count"] >= 1
 
 
-def test_low_fundamental_and_dimension_coverage_withholds_aggregates() -> None:
+def test_strict_supplied_identity_map_requires_dated_master_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    supplied_map = {f"isin:{APPLE_ISIN.casefold()}": "SEC-APPLE"}
+    for case, valid_from, available_at, expected_available in (
+        ("missing_master", None, None, False),
+        ("future_known", "2024-01-01T00:00:00Z", "2026-07-16T00:00:00Z", False),
+        ("future_effective", "2026-07-16T00:00:00Z", "2026-07-02T00:00:00Z", False),
+        ("missing_effective", None, "2026-07-02T00:00:00Z", False),
+        ("missing_known", "2024-01-01T00:00:00Z", None, False),
+        ("dated_prior", "2024-01-01T00:00:00Z", "2026-07-02T00:00:00Z", True),
+    ):
+        root = tmp_path / case
+        with monkeypatch.context() as patch:
+            _install_identity_index(patch, root, ["SEC-APPLE"])
+            if case != "missing_master":
+                with IdentityMasterStore(root) as master:
+                    master.append_claims(
+                        IdentityClaim(
+                            "SEC-APPLE", field, value, "fixture",
+                            SourceAuthority.OFFICIAL, f"fixture:apple:{field}",
+                            valid_from=valid_from, available_at=available_at,
+                        )
+                        for field, value in (("isin", APPLE_ISIN), ("ticker", "AAPL"), ("exchange", "XNAS"))
+                    )
+            result = load_etf_look_through(
+                "TESTETF",
+                decision_time=DECISION_TIME,
+                analysis_date=HOLDINGS_DATE,
+                holdings_frame=pd.DataFrame([_holding(APPLE_ISIN, 1.0, sector="Technology")]),
+                fundamentals_frame=pd.DataFrame([_fundamental("SEC-APPLE", 20.0, 0.1)]),
+                identity_map=supplied_map,
+                require_canonical_identity=True,
+            )
+        assert result["execution_allowed"] is False, case
+        if case == "missing_master":
+            assert result["status"] == "unavailable", case
+            assert result["reason_code"] == "canonical_identity_master_unavailable", case
+            assert "calculated_metrics" not in result, case
+            continue
+        evidence = result["lineage"]["identity_resolution"]
+        assert evidence["decision_time"] == DECISION_TIME.replace("Z", "+00:00"), case
+        assert result["status"] == ("available" if expected_available else "unavailable"), (case, result)
+        assert result["mapped_weight"] == (1.0 if expected_available else 0.0), case
+        assert result["unresolved_weight"] == (0.0 if expected_available else 1.0), case
+        for metric, expected_value in (("pe_ratio", 20.0), ("roic", 0.1)):
+            calculated = result["calculated_metrics"][metric]
+            assert calculated["status"] == ("available" if expected_available else "unavailable"), case
+            assert calculated["value"] == (expected_value if expected_available else None), case
+        if expected_available:
+            assert result["concentration"]["top_holdings"][0]["identity"] == "sec-apple", case
+        else:
+            assert result["concentration"]["status"] == "unavailable", case
+            assert result["concentration"]["hhi"] is None, case
+            assert result["lineage"]["unresolved_holdings"][0]["reason_code"] == "canonical_identity_mapping_unavailable_or_ambiguous", case
+
+
+def test_low_coverage_and_conflicting_dimensions_withhold_aggregates() -> None:
     summary = calculate_look_through(
         pd.DataFrame(
             [
@@ -185,8 +242,78 @@ def test_low_fundamental_and_dimension_coverage_withholds_aggregates() -> None:
     assert underreported.concentration["status"] == "partial"
     assert underreported.normalized_exposures["sector"] == {}
 
+    # A valid nondefault threshold is honoured; invalid thresholds fail closed.
+    relaxed = calculate_look_through(
+        pd.DataFrame([_holding(APPLE_ISIN, 1.0, sector="Technology")]),
+        instrument_id="TESTETF",
+        decision_time=DECISION_TIME,
+        analysis_date=HOLDINGS_DATE,
+        constituent_fundamentals=pd.DataFrame([_fundamental("SEC-APPLE", 20.0, 0.1)]),
+        identity_map={f"isin:{APPLE_ISIN.casefold()}": "SEC-APPLE"},
+        require_canonical_identity=True,
+        minimum_aggregate_coverage=0.99,
+    )
+    assert relaxed.minimum_aggregate_coverage == pytest.approx(0.99)
+    assert relaxed.calculated_metrics["pe_ratio"]["value"] == pytest.approx(20.0)
+    for bad in (-0.1, 1.5, float("nan"), True, "0.8"):
+        rejected = calculate_look_through(
+            pd.DataFrame([_holding(APPLE_ISIN, 1.0, sector="Technology")]),
+            instrument_id="TESTETF",
+            decision_time=DECISION_TIME,
+            analysis_date=HOLDINGS_DATE,
+            minimum_aggregate_coverage=bad,
+        )
+        assert rejected.status == "unavailable"
+        assert rejected.calculated_metrics["pe_ratio"]["value"] is None
+        assert any("Minimum aggregate coverage" in item for item in rejected.limitations)
 
-def test_full_coverage_exposes_reported_dimensions_and_calculated_metrics() -> None:
+    # Mixed evidence on one ISIN covers only the reporting weight.
+    mixed = calculate_look_through(
+        pd.DataFrame(
+            [
+                {**_holding(APPLE_ISIN, 0.5, sector="Technology", industry="Software"), "security": "Apple Inc. A"},
+                {**_holding(APPLE_ISIN, 0.5, sector="Technology"), "security": "Apple Inc. B"},
+            ]
+        ),
+        instrument_id="TESTETF",
+        decision_time=DECISION_TIME,
+        analysis_date=HOLDINGS_DATE,
+        identity_map={f"isin:{APPLE_ISIN.casefold()}": "SEC-APPLE"},
+        require_canonical_identity=True,
+    )
+
+    assert mixed.mapped_weight == pytest.approx(1.0)
+    assert mixed.exposures["industry"] == {"Software": pytest.approx(0.5)}
+    assert mixed.exposure_coverage["industry"]["aggregate_status"] == "partial"
+    assert mixed.normalized_exposures["industry"] == {}
+
+    # Conflicting dimension claims on identical rows are excluded in any row order.
+    conflict_rows = [
+        {**_holding(APPLE_ISIN, 1.0, sector="Technology", industry="Software")},
+        {**_holding(APPLE_ISIN, 1.0, sector="Technology", industry="Hardware")},
+    ]
+    for rows in (conflict_rows, conflict_rows[::-1]):
+        conflicted = calculate_look_through(
+            pd.DataFrame(rows),
+            instrument_id="TESTETF",
+            decision_time=DECISION_TIME,
+            analysis_date=HOLDINGS_DATE,
+            identity_map={f"isin:{APPLE_ISIN.casefold()}": "SEC-APPLE"},
+            require_canonical_identity=True,
+        )
+        assert conflicted.exposures["industry"] == {}
+        assert conflicted.mapped_weight == pytest.approx(1.0)
+        assert any("Conflicting reported industry" in item for item in conflicted.limitations)
+
+    # Below the coverage gate normalised concentration is withheld; gross weights stay.
+    assert underreported.concentration["hhi"] is None
+    assert underreported.concentration["effective_number_of_holdings"] is None
+    assert underreported.concentration["top_5_share_covered"] is None
+    assert underreported.concentration["top_5_share"] == pytest.approx(0.5)
+    assert underreported.concentration["coverage_fraction"] == pytest.approx(0.5)
+
+
+def test_full_coverage_exposes_dimensions_and_currency_evidence_gates_metrics() -> None:
     summary = calculate_look_through(
         pd.DataFrame(
             [
@@ -212,8 +339,69 @@ def test_full_coverage_exposes_reported_dimensions_and_calculated_metrics() -> N
     assert summary.normalized_exposures["factor"] == {"Growth": 0.5, "Value": 0.5}
     assert summary.lineage["exposure_evidence"]["factor"]["label"] == "provider_reported_holdings_dimension"
 
+    # Missing, ambiguous or mismatched currency evidence withholds the metrics.
+    holdings = pd.DataFrame([_holding(APPLE_ISIN, 1.0, sector="Technology")])
+    mixed_currency = pd.DataFrame(
+        [
+            _holding(APPLE_ISIN, 0.5, sector="Technology"),
+            {**_holding(MICROSOFT_ISIN, 0.5, sector="Technology"), "currency": "EUR"},
+        ]
+    )
+    cases = {
+        "mismatch": (holdings, {**_fundamental("SEC-APPLE", 10.0, 0.1), "currency": "EUR"}),
+        "missing": (holdings, {**_fundamental("SEC-APPLE", 10.0, 0.1), "currency": ""}),
+        "ambiguous": (mixed_currency, _fundamental("SEC-APPLE", 10.0, 0.1)),
+    }
+    for name, (frame, fact) in cases.items():
+        result = calculate_look_through(
+            frame,
+            instrument_id="TESTETF",
+            decision_time=DECISION_TIME,
+            analysis_date=HOLDINGS_DATE,
+            constituent_fundamentals=pd.DataFrame([fact]),
+            identity_map={
+                f"isin:{APPLE_ISIN.casefold()}": "SEC-APPLE",
+                f"isin:{MICROSOFT_ISIN.casefold()}": "SEC-APPLE",
+            },
+            require_canonical_identity=True,
+        )
+        assert result.calculated_metrics["pe_ratio"]["value"] is None, name
+        assert result.calculated_metrics["roic"]["value"] is None, name
+        assert any("currency" in item for item in result.limitations), name
 
-def test_missing_canonical_master_returns_unavailable_without_values(
+    # Missing holding currency on any listing or merged row withholds the metrics.
+    missing_listing = pd.DataFrame(
+        [
+            _holding(APPLE_ISIN, 0.5, sector="Technology"),
+            {**_holding(MICROSOFT_ISIN, 0.5, sector="Technology"), "currency": None},
+        ]
+    )
+    missing_merged_row = pd.DataFrame(
+        [
+            {**_holding(APPLE_ISIN, 0.5, sector="Technology"), "security": "Apple Inc. A"},
+            {**_holding(APPLE_ISIN, 0.5, sector="Technology"), "security": "Apple Inc. B", "currency": None},
+        ]
+    )
+    for name, frame in {"listing": missing_listing, "merged_row": missing_merged_row}.items():
+        result = calculate_look_through(
+            frame,
+            instrument_id="TESTETF",
+            decision_time=DECISION_TIME,
+            analysis_date=HOLDINGS_DATE,
+            constituent_fundamentals=pd.DataFrame([_fundamental("SEC-APPLE", 10.0, 0.1)]),
+            identity_map={
+                f"isin:{APPLE_ISIN.casefold()}": "SEC-APPLE",
+                f"isin:{MICROSOFT_ISIN.casefold()}": "SEC-APPLE",
+            },
+            require_canonical_identity=True,
+        )
+        assert result.calculated_metrics["pe_ratio"]["value"] is None, name
+        assert result.calculated_metrics["roic"]["value"] is None, name
+        assert result.fundamental_data_coverage["pe_ratio"]["covered_weight"] == 0.0, name
+        assert any("currency" in item for item in result.limitations), name
+
+
+def test_missing_canonical_identity_evidence_is_unavailable_or_unresolved(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _install_identity_index(monkeypatch, tmp_path, ["SEC-APPLE"])
@@ -230,9 +418,8 @@ def test_missing_canonical_master_returns_unavailable_without_values(
     assert "calculated_metrics" not in result
     assert result["execution_allowed"] is False
 
-
-def test_unmapped_canonical_identity_weight_stays_unresolved() -> None:
-    summary = calculate_look_through(
+    # Unmapped canonical identity weight stays unresolved.
+    unmapped = calculate_look_through(
         pd.DataFrame(
             [
                 _holding(APPLE_ISIN, 0.6, sector="Technology"),
@@ -246,12 +433,27 @@ def test_unmapped_canonical_identity_weight_stays_unresolved() -> None:
         require_canonical_identity=True,
     )
 
-    assert summary.mapped_weight == pytest.approx(0.6)
-    assert summary.unresolved_weight == pytest.approx(0.4)
-    assert summary.reconciliation_delta == pytest.approx(0.0)
-    assert summary.lineage["unresolved_holdings"][0]["identity"] == f"isin:{MICROSOFT_ISIN}"
-    assert summary.lineage["unresolved_holdings"][0]["reason_code"] == "canonical_identity_mapping_unavailable_or_ambiguous"
-    assert summary.concentration["status"] == "partial"
+    assert unmapped.mapped_weight == pytest.approx(0.6)
+    assert unmapped.unresolved_weight == pytest.approx(0.4)
+    assert unmapped.reconciliation_delta == pytest.approx(0.0)
+    assert unmapped.lineage["unresolved_holdings"][0]["identity"] == f"isin:{MICROSOFT_ISIN}"
+    assert unmapped.lineage["unresolved_holdings"][0]["reason_code"] == "canonical_identity_mapping_unavailable_or_ambiguous"
+    assert unmapped.concentration["status"] == "partial"
+
+    # Strict identity unavailability wins over an overreported total.
+    overreported = calculate_look_through(
+        pd.DataFrame(
+            [_holding(APPLE_ISIN, 0.5, sector="Technology"), _holding(MICROSOFT_ISIN, 0.505, sector="Technology")]
+        ),
+        instrument_id="TESTETF",
+        decision_time=DECISION_TIME,
+        analysis_date=HOLDINGS_DATE,
+        identity_map={"isin:unrelated": "SEC-OTHER"},
+        require_canonical_identity=True,
+    )
+    assert overreported.total_weight_status == "over_100"
+    assert overreported.status == "unavailable"
+    assert overreported.mapped_weight == 0.0
 
 
 def test_detail_look_through_panel_shows_coverage_and_drill_down() -> None:

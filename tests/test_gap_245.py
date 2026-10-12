@@ -51,12 +51,17 @@ def _fundamental(identity: str, **values: object) -> dict[str, object]:
     }
 
 
-def _analyze(holdings: list[dict[str, object]], fundamentals: list[dict[str, object]] | None = None):
+def _analyze(
+    holdings: list[dict[str, object]],
+    fundamentals: list[dict[str, object]] | None = None,
+    **kwargs: object,
+):
     return calculate_look_through(
         pd.DataFrame(holdings),
         instrument_id="TESTETF",
         decision_time=DECISION_TIME,
         constituent_fundamentals=pd.DataFrame(fundamentals or []),
+        **kwargs,
     )
 
 
@@ -111,6 +116,22 @@ def test_conflicting_or_missing_reported_dimensions_are_unavailable_not_zero_fil
     assert summary.exposure_coverage["industry"]["covered_weight"] == 0.0
     assert any("Conflicting reported industry" in item for item in summary.limitations)
 
+    # Two listings of one company: only one reports a classification, so only
+    # that listing's weight is evidenced, not the whole company weight.
+    mixed = _analyze(
+        [
+            _holding("Alpha", "US0378331005", 0.5, "alpha", industry="Software", domicile="US"),
+            _holding("Alpha alternate line", "US5949181045", 0.5, "alpha"),
+        ]
+    )
+    assert mixed.exposures["issuer"] == {"alpha": pytest.approx(1.0)}
+    assert mixed.exposures["industry"] == {"Software": pytest.approx(0.5)}
+    assert mixed.exposures["domicile"] == {"US": pytest.approx(0.5)}
+    assert mixed.exposure_coverage["industry"]["status"] == "partial"
+    assert mixed.exposure_coverage["industry"]["covered_weight"] == pytest.approx(0.5)
+    assert mixed.exposure_coverage["industry"]["coverage_fraction"] == pytest.approx(0.5)
+    assert mixed.exposure_coverage["factor"]["status"] == "unavailable"
+
 
 def test_valuation_and_quality_use_only_point_in_time_covered_constituents() -> None:
     summary = _analyze(
@@ -127,9 +148,12 @@ def test_valuation_and_quality_use_only_point_in_time_covered_constituents() -> 
                 available_at="2026-07-16T10:00:00Z",
             ),
         ],
+        minimum_aggregate_coverage=0.5,
     )
 
     assert summary.calculated_metrics["pe_ratio"]["value"] == pytest.approx(10.0)
+    assert [item["identity"] for item in summary.calculated_metrics["pe_ratio"]["contributors"]] == ["alpha"]
+    assert [item["identity"] for item in summary.calculated_metrics["roic"]["contributors"]] == ["alpha"]
     assert summary.calculated_metrics["roic"]["value"] == pytest.approx(0.12)
     assert summary.fundamental_data_coverage["pe_ratio"]["covered_weight"] == pytest.approx(0.5)
     assert summary.fundamental_data_coverage["roic"]["coverage_fraction"] == pytest.approx(0.5)
@@ -149,6 +173,22 @@ def test_missing_look_through_evidence_has_unavailable_metrics_without_values() 
     for metric in ("pe_ratio", "roic"):
         assert result["calculated_metrics"][metric]["status"] == "unavailable"
         assert result["calculated_metrics"][metric]["value"] is None
+
+
+def test_strict_identity_without_matching_alias_publishes_no_concentration_zeros() -> None:
+    summary = _analyze(
+        [_holding("Alpha", "US0378331005", 1.0, "alpha")],
+        identity_map={"isin:us5949181045": "SEC-OTHER"},
+        require_canonical_identity=True,
+    )
+
+    assert summary.status == "unavailable"
+    assert summary.mapped_weight == 0.0
+    concentration = summary.concentration
+    assert concentration["status"] == "unavailable"
+    assert concentration["reason_code"] == "look_through_evidence_unavailable"
+    for name in ("top_5_share", "top_10_share", "top_5_share_covered", "hhi", "effective_number_of_holdings"):
+        assert concentration[name] is None
 
 
 def test_instrument_detail_loads_and_renders_the_safe_point_panel(monkeypatch: pytest.MonkeyPatch) -> None:
