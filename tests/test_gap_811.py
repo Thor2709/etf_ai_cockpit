@@ -322,3 +322,17 @@ def test_undercovered_requested_window_is_marked_insufficient_with_coverage(tmp_
     for years in (3, 5):
         assert windows[years]["status"] == "insufficient_evidence" and not windows[years]["sections"]
         assert windows[years]["coverage"]["covered_years"] == one["covered_years"]
+
+
+def test_invalid_tied_close_is_a_conflict_not_silently_dropped():
+    prices = _price_table(300)
+    target = prices.loc[prices["instrument_id"].eq("I03")].iloc[-1]
+    cutoff = f"{prices['date'].max().isoformat()}T23:59:59Z"
+    for bad in (0.0, float("nan")):
+        clash = target.copy()
+        clash["adjusted_close"] = bad
+        table = pd.concat([prices, pd.DataFrame([clash])], ignore_index=True)
+        for ordered in (table, table.iloc[::-1].reset_index(drop=True)):
+            evidence, skipped = price_momentum_risk_evidence(ordered, [cutoff])
+            assert skipped[cutoff] == {"I03": "conflicting_price_rows"}
+            assert "I03" not in set(evidence["instrument_id"])

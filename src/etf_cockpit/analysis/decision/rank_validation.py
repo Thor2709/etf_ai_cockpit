@@ -1646,7 +1646,7 @@ def _latest_price_rows(group: pd.DataFrame) -> pd.DataFrame | None:
 
     ordered = group.sort_values(["_date", "_known"], kind="stable")
     latest = ordered.loc[ordered["_known"].eq(ordered.groupby("_date")["_known"].transform("max"))]
-    if (latest.groupby("_date")["_close"].nunique() > 1).any():
+    if (latest.groupby("_date")["_close"].nunique(dropna=False) > 1).any():
         return None
     return latest.drop_duplicates("_date", keep="last")
 
@@ -1682,7 +1682,8 @@ def price_momentum_risk_evidence(
     frame["_date"] = frame["date"].map(_date_value)
     frame["_known"] = frame["known_at"].map(_aware_timestamp)
     frame["_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
-    frame = frame.loc[frame["_date"].notna() & frame["_known"].notna() & frame["_close"].gt(0)]
+    # Invalid closes stay in the frame so conflict detection sees them; selected invalid evidence fails closed below.
+    frame = frame.loc[frame["_date"].notna() & frame["_known"].notna()]
     needed = lookback_sessions_required()
     records: list[dict[str, object]] = []
     for cutoff in _decision_times(decision_times):
@@ -1694,6 +1695,9 @@ def price_momentum_risk_evidence(
             series = _latest_price_rows(group)
             if series is None:
                 reasons[str(instrument)] = "conflicting_price_rows"
+                continue
+            if not series["_close"].gt(0).all():
+                reasons[str(instrument)] = "invalid_price_rows"
                 continue
             if len(series) < needed:
                 reasons[str(instrument)] = "insufficient_price_history"
