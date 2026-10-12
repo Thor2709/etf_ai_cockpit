@@ -153,7 +153,9 @@ def _look_through_summary():
     )
 
 
-def test_canonical_tracking_uses_annualized_mean_active_return(tmp_path: Path) -> None:
+def test_canonical_tracking_difference_is_compounded_and_te_annualized(
+    tmp_path: Path,
+) -> None:
     fund_values = [100.0, 102.0, 103.0, 108.0]
     benchmark_values = [100.0, 101.0, 104.0, 105.0]
     active_returns = pd.Series(fund_values).pct_change().iloc[1:] - pd.Series(
@@ -188,7 +190,7 @@ def test_canonical_tracking_uses_annualized_mean_active_return(tmp_path: Path) -
     )
 
     assert report.tracking_status == "available"
-    assert report.tracking_difference == round(float(active_returns.mean() * 252), 10)
+    assert report.tracking_difference == round(108 / 100 - 105 / 100, 10)
     assert report.tracking_error == round(
         float(active_returns.std(ddof=1) * (252**0.5)), 10
     )
@@ -272,3 +274,59 @@ def test_missing_look_through_evidence_is_unavailable_not_zero() -> None:
     assert exposure.status == "UNAVAILABLE"
     assert exposure.score is None
     assert exposure.reason_code == "LOOK_THROUGH_UNAVAILABLE"
+
+
+def _tracking_metrics() -> dict[str, object]:
+    return {
+        "tracking_difference_abs": {
+            "value": 0.03,
+            "unit": "decimal_fraction",
+            "effective_at": EFFECTIVE,
+            "known_at": DECISION,
+            "source": "#809 synthetic fixture",
+        }
+    }
+
+
+def _driver(assessment, metric: str):
+    return next(item for item in assessment.drivers if item.metric_id == metric)
+
+
+def test_out_of_group_peers_cannot_supply_support_or_rank_vehicle_and_exposure() -> None:
+    summary = _look_through_summary()
+    vehicle_metric = "tracking_difference_abs"
+    exposure_metric = "look_through_pe_ratio"
+
+    def peers(metric: str, in_group: list[float], out_group: list[float]):
+        items = [_peer(metric, v, f"in-{metric}-{i}") for i, v in enumerate(in_group)]
+        items += [_peer(metric, v, f"out-{metric}-{i}") for i, v in enumerate(out_group)]
+        groups = {item.instrument_id: "g1" if item.instrument_id.startswith("in-") else "g2" for item in items}
+        groups["target"] = "g1"
+        return items, groups
+
+    def compose(in_group: list[float], out_group: list[float]):
+        v_items, v_groups = peers(vehicle_metric, in_group, out_group)
+        e_items, e_groups = peers(exposure_metric, in_group, out_group)
+        return compose_etf_decision(
+            "target",
+            _context("target"),
+            DECISION,
+            look_through=summary,
+            vehicle_metrics=_tracking_metrics(),
+            peer_observations=v_items,
+            exposure_peer_observations=e_items,
+            comparison_groups={"ETF_EXPOSURE_PEERS": {**v_groups, **e_groups}},
+        )
+
+    # Two in-group peers plus three out-of-group peers must not reach support 3.
+    short = compose([20.0, 30.0], [25.0, 35.0, 45.0])
+    for metric in (vehicle_metric, exposure_metric):
+        assert _driver(short, metric).status == "UNAVAILABLE"
+        assert _driver(short, metric).z_score is None
+
+    # With enough in-group support, extreme out-of-group peers do not change ranking.
+    base = compose([20.0, 30.0, 40.0], [])
+    mixed = compose([20.0, 30.0, 40.0], [1000.0, 2000.0, 3000.0])
+    for metric in (vehicle_metric, exposure_metric):
+        assert _driver(mixed, metric).status == _driver(base, metric).status
+        assert _driver(mixed, metric).z_score == _driver(base, metric).z_score

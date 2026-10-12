@@ -467,8 +467,8 @@ def _add_tracking_metrics(
         "benchmark_source_id": _member(economics, "benchmark_source_id"),
         "matched_start": _member(economics, "matched_start"),
         "matched_end": _member(economics, "matched_end"),
-        "td_definition": "252 * mean(active_returns), from canonical etf_economics",
-        "te_definition": "sqrt(252) * sample_std(active_returns), from canonical etf_economics",
+        "td_definition": "td_definition: compounded (canonical etf_economics)",
+        "te_definition": "sqrt(A) * sigma(a), from canonical etf_economics",
     }
     if td is not None and "tracking_difference_abs" in definitions:
         evidence["tracking_difference_abs"] = _metric(
@@ -812,7 +812,7 @@ def _expected_return_record(
             "expected_return_method": method,
             "calculation": method,
             "components": {name: item.get("provenance") for name, item in components},
-            "td_definition": "252 * mean(active_returns), from canonical etf_economics" if use_tracking else None,
+            "td_definition": "td_definition: compounded (canonical etf_economics)" if use_tracking else None,
         },
         authority=min(float(item.get("authority", 0.35)) for _, item in components),
         reliability=min(float(item.get("reliability", 0.35)) for _, item in components),
@@ -840,7 +840,7 @@ def _tracking_record(economics: object, decision: datetime) -> dict[str, object]
         "coverage": 1.0,
         "provenance": {
             "source": "data.etf_economics.calculate_etf_economics",
-            "td_definition": "252 * mean(active_returns), from canonical etf_economics",
+            "td_definition": "td_definition: compounded (canonical etf_economics)",
         },
     }
 

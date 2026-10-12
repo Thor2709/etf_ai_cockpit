@@ -3,9 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 import hashlib
 import json
-import os
 from pathlib import Path
-import uuid
+from tempfile import TemporaryDirectory
 
 import pandas as pd
 import pytest
@@ -295,13 +294,7 @@ def _corporate_action_coverage(
         source_checksum="c" * 64,
         status=status,
     )
-    store_root = (
-        Path(os.environ["ETF_COCKPIT_ROOT"])
-        / "data"
-        / "coverage-fixtures"
-        / uuid.uuid4().hex
-    )
-    with CorporateActionCoverageStore(store_root) as store:
+    with TemporaryDirectory() as directory, CorporateActionCoverageStore(Path(directory)) as store:
         return store.append(coverage)
 
 
@@ -358,9 +351,7 @@ def test_realised_tracking_reconciles_matched_series_and_states_identity_currenc
 
     assert report.status == "available"
     assert report.tracking_status == "available"
-    active_returns = pd.Series([100.0, 101.0, 102.0, 104.0]).pct_change().iloc[1:] - pd.Series([100.0, 100.5, 101.0, 103.0]).pct_change().iloc[1:]
-    assert report.tracking_difference == round(float(active_returns.mean() * 252), 10)
-    assert report.tracking_error == round(float(active_returns.std(ddof=1) * (252**0.5)), 10)
+    assert report.tracking_difference == round(104 / 100 - 103 / 100, 10)
     assert report.benchmark_id == "FTSE-ALL-WORLD"
     assert report.currency == "EUR"
     assert report.benchmark_currency == "EUR"
@@ -383,8 +374,7 @@ def test_realised_tracking_scopes_longer_histories_to_requested_trailing_horizon
         closure_policy=_closure_policy(),
     )
 
-    active_returns = pd.Series(fund_values[-4:]).pct_change().iloc[1:] - pd.Series(benchmark_values[-4:]).pct_change().iloc[1:]
-    expected_difference = float(active_returns.mean() * 252)
+    expected_difference = fund_values[-1] / fund_values[-4] - benchmark_values[-1] / benchmark_values[-4]
     assert report.status == "available"
     assert report.tracking_status == "available"
     assert report.tracking_difference == round(expected_difference, 10)
@@ -607,8 +597,7 @@ def test_total_return_row_revisions_select_latest_eligible_and_exclude_future() 
         closure_policy=_closure_policy(),
     )
     assert report.status == "available"
-    active_returns = pd.Series([100.0, 101.0, 102.0, 105.0]).pct_change().iloc[1:] - pd.Series([100.0, 100.5, 101.0, 103.0]).pct_change().iloc[1:]
-    assert report.tracking_difference == round(float(active_returns.mean() * 252), 10)
+    assert report.tracking_difference == round(105 / 100 - 103 / 100, 10)
 
     conflicting = pd.concat([revised.frame, corrections.iloc[[0]].assign(total_return_index=106.0)], ignore_index=True)
     conflict_report = calculate_etf_economics(
