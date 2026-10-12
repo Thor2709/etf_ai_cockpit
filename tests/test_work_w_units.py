@@ -144,12 +144,13 @@ def _pivot(rows):
     return pivot
 
 
-def test_service_preserves_explicit_missing_session_and_never_invents_sessions_without_calendar(monkeypatch):
+def test_service_never_invents_or_interpolates_sessions_without_calendar(monkeypatch):
     rows = pd.DataFrame({"date": pd.bdate_range("2026-01-26", periods=5), "etf_id": "AAA",
                          "adjusted_close": [100, 101, np.nan, 103, 104]})
     pivot = _pivot(rows)
     series = _timesfm_price_series(pivot, "AAA", DAY)
-    assert len(series) == 5 and pd.isna(series.iloc[2])
+    # No certified calendar: a NaN row may be a holiday row, so it is dropped, never interpolated.
+    assert len(series) == 4 and not series.isna().any()
     seen = {}
     def forecast(self, series, horizons, **kwargs):
         seen["series"] = series
@@ -157,8 +158,7 @@ def test_service_preserves_explicit_missing_session_and_never_invents_sessions_w
     monkeypatch.setattr(TimesFMAdapter, "forecast_series", forecast)
     ForecastService(load_config())._run_timesfm_forecasts(pivot, ["AAA"], [1], DAY, "work-w-test")
     pd.testing.assert_series_equal(seen["series"], series)
-    # Without certified calendar evidence an absent date is a non-session: it is neither
-    # invented as a NaN gap nor does it disable the model; own explicit gaps stay NaN.
+    # An absent date is a non-session: never invented as a gap, never disables the model.
     absent = _timesfm_price_series(_pivot(rows.drop(index=2)), "AAA", DAY)
     assert len(absent) == 4 and not absent.isna().any()
     assert pd.Timestamp("2026-01-28") not in absent.index
@@ -193,8 +193,14 @@ def test_certified_calendar_excludes_holiday_and_restores_missing_session():
     conflicting_observation = pd.DataFrame({"date": pd.to_datetime(["2025-12-23", "2025-12-25", "2025-12-26"]),
                                            "etf_id": "AAA", "adjusted_close": [100., 101., 102.],
                                            "calendar_identity": [identity] * 3})
-    with pytest.raises(ValueError, match="conflict with certified"):
-        _timesfm_price_series(_pivot(conflicting_observation), "AAA", date(2025, 12, 26))
+    # An observed price on a certified closure is kept as evidence of a session;
+    # the certified missing session (Dec 24) is still restored as a gap.
+    kept = _timesfm_price_series(_pivot(conflicting_observation), "AAA", date(2025, 12, 26))
+    assert list(kept.index.day) == [23, 24, 25, 26] and pd.isna(kept.iloc[1]) and kept.iloc[2] == 101.0
+    # A NaN row on a certified closure is not a session and is dropped.
+    nan_on_closure = conflicting_observation.assign(adjusted_close=[100., np.nan, 102.])
+    dropped = _timesfm_price_series(_pivot(nan_on_closure), "AAA", date(2025, 12, 26))
+    assert list(dropped.index.day) == [23, 24, 26]
 
 
 @pytest.mark.parametrize("missing_value", [None, np.nan, np.inf, -np.inf])

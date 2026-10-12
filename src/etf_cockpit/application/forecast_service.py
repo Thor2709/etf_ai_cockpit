@@ -567,18 +567,17 @@ def _timesfm_price_series(pivot: pd.DataFrame, etf_id: str, as_of_date: date) ->
                 raise ValueError("calendar identity does not cover the historical context")
             days = pd.date_range(series.index.min().normalize(), series.index.max().normalize(), freq="D")
             sessions = days[[calendar.is_business_day(listing, day.date(), knowledge_cutoff=cutoff) for day in days]]
-            if not series.index.difference(sessions).empty:
-                raise ValueError("observed price dates conflict with certified instrument sessions")
-            return series.reindex(sessions)
+            # An observed price is evidence of a session even if the calendar disagrees;
+            # certified sessions without a row become NaN gaps; NaN rows on certified
+            # closures are not sessions and are dropped.
+            grid = sessions.union(series.index)
+            restored = series.reindex(grid)
+            return restored.loc[restored.notna() | restored.index.isin(sessions)]
         except ValueError as exc:
             raise ValueError(f"TimesFM session calendar unavailable: {exc}") from exc
     # Without certified calendar evidence the instrument's own observed dates are its
-    # session grid: absent dates are treated as non-sessions (never invented), while
-    # explicit own rows with a missing price stay NaN for the forecaster to interpolate.
-    # NaNs that only come from the union-calendar pivot are not own sessions and are dropped.
-    if rows is None:
-        series = series.dropna()
-    return series
+    # session grid and absent dates are non-sessions (never invented). Without a calendar a NaN row cannot be told apart from a holiday row, so it is dropped.
+    return series.dropna()
 
 
 def _postprocess_forecast_benchmark_fields(
