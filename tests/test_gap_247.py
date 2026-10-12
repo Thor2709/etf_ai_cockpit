@@ -218,3 +218,13 @@ def test_past_evidence_stays_available_and_bare_date_known_at_is_end_of_day() ->
     assert all(item["status"] == "unavailable" for item in _paths(same_day))
     future_as_of = _panel("2026-06-30T00:00:00Z", as_of="2026-07-05")
     assert all("as-of date is after" in item["reason"] for item in _paths(future_as_of))
+
+
+def test_far_future_bare_known_date_is_unavailable_not_a_crash():
+    from datetime import datetime, timezone
+
+    from etf_cockpit.analysis.etf_tax_context import _point_in_time_reason
+
+    decision = datetime(2026, 10, 12, tzinfo=timezone.utc)
+    reason = _point_in_time_reason("Domicile", "2026-01-01", "9999-12-31", decision)
+    assert reason == "Domicile evidence was not known at the decision time."

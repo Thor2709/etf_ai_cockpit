@@ -515,7 +515,10 @@ def _point_in_time_reason(
     known, known_is_date = parsed_known
     effective, _ = parsed_as_of
     if known_is_date:
-        known += timedelta(days=1)
+        try:
+            known += timedelta(days=1)
+        except OverflowError:
+            return f"{label} evidence was not known at the decision time."
     try:
         if known > decision_time:
             return f"{label} evidence was not known at the decision time."
