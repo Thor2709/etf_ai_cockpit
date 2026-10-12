@@ -417,14 +417,14 @@ def calculate_look_through(
         or "Holdings rows not known" in (selection_warning or "")
         else "available"
     )
-    if total_weight_status == "over_100":
-        status = "overreported"
-    elif require_canonical_identity and not identity_map:
+    if require_canonical_identity and not identity_map:
         status = "unavailable"
         limitations.append("Canonical identity-master evidence is unavailable; constituent look-through values are withheld.")
     elif require_canonical_identity and mapped_weight <= 0:
         status = "unavailable"
         limitations.append("No holdings have an unambiguous canonical identity-master mapping.")
+    elif total_weight_status == "over_100":
+        status = "overreported"
     return LookThroughSummary(
         instrument_id=str(instrument_id),
         status=status,
@@ -846,27 +846,26 @@ def _concentration(
     hhi = square_sum / (mapped_weight**2) if mapped_weight > 0 else 0.0
     top_5 = math.fsum(float(row["weight"]) for row in rows[:5])
     top_10 = math.fsum(float(row["weight"]) for row in rows[:10])
+    coverage_fraction = mapped_weight / max(1.0, reported_total)
+    # Normalised aggregates are published only at or above the coverage gate;
+    # gross weights and coverage stay visible so the gap itself is evidenced.
+    covered = coverage_fraction >= minimum_aggregate_coverage
     return {
         "top_holdings": tuple(rows[:10]),
         "top_5_share": round(top_5, 12),
         "top_10_share": round(top_10, 12),
-        "top_5_share_covered": round(top_5 / mapped_weight, 12) if mapped_weight > 0 else 0.0,
-        "top_10_share_covered": round(top_10 / mapped_weight, 12) if mapped_weight > 0 else 0.0,
-        "hhi": round(hhi, 12),
+        "top_5_share_covered": round(top_5 / mapped_weight, 12) if covered else None,
+        "top_10_share_covered": round(top_10 / mapped_weight, 12) if covered else None,
+        "hhi": round(hhi, 12) if covered else None,
         "hhi_gross_weight_squared": round(square_sum, 12),
-        "effective_number_of_holdings": round(1.0 / hhi, 12) if hhi > 0 else None,
+        "effective_number_of_holdings": round(1.0 / hhi, 12) if covered and hhi > 0 else None,
         "denominator_weight": round(mapped_weight, 12),
         "denominator": "mapped operating-company weight",
-        "coverage_fraction": round(mapped_weight / max(1.0, reported_total), 12),
+        "coverage_fraction": round(coverage_fraction, 12),
         "mapped_to_reported_weight_fraction": round(mapped_weight / reported_total, 12) if reported_total > 0 else 0.0,
         "minimum_coverage": minimum_aggregate_coverage,
-        "status": (
-            "unavailable"
-            if mapped_weight <= 0
-            else "available"
-            if mapped_weight / max(1.0, reported_total) >= minimum_aggregate_coverage
-            else "partial"
-        ),
+        "status": "available" if covered else "partial",
+        **({} if covered else {"reason_code": "minimum_aggregate_coverage_not_met"}),
     }
 
 
@@ -902,27 +901,38 @@ def _reported_dimensions(
             c for c in (security_column, weight_column, *_NORMALISER_ROW_COLUMNS) if c and c in frame.columns
         )
     )
-    seen: set[tuple[str, ...]] = set()
-    grouped: dict[str, dict[str, dict[str, float]]] = {}
+    # One entry per deduplicated holding: its weight counts once and every
+    # dimension claim it carries is kept, so row order cannot pick a label.
+    holdings: dict[tuple[str, ...], tuple[str, float, dict[str, set[str]]]] = {}
     for _, row in frame.iterrows():
         identity = _typed_identity(row)
         if identity is None:
             continue
         key = tuple(_clean_text(row.get(column)) for column in key_columns)
-        if key in seen:
-            continue
-        seen.add(key)
-        raw_weight = pd.to_numeric(row.get(weight_column), errors="coerce") if weight_column else math.nan
-        weight = float(raw_weight) * scale if math.isfinite(raw_weight) else 0.0
-        values = grouped.setdefault(identity, {field: {} for field in fields})
+        if key not in holdings:
+            raw_weight = pd.to_numeric(row.get(weight_column), errors="coerce") if weight_column else math.nan
+            weight = float(raw_weight) * scale if math.isfinite(raw_weight) else 0.0
+            holdings[key] = (identity, weight, {field: set() for field in fields})
+        claims = holdings[key][2]
         for field in fields:
             value = _clean_text(row.get(field))
             if field == "currency":
                 value = value.upper()
             if value:
-                values[field][value] = values[field].get(value, 0.0) + weight
-    result: dict[str, dict[str, tuple[str, float]]] = {}
+                claims[field].add(value)
+    grouped: dict[str, dict[str, dict[str, float]]] = {}
     limitations: list[str] = []
+    for identity, weight, claims in holdings.values():
+        values = grouped.setdefault(identity, {field: {} for field in fields})
+        for field, labels in claims.items():
+            if len(labels) == 1:
+                value = next(iter(labels))
+                values[field][value] = values[field].get(value, 0.0) + weight
+            elif len(labels) > 1 and field != "currency":
+                message = f"Conflicting reported {field.replace('_', ' ')} evidence was excluded for {identity}."
+                if message not in limitations:
+                    limitations.append(message)
+    result: dict[str, dict[str, tuple[str, float]]] = {}
     for identity, values in grouped.items():
         resolved: dict[str, tuple[str, float]] = {}
         for field, entries in values.items():
