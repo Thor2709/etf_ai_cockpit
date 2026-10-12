@@ -541,6 +541,11 @@ class SimpleInstrumentScore:
         return self.to_v2_dict()
 
     @property
+    def model_readiness(self) -> dict[str, object]:
+        """Advisory availability only; never an input to deterministic labels."""
+        return _model_readiness(self.components)
+
+    @property
     def valid_component_count(self) -> int:
         return sum(1 for component in self.components if component.score_eligible)
 
@@ -1263,6 +1268,7 @@ def simple_scoreboard_frame(
             "missing_components": "|".join(score.missing_components),
             "identity_conflict_reason": score.identity_conflict_reason,
             "model_authority_label": score.model_authority_label,
+            "model_readiness": score.model_readiness,
             "backtest_trust_label": score.backtest_trust_label,
             "backtest_trust_score_10": score.backtest_trust_score_10,
             "model_calibration_label": score.model_calibration_label,
@@ -2895,25 +2901,38 @@ def _evidence_quality_score(
     warnings: list[str],
     asset_type: str,
 ) -> float | None:
-    data_quality = _score_by_key(components, "data_quality")
-    if data_quality is None:
+    def usable(component: SimpleScoreComponent) -> bool:
+        value = _safe_float(component.score_10)
+        raw = _safe_float(component.raw_score)
+        return (
+            component.score_eligible
+            and value is not None and 0.0 <= value <= 10.0
+            and raw is not None and -1.0 <= raw <= 1.0
+            and str(component.freshness_status).strip().casefold() in {"ok", "fresh"}
+            and _parse_date(component.as_of_date) is not None
+        )
+
+    quality_components = [component for component in components if component.key == "data_quality"]
+    if len(quality_components) != 1 or not usable(quality_components[0]):
         return None
-    expected = [component for component in components if component.score_role in {"evidence", "risk_friction", "model_confirmation"}]
-    valid = [component for component in expected if component.score_10 is not None]
-    completeness = len(valid) / len(expected) if expected else 0.0
-    model_components = [component for component in components if component.score_role == "model_confirmation"]
-    valid_models = [component for component in model_components if component.score_10 is not None]
-    model_score = 10.0 * len(valid_models) / len(model_components) if model_components else 0.0
+    data_quality = quality_components[0].score_10
+    expected = [component for component in components if component.score_role in {"evidence", "risk_friction"}]
+    valid = [component for component in expected if usable(component)]
+    if not valid or len({component.key for component in expected}) != len(expected):
+        return None
+    completeness = len(valid) / len(expected)
     warning_penalty = min(2.0, 0.4 * len(warnings))
     missing_penalty = 0.0
-    if asset_type == "ETF" and _score_by_key(components, "etf_exposure") is None:
+    valid_keys = {component.key for component in valid}
+    if asset_type == "ETF" and "etf_exposure" not in valid_keys:
         missing_penalty += 1.0
     if _is_stock_like_asset_type(asset_type):
-        if _score_by_key(components, "stock_value") is None:
+        if "stock_value" not in valid_keys:
             missing_penalty += 0.8
-        if _score_by_key(components, "stock_quality") is None:
+        if "stock_quality" not in valid_keys:
             missing_penalty += 0.8
-    quality = (0.50 * data_quality) + (0.25 * completeness * 10.0) + (0.15 * model_score) + 1.0
+    # F5: remove optional confirmation without redistributing its weight.
+    quality = (0.50 * data_quality) + (0.25 * completeness * 10.0) + 1.0
     return round(_clamp_score_10(quality - warning_penalty - missing_penalty), 1)
 
 
@@ -2943,7 +2962,8 @@ def final_label_from_scores(
     hard_flags = {"missing_price_data", "missing_latest_price", "insufficient_12m_history", "stale_price"}
     if hard_flags & set(warnings):
         return "blocked_data_quality", "manual_review", "Manual Review"
-    if evidence_score is None or evidence_quality is None or risk_friction is None:
+    if any(value is None or not 0.0 <= value <= 10.0
+           for value in (_safe_float(evidence_score), _safe_float(evidence_quality), _safe_float(risk_friction))):
         return "manual_review", "manual_review", "Manual Review"
     if evidence_quality < 4.0:
         return "low_quality_manual_review", "manual_review", "Manual Review"
@@ -2958,6 +2978,33 @@ def final_label_from_scores(
     if evidence_score >= 4.0:
         return "mixed_evidence_review", "no_trade", "Hold Context"
     return "weak_evidence_review", "manual_review", "Weak Evidence Review"
+
+
+def _model_readiness(components: list[SimpleScoreComponent]) -> dict[str, object]:
+    """Use existing component provenance; unverifiable forecasts stay unavailable."""
+    models = [component for component in components if component.score_role == "model_confirmation"]
+    available = []
+    for component in models:
+        value = _safe_float(component.score_10)
+        raw = _safe_float(component.raw_score)
+        if (
+            sum(other.key == component.key for other in models) == 1
+            and component.key in {"baseline", "timesfm", "toto"}
+            and component.source_id == COMPONENT_SOURCE_IDS[component.key]
+            and str(component.status).casefold() == "ok"
+            and str(component.freshness_status).casefold() == "ok"
+            and _parse_date(component.as_of_date) is not None
+            and not component.conflict_id
+            and value is not None and 0.0 <= value <= 10.0
+            and raw is not None and -1.0 <= raw <= 1.0
+        ):
+            available.append(component.key)
+    status = "unavailable" if not available else "available" if len(available) == len(models) else "partial"
+    usable_models = [component for component in models if component.key in available]
+    reason = _model_authority_label(usable_models)
+    if len(available) != len(models) or not models:
+        reason += "; missing or unverifiable model evidence remains unavailable."
+    return {"status": status, "available_models": available, "reason": reason}
 
 
 def _model_authority_label(components: list[SimpleScoreComponent]) -> str:
