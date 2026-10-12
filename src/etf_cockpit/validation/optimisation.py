@@ -978,10 +978,16 @@ def _window(dates: Sequence[date], indices: Sequence[int]) -> dict[str, object]:
     return {"start": dates[indices[0]].isoformat(), "end": dates[indices[-1]].isoformat(), "samples": len(indices)}
 
 
+_MAX_ABS_SCORE = 1e12
+
+
 def _finite(value: object) -> float:
     number = float(value)  # type: ignore[arg-type]
     if not math.isfinite(number):
         raise ValueError("evaluation returned a non-finite score")
+    # Bounded magnitude keeps every derived difference, mean and penalty finite.
+    if abs(number) > _MAX_ABS_SCORE:
+        raise ValueError("evaluation returned an out-of-range score")
     return number
 
 

@@ -552,3 +552,16 @@ def test_resumed_early_decisions_poll_cancellation(tmp_path: Path, monkeypatch: 
     assert resumed.reasons == (("search_cancelled",) if cancel_poll == 1 else ("decision_interrupted",))
     assert resumed.candidate is None and resumed.out_of_sample is None
     assert OptimisationLedger(root).list("early") == prior_rows
+
+
+def test_out_of_range_finite_scores_fail_closed_and_report_stays_finite(tmp_path: Path) -> None:
+    registry, _ = _registry(tmp_path)
+    dates, base = synthetic_tuning_fixture(registry, PLANTED, n_samples=500, noise=0.02)
+
+    def evaluate(parameters, indices, context):
+        return 1e308 if base(parameters, indices, context) > 0 else -1e308
+
+    proposal = run_walk_forward_tuning(tmp_path / "store", "huge", registry, evaluate, dates, data_provenance="synthetic", defaults=DEFAULTS)
+    body = proposal.to_dict()  # serialises with allow_nan=False
+    assert proposal.decision != "propose_change"
+    assert body["applied"] is False
