@@ -99,7 +99,9 @@ def _statement_rows(
         total_debt = values.pop("total_debt", None)
         lease = values.get("lease_liabilities")
         if total_debt is not None:
-            values["ib_debt"] = total_debt - (lease or 0.0)
+            gross_debt = total_debt - (lease or 0.0)
+            if gross_debt >= 0:
+                values["ib_debt"] = gross_debt
         rows.append(
             {
                 "period_end": end,
@@ -257,7 +259,7 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
     gaap = (payload.get("facts", {}) or {}).get("us-gaap", {}) or {}
     dei = (payload.get("facts", {}) or {}).get("dei", {}) or {}
     currency = ""
-    flow_cumulative: dict[str, dict[tuple[str, str], tuple[float, str]]] = defaultdict(dict)
+    flow_cumulative: dict[str, dict[tuple[str, str], tuple[float, str, str]]] = defaultdict(dict)
     def collect_flow(name: str, concept_names: Sequence[str]) -> dict[tuple[str, str], tuple[float, str, str]]:
         nonlocal currency
         merged: dict[tuple[str, str], tuple[float, str, str]] = {}
@@ -310,12 +312,17 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
             for key, (value, filed, unit) in extra.items():
                 base = combined.get(key)
                 if base is None:
-                    combined[key] = (value, filed, unit)
+                    # Intangible capex is retained separately, but it cannot stand in for the
+                    # missing PP&E leg of total capex for this period.
+                    continue
                 elif unit != base[2]:
                     combined[key] = (0.0, max(filed, base[1]), "currency_mismatch")
                 else:
                     combined[key] = (value + base[0], max(filed, base[1]), unit)
             flow_cumulative[name] = combined if main else {}
+            # Keep intangible spend independently when PP&E spend is absent. Consumers must not
+            # treat this component as a complete capex total.
+            flow_cumulative["capex_extra"] = extra
         else:
             flow_cumulative[name] = collect_flow(name, names)
 
@@ -408,6 +415,16 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                 entry[name] = item[0]
                 entry[f"{name}_currency"] = item[2]
                 entry["_filed"].append(item[1])
+        minority_item = pick(minority)
+        if (
+            minority_item is not None
+            and minority_item[0] > 0
+            and concepts.get("net_income_parent") == ["NetIncomeLoss"]
+        ):
+            # NetIncomeLoss is consolidated. Without a configured parent-attributable fact, a
+            # positive non-controlling balance makes it unsafe for parent-equity multiples.
+            entry.pop("net_income_parent", None)
+            entry.pop("net_income_parent_currency", None)
         if "shares_outstanding" not in entry:
             for cover_end, (value, filed, _unit) in cover.items():
                 # cover-page count of the filing that reports this period: filed within 120 days after the period end
@@ -416,6 +433,10 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                     entry["_filed"].append(filed)
                     break
         cash_item, sti_item = pick(cash), pick(sti)
+        if cash_item is not None:
+            entry["cash"] = cash_item[0]
+            entry["cash_currency"] = cash_item[2]
+            entry["_filed"].append(cash_item[1])
         if cash_item is not None and sti_item is not None:
             if cash_item[2] == sti_item[2]:
                 entry["cash_sti"] = cash_item[0] + sti_item[0]

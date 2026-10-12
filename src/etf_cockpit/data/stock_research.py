@@ -56,7 +56,7 @@ _GROWTH_ALIASES: dict[str, tuple[str, ...]] = {
     "operating_profit": ("operating_profit", "operating_income", "ebit"),
     "free_cash_flow": ("free_cash_flow",),
     "net_income": ("net_income", "net_profit"),
-    "shares_outstanding": ("shares_outstanding", "weighted_average_shares"),
+    "shares_outstanding": ("shares_outstanding",),
     "diluted_shares_outstanding": ("diluted_shares_outstanding", "diluted_shares"),
     "earnings_per_share": ("earnings_per_share", "eps", "basic_eps", "diluted_eps"),
     "organic_revenue": ("organic_revenue", "organic_sales"),
@@ -124,7 +124,7 @@ def profitability_analysis(
         "roic",
         roic,
         invested_capital,
-        "(operating_income * (1 - tax_rate)) / (equity + debt - cash)",
+        "NOPAT / invested_capital",
         frame,
         "equity",
         applicability="not_applicable" if special else "applicable",
@@ -399,8 +399,6 @@ def valuation_analysis(
     for input_name in ("shares_outstanding", "market_cap", "net_debt", "enterprise_value"):
         if input_name in market:
             values[input_name] = market[input_name]
-    if "diluted_shares_outstanding" in latest:
-        values["shares_outstanding"] = latest["diluted_shares_outstanding"]
     if values.get("enterprise_value") is None and values.get("market_cap") is not None and values.get("net_debt") is not None:
         adjustments = _float(market.get("other_enterprise_value_adjustments"))
         if adjustments is not None:
@@ -1707,10 +1705,7 @@ def _valuation_model_provenance(
         if use_margin:
             source_metrics.append("revenue")
             required_inputs.append(("statement:revenue", "revenue"))
-        if "diluted_shares_outstanding" in latest:
-            source_metrics.append("diluted_shares_outstanding")
-            required_inputs.append(("statement:diluted_shares_outstanding", "diluted_shares_outstanding"))
-        elif _float(market_inputs.get("shares_outstanding")) is not None:
+        if _float(market_inputs.get("shares_outstanding")) is not None:
             market_metric_names.append("shares_outstanding")
             required_inputs.append(("market:shares_outstanding", "shares_outstanding"))
         elif "shares_outstanding" in latest:
@@ -1752,10 +1747,7 @@ def _valuation_model_provenance(
             required_inputs.extend(
                 [("statement:equity", "equity"), ("statement:net_income", "net_income")]
             )
-            if "diluted_shares_outstanding" in latest:
-                source_metrics.append("diluted_shares_outstanding")
-                required_inputs.append(("statement:diluted_shares_outstanding", "diluted_shares_outstanding"))
-            elif _float(market_inputs.get("shares_outstanding")) is not None:
+            if _float(market_inputs.get("shares_outstanding")) is not None:
                 market_metric_names.append("shares_outstanding")
                 required_inputs.append(("market:shares_outstanding", "shares_outstanding"))
             elif "shares_outstanding" in latest:
@@ -1773,10 +1765,7 @@ def _valuation_model_provenance(
             required_inputs = [item for item in required_inputs if item[1] != "net_income"]
             required_inputs.append(("market:net_income", "net_income"))
         if bank_route:
-            if "diluted_shares_outstanding" in latest:
-                source_metrics.append("diluted_shares_outstanding")
-                required_inputs.append(("statement:diluted_shares_outstanding", "diluted_shares_outstanding"))
-            elif _float(market_inputs.get("shares_outstanding")) is not None:
+            if _float(market_inputs.get("shares_outstanding")) is not None:
                 market_metric_names.append("shares_outstanding")
                 required_inputs.append(("market:shares_outstanding", "shares_outstanding"))
             elif "shares_outstanding" in latest:

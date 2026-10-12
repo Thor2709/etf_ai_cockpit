@@ -240,7 +240,26 @@ def periods_for(instrument_id: str, frame: pd.DataFrame, chain: Sequence[str], *
             for source in sorted(by_source, key=lambda name: rank.get(name, len(rank))):
                 known = [row for row in by_source[source] if row["_known"] <= moment]
                 if known:
-                    chosen.append(max(known, key=lambda item: item["_known"]))
+                    latest = max(known, key=lambda item: item["_known"])
+                    merged_source = dict(latest)
+                    # A sparse later statement row is not evidence that an earlier field was
+                    # retracted. Carry each field forward from its newest known non-missing
+                    # version for this source and period.
+                    for name in PERIOD_FIELDS:
+                        for version in sorted(known, key=lambda item: item["_known"], reverse=True):
+                            if str(version.get("currency") or "") != str(latest.get("currency") or ""):
+                                continue
+                            if name in version and pd.notna(version.get(name)):
+                                merged_source[name] = version[name]
+                                currency_column = f"{name}_currency"
+                                if currency_column in version and pd.notna(version.get(currency_column)):
+                                    merged_source[currency_column] = version[currency_column]
+                                break
+                            currency_column = f"{name}_currency"
+                            if str(version.get(currency_column) or "") == "currency_mismatch":
+                                merged_source[currency_column] = "currency_mismatch"
+                                break
+                    chosen.append(merged_source)
             if not chosen:
                 continue
             primary = chosen[0]
