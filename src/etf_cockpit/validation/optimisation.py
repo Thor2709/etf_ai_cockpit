@@ -124,6 +124,7 @@ class TrialRecord:
     final_test_score: None = None
     execution_allowed: bool = False
     intermediate: Mapping[str, float] = field(default_factory=dict)
+    search_fingerprint: str = ""
 
     def __post_init__(self) -> None:
         if self.final_test_score is not None or self.execution_allowed:
@@ -148,6 +149,8 @@ class TrialRecord:
         }
         if self.intermediate:  # additive key: records without intermediate reports stay byte-identical
             payload["intermediate"] = dict(self.intermediate)
+        if self.search_fingerprint:  # additive key: binds the score to the search/evidence identity it was produced under
+            payload["search_fingerprint"] = self.search_fingerprint
         return payload
 
 
@@ -251,6 +254,7 @@ def run_bounded_optimisation(
     refine_after: int | None = None,
     patience: int | None = None,
     clock: Callable[[], float] = time.monotonic,
+    identity: Mapping[str, object] | None = None,
 ) -> OptimisationSummary:
     """Run or resume a deterministic, quota-bounded local search.
 
@@ -265,6 +269,9 @@ def run_bounded_optimisation(
     far; ``patience`` stops after that many consecutive non-improving trials.
     Time limits are cooperative: they are checked between trials and at every
     ``context.report`` call, but cannot interrupt an objective that never reports.
+    ``identity`` (JSON-able) binds retained trials to the data/objective/window
+    identity they were scored under: a resume with a different identity, or with
+    retained trials that carry no matching fingerprint, is refused.
     """
 
     definition = quota or OptimisationQuota()
@@ -278,11 +285,13 @@ def run_bounded_optimisation(
         raise ValueError("patience must be positive")
     ledger = OptimisationLedger(root)
     context = DevelopmentOnlyContext(run_id)
-    search_fingerprint = _search_fingerprint(values, int(definition.seed), refine_after)
+    search_fingerprint = _search_fingerprint(values, int(definition.seed), refine_after, identity)
     prior_summary = next((item for item in ledger.list_summaries() if item.get("run_id") == run_id), None)
     if prior_summary is not None and prior_summary.get("search_fingerprint") != search_fingerprint:
         raise OptimisationError("cannot resume optimisation with a different seed or parameter space")
     existing = {str(item["trial_id"]): item for item in ledger.list(run_id)}
+    if identity is not None and any(item.get("search_fingerprint") != search_fingerprint for item in existing.values()):
+        raise OptimisationError("cannot resume optimisation: retained trials were scored under a different evidence identity")
     started = clock()
     deadline = started + float(definition.max_seconds)
     peak_memory = max((float(item.get("peak_memory_mb", 0.0)) for item in existing.values()), default=0.0)
@@ -319,6 +328,7 @@ def run_bounded_optimisation(
                 history,
                 clock,
                 deadline,
+                search_fingerprint,
             )
             peak_memory = max(peak_memory, float(existing[trial_id].get("peak_memory_mb", 0.0)))
         trial = existing[trial_id]
@@ -341,7 +351,7 @@ def run_bounded_optimisation(
     rows = tuple(existing.values())
     completed = [item for item in rows if item.get("status") == "completed" and item.get("score") is not None]
     best = max(completed, key=lambda item: (float(item["score"]), str(item["trial_id"])), default=None)
-    baseline = next((item for item in rows if item.get("trial_id") == "baseline" and item.get("score") is not None), None)
+    baseline = next((item for item in rows if item.get("trial_id") == "baseline" and item.get("status") == "completed" and item.get("score") is not None), None)
     importance = _parameter_importance(completed)
     status = "cancelled" if stop_reason == "cancel_requested" else "completed"
     summary = OptimisationSummary(
@@ -382,6 +392,7 @@ def _evaluate_trial(
     history: Sequence[Mapping[str, float]],
     clock: Callable[[], float],
     deadline: float,
+    search_fingerprint: str = "",
 ) -> dict[str, object]:
     started = clock()
     intermediate: dict[str, float] = {}
@@ -425,9 +436,11 @@ def _evaluate_trial(
     duration_ms = (clock() - started) * 1000.0
     if duration_ms / 1000.0 > quota.max_seconds:
         status = "failed"
+        score = None
         error = f"time quota exceeded: {duration_ms / 1000.0:.3f} seconds > {quota.max_seconds:.3f} seconds"
     if peak_memory_mb > quota.max_memory_mb:
         status = "failed"
+        score = None  # a quota-violating trial never supplies evidence
         error = f"memory quota exceeded: {peak_memory_mb:.3f} MB > {quota.max_memory_mb} MB"
     record = TrialRecord(
         run_id,
@@ -441,6 +454,7 @@ def _evaluate_trial(
         error,
         trial_id == "baseline",
         intermediate=intermediate,
+        search_fingerprint=search_fingerprint,
     )
     return ledger.record(record)
 
@@ -462,10 +476,14 @@ def _validate_parameter_space(parameter_space: Mapping[str, Sequence[object]]) -
     return clean
 
 
-def _search_fingerprint(values: Mapping[str, tuple[object, ...]], seed: int, refine_after: int | None = None) -> str:
+def _search_fingerprint(
+    values: Mapping[str, tuple[object, ...]], seed: int, refine_after: int | None = None, bound_identity: Mapping[str, object] | None = None
+) -> str:
     identity: dict[str, object] = {"parameter_space": values, "seed": int(seed)}
     if refine_after is not None:  # keyed only when used, so earlier fingerprints stay valid
         identity["refine_after"] = int(refine_after)
+    if bound_identity is not None:
+        identity["evidence_identity"] = dict(bound_identity)
     payload = json.dumps(identity, sort_keys=True, allow_nan=False, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -543,6 +561,7 @@ TUNING_PROPOSAL_SCHEMA_VERSION = "tuning-proposal.v1"
 TuningDecision = Literal["keep_current", "propose_change", "unavailable"]
 DataProvenance = Literal["market", "synthetic", "private"]
 TuningEvaluator = Callable[[Mapping[str, float], Sequence[int], DevelopmentOnlyContext], float]
+_SEARCH_TIME_FRACTION = 0.8  # share of the run budget the search may use; the rest is reserved for out-of-sample judging
 
 
 @dataclass(frozen=True)
@@ -604,6 +623,7 @@ def run_walk_forward_tuning(
     defaults: TuningDefaults | None = None,
     cancel_check: Callable[[], bool] | None = None,
     clock: Callable[[], float] = time.monotonic,
+    evaluator_identity: str | None = None,
 ) -> TuningProposal:
     """Tune on one window, then judge the winner on a LATER unseen window.
 
@@ -616,12 +636,21 @@ def run_walk_forward_tuning(
     change penalty, in enough evaluation blocks; otherwise the decision is
     ``keep_current``.  Missing or unverifiable evidence gives ``unavailable``.
     Settings files are never written.
+
+    The whole run (search plus out-of-sample judging) shares ``max_seconds``: the
+    search may use ``_SEARCH_TIME_FRACTION`` of it, and out-of-sample evaluation
+    is checked against the full deadline and cancellation between and inside
+    calls.  ``evaluator_identity`` (or an ``identity`` attribute on ``evaluate``)
+    names the data/objective the scores come from; it is mandatory for market and
+    private data.  Retained trials are reused only under an identical identity.
     """
 
     run_id = _identifier(run_id, "run_id")
     config = defaults or registry.defaults
     guards, split = config.guards, config.split
     current = registry.current_values()
+    run_started = clock()
+    deadline = run_started + float(config.search.max_seconds)
     base_inputs = {
         "registry_version": registry.version,
         "registry_checksum": registry.registry_checksum,
@@ -665,26 +694,44 @@ def run_walk_forward_tuning(
     if len(evaluation) < max(guards.min_eval_samples, guards.eval_blocks):
         return unavailable(f"insufficient_evaluation_samples: {len(evaluation)} < {max(guards.min_eval_samples, guards.eval_blocks)}", windows)
     evidence = _cutoff_evidence(registry, dates[tune[0]], data_provenance, model_cutoffs)
-
+    objective_identity = evaluator_identity if evaluator_identity is not None else getattr(evaluate, "identity", None)
+    if objective_identity is None and data_provenance != "synthetic":
+        return unavailable("evaluator_identity_unverified", windows, evidence)
+    if objective_identity is None:
+        objective_identity = "callable:" + str(getattr(evaluate, "__module__", "")) + "." + str(getattr(evaluate, "__qualname__", type(evaluate).__name__))
     penalty = float(guards.change_penalty)
+    bound_identity = {
+        "evaluator": str(objective_identity),
+        "data_provenance": data_provenance,
+        "dates_sha256": hashlib.sha256(",".join(item.isoformat() for item in dates).encode("utf-8")).hexdigest(),
+        "tune_indices": [tune[0], tune[-1]],
+        "registry_fingerprint": base_inputs["registry_fingerprint"],
+        "guards": guard_view,
+        "change_penalty": penalty,
+        "model_cutoffs": {key: value.isoformat() for key, value in sorted((model_cutoffs or {}).items())},
+    }
 
     def objective(raw: Mapping[str, object], context: DevelopmentOnlyContext) -> float:
         parameters = registry.materialise(raw)
         return float(evaluate(parameters, tune, context)) - penalty * registry.distance_from_current(parameters)
 
-    quota = OptimisationQuota(config.search.max_trials, config.search.max_seconds, config.search.max_memory_mb, config.search.seed)
-    summary = run_bounded_optimisation(
-        root,
-        run_id,
-        registry.search_space(),
-        objective,
-        quota=quota,
-        cancel_check=cancel_check,
-        pruning=PruningRule(config.search.prune_warmup_trials),
-        refine_after=config.search.refine_after,
-        patience=config.search.patience,
-        clock=clock,
-    )
+    quota = OptimisationQuota(config.search.max_trials, config.search.max_seconds * _SEARCH_TIME_FRACTION, config.search.max_memory_mb, config.search.seed)
+    try:
+        summary = run_bounded_optimisation(
+            root,
+            run_id,
+            registry.search_space(),
+            objective,
+            quota=quota,
+            cancel_check=cancel_check,
+            pruning=PruningRule(config.search.prune_warmup_trials),
+            refine_after=config.search.refine_after,
+            patience=config.search.patience,
+            clock=clock,
+            identity=bound_identity,
+        )
+    except OptimisationError:
+        return unavailable("retained_evidence_identity_mismatch", windows, evidence)
     search = {
         "stop_reason": summary.stop_reason,
         "trial_count": summary.trial_count,
@@ -700,6 +747,8 @@ def run_walk_forward_tuning(
     if summary.status == "cancelled":
         return unavailable("search_cancelled", windows, evidence, search)
     if summary.baseline_score is None or summary.best_score is None or summary.best_trial_id is None:
+        return unavailable("baseline_trial_did_not_complete", windows, evidence, search)
+    if next((item for item in OptimisationLedger(root).list(run_id) if item["trial_id"] == "baseline"), {}).get("status") != "completed":
         return unavailable("baseline_trial_did_not_complete", windows, evidence, search)
 
     def keep(reason: str, candidate: Mapping[str, float] | None = None, oos: Mapping[str, object] | None = None) -> TuningProposal:
@@ -717,12 +766,32 @@ def run_walk_forward_tuning(
 
     blocks = _blocks(evaluation, guards.eval_blocks)
     cost = penalty * registry.distance_from_current(candidate)
-    oos_context = DevelopmentOnlyContext(run_id)
+
+    def oos_report(step: int, value: float) -> None:
+        if not math.isfinite(value):
+            raise ValueError("intermediate value must be finite")
+        if clock() >= deadline:
+            raise TrialInterrupted(f"run time quota reached at step {step}")
+        if cancel_check is not None and cancel_check():
+            raise TrialInterrupted("cancel requested")
+
+    oos_context = DevelopmentOnlyContext(run_id, reporter=oos_report)
+
+    def oos_score(parameters: Mapping[str, float], block: Sequence[int]) -> float:
+        if clock() >= deadline or (cancel_check is not None and cancel_check()):
+            raise TrialInterrupted("run budget or cancellation reached before evaluation")
+        value = _finite(evaluate(parameters, block, oos_context))
+        if clock() >= deadline:
+            raise TrialInterrupted("run time quota reached during evaluation")
+        return value
+
     try:
-        current_scores = [_finite(evaluate(current, block, oos_context)) for block in blocks]
-        candidate_scores = [_finite(evaluate(candidate, block, oos_context)) for block in blocks]
-    except Exception as exc:
-        return unavailable(f"out_of_sample_evaluation_failed: {type(exc).__name__}: {exc}", windows, evidence, search)
+        current_scores = [oos_score(current, block) for block in blocks]
+        candidate_scores = [oos_score(candidate, block) for block in blocks]
+    except TrialInterrupted:
+        return unavailable("out_of_sample_interrupted", windows, evidence, search)
+    except Exception as exc:  # category only: raw messages may carry secrets and are never exported
+        return unavailable(f"out_of_sample_evaluation_failed: {type(exc).__name__}", windows, evidence, search)
     margins = [cand - cur - cost for cand, cur in zip(candidate_scores, current_scores)]
     wins = sum(margin > guards.min_improvement for margin in margins)
     mean_margin = sum(margins) / len(margins)
@@ -805,6 +874,9 @@ def synthetic_tuning_fixture(
             context.report(step, -loss + noise * seen / count)
         return -loss + noise * seen / count
 
+    evaluate.identity = "synthetic:" + hashlib.sha256(  # type: ignore[attr-defined]
+        json.dumps({"planted": dict(planted), "n": int(n_samples), "seed": seed, "noise": noise, "start": start.isoformat()}, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:16]
     return dates, evaluate
 
 

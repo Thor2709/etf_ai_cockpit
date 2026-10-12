@@ -22,7 +22,29 @@ from etf_cockpit.validation.optimisation import (  # noqa: E402
     run_walk_forward_tuning,
     synthetic_tuning_fixture,
 )
+from etf_cockpit.core.paths import CONFIG_DIR  # noqa: E402
 from etf_cockpit.validation.tuning_registry import DEFAULT_REGISTRY_PATH, TuningRegistryError, load_tuning_registry  # noqa: E402
+
+_FORBIDDEN_NAMES = (".owner-root", "models", "configs")
+_FORBIDDEN_PREFIXES = ("c:/users/thor2/desktop/trading app",)
+
+
+def _normal(value: object) -> str:
+    return str(value).replace("\\", "/").rstrip("/").lower()
+
+
+def forbidden_output_reason(raw: Path, resolved: Path, registry_path: Path) -> str | None:
+    """Why ``--output-dir`` may not be written, or None.  Checks the raw and resolved spellings."""
+
+    for text in (_normal(raw), _normal(resolved)):
+        if any(part in _FORBIDDEN_NAMES for part in text.split("/")):
+            return "output_dir_inside_protected_directory"
+        if any(text == prefix or text.startswith(prefix + "/") for prefix in _FORBIDDEN_PREFIXES):
+            return "output_dir_inside_protected_directory"
+    for settings_dir in (registry_path.parent, Path(CONFIG_DIR).resolve()):
+        if resolved == settings_dir or settings_dir in resolved.parents:
+            return "output_dir_inside_settings_directory"
+    return None
 
 
 def _planted(registry) -> dict[str, float]:  # noqa: ANN001
@@ -58,8 +80,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     registry_path = args.registry.resolve()
     output_dir = args.output_dir.resolve()
-    if registry_path.parent == output_dir or registry_path.parent in output_dir.parents:
-        print("tuning_status=refused reason=output_dir_inside_settings_directory")
+    refusal = forbidden_output_reason(args.output_dir, output_dir, registry_path)
+    if refusal is not None:  # before any ledger or artefact write
+        print(f"tuning_status=refused reason={refusal}")
         return 2
     try:
         registry = load_tuning_registry(registry_path)

@@ -23,10 +23,27 @@ from etf_cockpit.core.paths import CONFIG_DIR
 TUNING_REGISTRY_VERSION = "tuning-registry.v1"
 DEFAULT_REGISTRY_PATH = CONFIG_DIR / "tuning_v1.yaml"
 _TOLERANCE = 1e-9
+_MAX_GRID_POINTS = 10_000
 
 
 class TuningRegistryError(ValueError):
     """Raised when the registry or a knob's current value cannot be verified."""
+
+
+def _integer(name: str, value: object, minimum: int | None = None, *, optional: bool = False) -> None:
+    if value is None and optional:
+        return
+    if isinstance(value, bool) or not isinstance(value, int) or (minimum is not None and value < minimum):
+        raise TuningRegistryError(f"invalid tuning default {name}: {value!r}")
+
+
+def _number(name: str, value: object, *, minimum: float = 0.0, maximum: float | None = None, exclusive: bool = False) -> None:
+    ok = not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(float(value))
+    if ok:
+        number = float(value)  # type: ignore[arg-type]
+        ok = (number > minimum if exclusive else number >= minimum) and (maximum is None or number <= maximum)
+    if not ok:
+        raise TuningRegistryError(f"invalid tuning default {name}: {value!r}")
 
 
 @dataclass(frozen=True)
@@ -39,6 +56,15 @@ class SearchDefaults:
     patience: int | None = 25
     prune_warmup_trials: int = 5
 
+    def __post_init__(self) -> None:
+        _integer("max_trials", self.max_trials, 1)
+        _number("max_seconds", self.max_seconds, exclusive=True)
+        _integer("max_memory_mb", self.max_memory_mb, 1)
+        _integer("seed", self.seed)
+        _integer("refine_after", self.refine_after, 1, optional=True)
+        _integer("patience", self.patience, 1, optional=True)
+        _integer("prune_warmup_trials", self.prune_warmup_trials, 1)
+
 
 @dataclass(frozen=True)
 class GuardDefaults:
@@ -49,6 +75,14 @@ class GuardDefaults:
     change_penalty: float = 0.02
     min_improvement: float = 0.0
 
+    def __post_init__(self) -> None:
+        _integer("min_tune_samples", self.min_tune_samples, 1)
+        _integer("min_eval_samples", self.min_eval_samples, 1)
+        _integer("eval_blocks", self.eval_blocks, 1)
+        _number("min_block_win_fraction", self.min_block_win_fraction, maximum=1.0, exclusive=True)
+        _number("change_penalty", self.change_penalty)
+        _number("min_improvement", self.min_improvement)
+
 
 @dataclass(frozen=True)
 class SplitDefaults:
@@ -56,6 +90,12 @@ class SplitDefaults:
     horizon: int = 20
     embargo: int = 0
     final_test_size: int = 60
+
+    def __post_init__(self) -> None:
+        _integer("eval_size", self.eval_size, 1)
+        _integer("horizon", self.horizon, 1)
+        _integer("embargo", self.embargo, 0)
+        _integer("final_test_size", self.final_test_size, 0)
 
 
 @dataclass(frozen=True)
@@ -183,56 +223,78 @@ def load_tuning_registry(path: Path | None = None, *, config_dir: Path | None = 
         document = yaml.safe_load(raw.decode("utf-8"))
     except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
         raise TuningRegistryError(f"tuning registry unreadable: {type(exc).__name__}") from exc
-    if not isinstance(document, Mapping) or int(document.get("schema_version", 0)) != 1 or not document.get("parameters"):
+    version = document.get("schema_version") if isinstance(document, Mapping) else None
+    if not isinstance(document, Mapping) or isinstance(version, bool) or version != 1:
+        raise TuningRegistryError("tuning registry has no schema_version 1 parameter list")
+    entries = document.get("parameters")
+    if not isinstance(entries, list) or not entries:
         raise TuningRegistryError("tuning registry has no schema_version 1 parameter list")
     sources: dict[str, object] = {}
     checksums: dict[str, str] = {}
     parameters: list[TunableParameter] = []
     seen: set[str] = set()
-    for entry in document["parameters"]:
+    for entry in entries:
+        if not isinstance(entry, Mapping):
+            raise TuningRegistryError("tuning registry parameter entry must be a mapping")
         key = str(entry.get("key", "")).strip()
         if not key or key in seen:
             raise TuningRegistryError(f"knob key missing or duplicated: {key!r}")
         seen.add(key)
-        file = str(entry.get("file", ""))
+        file = entry.get("file")
+        raw_path = entry.get("path")
+        if not isinstance(file, str) or not file.strip() or not isinstance(raw_path, list) or not raw_path:
+            raise TuningRegistryError(f"knob {key}: file and path must be a string and a non-empty list")
         if file not in sources:
             try:
                 content = (source_root / file).read_bytes()
                 sources[file] = yaml.safe_load(content.decode("utf-8"))
-            except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+            except (OSError, ValueError, yaml.YAMLError) as exc:
                 raise TuningRegistryError(f"source file for {key} unreadable: {file}") from exc
             checksums[file] = hashlib.sha256(content).hexdigest()
         node: object = sources[file]
-        path_parts = tuple(str(part) for part in entry.get("path", ()))
+        path_parts = tuple(str(part) for part in raw_path)
         for part in path_parts:
             if not isinstance(node, Mapping) or part not in node:
                 raise TuningRegistryError(f"knob {key}: path {'/'.join(path_parts)} not found in {file}")
             node = node[part]
         if isinstance(node, bool) or not isinstance(node, (int, float)) or not math.isfinite(float(node)):
             raise TuningRegistryError(f"knob {key}: current value is not a finite number")
-        lower, upper, step, current = (float(entry.get("lower", math.nan)), float(entry.get("upper", math.nan)), float(entry.get("step", math.nan)), float(node))
+        try:
+            lower, upper, step, current = (float(entry["lower"]), float(entry["upper"]), float(entry["step"]), float(node))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise TuningRegistryError(f"knob {key}: lower/upper/step must be numbers") from exc
         if not (math.isfinite(lower) and math.isfinite(upper) and math.isfinite(step)) or not lower < upper or step <= 0:
             raise TuningRegistryError(f"knob {key}: bounds/step must be finite with lower < upper and step > 0")
+        if (upper - lower) / step > _MAX_GRID_POINTS:
+            raise TuningRegistryError(f"knob {key}: step is too small for a bounded grid")
         if not lower - _TOLERANCE <= current <= upper + _TOLERANCE:
             raise TuningRegistryError(f"knob {key}: current value {current} lies outside [{lower}, {upper}]")
         parameters.append(
             TunableParameter(key, file, path_parts, lower, upper, step, current, entry.get("group") or None, entry.get("model") or None)
         )
-    defaults = _defaults(document.get("defaults") or {})
+    defaults = _defaults(document.get("defaults"))
     registry = TuningRegistry(str(document.get("version", "")), tuple(parameters), defaults, dict(sorted(checksums.items())), hashlib.sha256(raw).hexdigest())
     registry.materialise(registry.current_values())  # group totals must be reachable
     return registry
 
 
-def _defaults(block: Mapping[str, object]) -> TuningDefaults:
-    try:
-        return TuningDefaults(
-            SearchDefaults(**dict(block.get("search") or {})),  # type: ignore[arg-type]
-            GuardDefaults(**dict(block.get("guards") or {})),  # type: ignore[arg-type]
-            SplitDefaults(**dict(block.get("split") or {})),  # type: ignore[arg-type]
-        )
-    except TypeError as exc:
-        raise TuningRegistryError(f"unknown tuning default: {exc}") from exc
+def _defaults(block: object) -> TuningDefaults:
+    if block is None:
+        block = {}
+    if not isinstance(block, Mapping) or not set(block) <= {"search", "guards", "split"}:
+        raise TuningRegistryError("tuning defaults must be a mapping of search/guards/split")
+    sections = []
+    for name, factory in (("search", SearchDefaults), ("guards", GuardDefaults), ("split", SplitDefaults)):
+        section = block.get(name)
+        if section is None:
+            section = {}
+        if not isinstance(section, Mapping):
+            raise TuningRegistryError(f"tuning defaults {name} must be a mapping")
+        try:
+            sections.append(factory(**dict(section)))
+        except TypeError as exc:
+            raise TuningRegistryError(f"unknown tuning default in {name}: {exc}") from exc
+    return TuningDefaults(*sections)
 
 
 def registry_fingerprint(registry: TuningRegistry) -> str:

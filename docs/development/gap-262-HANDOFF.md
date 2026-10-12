@@ -6,6 +6,9 @@ DONE
 - `run_walk_forward_tuning`: reuses `build_walk_forward_splits` (tune window, purge, later evaluation window, reserved final tail never touched); min-sample, change-penalty, block-win and margin guards; candidate must beat current out of sample else `keep_current`; failures give `unavailable` with reason; pretraining-cutoff flags (`PRETRAINING_CUTOFFS`; unknown cutoff = flagged); synthetic data is `synthetic_machinery_only`, never promotion evidence.
 - `scripts/run_tuning.py`: writes `tuning_proposal.json` + `tuning_report.md` only; refuses an output dir inside the settings directory.
 
+CORRECTION PASS
+- Retained trials carry a `search_fingerprint` bound to data dates, evaluator identity (mandatory for market/private data), registry, guards and penalty; mismatch -> unavailable. Failed/pruned baselines never supply a baseline score. Out-of-sample judging shares the run deadline (search uses 80%) and honours cancellation. Output dirs under `.owner-root`, `models`, `configs`, the settings dir or `Desktop/Trading App` are refused before any write. Registry/defaults validate fully (`TuningRegistryError`). Out-of-sample errors export the exception class only.
+
 SAFE_POINT
 - Real-data walk-forward is not wired (`--mode walk-forward` exits 2, unavailable): needs a point-in-time objective over real score/forecast history and owner-defined acceptance. "Then new data" stage not built.
 - Hard resource limits (process isolation, native memory, restart limits) not built: limits are cooperative (checked between trials and at `report`); a hung objective that never reports cannot be interrupted. Owner decides hard vs cooperative.
