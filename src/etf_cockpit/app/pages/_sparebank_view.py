@@ -29,6 +29,7 @@ from etf_cockpit.app.components.kit import (
     Tag,
     field_input_style,
 )
+from etf_cockpit.app.pages._sparebank_intelligence_view import render_intelligence_audit
 from etf_cockpit.application.sparebank_evidence import review_pillar3_figure
 from etf_cockpit.application.sparebank_peers import axis_evidence_groups, axis_evidence_notes, set_picked_peers
 
@@ -663,6 +664,7 @@ def render_sparebank_workspace(workspace: object, *, root: object = None, page: 
         _structural(workspace),
         _marketability(workspace),
         _tactical(workspace),
+        *([render_intelligence_audit(workspace.get("intelligence_audit"), inventory=workspace.get("intelligence_inventory"))] if workspace.get("intelligence_audit") or workspace.get("intelligence_inventory") else []),
         Disclosure("Audit: complete stored analysis", raw, expanded=False),
     ]
     return ft.ExpansionTile(
