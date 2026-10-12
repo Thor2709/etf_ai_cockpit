@@ -28,7 +28,7 @@ DECISION_TIME = "2025-02-28T00:00:00Z"
 INSTRUMENT = "SYNTH-ENERGY"
 
 
-def _context(instrument_id: str = INSTRUMENT, model: str = "energy"):
+def _context(instrument_id: str = INSTRUMENT, model: str = "energy", decision_time: str = DECISION_TIME):
     fields = {
         "instrument_type": "stock",
         "asset_class": "equity",
@@ -57,7 +57,7 @@ def _context(instrument_id: str = INSTRUMENT, model: str = "energy"):
         rows,
         instrument_id=instrument_id,
         effective_at="2024-12-31T00:00:00Z",
-        decision_time=DECISION_TIME,
+        decision_time=decision_time,
     )
 
 
@@ -97,7 +97,7 @@ def _metric(name: str, value: float | None, unit: str, model: str = "energy"):
     )
 
 
-def _projection(*, history_count: int = 2, model: str = "energy", omit=(), overrides=None, history=None):
+def _projection(*, history_count: int = 2, model: str = "energy", omit=(), overrides=None, history=None, decision_time: str = DECISION_TIME):
     evidence = (
         _metric("spot_cycle_margin", 0.40, "ratio"),
         _metric("normalised_margin", 0.10, "ratio"),
@@ -116,11 +116,11 @@ def _projection(*, history_count: int = 2, model: str = "energy", omit=(), overr
         for row in evidence if row.metric not in omit
     )
     return build_cyclical_projection(
-        _context(model=model),
+        _context(model=model, decision_time=decision_time),
         evidence,
         cycle_history=_history(history_count) if history is None else history,
         registry=AdapterRegistry(cyclical_adapter_definitions()),
-        decision_time=DECISION_TIME,
+        decision_time=decision_time,
         scenarios=scenarios,
     )
 
@@ -321,3 +321,50 @@ def test_normalised_basis_cannot_use_history_after_its_evidence_cutoff(monkeypat
     assert "unlinked_cycle_history" in rows["normalised_margin"].basis
     public = _candidate_components(monkeypatch, projection)
     assert public["stock_value"].score_10 is None and public["stock_quality"].score_10 is None
+
+
+@pytest.mark.parametrize("label", ("Energy", "Basic Materials", "Capital Goods", "Industrial", "oil & gas"))
+def test_classified_cyclical_without_projection_is_unavailable_not_generic(label):
+    evidence = SimpleNamespace(
+        components={
+            key: SimpleNamespace(score_10=7.5, why="generic peak-year basis", source_id="sec_edgar:fundamentals", as_of="2025-02-15", freshness="ok")
+            for key in ("stock_value", "stock_quality", "analyst_revision")
+        }
+    )
+    components = _stock_fundamental_components(evidence, sector=label)
+    assert all(row.score_10 is None and not row.score_eligible and "unavailable" in row.why for row in components[:2])
+
+
+def test_percent_margin_is_canonicalised_to_a_fraction_before_valuation_and_scoring():
+    overrides = {"normalised_margin": replace(_metric("normalised_margin", 10.0, "percent"))}
+    projection = _projection(overrides=overrides)
+    rows = {row.metric: row for row in projection.metrics}
+    assert rows["normalised_margin"].value == pytest.approx(0.10) and rows["normalised_margin"].unit == "ratio"
+    assert rows["cycle_adjusted_ev_to_earnings"].value == pytest.approx(50.0)
+    components = _stock_fundamental_components(
+        None, cyclical_projection=projection, instrument_id=INSTRUMENT, decision_time=DECISION_TIME
+    )
+    assert components[0].score_10 == 2.0 and components[1].score_10 == 4.0
+
+
+@pytest.mark.parametrize("omit", (("revenue",), ("enterprise_value",), ("normalised_margin",)))
+def test_reported_multiple_without_own_through_cycle_linkage_is_unavailable(omit):
+    projection = _projection(omit=omit)
+    multiple = next(row for row in projection.metrics if row.metric == "cycle_adjusted_ev_to_earnings")
+    assert multiple.status == "unavailable" and multiple.value is None
+    assert multiple.normalisation_cycle_ids == ()
+    assert "basis_unverified" in multiple.basis
+
+
+def test_projection_built_later_the_same_day_cannot_score_an_earlier_cutoff():
+    projection = _projection(decision_time="2025-02-28T18:00:00Z")
+    kwargs = dict(cyclical_projection=projection, instrument_id=INSTRUMENT)
+    for early in ("2025-02-28", date(2025, 2, 28), "2025-02-28T09:00:00Z"):
+        components = _stock_fundamental_components(None, decision_time=early, **kwargs)
+        assert all(row.score_10 is None and "cutoff" in row.why for row in components[:2])
+    same = _stock_fundamental_components(None, decision_time="2025-02-28T18:00:00Z", **kwargs)
+    assert same[0].score_10 == 2.0 and same[1].score_10 == 4.0
+    midnight = _stock_fundamental_components(
+        None, cyclical_projection=_projection(), instrument_id=INSTRUMENT, decision_time=date(2025, 2, 28)
+    )
+    assert midnight[0].score_10 == 2.0

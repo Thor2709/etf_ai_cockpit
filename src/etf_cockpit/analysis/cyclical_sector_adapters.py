@@ -251,6 +251,7 @@ def build_cyclical_projection(
     seen: set[str] = set()
     limitations: set[str] = set()
     for item in sorted(evidence, key=lambda row: (row.metric, row.known_at, row.source_id)):
+        item = _canonical_ratio(item)
         _validate_metric(item, model, decision)
         if item.metric in _PROHIBITED:
             raise CyclicalAdapterError(f"generic fallback {item.metric!r} is forbidden")
@@ -636,14 +637,26 @@ def _scenarios_from_source(value: object) -> dict[str, object]:
     return output
 
 
+_FAMILY_ALIASES = {
+    "energy": frozenset({"energy", "oil_gas", "energy_producer"}),
+    "materials": frozenset({"materials", "mining", "miner", "basic_materials"}),
+    "industrials": frozenset({"industrials", "industrial", "capital_goods"}),
+}
+
+
+def cyclical_family_from_labels(labels: Sequence[object]) -> str | None:
+    """Resolve classification labels to exactly one cyclical family, else None."""
+
+    tags = {re.sub(r"[\s&-]+", "_", str(label).strip().casefold()) for label in labels if label is not None}
+    matches = [model for model, values in _FAMILY_ALIASES.items() if tags & values]
+    if len(matches) != 1 or tags & {"infrastructure", "infrastructure_operator"}:
+        return None
+    return matches[0]
+
+
 def _model(context: InstrumentContextV2) -> str:
     tags = {tag.casefold() for tag in context.business_model_tags}
-    aliases = {
-        "energy": {"energy", "oil_gas", "energy_producer"},
-        "materials": {"materials", "mining", "miner"},
-        "industrials": {"industrials", "industrial", "capital_goods"},
-    }
-    matches = [model for model, values in aliases.items() if tags & values]
+    matches = [model for model, values in _FAMILY_ALIASES.items() if tags & values]
     if len(matches) != 1:
         raise CyclicalAdapterError("business model must resolve to exactly one cyclical family")
     if "infrastructure" in tags or "infrastructure_operator" in tags:
@@ -665,6 +678,14 @@ def _validate_metric(item: CyclicalMetricEvidence, model: str, decision: datetim
         raise CyclicalAdapterError("cyclical ratio is outside canonical bounds")
     if item.value is not None and item.metric in {"book_to_bill", "cycle_adjusted_ev_to_earnings", "trough_interest_coverage"} and item.value < 0:
         raise CyclicalAdapterError("cyclical multiple cannot be negative")
+
+
+def _canonical_ratio(item: CyclicalMetricEvidence) -> CyclicalMetricEvidence:
+    """Percent ratios become fractions before any validation, valuation or scoring."""
+
+    if item.metric in _RATIO and item.unit == "percent" and item.value is not None and _finite(item.value):
+        return replace(item, value=item.value / 100.0, unit="ratio")
+    return item
 
 
 def _allowed_unit(metric: str, unit: str, allowed: Sequence[str]) -> bool:
@@ -750,21 +771,22 @@ def _cycle_adjusted_valuation(
                     limitations=tuple(sorted({*enterprise_value.limitations, *revenue.limitations, *margin.limitations})),
                 )
     elif multiple.status == "available":
-        # A reported multiple cannot stand in for missing normalised-earnings
-        # inputs merely because unrelated cycle records exist.
-        if normalised_margin_supplied and (
-            multiple.normalisation_cycle_ids != history_ids
-            or multiple.reporting_standard != margin.reporting_standard
-            or multiple.jurisdiction != margin.jurisdiction
-            or multiple.as_of < margin.as_of
-            or multiple.known_at < margin.known_at
+        # A reported multiple stands only with independently linked through-cycle
+        # evidence of its own; it never borrows the supplied cycle history.
+        if not (
+            normalised_margin_supplied
+            and margin.status == "available"
+            and multiple.normalisation_cycle_ids == history_ids
+            and multiple.reporting_standard == margin.reporting_standard
+            and multiple.jurisdiction == margin.jurisdiction
+            and multiple.as_of >= margin.as_of
+            and multiple.known_at >= margin.known_at
         ):
             rows[multiple.metric] = unavailable("reported_multiple_through_cycle_basis_unverified")
         else:
             rows[multiple.metric] = replace(
                 multiple,
-                basis="issuer_reported_cycle_adjusted_multiple; cycles=" + ",".join(history_ids),
-                normalisation_cycle_ids=history_ids,
+                basis="issuer_reported_cycle_adjusted_multiple; cycles=" + ",".join(multiple.normalisation_cycle_ids),
             )
     else:
         rows[multiple.metric] = unavailable("through_cycle_valuation_inputs_unavailable")

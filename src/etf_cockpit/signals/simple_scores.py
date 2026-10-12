@@ -22,6 +22,7 @@ from etf_cockpit.analysis.cyclical_sector_adapters import (
     CyclicalAdapterError,
     cyclical_adapter_definitions,
     cyclical_source_digest,
+    cyclical_family_from_labels,
     verify_cyclical_projection,
 )
 from etf_cockpit.analysis.stock_evidence import StockEvidence, linear_score
@@ -2708,11 +2709,9 @@ def _cyclical_stock_components(
     sector: object | None = None,
 ) -> list[SimpleScoreComponent] | None:
     if projection is None:
-        sector_name = str(sector).strip().casefold()
-        if sector_name == "industrial":
-            sector_name = "industrials"
-        source_id = f"sector:{sector_name}"
-        if source_id in CYCLICAL_SCORE_SOURCE_IDS:
+        family = cyclical_family_from_labels((sector,))
+        source_id = f"sector:{family}"
+        if family is not None and source_id in CYCLICAL_SCORE_SOURCE_IDS:
             return [
                 _cyclical_component(
                     key, None,
@@ -2736,17 +2735,21 @@ def _cyclical_stock_components(
         if payload.get("instrument_id") != instrument_id:
             raise CyclicalAdapterError("cyclical projection instrument does not match the score target")
         projected_time = _simple_projection_member(_simple_projection_member(projection, "lineage"), "decision_time")
-        explicit_cutoff = isinstance(decision_time, datetime) or (
+        # Full timezone-aware cutoffs are compared. A date-only caller means the
+        # start of that day in UTC, so a projection built later that day is rejected.
+        if isinstance(decision_time, datetime) or (
             isinstance(decision_time, str) and len(decision_time.strip()) > 10
-        )
-        if explicit_cutoff:
+        ):
             target_cutoff = pd.Timestamp(decision_time)
-            projection_cutoff = pd.Timestamp(projected_time)
-            if (target_cutoff.tzinfo is None or projection_cutoff.tzinfo is None
-                    or target_cutoff != projection_cutoff):
+        else:
+            target_day = _parse_date(decision_time)
+            if target_day is None:
                 raise CyclicalAdapterError("cyclical projection decision cutoff does not match the score time")
-        elif _simple_score_date(projected_time) != _simple_score_date(decision_time):
-            raise CyclicalAdapterError("cyclical projection decision cutoff does not match the score date")
+            target_cutoff = pd.Timestamp(target_day, tz="UTC")
+        projection_cutoff = pd.Timestamp(projected_time)
+        if (target_cutoff.tzinfo is None or projection_cutoff.tzinfo is None
+                or target_cutoff != projection_cutoff):
+            raise CyclicalAdapterError("cyclical projection decision cutoff does not match the score time")
         source_id = str(payload["adapter_id"])
         if source_id not in CYCLICAL_SCORE_SOURCE_IDS:
             raise CyclicalAdapterError("cyclical adapter identity is unsupported")
