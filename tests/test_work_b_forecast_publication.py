@@ -41,6 +41,8 @@ def test_forecast_runner_output_is_accepted_by_app_loader(monkeypatch, tmp_path)
     monkeypatch.setattr(forecast_service, "FORECASTS_DIR", tmp_path)
     monkeypatch.setattr(sys, "argv", ["run_forecasts.py"])
     assert runner.main() == 0
+    # The app snapshot binds to enabled-universe prices only (snapshot_builder.build_snapshot).
+    prices = prices[prices["etf_id"].astype(str).isin(set(config.universe.enabled_ids))]
     window = _calculation_window(context, as_of, prices)
     loaded = load_latest_forecasts(
         directory=tmp_path, universe_revision=_current_universe_revision(),

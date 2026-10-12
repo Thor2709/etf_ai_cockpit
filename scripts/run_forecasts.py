@@ -43,6 +43,8 @@ def main() -> int:
     prices["date"] = pd.to_datetime(prices["date"])
     if prices["date"].dropna().empty:
         raise ValueError("Cached prices contain no valid dates.")
+    # Bind to the enabled universe, exactly like the snapshot and score consumers do.
+    prices = prices[prices["etf_id"].astype(str).isin(set(config.universe.enabled_ids))].copy()
     as_of_date = prices["date"].max().date() if args.date == "latest" else pd.to_datetime(args.date).date()
     etf_ids = args.etf or config.universe.enabled_ids
     reference_context = _reference_context_from_inputs(

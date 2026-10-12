@@ -67,11 +67,13 @@ class SignalService:
             purpose="comparison",
             analysis_id=f"signals:{pd.Timestamp(effective_date).date().isoformat()}",
         )
-        calculation_window = _calculation_window(reference_context, effective_date, prices)
+        # Bind to the enabled universe, exactly like the snapshot and score consumers do.
+        universe_prices = prices[prices["etf_id"].astype(str).isin(set(self.config.universe.enabled_ids))]
+        calculation_window = _calculation_window(reference_context, effective_date, universe_prices)
         price_binding = (
             None
             if calculation_window is None
-            else _price_snapshot_binding(prices, calculation_window=calculation_window)
+            else _price_snapshot_binding(universe_prices, calculation_window=calculation_window)
         )
         universe_revision = _current_universe_revision()
         settings_revision = current_settings_revision()
