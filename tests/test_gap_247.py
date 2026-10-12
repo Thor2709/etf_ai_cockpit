@@ -47,6 +47,7 @@ def test_integrates_document_domicile_and_dated_distribution_sources() -> None:
         trading_currency="EUR",
         share_class_id="ETF-TEST",
         assumptions=ETFContextAssumptions(),
+        decision_time=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
     )
 
     assert context["domicile"]["value"] == "Ireland"
@@ -142,3 +143,88 @@ def test_missing_or_unresolved_evidence_fails_closed() -> None:
     assert context["currency"]["economic_currency_weights"] is None
     assert context["currency"]["primary_economic_currency"] is None
     assert context["currency"]["trading_currency_differs_from_economic"] is None
+
+
+_DECISION = datetime(2026, 7, 1, tzinfo=timezone.utc)
+
+
+def _panel(known_at: object, *, decision_time: datetime | None = _DECISION, as_of: object = "2026-06-30"):
+    domicile = {**_resolved_domicile(), "known_at": known_at, "document_date": as_of}
+    metrics = {
+        "distribution_frequency": "quarterly",
+        "distribution_amount": 1.25,
+        "distribution_currency": "EUR",
+        "source_id": "economics:synthetic",
+        "as_of": as_of,
+        "known_at": known_at,
+    }
+    return build_etf_tax_context_panel(
+        {"fields": {"domicile": domicile}},
+        {
+            "e1": {
+                "distribution_policy": {
+                    "value": "distributing",
+                    "source": "economics:synthetic",
+                    "as_of": as_of,
+                    "known_at": known_at,
+                }
+            },
+            "fund_metrics": metrics,
+        },
+        trading_currency="EUR",
+        assumptions=ETFContextAssumptions(),
+        decision_time=decision_time,
+    )
+
+
+def _paths(context: dict) -> list[dict]:
+    dist = context["distribution"]
+    return [context["domicile"], dist["policy"], dist["frequency"], dist["amount"]]
+
+
+def test_future_evidence_is_unavailable_on_all_paths() -> None:
+    context = _panel("2026-07-02T00:00:00Z")
+    for item in _paths(context):
+        assert item["status"] == "unavailable"
+        assert item["value"] is None
+        assert "not known at the decision time" in item["reason"]
+    assert context["distribution"]["status"] == "unavailable"
+
+
+def test_malformed_evidence_timestamps_are_unavailable_on_all_paths() -> None:
+    context = _panel("not-a-date")
+    for item in _paths(context):
+        assert item["status"] == "unavailable"
+        assert "malformed" in item["reason"]
+    bad_as_of = _panel("2026-06-30T00:00:00Z", as_of="garbage")
+    assert all(item["status"] == "unavailable" for item in _paths(bad_as_of))
+
+
+def test_evidence_needs_a_compatible_decision_time() -> None:
+    no_decision = _panel("2026-06-30T00:00:00Z", decision_time=None)
+    assert all(item["status"] == "unavailable" for item in _paths(no_decision))
+    assert "without a decision time" in no_decision["domicile"]["reason"]
+    naive = _panel("2026-06-30T00:00:00Z", decision_time=datetime(2026, 7, 1))
+    for item in _paths(naive):
+        assert item["status"] == "unavailable"
+        assert "time zones" in item["reason"]
+
+
+def test_past_evidence_stays_available_and_bare_date_known_at_is_end_of_day() -> None:
+    context = _panel("2026-06-30T00:00:00Z")
+    assert all(item["status"] == "available" for item in _paths(context))
+    assert _panel("2026-06-30")["domicile"]["status"] == "available"
+    same_day = _panel("2026-07-01")
+    assert all(item["status"] == "unavailable" for item in _paths(same_day))
+    future_as_of = _panel("2026-06-30T00:00:00Z", as_of="2026-07-05")
+    assert all("as-of date is after" in item["reason"] for item in _paths(future_as_of))
+
+
+def test_far_future_bare_known_date_is_unavailable_not_a_crash():
+    from datetime import datetime, timezone
+
+    from etf_cockpit.analysis.etf_tax_context import _point_in_time_reason
+
+    decision = datetime(2026, 10, 12, tzinfo=timezone.utc)
+    reason = _point_in_time_reason("Domicile", "2026-01-01", "9999-12-31", decision)
+    assert reason == "Domicile evidence was not known at the decision time."
