@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 import math
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping
 
 import yaml
 
@@ -276,3 +276,290 @@ def calculate_net_return_scenario(
         assumptions.version if assumptions is not None else None,
         unavailable_reason,
     )
+
+
+def build_etf_tax_context_panel(
+    structure: Mapping[str, object] | None,
+    economics: Mapping[str, object] | None,
+    *,
+    trading_currency: str | None,
+    share_class_id: str | None = None,
+    economic_currency_weights: Mapping[str, float] | None = None,
+    assumptions: ETFContextAssumptions | None = None,
+    decision_time: datetime | None = None,
+) -> dict[str, Any]:
+    """Join existing dated ETF structure/economics evidence without inference."""
+
+    usable_assumptions = assumptions
+    assumptions_reason: str | None = None
+    if assumptions is not None and assumptions.known_at is not None:
+        if decision_time is None:
+            usable_assumptions = None
+            assumptions_reason = "Decision time is unavailable for dated tax and hedge assumptions."
+        else:
+            try:
+                is_future = assumptions.known_at > decision_time
+            except TypeError:
+                is_future = True
+                assumptions_reason = "Assumption and decision timestamps use incompatible time zones."
+            if is_future:
+                usable_assumptions = None
+                assumptions_reason = assumptions_reason or "Assumptions were not known at the decision time."
+
+    structure_fields = structure.get("fields") if isinstance(structure, Mapping) else None
+    domicile_claim = structure_fields.get("domicile") if isinstance(structure_fields, Mapping) else None
+    domicile = _structure_evidence(domicile_claim)
+
+    economics = economics if isinstance(economics, Mapping) else {}
+    e1 = economics.get("e1")
+    e1 = e1 if isinstance(e1, Mapping) else {}
+    distribution_policy = _economics_evidence(e1.get("distribution_policy"))
+    fund_metrics = economics.get("fund_metrics")
+    fund_metrics = fund_metrics if isinstance(fund_metrics, Mapping) else {}
+    share_classes = economics.get("share_class_metrics")
+    share_classes = share_classes if isinstance(share_classes, Mapping) else {}
+    class_metrics = share_classes.get(share_class_id) if share_class_id else None
+    class_metrics = class_metrics if isinstance(class_metrics, Mapping) else None
+    if share_class_id is not None:
+        distribution_metrics = class_metrics or {}
+    else:
+        distribution_metrics = fund_metrics
+    frequency = _fund_metric_evidence(distribution_metrics, "distribution_frequency")
+    distribution_amount = _fund_metric_evidence(
+        distribution_metrics,
+        "distribution_amount",
+        require_currency=True,
+    )
+    distribution_available = any(
+        field["status"] == "available"
+        for field in (distribution_policy, frequency, distribution_amount)
+    )
+    distribution = {
+        "status": "available" if distribution_available else "unavailable",
+        "policy": distribution_policy,
+        "frequency": frequency,
+        "amount": distribution_amount,
+        "share_class_id": share_class_id if class_metrics is not None else None,
+        "scope": "share_class" if class_metrics is not None else "fund" if share_class_id is None else "unavailable",
+        "execution_allowed": False,
+    }
+    if not distribution_available:
+        distribution["reason"] = "No dated distribution-policy or share-class distribution evidence was supplied."
+
+    currency = build_currency_context(
+        trading_currency,
+        economic_currency_weights,
+        usable_assumptions,
+    )
+    try:
+        tax_scenario = calculate_net_return_scenario(
+            None,
+            None,
+            usable_assumptions,
+            decision_time,
+        )
+        tax = asdict(tax_scenario)
+        tax["status"] = "available" if tax_scenario.net_return_rate is not None else "unavailable"
+        tax["reason"] = tax_scenario.unavailable_reason
+    except ValueError as exc:
+        tax = {
+            "status": "unavailable",
+            "net_return_rate": None,
+            "tax_drag_rate": None,
+            "included_tax_effects": (),
+            "excluded_tax_effects": (),
+            "assumption_version": usable_assumptions.version if usable_assumptions is not None else None,
+            "reason": str(exc),
+            "execution_allowed": False,
+            "disclaimer": _DISCLAIMER,
+        }
+    excluded_effects = tax.get("excluded_tax_effects") or ()
+    residence_reason = next(
+        (
+            item.get("reason")
+            for item in excluded_effects
+            if isinstance(item, Mapping) and item.get("label") == "Residence-based tax"
+        ),
+        "Residence-specific rates and accepted source evidence were not supplied.",
+    )
+    hedge_assumption_status = (
+        "available"
+        if currency.hedge_enabled
+        and currency.hedge_ratio is not None
+        and currency.hedge_target_currency is not None
+        else "unavailable"
+    )
+    hedge_assumption = {
+        "status": hedge_assumption_status,
+        "enabled": currency.hedge_enabled,
+        "ratio": currency.hedge_ratio,
+        "target_currency": currency.hedge_target_currency,
+        "reason": currency.hedge_reason,
+        "execution_allowed": False,
+    }
+    has_context = (
+        domicile["status"] == "available"
+        or distribution_available
+        or currency.trading_currency is not None
+    )
+    return {
+        "status": "partial" if has_context else "unavailable",
+        "assumptions": {
+            "status": "available" if usable_assumptions is not None else "unavailable",
+            "version": usable_assumptions.version if usable_assumptions is not None else None,
+            "reason": assumptions_reason,
+            "execution_allowed": False,
+        },
+        "domicile": domicile,
+        "distribution": distribution,
+        "currency": asdict(currency),
+        "source_withholding": tax,
+        "residence_tax": {
+            "status": "unavailable",
+            "value": None,
+            "reason": residence_reason,
+            "execution_allowed": False,
+        },
+        "hedge_assumption": hedge_assumption,
+        "hedge_economics": {
+            "status": "unavailable",
+            "value": None,
+            "reason": "Hedge cost and benefit evidence and an owner-approved methodology were not supplied.",
+            "execution_allowed": False,
+        },
+        "execution_allowed": False,
+        "disclaimer": _DISCLAIMER,
+    }
+
+
+def _structure_evidence(value: object) -> dict[str, object]:
+    if isinstance(value, Mapping) and value.get("status") == "resolved":
+        text = value.get("value")
+        source = value.get("source_id")
+        as_of = value.get("document_date")
+        known_at = value.get("known_at")
+        checksum = value.get("checksum")
+        if (
+            isinstance(text, str)
+            and text.strip()
+            and isinstance(source, str)
+            and source.strip()
+            and as_of not in (None, "", "unavailable")
+            and known_at not in (None, "", "unavailable")
+            and checksum not in (None, "", "unavailable")
+        ):
+            return {
+                "status": "available",
+                "value": text.strip(),
+                "source": source,
+                "as_of": as_of,
+                "known_at": known_at,
+                "document_id": value.get("document_id"),
+                "page": value.get("page"),
+                "checksum": value.get("checksum"),
+                "reason": None,
+                "execution_allowed": False,
+            }
+    status = value.get("status") if isinstance(value, Mapping) else "unavailable"
+    return {
+        "status": "unavailable",
+        "value": None,
+        "source": None,
+        "as_of": None,
+        "known_at": None,
+        "reason": f"Domicile evidence is not resolved ({status}).",
+        "execution_allowed": False,
+    }
+
+
+def _economics_evidence(value: object) -> dict[str, object]:
+    if isinstance(value, Mapping):
+        item = value.get("value")
+        source = value.get("source")
+        as_of = value.get("as_of")
+        known_at = value.get("known_at")
+        if (
+            isinstance(item, str)
+            and item in {"accumulating", "distributing"}
+            and isinstance(source, str)
+            and source.strip()
+            and as_of not in (None, "", "unavailable")
+            and known_at not in (None, "", "unavailable")
+        ):
+            return {
+                "status": "available",
+                "value": item,
+                "source": source,
+                "as_of": as_of,
+                "known_at": known_at,
+                "reason": None,
+                "execution_allowed": False,
+            }
+        reason = value.get("reason") or "Distribution policy lacks a valid value or dated source binding."
+    else:
+        reason = "Distribution policy evidence is unavailable."
+    return {
+        "status": "unavailable",
+        "value": None,
+        "source": None,
+        "as_of": None,
+        "known_at": None,
+        "reason": str(reason),
+        "execution_allowed": False,
+    }
+
+
+def _fund_metric_evidence(
+    metrics: Mapping[str, object],
+    name: str,
+    *,
+    require_currency: bool = False,
+) -> dict[str, object]:
+    value = metrics.get(name)
+    source = metrics.get("source_id")
+    as_of = metrics.get("evidence_as_of") or metrics.get("as_of")
+    known_at = metrics.get("evidence_known_at") or metrics.get("known_at")
+    currency = metrics.get("distribution_currency")
+    valid = (
+        value is not None
+        and isinstance(source, str)
+        and bool(source.strip())
+        and as_of not in (None, "", "unavailable")
+        and known_at not in (None, "", "unavailable")
+    )
+    if require_currency:
+        valid = valid and isinstance(currency, str) and bool(currency.strip())
+    if valid and name == "distribution_frequency":
+        valid = isinstance(value, str) and bool(value.strip())
+    if valid and name == "distribution_amount":
+        valid = (
+            not isinstance(value, bool)
+            and isinstance(value, (int, float))
+            and math.isfinite(float(value))
+        )
+    if valid:
+        return {
+            "status": "available",
+            "value": value,
+            "currency": currency if require_currency else None,
+            "source": source,
+            "as_of": as_of,
+            "known_at": known_at,
+            "reason": None,
+            "execution_allowed": False,
+        }
+    reason = (
+        "Distribution amount currency is unavailable."
+        if value is not None and require_currency and not currency
+        else f"{name.replace('_', ' ').capitalize()} lacks a valid dated source binding."
+    )
+    return {
+        "status": "unavailable",
+        "value": None,
+        "currency": None,
+        "source": None,
+        "as_of": None,
+        "known_at": None,
+        "reason": reason,
+        "execution_allowed": False,
+    }
