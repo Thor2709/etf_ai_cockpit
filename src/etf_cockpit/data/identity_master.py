@@ -387,6 +387,28 @@ class IdentityMasterStore:
         )
         return _with_duplicate_conflicts(resolution, duplicates)
 
+    def instruments_for_identifier(
+        self,
+        field: str,
+        value: str,
+        *,
+        effective_at: str | datetime | None = None,
+        decision_time: str | datetime | None = None,
+    ) -> tuple[str, ...]:
+        """Read-only: canonical instruments holding an exact identifier claim known at the cut-off."""
+
+        canonical_field = _field(field)
+        normalised = _identifier_value(canonical_field, value)
+        if not normalised:
+            return ()
+        matching = tuple(
+            claim
+            for claim in self._load_claims()
+            if _field(claim.field) == canonical_field and _identifier_value(canonical_field, claim.value) == normalised
+        )
+        eligible = _eligible_claims(matching, effective_at=_optional_timestamp(effective_at, "effective_at"), decision_time=_optional_timestamp(decision_time, "decision_time"))
+        return tuple(sorted({claim.instrument_id for claim in eligible}))
+
     def projection(
         self,
         instrument_id: str,
