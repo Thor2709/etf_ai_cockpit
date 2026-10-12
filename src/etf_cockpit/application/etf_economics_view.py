@@ -136,13 +136,41 @@ def build_etf_economics_panel(
         for field in fields.values():
             if field["value"] is None:
                 field["reason"] = metadata.attrs["unavailable_reason"]
+    tracking_source = (
+        f"{report.fund_source_id} / {report.benchmark_source_id}"
+        if report.tracking_difference is not None or report.tracking_error is not None
+        else None
+    )
+    tracking_known_at = max(
+        filter(None, (report.fund_total_return_selected_known_at, report.benchmark_total_return_selected_known_at)),
+        default=None,
+    )
+    tracking_window = f"{report.matched_start} to {report.matched_end}" if report.matched_start else None
     fields["tracking_difference"] = {
         "value": report.tracking_difference,
         "reason": ", ".join(report.missing_evidence) if report.tracking_difference is None else None,
-        "source": f"{report.fund_source_id} / {report.benchmark_source_id}" if report.tracking_difference is not None else None,
+        "source": tracking_source if report.tracking_difference is not None else None,
         "as_of": report.matched_end,
-        "known_at": max(filter(None, (report.fund_total_return_selected_known_at, report.benchmark_total_return_selected_known_at)), default=None),
-        "window": f"{report.matched_start} to {report.matched_end}" if report.matched_start else None,
+        "known_at": tracking_known_at,
+        "window": tracking_window,
+    }
+    tracking_error_reason = None
+    if report.tracking_error is None:
+        tracking_error_reason = (
+            "fewer than two matched active daily returns"
+            if report.tracking_status == "available"
+            else ", ".join(report.missing_evidence) or "matched_total_return"
+        )
+    fields["tracking_error"] = {
+        "value": report.tracking_error,
+        "status": "available" if report.tracking_error is not None else "unavailable",
+        "reason": tracking_error_reason,
+        "source": tracking_source if report.tracking_error is not None else None,
+        "as_of": report.matched_end,
+        "known_at": tracking_known_at,
+        "window": tracking_window,
+        "unit": report.tracking_unit,
+        "evidence_label": report.tracking_evidence_label,
     }
     selected = load_etf_holdings_evidence(snapshot, [instrument_id], decision_time)
     splits = holdings_splits(selected)
