@@ -50,6 +50,7 @@ class LookThroughSummary:
     total_weight_status: str
     concentration: Mapping[str, object]
     exposures: Mapping[str, object]
+    exposure_coverage: Mapping[str, Mapping[str, object]]
     fundamental_data_coverage: Mapping[str, Mapping[str, float]]
     calculated_metrics: Mapping[str, Mapping[str, object]]
     provider_reported_metrics: Mapping[str, Mapping[str, object]]
@@ -131,6 +132,7 @@ def calculate_look_through(
     normaliser_input = selected.copy()
     if "instrument_type" not in normaliser_input.columns and "exposure_type" in normaliser_input.columns:
         normaliser_input["instrument_type"] = normaliser_input["exposure_type"]
+    reported_dimensions, dimension_limitations = _reported_dimensions(normaliser_input)
     typed_identity_counts: dict[str, int] = {}
     for _, row in normaliser_input.iterrows():
         identity = _typed_identity(row)
@@ -148,6 +150,7 @@ def calculate_look_through(
     lineage_source_ids = _unique_text(selected.get("source_id"))
     revisions = _unique_text(selected.get("revision"))
     limitations: list[str] = []
+    limitations.extend(dimension_limitations)
     if has_duplicate_typed_identities:
         limitations.append("Repeated typed holding identities were reported; duplicate rows are merged into one economic exposure after exact duplicate rows are removed.")
     if selection_warning:
@@ -212,7 +215,19 @@ def calculate_look_through(
         canonical = _canonical_key(item.identity, item.issuer, item.company, identity_map)
         bucket = economic.setdefault(
             canonical,
-            {"weight": 0.0, "identities": [], "display_names": [], "sectors": [], "countries": [], "currencies": []},
+            {
+                "weight": 0.0,
+                "identities": [],
+                "display_names": [],
+                "sectors": [],
+                "countries": [],
+                "currencies": [],
+                "industries": [],
+                "domiciles": [],
+                "economic_currencies": [],
+                "factors": [],
+                "cap_buckets": [],
+            },
         )
         bucket["weight"] = float(bucket["weight"]) + item.weight
         bucket["identities"].append(item.identity)
@@ -221,11 +236,30 @@ def calculate_look_through(
             field = {"sectors": "sector", "countries": "country", "currencies": "currency"}[dimension]
             if getattr(item, field):
                 bucket[dimension].append(getattr(item, field))
+        for dimension, bucket_name in {
+            "industry": "industries",
+            "domicile": "domiciles",
+            "economic_currency": "economic_currencies",
+            "factor": "factors",
+            "cap_bucket": "cap_buckets",
+        }.items():
+            reported_value = reported_dimensions.get(item.identity, {}).get(dimension)
+            if reported_value:
+                bucket[bucket_name].append(reported_value)
         if not item.issuer and not item.company and not _mapped_identity(identity_map, item.identity):
             limitations.append(f"Issuer-level grouping is unavailable for {item.identity}; other listings may remain separate.")
 
     economic_rows = []
     for key, values in sorted(economic.items()):
+        for field, dimension in {
+            "industries": "industry",
+            "domiciles": "domicile",
+            "economic_currencies": "economic currency",
+            "factors": "factor",
+            "cap_buckets": "cap bucket",
+        }.items():
+            if len({_clean_text(value) for value in values[field] if _clean_text(value)}) > 1:
+                limitations.append(f"Conflicting reported {dimension} evidence across listings was excluded for {key}.")
         economic_rows.append(
             {
                 "identity": key,
@@ -235,11 +269,22 @@ def calculate_look_through(
                 "sector": _single_value(values["sectors"]),
                 "country": _single_value(values["countries"]),
                 "currency": _single_value(values["currencies"]),
+                "industry": _single_value(values["industries"]),
+                "domicile": _single_value(values["domiciles"]),
+                "economic_currency": _single_value(values["economic_currencies"]),
+                "factor": _single_value(values["factors"]),
+                "cap_bucket": _single_value(values["cap_buckets"]),
             }
         )
     economic_rows.sort(key=lambda row: (-row["weight"], row["identity"]))
     concentration = _concentration(economic_rows, mapped_weight)
     exposures = _exposures(economic_rows, coverage.holdings)
+    exposure_coverage = _exposure_coverage(economic_rows, mapped_weight)
+    for dimension, evidence in exposure_coverage.items():
+        if evidence["status"] == "unavailable":
+            limitations.append(f"{dimension.replace('_', ' ').title()} exposure is unavailable because no unambiguous reported evidence was supplied.")
+        elif evidence["status"] == "partial":
+            limitations.append(f"{dimension.replace('_', ' ').title()} exposure coverage is partial; missing values were not treated as zero.")
 
     metrics, metric_coverage, metric_limitations = _aggregate_fundamentals(
         economic_rows,
@@ -308,6 +353,7 @@ def calculate_look_through(
         total_weight_status=total_weight_status,
         concentration=concentration,
         exposures=exposures,
+        exposure_coverage=exposure_coverage,
         fundamental_data_coverage=metric_coverage,
         calculated_metrics=metrics,
         provider_reported_metrics=provider,
@@ -328,6 +374,8 @@ _AGGREGATION_CONVENTIONS = (
     "Holdings are normalised with data.fund_holdings.normalise_holdings; exact duplicate rows are removed by that contract.",
     "Typed ISIN, namespace-qualified identifier, and explicit cash identities reuse features.overlap identity mapping.",
     "Economic concentration merges typed listings sharing an explicit issuer/company key or a supplied identity-map key.",
+    "Industry, domicile, economic-currency, factor, and cap-bucket exposures use only unambiguous values explicitly reported on selected holdings rows; no classifications or factor scores are inferred.",
+    "Reported exposure coverage is measured against mapped operating-company weight; missing dimension values are omitted and reported as unavailable or partial.",
     "Mapped, cash, derivative, and unresolved weights use reported portfolio weights; reconciliation tolerance is 1e-9 and no category is renormalised.",
     "Any total differing from 100% by more than 1e-9 is explicitly flagged, even inside the holdings normaliser's acceptance band.",
     "Any total differing from 100% by more than 1e-9 is explicitly flagged, even inside the holdings normaliser's acceptance band.",
@@ -612,11 +660,45 @@ def _concentration(rows: list[dict[str, object]], mapped_weight: float) -> dict[
     }
 
 
+def _reported_dimensions(frame: pd.DataFrame) -> tuple[dict[str, dict[str, str]], list[str]]:
+    fields = ("industry", "domicile", "economic_currency", "factor", "cap_bucket")
+    grouped: dict[str, dict[str, list[str]]] = {}
+    for _, row in frame.iterrows():
+        identity = _typed_identity(row)
+        if identity is None:
+            continue
+        values = grouped.setdefault(identity, {field: [] for field in fields})
+        for field in fields:
+            value = _clean_text(row.get(field))
+            if value:
+                values[field].append(value)
+    result: dict[str, dict[str, str]] = {}
+    limitations: list[str] = []
+    for identity, values in grouped.items():
+        resolved: dict[str, str] = {}
+        for field, entries in values.items():
+            distinct = sorted(set(entries))
+            if len(distinct) == 1:
+                resolved[field] = distinct[0]
+            elif len(distinct) > 1:
+                limitations.append(f"Conflicting reported {field.replace('_', ' ')} evidence was excluded for {identity}.")
+        result[identity] = resolved
+    return result, limitations
+
+
 def _exposures(economic_rows: list[dict[str, object]], direct_holdings: tuple[object, ...]) -> dict[str, object]:
-    result: dict[str, dict[str, float]] = {name: {} for name in ("issuer", "sector", "country", "currency", "listing")}
+    result: dict[str, dict[str, float]] = {
+        name: {}
+        for name in (
+            "issuer", "sector", "country", "currency", "listing", "industry", "domicile",
+            "economic_currency", "factor", "cap_bucket",
+        )
+    }
     for row in economic_rows:
         result["issuer"][str(row["identity"])] = round(float(row["weight"]), 12)
-        for dimension in ("sector", "country", "currency"):
+        for dimension in (
+            "sector", "country", "currency", "industry", "domicile", "economic_currency", "factor", "cap_bucket"
+        ):
             bucket = row[dimension]
             if bucket:
                 result[dimension][str(bucket)] = round(result[dimension].get(str(bucket), 0.0) + float(row["weight"]), 12)
@@ -624,6 +706,43 @@ def _exposures(economic_rows: list[dict[str, object]], direct_holdings: tuple[ob
         if item.exposure_type == "security":
             result["listing"][item.identity] = round(result["listing"].get(item.identity, 0.0) + item.weight, 12)
     return {name: dict(sorted(values.items())) for name, values in result.items()}
+
+
+def _exposure_coverage(
+    economic_rows: list[dict[str, object]], mapped_weight: float
+) -> dict[str, dict[str, object]]:
+    dimensions = (
+        "issuer", "sector", "country", "currency", "listing", "industry", "domicile",
+        "economic_currency", "factor", "cap_bucket",
+    )
+    result: dict[str, dict[str, object]] = {}
+    for dimension in dimensions:
+        covered_weight = (
+            mapped_weight
+            if dimension in {"issuer", "listing"}
+            else math.fsum(
+                float(row["weight"])
+                for row in economic_rows
+                if _clean_text(row.get(dimension))
+            )
+        )
+        if mapped_weight <= 0 or covered_weight <= 0:
+            status = "unavailable"
+            reason = "reported_dimension_evidence_unavailable"
+        elif covered_weight < mapped_weight - 1e-9:
+            status = "partial"
+            reason = "reported_dimension_coverage_partial"
+        else:
+            status = "available"
+            reason = None
+        result[dimension] = {
+            "status": status,
+            "reason_code": reason,
+            "covered_weight": round(covered_weight, 12),
+            "mapped_weight": round(mapped_weight, 12),
+            "coverage_fraction": round(covered_weight / mapped_weight, 12) if mapped_weight > 0 else 0.0,
+        }
+    return result
 
 
 def _canonical_key(identity: str, issuer: str | None, company: str | None, identity_map: Mapping[str, str] | None) -> str:
@@ -701,7 +820,26 @@ def _summary_from_unusable(
         {"top_holdings": (), "top_5_share": 0.0, "top_10_share": 0.0, "top_5_share_covered": 0.0,
          "top_10_share_covered": 0.0, "hhi": 0.0, "hhi_gross_weight_squared": 0.0,
          "effective_number_of_holdings": None, "denominator_weight": 0.0, "denominator": "mapped operating-company weight"},
-        {name: {} for name in ("issuer", "sector", "country", "currency", "listing")},
+        {
+            name: {}
+            for name in (
+                "issuer", "sector", "country", "currency", "listing", "industry", "domicile",
+                "economic_currency", "factor", "cap_bucket",
+            )
+        },
+        {
+            name: {
+                "status": "unavailable",
+                "reason_code": "reported_dimension_evidence_unavailable",
+                "covered_weight": 0.0,
+                "mapped_weight": 0.0,
+                "coverage_fraction": 0.0,
+            }
+            for name in (
+                "issuer", "sector", "country", "currency", "listing", "industry", "domicile",
+                "economic_currency", "factor", "cap_bucket",
+            )
+        },
         {name: {"covered_weight": 0.0, "mapped_weight": 0.0, "coverage_fraction": 0.0} for name in ("pe_ratio", "roic")},
         {"pe_ratio": {"status": "unavailable", "value": None}, "roic": {"status": "unavailable", "value": None}},
         provider, lineage, conventions, tuple(dict.fromkeys(limitations)), False,

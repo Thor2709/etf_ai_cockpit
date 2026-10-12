@@ -1561,6 +1561,7 @@ def _section_rows(
         render_etf_structure_panel(model),
         render_etf_disclosure_panel(model),
         render_etf_e1_panel(sections.get("etf_economics")),
+        _section_card("ETF look-through", sections.get("etf_look_through"), "instrument-detail.etf-look-through"),
         _section_card("ETF direct overlap", sections.get("etf_overlap"), "instrument-detail.etf-overlap"),
         _section_card("ETF Liquidity", sections.get("etf_liquidity")),
         GlassCard(

@@ -68,6 +68,7 @@ from etf_cockpit.application.ui_facade import (
     model_zoo_frame,
 )
 from etf_cockpit.application.overlap import load_direct_holdings
+from etf_cockpit.application.market_views import load_etf_look_through
 from etf_cockpit.core.frame_signature import content_signature
 from etf_cockpit.core.paths import DERIVED_DIR
 from etf_cockpit.core.paths import ETF_QUOTES_PATH
@@ -143,6 +144,7 @@ _SECTION_NAMES = (
     "innovation",
     "etf_liquidity",
     "etf_economics",
+    "etf_look_through",
     "scores",
     "opportunity",
     "feature_drivers",
@@ -3020,6 +3022,18 @@ def build_instrument_detail(
         as_of=economics_as_of,
         horizon_days=economics_horizon_days,
     )
+    asset_type = str(identity_panel.get("asset_type", "")).casefold().replace("-", "_").replace(" ", "_")
+    look_through = (
+        load_etf_look_through(
+            instrument_id,
+            decision_time=projection_time or decision_time or "",
+            analysis_date=projection_time[:10] if len(projection_time) >= 10 else None,
+            holdings_frame=holdings,
+            fundamentals_frame=fundamentals,
+        )
+        if asset_type in {"etf", "fund", "mutual_fund"}
+        else {"instrument_id": instrument_id, "status": "not_applicable", "execution_allowed": False}
+    )
     price = _price_panel(snapshot, instrument_id, candidate_score=candidate)
     candle_evidence = _candle_evidence_panel(snapshot, instrument_id, projection_time or decision_time)
     observed_at = price.get("latest_date") if isinstance(price, Mapping) else None
@@ -3110,6 +3124,7 @@ def build_instrument_detail(
             "innovation": innovation,
             "etf_liquidity": liquidity,
             "etf_economics": economics,
+            "etf_look_through": look_through,
             "scores": _score_panel(
                 signal,
                 scoreboard,
