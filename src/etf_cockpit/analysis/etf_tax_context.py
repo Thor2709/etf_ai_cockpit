@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import date, datetime, time, timedelta, timezone
 import math
 from pathlib import Path
 from typing import Any, Mapping
@@ -308,12 +308,12 @@ def build_etf_tax_context_panel(
 
     structure_fields = structure.get("fields") if isinstance(structure, Mapping) else None
     domicile_claim = structure_fields.get("domicile") if isinstance(structure_fields, Mapping) else None
-    domicile = _structure_evidence(domicile_claim)
+    domicile = _structure_evidence(domicile_claim, decision_time)
 
     economics = economics if isinstance(economics, Mapping) else {}
     e1 = economics.get("e1")
     e1 = e1 if isinstance(e1, Mapping) else {}
-    distribution_policy = _economics_evidence(e1.get("distribution_policy"))
+    distribution_policy = _economics_evidence(e1.get("distribution_policy"), decision_time)
     fund_metrics = economics.get("fund_metrics")
     fund_metrics = fund_metrics if isinstance(fund_metrics, Mapping) else {}
     share_classes = economics.get("share_class_metrics")
@@ -324,10 +324,11 @@ def build_etf_tax_context_panel(
         distribution_metrics = class_metrics or {}
     else:
         distribution_metrics = fund_metrics
-    frequency = _fund_metric_evidence(distribution_metrics, "distribution_frequency")
+    frequency = _fund_metric_evidence(distribution_metrics, "distribution_frequency", decision_time)
     distribution_amount = _fund_metric_evidence(
         distribution_metrics,
         "distribution_amount",
+        decision_time,
         require_currency=True,
     )
     distribution_available = any(
@@ -432,7 +433,7 @@ def build_etf_tax_context_panel(
     }
 
 
-def _structure_evidence(value: object) -> dict[str, object]:
+def _structure_evidence(value: object, decision_time: datetime | None) -> dict[str, object]:
     if isinstance(value, Mapping) and value.get("status") == "resolved":
         text = value.get("value")
         source = value.get("source_id")
@@ -448,6 +449,9 @@ def _structure_evidence(value: object) -> dict[str, object]:
             and known_at not in (None, "", "unavailable")
             and checksum not in (None, "", "unavailable")
         ):
+            time_reason = _point_in_time_reason("Domicile", as_of, known_at, decision_time)
+            if time_reason is not None:
+                return _unavailable_structure(time_reason)
             return {
                 "status": "available",
                 "value": text.strip(),
@@ -461,18 +465,68 @@ def _structure_evidence(value: object) -> dict[str, object]:
                 "execution_allowed": False,
             }
     status = value.get("status") if isinstance(value, Mapping) else "unavailable"
+    return _unavailable_structure(f"Domicile evidence is not resolved ({status}).")
+
+
+def _unavailable_structure(reason: str) -> dict[str, object]:
     return {
         "status": "unavailable",
         "value": None,
         "source": None,
         "as_of": None,
         "known_at": None,
-        "reason": f"Domicile evidence is not resolved ({status}).",
+        "reason": reason,
         "execution_allowed": False,
     }
 
 
-def _economics_evidence(value: object) -> dict[str, object]:
+def _parse_evidence_time(value: object) -> tuple[datetime, bool] | None:
+    """Parse an evidence timestamp; a bare date counts as known only at that day's end."""
+
+    if isinstance(value, datetime):
+        return value, False
+    if isinstance(value, date):
+        return datetime.combine(value, time.min, tzinfo=timezone.utc), True
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    try:
+        if len(text) == 10:
+            return datetime.combine(date.fromisoformat(text), time.min, tzinfo=timezone.utc), True
+        return datetime.fromisoformat(text.replace("Z", "+00:00")), False
+    except ValueError:
+        return None
+
+
+def _point_in_time_reason(
+    label: str,
+    as_of: object,
+    known_at: object,
+    decision_time: datetime | None,
+) -> str | None:
+    """Return why dated evidence cannot be used at the decision time, else None."""
+
+    if decision_time is None:
+        return f"{label} evidence cannot be point-in-time bound without a decision time."
+    parsed_known = _parse_evidence_time(known_at)
+    parsed_as_of = _parse_evidence_time(as_of)
+    if parsed_known is None or parsed_as_of is None:
+        return f"{label} evidence has a malformed as-of or known-at timestamp."
+    known, known_is_date = parsed_known
+    effective, _ = parsed_as_of
+    if known_is_date:
+        known += timedelta(days=1)
+    try:
+        if known > decision_time:
+            return f"{label} evidence was not known at the decision time."
+        if effective > decision_time:
+            return f"{label} evidence as-of date is after the decision time."
+    except TypeError:
+        return f"{label} evidence and decision timestamps use incompatible time zones."
+    return None
+
+
+def _economics_evidence(value: object, decision_time: datetime | None) -> dict[str, object]:
     if isinstance(value, Mapping):
         item = value.get("value")
         source = value.get("source")
@@ -486,6 +540,9 @@ def _economics_evidence(value: object) -> dict[str, object]:
             and as_of not in (None, "", "unavailable")
             and known_at not in (None, "", "unavailable")
         ):
+            time_reason = _point_in_time_reason("Distribution policy", as_of, known_at, decision_time)
+            if time_reason is not None:
+                return _unavailable_economics(time_reason)
             return {
                 "status": "available",
                 "value": item,
@@ -498,13 +555,17 @@ def _economics_evidence(value: object) -> dict[str, object]:
         reason = value.get("reason") or "Distribution policy lacks a valid value or dated source binding."
     else:
         reason = "Distribution policy evidence is unavailable."
+    return _unavailable_economics(str(reason))
+
+
+def _unavailable_economics(reason: str) -> dict[str, object]:
     return {
         "status": "unavailable",
         "value": None,
         "source": None,
         "as_of": None,
         "known_at": None,
-        "reason": str(reason),
+        "reason": reason,
         "execution_allowed": False,
     }
 
@@ -512,6 +573,7 @@ def _economics_evidence(value: object) -> dict[str, object]:
 def _fund_metric_evidence(
     metrics: Mapping[str, object],
     name: str,
+    decision_time: datetime | None,
     *,
     require_currency: bool = False,
 ) -> dict[str, object]:
@@ -537,7 +599,12 @@ def _fund_metric_evidence(
             and isinstance(value, (int, float))
             and math.isfinite(float(value))
         )
-    if valid:
+    time_reason = (
+        _point_in_time_reason(name.replace("_", " ").capitalize(), as_of, known_at, decision_time)
+        if valid
+        else None
+    )
+    if valid and time_reason is None:
         return {
             "status": "available",
             "value": value,
@@ -548,7 +615,7 @@ def _fund_metric_evidence(
             "reason": None,
             "execution_allowed": False,
         }
-    reason = (
+    reason = time_reason or (
         "Distribution amount currency is unavailable."
         if value is not None and require_currency and not currency
         else f"{name.replace('_', ' ').capitalize()} lacks a valid dated source binding."
