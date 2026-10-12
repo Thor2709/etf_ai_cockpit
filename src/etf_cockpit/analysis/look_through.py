@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 import math
 from typing import Mapping
@@ -22,6 +22,7 @@ from etf_cockpit.features.overlap import (
 
 
 _DEFAULT_MAX_HOLDINGS_AGE_DAYS = 90
+_DEFAULT_MINIMUM_AGGREGATE_COVERAGE = 0.80
 _RECONCILIATION_TOLERANCE = 1e-9
 
 
@@ -51,13 +52,15 @@ class LookThroughSummary:
     concentration: Mapping[str, object]
     exposures: Mapping[str, object]
     exposure_coverage: Mapping[str, Mapping[str, object]]
-    fundamental_data_coverage: Mapping[str, Mapping[str, float]]
+    fundamental_data_coverage: Mapping[str, Mapping[str, object]]
     calculated_metrics: Mapping[str, Mapping[str, object]]
     provider_reported_metrics: Mapping[str, Mapping[str, object]]
     lineage: Mapping[str, object]
     aggregation_conventions: tuple[str, ...]
     limitations: tuple[str, ...]
     execution_allowed: bool = False
+    normalized_exposures: Mapping[str, Mapping[str, float]] = field(default_factory=dict)
+    minimum_aggregate_coverage: float = _DEFAULT_MINIMUM_AGGREGATE_COVERAGE
 
 
 def calculate_look_through(
@@ -70,15 +73,20 @@ def calculate_look_through(
     source: str | None = None,
     constituent_fundamentals: pd.DataFrame | None = None,
     identity_map: Mapping[str, str] | None = None,
+    identity_resolution: Mapping[str, object] | None = None,
     provider_metrics: Mapping[str, object] | None = None,
     max_holdings_age_days: int = _DEFAULT_MAX_HOLDINGS_AGE_DAYS,
+    minimum_aggregate_coverage: float = _DEFAULT_MINIMUM_AGGREGATE_COVERAGE,
+    require_canonical_identity: bool = False,
 ) -> LookThroughSummary:
     """Calculate direct holdings exposure and covered constituent metrics.
 
     Holdings are normalised through the canonical holdings normaliser, then
     resolved with the same typed identifier mapper used by ETF overlap. The
     optional ``identity_map`` maps those typed identifiers to canonical issuer
-    or instrument keys when the caller has an identity-master resolution.
+    or instrument keys when the caller has an identity-master resolution. The
+    strict mode is used by production views: typed securities without a
+    canonical identity mapping remain unresolved.
     """
     cutoff = normalise_event_decision_time(decision_time)
     analysis = _as_date(analysis_date) if analysis_date is not None else (cutoff.date() if cutoff else None)
@@ -104,6 +112,22 @@ def calculate_look_through(
             conventions,
             provider,
         )
+    if (
+        isinstance(minimum_aggregate_coverage, bool)
+        or not isinstance(minimum_aggregate_coverage, (int, float))
+        or not math.isfinite(float(minimum_aggregate_coverage))
+        or not 0.0 <= float(minimum_aggregate_coverage) <= 1.0
+    ):
+        return _empty_summary(
+            instrument_id,
+            analysis.isoformat(),
+            cutoff.isoformat(),
+            "unavailable",
+            ("Minimum aggregate coverage must be a finite fraction between zero and one.",),
+            conventions,
+            provider,
+        )
+    minimum_aggregate_coverage = float(minimum_aggregate_coverage)
     if not isinstance(holdings, pd.DataFrame) or not holdings.columns.is_unique or holdings.empty:
         return _empty_summary(
             instrument_id,
@@ -201,12 +225,23 @@ def calculate_look_through(
     cash_weight = math.fsum(item.weight for item in coverage.holdings if item.exposure_type == "cash")
     derivative_weight = math.fsum(item.weight for item in coverage.holdings if item.exposure_type == "derivative")
     fund_weight = math.fsum(item.weight for item in coverage.holdings if item.exposure_type == "fund")
-    mapped_items = [item for item in coverage.holdings if item.exposure_type == "security"]
+    security_items = [item for item in coverage.holdings if item.exposure_type == "security"]
+    mapped_items = [
+        item
+        for item in security_items
+        if not require_canonical_identity or _mapped_identity(identity_map, item.identity) is not None
+    ]
     mapped_weight = math.fsum(item.weight for item in mapped_items)
     unresolved_rows = overlap_frame.loc[overlap_frame.apply(lambda row: _typed_identity(row) is None, axis=1)]
     unresolved_weight = math.fsum(float(value) for value in unresolved_rows["weight"])
     unresolved_weight += fund_weight
+    unresolved_identity_items = [item for item in security_items if item not in mapped_items]
+    unresolved_weight += math.fsum(item.weight for item in unresolved_identity_items)
     unresolved_weight += math.fsum(item.weight for item in coverage.holdings if item.exposure_type == "unknown")
+    if unresolved_identity_items:
+        limitations.append(
+            "Security weight without an unambiguous canonical identity-master mapping is retained as unresolved."
+        )
 
     # Identity-master results, when supplied, take precedence. Explicit issuer
     # claims still provide the existing economic grouping for listing variants.
@@ -277,9 +312,19 @@ def calculate_look_through(
             }
         )
     economic_rows.sort(key=lambda row: (-row["weight"], row["identity"]))
-    concentration = _concentration(economic_rows, mapped_weight)
-    exposures = _exposures(economic_rows, coverage.holdings)
-    exposure_coverage = _exposure_coverage(economic_rows, mapped_weight)
+    concentration = _concentration(
+        economic_rows, mapped_weight, reported_total, minimum_aggregate_coverage
+    )
+    resolved_direct_holdings = tuple(
+        item for item in coverage.holdings if item.exposure_type != "security" or item in mapped_items
+    )
+    exposures = _exposures(economic_rows, resolved_direct_holdings)
+    exposure_coverage = _exposure_coverage(
+        economic_rows, mapped_weight, reported_total, minimum_aggregate_coverage
+    )
+    normalized_exposures = _normalized_exposures(
+        exposures, exposure_coverage
+    )
     for dimension, evidence in exposure_coverage.items():
         if evidence["status"] == "unavailable":
             limitations.append(f"{dimension.replace('_', ' ').title()} exposure is unavailable because no unambiguous reported evidence was supplied.")
@@ -293,8 +338,47 @@ def calculate_look_through(
         identity_map or {},
         cutoff,
         analysis,
+        minimum_aggregate_coverage,
+        reported_total,
     )
     limitations.extend(metric_limitations)
+
+    unresolved_details: list[dict[str, object]] = []
+    for item in coverage.holdings:
+        if item.exposure_type == "security" and item not in mapped_items:
+            unresolved_details.append(
+                {
+                    "identity": item.identity,
+                    "display_name": item.display_name,
+                    "weight": round(item.weight, 12),
+                    "exposure_type": item.exposure_type,
+                    "reason_code": "canonical_identity_mapping_unavailable_or_ambiguous",
+                }
+            )
+        elif item.exposure_type in {"fund", "unknown"}:
+            unresolved_details.append(
+                {
+                    "identity": item.identity,
+                    "display_name": item.display_name,
+                    "weight": round(item.weight, 12),
+                    "exposure_type": item.exposure_type,
+                    "reason_code": {
+                        "fund": "recursive_fund_look_through_unavailable",
+                        "unknown": "exposure_type_unavailable",
+                    }[item.exposure_type],
+                }
+            )
+    for _, row in unresolved_rows.iterrows():
+        unresolved_details.append(
+            {
+                "identity": None,
+                "display_name": _clean_text(row.get("security", row.get("name"))) or "Unidentified holding",
+                "weight": round(float(row["weight"]), 12),
+                "exposure_type": _clean_text(row.get("exposure_type", row.get("instrument_type"))) or "unknown",
+                "source_id": _clean_text(row.get("source_id")) or None,
+                "reason_code": "typed_holding_identity_unavailable",
+            }
+        )
 
     delta = math.fsum((mapped_weight, cash_weight, derivative_weight, unresolved_weight)) - reported_total
     if abs(delta) > 1e-9:
@@ -329,6 +413,12 @@ def calculate_look_through(
     )
     if total_weight_status == "over_100":
         status = "overreported"
+    elif require_canonical_identity and not identity_map:
+        status = "unavailable"
+        limitations.append("Canonical identity-master evidence is unavailable; constituent look-through values are withheld.")
+    elif require_canonical_identity and mapped_weight <= 0:
+        status = "unavailable"
+        limitations.append("No holdings have an unambiguous canonical identity-master mapping.")
     return LookThroughSummary(
         instrument_id=str(instrument_id),
         status=status,
@@ -364,9 +454,30 @@ def calculate_look_through(
             "revisions": revisions,
             "authority": normalized.authority,
             "confidence": normalized.confidence,
+            "identity_resolution": dict(identity_resolution or {
+                "status": "supplied" if identity_map else "listing_identity_only",
+                "method": "canonical identity master" if identity_map else "reported typed holding identity",
+                "mapped_identity_count": len(identity_map or {}),
+                "effective_at": analysis.isoformat(),
+                "decision_time": cutoff.isoformat(),
+            }),
+            "exposure_evidence": {
+                dimension: {
+                    "label": "provider_reported_holdings_dimension",
+                    "source": selected_source,
+                    "source_ids": lineage_source_ids,
+                    "as_of": selected_date.isoformat(),
+                    "known_at": selected_known_at,
+                    "method": "reported portfolio weight; missing values excluded",
+                }
+                for dimension in exposure_coverage
+            },
+            "unresolved_holdings": tuple(unresolved_details),
         },
         aggregation_conventions=conventions,
         limitations=tuple(dict.fromkeys(limitations)),
+        normalized_exposures=normalized_exposures,
+        minimum_aggregate_coverage=minimum_aggregate_coverage,
     )
 
 
@@ -375,6 +486,8 @@ _AGGREGATION_CONVENTIONS = (
     "Typed ISIN, namespace-qualified identifier, and explicit cash identities reuse features.overlap identity mapping.",
     "Economic concentration merges typed listings sharing an explicit issuer/company key or a supplied identity-map key.",
     "Industry, domicile, economic-currency, factor, and cap-bucket exposures use only unambiguous values explicitly reported on selected holdings rows; no classifications or factor scores are inferred.",
+    "Provider-reported dimensions retain the selected holdings source, as-of date, known-at time, weight coverage, and an explicit minimum aggregate coverage gate.",
+    "Covered-weight-normalised exposures and constituent aggregates are withheld below 80% of both mapped operating-company weight and total portfolio weight by default; the threshold is configurable from zero to one.",
     "Reported exposure coverage is measured against mapped operating-company weight; missing dimension values are omitted and reported as unavailable or partial.",
     "Mapped, cash, derivative, and unresolved weights use reported portfolio weights; reconciliation tolerance is 1e-9 and no category is renormalised.",
     "Any total differing from 100% by more than 1e-9 is explicitly flagged, even inside the holdings normaliser's acceptance band.",
@@ -383,7 +496,7 @@ _AGGREGATION_CONVENTIONS = (
     "Top holding shares are gross portfolio weights; HHI normalises mapped operating-company economic weights to mapped weight, and effective holdings = 1 / HHI.",
     "Look-through P/E is covered weight divided by weighted earnings yield, where each constituent yield is 1 / P/E; negative P/E contributes negative earnings yield, zero P/E is excluded, and nonpositive aggregate yield has no P/E result.",
     "ROIC is an arithmetic weight-average over mapped constituents with finite, point-in-time ROIC evidence only.",
-    "Fundamental coverage is reported per metric as absolute covered weight and covered weight / mapped operating-company weight.",
+    "Fundamental coverage is reported per metric against both mapped operating-company weight and total reported portfolio weight.",
     "Facts with an available-at/known-at after decision time or an as-of date after analysis date are excluded.",
     "Provider headline metrics remain provider-reported and are never used as calculated constituent results.",
 )
@@ -482,15 +595,42 @@ def _aggregate_fundamentals(
     identity_map: Mapping[str, str],
     cutoff: datetime,
     analysis: date,
-) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, float]], list[str]]:
+    minimum_aggregate_coverage: float,
+    reported_total: float,
+) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, object]], list[str]]:
     mapped_weight = math.fsum(float(row["weight"]) for row in economic_rows)
-    empty_coverage = {
-        name: {"covered_weight": 0.0, "mapped_weight": round(mapped_weight, 12), "coverage_fraction": 0.0}
+    portfolio_denominator = max(1.0, reported_total)
+    empty_coverage: dict[str, dict[str, object]] = {
+        name: {
+            "covered_weight": 0.0,
+            "mapped_weight": round(mapped_weight, 12),
+            "coverage_fraction": 0.0,
+            "portfolio_coverage_fraction": 0.0,
+            "portfolio_weight_denominator": round(portfolio_denominator, 12),
+            "minimum_coverage": minimum_aggregate_coverage,
+            "status": "unavailable",
+        }
         for name in ("pe_ratio", "roic")
     }
     metrics: dict[str, dict[str, object]] = {
-        "pe_ratio": {"status": "unavailable", "value": None, "method": "covered_weight / weighted_earnings_yield"},
-        "roic": {"status": "unavailable", "value": None, "method": "covered-constituent arithmetic weight average"},
+        "pe_ratio": {
+            "status": "unavailable",
+            "value": None,
+            "method": "covered_weight / weighted_earnings_yield",
+            "reason_code": "constituent_fundamental_evidence_unavailable",
+            "coverage_fraction": 0.0,
+            "portfolio_coverage_fraction": 0.0,
+            "minimum_coverage": minimum_aggregate_coverage,
+        },
+        "roic": {
+            "status": "unavailable",
+            "value": None,
+            "method": "covered-constituent arithmetic weight average",
+            "reason_code": "constituent_fundamental_evidence_unavailable",
+            "coverage_fraction": 0.0,
+            "portfolio_coverage_fraction": 0.0,
+            "minimum_coverage": minimum_aggregate_coverage,
+        },
     }
     limitations: list[str] = []
     if fundamentals is None or not isinstance(fundamentals, pd.DataFrame) or fundamentals.empty or not fundamentals.columns.is_unique:
@@ -550,7 +690,10 @@ def _aggregate_fundamentals(
         weight = float(economic["weight"])
         currencies = {holding.currency.upper() for holding in holdings_for_key if holding.currency}
         fact_currency = _clean_text(evidence.get("currency")).upper()
-        if fact_currency and currencies and currencies != {fact_currency}:
+        if not fact_currency or len(currencies) != 1:
+            limitations.append(f"Fundamental or holding currency evidence is missing or ambiguous for {key}; metrics were excluded.")
+            continue
+        if currencies != {fact_currency}:
             limitations.append(f"Fundamental currency does not match reported holding currency for {key}; metrics were excluded.")
             continue
         pe = _finite_number(evidence.get("pe_ratio"))
@@ -575,11 +718,19 @@ def _aggregate_fundamentals(
         "covered_weight": round(pe_covered, 12),
         "mapped_weight": round(mapped_weight, 12),
         "coverage_fraction": round(pe_covered / mapped_weight, 12) if mapped_weight > 0 else 0.0,
+        "portfolio_coverage_fraction": round(pe_covered / portfolio_denominator, 12),
+        "portfolio_weight_denominator": round(portfolio_denominator, 12),
+        "minimum_coverage": minimum_aggregate_coverage,
+        "status": "available" if mapped_weight > 0 and pe_covered / mapped_weight >= minimum_aggregate_coverage and pe_covered / portfolio_denominator >= minimum_aggregate_coverage else "partial" if pe_covered > 0 else "unavailable",
     }
     empty_coverage["roic"] = {
         "covered_weight": round(roic_covered, 12),
         "mapped_weight": round(mapped_weight, 12),
         "coverage_fraction": round(roic_covered / mapped_weight, 12) if mapped_weight > 0 else 0.0,
+        "portfolio_coverage_fraction": round(roic_covered / portfolio_denominator, 12),
+        "portfolio_weight_denominator": round(portfolio_denominator, 12),
+        "minimum_coverage": minimum_aggregate_coverage,
+        "status": "available" if mapped_weight > 0 and roic_covered / mapped_weight >= minimum_aggregate_coverage and roic_covered / portfolio_denominator >= minimum_aggregate_coverage else "partial" if roic_covered > 0 else "unavailable",
     }
     if pe_covered > 0 and math.isfinite(weighted_yield) and weighted_yield > 0:
         pe_value = pe_covered / weighted_yield
@@ -611,6 +762,7 @@ def _aggregate_fundamentals(
             "weighted_earnings_yield": weighted_yield / pe_covered if math.isfinite(weighted_yield) else None,
             "method": "covered_weight / weighted_earnings_yield",
             "negative_earnings_convention": "Negative P/E contributes its negative earnings yield; nonpositive aggregate yield has no reported P/E.",
+            "reason_code": "nonpositive_aggregate_earnings_yield" if math.isfinite(weighted_yield) else "nonfinite_aggregate_earnings_yield",
         }
         if math.isfinite(weighted_yield):
             limitations.append("Aggregate earnings yield is zero or negative; calculated look-through P/E is unavailable.")
@@ -635,13 +787,38 @@ def _aggregate_fundamentals(
             ),
         }
     elif roic_covered > 0:
+        metrics["roic"]["reason_code"] = "nonfinite_weighted_roic"
         limitations.append("Weighted ROIC arithmetic was nonfinite; the aggregate is unavailable.")
     if pe_covered < mapped_weight or roic_covered < mapped_weight:
         limitations.append("Missing or unusable constituent metrics lower fundamental-data coverage; missing values were not treated as zero.")
+    for name, covered in (("pe_ratio", pe_covered), ("roic", roic_covered)):
+        fraction = covered / mapped_weight if mapped_weight > 0 else 0.0
+        portfolio_fraction = covered / portfolio_denominator
+        metrics[name]["coverage_fraction"] = fraction
+        metrics[name]["portfolio_coverage_fraction"] = portfolio_fraction
+        metrics[name]["minimum_coverage"] = minimum_aggregate_coverage
+        if metrics[name].get("status") == "available" and (
+            fraction < minimum_aggregate_coverage or portfolio_fraction < minimum_aggregate_coverage
+        ):
+            metrics[name].update(
+                status="unavailable",
+                value=None,
+                reason_code="minimum_aggregate_coverage_not_met",
+            )
+            limitations.append(
+                f"Calculated {name.replace('_', ' ')} is withheld because mapped coverage is {fraction:.1%} and portfolio coverage is {portfolio_fraction:.1%}; the minimum is {minimum_aggregate_coverage:.1%}."
+            )
+        elif metrics[name].get("status") == "unavailable" and covered <= 0:
+            metrics[name]["reason_code"] = "no_usable_pit_constituent_metric"
     return metrics, empty_coverage, limitations
 
 
-def _concentration(rows: list[dict[str, object]], mapped_weight: float) -> dict[str, object]:
+def _concentration(
+    rows: list[dict[str, object]],
+    mapped_weight: float,
+    reported_total: float,
+    minimum_aggregate_coverage: float,
+) -> dict[str, object]:
     square_sum = math.fsum(float(row["weight"]) ** 2 for row in rows)
     hhi = square_sum / (mapped_weight**2) if mapped_weight > 0 else 0.0
     top_5 = math.fsum(float(row["weight"]) for row in rows[:5])
@@ -657,6 +834,16 @@ def _concentration(rows: list[dict[str, object]], mapped_weight: float) -> dict[
         "effective_number_of_holdings": round(1.0 / hhi, 12) if hhi > 0 else None,
         "denominator_weight": round(mapped_weight, 12),
         "denominator": "mapped operating-company weight",
+        "coverage_fraction": round(mapped_weight / max(1.0, reported_total), 12),
+        "mapped_to_reported_weight_fraction": round(mapped_weight / reported_total, 12) if reported_total > 0 else 0.0,
+        "minimum_coverage": minimum_aggregate_coverage,
+        "status": (
+            "unavailable"
+            if mapped_weight <= 0
+            else "available"
+            if mapped_weight / max(1.0, reported_total) >= minimum_aggregate_coverage
+            else "partial"
+        ),
     }
 
 
@@ -709,7 +896,10 @@ def _exposures(economic_rows: list[dict[str, object]], direct_holdings: tuple[ob
 
 
 def _exposure_coverage(
-    economic_rows: list[dict[str, object]], mapped_weight: float
+    economic_rows: list[dict[str, object]],
+    mapped_weight: float,
+    reported_total: float,
+    minimum_aggregate_coverage: float,
 ) -> dict[str, dict[str, object]]:
     dimensions = (
         "issuer", "sector", "country", "currency", "listing", "industry", "domicile",
@@ -741,6 +931,35 @@ def _exposure_coverage(
             "covered_weight": round(covered_weight, 12),
             "mapped_weight": round(mapped_weight, 12),
             "coverage_fraction": round(covered_weight / mapped_weight, 12) if mapped_weight > 0 else 0.0,
+            "portfolio_coverage_fraction": round(covered_weight / max(1.0, reported_total), 12),
+            "portfolio_weight_denominator": round(max(1.0, reported_total), 12),
+            "minimum_aggregate_coverage": minimum_aggregate_coverage,
+            "aggregate_status": (
+                "unavailable"
+                if mapped_weight <= 0 or covered_weight <= 0
+                else "available"
+                if covered_weight / mapped_weight >= minimum_aggregate_coverage
+                and covered_weight / max(1.0, reported_total) >= minimum_aggregate_coverage
+                else "partial"
+            ),
+        }
+    return result
+
+
+def _normalized_exposures(
+    exposures: Mapping[str, Mapping[str, float]],
+    coverage: Mapping[str, Mapping[str, object]],
+) -> dict[str, dict[str, float]]:
+    result: dict[str, dict[str, float]] = {}
+    for dimension, values in exposures.items():
+        evidence = coverage.get(dimension, {})
+        covered_weight = _finite_number(evidence.get("covered_weight")) or 0.0
+        if covered_weight <= 0 or evidence.get("aggregate_status") != "available":
+            result[dimension] = {}
+            continue
+        result[dimension] = {
+            bucket: round(float(weight) / covered_weight, 12)
+            for bucket, weight in values.items()
         }
     return result
 
@@ -817,9 +1036,11 @@ def _summary_from_unusable(
         instrument_id, status, holdings_date, analysis_date, decision_time, source, source_id, source_ids, revisions,
         completeness, freshness, min(1.0, max(0.0, reported_total)), reported_total, round(reported_total, 12),
         0.0, 0.0, 0.0, round(reported_total, 12), 0.0, 0.0, total_status,
-        {"top_holdings": (), "top_5_share": 0.0, "top_10_share": 0.0, "top_5_share_covered": 0.0,
-         "top_10_share_covered": 0.0, "hhi": 0.0, "hhi_gross_weight_squared": 0.0,
-         "effective_number_of_holdings": None, "denominator_weight": 0.0, "denominator": "mapped operating-company weight"},
+        {"top_holdings": (), "top_5_share": None, "top_10_share": None, "top_5_share_covered": None,
+         "top_10_share_covered": None, "hhi": None, "hhi_gross_weight_squared": None,
+         "effective_number_of_holdings": None, "denominator_weight": 0.0, "denominator": "mapped operating-company weight",
+         "coverage_fraction": 0.0, "minimum_coverage": _DEFAULT_MINIMUM_AGGREGATE_COVERAGE,
+         "status": "unavailable", "reason_code": "look_through_evidence_unavailable"},
         {
             name: {}
             for name in (
@@ -834,14 +1055,32 @@ def _summary_from_unusable(
                 "covered_weight": 0.0,
                 "mapped_weight": 0.0,
                 "coverage_fraction": 0.0,
+                "portfolio_coverage_fraction": 0.0,
+                "portfolio_weight_denominator": 1.0,
+                "minimum_aggregate_coverage": _DEFAULT_MINIMUM_AGGREGATE_COVERAGE,
+                "aggregate_status": "unavailable",
             }
             for name in (
                 "issuer", "sector", "country", "currency", "listing", "industry", "domicile",
                 "economic_currency", "factor", "cap_bucket",
             )
         },
-        {name: {"covered_weight": 0.0, "mapped_weight": 0.0, "coverage_fraction": 0.0} for name in ("pe_ratio", "roic")},
-        {"pe_ratio": {"status": "unavailable", "value": None}, "roic": {"status": "unavailable", "value": None}},
+        {
+            name: {
+                "covered_weight": 0.0,
+                "mapped_weight": 0.0,
+                "coverage_fraction": 0.0,
+                "portfolio_coverage_fraction": 0.0,
+                "portfolio_weight_denominator": max(1.0, reported_total),
+                "minimum_coverage": _DEFAULT_MINIMUM_AGGREGATE_COVERAGE,
+                "status": "unavailable",
+            }
+            for name in ("pe_ratio", "roic")
+        },
+        {
+            "pe_ratio": {"status": "unavailable", "value": None, "reason_code": "look_through_evidence_unavailable"},
+            "roic": {"status": "unavailable", "value": None, "reason_code": "look_through_evidence_unavailable"},
+        },
         provider, lineage, conventions, tuple(dict.fromkeys(limitations)), False,
     )
 

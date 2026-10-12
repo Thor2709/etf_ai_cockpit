@@ -2874,6 +2874,8 @@ def build_instrument_detail(
     benchmark_total_return: object = None,
     economics_as_of: object = None,
     economics_horizon_days: int = 252,
+    look_through_identity_map: Mapping[str, str] | None = None,
+    look_through_minimum_aggregate_coverage: float = 0.80,
 ) -> InstrumentDetailViewModel:
     identity = next((item for item in snapshot.config.universe.etfs if item.id == instrument_id), None)
     # Configured identities remain backed by canonical snapshot stores.  The
@@ -3030,6 +3032,9 @@ def build_instrument_detail(
             analysis_date=projection_time[:10] if len(projection_time) >= 10 else None,
             holdings_frame=holdings,
             fundamentals_frame=fundamentals,
+            identity_map=look_through_identity_map,
+            minimum_aggregate_coverage=look_through_minimum_aggregate_coverage,
+            require_canonical_identity=True,
         )
         if asset_type in {"etf", "fund", "mutual_fund"}
         else {"instrument_id": instrument_id, "status": "not_applicable", "execution_allowed": False}
