@@ -297,8 +297,41 @@ def test_reported_peak_multiple_cannot_bypass_missing_through_cycle_inputs(monke
     {"known_at": "2025-02-20T00:00:00Z"},
     {"end_at": "2025-01-01T00:00:00Z"},
     {"score_cutoff": "2025-02-28T00:00:00+01:00"},
+    {"source_authority": SourceAuthority.MODEL},
+    {"source_authority": SourceAuthority.VENDOR},
+    {"source_authority": SourceAuthority.MANUAL},
+    {"source_authority": SourceAuthority.COMMUNITY},
 ))
 def test_normalised_basis_cannot_use_history_after_its_evidence_cutoff(monkeypatch, changed):
+    if "source_authority" in changed:
+        margin = replace(_metric("normalised_margin", 0.10, "ratio"), **changed)
+        projection = _projection(overrides={"normalised_margin": margin})
+        rows = {row.metric: row for row in projection.metrics}
+        assert rows["normalised_margin"].status == "unavailable"
+        assert rows["normalised_margin"].value is None
+        assert "normalised_margin_requires_issuer_or_official_evidence" in rows["normalised_margin"].limitations
+        assert rows["normalised_margin"].source_authority == changed["source_authority"].value
+        assert rows["cycle_adjusted_ev_to_earnings"].status == "unavailable"
+        replay = verify_cyclical_projection(
+            projection, expected_source_digest=cyclical_source_digest(projection.source_payload)
+        )
+        assert replay["result_hash"] == projection.result_hash
+        configured = _stock_fundamental_components(
+            None, cyclical_projection=projection, instrument_id=INSTRUMENT, decision_time=DECISION_TIME
+        )
+        public = _candidate_components(monkeypatch, projection)
+        assert all(row.score_10 is None and not row.score_eligible for row in configured[:2])
+        assert all(public[key].score_10 is None and not public[key].score_eligible for key in ("stock_value", "stock_quality"))
+        decision = compose_stock_decision(INSTRUMENT, _context(), DECISION_TIME, {}, cyclical_projection=projection)
+        assert decision["route_status"] == "unavailable" and decision["route_reason"]
+        assert decision["valuation_z_score"] is None
+        assert decision["valuation_drivers"]
+        assert all(
+            driver.status == "UNAVAILABLE" and driver.raw_value is None
+            and driver.z_score is None and driver.reason_code
+            for driver in decision["valuation_drivers"]
+        )
+        return
     if "score_cutoff" in changed:
         projection = _projection()
         components = _stock_fundamental_components(

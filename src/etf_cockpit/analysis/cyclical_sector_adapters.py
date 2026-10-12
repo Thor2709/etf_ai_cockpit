@@ -266,8 +266,16 @@ def build_cyclical_projection(
             for value in item.limitations
         )
         inapplicable = not item.applicable
-        available = not inapplicable and not fatal and item.value is not None and _finite(item.value)
-        item_limits = tuple(sorted({*item.limitations, *(() if available or inapplicable else ("missing_value",))}))
+        unverified_normalisation = (
+            item.metric == "normalised_margin"
+            and item.source_authority not in {SourceAuthority.OFFICIAL, SourceAuthority.ISSUER}
+        )
+        available = not inapplicable and not fatal and not unverified_normalisation and item.value is not None and _finite(item.value)
+        unavailable_reason = (
+            "normalised_margin_requires_issuer_or_official_evidence"
+            if unverified_normalisation else "missing_value"
+        )
+        item_limits = tuple(sorted({*item.limitations, *(() if available or inapplicable else (unavailable_reason,))}))
         limitations.update(f"{item.metric}:{value}" for value in item_limits)
         results.append(CyclicalMetricResult(
             metric=item.metric, status="inapplicable" if inapplicable else "available" if available else "unavailable",
