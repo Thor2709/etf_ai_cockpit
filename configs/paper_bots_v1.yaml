@@ -1,0 +1,29 @@
+schema_version: paper_bots.v1
+initial_virtual_cash_eur: 10000.0
+monthly_contribution_eur: 0.0
+# Only snapshots published within the previous day can start a forward decision.
+max_snapshot_age_hours: 24
+decision_period: utc_calendar_month
+benchmark:
+  instrument_id: VWCE
+  yahoo_symbol: VWCE.DE
+baseline_score_version: score-engine-v3.0.0
+eligibility:
+  gate: research_promotion_allowed
+  required_analysis_status: complete
+bots:
+  - family_id: B0
+    strategy: benchmark
+    name: VWCE buy and hold
+  - family_id: B1
+    strategy: top_n
+    name: Top 10 gated canonical ranks
+    top_n: 10
+    asset_types: [ETF, STOCK]
+  - family_id: B2
+    strategy: core_sleeve
+    name: VWCE core plus gated candidate sleeve
+    core_weight: 0.8
+    sleeve_weight: 0.2
+    sleeve_top_n: 5
+    sleeve_action: CANDIDATE_BUY

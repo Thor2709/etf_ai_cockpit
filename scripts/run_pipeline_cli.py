@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -15,17 +16,33 @@ def require_cached_inputs(*paths: Path) -> None:
 
 
 def run_cli(main: Callable[[], int]) -> int:
-    """Reject an invalid explicit root and report expected input failures."""
+    """Reject invalid roots and record decisions after a successful pipeline run."""
     try:
         explicit_root = os.getenv("ETF_COCKPIT_ROOT")
+        recorder_root = None
         if explicit_root:
-            root = Path(explicit_root).expanduser().resolve()
-            if not (root / "configs" / "universe.yaml").is_file() or not (root / "data").is_dir():
+            recorder_root = Path(explicit_root).expanduser().resolve()
+            if not (recorder_root / "configs" / "universe.yaml").is_file() or not (recorder_root / "data").is_dir():
                 raise ValueError(
-                    f"Invalid ETF_COCKPIT_ROOT: {root}. Expected an application root "
+                    f"Invalid ETF_COCKPIT_ROOT: {recorder_root}. Expected an application root "
                     "containing configs/universe.yaml and data/."
                 )
-        return main()
+        result = main()
+        if result == 0:
+            from etf_cockpit.portfolio.paper_bots import run_paper_bots
+
+            try:
+                paper_result = run_paper_bots(datetime.now(timezone.utc), root=recorder_root)
+                if paper_result.status != "available":
+                    print(
+                        "Paper bots "
+                        + paper_result.status
+                        + ": "
+                        + (paper_result.reason or "one or more decision records are unavailable.")
+                    )
+            except Exception as exc:
+                print(f"Paper bots unavailable: {type(exc).__name__}.")
+        return result
     except (OSError, ValueError, KeyError) as exc:
         from etf_cockpit.core.session_log import redact_text
 

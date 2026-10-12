@@ -134,8 +134,13 @@ def test_nested_scoreboard_failure_is_carried_into_the_action_result(monkeypatch
 
 def test_successful_trust_write_clears_previous_warning(monkeypatch, tmp_path) -> None:
     calls: list[object] = []
+    history_path = tmp_path / "score_history.parquet"
+    history_path.write_bytes(b"test history")
+    monkeypatch.setattr(scoreboard_publication, "_record_scoreboard_publication_binding", lambda *_args: {})
     state, scoreboard_path, _scores, log_path = _isolate_scoreboard_write(
-        monkeypatch, tmp_path, trust_writer=lambda *args, **_kwargs: calls.append(args)
+        monkeypatch,
+        tmp_path,
+        trust_writer=lambda *args, **_kwargs: calls.append(args) or {"score_history": history_path},
     )
     state.score_history_warning = "Score history was not persisted (stale)."
 
