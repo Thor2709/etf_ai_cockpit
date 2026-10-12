@@ -1,9 +1,14 @@
 """Market-series, ETF structure, look-through and economics projections for presentation (application; ADR-0002)."""
 
 from collections.abc import Mapping
+from datetime import date, datetime, time, timezone
 from pathlib import Path
 import pandas as pd
 
+from etf_cockpit.data.identity_master import IdentityMasterSchemaError, IdentityMasterStore
+from etf_cockpit.data.trust_artifacts import IDENTITY_PATH
+from etf_cockpit.data.event_calendar import normalise_event_decision_time
+from etf_cockpit.data.local_storage import storage_layout
 from etf_cockpit.data.etf_structure import project_etf_structure
 from etf_cockpit.data.fund_documents import read_document_registry
 from etf_cockpit.data.parsed_disclosures import read_etf_report_records
@@ -13,11 +18,14 @@ def load_etf_look_through(
     instrument_id: str,
     *,
     decision_time: object,
+    analysis_date: object = None,
     holdings_frame: object = None,
     fundamentals_frame: object = None,
     identity_map: Mapping[str, str] | None = None,
     provider_metrics: Mapping[str, object] | None = None,
     max_holdings_age_days: int = 90,
+    minimum_aggregate_coverage: float = 0.80,
+    require_canonical_identity: bool = False,
 ) -> dict[str, object]:
     """Read local ETF holdings and constituent evidence for the pure analyzer."""
     from dataclasses import asdict
@@ -35,14 +43,42 @@ def load_etf_look_through(
                 fundamentals = pd.DataFrame()
         else:
             fundamentals = fundamentals_frame
+        resolved_identity_map = dict(identity_map or {})
+        identity_resolution: dict[str, object] = {
+            "status": "provided" if resolved_identity_map else "listing_identity_only",
+            "method": "caller-supplied canonical identity map" if resolved_identity_map else "typed holdings identity",
+            "mapped_identity_count": len(resolved_identity_map),
+            "effective_at": str(analysis_date or str(decision_time)[:10]),
+            "decision_time": str(decision_time),
+        }
+        if require_canonical_identity and not resolved_identity_map:
+            resolved_identity_map, identity_resolution = _pit_identity_map(
+                analysis_date=analysis_date,
+                decision_time=decision_time,
+                holdings=holdings,
+                fundamentals=fundamentals,
+            )
+            if identity_resolution.get("status") == "unavailable":
+                return {
+                    "instrument_id": instrument_id,
+                    "status": "unavailable",
+                    "reason_code": identity_resolution.get("reason_code", "canonical_identity_master_unavailable"),
+                    "message": "Canonical point-in-time identity evidence is unavailable; look-through values are withheld.",
+                    "lineage": {"identity_resolution": identity_resolution},
+                    "execution_allowed": False,
+                }
         summary = calculate_look_through(
             holdings,
             instrument_id=instrument_id,
             decision_time=decision_time,
+            analysis_date=analysis_date,
             constituent_fundamentals=fundamentals,
-            identity_map=identity_map,
+            identity_map=resolved_identity_map,
+            identity_resolution=identity_resolution,
             provider_metrics=provider_metrics,
             max_holdings_age_days=max_holdings_age_days,
+            minimum_aggregate_coverage=minimum_aggregate_coverage,
+            require_canonical_identity=require_canonical_identity,
         )
         return asdict(summary)
     except (OSError, ValueError, TypeError, KeyError, ImportError):
@@ -51,6 +87,146 @@ def load_etf_look_through(
             "status": "unavailable",
             "message": "Local holdings look-through evidence is unavailable or malformed.",
             "execution_allowed": False,
+        }
+
+
+def _pit_identity_map(
+    *,
+    analysis_date: object,
+    decision_time: object,
+    holdings: object,
+    fundamentals: object,
+) -> tuple[dict[str, str], dict[str, object]]:
+    """Resolve typed direct-holding identities against the dated canonical master."""
+
+    analysis = str(analysis_date or str(decision_time)[:10])[:10]
+    analysis_day = date.fromisoformat(analysis)
+    cutoff = normalise_event_decision_time(decision_time)
+    if cutoff is None:
+        return {}, {
+            "status": "unavailable",
+            "reason_code": "canonical_identity_cutoff_unavailable",
+            "method": "dated identity-master projection",
+            "analysis_date": analysis,
+            "decision_time": str(decision_time),
+        }
+    effective_at = min(datetime.combine(analysis_day, time.max, tzinfo=timezone.utc), cutoff)
+    candidates: set[str] = set()
+    try:
+        identity_frame = pd.read_parquet(IDENTITY_PATH)
+        if "instrument_id" in identity_frame.columns:
+            candidates.update(
+                value.strip()
+                for value in identity_frame["instrument_id"]
+                if isinstance(value, str) and value.strip()
+            )
+    except (FileNotFoundError, OSError, ValueError, ImportError):
+        identity_frame = pd.DataFrame()
+    for frame in (holdings, fundamentals):
+        if not isinstance(frame, pd.DataFrame):
+            continue
+        for column in ("canonical_instrument_id", "underlying_instrument_id"):
+            if column in frame.columns:
+                candidates.update(
+                    value.strip()
+                    for value in frame[column]
+                    if isinstance(value, str) and value.strip()
+                )
+        if frame is fundamentals and "instrument_id" in frame.columns:
+            candidates.update(
+                value.strip()
+                for value in frame["instrument_id"]
+                if isinstance(value, str) and value.strip()
+            )
+    try:
+        master_root = Path(IDENTITY_PATH).resolve().parents[2]
+        if not storage_layout(master_root).transactional_path.is_file():
+            return {}, {
+                "status": "unavailable",
+                "reason_code": "canonical_identity_master_unavailable",
+                "method": "dated identity-master projection",
+                "analysis_date": analysis,
+                "effective_at": effective_at.isoformat(),
+                "decision_time": cutoff.isoformat(),
+                "candidate_count": len(candidates),
+            }
+        aliases: dict[str, set[str]] = {}
+        manual_review_count = 0
+        resolved_candidate_count = 0
+        identity_object_count = 0
+        with IdentityMasterStore(master_root, read_only=True) as master:
+            for candidate in sorted(candidates):
+                try:
+                    projection = master.projection(
+                        candidate,
+                        effective_at=effective_at.isoformat().replace("+00:00", "Z"),
+                        decision_time=cutoff.isoformat().replace("+00:00", "Z"),
+                    )
+                except (KeyError, TypeError, ValueError):
+                    continue
+                resolved_candidate_count += 1
+                if projection.get("identity_status") != "resolved" or projection.get("identity_conflict_ids"):
+                    manual_review_count += 1
+                    continue
+                canonical_id = str(projection.get("instrument_id") or candidate).strip()
+                if not canonical_id:
+                    continue
+                objects = projection.get("identity_objects")
+                if not isinstance(objects, (list, tuple)):
+                    continue
+                for item in objects:
+                    if not isinstance(item, Mapping):
+                        continue
+                    fields = item.get("fields")
+                    if not isinstance(fields, Mapping):
+                        continue
+                    identity_object_count += 1
+                    for field in ("isin", "figi", "cusip", "sedol", "national_security_id", "lei", "cik", "national_id"):
+                        value = fields.get(field)
+                        if isinstance(value, str) and value.strip():
+                            aliases.setdefault(f"{field}:{value.strip().casefold()}", set()).add(canonical_id)
+                    for namespace_field in ("exchange", "mic"):
+                        namespace = fields.get(namespace_field)
+                        ticker = fields.get("ticker")
+                        if isinstance(namespace, str) and namespace.strip() and isinstance(ticker, str) and ticker.strip():
+                            aliases.setdefault(
+                                f"ticker:{namespace.strip().casefold()}:{ticker.strip().casefold()}", set()
+                            ).add(canonical_id)
+                    identity_type = fields.get("identity_type")
+                    identity_namespace = fields.get("identity_namespace")
+                    identity_value = fields.get("identity_value")
+                    if all(isinstance(value, str) and value.strip() for value in (identity_type, identity_namespace, identity_value)):
+                        aliases.setdefault(
+                            f"{identity_type.strip().casefold()}:{identity_namespace.strip().casefold()}:{identity_value.strip().casefold()}",
+                            set(),
+                        ).add(canonical_id)
+        resolved = {key: next(iter(values)) for key, values in aliases.items() if len(values) == 1}
+        ambiguous_count = sum(len(values) > 1 for values in aliases.values())
+        return resolved, {
+            "status": "available",
+            "reason_code": None,
+            "method": "canonical identity master projection at holdings analysis date and decision time",
+            "analysis_date": analysis,
+            "effective_at": effective_at.isoformat(),
+            "decision_time": cutoff.isoformat(),
+            "candidate_count": len(candidates),
+            "resolved_candidate_count": resolved_candidate_count,
+            "identity_object_count": identity_object_count,
+            "mapped_identity_count": len(resolved),
+            "ambiguous_identity_count": ambiguous_count,
+            "manual_review_candidate_count": manual_review_count,
+            "execution_allowed": False,
+        }
+    except (IdentityMasterSchemaError, IndexError, OSError, TypeError, ValueError, RuntimeError) as exc:
+        return {}, {
+            "status": "unavailable",
+            "reason_code": "canonical_identity_master_invalid",
+            "error_type": type(exc).__name__,
+            "method": "dated identity-master projection",
+            "analysis_date": analysis,
+            "effective_at": effective_at.isoformat(),
+            "decision_time": cutoff.isoformat(),
+            "candidate_count": len(candidates),
         }
 
 

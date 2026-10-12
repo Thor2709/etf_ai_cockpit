@@ -384,6 +384,134 @@ def _render_etf_split(title: str, field: Mapping[str, object], key: str) -> ft.C
     ], key=key)
 
 
+def _render_etf_look_through(value: object) -> ft.Control:
+    """Render app-calculated ETF constituent evidence with coverage and drill-down."""
+
+    payload = value if isinstance(value, Mapping) else {}
+    status = str(payload.get("status") or "unavailable")
+    concentration = payload.get("concentration")
+    concentration = concentration if isinstance(concentration, Mapping) else {}
+    metrics = payload.get("calculated_metrics")
+    metrics = metrics if isinstance(metrics, Mapping) else {}
+    coverage = payload.get("fundamental_data_coverage")
+    coverage = coverage if isinstance(coverage, Mapping) else {}
+    lineage = payload.get("lineage")
+    lineage = lineage if isinstance(lineage, Mapping) else {}
+    identity = lineage.get("identity_resolution")
+    identity = identity if isinstance(identity, Mapping) else {}
+    provider_coverage = payload.get("provider_coverage")
+    reported_total = payload.get("reported_total_weight")
+    source_ids = payload.get("source_ids") or ()
+    source = payload.get("source") or "unavailable"
+
+    def weight(value: object) -> str:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return "unavailable"
+        return "unavailable" if not math.isfinite(number) else f"{number:.1%}"
+
+    def metric_line(name: str, label: str) -> str:
+        metric = metrics.get(name)
+        metric = metric if isinstance(metric, Mapping) else {}
+        evidence = coverage.get(name)
+        evidence = evidence if isinstance(evidence, Mapping) else {}
+        metric_value = metric.get("value")
+        try:
+            shown = f"{float(metric_value):.2f}" if metric_value is not None and math.isfinite(float(metric_value)) else "unavailable"
+        except (TypeError, ValueError):
+            shown = "unavailable"
+        return (
+            f"{label}: {metric.get('status', 'unavailable')} · value {shown} · "
+            f"covered {weight(evidence.get('covered_weight'))} of mapped {weight(evidence.get('mapped_weight'))} · "
+            f"mapped coverage {weight(evidence.get('coverage_fraction'))} · "
+            f"portfolio coverage {weight(evidence.get('portfolio_coverage_fraction'))} · "
+            f"formula {metric.get('method', 'unavailable')}"
+        )
+
+    header = (
+        f"Status {status} · holdings {payload.get('holdings_date') or 'unavailable'} · "
+        f"analysis {payload.get('analysis_date') or 'unavailable'} · source {source} · "
+        f"provider coverage {weight(provider_coverage)} · mapped {weight(payload.get('mapped_weight'))} · "
+        f"unresolved {weight(payload.get('unresolved_weight'))}"
+    )
+    identity_line = (
+        f"Identity resolution {identity.get('status', 'unavailable')} · "
+        f"method {identity.get('method', 'unavailable')} · mapped aliases {identity.get('mapped_identity_count', 0)}"
+    )
+    metrics_view = ft.Column(
+        [
+            ft.Text(metric_line("pe_ratio", "Calculated look-through P/E"), size=11, selectable=True),
+            ft.Text(metric_line("roic", "Calculated constituent ROIC"), size=11, selectable=True),
+            ft.Text(
+                "Provider-published fund metrics remain separate from these app-calculated constituent metrics.",
+                size=11,
+                color=theme.MUTED,
+                selectable=True,
+            ),
+        ],
+        spacing=6,
+    )
+    return GlassCard(
+        "ETF look-through",
+        note=header,
+        body=[
+            ft.ResponsiveRow(
+                [
+                    KpiTile("Reported weight", weight(reported_total), f"Provider coverage {weight(provider_coverage)}"),
+                    KpiTile("Mapped operating companies", weight(payload.get("mapped_weight")), "Canonical identity mappings only in production detail"),
+                    KpiTile("Cash / derivatives", f"{weight(payload.get('cash_weight'))} / {weight(payload.get('derivative_weight'))}", "Reported portfolio weights"),
+                    KpiTile("Funds / unresolved", f"{weight(payload.get('fund_weight'))} / {weight(payload.get('unresolved_weight'))}", "Fund recursion and unmatched mappings remain explicit"),
+                ],
+                spacing=8,
+                run_spacing=8,
+            ),
+            ft.Text(identity_line, size=11, color=theme.MUTED, selectable=True),
+            SectionHeader("Concentration on mapped operating-company weight"),
+            ft.Text(
+                f"Coverage {weight(concentration.get('coverage_fraction'))} · minimum {weight(concentration.get('minimum_coverage'))} · "
+                f"top 5 gross {weight(concentration.get('top_5_share'))} · top 10 gross {weight(concentration.get('top_10_share'))} · "
+                f"HHI {concentration.get('hhi', 'unavailable')} · effective holdings {concentration.get('effective_number_of_holdings', 'unavailable')} · "
+                f"status {concentration.get('status', 'unavailable')}",
+                size=11,
+                selectable=True,
+            ),
+            SectionHeader("App-calculated constituent metrics"),
+            metrics_view,
+            SectionHeader("Reported exposures"),
+            Note("Industry, domicile, listing and currency buckets use dated holdings-row evidence. Factor buckets are provider-reported; no factor score is inferred."),
+            Disclosure(
+                "Exposure buckets, denominators and coverage",
+                _payload({
+                    "gross_portfolio_weights": payload.get("exposures", {}),
+                    "covered_weight_normalized": payload.get("normalized_exposures", {}),
+                    "coverage_and_minimum_thresholds": payload.get("exposure_coverage", {}),
+                    "evidence_provenance": lineage.get("exposure_evidence", {}),
+                }),
+            ),
+            Disclosure(
+                "Sources, formulas, lineage, limitations and unavailable reasons",
+                _payload({
+                    "source": source,
+                    "source_ids": source_ids,
+                    "holdings_date": payload.get("holdings_date"),
+                    "known_at": lineage.get("known_at"),
+                    "revision_lineage": payload.get("revision_lineage", ()),
+                    "aggregation_conventions": payload.get("aggregation_conventions", ()),
+                    "limitations": payload.get("limitations", ()),
+                    "unresolved_holdings": lineage.get("unresolved_holdings", ()),
+                    "calculated_metrics": metrics,
+                    "provider_reported_metrics": payload.get("provider_reported_metrics", {}),
+                    "identity_resolution": identity,
+                    "concentration": concentration,
+                    "execution_allowed": False,
+                }),
+            ),
+        ],
+        key="instrument-detail.etf-look-through",
+    )
+
+
 def render_news_context_panel(model: InstrumentDetailViewModel) -> ft.Control:
     """Render dated news and manual-note credibility with source provenance."""
 
@@ -1561,6 +1689,7 @@ def _section_rows(
         render_etf_structure_panel(model),
         render_etf_disclosure_panel(model),
         render_etf_e1_panel(sections.get("etf_economics")),
+        _render_etf_look_through(sections.get("etf_look_through")),
         _section_card("ETF direct overlap", sections.get("etf_overlap"), "instrument-detail.etf-overlap"),
         _section_card("ETF Liquidity", sections.get("etf_liquidity")),
         GlassCard(
