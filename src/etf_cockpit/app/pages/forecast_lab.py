@@ -325,7 +325,7 @@ def _promotion_card(layout: common.GridLayout, promotion: pd.DataFrame, names: d
 
 def _folds_card(layout: common.GridLayout, folds: lab_view.FoldBars) -> ft.Control:
     width, height = layout.card_body(6, 1, insight=True)
-    insight = folds.reason or f"{folds.total} folds; the final test window stays untouched for selection."
+    insight = folds.reason or f"{folds.total} retrospective date groups of stored forecasts; not an independent holdout."
     segments = [[ck.Segment(train, "pos"), ck.Segment(test, "gold")] for train, test in zip(folds.train_months, folds.test_months, strict=True)]
     axis_w = theme.SPACE_5
     chart = ck.horizontal_stacked_bar(

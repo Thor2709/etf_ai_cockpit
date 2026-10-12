@@ -107,11 +107,26 @@ def test_calibration_rejects_in_sample_rows_and_accepts_out_of_fold_rows() -> No
     assert in_sample["conformal_calibration"]["status"] == "unavailable"
     assert "out-of-fold" in in_sample["conformal_calibration"]["reason"]
 
-    forecasts = _mark_walk_forward_provenance(forecasts, splits)
-    assert forecasts["out_of_fold"].tolist() == [False, False, False, True, True]
-    assert forecasts.loc[forecasts["out_of_fold"], "fold_id"].notna().all()
+    # Audit finding E: retrospective date grouping is not out-of-fold evidence and must not
+    # unlock calibration on its own.
+    grouped = _mark_walk_forward_provenance(forecasts, splits)
+    assert grouped["out_of_fold"].tolist() == [False] * 5
+    assert grouped.loc[grouped["evidence_basis"].eq("retrospective_date_grouped"), "fold_id"].notna().all()
+    still_in_sample = calibrate_forecast_distribution(
+        grouped,
+        prices,
+        _distribution(),
+        instrument_id="AAA",
+        decision_time=prices["date"].iloc[6],
+        settings=_settings(minimum=2),
+    )
+    assert still_in_sample["conformal_calibration"]["status"] == "unavailable"
+
+    # Rows carrying genuine out-of-fold provenance from a real walk-forward fit still calibrate.
+    genuine = grouped.copy()
+    genuine.loc[genuine.index[-2:], "out_of_fold"] = True
     out_of_fold = calibrate_forecast_distribution(
-        forecasts,
+        genuine,
         prices,
         _distribution(),
         instrument_id="AAA",

@@ -475,8 +475,8 @@ def _mark_walk_forward_provenance(frame: pd.DataFrame, splits: pd.DataFrame) -> 
     marked["prediction_id"] = marked.apply(_prediction_identifier, axis=1)
     marked["fold_id"] = None
     marked["evidence_basis"] = EVIDENCE_BASIS_UNGROUPED
-    # Legacy flag kept only because models.calibration still reads it; it means
-    # "assigned to exactly one retrospective date group", never prospective evidence.
+    # Legacy column kept for readers of old artefacts. A retrospective date group is
+    # never out-of-fold evidence, so it is always False here and calibration cannot use it.
     marked["out_of_fold"] = False
     fold_count = pd.Series(0, index=marked.index, dtype="int64")
     for split in splits.itertuples(index=False):
@@ -487,7 +487,6 @@ def _mark_walk_forward_provenance(frame: pd.DataFrame, splits: pd.DataFrame) -> 
         first_assignment = mask & fold_count.eq(1)
         marked.loc[first_assignment, "fold_id"] = str(split.split_id)
         marked.loc[first_assignment, "evidence_basis"] = EVIDENCE_BASIS_RETROSPECTIVE
-        marked.loc[first_assignment, "out_of_fold"] = True
     overlapping = fold_count.ne(1)
     marked.loc[overlapping, "fold_id"] = None
     marked.loc[overlapping, "evidence_basis"] = EVIDENCE_BASIS_UNGROUPED

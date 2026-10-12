@@ -119,7 +119,7 @@ def test_forecast_lab_renders_net_value_coverage_runtime_and_fold_evaluation(mon
         "Configured horizons",
         "Observed horizons",
         "Skipped horizons/reason",
-        "1.00%",
+        "1.01%",  # log 0.01 shown as simple return expm1(0.01)
         "2026-01-08",
         "no_forecast_row",
         "Forecast run in progress: Run forecasting models",
