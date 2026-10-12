@@ -45,7 +45,11 @@ def test_forecast_runner_output_is_accepted_by_app_loader(monkeypatch, tmp_path)
     loaded = load_latest_forecasts(
         directory=tmp_path, universe_revision=_current_universe_revision(),
         reference_identity=context.identity,
-        price_binding=_price_snapshot_binding(prices, calculation_window=window),
+        # The app snapshot binds to enabled-universe prices only (snapshot_builder.build_snapshot).
+        price_binding=_price_snapshot_binding(
+            prices[prices["etf_id"].astype(str).isin(set(config.universe.enabled_ids))],
+            calculation_window=window,
+        ),
         forecast_request_identity=configured_forecast_request_identity(config),
     )
     assert not loaded.empty

@@ -71,7 +71,11 @@ class SignalService:
         price_binding = (
             None
             if calculation_window is None
-            else _price_snapshot_binding(prices, calculation_window=calculation_window)
+            # Bind to the enabled universe, exactly like the snapshot and score consumers do.
+            else _price_snapshot_binding(
+                prices[prices["etf_id"].astype(str).isin(set(self.config.universe.enabled_ids))],
+                calculation_window=calculation_window,
+            )
         )
         universe_revision = _current_universe_revision()
         settings_revision = current_settings_revision()

@@ -289,6 +289,8 @@ class DataService:
         self.last_operation_succeeded = False
         settings_revision = current_settings_revision()
         prices = load_prices()
+        # Bind to the enabled universe, exactly like the snapshot and score consumers do.
+        prices = prices[prices["etf_id"].astype(str).isin(set(self.config.universe.enabled_ids))]
         if prices.empty:
             return "No clean yfinance prices are available. Refresh yfinance data first."
         prices = prices.copy()
