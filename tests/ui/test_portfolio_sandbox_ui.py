@@ -4,12 +4,13 @@ from types import SimpleNamespace
 
 import flet as ft
 import pandas as pd
+import pytest
 
 from etf_cockpit.app.pages import portfolio
 from etf_cockpit.app.router import PAGES
 from etf_cockpit.application.reference_context import _benchmark_reference_snapshot_inputs
 import etf_cockpit.application.reference_context as reference_context
-from etf_cockpit.application import portfolio_sandbox
+from etf_cockpit.application import overlap as overlap_module, portfolio_sandbox
 from etf_cockpit.core.config import load_config
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     BenchmarkDefinition,
@@ -21,6 +22,13 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     VwceListingObservation,
     declare_reference_portfolios,
 )
+
+
+@pytest.fixture(autouse=True)
+def _empty_holdings_store(monkeypatch):
+    """The sandbox reads the process-wide canonical holdings store; pin it empty so a
+    store written by an earlier test on the same xdist worker cannot change these results."""
+    monkeypatch.setattr(overlap_module, "load_direct_holdings", lambda **_: pd.DataFrame())
 
 
 def _state():
