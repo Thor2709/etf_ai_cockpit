@@ -986,6 +986,7 @@ def load_etf_e1_fields(
     issuer_records: Iterable[EtfEconomicsObservation | Mapping[str, object]] = (),
     public_records: Iterable[Mapping[str, object]] = (),
     vendor_records: Iterable[Mapping[str, object]] = (),
+    include_traceability: bool = False,
 ) -> dict[str, dict[str, object]]:
     """One per-field issuer -> public page -> vendor fallback, dated and sourced.
 
@@ -995,13 +996,23 @@ def load_etf_e1_fields(
     cutoff = etf_decision_cutoff(decision_time)
     candidates: list[tuple[int, dict[str, object]]] = []
     rejected = False
+    mapping_rejected = False
     for rank, rows in enumerate((issuer_records, public_records, vendor_records)):
         for item in rows:
             row = item.as_dict() if isinstance(item, EtfEconomicsObservation) else dict(item)
             identity = _text(row.get("instrument_id")) or _text(row.get("etf_id"))
             if identity != instrument_id:
                 continue
-            if row.get("scope") == "share_class" and row.get("share_class_id") != instrument_id:
+            scope = (_text(row.get("scope")) or "").casefold()
+            share_class_id = _text(row.get("share_class_id"))
+            # The E1 surface is instrument/share-class scoped. A fund-scope
+            # observation cannot be attributed to that instrument without an
+            # explicit mapping, and a class observation must match exactly.
+            if scope == "fund" or (
+                scope == "share_class"
+                and share_class_id != instrument_id
+            ):
+                mapping_rejected = True
                 continue
             effective = pd.to_datetime(row.get("as_of", row.get("as_of_date")), utc=True, errors="coerce")
             known = pd.to_datetime(row.get("known_at"), utc=True, errors="coerce")
@@ -1051,7 +1062,32 @@ def load_etf_e1_fields(
                 value = weights.to_dict()
                 if total < 1:
                     value["Other/unclassified"] = value.get("Other/unclassified", 0) + 1 - total
-            available.append({"value": value, "source": row["source"], "as_of": row["as_of"], "known_at": row["known_at"], "currency": row.get("aum_currency") if field_name == "aum" else None})
+            selected = {
+                "value": value,
+                "source": row["source"],
+                "as_of": row["as_of"],
+                "known_at": row["known_at"],
+                "currency": row.get("aum_currency") if field_name == "aum" else None,
+            }
+            if include_traceability:
+                selected.update(
+                    effective_at=row["as_of"],
+                    freshness_status="not_assessed",
+                    freshness_reason="no field-specific freshness limit is configured",
+                    source_provenance=row.get("source_provenance") or row.get("provenance"),
+                    source_checksum=row.get("source_checksum") or row.get("checksum"),
+                    currency=row.get("currency") or row.get("aum_currency"),
+                    scope=row.get("scope"),
+                    share_class_id=row.get("share_class_id"),
+                    benchmark_id=row.get("benchmark_id"),
+                    value_origin=row.get("value_origin")
+                    or (
+                        "disclosure-reported"
+                        if row.get("source_authority") == "issuer_document"
+                        else "source-reported"
+                    ),
+                )
+            available.append(selected)
         if available:
             selected = dict(available[0])
             selected["alternates"] = available[1:]
@@ -1060,10 +1096,34 @@ def load_etf_e1_fields(
             result[field_name] = selected
         else:
             failures = {key: value for _, row in candidates for key, value in (row.get("source_failures") or {}).items()}
-            reason = f"{field_name}_no_dated_source" if rejected else f"{field_name}_missing_all_sources"
+            if mapping_rejected:
+                reason = f"{field_name}_share_class_mapping_unavailable"
+            else:
+                reason = f"{field_name}_no_dated_source" if rejected else f"{field_name}_missing_all_sources"
             if failures:
                 reason += ": " + "; ".join(f"{key}={value}" for key, value in sorted(failures.items()))
-            result[field_name] = {"value": None, "source": None, "as_of": None, "known_at": None, "alternates": [], "difference": False, "reason": reason}
+            result[field_name] = {
+                "value": None,
+                "source": None,
+                "as_of": None,
+                "known_at": None,
+                "alternates": [],
+                "difference": False,
+                "reason": reason,
+            }
+            if include_traceability:
+                result[field_name].update(
+                    effective_at=None,
+                    freshness_status="unavailable",
+                    freshness_reason=reason,
+                    source_provenance=None,
+                    source_checksum=None,
+                    currency=None,
+                    scope=None,
+                    share_class_id=None,
+                    benchmark_id=None,
+                    value_origin="unavailable",
+                )
         result[field_name]["rejections"] = rejections
         if not available and rejections:
             result[field_name]["reason"] = f"{field_name}_weights_not_usable"
@@ -1220,7 +1280,11 @@ def _latest_by_scope(records: Sequence[EtfEconomicsObservation]) -> tuple[EtfEco
 
 def _fee_payload(record: EtfEconomicsObservation) -> dict[str, object]:
     return {
-        "scope": record.scope, "share_class_id": record.share_class_id, "as_of": record.as_of, "known_at": record.known_at,
+        "scope": record.scope, "instrument_id": record.instrument_id,
+        "share_class_id": record.share_class_id, "as_of": record.as_of,
+        "effective_at": record.as_of, "known_at": record.known_at,
+        "currency": record.currency, "benchmark_id": record.benchmark_id,
+        "benchmark_currency": record.benchmark_currency,
         "ter": record.ter, "ocf": record.ocf, "fee_unit": "decimal_fraction" if record.fee_unit else None,
         "value_origin": "disclosure-reported" if record.ter is not None or record.ocf is not None else "unavailable",
         "document_id": record.document_id, "document_date": record.document_date, "document_page": record.document_page,
@@ -1356,6 +1420,30 @@ def calculate_etf_economics(
             missing.add("benchmark_currency")
         if benchmark_currency is not None and output_currency is not None and benchmark_currency != output_currency:
             missing.add("currency_match")
+        class_identity_reasons: list[str] = []
+        if class_event is not None:
+            if fund is None:
+                class_identity_reasons.append("fund_scope_identity_unavailable")
+            if (
+                fund is None
+                or class_event.currency is None
+                or class_event.currency != fund.currency
+            ):
+                class_identity_reasons.append("share_class_currency_mismatch_or_unavailable")
+            if (
+                fund is None
+                or class_event.benchmark_id is None
+                or class_event.benchmark_id != fund.benchmark_id
+            ):
+                class_identity_reasons.append("share_class_benchmark_mismatch_or_unavailable")
+            if (
+                fund is None
+                or class_event.benchmark_currency is None
+                or class_event.benchmark_currency != fund.benchmark_currency
+            ):
+                class_identity_reasons.append("share_class_benchmark_currency_mismatch_or_unavailable")
+            if class_identity_reasons:
+                missing.add("share_class_identity_mismatch")
         if class_closure_applies:
             missing.add("share_class_closed")
             if class_event is not None and class_event.entity_status == "merged":
@@ -1424,6 +1512,11 @@ def calculate_etf_economics(
             missing.add("matched_total_return")
 
         fund_metrics: dict[str, object] = {
+            "scope": "fund" if fund else None,
+            "instrument_id": fund.instrument_id if fund else None,
+            "currency": fund.currency if fund else None,
+            "benchmark_id": fund.benchmark_id if fund else None,
+            "benchmark_currency": fund.benchmark_currency if fund else None,
             "ter": fund.ter if fund else None, "ocf": fund.ocf if fund else None, "fee_unit": "decimal_fraction" if fund and fund.fee_unit else None, "aum": fund.aum if fund else None,
             "source_id": fund.source_id if fund else None, "source_provenance": fund.source_provenance if fund else None, "source_checksum": fund.source_checksum if fund else None,
             "evidence_as_of": fund.as_of if fund else None, "evidence_known_at": fund.known_at if fund else None,
