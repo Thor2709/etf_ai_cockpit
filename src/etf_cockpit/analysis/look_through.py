@@ -278,9 +278,12 @@ def calculate_look_through(
             "factor": "factors",
             "cap_bucket": "cap_buckets",
         }.items():
-            reported_value = reported_dimensions.get(item.identity, {}).get(dimension)
-            if reported_value:
-                bucket[bucket_name].append((reported_value, item.weight))
+            reported = reported_dimensions.get(item.identity, {}).get(dimension)
+            if reported:
+                reported_value, evidenced_weight = reported
+                evidenced = min(item.weight, evidenced_weight)
+                if evidenced > 0:
+                    bucket[bucket_name].append((reported_value, evidenced))
         if not item.issuer and not item.company and not _mapped_identity(identity_map, item.identity):
             limitations.append(f"Issuer-level grouping is unavailable for {item.identity}; other listings may remain separate.")
 
@@ -342,6 +345,7 @@ def calculate_look_through(
         analysis,
         minimum_aggregate_coverage,
         reported_total,
+        {identity: values["currency"] for identity, values in reported_dimensions.items() if "currency" in values},
     )
     limitations.extend(metric_limitations)
 
@@ -599,6 +603,7 @@ def _aggregate_fundamentals(
     analysis: date,
     minimum_aggregate_coverage: float,
     reported_total: float,
+    holding_currency_evidence: Mapping[str, tuple[str, float]],
 ) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, object]], list[str]]:
     mapped_weight = math.fsum(float(row["weight"]) for row in economic_rows)
     portfolio_denominator = max(1.0, reported_total)
@@ -692,7 +697,14 @@ def _aggregate_fundamentals(
         weight = float(economic["weight"])
         currencies = {holding.currency.upper() for holding in holdings_for_key if holding.currency}
         fact_currency = _clean_text(evidence.get("currency")).upper()
-        if not fact_currency or len(currencies) != 1:
+        # Every listing (and every merged row of a listing) must report its own
+        # currency; another listing's currency never stands in for a missing one.
+        currency_incomplete = any(
+            not holding.currency
+            or holding_currency_evidence.get(holding.identity, ("", 0.0))[1] < holding.weight - _RECONCILIATION_TOLERANCE
+            for holding in holdings_for_key
+        )
+        if not fact_currency or len(currencies) != 1 or currency_incomplete:
             limitations.append(f"Fundamental or holding currency evidence is missing or ambiguous for {key}; metrics were excluded.")
             continue
         if currencies != {fact_currency}:
@@ -858,27 +870,66 @@ def _concentration(
     }
 
 
-def _reported_dimensions(frame: pd.DataFrame) -> tuple[dict[str, dict[str, str]], list[str]]:
-    fields = ("industry", "domicile", "economic_currency", "factor", "cap_bucket")
-    grouped: dict[str, dict[str, list[str]]] = {}
+# Columns the holdings normaliser keeps when it removes exact duplicate rows.
+# Rows identical on these columns are one holding, so they are one evidence row.
+_NORMALISER_SECURITY_COLUMNS = (
+    "security", "holding_name", "security_name", "name", "ticker", "symbol", "isin", "holding_id", "security_id",
+)
+_NORMALISER_WEIGHT_COLUMNS = ("weight", "weight_decimal", "weight_percent", "weight_pct")
+_NORMALISER_ROW_COLUMNS = (
+    "isin", "ticker", "sector", "region", "country", "currency", "issuer", "company", "holding_id",
+    "holding_id_namespace", "security_id", "security_id_namespace", "exchange", "venue", "identity_type",
+    "identity_namespace", "identity_value", "instrument_type", "field_name", "field", "value", "page",
+    "source_page", "status", "confidence",
+)
+
+
+def _reported_dimensions(
+    frame: pd.DataFrame,
+) -> tuple[dict[str, dict[str, tuple[str, float]]], list[str]]:
+    """Return each typed identity's unambiguous label and the weight that reports it.
+
+    Rows that repeat a typed identity are merged later, so a label reported by
+    only some of them evidences only that share of the merged weight. Exact
+    duplicate rows (as removed by the holdings normaliser) count once.
+    """
+    fields = ("industry", "domicile", "economic_currency", "factor", "cap_bucket", "currency")
+    security_column = next((c for c in _NORMALISER_SECURITY_COLUMNS if c in frame.columns), None)
+    weight_column = next((c for c in _NORMALISER_WEIGHT_COLUMNS if c in frame.columns), None)
+    scale = 0.01 if weight_column in {"weight_percent", "weight_pct"} else 1.0
+    key_columns = list(
+        dict.fromkeys(
+            c for c in (security_column, weight_column, *_NORMALISER_ROW_COLUMNS) if c and c in frame.columns
+        )
+    )
+    seen: set[tuple[str, ...]] = set()
+    grouped: dict[str, dict[str, dict[str, float]]] = {}
     for _, row in frame.iterrows():
         identity = _typed_identity(row)
         if identity is None:
             continue
-        values = grouped.setdefault(identity, {field: [] for field in fields})
+        key = tuple(_clean_text(row.get(column)) for column in key_columns)
+        if key in seen:
+            continue
+        seen.add(key)
+        raw_weight = pd.to_numeric(row.get(weight_column), errors="coerce") if weight_column else math.nan
+        weight = float(raw_weight) * scale if math.isfinite(raw_weight) else 0.0
+        values = grouped.setdefault(identity, {field: {} for field in fields})
         for field in fields:
             value = _clean_text(row.get(field))
+            if field == "currency":
+                value = value.upper()
             if value:
-                values[field].append(value)
-    result: dict[str, dict[str, str]] = {}
+                values[field][value] = values[field].get(value, 0.0) + weight
+    result: dict[str, dict[str, tuple[str, float]]] = {}
     limitations: list[str] = []
     for identity, values in grouped.items():
-        resolved: dict[str, str] = {}
+        resolved: dict[str, tuple[str, float]] = {}
         for field, entries in values.items():
-            distinct = sorted(set(entries))
-            if len(distinct) == 1:
-                resolved[field] = distinct[0]
-            elif len(distinct) > 1:
+            if len(entries) == 1:
+                value, evidenced = next(iter(entries.items()))
+                resolved[field] = (value, evidenced)
+            elif len(entries) > 1 and field != "currency":
                 limitations.append(f"Conflicting reported {field.replace('_', ' ')} evidence was excluded for {identity}.")
         result[identity] = resolved
     return result, limitations

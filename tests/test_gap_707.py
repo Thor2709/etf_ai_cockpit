@@ -211,6 +211,59 @@ def test_low_fundamental_and_dimension_coverage_withholds_aggregates() -> None:
         assert any("Minimum aggregate coverage" in item for item in rejected.limitations)
 
 
+def test_same_isin_mixed_dimension_evidence_covers_only_the_reporting_weight() -> None:
+    summary = calculate_look_through(
+        pd.DataFrame(
+            [
+                {**_holding(APPLE_ISIN, 0.5, sector="Technology", industry="Software"), "security": "Apple Inc. A"},
+                {**_holding(APPLE_ISIN, 0.5, sector="Technology"), "security": "Apple Inc. B"},
+            ]
+        ),
+        instrument_id="TESTETF",
+        decision_time=DECISION_TIME,
+        analysis_date=HOLDINGS_DATE,
+        identity_map={f"isin:{APPLE_ISIN.casefold()}": "SEC-APPLE"},
+        require_canonical_identity=True,
+    )
+
+    assert summary.mapped_weight == pytest.approx(1.0)
+    assert summary.exposures["industry"] == {"Software": pytest.approx(0.5)}
+    assert summary.exposure_coverage["industry"]["aggregate_status"] == "partial"
+    assert summary.normalized_exposures["industry"] == {}
+
+
+def test_missing_holding_currency_on_any_listing_withholds_fundamental_metrics() -> None:
+    missing_listing = pd.DataFrame(
+        [
+            _holding(APPLE_ISIN, 0.5, sector="Technology"),
+            {**_holding(MICROSOFT_ISIN, 0.5, sector="Technology"), "currency": None},
+        ]
+    )
+    missing_merged_row = pd.DataFrame(
+        [
+            {**_holding(APPLE_ISIN, 0.5, sector="Technology"), "security": "Apple Inc. A"},
+            {**_holding(APPLE_ISIN, 0.5, sector="Technology"), "security": "Apple Inc. B", "currency": None},
+        ]
+    )
+    for name, frame in {"listing": missing_listing, "merged_row": missing_merged_row}.items():
+        result = calculate_look_through(
+            frame,
+            instrument_id="TESTETF",
+            decision_time=DECISION_TIME,
+            analysis_date=HOLDINGS_DATE,
+            constituent_fundamentals=pd.DataFrame([_fundamental("SEC-APPLE", 10.0, 0.1)]),
+            identity_map={
+                f"isin:{APPLE_ISIN.casefold()}": "SEC-APPLE",
+                f"isin:{MICROSOFT_ISIN.casefold()}": "SEC-APPLE",
+            },
+            require_canonical_identity=True,
+        )
+        assert result.calculated_metrics["pe_ratio"]["value"] is None, name
+        assert result.calculated_metrics["roic"]["value"] is None, name
+        assert result.fundamental_data_coverage["pe_ratio"]["covered_weight"] == 0.0, name
+        assert any("currency" in item for item in result.limitations), name
+
+
 def test_full_coverage_exposes_reported_dimensions_and_calculated_metrics() -> None:
     summary = calculate_look_through(
         pd.DataFrame(
