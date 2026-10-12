@@ -72,5 +72,3 @@ def menu_row_text(title: str, sub: str, *, selected: bool) -> ft.Column:
         spacing=2,
         tight=True,
     )
-
-

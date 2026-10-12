@@ -244,4 +244,3 @@ def build_topbar(
     set_width(width)
     segments_left = lambda: current_width() - 20 - 150 - 24 - 40  # noqa: E731
     return TopBar(control, 24 + 84 + 24 + 28, set_width)
-

@@ -16,4 +16,3 @@ def test_forecast_unknown_progress_and_cancelled_status_are_renderable():
     activity.status = "cancelled"
     assert "cancelled" in forecast_lab._run_status(state).value
     assert "in progress" not in forecast_lab._run_status(state).value
-
