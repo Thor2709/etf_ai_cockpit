@@ -298,8 +298,11 @@ def build_cyclical_projection(
     history = _history(cycle_history, decision)
     adequate = len(history) >= 2
     history_ids = tuple(sorted(row.cycle_id for row in history))
-    linked = next((row.normalisation_cycle_ids for row in results if row.metric == "normalised_margin"), ())
-    normalisation_linked = tuple(sorted(linked)) == history_ids
+    margin = next(row for row in results if row.metric == "normalised_margin")
+    normalisation_linked = (
+        tuple(sorted(margin.normalisation_cycle_ids)) == history_ids
+        and all(row.end_at <= margin.as_of and row.known_at <= margin.known_at for row in history)
+    )
     if adequate and normalisation_linked:
         results = [
             replace(
@@ -747,11 +750,22 @@ def _cycle_adjusted_valuation(
                     limitations=tuple(sorted({*enterprise_value.limitations, *revenue.limitations, *margin.limitations})),
                 )
     elif multiple.status == "available":
-        rows[multiple.metric] = replace(
-            multiple,
-            basis="issuer_reported_cycle_adjusted_multiple; cycles=" + ",".join(history_ids),
-            normalisation_cycle_ids=history_ids,
-        )
+        # A reported multiple cannot stand in for missing normalised-earnings
+        # inputs merely because unrelated cycle records exist.
+        if normalised_margin_supplied and (
+            multiple.normalisation_cycle_ids != history_ids
+            or multiple.reporting_standard != margin.reporting_standard
+            or multiple.jurisdiction != margin.jurisdiction
+            or multiple.as_of < margin.as_of
+            or multiple.known_at < margin.known_at
+        ):
+            rows[multiple.metric] = unavailable("reported_multiple_through_cycle_basis_unverified")
+        else:
+            rows[multiple.metric] = replace(
+                multiple,
+                basis="issuer_reported_cycle_adjusted_multiple; cycles=" + ",".join(history_ids),
+                normalisation_cycle_ids=history_ids,
+            )
     else:
         rows[multiple.metric] = unavailable("through_cycle_valuation_inputs_unavailable")
     return [rows[row.metric] for row in results]

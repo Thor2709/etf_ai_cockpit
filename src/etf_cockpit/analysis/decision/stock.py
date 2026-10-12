@@ -755,6 +755,13 @@ def _cyclical_scored_metrics(
         cycles = _projection_member(raw, "normalisation_cycle_ids", ())
         record["basis"] = basis
         record["normalisation_cycle_ids"] = cycles
+        if producer_name == "cycle_adjusted_ev_to_earnings" and not _cyclical_core_available(
+            projection, stock_map.cyclical_sources
+        ):
+            record["decision_status"] = "UNAVAILABLE"
+            record["reason_code"] = unavailable_reason or "CYCLICAL_CORE_EVIDENCE_UNAVAILABLE"
+            evidence[metric_id] = record
+            continue
         if raw is None or _projection_member(raw, "status") != "available":
             record["decision_status"] = "UNAVAILABLE"
             record["reason_code"] = (

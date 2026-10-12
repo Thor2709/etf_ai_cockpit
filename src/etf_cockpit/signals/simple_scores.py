@@ -1543,6 +1543,7 @@ def build_universe_simple_scores(
                     cyclical_projection=(cyclical_projections or {}).get(signal.etf_id),
                     instrument_id=signal.etf_id,
                     decision_time=signal.signal_date,
+                    sector=identity.sector,
                 )
                 if stock_like
                 else [_etf_exposure_component(exposure_info, signal.signal_date)]
@@ -1845,6 +1846,7 @@ def build_candidate_simple_scores(
                 (cyclical_projections or {}).get(instrument_id),
                 instrument_id=instrument_id,
                 decision_time=decision_date,
+                sector=row.get("sector"),
             )
             if cyclical_components is not None:
                 component_rows.extend(cyclical_components)
@@ -2650,6 +2652,7 @@ def _stock_fundamental_components(
     cyclical_projection: object | None = None,
     instrument_id: str | None = None,
     decision_time: object | None = None,
+    sector: object | None = None,
 ) -> list[SimpleScoreComponent]:
     """Value, quality and analyst-revision components of one stock; a missing one states why."""
 
@@ -2657,6 +2660,7 @@ def _stock_fundamental_components(
         cyclical_projection,
         instrument_id=instrument_id,
         decision_time=decision_time,
+        sector=sector,
     )
     if cyclical is not None:
         revision = (
@@ -2701,8 +2705,22 @@ def _cyclical_stock_components(
     *,
     instrument_id: str | None,
     decision_time: object | None,
+    sector: object | None = None,
 ) -> list[SimpleScoreComponent] | None:
     if projection is None:
+        sector_name = str(sector).strip().casefold()
+        if sector_name == "industrial":
+            sector_name = "industrials"
+        source_id = f"sector:{sector_name}"
+        if source_id in CYCLICAL_SCORE_SOURCE_IDS:
+            return [
+                _cyclical_component(
+                    key, None,
+                    "Through-cycle evidence and sufficient cycle history are unavailable",
+                    source_id, None,
+                )
+                for key in ("stock_value", "stock_quality")
+            ]
         return None
     adapter_id = _simple_projection_member(projection, "adapter_id")
     source_id = adapter_id if adapter_id in CYCLICAL_SCORE_SOURCE_IDS else "unavailable"
@@ -2718,7 +2736,16 @@ def _cyclical_stock_components(
         if payload.get("instrument_id") != instrument_id:
             raise CyclicalAdapterError("cyclical projection instrument does not match the score target")
         projected_time = _simple_projection_member(_simple_projection_member(projection, "lineage"), "decision_time")
-        if _simple_score_date(projected_time) != _simple_score_date(decision_time):
+        explicit_cutoff = isinstance(decision_time, datetime) or (
+            isinstance(decision_time, str) and len(decision_time.strip()) > 10
+        )
+        if explicit_cutoff:
+            target_cutoff = pd.Timestamp(decision_time)
+            projection_cutoff = pd.Timestamp(projected_time)
+            if (target_cutoff.tzinfo is None or projection_cutoff.tzinfo is None
+                    or target_cutoff != projection_cutoff):
+                raise CyclicalAdapterError("cyclical projection decision cutoff does not match the score time")
+        elif _simple_score_date(projected_time) != _simple_score_date(decision_time):
             raise CyclicalAdapterError("cyclical projection decision cutoff does not match the score date")
         source_id = str(payload["adapter_id"])
         if source_id not in CYCLICAL_SCORE_SOURCE_IDS:
