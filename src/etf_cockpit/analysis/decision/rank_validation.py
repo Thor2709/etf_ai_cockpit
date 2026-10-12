@@ -1539,17 +1539,63 @@ def _session_end(value: object) -> pd.Timestamp | None:
 
 
 def with_price_stamps(prices: pd.DataFrame) -> pd.DataFrame:
-    """Return prices with explicit ``known_at``; a missing column is a documented default.
+    """Return prices carrying ``known_at``; a missing column stays unverifiable.
 
-    The stored daily price table carries no knowledge timestamp.  Conservative
-    default: a close is known at the end (23:59:59 UTC) of its own session date,
-    so it can enter a cutoff at or after that moment and never earlier.
+    A stored close table without a knowledge timestamp may have been downloaded
+    or revised long after its session date, so no timestamp is ever derived from
+    the session date.  Rows without a verifiable ``known_at`` never enter a
+    cutoff; ``price_knowledge_gap`` names the reason.
     """
 
     frame = prices.copy()
     if "known_at" not in frame.columns:
-        frame["known_at"] = frame["date"].map(_session_end)
+        frame["known_at"] = None
     return frame
+
+
+def price_knowledge_gap(prices: pd.DataFrame) -> str | None:
+    """Reason the stored prices cannot support point-in-time use, else ``None``."""
+
+    if not _has_columns(prices, {"known_at"}):
+        return "stored prices carry no known_at column; knowledge time is not verifiable"
+    if not any(_aware_timestamp(item) is not None for item in prices["known_at"]):
+        return "no stored price row has a verifiable timezone-aware known_at"
+    return None
+
+
+_COVERAGE_SLACK_DAYS = 7
+
+
+def window_coverage(prices: pd.DataFrame, years: int, *, end: date | None = None) -> dict[str, object]:
+    """Whether stored history spans the requested duration, with the actual coverage.
+
+    Sufficient only when the first stored session is within a week of the
+    requested start (weekend/holiday slack) and the first window session still
+    has the full indicator lookback behind it.
+    """
+
+    if not _has_columns(prices, {"instrument_id", "date"}) or prices.empty:
+        return {"requested_years": years, "sufficient": False, "reason": "stored_prices_unavailable"}
+    sessions = sorted({item for item in prices["date"].map(_date_value) if item is not None})
+    if not sessions:
+        return {"requested_years": years, "sufficient": False, "reason": "stored_prices_unavailable"}
+    last = end or sessions[-1]
+    first_wanted = (pd.Timestamp(last) - pd.DateOffset(years=years)).date()
+    candidates = [item for item in sessions if first_wanted < item <= last]
+    coverage: dict[str, object] = {
+        "requested_years": years,
+        "requested_start": first_wanted.isoformat(),
+        "first_stored_session": sessions[0].isoformat(),
+        "last_stored_session": last.isoformat(),
+        "covered_years": round((last - sessions[0]).days / 365.25, 2),
+        "sufficient": True,
+        "reason": None,
+    }
+    if (sessions[0] - first_wanted).days > _COVERAGE_SLACK_DAYS or not candidates:
+        coverage.update(sufficient=False, reason="stored_history_shorter_than_requested_duration")
+    elif sessions.index(candidates[0]) + 1 < lookback_sessions_required():
+        coverage.update(sufficient=False, reason="indicator_lookback_precedes_stored_history")
+    return coverage
 
 
 def window_decision_times(
@@ -1591,6 +1637,20 @@ def window_decision_times(
     return tuple(times), excluded
 
 
+def _cutoff_text(cutoff: pd.Timestamp) -> str:
+    return cutoff.isoformat().replace("+00:00", "Z")
+
+
+def _latest_price_rows(group: pd.DataFrame) -> pd.DataFrame | None:
+    """Latest-known row per session date; ``None`` when tied latest rows disagree."""
+
+    ordered = group.sort_values(["_date", "_known"], kind="stable")
+    latest = ordered.loc[ordered["_known"].eq(ordered.groupby("_date")["_known"].transform("max"))]
+    if (latest.groupby("_date")["_close"].nunique(dropna=False) > 1).any():
+        return None
+    return latest.drop_duplicates("_date", keep="last")
+
+
 def price_momentum_risk_evidence(
     prices: pd.DataFrame,
     decision_times: Sequence[datetime | date | str],
@@ -1614,10 +1674,16 @@ def price_momentum_risk_evidence(
     if not _has_columns(prices, {"instrument_id", "date", "adjusted_close"}):
         return pd.DataFrame(columns=columns), skipped
     frame = with_price_stamps(prices)
+    if price_knowledge_gap(frame) is not None:
+        return pd.DataFrame(columns=columns), {
+            _cutoff_text(item): {"all_instruments": "price_known_at_unverifiable"}
+            for item in _decision_times(decision_times)
+        }
     frame["_date"] = frame["date"].map(_date_value)
     frame["_known"] = frame["known_at"].map(_aware_timestamp)
     frame["_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
-    frame = frame.loc[frame["_date"].notna() & frame["_known"].notna() & frame["_close"].gt(0)]
+    # Invalid closes stay in the frame so conflict detection sees them; selected invalid evidence fails closed below.
+    frame = frame.loc[frame["_date"].notna() & frame["_known"].notna()]
     needed = lookback_sessions_required()
     records: list[dict[str, object]] = []
     for cutoff in _decision_times(decision_times):
@@ -1626,7 +1692,13 @@ def price_momentum_risk_evidence(
         cross: list[dict[str, object]] = []
         reasons: dict[str, str] = {}
         for instrument, group in known.groupby(known["instrument_id"].astype(str), sort=True):
-            series = group.sort_values(["_date", "_known"], kind="stable").drop_duplicates("_date", keep="last")
+            series = _latest_price_rows(group)
+            if series is None:
+                reasons[str(instrument)] = "conflicting_price_rows"
+                continue
+            if not series["_close"].gt(0).all():
+                reasons[str(instrument)] = "invalid_price_rows"
+                continue
             if len(series) < needed:
                 reasons[str(instrument)] = "insufficient_price_history"
                 continue
@@ -1670,7 +1742,9 @@ def attach_fundamental_evidence(
 
     ``fundamentals`` needs ``instrument_id``, ``effective_at``, ``known_at`` and
     the score columns.  Instruments with no row known by the cutoff keep NaN, so
-    the fundamental rankers report that date as insufficient.
+    the fundamental rankers report that date as insufficient.  Tied latest rows
+    that disagree are a conflict: the instrument keeps NaN and is listed per
+    cutoff in ``result.attrs["fundamental_conflicts"]``; agreeing ties collapse.
     """
 
     required = {"instrument_id", "effective_at", "known_at", "quality_score", "value_score", "v3_score"}
@@ -1682,6 +1756,8 @@ def attach_fundamental_evidence(
     funds["_effective"] = funds["effective_at"].map(_date_value)
     funds["instrument_id"] = funds["instrument_id"].astype(str)
     funds = funds.loc[funds["_known"].notna() & funds["_effective"].notna()]
+    score_columns = ["quality_score", "value_score", "v3_score"]
+    conflicts: dict[str, list[str]] = {}
     for cutoff_text, group in result.groupby("known_at", sort=False):
         cutoff = _aware_timestamp(cutoff_text)
         if cutoff is None:
@@ -1689,12 +1765,23 @@ def attach_fundamental_evidence(
         usable = funds.loc[funds["_known"].le(cutoff) & funds["_effective"].map(lambda value: value <= cutoff.date())]
         if usable.empty:
             continue
-        latest = usable.sort_values(["_effective", "_known"], kind="stable").groupby("instrument_id").tail(1)
-        by_instrument = latest.set_index("instrument_id")
-        for column in ("quality_score", "value_score", "v3_score"):
+        chosen: list[pd.Series] = []
+        for instrument, rows in usable.groupby("instrument_id", sort=True):
+            top = rows.loc[rows["_effective"].eq(rows["_effective"].max())]
+            top = top.loc[top["_known"].eq(top["_known"].max())]
+            values = top[score_columns].apply(pd.to_numeric, errors="coerce")
+            if len(values.drop_duplicates()) > 1:
+                conflicts.setdefault(str(cutoff_text), []).append(str(instrument))
+                continue
+            chosen.append(top.iloc[-1])
+        by_instrument = (
+            pd.DataFrame(chosen).set_index("instrument_id") if chosen else pd.DataFrame(columns=score_columns)
+        )
+        for column in score_columns:
             result.loc[group.index, column] = pd.to_numeric(
                 group["instrument_id"].astype(str).map(by_instrument[column]), errors="coerce"
             )
+    result.attrs["fundamental_conflicts"] = conflicts
     return result
 
 
@@ -1730,15 +1817,17 @@ def forward_comparator_frame(
 
 
 def fixed_terminal_holdout(
-    replay: RankReplayReport,
+    decision_times: Sequence[datetime | date | str],
     *,
     fraction: float = _HOLDOUT_FRACTION,
 ) -> tuple[str, ...]:
-    """Terminal holdout fixed from decision *dates only*; returns are never inspected."""
+    """Terminal holdout fixed from the *requested* decision dates, before any replay.
 
-    if replay.rows.empty or "decision_time" not in replay.rows.columns:
-        return ()
-    times = sorted(replay.rows["decision_time"].dropna().astype(str).unique())
+    Neither prices, outcomes nor replay coverage are inspected, so the boundary
+    cannot move with held-out evidence availability.
+    """
+
+    times = sorted(_cutoff_text(item) for item in _decision_times(decision_times))
     count = max(1, math.ceil(len(times) * fraction))
     return tuple(times[-count:]) if len(times) > count else ()
 
@@ -1755,17 +1844,31 @@ def run_stored_rank_validation(
     policy: RankValidationPolicy,
     holdout_fraction: float = _HOLDOUT_FRACTION,
 ) -> tuple[RankReplayReport, RankValidationReport]:
-    """Replay then validate; the holdout is fixed from dates before any metric is computed."""
+    """Fix the holdout from requested dates, then replay and validate.
 
+    A terminal holdout date the replay could not cover stays in the holdout and
+    makes the validation insufficient; the boundary never moves to covered dates.
+    """
+
+    holdout = fixed_terminal_holdout(decision_times, fraction=holdout_fraction)
     stamped = with_price_stamps(prices)
     replay = replay_rank_panel(
         evidence, memberships, stamped, costs, benchmark_returns, cash_returns,
         decision_times, policy=policy,
     )
-    holdout = fixed_terminal_holdout(replay, fraction=holdout_fraction)
     if not holdout:
         return replay, _empty_validation(
-            replay, (), "no terminal holdout window can be fixed from the covered decision dates"
+            replay, (), "no terminal holdout window can be fixed from the requested decision dates"
+        )
+    covered = (
+        set(replay.rows["decision_time"].dropna().astype(str))
+        if not replay.rows.empty and "decision_time" in replay.rows.columns
+        else set()
+    )
+    missing = sorted(set(holdout) - covered)
+    if missing:
+        return replay, _empty_validation(
+            replay, holdout, f"terminal holdout dates without replay evidence: {', '.join(missing)}"
         )
     return replay, evaluate_rank_validation(
         replay, holdout_decision_times=holdout, prices=stamped, policy=policy
@@ -1914,10 +2017,12 @@ __all__ = [
     "fixed_terminal_holdout",
     "forward_comparator_frame",
     "lookback_sessions_required",
+    "price_knowledge_gap",
     "price_momentum_risk_evidence",
     "rank_validation_report_dict",
     "research_policy",
     "run_stored_rank_validation",
+    "window_coverage",
     "window_decision_times",
     "with_price_stamps",
 ]

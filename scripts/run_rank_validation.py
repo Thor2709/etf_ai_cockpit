@@ -31,16 +31,49 @@ from etf_cockpit.analysis.decision.rank_validation import (  # noqa: E402 - impo
     attach_fundamental_evidence,
     forward_comparator_frame,
     load_rank_validation_policy,
+    price_knowledge_gap,
     price_momentum_risk_evidence,
     rank_validation_report_dict,
     research_policy,
     run_stored_rank_validation,
+    window_coverage,
     window_decision_times,
 )
 from etf_cockpit.core.paths import CONFIG_DIR  # noqa: E402 - imports follow the sys.path bootstrap above
 
 _PRICE_RELATIVE = Path("data") / "validated" / "prices" / "prices_daily.parquet"
 _DEFAULT_SCOPE = "listing:euronext_oslo:all"
+_DESKTOP_TREE = Path("C:/Users/thor2/Desktop/Trading App")
+_PROTECTED_PARTS = {".owner-root", "models"}
+
+
+def output_refusal(target: Path, inputs: Sequence[Path | None]) -> str | None:
+    """Reason a report destination is refused, else ``None`` (checked before any build or write).
+
+    Refused: configs/, any ``.owner-root`` or ``models`` directory, the owner
+    Desktop tree, a non-``.json`` name, any input table, and any existing file
+    that is not a previous rank-validation report (it may hold champion state).
+    """
+
+    resolved = target.resolve()
+    if resolved.is_relative_to(CONFIG_DIR.resolve()):
+        return "refusing to write a report into the configuration directory"
+    if resolved.is_relative_to(_DESKTOP_TREE.resolve()):
+        return "refusing to write a report into the owner Desktop tree"
+    if any(part.casefold() in _PROTECTED_PARTS for part in resolved.parts):
+        return "refusing to write a report under a protected .owner-root or models directory"
+    if resolved.suffix.lower() != ".json":
+        return "the report destination must be a .json file"
+    if any(item is not None and item.resolve() == resolved for item in inputs):
+        return "refusing to overwrite an input table with the report"
+    if resolved.exists():
+        try:
+            previous = json.loads(resolved.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            previous = None
+        if not isinstance(previous, dict) or previous.get("kind") != "rank_validation_report":
+            return "refusing to overwrite an existing file that is not a rank validation report"
+    return None
 
 
 def _read_table(path: Path | None) -> pd.DataFrame:
@@ -81,7 +114,7 @@ def build_report(args: argparse.Namespace) -> dict[str, object]:
         "kind": "rank_validation_report",
         "generated_for": "research_only",
         "policy_version": base_policy.version,
-        "price_known_at_basis": "session_end_assumed_when_column_absent",
+        "price_known_at_basis": "stored_known_at_column_required",
         "inputs": {
             "prices_rows": int(len(prices)),
             "costs_rows": int(len(costs)),
@@ -98,6 +131,14 @@ def build_report(args: argparse.Namespace) -> dict[str, object]:
         report["status"] = "unavailable"
         report["reason"] = "stored adjusted-close history is unavailable"
         return report
+    gap = price_knowledge_gap(prices)
+    if gap is not None:
+        report["status"] = "unavailable"
+        report["reason"] = gap
+        return report
+    report["inputs"]["price_rows_without_verifiable_known_at"] = int(  # type: ignore[index]
+        sum(1 for item in prices["known_at"] if pd.isna(pd.to_datetime(item, errors="coerce", utc=True)))
+    )
     last_session = max(item for item in pd.to_datetime(prices["date"]).dt.date)
     as_known_at = datetime(last_session.year, last_session.month, last_session.day, 23, 59, 59, tzinfo=timezone.utc)
     memberships = _load_membership(args, root, as_known_at)
@@ -105,6 +146,20 @@ def build_report(args: argparse.Namespace) -> dict[str, object]:
     first_session = min(item for item in pd.to_datetime(prices["date"]).dt.date)
 
     for years in args.years:
+        coverage = window_coverage(prices, years)
+        if not coverage["sufficient"]:
+            report["windows"].append(  # type: ignore[union-attr]
+                {
+                    "requested_years": years,
+                    "status": "insufficient_evidence",
+                    "reason": coverage["reason"],
+                    "coverage": coverage,
+                    "decision_times": 0,
+                    "excluded_decision_times": 0,
+                    "sections": {},
+                }
+            )
+            continue
         times, excluded = window_decision_times(
             prices,
             years,
@@ -119,6 +174,8 @@ def build_report(args: argparse.Namespace) -> dict[str, object]:
         )
         window: dict[str, object] = {
             "requested_years": years,
+            "status": "evaluated",
+            "coverage": coverage,
             "first_price_date": first_session.isoformat(),
             "last_price_date": last_session.isoformat(),
             "decision_times": len(times),
@@ -151,6 +208,9 @@ def build_report(args: argparse.Namespace) -> dict[str, object]:
                 requested_decision_times=times,
                 excluded_decision_times=excluded,
             )
+            conflicts = run_evidence.attrs.get("fundamental_conflicts")
+            if conflicts:
+                sections[label]["fundamental_conflicts"] = conflicts
         window["sections"] = sections
         report["windows"].append(window)  # type: ignore[union-attr]
     report["status"] = "reported"
@@ -162,7 +222,11 @@ def _summary(report: dict[str, object]) -> str:
     if report.get("reason"):
         lines.append(f"reason: {report['reason']}")
     for window in report.get("windows", []):  # type: ignore[union-attr]
-        lines.append(f"{window['requested_years']}y: {window['decision_times']} decision times, {window['excluded_decision_times']} excluded")
+        lines.append(
+            f"{window['requested_years']}y: {window.get('status')}, {window['decision_times']} decision times, "
+            f"{window['excluded_decision_times']} excluded"
+            + (f" - {window['reason']} (covered {window['coverage'].get('covered_years')}y)" if window.get("reason") else "")
+        )
         for name, section in window["sections"].items():
             lines.append(f"  {name}: {section.get('status')} - {section.get('reason') or 'ok'}")
             for ranker, metrics in (section.get("holdout") or {}).items():
@@ -194,9 +258,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("--years values must be positive", file=sys.stderr)
         return 2
     if args.out is not None:
-        target = args.out.resolve()
-        if target.is_relative_to(CONFIG_DIR.resolve()):
-            print("refusing to write a report into the configuration directory", file=sys.stderr)
+        stored_prices = args.prices if args.prices is not None else args.root.resolve() / _PRICE_RELATIVE
+        refusal = output_refusal(
+            args.out, [stored_prices, args.membership, args.costs, args.cash, args.fundamentals]
+        )
+        if refusal is not None:
+            print(refusal, file=sys.stderr)
             return 2
     report = build_report(args)
     print(_summary(report))
