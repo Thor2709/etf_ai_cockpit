@@ -766,9 +766,15 @@ def _cycle_adjusted_valuation(
         elif enterprise_value.value is None or revenue.value is None or enterprise_value.value <= 0 or revenue.value <= 0:
             rows[multiple.metric] = unavailable("enterprise_value_or_revenue_non_positive")
         else:
-            value = enterprise_value.value / (revenue.value * margin.value)
+            normalised_earnings = revenue.value * margin.value
+            if not math.isfinite(normalised_earnings) or normalised_earnings <= 0:
+                rows[multiple.metric] = unavailable("normalised_earnings_non_finite_or_non_positive")
+                return [rows[row.metric] for row in results]
+            value = enterprise_value.value / normalised_earnings
             if not math.isfinite(value):
                 rows[multiple.metric] = unavailable("cycle_adjusted_multiple_non_finite")
+            elif value <= 0:
+                rows[multiple.metric] = unavailable("cycle_adjusted_multiple_non_positive")
             else:
                 basis = (
                     "enterprise_value / normalised_revenue / normalised_margin; revenue_basis=through-cycle; cycles="

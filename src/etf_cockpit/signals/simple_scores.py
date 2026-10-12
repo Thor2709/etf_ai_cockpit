@@ -1849,7 +1849,7 @@ def build_candidate_simple_scores(
                 decision_time=decision_date,
                 sector=row.get("sector"),
             )
-            if cyclical_components is not None:
+            if cyclical_components is not None and all(row.status == "OK" for row in cyclical_components):
                 component_rows.extend(cyclical_components)
                 component_rows.append(
                     _optional_score_component(
@@ -2663,7 +2663,9 @@ def _stock_fundamental_components(
         decision_time=decision_time,
         sector=sector,
     )
-    if cyclical is not None:
+    # Unavailable adapter diagnostics do not replace the generic evidence or
+    # its actionable missing-input explanation and provenance.
+    if cyclical is not None and all(row.status == "OK" for row in cyclical):
         revision = (
             _optional_score_component(
                 "analyst_revision",
@@ -2730,7 +2732,7 @@ def _cyclical_stock_components(
         return None
     adapter_id = _simple_projection_member(projection, "adapter_id")
     source_id = adapter_id if adapter_id in CYCLICAL_SCORE_SOURCE_IDS else "unavailable"
-    authority = "issuer_document"
+    authority = "unavailable"
     try:
         source_payload = _simple_projection_member(projection, "source_payload")
         if not isinstance(source_payload, Mapping):
@@ -2822,7 +2824,7 @@ def _cyclical_component(key: str, score: float | None, why: str, source_id: str,
     return replace(
         component,
         source_id=source_id,
-        source_authority="issuer_document",
+        source_authority="issuer_document" if component.score_10 is not None else "unavailable",
         as_of_date=as_of,
         freshness_status="ok" if score is not None else "unavailable",
     )

@@ -168,12 +168,42 @@ def _assert_peak_year_earnings_do_not_make_cyclical_look_cheap(model):
     assert "normalised_revenue" in multiple.basis and "revenue_basis=through-cycle" in multiple.basis
 
 
-def _candidate_components(monkeypatch, projection=None, *, sector="energy"):
+def _assert_normalised_earnings_and_multiple_extremes_fail_closed():
+    # Consolidate both denominator extremes and both quotient extremes; each
+    # input is finite and positive, but the calculation may not be.
+    for revenue, margin, enterprise_value, reason in (
+        (1e-200, 1e-200, 500.0, "normalised_earnings_non_finite_or_non_positive"),
+        (1e200, 1e200, 500.0, "normalised_earnings_non_finite_or_non_positive"),
+        (1e-200, 0.1, 1e200, "cycle_adjusted_multiple_non_finite"),
+        (1e200, 0.1, 1e-200, "cycle_adjusted_multiple_non_positive"),
+    ):
+        projection = _projection(overrides={
+            "revenue": _metric("revenue", revenue, "currency:AUD"),
+            "normalised_margin": _metric("normalised_margin", margin, "ratio"),
+            "enterprise_value": _metric("enterprise_value", enterprise_value, "currency:AUD"),
+        })
+        multiple = next(row for row in projection.metrics if row.metric == "cycle_adjusted_ev_to_earnings")
+        assert multiple.status == "unavailable" and multiple.value is None
+        assert multiple.basis == f"unavailable:{reason}" and reason in multiple.limitations
+        check = next(row for row in projection.checks if row.check == multiple.metric)
+        assert check.status == "unavailable"
+        replay = verify_cyclical_projection(
+            projection, expected_source_digest=cyclical_source_digest(projection.source_payload),
+        )
+        assert replay["result_hash"] == projection.result_hash
+        components = scores._cyclical_stock_components(
+            projection, instrument_id=INSTRUMENT, decision_time=DECISION_TIME, sector="energy",
+        )
+        assert all(row.score_10 is None and not row.score_eligible for row in components)
+        assert all(reason in row.why and row.source_authority != "issuer_document" for row in components)
+
+
+def _candidate_components(monkeypatch, projection=None, *, sector="energy", fundamental_scores=(7.5, 6.5)):
     monkeypatch.setattr(scores, "_etf_exposure_lookup", lambda: {})
     report = pd.DataFrame([{
         "instrument_id": INSTRUMENT, "asset_type": "STOCK", "instrument_type": "stock",
         "sector": sector, "latest_date": "2025-02-28", "latest_price": 50.0,
-        "value_score_10": 7.5, "quality_score_10": 6.5,
+        "value_score_10": fundamental_scores[0], "quality_score_10": fundamental_scores[1],
     }])
     result = scores.build_candidate_simple_scores(
         report, pd.DataFrame(), decision_date=date(2025, 2, 28),
@@ -259,9 +289,8 @@ def _assert_synthetic_energy_stock_scores_consume_adapter_basis_end_to_end(monke
 
 def _assert_insufficient_cycle_history_makes_sector_scores_unavailable_with_reason(monkeypatch, history_count):
     projection = _projection(history_count=history_count)
-    components = _stock_fundamental_components(
-        None,
-        cyclical_projection=projection,
+    components = scores._cyclical_stock_components(
+        projection,
         instrument_id=INSTRUMENT,
         decision_time=DECISION_TIME,
         sector="energy",
@@ -272,12 +301,16 @@ def _assert_insufficient_cycle_history_makes_sector_scores_unavailable_with_reas
     rows = {row.metric: row for row in projection.metrics}
     assert rows["normalised_margin"].status == "unavailable"
     assert rows["cycle_adjusted_ev_to_earnings"].status == "unavailable"
-    public = _candidate_components(monkeypatch, projection)
+    public = _candidate_components(monkeypatch, projection, fundamental_scores=(None, None))
     assert all(public[key].score_10 is None and not public[key].score_eligible for key in ("stock_value", "stock_quality"))
     for model in ("energy", "materials", "industrials"):
-        missing = _candidate_components(monkeypatch, sector=model)
+        missing = {row.key: row for row in scores._cyclical_stock_components(
+            None, instrument_id=INSTRUMENT, decision_time=DECISION_TIME, sector=model,
+        )}
         assert all(missing[key].score_10 is None and "history" in missing[key].why for key in ("stock_value", "stock_quality"))
-        configured = _stock_fundamental_components(None, sector=model)
+        configured = scores._cyclical_stock_components(
+            None, instrument_id=INSTRUMENT, decision_time=DECISION_TIME, sector=model,
+        )
         assert all(row.score_10 is None and "history" in row.why for row in configured[:2])
     decision = compose_stock_decision(INSTRUMENT, _context(), DECISION_TIME, {}, cyclical_projection=projection)
     assert decision["route_status"] == "unavailable" and decision["route_reason"]
@@ -316,8 +349,8 @@ def _assert_non_cyclical_stock_components_keep_the_existing_values(monkeypatch):
     assert supplied_public["stock_value"] == public["stock_value"]
     assert supplied_public["stock_quality"] == public["stock_quality"]
     for target in ("materials", "industrials", None, "", pd.NA, float("nan"), "unknown", "unresolved"):
-        mismatched = _stock_fundamental_components(
-            evidence, sector=target, cyclical_projection=projection,
+        mismatched = scores._cyclical_stock_components(
+            projection, sector=target,
             instrument_id=INSTRUMENT, decision_time=DECISION_TIME,
         )
         assert all(row.score_10 is None and not row.score_eligible for row in mismatched[:2])
@@ -329,9 +362,55 @@ def _assert_non_cyclical_stock_components_keep_the_existing_values(monkeypatch):
     assert matched[0].score_10 == 2.0 and matched[1].score_10 == 4.0
 
 
+def _assert_unavailable_cyclical_adapter_preserves_generic_components(monkeypatch):
+    evidence = SimpleNamespace(components={
+        key: SimpleNamespace(
+            score_10=score, why=why, source_id="yfinance:fundamentals",
+            as_of="2025-02-15", freshness="ok",
+        )
+        for key, score, why in (
+            ("stock_value", 7.5, "generic value basis"),
+            ("stock_quality", 6.5, "generic quality basis"),
+            ("analyst_revision", None, "analyst revision missing"),
+        )
+    })
+    error = "PE ratio and operating margin missing; supply fundamentals evidence"
+    for model in ("energy", "materials", "industrials"):
+        for projection in (
+            None, _projection(model=model, history_count=0),
+            _projection(model=model, history_count=1),
+            _projection(model=model, omit=("normalised_margin",)),
+        ):
+            diagnostics = scores._cyclical_stock_components(
+                projection, instrument_id=INSTRUMENT, decision_time=DECISION_TIME, sector=model,
+            )
+            assert all(row.score_10 is None and row.why and not row.score_eligible for row in diagnostics)
+            assert all(row.source_authority != "issuer_document" for row in diagnostics)
+            for generic in (None, evidence):
+                baseline = _stock_fundamental_components(generic, error)
+                actual = _stock_fundamental_components(
+                    generic, error, cyclical_projection=projection, instrument_id=INSTRUMENT,
+                    decision_time=DECISION_TIME, sector=model,
+                )
+                # Full dataclass equality protects scores, eligibility, provenance,
+                # explanations, freshness and revision evidence together.
+                assert actual == baseline
+                assert all(row.source_id == "yfinance:fundamentals" and row.source_authority == "vendor_unofficial"
+                           for row in actual[:2])
+                if generic is None:
+                    assert all(error in row.why and row.explanation == scores.COMPONENT_EXPLANATIONS[row.key]
+                               for row in actual[:2])
+            for fundamental_scores in ((None, None), (7.5, 6.5)):
+                baseline = _candidate_components(monkeypatch, sector="technology", fundamental_scores=fundamental_scores)
+                actual = _candidate_components(
+                    monkeypatch, projection, sector=model, fundamental_scores=fundamental_scores,
+                )
+                assert all(actual[key] == baseline[key] for key in ("stock_value", "stock_quality", "analyst_revision"))
+
+
 def _assert_reported_peak_multiple_cannot_bypass_missing_through_cycle_inputs(monkeypatch, omit):
     projection = _projection(omit=omit)
-    public = _candidate_components(monkeypatch, projection)
+    public = _candidate_components(monkeypatch, projection, fundamental_scores=(None, None))
     assert public["stock_value"].score_10 is None and not public["stock_value"].score_eligible
     decision = compose_stock_decision(INSTRUMENT, _context(), DECISION_TIME, {}, cyclical_projection=projection)
     assert decision["route_status"] == "unavailable"
@@ -361,7 +440,7 @@ def _assert_normalised_basis_cannot_use_history_after_its_evidence_cutoff(monkey
             None, cyclical_projection=projection, instrument_id=INSTRUMENT,
             decision_time=DECISION_TIME, sector="energy",
         )
-        public = _candidate_components(monkeypatch, projection)
+        public = _candidate_components(monkeypatch, projection, fundamental_scores=(None, None))
         assert all(row.score_10 is None and not row.score_eligible for row in configured[:2])
         assert all(public[key].score_10 is None and not public[key].score_eligible for key in ("stock_value", "stock_quality"))
         decision = compose_stock_decision(INSTRUMENT, _context(), DECISION_TIME, {}, cyclical_projection=projection)
@@ -376,8 +455,8 @@ def _assert_normalised_basis_cannot_use_history_after_its_evidence_cutoff(monkey
         return
     if "score_cutoff" in changed:
         projection = _projection()
-        components = _stock_fundamental_components(
-            None, cyclical_projection=projection, instrument_id=INSTRUMENT,
+        components = scores._cyclical_stock_components(
+            projection, instrument_id=INSTRUMENT,
             decision_time=changed["score_cutoff"],
             sector="energy",
         )
@@ -396,19 +475,23 @@ def _assert_normalised_basis_cannot_use_history_after_its_evidence_cutoff(monkey
     assert rows["normalised_margin"].status == "unavailable"
     assert rows["cycle_adjusted_ev_to_earnings"].status == "unavailable"
     assert "unlinked_cycle_history" in rows["normalised_margin"].basis
-    public = _candidate_components(monkeypatch, projection)
+    public = _candidate_components(monkeypatch, projection, fundamental_scores=(None, None))
     assert public["stock_value"].score_10 is None and public["stock_quality"].score_10 is None
 
 
-def _assert_classified_cyclical_without_projection_is_unavailable_not_generic(label):
+def _assert_classified_cyclical_without_projection_has_unavailable_adapter_diagnostics(label):
     evidence = SimpleNamespace(
         components={
             key: SimpleNamespace(score_10=7.5, why="generic peak-year basis", source_id="sec_edgar:fundamentals", as_of="2025-02-15", freshness="ok")
             for key in ("stock_value", "stock_quality", "analyst_revision")
         }
     )
-    components = _stock_fundamental_components(evidence, sector=label)
+    components = scores._cyclical_stock_components(
+        None, sector=label, instrument_id=INSTRUMENT, decision_time=DECISION_TIME,
+    )
     assert all(row.score_10 is None and not row.score_eligible and "unavailable" in row.why for row in components[:2])
+    assert all(row.source_authority != "issuer_document" for row in components)
+    assert _stock_fundamental_components(evidence, sector=label) == _stock_fundamental_components(evidence)
 
 
 def _assert_percent_margin_is_canonicalised_to_a_fraction_before_valuation_and_scoring():
@@ -436,7 +519,9 @@ def _assert_projection_built_later_the_same_day_cannot_score_an_earlier_cutoff()
     projection = _projection(decision_time="2025-02-28T18:00:00Z")
     kwargs = dict(cyclical_projection=projection, instrument_id=INSTRUMENT, sector="energy")
     for early in ("2025-02-28", date(2025, 2, 28), "2025-02-28T09:00:00Z"):
-        components = _stock_fundamental_components(None, decision_time=early, **kwargs)
+        components = scores._cyclical_stock_components(
+            kwargs["cyclical_projection"], instrument_id=INSTRUMENT, sector="energy", decision_time=early,
+        )
         assert all(row.score_10 is None and "cutoff" in row.why for row in components[:2])
     same = _stock_fundamental_components(None, decision_time="2025-02-28T18:00:00Z", **kwargs)
     assert same[0].score_10 == 2.0 and same[1].score_10 == 4.0
@@ -450,6 +535,8 @@ def _assert_projection_built_later_the_same_day_cannot_score_an_earlier_cutoff()
 @pytest.mark.parametrize("model", ("energy", "materials", "industrials"))
 def test_peak_year_earnings_do_not_make_cyclical_look_cheap(model):
     _assert_peak_year_earnings_do_not_make_cyclical_look_cheap(model)
+    if model == "energy":
+        _assert_normalised_earnings_and_multiple_extremes_fail_closed()
 
 
 @pytest.mark.parametrize("model", ("energy", "materials", "industrials"))
@@ -464,11 +551,12 @@ def test_insufficient_cycle_history_makes_sector_scores_unavailable_with_reason(
     _assert_insufficient_cycle_history_makes_sector_scores_unavailable_with_reason(monkeypatch, history_count)
     if history_count == 0:
         for label in ("Energy", "Basic Materials", "Capital Goods", "Industrial", "oil & gas"):
-            _assert_classified_cyclical_without_projection_is_unavailable_not_generic(label)
+            _assert_classified_cyclical_without_projection_has_unavailable_adapter_diagnostics(label)
 
 
 def test_non_cyclical_stock_components_keep_the_existing_values(monkeypatch):
     _assert_non_cyclical_stock_components_keep_the_existing_values(monkeypatch)
+    _assert_unavailable_cyclical_adapter_preserves_generic_components(monkeypatch)
 
 
 @pytest.mark.parametrize("omit", (("enterprise_value",), ("revenue",), ("normalised_margin",)))
