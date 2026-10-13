@@ -362,7 +362,7 @@ class LocalTrainingRegistry:
                 else:
                     prior[item.entity_id] = values
         # Optimiser search trials (every status: completed, pruned, failed, rejected) are
-        # unpaired family members: counted for DSR, they make FDR unavailable. The ledger
+        # unpaired family members: counted for DSR, they make PBO/FDR unavailable. The ledger
         # carries no experiment id, so only records whose run_id is a run of this
         # experiment (or the experiment id itself) are attributable without a migration.
         retained_count += sum(

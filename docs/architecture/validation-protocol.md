@@ -75,3 +75,10 @@ q-value over the complete non-baseline family, including retained alternatives;
 missing paired evidence never shrinks that family. Numeric regression oracles
 cover DSR's two-trial expected maximum, all six four-date CSCV splits, and BY's
 four-hypothesis harmonic correction.
+
+Promotion requires available DSR, PBO and FDR evidence as well as the existing
+paired stability and audited holdout comparisons. Unavailability retains the
+metric-specific reason and blocks promotion without substituting a value.
+Counted optimiser alternatives without aligned return series make CSCV/PBO
+unavailable: the complete family's winners and ranks cannot be established.
+The reason includes the external ledger count; alternatives remain counted.

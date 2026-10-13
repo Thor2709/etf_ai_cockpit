@@ -234,7 +234,7 @@ def _evaluate_trials(
     supplied when their date alignment and data identity have been verified by
     the caller. ``external_trial_count`` conservatively counts additional
     ledger entries whose paired series are unavailable; such entries make the
-    FDR metric unavailable rather than silently shrinking its family.
+    PBO and FDR metrics unavailable rather than silently shrinking their family.
     """
 
     definition = spec or ValidationSpec()
@@ -381,7 +381,15 @@ def _evaluate_trials(
         unavailable["deflated_sharpe"] = dsr_reason
         warnings.append("dsr_unavailable_requires_frequency_sample_and_multiple_trials")
         warnings.append(f"dsr_unavailable:{dsr_reason}")
-    pbo, pbo_reason = _pbo_probability(development_family) if _family_verified else (None, family_text)
+    if not _family_verified:
+        pbo, pbo_reason = None, family_text
+    elif external_trial_count:
+        pbo, pbo_reason = (
+            None,
+            f"trial_family_series_unavailable: {external_trial_count} ledger trial(s) lack aligned series",
+        )
+    else:
+        pbo, pbo_reason = _pbo_probability(development_family)
     if pbo is None:
         unavailable["probability_of_backtest_overfitting"] = pbo_reason or "insufficient_evidence"
         warnings.append(f"pbo_unavailable:{pbo_reason or 'insufficient_evidence'}")
@@ -437,8 +445,12 @@ def _evaluate_trials(
         stable = False
     if not stable:
         warnings.append("promotion_evidence_insufficient_or_unstable")
+    statistics_available = all(value is not None for value in (deflated, pbo, false_discovery))
+    if not statistics_available:
+        warnings.append("promotion_required_statistics_unavailable")
     promotion = bool(
         stable
+        and statistics_available
         and _family_verified
         and holdout_status == "scored"
         and frozen_candidate_id == selected_id

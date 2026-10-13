@@ -137,6 +137,34 @@ def test_only_frozen_candidate_and_predeclared_comparators_read_holdout(tmp_path
     assert final_scores == {"baseline": 0.01, "frozen": 0.02, "unregistered": None}
 
 
+@pytest.mark.parametrize("periods_per_year", [None, 12])
+def test_promotion_requires_available_statistical_evidence(tmp_path, periods_per_year) -> None:
+    report = _registered(
+        tmp_path, {"baseline": np.zeros(80), "candidate": np.full(80, 0.01)},
+        spec=_spec(periods_per_year=periods_per_year),
+        frozen_candidate_id="candidate", predeclared_comparator_ids=("baseline",),
+        holdout_id="unavailable-statistics-928",
+    )
+
+    assert report.uncertainty["trial_family_status"] == "available"
+    assert report.uncertainty["lower_5"] > 0
+    assert len(report.folds) == 3
+    assert report.holdout_status == "scored"
+    assert report.final_test_score == pytest.approx(0.01)
+    assert report.deflated_sharpe is None
+    assert report.probability_of_backtest_overfitting is not None
+    assert report.false_discovery_rate is not None
+    reason = report.uncertainty["unavailable_reasons"]["deflated_sharpe"]
+    expected_reason = (
+        "periods_per_year_required" if periods_per_year is None
+        else "multiple_trials_with_finite_sharpe_and_positive_variance_required"
+    )
+    assert reason == expected_reason
+    assert f"dsr_unavailable:{reason}" in report.warnings
+    assert report.promotion_eligible is False
+    assert "promotion_required_statistics_unavailable" in report.warnings
+
+
 def test_training_label_windows_do_not_overlap_sealed_holdout() -> None:
     spec = _spec(n_splits=3, test_size=10, final_test_size=10, horizon=3)
     folds = build_walk_forward_splits(100, spec, strict_label_purge=True)
@@ -294,6 +322,8 @@ def test_issue928_1_chronological_clusters_and_paired_block_reference() -> None:
 
 
 def test_issue928_2_published_method_numeric_references() -> None:
+    # These DSR/CSCV oracles are hand-derived from the named methods, not
+    # reproduced published worked examples or independent implementations.
     # DSR: symmetric returns give SR=0, skew=0, Pearson kurtosis=1.36,
     # estimator variance=1/3; two trial SRs (-1,+1) give variance=2.
     # Bailey/Lopez de Prado expected-max formula => probability below.
@@ -310,6 +340,22 @@ def test_issue928_2_published_method_numeric_references() -> None:
     # BY m=4, H_m=25/12: ordered step-up values are
     # (1/12, 1/12, 5/36, 5/3); minimum adjusted q = 1/12.
     assert _false_discovery_rate([0.8, 0.01, 0.05, 0.02]) == pytest.approx(1 / 12)
+
+
+def test_issue928_fdr_matches_independent_scipy_reference() -> None:
+    # SciPy's independently maintained BY implementation, not a hand-derived oracle.
+    from scipy.stats import false_discovery_control
+
+    for values in ([0.8, 0.01, 0.05, 0.02], [0.0, 0.5, 1.0], [0.03, 0.03, 0.9], [0.01]):
+        adjusted = false_discovery_control(values, method="by")
+        assert _false_discovery_rate(values) == pytest.approx(float(np.min(adjusted)))
+    # Published TAPS p-values reproduced in SciPy's documented example;
+    # compare BY here (the documentation's displayed adjustment uses BH).
+    taps = [0.0001, 0.0004, 0.0019, 0.0095, 0.0201, 0.0278, 0.0298, 0.0344,
+            0.0459, 0.3240, 0.4262, 0.5719, 0.6528, 0.7590, 1.0]
+    assert _false_discovery_rate(taps) == pytest.approx(
+        float(np.min(false_discovery_control(taps, method="by")))
+    )
 
 
 def test_issue928_3_incomplete_or_misaligned_durable_family_fails_closed(tmp_path) -> None:
@@ -404,3 +450,8 @@ def test_optimiser_search_trials_count_in_the_validation_family(tmp_path) -> Non
     assert report.total_trial_count == 2 + len(statuses)  # unattributable runs are not guessed into the family
     assert report.false_discovery_rate is None
     assert any(item.startswith("fdr_unavailable") for item in report.warnings)
+    assert report.probability_of_backtest_overfitting is None
+    reason = report.uncertainty["unavailable_reasons"]["probability_of_backtest_overfitting"]
+    assert reason == f"trial_family_series_unavailable: {len(statuses)} ledger trial(s) lack aligned series"
+    assert f"pbo_unavailable:{reason}" in report.warnings
+    assert report.promotion_eligible is False
