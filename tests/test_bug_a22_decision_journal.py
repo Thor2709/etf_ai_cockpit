@@ -130,3 +130,12 @@ def test_healthy_journal_reads_unchanged(tmp_path: Path) -> None:
     assert journal.get("entry-1", root=tmp_path) == created
     assert journal.list_entries(root=tmp_path) == [created]
     assert DecisionJournal().integrity_status(tmp_path / "empty") == "ok"
+
+
+def test_reader_holding_a_pre_commit_index_does_not_report_a_committed_entry_as_orphan(tmp_path: Path) -> None:
+    journal = DecisionJournal()
+    journal.create(_entry(), root=tmp_path)
+    stale_index = journal._read_index(tmp_path)
+    journal.create(_entry("entry-2", "2026-07-13T00:00:00+00:00"), root=tmp_path)
+
+    assert journal._log_integrity_status(tmp_path, stale_index) == "ok"

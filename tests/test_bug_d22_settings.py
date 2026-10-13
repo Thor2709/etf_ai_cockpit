@@ -261,3 +261,14 @@ def test_provider_settings_writer_goes_through_the_settings_revision(tmp_path: P
     assert reloaded.providers["providers"]["prices"]["active_provider"] == "yfinance"
     written = yaml.safe_load((tmp_path / "configs" / "data_providers.yaml").read_text(encoding="utf-8"))
     assert written["providers"]["prices"]["base_url"] == "https://prices.example.invalid"
+
+
+def test_plain_bundle_load_creates_no_guard_files(tmp_path: Path) -> None:
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "onboarding.json").write_text("{}", encoding="utf-8")
+    before = sorted(p.name for p in (tmp_path / "configs").iterdir())
+
+    load_settings_bundle(tmp_path)
+
+    assert sorted(p.name for p in (tmp_path / "configs").iterdir()) == before
+    assert not list(tmp_path.rglob(".atomic*"))

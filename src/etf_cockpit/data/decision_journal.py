@@ -24,6 +24,9 @@ from etf_cockpit.core.atomic_io import (
 from etf_cockpit.governance.product_scope import load_gate_policy
 
 
+_ORPHAN_RECHECK_ATTEMPTS = 3
+
+
 class JournalIntegrityError(ValueError):
     """Raised when persisted journal evidence cannot be trusted.
 
@@ -243,9 +246,20 @@ class DecisionJournal:
                 return "operations_log_corrupt"
         entries_dir = directory / "entries"
         if entries_dir.is_dir():
-            indexed = {self._entry_path(root, row["journal_entry_id"]).name for row in index}
-            if any(path.name not in indexed for path in entries_dir.glob("*.json")):
-                return "orphan_entries"
+            current = index
+            for attempt in range(_ORPHAN_RECHECK_ATTEMPTS):
+                names = {path.name for path in entries_dir.glob("*.json")}
+                indexed = {self._entry_path(root, row["journal_entry_id"]).name for row in current}
+                if names <= indexed:
+                    break
+                if attempt == _ORPHAN_RECHECK_ATTEMPTS - 1:
+                    return "orphan_entries"
+                # A group commit publishes the entry file before the index: the index
+                # held here may predate it.  Re-read it (guarded, so after the commit).
+                try:
+                    current = self._read_index(root)
+                except JournalIntegrityError:
+                    return "integrity_error"
         return "ok"
 
     def _is_pre_log_legacy_store(self, root: Path, index: list[dict[str, str]]) -> bool:

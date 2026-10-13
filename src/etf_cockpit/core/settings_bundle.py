@@ -289,6 +289,29 @@ def _blob(path: Path, blobs: _Blobs | None) -> bytes | None:
         return None
 
 
+def _stable_unguarded_blobs(config_dir: Path, paths: tuple[Path, ...]) -> dict[Path, bytes | None] | None:
+    """Write-free coherent read: no writer marker and two identical passes, else ``None``.
+
+    Startup/read-only loads must never create guard files.  An active
+    ``atomic_write_group`` commit holds the writer marker for its whole window, and any
+    generation change shows as a byte difference between the two passes; in either
+    case the caller falls back to the guarded read (a live writer implies the guard
+    files already exist).
+    """
+
+    marker = config_dir / ".atomic-write-group.lock"
+    try:
+        if marker.exists():
+            return None
+        first = {path: _blob(path, None) for path in paths}
+        second = {path: _blob(path, None) for path in paths}
+        if first != second or marker.exists():
+            return None
+    except OSError:
+        return None
+    return second
+
+
 def _config_blobs(root: Path, *, guarded: bool = True) -> dict[Path, bytes | None]:
     """Read every settings input file as ONE coherent generation.
 
@@ -302,6 +325,9 @@ def _config_blobs(root: Path, *, guarded: bool = True) -> dict[Path, bytes | Non
     paths = tuple(config_dir / name for name in _CONFIG_BLOB_NAMES)
     if not guarded:
         return {path: _blob(path, None) for path in paths}
+    stable = _stable_unguarded_blobs(config_dir, paths)
+    if stable is not None:
+        return stable
     for _ in range(_GROUP_READ_ATTEMPTS):
         present = tuple(path for path in paths if path.is_file())
         try:
