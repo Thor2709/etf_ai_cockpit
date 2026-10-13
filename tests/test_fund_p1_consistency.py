@@ -16,6 +16,7 @@ import pytest
 from hypothesis import given, settings, strategies as st
 
 from etf_cockpit.analysis import stock_metrics as sm
+from etf_cockpit.analysis import stock_universe as su
 from etf_cockpit.analysis.formula_registry import FORMULA_REGISTRY, formula_for
 from etf_cockpit.analysis.stock_evidence import METRIC_LABELS, MarketInputs, build_stock_evidence
 from etf_cockpit.data import stock_fundamentals as store
@@ -657,3 +658,26 @@ def test_fix7_quarter_conflict_resolution_does_not_depend_on_the_monetary_scale(
     assert "revenue" not in conflicted and json.loads(conflicted["value_status"]) == {"revenue": "conflicted"}
     agreeing = _rows(_payload(Revenues=scaled(110.0)))[("2025-12-31", "Q")]
     assert agreeing["revenue"] == pytest.approx(110.0 * scale) and "value_status" not in agreeing
+
+
+def test_fix2_provider_market_cap_reaches_the_check_and_identity_blocks_roe_and_pb() -> None:
+    prices = pd.DataFrame({"date": pd.to_datetime(["2026-10-08"]), "close": [50.0], "currency": ["USD"]})
+    fx = pd.DataFrame({"pair": ["USDEUR"], "date": ["2026-10-08"], "rate": [0.5], "known_at": [datetime(2026, 10, 8, 20, tzinfo=UTC)]})
+    snapshot = {"quote_currency": "USD", "market_cap_provider": 100000.0, "known_at": datetime(2026, 10, 9, tzinfo=UTC)}
+    market = su.market_inputs(prices, snapshot, "EUR", DECISION, fx, CONFIG)
+    assert market.market_cap_provider == pytest.approx(50000.0)  # converted with the same-date FX
+    no_fx = su.market_inputs(prices, snapshot, "EUR", DECISION, pd.DataFrame(columns=store.FX_COLUMNS), CONFIG)
+    assert no_fx.market_cap_provider is None
+    future = su.market_inputs(prices, {**snapshot, "known_at": datetime(2026, 11, 1, tzinfo=UTC)}, "EUR", DECISION, fx, CONFIG)
+    assert future.market_cap_provider is None
+    # price 50 EUR x 10 shares = 500 against the converted provider cap 50000 EUR: the production-built input blocks
+    periods = [_period(y) for y in (2024, 2025)]
+    cap = _evidence(periods, dataclasses.replace(market, price_currency="EUR", fx_to_reporting=None)).metrics["market_cap"]
+    assert cap.status == sm.UNAVAILABLE and "differ" in str(cap.reason)
+    # a failed balance identity blocks ROE and P/B as well (the equity leg is the one it validates)
+    broken = _evidence([_period(y, total_liabilities=500.0) for y in (2024, 2025)], MarketInputs(price=50.0, price_currency="EUR", price_date=date(2026, 10, 8))).metrics
+    for key in ("roe", "pb"):
+        assert broken[key].status == sm.UNAVAILABLE and broken[key].value is None, key
+        assert "balance_identity" in str(broken[key].reason), key
+    sound = _evidence([_period(y, total_liabilities=1100.0) for y in (2024, 2025)], MarketInputs(price=50.0, price_currency="EUR", price_date=date(2026, 10, 8))).metrics
+    assert sound["roe"].status == sm.OK and sound["pb"].status == sm.OK

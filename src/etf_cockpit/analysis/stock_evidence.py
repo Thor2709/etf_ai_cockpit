@@ -404,6 +404,7 @@ class _Builder:
             close = sm.balance_near(self.known, window.end, ["equity_parent"], tolerance_days=45)
             opening = sm.opening_balance(self.known, window.end, ["equity_parent"])
             state_reason = self._state_blocked(("equity_parent",)) if close is None else None
+            identity_reason = next((block for block in (self._balance_block(close), self._balance_block(opening)) if block is not None), None)
             base = sm.roe(
                 sm.window_sum(window, "net_income_parent"),
                 None if opening is None else opening.values["equity_parent"],
@@ -414,6 +415,8 @@ class _Builder:
                 or self._period_currency_mismatch(opening, ("equity_parent",), window.currency)
             ):
                 base = _missing("roe", "currency_mismatch between income and equity")
+            elif identity_reason is not None:
+                base = _missing("roe", identity_reason)
             elif state_reason is not None:
                 base = _missing("roe", state_reason)
             self.metrics["roe"] = _from(
@@ -738,6 +741,8 @@ class _Builder:
             self.metrics["pb"] = _missing("pb", "no parent equity is known at the decision time", "market cap / parent equity")
         elif self._period_currency_mismatch(equity, ("equity_parent",), self.reporting_currency or ""):
             self.metrics["pb"] = _missing("pb", "currency_mismatch between market cap and equity")
+        elif (equity_block := self._balance_block(equity)) is not None:
+            self.metrics["pb"] = _missing("pb", equity_block, "market cap / parent equity")
         else:
             base = sm.multiple("pb", "P/B", mcap, equity.values["equity_parent"], formula="market cap / parent equity", denominator_name="parent equity")
             self.metrics["pb"] = _from("pb", base, basis="latest balance", as_of=equity.period_end.isoformat(), currency=equity.currency, source=equity.source)
