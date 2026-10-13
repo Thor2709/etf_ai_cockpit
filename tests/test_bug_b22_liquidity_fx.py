@@ -5,7 +5,11 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from etf_cockpit.signals.simple_scores import _liquidity_component, _price_liquidity_lookup
+from etf_cockpit.signals.simple_scores import (
+    _liquidity_component,
+    _liquidity_fx_snapshot,
+    _price_liquidity_lookup,
+)
 
 AS_OF = "2026-10-09"
 # Exactly representable rates keep the threshold-boundary assertions free of rounding noise.
@@ -37,7 +41,7 @@ def _prices(eur_value: float, currency: str, *, rate: float | None = None, curre
     return frame
 
 
-def _fx(currencies: tuple[str, ...] = ("USD", "GBP", "NOK"), *, last: str = AS_OF, ingested_at: str = "2026-10-01T00:00:00Z", rates: dict[str, float] | None = None) -> pd.DataFrame:
+def _fx(currencies: tuple[str, ...] = ("USD", "GBP", "NOK"), *, last: str = AS_OF, ingested_at: str | None = None, rates: dict[str, float] | None = None) -> pd.DataFrame:
     rates = rates or RATES_TO_EUR
     rows = []
     for day in pd.bdate_range(end=last, periods=60):
@@ -49,7 +53,8 @@ def _fx(currencies: tuple[str, ...] = ("USD", "GBP", "NOK"), *, last: str = AS_O
                     "quote_currency": "EUR",
                     "rate": rates[currency],
                     "source": "test_fx",
-                    "ingested_at": pd.Timestamp(ingested_at),
+                    # Ordinary fixture evidence is available on each quote day; overrides test late ingestion.
+                    "ingested_at": pd.Timestamp(ingested_at) if ingested_at is not None else day.tz_localize("UTC") + pd.Timedelta(hours=12),
                 }
             )
     return pd.DataFrame(rows)
@@ -145,7 +150,7 @@ def test_each_row_uses_its_own_dated_rate_before_averaging() -> None:
                 "quote_currency": "EUR",
                 "rate": 0.5 if day < days[-10] else 1.0,
                 "source": "test_fx",
-                "ingested_at": pd.Timestamp("2026-10-01T00:00:00Z"),
+                "ingested_at": day.tz_localize("UTC") + pd.Timedelta(hours=12),
             }
         )
     prices = _prices(1_000_000, "USD", rate=1.0)  # native 1m per day
@@ -170,3 +175,63 @@ def test_unknown_currency_is_unavailable() -> None:
     info = _price_liquidity_lookup(_prices(5_000_000, "USD"), currency_by_id={}, fx_rates=_fx())["X"]
     component = _liquidity_component(info)
     assert component.raw_score is None and "unknown" in component.why
+
+
+def test_historical_fx_cutoff_is_per_row_and_cache_includes_cutoff() -> None:
+    fx = _fx(ingested_at="2026-10-01T00:00:00Z")
+    prices = _prices(1_000_000, "USD", count=2)
+    prices["date"] = pd.to_datetime(["2026-09-30", AS_OF])
+    earlier = prices.iloc[:1].assign(etf_id="Y")
+    for frames in ((prices, earlier), (earlier, prices)):
+        result = _price_liquidity_lookup(
+            pd.concat(frames, ignore_index=True), currency_by_id={"X": "USD", "Y": "USD"}, fx_rates=fx
+        )
+        for instrument in ("X", "Y"):
+            assert result[instrument]["avg_turnover_20"] is None
+            assert "2026-09-30" in result[instrument]["fx_unavailable_reason"]
+            assert _liquidity_component(result[instrument]).raw_score is None
+
+    # The same quote day must not reuse a snapshot obtained with later knowledge.
+    state = {"frame": fx, "snapshots": {}}
+    row_day = pd.Timestamp("2026-09-30").date()
+    later = _liquidity_fx_snapshot(state, row_day, pd.Timestamp("2026-10-09T23:59:59Z").to_pydatetime())
+    earlier = _liquidity_fx_snapshot(state, row_day, pd.Timestamp("2026-09-30T23:59:59Z").to_pydatetime())
+    assert later.available
+    assert not earlier.available
+    assert len(state["snapshots"]) == 2
+
+
+@pytest.mark.parametrize("timezone", ["UTC", "Europe/Berlin", "America/New_York"])
+def test_timezone_aware_price_dates_convert_without_crashing(timezone: str) -> None:
+    naive = _prices(1_000_000, "USD")
+    aware = naive.copy()
+    aware["date"] = (aware["date"] + pd.Timedelta(hours=12)).dt.tz_localize(timezone)
+    expected, expected_info = _component(naive, "USD", _fx(ingested_at="2026-08-01T00:00:00Z"))
+    actual, actual_info = _component(aware, "USD", _fx(ingested_at="2026-08-01T00:00:00Z"))
+    assert actual_info["avg_turnover_20"] == pytest.approx(1_000_000)
+    assert actual_info == expected_info
+    assert actual.raw_score == expected.raw_score
+    # Berlin's local day has already rolled over; the cutoff must still be the UTC row day.
+    boundary = _prices(1_000_000, "USD", count=1)
+    boundary["date"] = pd.DatetimeIndex([pd.Timestamp("2026-10-09T23:30:00Z").tz_convert(timezone)])
+    unavailable, info = _component(boundary, "USD", _fx(ingested_at="2026-10-10T00:00:00Z"))
+    assert unavailable.raw_score is None
+    assert "2026-10-09" in info["fx_unavailable_reason"]
+
+
+@pytest.mark.parametrize("unknown", [None, pd.NA, "", "unknown"])
+@pytest.mark.parametrize("currency", ["USD", "EUR"])
+def test_every_turnover_row_requires_verified_currency(unknown: object, currency: str) -> None:
+    prices = _prices(1_000_000, currency, currency_label=currency, count=20)
+    verified = _price_liquidity_lookup(prices, fx_rates=_fx(ingested_at="2026-08-01T00:00:00Z"))["X"]
+    assert verified["avg_turnover_20"] == pytest.approx(1_000_000)
+    prices.loc[prices.index[1:], "currency"] = unknown
+    info = _price_liquidity_lookup(prices, fx_rates=_fx(ingested_at="2026-08-01T00:00:00Z"))["X"]
+    assert info["avg_turnover_20"] is None
+    assert "unknown" in info["fx_unavailable_reason"].lower()
+    assert _liquidity_component(info).raw_score is None
+    # Authoritative configuration can supply missing row currency, without changing the amount.
+    supplied = _price_liquidity_lookup(
+        prices, currency_by_id={"X": currency}, fx_rates=_fx(ingested_at="2026-08-01T00:00:00Z")
+    )["X"]
+    assert supplied["avg_turnover_20"] == verified["avg_turnover_20"]

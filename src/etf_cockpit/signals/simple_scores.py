@@ -3950,8 +3950,8 @@ def _price_liquidity_lookup(
     """Average 20-day traded value in EUR plus a spread proxy, per instrument.
 
     Each row's close x volume is in the instrument's quote currency and is converted to EUR with
-    the dated FX rate quoted on or before that row's date (and ingested before the score's as-of
-    day ends) *before* averaging. Missing, stale, conflicting or unverifiable FX makes the
+    the dated FX rate quoted on or before that row's UTC date (and ingested before that row's
+    UTC day ends) *before* averaging. Missing, stale, conflicting or unverifiable FX makes the
     instrument's turnover unavailable (``fx_unavailable_reason``); 1:1 is never assumed.
     """
 
@@ -3995,11 +3995,15 @@ def _turnover_eur_average(
 ) -> tuple[float | None, str | None, str | None]:
     currency = _liquidity_major_currency(configured_currency)
     if "currency" in tail.columns:
-        row_currencies = {
-            resolved
-            for resolved in (_liquidity_major_currency(value) for value in tail.loc[turnover.index, "currency"])
-            if resolved is not None
-        }
+        resolved_currencies = [
+            _liquidity_major_currency(value) for value in tail.loc[turnover.index, "currency"]
+        ]
+        if currency is None and any(resolved is None for resolved in resolved_currencies):
+            return None, None, (
+                f"Liquidity is unavailable: included turnover rows for {etf_id} have an unknown quote currency "
+                "and no authoritative configured currency, so turnover cannot be converted to EUR."
+            )
+        row_currencies = {resolved for resolved in resolved_currencies if resolved is not None}
         if len(row_currencies) > 1 or (currency is not None and row_currencies and row_currencies != {currency}):
             return None, None, (
                 f"Liquidity is unavailable: price rows for {etf_id} carry a quote currency "
@@ -4013,14 +4017,16 @@ def _turnover_eur_average(
     if currency == "EUR":
         return float(turnover.mean()), None, None
 
-    known_at = (pd.Timestamp(tail["date"].max()).normalize() + _LIQUIDITY_END_OF_DAY).tz_localize("UTC").to_pydatetime()
     converted: list[float] = []
     fx_dates: list[date] = []
     for index, value in turnover.items():
         if value == 0:
             converted.append(0.0)
             continue
-        row_day = pd.Timestamp(tail.at[index, "date"]).date()
+        row_time = pd.Timestamp(tail.at[index, "date"])
+        row_time = row_time.tz_localize("UTC") if row_time.tzinfo is None else row_time.tz_convert("UTC")
+        row_day = row_time.date()
+        known_at = (row_time.normalize() + _LIQUIDITY_END_OF_DAY).to_pydatetime()
         snapshot = _liquidity_fx_snapshot(fx_state, row_day, known_at)
         cross = fx_cross_rate(snapshot, currency, "EUR") if snapshot.available else None
         if cross is None or not cross.rate > 0:
@@ -4044,7 +4050,8 @@ def _turnover_eur_average(
 def _liquidity_fx_snapshot(fx_state: dict[str, object], row_day: date, known_at: datetime) -> FxRateSnapshot:
     snapshots = fx_state["snapshots"]
     assert isinstance(snapshots, dict)
-    if row_day not in snapshots:
+    cache_key = (row_day, known_at)
+    if cache_key not in snapshots:
         frame = fx_state["frame"]
         if frame is None:
             try:
@@ -4053,8 +4060,8 @@ def _liquidity_fx_snapshot(fx_state: dict[str, object], row_day: date, known_at:
                 frame = pd.DataFrame()
             fx_state["frame"] = frame
         assert isinstance(frame, pd.DataFrame)
-        snapshots[row_day] = build_fx_rate_snapshot(frame, decision_time=row_day, known_at=known_at)
-    return snapshots[row_day]
+        snapshots[cache_key] = build_fx_rate_snapshot(frame, decision_time=row_day, known_at=known_at)
+    return snapshots[cache_key]
 
 
 def _etf_exposure_lookup() -> dict[str, dict[str, object]]:
