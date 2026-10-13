@@ -517,10 +517,17 @@
           "type": "number"
         },
         "fx_rate": {
-          "default": 1,
-          "exclusiveMinimum": 0,
-          "title": "Fx Rate",
-          "type": "number"
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fx Rate"
         },
         "instrument_id": {
           "maxLength": 80,
@@ -594,10 +601,17 @@
           "title": "Fill Id"
         },
         "fx_rate": {
-          "default": 1,
-          "exclusiveMinimum": 0,
-          "title": "Fx Rate",
-          "type": "number"
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fx Rate"
         },
         "order_id": {
           "maxLength": 128,
@@ -761,10 +775,17 @@
           "title": "Benchmark Return"
         },
         "fx_rate": {
-          "default": 1,
-          "exclusiveMinimum": 0,
-          "title": "Fx Rate",
-          "type": "number"
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fx Rate"
         },
         "instrument_id": {
           "maxLength": 80,
@@ -870,10 +891,17 @@
           "type": "number"
         },
         "fx_rate": {
-          "default": 1,
-          "exclusiveMinimum": 0,
-          "title": "Fx Rate",
-          "type": "number"
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fx Rate"
         },
         "mode": {
           "default": "manual_accept",
