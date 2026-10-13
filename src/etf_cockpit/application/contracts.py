@@ -152,7 +152,8 @@ class PaperProposalAcceptRequest(ContractModel):
     proposal_id: str = Field(min_length=1, max_length=128)
     execution_price: float = Field(gt=0)
     fee: float = Field(default=0, ge=0)
-    fx_rate: float = Field(default=1, gt=0)
+    # Omitted only for a base-currency quote; the ledger requires it for any foreign quote.
+    fx_rate: float | None = Field(default=None, gt=0)
     mode: Literal["manual_accept", "auto_paper"] = "manual_accept"
 
 
@@ -169,7 +170,8 @@ class PaperFillRequest(ContractModel):
     quantity: float = Field(gt=0)
     price: float = Field(gt=0)
     fee: float | None = Field(default=None, ge=0)
-    fx_rate: float = Field(default=1, gt=0)
+    # Omitted only for a base-currency order; the ledger requires it for any foreign quote.
+    fx_rate: float | None = Field(default=None, gt=0)
 
 
 class PaperOrderCancelRequest(ContractModel):
