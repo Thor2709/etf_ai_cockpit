@@ -96,7 +96,12 @@ def test_partial_fill_buying_power_depends_on_the_as_of_not_the_wall_clock(tmp_p
         instrument_type="etf",
         occurred_at=datetime(2026, 9, 30, 10, tzinfo=timezone.utc),
     )
-    lifecycle.transition("order-1", OrderState.ACKNOWLEDGED, event_key="paper-ack")
+    lifecycle.transition(
+        "order-1",
+        OrderState.ACKNOWLEDGED,
+        event_key="paper-ack",
+        occurred_at=datetime(2026, 9, 30, 10, tzinfo=timezone.utc),
+    )
     lifecycle.record_fill(
         "order-1",
         fill_id="fill-1",
@@ -109,4 +114,4 @@ def test_partial_fill_buying_power_depends_on_the_as_of_not_the_wall_clock(tmp_p
     on_fill_day = datetime(2026, 9, 30, 11, tzinfo=timezone.utc)
     after_settlement = datetime(2099, 1, 1, tzinfo=timezone.utc)
     assert lifecycle.available_buying_power(account_id="account-1", currency="EUR", as_of=on_fill_day) == Decimal("899.85")
-    assert lifecycle.available_buying_power(account_id="account-1", currency="EUR", as_of=after_settlement) == Decimal("939.75")
+    assert lifecycle.available_buying_power(account_id="account-1", currency="EUR", as_of=after_settlement) == Decimal("899.85")

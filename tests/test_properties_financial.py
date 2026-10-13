@@ -80,7 +80,7 @@ def test_ledger_balance_and_cash_conservation_over_transaction_sequences(
     with closing(_memory_ledger_connection()) as connection:
         expected_cash, as_of, known_at = _post_cash_actions(connection, actions)
         ledger_balance = Ledger(connection).cash_balance(
-            account_id="cash", currency="EUR", as_of=as_of, authority="paper"
+            account_id="cash", currency="EUR", as_of=as_of, authority="paper", known_at=known_at
         )
         replay = replay_ledger(
             connection,
