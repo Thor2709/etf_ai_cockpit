@@ -176,7 +176,7 @@ def test_point_in_time_coverage_fails_closed_without_a_usable_snapshot() -> None
 
 
 def test_report_labels_coverage_basis_current_configuration_or_point_in_time() -> None:
-    forecasts = pd.DataFrame([_row("baseline", "AAA", day, 0.0) for day in DATES[:6]])
+    forecasts = pd.DataFrame([_row("naive_drift", "AAA", day, 0.0) for day in DATES[:6]])
     universe = [_Instrument("AAA"), _Instrument("BBB")]
     membership = _membership(("AAA", "2025-01-01", None, "2026-01-05", True))
     prices = _prices()
@@ -195,6 +195,15 @@ def test_report_labels_coverage_basis_current_configuration_or_point_in_time() -
     assert any("point-in-time" in note for note in historical["notes"])
     groups = historical["model_catalogue"].set_index("model_id").loc["naive_drift", "subgroup_results"]
     assert all(group["universe_count"] <= 1 for group in groups)
+
+    # Fail-closed path: the only snapshot post-dates the as-of, so the label must say unavailable.
+    late = _membership(("AAA", "2025-01-01", None, "2026-12-01", True))
+    unavailable = build_forecast_lab_report(
+        forecasts, prices, as_of_date=as_of, subgroup_universe=universe, subgroup_membership=late
+    )
+    assert unavailable["coverage_basis"] == POINT_IN_TIME_UNAVAILABLE
+    assert any("unavailable" in note and "Subgroup coverage" in note for note in unavailable["notes"])
+    assert not any("captured point-in-time universe membership" in note for note in unavailable["notes"])
 
 
 def test_forecast_lab_page_governance_reads_the_as_of_filtered_availability() -> None:

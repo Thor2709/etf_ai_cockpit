@@ -29,6 +29,7 @@ from etf_cockpit.core.timing import timing_summary
 from etf_cockpit.models.coverage_audit import (
     CURRENT_CONFIGURATION,
     POINT_IN_TIME_MEMBERSHIP,
+    POINT_IN_TIME_UNAVAILABLE,
     build_coverage_audit,
 )
 from etf_cockpit.models.model_zoo import model_zoo_frame
@@ -381,17 +382,23 @@ def build_forecast_lab_report(
     if subgroup_universe is not None:
         point_in_time = pd.notna(requested_as_of) and subgroup_membership is not None
         coverage_basis = POINT_IN_TIME_MEMBERSHIP if point_in_time else CURRENT_CONFIGURATION
+        audited_bases: set[str] = set()
         known_model_ids = set(model_catalogue["model_id"].astype(str))
         for model_name, model_forecasts in frame.groupby("model_name", sort=True):
             if str(model_name) not in known_model_ids:
                 continue
-            subgroup_results_by_model[str(model_name)] = build_coverage_audit(
+            audit = build_coverage_audit(
                 subgroup_universe,
                 price_frame,
                 model_forecasts,
                 as_of_date=effective_as_of.date(),
                 membership=subgroup_membership if point_in_time else None,
-            ).to_dict()["groups"]
+            ).to_dict()
+            audited_bases.add(str(audit["provenance"]["universe_basis"]))
+            subgroup_results_by_model[str(model_name)] = audit["groups"]
+        # Label what the audit actually did: a fail-closed membership lookup is never point-in-time evidence.
+        if POINT_IN_TIME_UNAVAILABLE in audited_bases:
+            coverage_basis = POINT_IN_TIME_UNAVAILABLE
         model_catalogue = model_zoo_frame(
             optional_status=optional_status,
             subgroup_results_by_model=subgroup_results_by_model,
@@ -444,6 +451,9 @@ def build_forecast_lab_report(
         + (
             "captured point-in-time universe membership for the as-of date."
             if coverage_basis == POINT_IN_TIME_MEMBERSHIP
+            else "no usable captured point-in-time membership for the as-of date: coverage is unavailable, "
+            "not a historical or current view."
+            if coverage_basis == POINT_IN_TIME_UNAVAILABLE
             else "the current configuration, not the historical membership."
         ),
         "Resource use is the duration measured for the displayed forecast run; not_recorded when no matching run measurement exists.",
