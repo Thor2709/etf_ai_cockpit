@@ -93,5 +93,3 @@ class Toast:
     def hide(self) -> None:
         self.holder.visible = False
         self._update()
-
-

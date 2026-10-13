@@ -10,6 +10,9 @@ import pytest
 from scripts.import_official_filing import import_official_filing
 
 
+# Successful imports run Arelle validation under a bounded wall-clock timeout that parallel CPU load can exceed.
+pytestmark = pytest.mark.serial
+
 FIXTURE = Path(__file__).parent / "fixtures" / "official" / "esef_report_package" / "synthetic-ming-2025.xbri"
 URL = "https://newsweb.oslobors.no/message/999999"
 # LEI carried by the synthetic fixture; a test value, not an asserted real-world identifier.

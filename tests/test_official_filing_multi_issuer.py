@@ -12,6 +12,9 @@ from scripts.import_official_filing import _validate_units, import_official_fili
 from etf_cockpit.parsers.esef_ixbrl import XbrlFact
 
 
+# Successful imports run Arelle validation under a bounded wall-clock timeout that parallel CPU load can exceed.
+pytestmark = pytest.mark.serial
+
 FIXTURE = Path(__file__).parent / "fixtures" / "official" / "esef_report_package" / "synthetic-ming-2025.xbri"
 URL = "https://newsweb.oslobors.no/message/999999"
 MING_LEI = "7V6Z97IO7R1SEAO84Q32"
