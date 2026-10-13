@@ -9,21 +9,26 @@ reproducible identifier.
 from __future__ import annotations
 
 from collections import deque
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
 import re
-from typing import Iterable, Mapping
+import threading
+from typing import Iterable, Iterator, Mapping
 
 from etf_cockpit.core.atomic_io import atomic_write_json, sha256_file as _hash_file
+from etf_cockpit.core.file_guard import persistent_file_guard
 
 
 CATALOGUE_SCHEMA_VERSION = "1.0"
 CATALOGUE_VERSION = "data-catalogue.v1"
 CATALOGUE_RELATIVE_PATH = Path("data") / "catalogue" / "catalogue.json"
 DATA_DICTIONARY_RELATIVE_PATH = Path("data") / "catalogue" / "data_dictionary.json"
+CATALOGUE_GUARD_RELATIVE_PATH = Path("data") / "catalogue" / "catalogue.guard"
+_GUARD_TIMEOUT_SECONDS = 30.0
 _ALLOWED_LAYERS = {"raw", "clean", "derived"}
 _ALLOWED_PII = {"none", "internal", "restricted"}
 _ALLOWED_ACCESS = {"public", "internal", "restricted", "unknown"}
@@ -185,6 +190,8 @@ class DataCatalogue:
         self._snapshots: dict[str, DatasetSnapshot] = {}
         self._edges: set[tuple[str, str, str]] = set()
         self._invalidations: dict[str, dict[str, object]] = {}
+        self._thread_lock = threading.RLock()
+        self._transaction_depth = 0
         self._load()
 
     @property
@@ -201,27 +208,29 @@ class DataCatalogue:
 
     def register_dataset(self, dataset: DatasetDefinition) -> DatasetDefinition:
         dataset = _validated_dataset(dataset)
-        existing = self._datasets.get(dataset.dataset_id)
-        if existing is not None and existing.as_dict() != dataset.as_dict():
-            raise DataCatalogueError(f"dataset definition is immutable: {dataset.dataset_id}")
-        self._datasets[dataset.dataset_id] = existing or dataset
-        self.save()
-        return self._datasets[dataset.dataset_id]
+        with self._transaction():
+            existing = self._datasets.get(dataset.dataset_id)
+            if existing is not None and existing.as_dict() != dataset.as_dict():
+                raise DataCatalogueError(f"dataset definition is immutable: {dataset.dataset_id}")
+            self._datasets[dataset.dataset_id] = existing or dataset
+            self.save()
+            return self._datasets[dataset.dataset_id]
 
     def register_snapshot(self, snapshot: DatasetSnapshot) -> DatasetSnapshot:
         snapshot = _validated_snapshot(snapshot)
-        if snapshot.dataset_id not in self._datasets:
-            raise DataCatalogueError(f"snapshot dataset is not registered: {snapshot.dataset_id}")
-        existing = self._snapshots.get(snapshot.snapshot_id)
-        if existing is not None:
-            if _snapshot_immutable_fields(existing) != _snapshot_immutable_fields(snapshot):
-                raise DataCatalogueError(f"snapshot ID is already registered with different content: {snapshot.snapshot_id}")
-            return existing
-        self._snapshots[snapshot.snapshot_id] = snapshot
-        for dependency in snapshot.dependency_snapshot_ids:
-            self._edges.add((dependency, snapshot.snapshot_id, "derived_from"))
-        self.save()
-        return snapshot
+        with self._transaction():
+            if snapshot.dataset_id not in self._datasets:
+                raise DataCatalogueError(f"snapshot dataset is not registered: {snapshot.dataset_id}")
+            existing = self._snapshots.get(snapshot.snapshot_id)
+            if existing is not None:
+                if _snapshot_immutable_fields(existing) != _snapshot_immutable_fields(snapshot):
+                    raise DataCatalogueError(f"snapshot ID is already registered with different content: {snapshot.snapshot_id}")
+                return existing
+            self._snapshots[snapshot.snapshot_id] = snapshot
+            for dependency in snapshot.dependency_snapshot_ids:
+                self._edges.add((dependency, snapshot.snapshot_id, "derived_from"))
+            self.save()
+            return snapshot
 
     def register_rows(
         self,
@@ -452,39 +461,40 @@ class DataCatalogue:
         }
 
     def impact_analysis(self, snapshot_id: str) -> dict[str, object]:
-        snapshot_id = str(snapshot_id).strip()
-        if snapshot_id not in self._snapshots:
-            raise DataCatalogueError(f"snapshot is not registered: {snapshot_id}")
-        downstream: dict[str, set[str]] = {}
-        for upstream, downstream_id, _relation in self._edges:
-            downstream.setdefault(upstream, set()).add(downstream_id)
-        affected: set[str] = set()
-        queue = deque([snapshot_id])
-        while queue:
-            current = queue.popleft()
-            for child in sorted(downstream.get(current, ())):
-                if child not in affected:
-                    affected.add(child)
-                    queue.append(child)
-        token = _hash_payload(
-            {
+        with self._transaction():
+            snapshot_id = str(snapshot_id).strip()
+            if snapshot_id not in self._snapshots:
+                raise DataCatalogueError(f"snapshot is not registered: {snapshot_id}")
+            downstream: dict[str, set[str]] = {}
+            for upstream, downstream_id, _relation in self._edges:
+                downstream.setdefault(upstream, set()).add(downstream_id)
+            affected: set[str] = set()
+            queue = deque([snapshot_id])
+            while queue:
+                current = queue.popleft()
+                for child in sorted(downstream.get(current, ())):
+                    if child not in affected:
+                        affected.add(child)
+                        queue.append(child)
+            token = _hash_payload(
+                {
+                    "source_snapshot_id": snapshot_id,
+                    "affected_snapshot_ids": sorted(affected),
+                }
+            )
+            lineage_fingerprint = self._lineage_fingerprint()
+            result = {
                 "source_snapshot_id": snapshot_id,
                 "affected_snapshot_ids": sorted(affected),
+                "affected_dataset_ids": sorted({self._snapshots[item].dataset_id for item in affected}),
+                "invalidation_token": token,
+                "lineage_fingerprint": lineage_fingerprint,
+                "invalidated_snapshot_ids": sorted(affected),
+                "execution_allowed": False,
             }
-        )
-        lineage_fingerprint = self._lineage_fingerprint()
-        result = {
-            "source_snapshot_id": snapshot_id,
-            "affected_snapshot_ids": sorted(affected),
-            "affected_dataset_ids": sorted({self._snapshots[item].dataset_id for item in affected}),
-            "invalidation_token": token,
-            "lineage_fingerprint": lineage_fingerprint,
-            "invalidated_snapshot_ids": sorted(affected),
-            "execution_allowed": False,
-        }
-        self._invalidations[snapshot_id] = dict(result)
-        self.save()
-        return result
+            self._invalidations[snapshot_id] = dict(result)
+            self.save()
+            return result
 
     def invalidation_analysis(self, snapshot_id: str) -> dict[str, object]:
         """Return persisted impact/invalidation state for a snapshot."""
@@ -706,11 +716,62 @@ class DataCatalogue:
         }
 
     def save(self) -> Path:
-        payload = self._payload()
-        payload["catalogue_signature"] = _hash_payload(payload)
-        atomic_write_json(self.path, payload)
-        self.generate_data_dictionary()
-        return self.path
+        with self._guard():
+            payload = self._payload()
+            payload["catalogue_signature"] = _hash_payload(payload)
+            atomic_write_json(self.path, payload)
+            self.generate_data_dictionary()
+            return self.path
+
+    @contextmanager
+    def _guard(self) -> Iterator[None]:
+        """Hold the thread and cross-process catalogue guard (re-entrant per instance)."""
+
+        with self._thread_lock:
+            if self._transaction_depth:
+                yield
+                return
+            with persistent_file_guard(
+                self.root / CATALOGUE_GUARD_RELATIVE_PATH, timeout_seconds=_GUARD_TIMEOUT_SECONDS
+            ):
+                self._transaction_depth += 1
+                try:
+                    yield
+                finally:
+                    self._transaction_depth -= 1
+
+    @contextmanager
+    def _transaction(self) -> Iterator[None]:
+        """Lock, reload the persisted catalogue, then let the caller merge and save.
+
+        Reloading under the guard means a stale instance can never overwrite
+        entries committed by another instance or process.
+        """
+
+        with self._guard():
+            if self._transaction_depth == 1:
+                self._reload()
+            self._transaction_depth += 1
+            try:
+                yield
+            finally:
+                self._transaction_depth -= 1
+
+    def _reload(self) -> None:
+        datasets, snapshots = dict(self._datasets), dict(self._snapshots)
+        edges, invalidations = set(self._edges), dict(self._invalidations)
+        self._datasets.clear()
+        self._snapshots.clear()
+        self._edges.clear()
+        self._invalidations.clear()
+        try:
+            self._load()
+        except BaseException:
+            self._datasets.update(datasets)
+            self._snapshots.update(snapshots)
+            self._edges.update(edges)
+            self._invalidations.update(invalidations)
+            raise
 
     def _load(self) -> None:
         if not self.path.is_file():
