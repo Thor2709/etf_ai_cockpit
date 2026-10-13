@@ -246,7 +246,7 @@ def test_dataclass_replace_keeps_support_floor_out_of_other_callers() -> None:
 
     cohort = construct_cohort(_context("TARGET"), (_observation("P1", 1.0),), metric="quality", effective_at=AS_OF, decision_time=DECISION)
     assert calculate_peer_metric("quality", 1.0, cohort, applicable=True).status == "available"
-    assert replace(cohort).support == 1
+    assert replace(cohort, support=3).support == 3 and cohort.support == 1
 
 
 def test_sparebank_peer_ranking_uses_one_formula_version(tmp_path) -> None:
@@ -263,3 +263,44 @@ def test_sparebank_peer_ranking_uses_one_formula_version(tmp_path) -> None:
     assert all(r["composite"] is None for r in rows if r["formula_mismatch"])
     # an explicit version of the viewed scorecard wins over the stored row
     assert [r["instrument_id"] for r in sp.load_peer_rows(tmp_path, "SELF", "2026-10-09T00:00:00Z", "v1")][0] == "OLD"
+
+
+def test_add_peer_saves_the_current_selection_after_a_rebuild(monkeypatch: pytest.MonkeyPatch) -> None:
+    # E103-N002: the Save closure reads the picker live, so a rebuilt card persists the changed selection, not a stale one.
+    from types import SimpleNamespace
+
+    from etf_cockpit.app.pages import stock_page as page
+    from etf_cockpit.application import stock_service as service
+
+    class _Sync:
+        def __init__(self, target, **_kw: object) -> None:
+            self._target = target
+
+        def start(self) -> None:
+            self._target()
+
+    stored: list[tuple[str, list[str]]] = []
+    monkeypatch.setattr(page, "threading", SimpleNamespace(Thread=_Sync))
+    monkeypatch.setattr(service, "stock_universe_records", lambda _config: [SimpleNamespace(instrument_id=i) for i in ("A", "B", "C")])
+    monkeypatch.setattr(picks, "set_user_peers", lambda iid, ids, *, root=None: stored.append((iid, list(ids))) or list(ids))
+    model = SimpleNamespace(instrument_id="T", user_peers=["A"], peers=[], peer_summary="")
+
+    def find(control: object, key: str):
+        stack = [control]
+        while stack:
+            item = stack.pop()
+            if getattr(item, "key", None) == key:
+                return item
+            stack.extend(getattr(item, "controls", None) or [])
+            if getattr(item, "content", None) is not None:
+                stack.append(item.content)
+        raise AssertionError(key)
+
+    first = page.peers_card(model, config=None)
+    find(first, "stock.peers.input").value = "A, B"
+    rebuilt = page.peers_card(SimpleNamespace(**{**vars(model), "user_peers": ["A", "B"]}), config=None)
+    find(rebuilt, "stock.peers.input").value = "C"
+    find(rebuilt, "stock.peers.save").on_click(None)
+    assert stored == [("T", ["C"])]
+    find(first, "stock.peers.save").on_click(None)
+    assert stored[-1] == ("T", ["A", "B"])
