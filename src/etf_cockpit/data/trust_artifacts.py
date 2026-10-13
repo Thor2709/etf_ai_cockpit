@@ -873,6 +873,7 @@ def write_evidence_ledger(scores: Iterable[Any], *, run_id: str, created_at: str
                 getattr(component, "score_10", None),
                 source_obj,
                 conflict_id=getattr(component, "conflict_id", None),
+                decision_date=_freshness_reference_day(created_at).date(),
             )
             eligible = typed_entry.score_eligible and _component_score_eligible(component)
             rows.append(
