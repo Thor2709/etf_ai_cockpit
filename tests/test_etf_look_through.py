@@ -225,8 +225,10 @@ def test_fund_of_funds_and_currency_mismatch_are_explicit_limitations() -> None:
     assert summary.unresolved_weight == pytest.approx(0.2)
     assert summary.mapped_weight == pytest.approx(0.8)
     assert any("Fund-of-funds" in item for item in summary.limitations)
-    assert any("currency does not match" in item for item in summary.limitations)
-    assert summary.fundamental_data_coverage["roic"]["covered_weight"] == 0.0
+    # HL1 (#953, A011-N005/B011-N003): P/E and ROIC are dimensionless; a reporting/listing currency
+    # difference no longer excludes them.
+    assert summary.fundamental_data_coverage["roic"]["covered_weight"] == pytest.approx(0.8)
+    assert summary.calculated_metrics["roic"]["value"] == pytest.approx(0.12)
 
 
 def test_application_facade_exposes_the_calculated_look_through_summary() -> None:

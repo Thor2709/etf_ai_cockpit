@@ -15,10 +15,10 @@ from etf_cockpit.features.overlap import calculate_direct_overlap, verify_overla
 def _rows() -> pd.DataFrame:
     return pd.DataFrame(
         [
-            {"instrument_id": "ETF-A", "security": "Alpha plc", "isin": "GB0002634946", "weight": 0.60, "as_of": "2026-07-01", "source_id": "a1", "authority": "issuer", "completeness": "full", "freshness": "fresh", "sector": "Technology", "country": "GB", "currency": "GBP"},
-            {"instrument_id": "ETF-A", "security": "Beta SA", "isin": "FR0000120271", "weight": 0.40, "as_of": "2026-07-01", "source_id": "a1", "authority": "issuer", "completeness": "full", "freshness": "fresh", "sector": "Financials", "country": "FR", "currency": "EUR"},
-            {"instrument_id": "ETF-B", "security": "Alpha renamed", "isin": "GB0002634946", "weight": 0.25, "as_of": "2026-07-02", "source_id": "b1", "authority": "issuer", "completeness": "full", "freshness": "fresh", "sector": "Technology", "country": "GB", "currency": "GBP"},
-            {"instrument_id": "ETF-B", "security": "Gamma AG", "isin": "DE0007164600", "weight": 0.75, "as_of": "2026-07-02", "source_id": "b1", "authority": "issuer", "completeness": "full", "freshness": "fresh", "sector": "Industrials", "country": "DE", "currency": "EUR"},
+            {"instrument_id": "ETF-A", "security": "Alpha plc", "isin": "GB0002634946", "weight": 0.60, "as_of": "2026-07-01", "known_at": "2026-07-02T00:00:00Z", "source_id": "a1", "authority": "issuer", "completeness": "full", "freshness": "fresh", "sector": "Technology", "country": "GB", "currency": "GBP"},
+            {"instrument_id": "ETF-A", "security": "Beta SA", "isin": "FR0000120271", "weight": 0.40, "as_of": "2026-07-01", "known_at": "2026-07-02T00:00:00Z", "source_id": "a1", "authority": "issuer", "completeness": "full", "freshness": "fresh", "sector": "Financials", "country": "FR", "currency": "EUR"},
+            {"instrument_id": "ETF-B", "security": "Alpha renamed", "isin": "GB0002634946", "weight": 0.25, "as_of": "2026-07-02", "known_at": "2026-07-03T00:00:00Z", "source_id": "b1", "authority": "issuer", "completeness": "full", "freshness": "fresh", "sector": "Technology", "country": "GB", "currency": "GBP"},
+            {"instrument_id": "ETF-B", "security": "Gamma AG", "isin": "DE0007164600", "weight": 0.75, "as_of": "2026-07-02", "known_at": "2026-07-03T00:00:00Z", "source_id": "b1", "authority": "issuer", "completeness": "full", "freshness": "fresh", "sector": "Industrials", "country": "DE", "currency": "EUR"},
         ]
     )
 
@@ -333,3 +333,12 @@ def test_checksum_report_identity_order_and_tamper_are_fail_closed() -> None:
     )
     assert invalid.coverage[0].status == "missing"
     assert "checksum" in " ".join(invalid.coverage[0].warnings).lower()
+
+
+def test_overlap_without_known_at_is_unavailable_not_known_on_as_of_date() -> None:
+    rows = _rows().drop(columns=["known_at"])
+
+    report = calculate_direct_overlap(rows, ["ETF-A", "ETF-B"], today=date(2026, 7, 18))
+
+    assert {item.status for item in report.coverage} == {"missing"}
+    assert all("known-at" in " ".join(item.warnings) for item in report.coverage)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field as dataclass_field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 import math
 from typing import Mapping
 
@@ -12,13 +12,8 @@ import pandas as pd
 from etf_cockpit.core.values import finite_real_or_none as _finite_number
 from etf_cockpit.core.pandas_values import clean_text_or_empty as _clean_text
 from etf_cockpit.data.event_calendar import normalise_event_decision_time
-from etf_cockpit.data.fund_holdings import normalise_holdings
-from etf_cockpit.features.overlap import (
-    _choose_source_group,
-    _normalise_snapshot,
-    _source_groups,
-    _typed_identity,
-)
+from etf_cockpit.data.fund_holdings import _authority_for_source, holdings_authority_rank, normalise_holdings
+from etf_cockpit.features.overlap import _normalise_snapshot, _typed_identity
 
 
 _DEFAULT_MAX_HOLDINGS_AGE_DAYS = 90
@@ -78,6 +73,7 @@ def calculate_look_through(
     max_holdings_age_days: int = _DEFAULT_MAX_HOLDINGS_AGE_DAYS,
     minimum_aggregate_coverage: float = _DEFAULT_MINIMUM_AGGREGATE_COVERAGE,
     require_canonical_identity: bool = False,
+    share_class_id: str | None = None,
 ) -> LookThroughSummary:
     """Calculate direct holdings exposure and covered constituent metrics.
 
@@ -140,7 +136,7 @@ def calculate_look_through(
         )
 
     selected, selected_date, selected_source, selection_warning, selected_known_at = _select_holdings(
-        holdings, instrument_id, cutoff, analysis, holdings_date, source
+        holdings, instrument_id, cutoff, analysis, holdings_date, source, _clean_text(share_class_id) or None
     )
     if selected.empty or selected_date is None:
         return _empty_summary(
@@ -304,6 +300,13 @@ def calculate_look_through(
             "weight": round(float(values["weight"]), 12),
             "listing_identities": tuple(sorted(set(values["identities"]))),
         }
+        # Listings of one issuer may trade in different currencies; keep every listing's currency weight.
+        currency_weights: dict[str, float] = {}
+        for currency, listing_weight in values["currencies"]:
+            label = _clean_text(currency)
+            if label:
+                currency_weights[label] = currency_weights.get(label, 0.0) + float(listing_weight)
+        row["currency_weights"] = {label: round(amount, 12) for label, amount in sorted(currency_weights.items())}
         for dimension, field in {
             "sector": "sectors",
             "country": "countries",
@@ -345,7 +348,6 @@ def calculate_look_through(
         analysis,
         minimum_aggregate_coverage,
         reported_total,
-        {identity: values["currency"] for identity, values in reported_dimensions.items() if "currency" in values},
     )
     limitations.extend(metric_limitations)
 
@@ -508,6 +510,35 @@ _AGGREGATION_CONVENTIONS = (
 )
 
 
+_NEWER_SKIPPED = (
+    "Newer holdings snapshots not yet known by the decision time or not matching the requested source were skipped."
+)
+_SEVERAL_SHARE_CLASSES = "Holdings carry several share classes and none was requested; a parent cannot be formed."
+_NO_KNOWN_AT = "Holdings known-at time is unavailable; point-in-time availability cannot be established."
+
+
+def _scope_to_parent(frame: pd.DataFrame, instrument_id: str, share_class_id: str | None) -> pd.DataFrame:
+    """Keep rows owned by ``instrument_id``; legacy ``etf_id``-only rows are scoped the same way.
+
+    A row whose ``instrument_id`` and ``etf_id`` disagree has an ambiguous parent and is excluded, so two
+    ETFs can never be mixed into one parent. A share-class filter keeps rows of that class and rows
+    that carry no share class (a parent-level portfolio).
+    """
+    parents = [name for name in ("instrument_id", "etf_id") if name in frame.columns]
+    if parents:
+        named = pd.Series(False, index=frame.index)
+        foreign = pd.Series(False, index=frame.index)
+        for name in parents:
+            values = frame[name].map(lambda value: value.strip() if isinstance(value, str) else "")
+            named |= values.eq(instrument_id)
+            foreign |= values.ne("") & values.ne(instrument_id)
+        frame = frame.loc[named & ~foreign]
+    if share_class_id and "share_class_id" in frame.columns:
+        classes = frame["share_class_id"].map(_clean_text)
+        frame = frame.loc[classes.eq("") | classes.eq(share_class_id)]
+    return frame.copy()
+
+
 def _select_holdings(
     holdings: pd.DataFrame,
     instrument_id: str,
@@ -515,83 +546,106 @@ def _select_holdings(
     analysis: date,
     holdings_date: str | date | datetime | None,
     source: str | None,
+    share_class_id: str | None = None,
 ) -> tuple[pd.DataFrame, date | None, str | None, str | None, str | None]:
-    frame = holdings.copy()
-    if "instrument_id" in frame.columns:
-        frame = frame.loc[frame["instrument_id"].map(lambda value: isinstance(value, str) and value == instrument_id)].copy()
+    """Select one acquisition: authority first, then vintage, within the point-in-time window.
+
+    A usable row satisfies ``as_of <= known_at <= decision time``; rows without ``known_at`` or known
+    before their own as-of date are invalid. Rows are grouped by ``source_id`` (one acquisition) and
+    never combined across groups, with or without an explicit ``source``.
+    """
+    frame = _scope_to_parent(holdings, instrument_id, share_class_id)
     if frame.empty:
         return frame, None, source, None, None
+    if not share_class_id and "share_class_id" in frame.columns:
+        classes = {value for value in frame["share_class_id"].map(_clean_text) if value}
+        if len(classes) > 1:
+            return frame.iloc[0:0], None, source, _SEVERAL_SHARE_CLASSES, None
     date_column = next((name for name in ("as_of", "as_of_date") if name in frame.columns), None)
-    known_column = next((name for name in ("known_at", "available_at") if name in frame.columns), None)
-    requested_date = _as_date(holdings_date) if holdings_date is not None else None
-    selection_warning = None
-    if requested_date is not None:
-        chosen_date = requested_date
-        if date_column is not None:
-            frame = frame.loc[frame[date_column].map(_as_date).eq(chosen_date)].copy()
-    elif date_column is not None:
-        parsed_dates = frame[date_column].map(_as_date)
-        eligible = parsed_dates.map(lambda value: value is not None and value <= analysis)
-        frame = frame.loc[eligible].copy()
-        if frame.empty:
-            return frame, None, source, "No holdings snapshot dated on or before the analysis date exists.", None
-        # "Latest" means the latest snapshot that is usable: known by the
-        # decision time and matching the requested source. A newer snapshot
-        # that is not yet known must not hide an older usable one (S4-06). When
-        # no snapshot is usable the latest dated one is kept so the downstream
-        # checks report the specific reason.
-        usable = frame
-        if known_column is not None:
-            known_values = usable[known_column].map(normalise_event_decision_time)
-            usable = usable.loc[known_values.map(lambda value: value is not None and value <= cutoff)]
-        if source is not None and "source" in usable.columns:
-            usable = usable.loc[usable["source"].map(_clean_text).eq(source)]
-        latest_date = max(value for value in frame[date_column].map(_as_date) if value is not None)
-        chosen_date = latest_date
-        if not usable.empty:
-            chosen_date = max(value for value in usable[date_column].map(_as_date) if value is not None)
-            if chosen_date < latest_date:
-                selection_warning = (
-                    "Newer holdings snapshots not yet known by the decision time or not matching the requested source were skipped."
-                )
-        frame = frame.loc[frame[date_column].map(_as_date).eq(chosen_date)].copy()
-    else:
+    if date_column is None:
         return frame.iloc[0:0], None, source, "The holdings snapshot has no as-of date.", None
-    if chosen_date is None or chosen_date > analysis:
-        return frame.iloc[0:0], chosen_date, source, "The holdings date is after the analysis date.", None
+    known_column = next((name for name in ("known_at", "available_at") if name in frame.columns), None)
+    if known_column is None:
+        return frame.iloc[0:0], None, source, _NO_KNOWN_AT, None
+    requested_date = _as_date(holdings_date) if holdings_date is not None else None
 
-    known_at = None
-    warning = None
-    if known_column is not None:
-        parsed_known = frame[known_column].map(normalise_event_decision_time)
-        visible = parsed_known.map(lambda value: value is not None and value <= cutoff)
-        if not visible.all():
-            frame = frame.loc[visible].copy()
-            parsed_known = parsed_known.loc[visible]
-            warning = "Holdings rows not known by the decision time were excluded."
-        if frame.empty:
-            return frame, chosen_date, source, "No holdings rows were known by the decision time.", None
-        known_values = [value for value in parsed_known if value is not None]
-        known_at = max(known_values).isoformat() if known_values else None
+    work = frame.assign(
+        _lt_date=frame[date_column].map(_as_date),
+        _lt_known=frame[known_column].map(normalise_event_decision_time),
+    )
+    work = work.loc[work["_lt_date"].notna()]
+    if work.empty:
+        return frame.iloc[0:0], None, source, "The holdings snapshot has no as-of date.", None
+    if requested_date is not None:
+        work = work.loc[work["_lt_date"].eq(requested_date)]
+        if work.empty:
+            return frame.iloc[0:0], requested_date, source, "No holdings snapshot is dated on the requested date.", None
+    work = work.loc[work["_lt_date"].map(lambda value: value <= analysis)]
+    if work.empty:
+        return frame.iloc[0:0], None, source, "No holdings snapshot dated on or before the analysis date exists.", None
 
-    source_warning = None
-    if source is not None and "source" in frame.columns:
-        frame = frame.loc[frame["source"].map(_clean_text).eq(source)].copy()
-        if frame.empty:
-            return frame, chosen_date, source, "No holdings rows match the requested source.", known_at
-    if source is None:
-        if "source_id" in frame.columns:
-            chosen, source_warning = _choose_source_group(_source_groups(frame))
-            if chosen is None:
-                return frame.iloc[0:0], chosen_date, None, source_warning, known_at
-            source_id, frame = chosen
-            del source_id
-        source_values = sorted({_clean_text(value) for value in frame.get("source", pd.Series(dtype=object)) if _clean_text(value)})
-        selected_source = source_values[0] if len(source_values) == 1 else None
-    else:
+    known_values = list(work["_lt_known"])
+    row_dates = list(work["_lt_date"])
+    visible = pd.Series(
+        [known is not None and known.date() >= row_date and known <= cutoff for row_date, known in zip(row_dates, known_values)],
+        index=work.index,
+    )
+    latest_date = max(row_dates)
+    usable = work.loc[visible]
+    if source is not None and "source" in usable.columns:
+        usable = usable.loc[usable["source"].map(_clean_text).eq(source)]
+    if usable.empty:
+        if all(known is None for known in known_values):
+            reason = _NO_KNOWN_AT
+        elif any(known is not None and known.date() < row_date for row_date, known in zip(row_dates, known_values)) and not visible.any():
+            reason = "Holdings known before their as-of date are invalid chronology and were excluded."
+        elif visible.any():
+            reason = "No holdings rows match the requested source."
+        else:
+            reason = "No holdings rows were known by the decision time."
+        return frame.iloc[0:0], latest_date, source, reason, None
+
+    group_column = "source_id" if "source_id" in usable.columns else None
+    authorities = usable["authority"] if "authority" in usable.columns else pd.Series("", index=usable.index)
+    row_sources = usable["source"] if "source" in usable.columns else pd.Series("", index=usable.index)
+    keyed = usable.assign(
+        _lt_group=usable[group_column].map(_clean_text) if group_column else "",
+        _lt_rank=[
+            holdings_authority_rank(_clean_text(authority) or _authority_for_source(_clean_text(row_source) or _clean_text(source)))
+            for authority, row_source in zip(authorities, row_sources)
+        ],
+    )
+    ordered: list[tuple[tuple[int, int, float, str], pd.DataFrame]] = []
+    for (key_group, key_date), rows in keyed.groupby(["_lt_group", "_lt_date"], sort=True):
+        latest_known = max(rows["_lt_known"])
+        ordered.append(((int(rows["_lt_rank"].min()), -key_date.toordinal(), -latest_known.timestamp(), str(key_group)), rows))
+    ordered.sort(key=lambda item: item[0])
+    best_key, chosen_rows = ordered[0]
+    if len(ordered) > 1 and ordered[1][0][:3] == best_key[:3]:
+        return frame.iloc[0:0], latest_date, None, "Equal-authority holdings snapshots conflict for the selected date.", None
+    chosen_date = chosen_rows["_lt_date"].iloc[0]
+    chosen_group = chosen_rows["_lt_group"].iloc[0]
+    # Lineage is computed from the selected acquisition only (never an excluded vendor group).
+    known_at = max(chosen_rows["_lt_known"]).isoformat()
+
+    warnings: list[str] = []
+    same_acquisition = work["_lt_date"].eq(chosen_date)
+    if group_column:
+        same_acquisition &= work[group_column].map(_clean_text).eq(chosen_group)
+    if bool((same_acquisition & ~visible).any()):
+        warnings.append("Holdings rows not known by the decision time were excluded.")
+    if latest_date > chosen_date:
+        warnings.append(_NEWER_SKIPPED)
+    if len(ordered) > 1:
+        warnings.append("A lower-authority or older holdings snapshot was excluded.")
+
+    selected = chosen_rows.drop(columns=["_lt_date", "_lt_known", "_lt_group", "_lt_rank"])
+    if source is not None:
         selected_source = source
-    warning = "; ".join(value for value in (warning, selection_warning, source_warning) if value) or None
-    return frame, chosen_date, selected_source, warning, known_at
+    else:
+        source_values = sorted({_clean_text(value) for value in selected.get("source", pd.Series(dtype=object)) if _clean_text(value)})
+        selected_source = source_values[0] if len(source_values) == 1 else None
+    return selected, chosen_date, selected_source, "; ".join(warnings) or None, known_at
 
 
 def _aggregate_fundamentals(
@@ -603,7 +657,6 @@ def _aggregate_fundamentals(
     analysis: date,
     minimum_aggregate_coverage: float,
     reported_total: float,
-    holding_currency_evidence: Mapping[str, tuple[str, float]],
 ) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, object]], list[str]]:
     mapped_weight = math.fsum(float(row["weight"]) for row in economic_rows)
     portfolio_denominator = max(1.0, reported_total)
@@ -646,7 +699,7 @@ def _aggregate_fundamentals(
 
     rows: list[dict[str, object]] = []
     for row in fundamentals.to_dict("records"):
-        known = normalise_event_decision_time(row.get("available_at", row.get("known_at")))
+        known = _fundamental_known_at(row)
         effective = _as_date(row.get("as_of_date", row.get("as_of")))
         if known is None or known > cutoff or effective is None or effective > analysis:
             continue
@@ -676,41 +729,22 @@ def _aggregate_fundamentals(
             if holding.company:
                 holding_keys.add(holding.company)
         holding_keys = {value.casefold() for value in holding_keys}
-        matches = [row for row in rows if holding_keys.intersection(_fundamental_keys(row))]
+        holding_identities = {holding.identity.casefold() for holding in holdings_for_key}
+        matches = [row for row in rows if _fundamental_matches(row, holding_keys, holding_identities)]
         if not matches:
             continue
-        matches.sort(key=lambda row: (_as_date(row.get("as_of_date", row.get("as_of"))) or date.min,
-                                      normalise_event_decision_time(row.get("available_at", row.get("known_at"))) or datetime.min.replace(tzinfo=cutoff.tzinfo),
-                                      _clean_text(row.get("source_id"))))
-        latest_key = (
-            _as_date(matches[-1].get("as_of_date", matches[-1].get("as_of"))),
-            normalise_event_decision_time(matches[-1].get("available_at", matches[-1].get("known_at"))),
-        )
-        latest = [row for row in matches if (
-            _as_date(row.get("as_of_date", row.get("as_of"))),
-            normalise_event_decision_time(row.get("available_at", row.get("known_at"))),
-        ) == latest_key]
-        if len({_metric_signature(row) for row in latest}) > 1:
-            limitations.append(f"Conflicting same-vintage constituent evidence was excluded for {key}.")
-            continue
-        evidence = latest[-1]
+        matches.sort(key=_vintage_sort_key)
         weight = float(economic["weight"])
-        currencies = {holding.currency.upper() for holding in holdings_for_key if holding.currency}
-        fact_currency = _clean_text(evidence.get("currency")).upper()
-        # Every listing (and every merged row of a listing) must report its own
-        # currency; another listing's currency never stands in for a missing one.
-        currency_incomplete = any(
-            not holding.currency
-            or holding_currency_evidence.get(holding.identity, ("", 0.0))[1] < holding.weight - _RECONCILIATION_TOLERANCE
-            for holding in holdings_for_key
-        )
-        if not fact_currency or len(currencies) != 1 or currency_incomplete:
-            limitations.append(f"Fundamental or holding currency evidence is missing or ambiguous for {key}; metrics were excluded.")
-            continue
-        if currencies != {fact_currency}:
-            limitations.append(f"Fundamental currency does not match reported holding currency for {key}; metrics were excluded.")
-            continue
-        pe = _finite_number(evidence.get("pe_ratio"))
+        # P/E and ROIC are dimensionless: neither a reporting/listing currency difference nor a missing
+        # currency excludes them. Each metric uses its own latest vintage that actually reports it, so a
+        # newer record without the other metric never suppresses it.
+        pe_row, pe_conflict = _latest_metric_row(matches, "pe_ratio")
+        roic_row, roic_conflict = _latest_metric_row(matches, "roic")
+        if pe_conflict:
+            limitations.append(f"Conflicting same-vintage constituent P/E evidence was excluded for {key}.")
+        if roic_conflict:
+            limitations.append(f"Conflicting same-vintage constituent ROIC evidence was excluded for {key}.")
+        pe = _finite_number(pe_row.get("pe_ratio")) if pe_row is not None else None
         if pe is not None:
             if pe == 0:
                 limitations.append(f"Zero P/E evidence was excluded to avoid division by zero for {key}.")
@@ -719,14 +753,14 @@ def _aggregate_fundamentals(
                 if math.isfinite(yld):
                     pe_covered += weight
                     weighted_yield += weight * yld
-                    selected_metrics["pe_ratio"].append((weight, pe, key, evidence))
+                    selected_metrics["pe_ratio"].append((weight, pe, key, pe_row))
                 else:
                     limitations.append(f"Nonfinite earnings yield was excluded for {key}.")
-        roic = _finite_number(evidence.get("roic"))
+        roic = _finite_number(roic_row.get("roic")) if roic_row is not None else None
         if roic is not None:
             roic_covered += weight
             weighted_roic += weight * roic
-            selected_metrics["roic"].append((weight, roic, key, evidence))
+            selected_metrics["roic"].append((weight, roic, key, roic_row))
 
     empty_coverage["pe_ratio"] = {
         "covered_weight": round(pe_covered, 12),
@@ -763,7 +797,8 @@ def _aggregate_fundamentals(
                         "pe_ratio": value,
                         "source_id": _clean_text(row.get("source_id")),
                         "as_of_date": _as_date(row.get("as_of_date", row.get("as_of"))).isoformat(),
-                        "available_at": normalise_event_decision_time(row.get("available_at", row.get("known_at"))).isoformat(),
+                        "available_at": _fundamental_known_at(row).isoformat(),
+                        "known_at": _fundamental_known_at(row).isoformat(),
                     }
                     for weight, value, key, row in selected_metrics["pe_ratio"]
                 ),
@@ -795,7 +830,8 @@ def _aggregate_fundamentals(
                     "roic": value,
                     "source_id": _clean_text(row.get("source_id")),
                     "as_of_date": _as_date(row.get("as_of_date", row.get("as_of"))).isoformat(),
-                    "available_at": normalise_event_decision_time(row.get("available_at", row.get("known_at"))).isoformat(),
+                    "available_at": _fundamental_known_at(row).isoformat(),
+                    "known_at": _fundamental_known_at(row).isoformat(),
                 }
                 for weight, value, key, row in selected_metrics["roic"]
             ),
@@ -955,8 +991,10 @@ def _exposures(economic_rows: list[dict[str, object]], direct_holdings: tuple[ob
     }
     for row in economic_rows:
         result["issuer"][str(row["identity"])] = round(float(row["weight"]), 12)
+        for label, amount in row.get("currency_weights", {}).items():
+            result["currency"][label] = round(result["currency"].get(label, 0.0) + float(amount), 12)
         for dimension in (
-            "sector", "country", "currency", "industry", "domicile", "economic_currency", "factor", "cap_bucket"
+            "sector", "country", "industry", "domicile", "economic_currency", "factor", "cap_bucket"
         ):
             bucket = row[dimension]
             if bucket:
@@ -984,6 +1022,8 @@ def _exposure_coverage(
         covered_weight = (
             mapped_weight
             if dimension in {"issuer", "listing"}
+            else math.fsum(float(amount) for row in economic_rows for amount in row.get("currency_weights", {}).values())
+            if dimension == "currency"
             else math.fsum(
                 float(row[f"{dimension}_weight"])
                 for row in economic_rows
@@ -1068,8 +1108,50 @@ def _fundamental_keys(row: Mapping[str, object]) -> set[str]:
     return result
 
 
-def _metric_signature(row: Mapping[str, object]) -> tuple[object, ...]:
-    return tuple(_finite_number(row.get(field)) for field in ("pe_ratio", "roic")) + (_clean_text(row.get("currency")).upper(),)
+def _fundamental_known_at(row: Mapping[str, object]) -> datetime | None:
+    """Point-in-time visibility of a constituent fact: ``known_at``; ``available_at`` only as a fallback."""
+    known = normalise_event_decision_time(row.get("known_at"))
+    return known if known is not None else normalise_event_decision_time(row.get("available_at"))
+
+
+def _vintage_key(row: Mapping[str, object]) -> tuple[date | None, datetime | None]:
+    return _as_date(row.get("as_of_date", row.get("as_of"))), _fundamental_known_at(row)
+
+
+def _vintage_sort_key(row: Mapping[str, object]) -> tuple[date, datetime, str]:
+    effective, known = _vintage_key(row)
+    return (
+        effective or date.min,
+        known or datetime.min.replace(tzinfo=timezone.utc),
+        _clean_text(row.get("source_id")),
+    )
+
+
+def _fundamental_matches(
+    row: Mapping[str, object], holding_keys: set[str], holding_identities: set[str]
+) -> bool:
+    """Match a fact to a holding; a typed identity on the fact must equal a holding's typed identity.
+
+    Issuer/company names never override a contradictory typed identifier.
+    """
+    typed = _typed_identity(pd.Series(row))
+    if typed:
+        return typed.casefold() in holding_identities
+    return bool(holding_keys.intersection(_fundamental_keys(row)))
+
+
+def _latest_metric_row(
+    matches: list[Mapping[str, object]], field: str
+) -> tuple[Mapping[str, object] | None, bool]:
+    """Latest vintage reporting ``field``; conflicting same-vintage values return (None, True)."""
+    candidates = [row for row in matches if _finite_number(row.get(field)) is not None]
+    if not candidates:
+        return None, False
+    latest_key = _vintage_key(candidates[-1])
+    latest = [row for row in candidates if _vintage_key(row) == latest_key]
+    if len({_finite_number(row.get(field)) for row in latest}) > 1:
+        return None, True
+    return latest[-1], False
 
 
 def _provider_metrics(values: Mapping[str, object] | None) -> dict[str, dict[str, object]]:
