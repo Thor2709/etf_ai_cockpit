@@ -294,6 +294,11 @@ class BitemporalStore:
                 continue
             highest[revision_key] = int(row["revision"])
             if str(row["observation_id"]) in retracted_ids:
+                # The retracted revision supersedes any older revision of the same
+                # source, so that source yields nothing; other sources' rows stay.
+                current = selected.get(key)
+                if current is not None and str(current["source_id"]) == str(row["source_id"]):
+                    selected.pop(key)
                 continue
             selected[key] = row
         # Effective validity applies after selection so an expired newer vintage

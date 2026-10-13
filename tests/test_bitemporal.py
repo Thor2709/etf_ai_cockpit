@@ -19,7 +19,15 @@ from etf_cockpit.data.bitemporal import (
 CHECKSUM = "a" * 64
 
 
-def _record(store: BitemporalStore, *, revision: int, available_at: str, value: str, status: str = "active"):
+def _record(
+    store: BitemporalStore,
+    *,
+    revision: int,
+    available_at: str,
+    value: str,
+    status: str = "active",
+    source_id: str = "source:official",
+):
     return store.record_observation(
         dataset_id="fundamentals",
         entity_id="ETF-1",
@@ -34,7 +42,7 @@ def _record(store: BitemporalStore, *, revision: int, available_at: str, value: 
         ingested_at="2026-01-03T00:00:00Z",
         revised_at=available_at if revision > 1 else None,
         revision=revision,
-        source_id="source:official",
+        source_id=source_id,
         source_checksum=CHECKSUM,
         timezone_confidence="exact",
         availability_confidence="exact",
@@ -183,6 +191,20 @@ def test_revisions_are_append_only_and_retractions_are_historical(tmp_path: Path
                 (first.observation_id,),
             )
         assert store.observations("fundamentals")[0].observation_id == first.observation_id
+
+
+def test_retracting_one_source_never_drops_another_sources_row(tmp_path: Path) -> None:
+    with BitemporalStore(tmp_path) as store:
+        _record(store, revision=1, available_at="2026-01-02T10:00:00Z", value="official")
+        vendor = _record(store, revision=1, available_at="2026-02-02T10:00:00Z", value="vendor", source_id="source:vendor")
+        store.record_retraction(
+            vendor.observation_id,
+            available_at="2026-03-02T10:00:00Z",
+            run_id="run-retraction",
+            reason="vendor withdrawn",
+        )
+        frame = store.as_of("fundamentals", "2026-03-15T00:00:00Z")
+        assert list(frame["value"]) == [{"value": "official"}]
 
 
 def test_supersession_is_an_append_only_marker(tmp_path: Path) -> None:
