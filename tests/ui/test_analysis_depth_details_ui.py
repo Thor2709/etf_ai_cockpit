@@ -23,7 +23,7 @@ from etf_cockpit.application.snapshot_builder import build_snapshot
 
 def _walk(control):
     yield control
-    for name in ("content", "controls", "title", "leading", "trailing", "actions"):
+    for name in ("body", "content", "controls", "title", "leading", "trailing", "actions"):
         child = getattr(control, name, None)
         if isinstance(child, (list, tuple)):
             for item in child:
@@ -53,7 +53,7 @@ def test_header_choice_persists_to_settings_and_settings_page_follows(tmp_path) 
     assert "session only" in unbound.persist_analysis_depth("quick")  # nothing written, honest message
     state.analysis_depth = "high"
     page = settings_page(SimpleNamespace(), state)
-    assert _by_key(page, "settings.analysis-depth").value == "high"
+    assert _by_key(page, "settings.analysis-depth").data["state"]["selected"] == "High"
 
 
 def test_stage_lists_omitted_warning_and_read_only_compare() -> None:

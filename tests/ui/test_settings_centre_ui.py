@@ -17,15 +17,47 @@ from etf_cockpit.core.config import load_config
 
 
 def _walk(control):
+    """Walk a rebuilt page: PageView chrome/body, kit Fields (popup menus) and nested content."""
+    if hasattr(control, "body") and hasattr(control, "chrome"):
+        yield from _walk(control.body)
+        return
     if isinstance(control, ft.Control):
         yield control
     for child in getattr(control, "controls", ()) or ():
         yield from _walk(child)
     for child in getattr(control, "actions", ()) or ():
         yield from _walk(child)
+    for item in getattr(control, "items", ()) or ():
+        yield from _walk(item)
     content = getattr(control, "content", None)
     if content is not None:
         yield from _walk(content)
+
+
+def _walk_all_views(view):
+    """Walk every segment of a PageView (the rebuilt pages render one segment at a time)."""
+    seen: list = list(_walk(view))
+    for group in view.chrome.segment_groups:
+        for name in group.items:
+            group.on_change(name)
+            seen.extend(_walk(view))
+        group.on_change(group.selected)
+    return seen
+
+
+def _fields(controls):
+    """Kit ``Field`` columns by label, with their option labels."""
+    result = {}
+    for control in controls:
+        data = getattr(control, "data", None)
+        if isinstance(data, dict) and data.get("kit") == "Field":
+            options = [
+                str(getattr(getattr(item, "content", None), "value", ""))
+                for node in _walk(control)
+                for item in (getattr(node, "items", ()) or ())
+            ]
+            result[str(data["label"])] = options
+    return result
 
 
 def _metadata_snapshot() -> CockpitSnapshot:
@@ -49,7 +81,7 @@ def _metadata_snapshot() -> CockpitSnapshot:
 def test_settings_centre_exposes_staged_controls_without_plaintext_credentials() -> None:
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
-    controls = list(_walk(settings_page(None, state)))
+    controls = _walk_all_views(settings_page(None, state))
     by_key = {getattr(control, "key", None): control for control in controls if getattr(control, "key", None)}
 
     assert {
@@ -73,18 +105,18 @@ def test_settings_centre_exposes_staged_controls_without_plaintext_credentials()
 
 
 def test_onboarding_uses_canonical_settings_options() -> None:
-    controls = list(_walk(onboarding_page(None, None)))
-    dropdowns = {str(control.label): control for control in controls if isinstance(control, ft.Dropdown)}
+    controls = _walk_all_views(onboarding_page(None, None))
+    fields = _fields(controls)
+    texts = [str(getattr(control, "value", "") or getattr(control, "text", "")) for control in controls]
 
-    assert "Output currency" in dropdowns
-    assert "Asset scope" in dropdowns
-    assert "Risk profile" in dropdowns
-    assert "Target horizon" in dropdowns
-    assert "Analysis depth" in dropdowns
-    assert {option.key for option in dropdowns["Risk profile"].options} == {
-        "safe", "safe_medium", "medium", "medium_aggressive", "aggressive"
-    }
-    assert {option.key for option in dropdowns["Target horizon"].options} == {"1W", "1M", "3M", "6M", "9M", "2Y", "5Y"}
+    assert "Output currency" in fields
+    assert "Asset scope" in fields
+    assert fields["Asset scope"] == ["stock", "etf", "fund", "bond", "stock+etf", "all"]
+    for label in ("Risk profile", "Target horizon", "Analysis depth"):
+        assert label in texts
+    # Segmented option labels map one-to-one onto the canonical settings values.
+    assert {"Safe", "Safe-Medium", "Medium", "Medium-Aggressive", "Aggressive"} <= set(texts)
+    assert {"1W", "1M", "3M", "6M", "9M", "2Y", "5Y"} <= set(texts)
 
 
 def test_settings_centre_surfaces_unsupported_legacy_migration(tmp_path, monkeypatch) -> None:
@@ -121,7 +153,7 @@ def test_settings_centre_surfaces_unsupported_legacy_migration(tmp_path, monkeyp
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
 
-    controls = list(_walk(page_module.settings_page(None, state)))
+    controls = _walk_all_views(page_module.settings_page(None, state))
     text = "\n".join(str(getattr(control, "value", "") or getattr(control, "text", "")) for control in controls)
 
     assert "manual review" in text.lower()
@@ -131,7 +163,7 @@ def test_settings_centre_surfaces_unsupported_legacy_migration(tmp_path, monkeyp
 def test_settings_release_metadata_shows_changelog_excerpt_and_unavailable_rebuild() -> None:
     snapshot = _metadata_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
-    controls = list(_walk(settings_page(None, state)))
+    controls = _walk_all_views(settings_page(None, state))
     text = "\n".join(str(getattr(control, "value", "") or getattr(control, "text", "")) for control in controls)
 
     assert "Changelog excerpt:" in text

@@ -12,17 +12,32 @@ class _Page:
 
 def _walk(control):
     yield control
+    page_body = getattr(control, "body", None)  # PageView wraps the page body
+    if page_body is not None and page_body is not control:
+        yield from _walk(page_body)
     for child in getattr(control, "controls", []) or []:
         yield from _walk(child)
     content = getattr(control, "content", None)
     if content is not None:
         yield from _walk(content)
+    for item in getattr(control, "items", []) or []:  # card menu entries
+        yield from _walk(item)
 
 
 def _page_controls():
+    """Controls of every view/dimension the segments offer (the page shows one view at a time)."""
+
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
-    return list(_walk(risk_module.risk_page(_Page(), state)))
+    view = risk_module.risk_page(_Page(), state)
+    groups = {group.key: group for group in view.chrome.segment_groups}
+    controls = []
+    for name in groups["risk-view"].items:
+        groups["risk-view"].on_change(name)
+        for dimension in groups["risk-dimension"].items:
+            groups["risk-dimension"].on_change(dimension)
+            controls.extend(_walk(view.body))
+    return controls
 
 
 def _keys(controls) -> set[str]:
@@ -52,8 +67,7 @@ def test_download_button_writes_local_csv_only(tmp_path, monkeypatch) -> None:
     assert names == ["risk_exposure_region.csv"]
 
 
-def test_download_helpers_are_labelled_and_local() -> None:
-    row = risk_module._download_row(risk_module._download_button("Download x CSV", "risk.download-x", lambda _e: None))
-    button = row.controls[0]
-    assert button.key == "risk.download-x"
-    assert "local file only" in str(button.tooltip)
+def test_download_actions_are_labelled_and_local() -> None:
+    items = [c for c in _page_controls() if str(getattr(c, "key", "")).startswith("risk.download-")]
+    assert items
+    assert all("local file only" in str(item.tooltip) for item in items)

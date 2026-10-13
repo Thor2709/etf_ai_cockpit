@@ -32,6 +32,7 @@ from etf_cockpit.analysis.decision.stock import (
 )
 from etf_cockpit.core.atomic_io import atomic_write_json
 from etf_cockpit.core.paths import (
+    CONFIG_DIR,
     LOG_DIR,
     ROOT,
     STATEMENT_FACTS_PATH,
@@ -49,7 +50,7 @@ from etf_cockpit.data.stock_research import (
 )
 
 
-_PROJECT_CONFIG_DIR = Path(__file__).resolve().parents[4] / "configs"
+_PROJECT_CONFIG_DIR = CONFIG_DIR
 _DECISION_REGISTRY_PATH = _PROJECT_CONFIG_DIR / "decision_domains_v1.yaml"
 _SAFE_RUN_ID = re.compile(r"[^A-Za-z0-9_.-]+")
 

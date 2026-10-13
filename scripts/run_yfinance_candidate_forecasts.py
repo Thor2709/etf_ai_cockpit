@@ -6,7 +6,14 @@ from collections import Counter
 from datetime import date
 from pathlib import Path
 
-import pandas as pd
+
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from run_pipeline_cli import run_cli  # noqa: E402 - follows the scripts-dir bootstrap
+
+import pandas as pd  # noqa: E402 - follows the scripts-dir bootstrap
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -14,12 +21,13 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from etf_cockpit.core.config import ProviderSection, load_config  # noqa: E402 - imports follow the sys.path bootstrap above
-from etf_cockpit.core.paths import FORECASTS_DIR  # noqa: E402 - imports follow the sys.path bootstrap above
+from etf_cockpit.core.paths import FORECASTS_DIR, RAW_DIR  # noqa: E402 - imports follow the sys.path bootstrap above
 from etf_cockpit.data.yfinance_provider import YFinanceProvider  # noqa: E402 - imports follow the sys.path bootstrap above
+from etf_cockpit.core.values import years_before  # noqa: E402
 from etf_cockpit.application.forecast_service import ForecastService  # noqa: E402 - imports follow the sys.path bootstrap above
 
 
-DEFAULT_CANDIDATES = ROOT / "data" / "raw" / "trade_candidates" / "yahoo_trade_candidates_2026-06-30.csv"
+DEFAULT_CANDIDATES = RAW_DIR / "trade_candidates" / "yahoo_trade_candidates_2026-06-30.csv"
 
 
 def main() -> int:
@@ -30,8 +38,14 @@ def main() -> int:
     args = parser.parse_args()
 
     candidates = pd.read_csv(args.candidates)
+    if candidates.empty or not {"instrument_id", "yahoo_symbol"}.issubset(candidates.columns):
+        raise ValueError("Candidate file requires instrument_id and yahoo_symbol rows.")
+    if candidates[["instrument_id", "yahoo_symbol"]].isna().any().any():
+        raise ValueError("Candidate identifiers and Yahoo symbols must be present.")
     as_of_date = pd.to_datetime(args.as_of).date() if args.as_of else date.today()
-    start_date = as_of_date.replace(year=as_of_date.year - args.years)
+    if args.years <= 0:
+        raise ValueError("--years must be positive.")
+    start_date = years_before(as_of_date, args.years)
     section = ProviderSection(
         active_provider="yfinance",
         symbols_map={row.instrument_id: row.yahoo_symbol for row in candidates.itertuples(index=False)},
@@ -60,4 +74,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run_cli(main))

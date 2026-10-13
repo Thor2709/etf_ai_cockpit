@@ -1,7 +1,9 @@
 """Return uncertainty decomposition and replayable forecast scenarios.
 
 Uncertainty components are expressed in decimal-return units. Aleatoric
-uncertainty is the q90-q10 interval width, epistemic uncertainty is the
+uncertainty is the q90-q10 interval width (the canonical band, else the
+point-in-time ``uncertainty_band`` that needs complete quantiles and coverage
+only), epistemic uncertainty is the
 population standard deviation of independent model medians, and the
 data-quality term scales the aleatoric width by the larger of missing
 coverage and forecast age as a fraction of its configured maximum. The
@@ -60,8 +62,12 @@ def decompose_forecast_uncertainty(
     disagreement = statistics.pstdev(model_returns) if len(model_returns) > 1 else 0.0
     flagged = disagreement > float(threshold)
 
+    band = distribution.get("uncertainty_band")
+    band = band if isinstance(band, Mapping) else {}
     q10 = _finite(distribution.get("q10_return"))
     q90 = _finite(distribution.get("q90_return"))
+    if q10 is None or q90 is None:
+        q10, q90 = _finite(band.get("q10_return")), _finite(band.get("q90_return"))
     aleatoric = q90 - q10 if q10 is not None and q90 is not None and q90 >= q10 else None
 
     coverage = _probability(distribution.get("coverage_ratio"))
@@ -133,11 +139,15 @@ def uncertainty_gate_reasons(
         reasons.append("forecast_model_disagreement")
     values = _settings(settings)
     minimum = _probability(values.get("minimum_confidence")) if values is not None else None
+    maximum_age = _positive(values.get("maximum_forecast_age_days")) if values is not None else None
     confidence = _probability(effective_confidence)
-    if minimum is None:
+    if minimum is None or maximum_age is None:
         reasons.append("forecast_uncertainty_config_invalid")
     elif confidence is None or confidence < minimum:
         reasons.append("forecast_confidence_below_threshold")
+    age = _finite(assessment.get("forecast_age_days"))
+    if age is None or (maximum_age is not None and age > maximum_age):
+        reasons.append("forecast_stale")
     return reasons
 
 

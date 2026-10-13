@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from etf_cockpit.app import router
+from etf_cockpit.app.components.shell import depth_dialog
 from etf_cockpit.app.components.depth_selector import (
     RUN_KEY,
     RUN_STATUS_KEY,
@@ -66,7 +66,7 @@ def test_run_without_local_prices_fails_the_activity_with_the_reason(tmp_path) -
     assert "no local prices for AAA" in controller.status and "failed" in controller.status
 
 
-def test_binder_refusal_is_shown_as_the_run_unavailable_reason_and_router_registers_the_binder(tmp_path) -> None:
+def test_binder_refusal_is_shown_as_the_run_unavailable_reason_and_the_depth_dialog_registers_the_binder(tmp_path) -> None:
     state = _state(fixture_snapshot(ids=()))
     controller = ProfileRunController(
         state, root=tmp_path, binder=interactive_profile_binder(lambda: state.snapshot), background=False
@@ -74,4 +74,4 @@ def test_binder_refusal_is_shown_as_the_run_unavailable_reason_and_router_regist
     view = _click_run(controller, tmp_path)
     assert not state.recent_activity and state.current_activity is None
     assert "no enabled instruments" in _by_key(view, RUN_STATUS_KEY).value
-    assert "binder=interactive_profile_binder(" in inspect.getsource(router)
+    assert "binder=interactive_profile_binder(" in inspect.getsource(depth_dialog)  # the shell registers the binder in the depth dialog

@@ -1,6 +1,6 @@
 base_currency: EUR
 cash_min_weight: 0.0
-cash_target_weight: 1.0
+cash_target_weight: 0.05
 portfolio:
   analysis_only_context: 1.0
 positions:

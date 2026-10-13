@@ -75,6 +75,37 @@ def test_parser_extracts_context_period_unit_and_decimals_and_deduplicates(
     assert any(warning.code == "unmapped_extension" for warning in result.warnings)
 
 
+def test_catalog_only_layout_is_accepted_and_traversal_is_still_rejected(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
+    package = tmp_path / "catalog-only.xbri"
+    xhtml = """<?xml version='1.0'?>
+    <html xmlns='http://www.w3.org/1999/xhtml' xmlns:ix='http://www.xbrl.org/2013/inlineXBRL'
+      xmlns:xbrli='http://www.xbrl.org/2003/instance' xmlns:ifrs-full='https://xbrl.ifrs.org/taxonomy/2024-03-27/ifrs-full'>
+      <body><xbrli:context id='c'><xbrli:entity><xbrli:identifier>549300TESTLEI00000001</xbrli:identifier></xbrli:entity>
+        <xbrli:period><xbrli:startDate>2025-01-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period></xbrli:context>
+        <ix:nonFraction name='ifrs-full:Revenue' contextRef='c' unitRef='EUR'>100</ix:nonFraction></body></html>"""
+    with zipfile.ZipFile(package, "w") as archive:
+        archive.writestr("report-root/META-INF/catalog.xml", "<catalog />")
+        archive.writestr("report-root/META-INF/taxonomyPackage.xml", "<taxonomyPackage />")
+        archive.writestr("report-root/reports/report.xhtml", xhtml)
+
+    result = parse_esef_package(package)
+
+    assert result.success is True
+    assert result.records
+
+    traversal = tmp_path / "catalog-traversal.xbri"
+    with zipfile.ZipFile(traversal, "w") as archive:
+        archive.writestr("report-root/META-INF/catalog.xml", "<catalog />")
+        archive.writestr("report-root/META-INF/taxonomyPackage.xml", "<taxonomyPackage />")
+        archive.writestr("report-root/reports/report.xhtml", xhtml)
+        archive.writestr("../escape.xhtml", "<html />")
+
+    rejected = parse_esef_package(traversal)
+    assert rejected.success is False
+    assert any(warning.code == "unsafe_archive" for warning in rejected.warnings)
+
+
 def _write_context_package(path: Path) -> None:
     xhtml = """<?xml version='1.0'?>
     <html xmlns='http://www.w3.org/1999/xhtml' xmlns:ix='http://www.xbrl.org/2013/inlineXBRL'
@@ -96,6 +127,79 @@ def _write_context_package(path: Path) -> None:
             '{"documentInfo":{"periodEnd":"2026-03-31"}}',
         )
         archive.writestr("reports/report.xhtml", xhtml)
+
+
+def _write_scope_package(path: Path, *, member: str | None = None, metadata_scope: str | None = None) -> None:
+    scope_dimension = ""
+    if member is not None:
+        scope_dimension = (
+            "<xbrli:scenario><xbrldi:explicitMember "
+            "dimension='ifrs-full:ConsolidatedAndSeparateFinancialStatementsAxis'>"
+            f"{member}</xbrldi:explicitMember></xbrli:scenario>"
+        )
+    xhtml = f"""<?xml version='1.0'?>
+    <html xmlns='http://www.w3.org/1999/xhtml' xmlns:ix='http://www.xbrl.org/2013/inlineXBRL'
+      xmlns:xbrli='http://www.xbrl.org/2003/instance' xmlns:xbrldi='http://xbrl.org/2006/xbrldi'
+      xmlns:iso4217='http://www.xbrl.org/2003/iso4217'
+      xmlns:ifrs-full='https://xbrl.ifrs.org/taxonomy/2024-03-27/ifrs-full'>
+      <body><xbrli:unit id='eur'><xbrli:measure>iso4217:EUR</xbrli:measure></xbrli:unit>
+        <xbrli:unit id='eur-per-share'><xbrli:divide><xbrli:unitNumerator><xbrli:measure>iso4217:EUR</xbrli:measure></xbrli:unitNumerator>
+          <xbrli:unitDenominator><xbrli:measure>xbrli:shares</xbrli:measure></xbrli:unitDenominator></xbrli:divide></xbrli:unit>
+        <xbrli:context id='c'><xbrli:entity><xbrli:identifier>549300TESTLEI00000001</xbrli:identifier></xbrli:entity>
+        <xbrli:period><xbrli:startDate>2025-01-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period>
+        {scope_dimension}</xbrli:context>
+        <ix:nonFraction name='ifrs-full:Revenue' contextRef='c' unitRef='eur' decimals='0'>100</ix:nonFraction>
+        <ix:nonFraction name='ifrs-full:ProfitLoss' contextRef='c' unitRef='eur-per-share' decimals='0'>10</ix:nonFraction>
+      </body></html>"""
+    metadata = "{}" if metadata_scope is None else f'{{"consolidationScope":"{metadata_scope}"}}'
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("META-INF/reportPackage.json", metadata)
+        archive.writestr("reports/report.xhtml", xhtml)
+
+
+def test_scope_defaults_to_consolidated_without_scope_axis(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
+    package = tmp_path / "default-scope.xbri"
+    _write_scope_package(package)
+
+    result = parse_esef_package(package)
+
+    assert result.success is True
+    assert result.records[0].consolidation_scope == "consolidated"
+    assert {record.unit for record in result.records} == {"EUR", "EUR/shares"}
+
+
+def test_scope_is_separate_for_separate_member(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
+    package = tmp_path / "separate-scope.xbri"
+    _write_scope_package(package, member="ifrs-full:SeparateMember")
+
+    result = parse_esef_package(package)
+
+    assert result.success is True
+    assert result.records[0].consolidation_scope == "separate"
+
+
+def test_unknown_scope_axis_member_is_none(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
+    package = tmp_path / "unknown-scope.xbri"
+    _write_scope_package(package, member="ifrs-full:UnknownMember")
+
+    result = parse_esef_package(package)
+
+    assert result.success is True
+    assert result.records[0].consolidation_scope is None
+
+
+def test_package_metadata_scope_overrides_context_scope(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
+    package = tmp_path / "metadata-scope.xbri"
+    _write_scope_package(package, member="ifrs-full:SeparateMember", metadata_scope="consolidated")
+
+    result = parse_esef_package(package)
+
+    assert result.success is True
+    assert result.records[0].consolidation_scope == "consolidated"
 
 
 def test_context_period_ends_are_preserved_over_package_period_hint(tmp_path: Path, monkeypatch) -> None:
@@ -220,6 +324,22 @@ def test_parser_rejects_unsupported_zip_member_types(tmp_path: Path) -> None:
     result = parse_esef_package(package)
     assert result.success is False
     assert any(warning.code == "unsupported_member" for warning in result.warnings)
+
+
+def test_parser_accepts_dotted_directory_entry(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
+    source = tmp_path / "source.xbri"
+    _write_context_package(source)
+    package = tmp_path / "dotted-directory.xbri"
+    with zipfile.ZipFile(source) as original, zipfile.ZipFile(package, "w") as target:
+        for member in original.infolist():
+            target.writestr(member, original.read(member.filename))
+        target.writestr("aarsrapport.smn.no/", b"")
+
+    result = parse_esef_package(package)
+
+    assert result.success is True
+    assert result.records
 
 
 def test_parser_captures_bounded_arelle_validation_failure(monkeypatch) -> None:

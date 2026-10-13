@@ -154,7 +154,11 @@ def validate_fx_rates(
         return FxValidation(_empty_fx_frame(), errors, warnings, None)
 
     latest = max(normalised["as_of_date"])
-    age_days = _business_days_between(latest, today or date.today())
+    reference_date = today or (ingested_at.date() if ingested_at is not None else date.today())
+    if latest > reference_date:
+        errors.append("FX rates contain future-dated quotes.")
+        return FxValidation(_empty_fx_frame(), errors, warnings, None)
+    age_days = _business_days_between(latest, reference_date)
     staleness = price_staleness_status(age_days)
     normalised["staleness_status"] = staleness
     metadata = metadata_from_frame(
@@ -232,12 +236,16 @@ def build_fx_rate_snapshot(
     frame: pd.DataFrame,
     *,
     decision_time: date | datetime | str | None,
+    known_at: date | datetime | str | None = None,
 ) -> FxRateSnapshot:
     """Select a same-date, point-in-time FX snapshot or return an unavailable one."""
 
-    decision_date, cutoff, date_only = _decision_cutoff(decision_time)
+    decision_date, _, _ = _decision_cutoff(decision_time)
     if decision_date is None:
         return FxRateSnapshot(None, None, (), None, None, "block", False, "Analysis decision time is missing or invalid.")
+    known_date, cutoff, date_only = _decision_cutoff(decision_time if known_at is None else known_at)
+    if known_date is None or (cutoff is None and not date_only):
+        return FxRateSnapshot(decision_date, None, (), None, None, "block", False, "FX knowledge cutoff is missing or invalid.")
     if frame.empty:
         return FxRateSnapshot(decision_date, None, (), None, None, "missing", False, "FX rates are missing.")
 
@@ -264,7 +272,7 @@ def build_fx_rate_snapshot(
         return FxRateSnapshot(decision_date, None, (), None, None, "unknown", False, "FX rates contain a missing or invalid ingested_at timestamp.")
 
     quote_days = quote_dates.dt.date
-    known_by_decision = ingested.dt.date.lt(decision_date) if date_only else ingested.le(cutoff)
+    known_by_decision = ingested.dt.date.lt(known_date) if date_only else ingested.le(cutoff)
     eligible = quote_days.le(decision_date) & known_by_decision
     if not bool(eligible.any()):
         return FxRateSnapshot(

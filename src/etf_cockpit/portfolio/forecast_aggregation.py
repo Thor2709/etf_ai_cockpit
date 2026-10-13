@@ -24,11 +24,12 @@ from typing import Literal
 import numpy as np
 import yaml
 
+from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.core.values import finite_non_bool_float_or_none as _finite
 from etf_cockpit.models.distribution_store import normalise_quantiles
 
 
-_CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "portfolio_forecast_v1.yaml"
+_CONFIG_PATH = CONFIG_DIR / "portfolio_forecast_v1.yaml"
 _QUANTILE_PROBABILITIES = np.asarray((0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95), dtype=float)
 _QUANTILE_FIELDS = (
     "q05_return",

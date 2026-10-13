@@ -8,6 +8,7 @@ import pandas as pd
 
 from etf_cockpit.core.paths import STATEMENT_FACTS_PATH
 from etf_cockpit.core.paths import ROOT
+from etf_cockpit.core.session_log import log_event
 from etf_cockpit.data.event_calendar import normalise_event_decision_time
 from etf_cockpit.data.capital_allocation import capital_allocation_analysis
 from etf_cockpit.data.market_adjustments import CorporateActionCoverage
@@ -95,6 +96,8 @@ def load_valuation_evidence(path: Path, *, instrument_id: str, decision_time: ob
                    "decision_time": cutoff.isoformat(), "session_preview_only": True,
                    "score_authority": False, "execution_allowed": False, "assumptions": assumptions}
     try:
+        if not Path(path).is_file():
+            return unavailable("Canonical statement store is missing; import point-in-time statements before valuation.")
         raw = pd.read_parquet(path)
         if raw.empty:
             return unavailable("Canonical local statement evidence is unavailable.")
@@ -160,8 +163,18 @@ def load_valuation_evidence(path: Path, *, instrument_id: str, decision_time: ob
         return result | {"status": "available", "assumption_context": context}
     except ArithmeticError:
         return unavailable("Arithmetic failure in canonical valuation; valuation unavailable.")
-    except (OSError, ValueError, TypeError, ImportError, KeyError):
-        return unavailable("Canonical statement store is unreadable or malformed; valuation unavailable.")
+    except (OSError, ValueError, TypeError, ImportError, KeyError) as exc:
+        log_event(
+            event_type="data_read_failed",
+            severity="warning",
+            component="stock_valuation",
+            operation="read_statement_facts",
+            instrument_id=str(instrument_id),
+            file_paths=path,
+            exception_type=type(exc).__name__,
+            exception_message_redacted=str(exc),
+        )
+        return unavailable(f"Canonical statement store is unreadable or malformed ({type(exc).__name__}); valuation unavailable.")
 
 
 def load_stock_research_context(

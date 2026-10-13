@@ -7,11 +7,11 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "fff6ef9855bd70e1b3d65914c47b834fd4833135919ec20eced3558120b12216"
+      "sha256": "06bac07f7c1f12c47ff567b6947559609df53c3edea1db3b504fdd83d2bd2cfd"
     },
     {
       "path": "README.md",
-      "sha256": "295faa8d90d0a0b490f3024a99c83ad7d3e8a5975a129f1c25fbc0a9fb051262"
+      "sha256": "a9ce11682c9333752c47f55a25a9b05dc7cb658d3de470337508775cde6be7af"
     },
     {
       "path": "docs/product-completion/CURRENT_STATUS.json",
@@ -107,7 +107,7 @@
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/current-state-diff.md",
-      "sha256": "34040552be99f6ea759a70794be9a3fd2e9b3907a84be89b9908cd34609c5e21"
+      "sha256": "02da93c16f2a7cecf24dfe936c5e693d3b7b52f9c8100401328aa1cc0416eef2"
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/dependency-reconciliation.csv",
@@ -143,7 +143,7 @@
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/package-discrepancies.md",
-      "sha256": "5b0c859014ee3ecfd3fa966b4361fc738585d7cdd9098acf2f3528caa2b53513"
+      "sha256": "c3cfa7d0376efe42b40c988bf2a59d3e3ba65300e6f53598ca015edb71372d9d"
     },
     {
       "path": "docs/product-completion/reconciliation/2026-07-21-2337f69/source-to-canonical.csv",

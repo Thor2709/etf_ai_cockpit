@@ -72,7 +72,7 @@ class ECClaimState:
 
     @property
     def eierbrok(self) -> float | None:
-        return self.reconstructed_eierbrok
+        return self.reconstructed_eierbrok if self.reconstructed_eierbrok is not None else self.reported_eierbrok
 
 
 @dataclass(frozen=True)
@@ -135,6 +135,11 @@ class BankEconomics:
     warnings: tuple[str, ...] = ()
     coverage: float = 0.0
     execution_allowed: bool = False
+    # SB2: book calculations that feed the lending and capital-allocation axes, and the plain-language
+    # reason each missing figure is missing (input id -> reason).
+    lending: Mapping[str, object] = field(default_factory=dict)
+    allocation: Mapping[str, object] = field(default_factory=dict)
+    reasons: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -166,6 +171,8 @@ class SparebankScorecard:
     composite_before_gate_cap_10: float | None = None
     gate_cap_10: float | None = None
     overall_coverage: float = 0.0
+    composite_coverage: float = 0.0
+    missing_axes: tuple[str, ...] = ()
     gate_reasons: tuple[str, ...] = ()
     underwriting: Mapping[str, object] = field(default_factory=dict)
     tactical: Mapping[str, object] = field(default_factory=dict)

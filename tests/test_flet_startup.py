@@ -177,6 +177,7 @@ def test_reuse_existing_web_server_opens_ready_local_app(monkeypatch) -> None:
     opened: list[str] = []
     monkeypatch.setattr(flet_app, "_is_port_listening", lambda host, port: True)
     monkeypatch.setattr(flet_app, "_local_http_ready", lambda url: True)
+    monkeypatch.setattr(flet_app, "_is_own_web_instance", lambda port: True)
     monkeypatch.setattr(flet_app.webbrowser, "open", lambda url: opened.append(url) or True)
 
     assert flet_app._reuse_existing_web_server(8550, open_browser=True)
@@ -240,7 +241,7 @@ def test_resize_preserves_mounted_route_and_session_without_builder(monkeypatch)
         assert any(node is field for node in walk(view))
         assert page.update_count == updates + expected_updates
         dock = next(node for node in walk(view) if getattr(node, "key", None) == "shell.dock")
-        assert dock.width == 84
+        assert dock.width == (64 if width < 1100 else 84)
         active_label = next(
             node for node in walk(view) if getattr(node, "key", None) == "shell.dock.label.Lab"
         )
@@ -257,6 +258,7 @@ def test_native_queued_navigation_has_one_render_owner(monkeypatch):
     class FakeSession:
         pass
 
+    monkeypatch.setattr(router, "_DEFERRED_RENDER_ROUTES", router._DEFERRED_RENDER_ROUTES - {"/backtests", "/signals", "/instrument"})
     session = FakeSession()
     page = ft.Page(session)
     page.route = "/backtests"

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import math
+import re
 from typing import Mapping, Sequence
 
 from etf_cockpit.analysis.peer_cohorts import AdapterDefinition, AdapterRegistry, PeerCohortError
@@ -23,7 +24,8 @@ _SCENARIO_INPUTS = ("shock_rate", "exposed_amount", "portfolio_base")
 _ADAPTERS = {"energy": "sector:energy", "materials": "sector:materials", "industrials": "sector:industrials"}
 _COMMON = frozenset({
     "spot_cycle_margin", "normalised_margin", "capital_intensity",
-    "cycle_adjusted_ev_to_earnings", "trough_interest_coverage",
+    "cycle_adjusted_ev_to_earnings", "enterprise_value", "revenue",
+    "trough_interest_coverage",
 })
 _METRICS = {
     "energy": _COMMON | {"production", "unit_cost", "reserves", "resource_life", "realised_price", "hedge_ratio", "sustaining_capex", "decommissioning"},
@@ -44,6 +46,7 @@ _UNITS = {
     "resource_life": ("years",),
     "book_to_bill": ("multiple",),
     "cycle_adjusted_ev_to_earnings": ("multiple",),
+    "enterprise_value": ("currency:ISO4217",), "revenue": ("currency:ISO4217",),
     "trough_interest_coverage": ("multiple",),
 }
 _BOUNDED_RATIOS = frozenset({"hedge_ratio", "backlog_quality", "aftermarket_mix", "utilisation", "customer_concentration", "project_concentration"})
@@ -120,6 +123,7 @@ class CyclicalMetricResult:
     commodity_id: str | None = None
     normalisation_cycle_ids: tuple[str, ...] = ()
     formula_version: str = CYCLICAL_FORMULA_VERSION
+    basis: str = "reported"
     execution_allowed: bool = False
 
 
@@ -191,10 +195,18 @@ def cyclical_adapter_definitions() -> tuple[AdapterDefinition, ...]:
     return tuple(AdapterDefinition(adapter, "1", _METRICS[model]) for model, adapter in sorted(_ADAPTERS.items()))
 
 
+def cyclical_business_model(context: InstrumentContextV2) -> str | None:
+    try:
+        return _model(context)
+    except CyclicalAdapterError:
+        return None
+
+
 def cyclical_formula_registry() -> tuple[CyclicalFormulaDefinition, ...]:
     definitions = {
         "spot_cycle_margin": "current reported operating margin at the observed cycle point",
         "normalised_margin": "through-cycle margin supported by distinct historical cycles",
+        "cycle_adjusted_ev_to_earnings": "enterprise value / through-cycle normalised revenue / through-cycle normalised operating margin; an issuer-reported cycle-adjusted multiple retains its stated basis",
         "resource_life": "reported reserves divided by current annual production",
         "book_to_bill": "orders received divided by recognised revenue",
         "backlog_quality": "supported executable backlog divided by total reported backlog",
@@ -239,6 +251,7 @@ def build_cyclical_projection(
     seen: set[str] = set()
     limitations: set[str] = set()
     for item in sorted(evidence, key=lambda row: (row.metric, row.known_at, row.source_id)):
+        item = _canonical_ratio(item)
         _validate_metric(item, model, decision)
         if item.metric in _PROHIBITED:
             raise CyclicalAdapterError(f"generic fallback {item.metric!r} is forbidden")
@@ -246,15 +259,23 @@ def build_cyclical_projection(
             raise CyclicalAdapterError("cyclical metric is invalid or duplicated")
         seen.add(item.metric)
         formula = formulas[item.metric]
-        if item.unit not in formula.allowed_units or (item.direction is not None and item.direction != formula.direction):
+        if not _allowed_unit(item.metric, item.unit, formula.allowed_units) or (item.direction is not None and item.direction != formula.direction):
             raise CyclicalAdapterError("cyclical metric unit or direction is incompatible")
         fatal = any(
             value.casefold().split(":", 1)[0].split("_", 1)[0] in _FATAL_LIMITATIONS
             for value in item.limitations
         )
         inapplicable = not item.applicable
-        available = not inapplicable and not fatal and item.value is not None and _finite(item.value)
-        item_limits = tuple(sorted({*item.limitations, *(() if available or inapplicable else ("missing_value",))}))
+        unverified_normalisation = (
+            item.metric == "normalised_margin"
+            and item.source_authority not in {SourceAuthority.OFFICIAL, SourceAuthority.ISSUER}
+        )
+        available = not inapplicable and not fatal and not unverified_normalisation and item.value is not None and _finite(item.value)
+        unavailable_reason = (
+            "normalised_margin_requires_issuer_or_official_evidence"
+            if unverified_normalisation else "missing_value"
+        )
+        item_limits = tuple(sorted({*item.limitations, *(() if available or inapplicable else (unavailable_reason,))}))
         limitations.update(f"{item.metric}:{value}" for value in item_limits)
         results.append(CyclicalMetricResult(
             metric=item.metric, status="inapplicable" if inapplicable else "available" if available else "unavailable",
@@ -267,6 +288,7 @@ def build_cyclical_projection(
             missing_policy=formula.missing_policy, limitations=item_limits,
             commodity_id=item.commodity_id,
             normalisation_cycle_ids=tuple(sorted(item.normalisation_cycle_ids)),
+            basis="issuer_reported_cycle_adjusted_multiple" if item.metric == "cycle_adjusted_ev_to_earnings" else "reported",
         ))
     for metric in sorted(set(formulas) - seen):
         formula = formulas[metric]
@@ -278,14 +300,48 @@ def build_cyclical_projection(
             source_authority="unavailable", as_of=_iso(decision), known_at=_iso(decision),
             definition=formula.definition, missing_policy=formula.missing_policy,
             limitations=("not_disclosed",), commodity_id=None,
+            basis="unavailable",
         ))
         limitations.add(f"{metric}:not_disclosed")
     results.sort(key=lambda row: row.metric)
     history = _history(cycle_history, decision)
     adequate = len(history) >= 2
     history_ids = tuple(sorted(row.cycle_id for row in history))
-    linked = next((row.normalisation_cycle_ids for row in results if row.metric == "normalised_margin"), ())
-    normalisation_linked = tuple(sorted(linked)) == history_ids
+    margin = next(row for row in results if row.metric == "normalised_margin")
+    revenue = next(row for row in results if row.metric == "revenue")
+    normalisation_linked = (
+        tuple(sorted(margin.normalisation_cycle_ids)) == history_ids
+        and all(row.end_at <= margin.as_of and row.known_at <= margin.known_at for row in history)
+    )
+    revenue_normalisation_linked = (
+        revenue.period == "through-cycle"
+        and revenue.normalisation_cycle_ids == history_ids
+        and all(row.end_at <= revenue.as_of and row.known_at <= revenue.known_at for row in history)
+    )
+    if adequate and normalisation_linked:
+        results = [
+            replace(
+                row,
+                basis="normalised_margin_over_completed_cycles; cycles=" + ",".join(history_ids),
+            )
+            if row.metric == "normalised_margin" and row.status == "available"
+            else row
+            for row in results
+        ]
+    if adequate and revenue_normalisation_linked:
+        results = [
+            replace(row, basis="normalised_revenue_over_completed_cycles; cycles=" + ",".join(history_ids))
+            if row.metric == "revenue" and row.status == "available" else row
+            for row in results
+        ]
+    results = _cycle_adjusted_valuation(
+        results,
+        history_ids=history_ids,
+        history_adequate=adequate,
+        normalised_margin_supplied="normalised_margin" in seen,
+        normalised_margin_history_linked=normalisation_linked,
+        normalised_revenue_history_linked=revenue_normalisation_linked,
+    )
     if not adequate or not normalisation_linked:
         limitations.add("cycle_history:insufficient_distinct_cycles")
         results = [
@@ -293,9 +349,11 @@ def build_cyclical_projection(
                 row,
                 status="unavailable",
                 value=None,
+                basis="unavailable:insufficient_or_unlinked_cycle_history",
                 limitations=tuple(sorted({*row.limitations, "insufficient_or_unlinked_cycle_history"})),
             )
             if row.metric == "normalised_margin"
+            or (row.metric == "cycle_adjusted_ev_to_earnings" and not adequate)
             else row
             for row in results
         ]
@@ -335,6 +393,7 @@ def build_cyclical_projection(
         "aggregate_confidence": confidence, "scenarios": scenario_results, "checks": checks,
         "rationale": (
             "spot-cycle and normalised margins remain separate",
+            "cycle-adjusted valuation uses through-cycle normalised earnings or a reported cycle-adjusted multiple",
             "operational measures require issuer or official point-in-time lineage",
             "insufficient distinct-cycle history reduces confidence",
         ),
@@ -599,14 +658,26 @@ def _scenarios_from_source(value: object) -> dict[str, object]:
     return output
 
 
+_FAMILY_ALIASES = {
+    "energy": frozenset({"energy", "oil_gas", "energy_producer"}),
+    "materials": frozenset({"materials", "mining", "miner", "basic_materials"}),
+    "industrials": frozenset({"industrials", "industrial", "capital_goods"}),
+}
+
+
+def cyclical_family_from_labels(labels: Sequence[object]) -> str | None:
+    """Resolve classification labels to exactly one cyclical family, else None."""
+
+    tags = {re.sub(r"[\s&-]+", "_", str(label).strip().casefold()) for label in labels if label is not None}
+    matches = [model for model, values in _FAMILY_ALIASES.items() if tags & values]
+    if len(matches) != 1 or tags & {"infrastructure", "infrastructure_operator"}:
+        return None
+    return matches[0]
+
+
 def _model(context: InstrumentContextV2) -> str:
     tags = {tag.casefold() for tag in context.business_model_tags}
-    aliases = {
-        "energy": {"energy", "oil_gas", "energy_producer"},
-        "materials": {"materials", "mining", "miner"},
-        "industrials": {"industrials", "industrial", "capital_goods"},
-    }
-    matches = [model for model, values in aliases.items() if tags & values]
+    matches = [model for model, values in _FAMILY_ALIASES.items() if tags & values]
     if len(matches) != 1:
         raise CyclicalAdapterError("business model must resolve to exactly one cyclical family")
     if "infrastructure" in tags or "infrastructure_operator" in tags:
@@ -628,6 +699,130 @@ def _validate_metric(item: CyclicalMetricEvidence, model: str, decision: datetim
         raise CyclicalAdapterError("cyclical ratio is outside canonical bounds")
     if item.value is not None and item.metric in {"book_to_bill", "cycle_adjusted_ev_to_earnings", "trough_interest_coverage"} and item.value < 0:
         raise CyclicalAdapterError("cyclical multiple cannot be negative")
+
+
+def _canonical_ratio(item: CyclicalMetricEvidence) -> CyclicalMetricEvidence:
+    """Percent ratios become fractions before any validation, valuation or scoring."""
+
+    if item.metric in _RATIO and item.unit == "percent" and item.value is not None and _finite(item.value):
+        return replace(item, value=item.value / 100.0, unit="ratio")
+    return item
+
+
+def _allowed_unit(metric: str, unit: str, allowed: Sequence[str]) -> bool:
+    if metric in {"enterprise_value", "revenue"}:
+        return re.fullmatch(r"currency:[A-Z]{3}", unit) is not None
+    if unit in allowed:
+        return True
+    return False
+
+
+def _cycle_adjusted_valuation(
+    results: Sequence[CyclicalMetricResult],
+    *,
+    history_ids: tuple[str, ...],
+    history_adequate: bool,
+    normalised_margin_supplied: bool,
+    normalised_margin_history_linked: bool,
+    normalised_revenue_history_linked: bool,
+) -> list[CyclicalMetricResult]:
+    rows = {row.metric: row for row in results}
+    multiple = rows["cycle_adjusted_ev_to_earnings"]
+    margin = rows["normalised_margin"]
+    enterprise_value = rows["enterprise_value"]
+    revenue = rows["revenue"]
+
+    def unavailable(reason: str) -> CyclicalMetricResult:
+        return replace(
+            multiple,
+            status="unavailable",
+            value=None,
+            basis=f"unavailable:{reason}",
+            limitations=tuple(sorted({*(set(multiple.limitations) - {"not_disclosed"}), reason})),
+        )
+
+    if not history_adequate:
+        rows[multiple.metric] = unavailable("insufficient_distinct_cycles")
+    elif normalised_margin_supplied and not normalised_margin_history_linked:
+        rows[multiple.metric] = unavailable("normalised_margin_history_unlinked")
+    elif normalised_margin_supplied and margin.status != "available":
+        rows[multiple.metric] = unavailable("normalised_margin_unavailable")
+    elif (margin.status == "available" and enterprise_value.status == "available"
+          and revenue.status == "available"):
+        if not normalised_revenue_history_linked:
+            rows[multiple.metric] = unavailable("normalised_revenue_history_or_basis_unverified")
+        elif margin.value is None or margin.value <= 0:
+            rows[multiple.metric] = unavailable("normalised_earnings_non_positive")
+        elif (enterprise_value.unit != revenue.unit
+              or enterprise_value.reporting_standard != revenue.reporting_standard
+              or enterprise_value.jurisdiction != revenue.jurisdiction
+              # EV is a valuation snapshot; the earnings inputs share the
+              # through-cycle period rather than borrowing a spot revenue period.
+              or margin.period != revenue.period):
+            rows[multiple.metric] = unavailable("valuation_currency_or_period_mismatch")
+        elif (margin.reporting_standard != enterprise_value.reporting_standard
+              or margin.jurisdiction != enterprise_value.jurisdiction):
+            rows[multiple.metric] = unavailable("normalised_margin_basis_mismatch")
+        elif enterprise_value.value is None or revenue.value is None or enterprise_value.value <= 0 or revenue.value <= 0:
+            rows[multiple.metric] = unavailable("enterprise_value_or_revenue_non_positive")
+        else:
+            normalised_earnings = revenue.value * margin.value
+            if not math.isfinite(normalised_earnings) or normalised_earnings <= 0:
+                rows[multiple.metric] = unavailable("normalised_earnings_non_finite_or_non_positive")
+                return [rows[row.metric] for row in results]
+            value = enterprise_value.value / normalised_earnings
+            if not math.isfinite(value):
+                rows[multiple.metric] = unavailable("cycle_adjusted_multiple_non_finite")
+            elif value <= 0:
+                rows[multiple.metric] = unavailable("cycle_adjusted_multiple_non_positive")
+            else:
+                basis = (
+                    "enterprise_value / normalised_revenue / normalised_margin; revenue_basis=through-cycle; cycles="
+                    + ",".join(history_ids)
+                    + "; sources="
+                    + ",".join((enterprise_value.source_id, revenue.source_id, margin.source_id))
+                )
+                rows[multiple.metric] = replace(
+                    multiple,
+                    status="available",
+                    value=float(value),
+                    unit="multiple",
+                    period=margin.period,
+                    reporting_standard=margin.reporting_standard,
+                    jurisdiction=margin.jurisdiction,
+                    source_id=enterprise_value.source_id,
+                    source_authority=(
+                        "official"
+                        if all(row.source_authority == SourceAuthority.OFFICIAL.value for row in (enterprise_value, revenue, margin))
+                        else SourceAuthority.ISSUER.value
+                    ),
+                    as_of=max(row.as_of for row in (enterprise_value, revenue, margin)),
+                    known_at=max(row.known_at for row in (enterprise_value, revenue, margin)),
+                    normalisation_cycle_ids=history_ids,
+                    basis=basis,
+                    limitations=tuple(sorted({*enterprise_value.limitations, *revenue.limitations, *margin.limitations})),
+                )
+    elif multiple.status == "available":
+        # A reported multiple stands only with independently linked through-cycle
+        # evidence of its own; it never borrows the supplied cycle history.
+        if not (
+            normalised_margin_supplied
+            and margin.status == "available"
+            and multiple.normalisation_cycle_ids == history_ids
+            and multiple.reporting_standard == margin.reporting_standard
+            and multiple.jurisdiction == margin.jurisdiction
+            and multiple.as_of >= margin.as_of
+            and multiple.known_at >= margin.known_at
+        ):
+            rows[multiple.metric] = unavailable("reported_multiple_through_cycle_basis_unverified")
+        else:
+            rows[multiple.metric] = replace(
+                multiple,
+                basis="issuer_reported_cycle_adjusted_multiple; cycles=" + ",".join(multiple.normalisation_cycle_ids),
+            )
+    else:
+        rows[multiple.metric] = unavailable("through_cycle_valuation_inputs_unavailable")
+    return [rows[row.metric] for row in results]
 
 
 def _checks(results: Sequence[CyclicalMetricResult]) -> tuple[CyclicalCheck, ...]:

@@ -52,7 +52,7 @@ def configured_forecast_request_identity(config: AppConfig) -> dict[str, object]
     return forecast_request_identity(
         config,
         [PRIMARY_MODEL_HORIZON_DAYS],
-        live_optional_models=False,
+        live_optional_models=getattr(getattr(config, "models", None), "shadow_optional_models", False),
     )
 
 
@@ -358,6 +358,12 @@ def forecast_component_maps(forecasts: pd.DataFrame) -> dict[str, dict[str, floa
             if row is None:
                 continue
             output[model_name][str(etf_id)] = _forecast_score(float(row["expected_return"]), int(row["horizon_days"]))
+    # TimesFM 3 shares the single TimesFM family weight. Rows only reach this
+    # point once promotion allows them in score; the newer version then wins.
+    for etf_id, group in frame[frame["model_name"] == "timesfm3"].groupby("etf_id", sort=False):
+        row = _choose_horizon_row(group)
+        if row is not None:
+            output["timesfm"][str(etf_id)] = _forecast_score(float(row["expected_return"]), int(row["horizon_days"]))
     return output
 
 
@@ -506,7 +512,9 @@ def forecast_return_distributions(
             exact_horizon = model_frame.loc[model_frame["horizon_days"].eq(horizon_days)]
             if exact_horizon.empty:
                 continue
-            selected = exact_horizon.iloc[-1]
+            selected = _latest_row(exact_horizon)
+            if selected is None:
+                continue
             expected = _finite_or_none(selected.get("expected_return"))
             if expected is None:
                 continue
@@ -773,6 +781,7 @@ def _attach_distribution_contract(
         "components_status": canonical["components_status"],
         "cost_deductions": canonical["cost_deductions"],
         "per_model_distributions": canonical.get("per_model_distributions"),
+        "uncertainty_band": _uncertainty_band(canonical),
         "net_status": canonical["net_status"],
         "net_reason": canonical["net_reason"],
         "probability_loss": probabilities.get("probability_loss") if canonical["status"] == "available" else None,
@@ -802,6 +811,21 @@ def _attach_distribution_contract(
         unavailable_decomposition("Uncertainty thresholds are applied by the signal pipeline."),
     )
     return distribution
+
+
+def _uncertainty_band(canonical: Mapping[str, object]) -> dict[str, float] | None:
+    """Coverage-widened gross q10/q90 for the uncertainty gate, independent of the total-return contract.
+
+    The band exists whenever every selected model supplied a complete quantile vector and a coverage
+    ratio at the exact horizon and the forecast is point-in-time bound. Missing return components,
+    costs, identities or horizon validation close the canonical total-return contract, not the
+    description of how wide the models' own distribution is.
+    """
+
+    gross = canonical.get("gross_quantiles")
+    if canonical.get("point_in_time_status") != "available" or not isinstance(gross, Mapping):
+        return None
+    return {field: gross[field] for field in ("q10_return", "q90_return")}
 
 
 def _bounded_probability(value: object) -> float | None:
@@ -873,14 +897,31 @@ def _choose_horizon_row(group: pd.DataFrame) -> pd.Series | None:
 
 
 def _choose_horizon_row_for(group: pd.DataFrame, primary_horizon: int) -> pd.Series | None:
+    if "forecast_date" not in group.columns:
+        return None
+    group = group.loc[group["forecast_date"].map(_normalise_decision_time).notna()]
     if group.empty:
         return None
     fallback_horizons = tuple(horizon for horizon in (PRIMARY_MODEL_HORIZON_DAYS, *FALLBACK_MODEL_HORIZONS_DAYS) if horizon != primary_horizon)
     for horizon in (primary_horizon, *fallback_horizons):
         matches = group[group["horizon_days"].astype(int) == horizon]
         if not matches.empty:
-            return matches.iloc[-1]
-    return group.sort_values("horizon_days").iloc[-1]
+            return _latest_row(matches)
+    highest_horizon = group["horizon_days"].astype(int).max()
+    return _latest_row(group[group["horizon_days"].astype(int) == highest_horizon])
+
+
+def _latest_row(frame: pd.DataFrame) -> pd.Series | None:
+    """Select the newest validated forecast timestamp; undated rows are unavailable."""
+    if "forecast_date" not in frame.columns:
+        return None
+    dates = frame["forecast_date"].map(_normalise_decision_time)
+    dated = frame.loc[dates.notna()].copy()
+    if dated.empty:
+        return None
+    dated["__forecast_time"] = dates.loc[dates.notna()]
+    sort_columns = ["__forecast_time", *(["run_id"] if "run_id" in dated.columns else [])]
+    return dated.sort_values(sort_columns, kind="stable").drop(columns="__forecast_time").iloc[-1]
 
 
 def _timestamp_iso_or_none(value: object) -> str | None:

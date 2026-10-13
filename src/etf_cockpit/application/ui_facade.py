@@ -120,7 +120,7 @@ from etf_cockpit.data.manual_notes import (
     manual_news_markdown,
     save_manual_note_credibility_review,
 )
-from etf_cockpit.data.news_context import sort_news_items
+from etf_cockpit.data.news_context import _headline_direction as headline_direction, sort_news_items
 from etf_cockpit.data.oam_adapters import (
     FILING_COVERAGE_PATH,
     MANUAL_FILING_QUEUE_PATH,
@@ -592,6 +592,7 @@ __all__ = [
     "SimpleInstrumentScore",
     "SimpleScoreComponent",
     "sort_fundamental_evidence",
+    "headline_direction",
     "sort_news_items",
     "SOURCE_CONFLICTS_PATH",
     "source_policy_rows",

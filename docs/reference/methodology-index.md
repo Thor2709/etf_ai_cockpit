@@ -1,6 +1,6 @@
 # Methodology and contract index
 
-Release version: `0.1.0rc1`.
+Release version: `1.1.0b1`.
 
 One entry point to every architecture, methodology and contract page. Start with
 the [architecture README](../architecture/README.md) for reading order and
@@ -9,6 +9,8 @@ authority. Generated references are listed in the
 page under `docs/architecture/` or `docs/sdd/` is missing from this index.
 
 ## Architecture and scope
+
+- [Sparebank book-value evidence gap](../architecture/sparebank-book-gap-2026-10.md) - October 2026 evidence and limitations.
 
 - [Software Design Description](../architecture/SDD.md) - current architecture, boundaries and runtime flows.
 - [Traceability](../architecture/TRACEABILITY.md) - architecture families mapped to code, configuration and tests.

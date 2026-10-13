@@ -7,30 +7,32 @@ from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import atomic_write_json
+from etf_cockpit.data.classification import ClassificationEvidence, ClassificationStore
+from etf_cockpit.data.contracts import SourceAuthority
+from etf_cockpit.data.esef_extensions import equity_member_facts, issuer_extension
 from etf_cockpit.data.oam_adapters import archive_manual_official_filing
 from etf_cockpit.data.statement_normalisation import normalise_statement_facts
+from etf_cockpit.data.universe_store import UniverseRecord, load_sparebank_records
+from etf_cockpit.core.paths import ROOT
 from etf_cockpit.parsers.contracts import RawDocument
 from etf_cockpit.parsers.esef_ixbrl import parse_esef_package
 from etf_cockpit.parsers.sec_facts import statement_facts_from_esef, write_statement_evidence
 
 
-NORWAY_INSTRUMENT = {
-    "ticker": "MING",
-    "isin": "NO0006390301",
-    "orgnr": "937901003",
-    "name": "SpareBank 1 SMN equity certificate",
-}
 EC_FACT_NAMES = (
     "registered_ec_count",
     "outstanding_ec_count",
     "treasury_ec_count",
+    "period_end_ec_count",
     "weighted_average_ec_count",
+    "owner_attributable_book",
     "ec_capital",
     "overkursfond",
     "utjevningsfond",
@@ -40,7 +42,54 @@ EC_FACT_NAMES = (
     "eierbrok",
     "ec_attributable_result",
     "major_foundation_holdings",
+    "cet1_ratio_pct",
+    "lcr_pct",
+    "nsfr_pct",
+    "deposit_to_loan_ratio_pct",
+    "deposit_coverage_pct",
+    "stage3_pct_gross_loans",
+    "net_defaulted_pct_gross_loans",
+    "defaulted_pct_gross_loans",
+    "net_impaired_pct",
+    "net_stage3_pct_net_loans",
 )
+
+# SpareBank 1 SMN's own ESEF extension taxonomy.  Extension concepts are
+# mapped by exact local name and only when the filing resolves to this issuer
+# namespace.  Names outside this table remain retained and unmapped.
+SMN_EXTENSION_PREFIX = "sb1smn"
+SMN_EXTENSION_NAMESPACE = "http://aarsrapport.smn.no/2024"
+# GiftsAllocation is not evidence of an equity-pool Gavefond; without a
+# separately cited pool fact, gavefond remains unavailable.
+SMN_EXTENSION_CONCEPT_MAP: dict[str, dict[str, str]] = {
+    "OtherInterestIncome": {"canonical_metric": "other_interest_income"},
+    "ProfitLossBeforeTaxAndImpairment": {"canonical_metric": "profit_before_tax_and_impairment"},
+    "ProfitLossAttributableToAdditionalTier1CapitalHolders": {"canonical_metric": "at1_attributable_result"},
+    "EgenkapitalbeviseiernesAndelAvPeriodensResultat": {
+        "canonical_metric": "ec_attributable_result",
+        "ec_fact": "ec_attributable_result",
+    },
+    "GrunnfondskapitalensAndelAvPeriodensResultat": {"canonical_metric": "foundation_attributable_result"},
+    "ComprehensiveIncomeAttributableToAdditionalTier1CapitalHolders": {
+        "canonical_metric": "at1_attributable_comprehensive_income"
+    },
+    "ComprehensiveIncomeAttributableToEquityCapitalCertificateHolders": {
+        "canonical_metric": "ec_attributable_comprehensive_income"
+    },
+    "ComprehensiveIncomeAttributableToTheSavingBankReserve": {
+        "canonical_metric": "foundation_attributable_comprehensive_income"
+    },
+    "SubordinatedLoanCapital": {"canonical_metric": "subordinated_debt"},
+    "DividendEqualizationFund": {"canonical_metric": "utjevningsfond", "ec_fact": "utjevningsfond"},
+    "DividendAllocation": {"canonical_metric": "dividend_allocation"},
+    "OwnerlessCapital": {"canonical_metric": "sparebankens_fond", "ec_fact": "sparebankens_fond"},
+    "UnrealisedGainsReserve": {"canonical_metric": "unrealised_gains_reserve"},
+    "AdditionalTier1Capital": {"canonical_metric": "additional_tier_1_capital"},
+}
+IFRS_EC_FACT_MAP = {
+    "IssuedCapital": "ec_capital",
+    "SharePremium": "overkursfond",
+}
 
 
 def import_official_filing(
@@ -57,33 +106,47 @@ def import_official_filing(
     expected_sha256: str | None = None,
     fact_sheet: Path | None = None,
     output_dir: Path | None = None,
+    universe_root: Path | None = None,
 ) -> dict[str, object]:
     """Import one local ESEF package without making any network request."""
 
     if str(jurisdiction).strip().upper() != "NO":
         raise ValueError("official filing importer currently supports jurisdiction NO only")
-    canonical = str(instrument_id or "").strip().upper().removeprefix("NO:").removeprefix("OSL:")
-    if canonical != NORWAY_INSTRUMENT["ticker"]:
-        raise ValueError("filing identity is ambiguous: expected the MING listing")
-    bound_ticker = str(ticker or canonical).strip().upper()
-    if bound_ticker != NORWAY_INSTRUMENT["ticker"]:
-        raise ValueError("filing ticker does not match the requested listing")
-    bound_orgnr = str(orgnr or NORWAY_INSTRUMENT["orgnr"]).strip()
-    if bound_orgnr != NORWAY_INSTRUMENT["orgnr"]:
-        raise ValueError("filing organisation number does not match SpareBank 1 SMN")
-    if not lei:
-        raise ValueError("an issuer LEI (from GLEIF) is required to bind the filing; none is assumed")
-    bound_lei = str(lei).strip().upper()
+    canonical = _normalise_ticker(str(instrument_id or "").strip().upper().removeprefix("NO:").removeprefix("OSL:"))
+    issuer = next(
+        (
+            record
+            for record in load_sparebank_records(universe_root or ROOT, enabled_only=False)
+            if record.instrument_id.upper() == canonical
+        ),
+        None,
+    )
+    if issuer is None:
+        raise ValueError("filing identity is ambiguous: issuer is not in the configured universe")
+    if issuer.asset_type not in {"equity_certificate", "certificate"}:
+        raise ValueError("filing issuer is not configured as an equity certificate")
+    bound_ticker = issuer.ticker.strip().upper()
+    if ticker and _normalise_ticker(ticker) != _normalise_ticker(bound_ticker):
+        raise ValueError("filing ticker does not match the configured listing")
+    bound_lei = str(lei or issuer.lei).strip().upper()
+    if not bound_lei:
+        raise ValueError("an issuer LEI from the universe or verified filing entity data is required")
     if len(bound_lei) != 20 or not bound_lei.isalnum():
         raise ValueError("filing LEI must be a 20-character identifier")
+    if issuer.lei and bound_lei != issuer.lei:
+        raise ValueError("filing LEI does not match the configured universe")
+    if orgnr is not None:
+        registry_orgnr = str(getattr(issuer, "orgnr", "") or "").strip()
+        if not registry_orgnr or str(orgnr).strip() != registry_orgnr:
+            raise ValueError("filing organisation number is missing from or does not match the configured universe")
     expected = str(expected_period or "").strip()
     if not expected:
         raise ValueError("expected filing period is required")
 
     output = Path(output_dir or Path("evidence") / "norway" / f"{canonical}-{expected[:4]}").resolve()
     now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-    known_at = str(published_at or now).strip()
     source = Path(source_path)
+    known_at = _resolve_published_at(source, source_url, published_at)
     try:
         payload = source.read_bytes()
     except OSError as exc:
@@ -103,6 +166,20 @@ def import_official_filing(
         raise ValueError("filing consolidation scope is incomplete")
     _validate_units(parsed.records)
     supplied_facts = _load_fact_sheet(fact_sheet)
+    filing_facts = _extract_ec_facts(
+        parsed.records,
+        instrument_id=canonical,
+        period=expected,
+        sha256=digest,
+    )
+    for name, item in supplied_facts.items():
+        if name in filing_facts and str(filing_facts[name].get("value")) != str(item.get("value")):
+            raise ValueError(f"EC fact sheet conflicts with the filing-mapped fact: {name}")
+        filing_facts.setdefault(name, item)
+    # Equity-component members (reviewed generic rules in configs/esef_extension_concepts.yaml) fill pools the
+    # fact sheet and the IFRS concepts do not supply; a supplied or directly tagged fact always wins.
+    for name, item in equity_member_facts(parsed.records, expected).items():
+        filing_facts.setdefault(name, item)
 
     output.mkdir(parents=True, exist_ok=True)
     archive = archive_manual_official_filing(
@@ -117,15 +194,26 @@ def import_official_filing(
         queue_path=output / "manual_filing_queue.parquet",
     )
 
+    issuer_namespace, issuer_rules = issuer_extension(canonical, parsed.records)
+    if issuer_rules:
+        extension_namespace = issuer_namespace
+        extension_mappings = {concept: str(rule["metric"]) for concept, rule in issuer_rules.items()}
+    else:
+        extension_namespace = SMN_EXTENSION_NAMESPACE
+        extension_mappings = {concept: values["canonical_metric"] for concept, values in SMN_EXTENSION_CONCEPT_MAP.items()}
     facts = statement_facts_from_esef(
         parsed.records,
         instrument_id=canonical,
         source_sha256=archive.sha256,
         source_provider="esef_local_import",
+        extension_namespace=extension_namespace,
+        extension_mappings=extension_mappings,
     )
+    magnitude = {concept for concept, rule in issuer_rules.items() if rule.get("magnitude")}
     facts = tuple(
         replace(
             fact,
+            value=_magnitude(fact.value) if fact.concept in magnitude and fact.canonical_metric else fact.value,
             filed=known_at[:10],
             available_at=known_at,
             known_at=known_at,
@@ -157,9 +245,9 @@ def import_official_filing(
     normalised = normalise_statement_facts(facts)
     normalised_path = output / "normalised_statements.parquet"
     _append_revision_frame(normalised, normalised_path, "source_id")
-    _write_identity(output / "identity.json", canonical, bound_ticker, bound_orgnr, bound_lei, archive, expected, known_at)
+    _write_identity(output / "identity.json", issuer, bound_ticker, bound_lei, archive, expected, known_at)
     _write_ec_facts(
-        supplied_facts,
+        filing_facts,
         output / "ec_facts.json",
         archive,
         canonical,
@@ -167,23 +255,167 @@ def import_official_filing(
         known_at,
         source_url,
     )
+    _write_financial_classification(output, issuer, bound_lei, expected, known_at)
     return {
         "status": "imported",
         "instrument_id": canonical,
-        "isin": NORWAY_INSTRUMENT["isin"],
+        "isin": issuer.isin,
         "ticker": bound_ticker,
-        "orgnr": bound_orgnr,
         "lei": bound_lei,
         "period": expected,
         "known_at": known_at,
         "effective_at": expected,
         "sha256": archive.sha256,
         "facts": len(facts),
-        "warnings": [warning.message for warning in parsed.warnings if warning.severity == "warning"],
+        "warnings": [
+            warning.message
+            for warning in parsed.warnings
+            if warning.severity == "warning" and not _mapped_smn_extension_warning(warning)
+        ],
         "facts_path": str(facts_path),
         "normalised_path": str(normalised_path),
         "execution_allowed": False,
     }
+
+
+def _magnitude(value: object) -> object:
+    """Absolute value of an expense line the issuer presents with a negative sign."""
+
+    text = str(value).strip()
+    return text[1:] if text.startswith("-") else value
+
+
+def _resolve_published_at(source_path: Path, source_url: str, explicit: str | None) -> str:
+    """Use an adjacent filings.xbrl.org API record, or require an explicit date."""
+
+    candidates: list[tuple[str, bool]] = []
+    try:
+        sidecars = sorted(source_path.resolve().parent.glob("*.json"))
+    except OSError:
+        sidecars = []
+    for sidecar in sidecars:
+        try:
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        serialized = json.dumps(payload, ensure_ascii=False)
+        linked = source_url in serialized or source_path.name in serialized
+        for record in _nested_mappings(payload):
+            date_added = record.get("date_added")
+            if date_added is not None and str(date_added).strip():
+                candidates.append((str(date_added).strip(), linked))
+    linked_dates = {date for date, linked in candidates if linked}
+    if len(linked_dates) == 1:
+        selected = next(iter(linked_dates))
+    elif len(linked_dates) > 1:
+        raise ValueError("adjacent filing metadata has conflicting date_added values")
+    else:
+        unlinked_dates = {date for date, linked in candidates if not linked}
+        if len(unlinked_dates) == 1:
+            selected = next(iter(unlinked_dates))
+        elif len(unlinked_dates) > 1:
+            raise ValueError("adjacent filing metadata has ambiguous date_added values")
+        else:
+            selected = str(explicit or "").strip()
+    if not selected:
+        raise ValueError("filing publication date is required when adjacent API metadata has no date_added")
+    try:
+        datetime.fromisoformat(selected.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("filing publication date must be an ISO date or timestamp") from exc
+    return selected
+
+
+def _nested_mappings(value: object) -> Iterable[Mapping[str, object]]:
+    if isinstance(value, Mapping):
+        yield value
+        for child in value.values():
+            yield from _nested_mappings(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _nested_mappings(child)
+
+
+def _map_issuer_extension_qname(
+    qname: str,
+    *,
+    output_key: str = "canonical_metric",
+) -> str | None:
+    """Map one explicit SMN extension QName, rejecting foreign prefixes."""
+
+    prefix, separator, local_name = str(qname or "").partition(":")
+    if not separator or prefix != SMN_EXTENSION_PREFIX:
+        return None
+    entry = SMN_EXTENSION_CONCEPT_MAP.get(local_name)
+    return entry.get(output_key) if entry else None
+
+
+def _mapped_smn_extension_warning(warning: object) -> bool:
+    if str(getattr(warning, "code", "")) != "unmapped_extension":
+        return False
+    message = str(getattr(warning, "message", ""))
+    return any(f"{SMN_EXTENSION_PREFIX}:{concept}" in message for concept in SMN_EXTENSION_CONCEPT_MAP)
+
+
+def _extract_ec_facts(
+    records: Iterable[object],
+    *,
+    instrument_id: str,
+    period: str,
+    sha256: str,
+) -> dict[str, dict[str, object]]:
+    """Select exact consolidated ESEF facts for the native claim inputs."""
+
+    candidates: dict[str, list[tuple[object, str]]] = {}
+    for record in records:
+        concept = str(getattr(record, "concept", "") or "")
+        namespace = str(getattr(record, "namespace", "") or "")
+        if namespace == SMN_EXTENSION_NAMESPACE:
+            ec_name = _map_issuer_extension_qname(
+                f"{SMN_EXTENSION_PREFIX}:{concept}", output_key="ec_fact"
+            )
+            qname = f"{SMN_EXTENSION_PREFIX}:{concept}"
+        elif "ifrs" in namespace.casefold():
+            ec_name = IFRS_EC_FACT_MAP.get(concept)
+            qname = f"ifrs-full:{concept}"
+        else:
+            continue
+        if not ec_name or not getattr(record, "is_numeric", True):
+            continue
+        if str(getattr(record, "period_end", "") or "") != period:
+            continue
+        if str(getattr(record, "consolidation_scope", "") or "").casefold() != "consolidated":
+            continue
+        if getattr(record, "context_dimensions", ()):
+            continue
+        if not str(getattr(record, "unit", "") or "").strip():
+            continue
+        candidates.setdefault(ec_name, []).append((record, qname))
+
+    extracted: dict[str, dict[str, object]] = {}
+    for name, matches in candidates.items():
+        if len(matches) != 1:
+            continue
+        record, qname = matches[0]
+        context_id = str(getattr(record, "context_id", "") or "") or None
+        start = str(getattr(record, "period_start", "") or "") or None
+        end = str(getattr(record, "period_end", "") or "") or None
+        source_location = str(getattr(record, "source_location", "") or "")
+        locator = f"{source_location}#fact={qname};context={context_id or 'unavailable'}"
+        extracted[name] = {
+            "value": getattr(record, "value", None),
+            "source_locator": locator,
+            "concept": qname,
+            "context": context_id,
+            "unit": str(getattr(record, "unit", "")),
+            "period": end or period,
+            "start": start,
+            "end": end,
+            "sha256": sha256,
+            "dimensions": getattr(record, "context_dimensions", ()),
+            "consolidation_scope": str(getattr(record, "consolidation_scope", "")),
+        }
+    return extracted
 
 
 def _validate_identity_and_period(records: Iterable[object], expected_lei: str, expected_period: str) -> None:
@@ -197,16 +429,89 @@ def _validate_identity_and_period(records: Iterable[object], expected_lei: str, 
         raise ValueError("filing report period does not match the expected period")
 
 
+def _normalise_ticker(value: str) -> str:
+    canonical = str(value or "").strip().upper()
+    return canonical[:-3] if canonical.endswith(".OL") else canonical
+
+
+def _classification_timestamp(value: str) -> str:
+    parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _classification_storage_root(output: Path) -> Path:
+    for candidate in (output, *output.parents):
+        if candidate.name.casefold() == "evidence":
+            return candidate.parent
+    return output
+
+
+def _write_financial_classification(
+    output: Path,
+    issuer: UniverseRecord,
+    lei: str,
+    period: str,
+    known_at: str,
+) -> None:
+    row_checksum = hashlib.sha256(
+        json.dumps(
+            {"id": issuer.instrument_id, "name": issuer.name, "ticker": issuer.ticker, "isin": issuer.isin, "lei": lei, "instrument_type": issuer.asset_type},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    evidence_id = f"norway_configured_equity_certificate:{issuer.instrument_id}:{row_checksum}"
+    effective_at = _classification_timestamp(period)
+    available_at = _classification_timestamp(known_at)
+    table_facts = (
+        ("sector", "financials"),
+        ("issuer_type", "savings_bank"),
+        ("operating_country", "NO"),
+        ("instrument_type", issuer.asset_type),
+        ("asset_class", "equity"),
+        ("instrument_subtype", issuer.asset_type),
+        ("special_structure", issuer.asset_type),
+    )
+    evidences = tuple(
+        ClassificationEvidence(
+            evidence_id=evidence_id if field == "sector" else f"{evidence_id}:{field}",
+            instrument_id=issuer.instrument_id,
+            field=field,
+            value=value,
+            source="configured universe record and issuer-validated ESEF filing",
+            authority=SourceAuthority.MANUAL,
+            source_id=f"configured_universe:{issuer.instrument_id}:{lei}",
+            confidence=0.95,
+            valid_from=effective_at,
+            available_at=available_at,
+            source_checksum=row_checksum,
+        )
+        for field, value in table_facts
+    )
+    with ClassificationStore(_classification_storage_root(output)) as store:
+        current = store.classify(issuer.instrument_id, effective_at=effective_at, decision_time=available_at)
+        missing = tuple(item for item in evidences if item.evidence_id not in current.evidence_ids)
+        if missing:
+            store.append_evidence(missing)
+
+
 def _validate_units(records: Iterable[object]) -> None:
     by_concept: dict[str, set[str]] = {}
     currencies: set[str] = set()
     for record in records:
         concept = str(getattr(record, "concept", "")).strip()
         unit = str(getattr(record, "unit", "") or "").strip()
-        if not concept or not unit:
+        if not concept:
+            raise ValueError("filing contains a fact with incomplete unit provenance")
+        if not unit:
+            if not bool(getattr(record, "is_numeric", True)):
+                continue
             raise ValueError("filing contains a fact with incomplete unit provenance")
         by_concept.setdefault(concept, set()).add(unit)
-        if unit.upper() not in {"SHARES", "PURE", "ITEMS", "PERCENT"}:
+        if unit.upper() not in {"SHARES", "PURE", "ITEM", "ITEMS", "PERCENT"} and "/" not in unit:
             currencies.add(unit.split("/", 1)[0].upper())
     if any(len(units) > 1 for units in by_concept.values()) or len(currencies) > 1:
         raise ValueError("filing contains inconsistent units or currencies")
@@ -221,14 +526,15 @@ def _append_revision_frame(frame: pd.DataFrame, destination: Path, key: str) -> 
     combined.to_parquet(destination, index=False)
 
 
-def _write_identity(destination: Path, instrument_id: str, ticker: str, orgnr: str, lei: str, archive: object, period: str, known_at: str) -> None:
+def _write_identity(destination: Path, issuer: UniverseRecord, ticker: str, lei: str, archive: object, period: str, known_at: str) -> None:
     payload = {
-        "instrument_id": instrument_id,
+        "instrument_id": issuer.instrument_id,
+        "name": issuer.name,
         "ticker": ticker,
-        "isin": NORWAY_INSTRUMENT["isin"],
+        "isin": issuer.isin,
         "lei": lei,
-        "orgnr": orgnr,
-        "identity_source": "Brønnøysund organisation number + Oslo Børs listing + filed ESEF issuer LEI",
+        "instrument_type": issuer.asset_type,
+        "identity_source": "configured universe record plus ESEF issuer LEI",
         "source_url": archive.source_url,
         "sha256": archive.sha256,
         "known_at": known_at,
@@ -256,6 +562,77 @@ def _load_fact_sheet(source: Path | None) -> dict[str, Any]:
     return supplied
 
 
+def _bank_economics_evidence(supplied: Mapping[str, object]) -> dict[str, object]:
+    """Route cited percent facts to the ratio inputs consumed by the scorecard."""
+
+    def ratio(name: str) -> float | None:
+        item = supplied.get(name)
+        if not isinstance(item, Mapping) or str(item.get("unit") or "").casefold() != "percent":
+            return None
+        value = item.get("value")
+        if isinstance(value, bool):
+            return None
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number / 100.0 if math.isfinite(number) else None
+
+    def citation(name: str) -> dict[str, object]:
+        item = supplied.get(name)
+        if not isinstance(item, Mapping):
+            return {}
+        return {
+            key: item[key]
+            for key in (
+                "source_locator",
+                "source_url",
+                "sha256",
+                "document_title",
+                "page",
+                "printed_text",
+                "page_note",
+                "source_citations",
+            )
+            if key in item
+        }
+
+    evidence: dict[str, object] = {}
+    cet1 = ratio("cet1_ratio_pct")
+    if cet1 is not None:
+        evidence["cet1_ratio"] = cet1
+        evidence["cet1_ratio_provenance"] = citation("cet1_ratio_pct")
+
+    funding: dict[str, object] = {}
+    funding_provenance: dict[str, object] = {}
+    for output_name, fact_name in (
+        ("lcr", "lcr_pct"),
+        ("nsfr", "nsfr_pct"),
+    ):
+        value = ratio(fact_name)
+        if value is not None:
+            funding[output_name] = value
+            funding_provenance[output_name] = citation(fact_name)
+    deposit_fact = next(
+        (name for name in ("deposit_to_loan_ratio_pct", "deposit_coverage_pct") if ratio(name) is not None),
+        None,
+    )
+    if deposit_fact is not None:
+        funding["deposit_to_loan_ratio"] = ratio(deposit_fact)
+        funding_provenance["deposit_to_loan_ratio"] = citation(deposit_fact)
+    if funding:
+        funding["provenance"] = funding_provenance
+        evidence["funding"] = funding
+
+    stage3 = ratio("stage3_pct_gross_loans")
+    if stage3 is not None:
+        evidence["credit"] = {
+            "stage_3_ratio_pct": stage3,
+            "provenance": {"stage_3_ratio_pct": citation("stage3_pct_gross_loans")},
+        }
+    return evidence
+
+
 def _write_ec_facts(
     supplied: dict[str, Any],
     destination: Path,
@@ -273,6 +650,8 @@ def _write_ec_facts(
                 "available": False,
                 "value": None,
                 "source_locator": None,
+                "concept": None,
+                "context": None,
                 "unit": None,
                 "period": period,
                 "known_at": known_at,
@@ -283,19 +662,33 @@ def _write_ec_facts(
                 "instrument_id": instrument_id,
             }
             continue
+        fact_source_url = str(item.get("source_url") or source_url)
+        source_is_filing = fact_source_url == source_url
         facts[name] = {
-            "available": True,
+            "available": item.get("value") is not None,
             "value": item.get("value"),
             "source_locator": str(item["source_locator"]),
+            "concept": item.get("concept"),
+            "context": item.get("context"),
             "unit": str(item["unit"]),
             "period": str(item["period"]),
-            "known_at": known_at,
-            "effective_at": period,
-            "source_url": source_url,
-            "sha256": archive.sha256,
-            "filing_version": archive.sha256,
+            "start": item.get("start"),
+            "end": item.get("end", item.get("period")),
+            "sha256": item.get("sha256", archive.sha256 if source_is_filing else None),
+            "known_at": item.get("known_at", known_at),
+            "effective_at": item.get("effective_at", period),
+            "source_url": fact_source_url,
+            "filing_version": item.get("filing_version", archive.sha256 if source_is_filing else None),
             "instrument_id": instrument_id,
         }
+        for citation_field in ("document_title", "page", "printed_text", "page_note", "source_citations"):
+            if citation_field in item:
+                facts[name][citation_field] = item[citation_field]
+    if isinstance(facts.get("gavefond"), dict) and not facts["gavefond"].get("available"):
+        facts["gavefond"]["unavailable_reason"] = (
+            "No cited equity-pool Gavefond fact was supplied; GiftsAllocation is not substituted."
+        )
+    bank_economics_evidence = _bank_economics_evidence(supplied)
     revision = {
         "instrument_id": instrument_id,
         "filing_version": archive.sha256,
@@ -304,17 +697,37 @@ def _write_ec_facts(
         "known_at": known_at,
         "effective_at": period,
         "facts": facts,
+        "bank_economics_evidence": bank_economics_evidence,
     }
     revisions: list[dict[str, object]] = []
+    prior_top_facts: dict[str, object] = {}
     if destination.exists():
         try:
             prior = json.loads(destination.read_text(encoding="utf-8"))
+            if isinstance(prior, dict) and isinstance(prior.get("facts"), dict) and prior.get("sha256") == archive.sha256:
+                prior_top_facts = prior["facts"]
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("Existing EC fact evidence is unreadable") from exc
         if isinstance(prior, dict) and isinstance(prior.get("revisions"), list):
             revisions = [item for item in prior["revisions"] if isinstance(item, dict)]
-    if not any(item.get("instrument_id") == instrument_id and item.get("sha256") == archive.sha256 for item in revisions):
+    same = [item for item in revisions if item.get("instrument_id") == instrument_id and item.get("sha256") == archive.sha256]
+    if not same:
         revisions.append(revision)
+    else:
+        # Re-import of the same package: only facts that were unavailable before may be filled (new mapping rules);
+        # a fact that was already available is never overwritten.
+        for item in same:
+            stored = item.get("facts")
+            if not isinstance(stored, dict):
+                continue
+            for name, fact in facts.items():
+                if fact.get("available") and not (isinstance(stored.get(name), dict) and stored[name].get("available")):
+                    stored[name] = fact
+        if prior_top_facts:
+            for name, fact in facts.items():
+                if fact.get("available") and not (isinstance(prior_top_facts.get(name), dict) and prior_top_facts[name].get("available")):
+                    prior_top_facts[name] = fact
+            facts = prior_top_facts
     atomic_write_json(
         destination,
         {
@@ -326,6 +739,7 @@ def _write_ec_facts(
             "effective_at": period,
             "filing_version": archive.sha256,
             "instrument_id": instrument_id,
+            "bank_economics_evidence": bank_economics_evidence,
             "revisions": revisions,
             "execution_allowed": False,
         },
@@ -342,10 +756,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--orgnr")
     parser.add_argument("--lei")
     parser.add_argument("--ticker")
-    parser.add_argument("--published-at")
+    parser.add_argument("--published-at", help="required if no adjacent filings.xbrl.org API record has date_added")
     parser.add_argument("--expected-sha256")
     parser.add_argument("--fact-sheet", type=Path)
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--universe-root", type=Path, default=ROOT)
     return parser
 
 
@@ -365,6 +780,7 @@ def main(argv: list[str] | None = None) -> int:
         expected_sha256=args.expected_sha256,
         fact_sheet=args.fact_sheet,
         output_dir=output_dir,
+        universe_root=args.universe_root,
     )
     print(json.dumps(result, sort_keys=True))
     return 0

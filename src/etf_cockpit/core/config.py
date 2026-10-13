@@ -44,6 +44,7 @@ class ETFConfig(BaseModel):
     source_group: str = ""
     isin_status: str = "verified"
     notes: str = ""
+    lifecycle: str = ""  # "", "delisted" or "merged": history is kept, no new data is fetched
     # Compatibility defaults keep older YAML and persisted stores loadable.
     leveraged: bool = False
     inverse: bool = False
@@ -213,13 +214,30 @@ class ModelMonitoringSettings(BaseModel):
     alert_threshold: float = Field(default=1.0, gt=0)
 
 
+class ModelPromotionSettings(BaseModel):
+    """Evidence an optional model needs before its forecasts count in scores.
+
+    100 matured pairs across 5 forecast dates is conservative: pairs from one
+    date share the market move, so the date count limits that clustering.
+    ``enabled=false`` returns every optional model to diagnostic-only output.
+    """
+
+    enabled: bool = True
+    minimum_matured_forecasts: int = Field(default=100, ge=2)
+    minimum_forecast_origins: int = Field(default=5, ge=1)
+    evidence_horizon_days: int = Field(default=60, ge=1)
+
+
 class ModelSettings(BaseModel):
+    # Owner opt-in runs optional models in the refresh workflow; promotion decides whether they count.
+    shadow_optional_models: bool = False
     forecast_horizons_trading_days: list[int] = Field(default_factory=lambda: [5, 20, 60, 120, 180])
     models: dict[str, Any] = Field(default_factory=dict)
     ensemble: dict[str, Any] = Field(default_factory=dict)
     forecast_uncertainty: ForecastUncertaintySettings = Field(default_factory=ForecastUncertaintySettings)
     calibration: ForecastCalibrationSettings = Field(default_factory=ForecastCalibrationSettings)
     monitoring: ModelMonitoringSettings = Field(default_factory=ModelMonitoringSettings)
+    promotion: ModelPromotionSettings = Field(default_factory=ModelPromotionSettings)
 
     def runtime(self, name: str) -> ModelRuntimeConfig:
         raw = self.models.get(name, {})
@@ -413,7 +431,13 @@ def resolve_provider_api_key(
     return environment_value if environment_value is not None else configured_value
 
 
-def _universe_config_from_records(records: Any, *, allow_cross_tier_duplicates: bool = False) -> UniverseConfig:
+def _universe_config_from_records(
+    records: Any,
+    *,
+    allow_cross_tier_duplicates: bool = False,
+    listing_metadata: dict[str, dict[str, str]] | None = None,
+) -> UniverseConfig:
+    listing_metadata = listing_metadata or {}
     return UniverseConfig(
         etfs=[
             ETFConfig(
@@ -422,12 +446,20 @@ def _universe_config_from_records(records: Any, *, allow_cross_tier_duplicates: 
                 isin=row.isin if row.isin_status == "verified" else None,
                 ticker=row.ticker,
                 provider_symbol=row.ticker,
-                exchange="OSE" if row.asset_type in {"stock", "equity_certificate", "certificate"} else None,
+                exchange=(
+                    getattr(row, "exchange", None)
+                    or listing_metadata.get(str(row.instrument_id).casefold(), {}).get("exchange")
+                    or None
+                ),
                 currency=row.currency,
                 asset_class="equity",
                 region=row.region or None,
-                sector=row.sector or None,
-                theme=row.theme or None,
+                sector=(row.sector or listing_metadata.get(str(row.instrument_id).casefold(), {}).get("sector") or None),
+                theme=(
+                    row.theme
+                    or listing_metadata.get(str(row.instrument_id).casefold(), {}).get("theme")
+                    or None
+                ),
                 role="core" if row.tier == "primary" else "watchlist",
                 enabled=row.enabled,
                 instrument_type=row.asset_type,
@@ -436,6 +468,7 @@ def _universe_config_from_records(records: Any, *, allow_cross_tier_duplicates: 
                 source_group=row.group,
                 isin_status=row.isin_status,
                 notes=row.notes,
+                lifecycle=getattr(row, "lifecycle", ""),
                 leveraged=row.leveraged,
                 inverse=row.inverse,
             )
@@ -447,14 +480,29 @@ def _universe_config_from_records(records: Any, *, allow_cross_tier_duplicates: 
 
 def _load_universe_config(config_dir: Path) -> UniverseConfig:
     persisted = config_dir / "universe_store.json"
+    listing_metadata: dict[str, dict[str, str]] = {}
+    primary_path = config_dir / "universe.yaml"
+    if primary_path.exists():
+        raw = _read_yaml(primary_path)
+        rows = raw.get("etfs", ()) if isinstance(raw, dict) else ()
+        for item in rows if isinstance(rows, list) else ():
+            if not isinstance(item, dict):
+                continue
+            identifier = str(item.get("id") or "").strip().casefold()
+            if not identifier:
+                continue
+            listing_metadata[identifier] = {
+                key: str(item.get(key)).strip()
+                for key in ("exchange", "theme", "sector")
+                if item.get(key) is not None and str(item.get(key)).strip()
+            }
     if not persisted.exists():
-        primary_path = config_dir / "universe.yaml"
         if not primary_path.exists():
             return UniverseConfig(etfs=[])
         candidate_dir = config_dir.parent / "data" / "raw" / "trade_candidates"
         candidates = sorted(candidate_dir.glob("yahoo_trade_candidates_*.csv")) if candidate_dir.exists() else []
         imported = import_legacy_universe(primary_path, candidates[-1] if candidates else None)
-        return _universe_config_from_records(imported.records)
+        return _universe_config_from_records(imported.records, listing_metadata=listing_metadata)
     try:
         snapshot = load_universe(config_dir.parent)
         if snapshot.integrity_errors:
@@ -464,6 +512,7 @@ def _load_universe_config(config_dir: Path) -> UniverseConfig:
         return _universe_config_from_records(
             snapshot.records,
             allow_cross_tier_duplicates=snapshot.allow_cross_tier_duplicates,
+            listing_metadata=listing_metadata,
         )
     except (OSError, ValueError, TypeError, KeyError) as exc:
         raise ConfigError(f"Could not read persisted universe {persisted}: {exc}") from exc

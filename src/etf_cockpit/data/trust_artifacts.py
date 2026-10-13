@@ -297,6 +297,8 @@ SCORE_HISTORY_COLUMNS = [
     "canonical_risk_implementation_10",
     "canonical_evidence_confidence_10",
     "canonical_coverage",
+    "coverage",
+    "missing_components",
     "formula_version",
     "formula_checksum",
     "source_vintage_hash",
@@ -1048,6 +1050,8 @@ def append_score_history(
                 "canonical_risk_implementation_10": getattr(getattr(score, "canonical_score", None), "risk_implementation_10", None),
                 "canonical_evidence_confidence_10": getattr(getattr(score, "canonical_score", None), "evidence_confidence_10", None),
                 "canonical_coverage": getattr(getattr(score, "canonical_score", None), "coverage", 0.0),
+                "coverage": getattr(score, "score_coverage", 0.0),
+                "missing_components": "|".join(getattr(score, "missing_components", ()) or ()),
                 "formula_version": getattr(getattr(score, "canonical_score", None), "formula_version", "unavailable"),
                 "formula_checksum": getattr(getattr(score, "canonical_score", None), "formula_checksum", "unavailable"),
                 "source_vintage_hash": getattr(getattr(score, "canonical_score", None), "source_vintage_hash", "unavailable"),
@@ -1304,10 +1308,13 @@ def write_optional_source_inventories(config: AppConfig, identity: pd.DataFrame)
 
 
 def load_score_history_summary() -> dict[str, list[dict[str, Any]]]:
-    history = project_classification_score_frame(
-        _safe_read_parquet(SCORE_HISTORY_PATH, SCORE_HISTORY_COLUMNS),
-        root=ROOT,
-    )
+    from etf_cockpit.data.score_history import score_history_frame
+
+    # One shared, cached projection of the history file (it is expensive and every page needs it).
+    if SCORE_HISTORY_PATH.resolve() == (ROOT / "data" / "derived" / "score_history.parquet").resolve():
+        history = score_history_frame(root=ROOT)
+    else:
+        history = project_classification_score_frame(_safe_read_parquet(SCORE_HISTORY_PATH, SCORE_HISTORY_COLUMNS), root=ROOT)
     if history.empty:
         return {}
     if "run_completed_at" in history.columns:

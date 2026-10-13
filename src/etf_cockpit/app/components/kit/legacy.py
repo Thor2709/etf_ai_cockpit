@@ -21,15 +21,10 @@ def _shadow(color: str, *, blur: float, x: float = 0, y: float = 0) -> ft.BoxSha
 
 
 def _control_border(*, selected: bool = False) -> ft.Border:
-    return ft.Border(
-        left=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-        top=ft.BorderSide(
-            width=1,
-            color=theme.QUAIL_SELECTED_HIGHLIGHT if selected else theme.HAIRLINE_BORDER,
-        ),
-        right=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-        bottom=ft.BorderSide(width=1, color=theme.HAIRLINE_BORDER),
-    )
+    # Flutter paints a non-uniform Border as a square rectangle and ignores border_radius,
+    # which drew a box around every pill; keep all four sides identical.
+    del selected
+    return border_all(1, theme.HAIRLINE_BORDER)
 
 
 def _accessible(control: ft.Control, *, key: str, label: str) -> ft.Control:
@@ -46,7 +41,7 @@ def _well(content: ft.Control, *, expand: bool = False, padding: int = 14) -> ft
         border_radius=theme.INNER_RADIUS,
         shadow=[_shadow("#47000000", blur=12, y=3)],
         padding=padding,
-        expand=expand,
+        expand=expand or None,
     )
 
 
@@ -68,7 +63,7 @@ def glass_panel(
             border_radius=theme.CARD_RADIUS,
             shadow=[_shadow("#59020614", blur=30, y=14)],
             padding=padding,
-            expand=expand,
+            expand=expand or None,
         ),
         key=key,
         label=label,

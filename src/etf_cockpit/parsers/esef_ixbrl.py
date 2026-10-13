@@ -48,6 +48,7 @@ class XbrlFact:
     context_dimensions: tuple[tuple[str, str], ...] = ()
     namespace: str | None = None
     consolidation_scope: str | None = None
+    is_numeric: bool = True
 
 
 _IFRS_MAPPING = {
@@ -94,19 +95,58 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
             if total_size > MAX_UNCOMPRESSED_BYTES or any(info.file_size > MAX_MEMBER_BYTES for info in infos):
                 return _failure(source_sha, "archive_too_large", "ESEF package exceeds the uncompressed size limit")
             names = [info.filename for info in infos]
-            unsupported = [name for name in names if Path(name).suffix and Path(name).suffix.lower() not in _ALLOWED_MEMBER_SUFFIXES]
+            unsupported = [
+                name
+                for name in names
+                if not name.endswith("/")
+                and Path(name).suffix
+                and Path(name).suffix.lower() not in _ALLOWED_MEMBER_SUFFIXES
+            ]
             if unsupported:
                 return _failure(source_sha, "unsupported_member", "ESEF package contains unsupported member types")
             report_package = _first_member(names, "reportpackage.json")
-            xhtml_name = next((name for name in names if name.lower().endswith((".xhtml", ".html"))), None)
-            if report_package is None or xhtml_name is None:
-                return _failure(source_sha, "unsupported_package", "ESEF package lacks reportPackage.json or XHTML report")
-            try:
-                metadata = json.loads(archive.read(report_package).decode("utf-8"))
-            except (KeyError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-                return _failure(source_sha, "malformed_archive", f"Could not parse ESEF package metadata: {type(exc).__name__}")
-            if not isinstance(metadata, dict):
-                return _failure(source_sha, "malformed_archive", "ESEF reportPackage.json must contain an object")
+            if report_package is None:
+                catalog_suffix = "meta-inf/catalog.xml"
+                taxonomy_suffix = "meta-inf/taxonomypackage.xml"
+                catalog_roots = {
+                    name[:-len(catalog_suffix)].lower()
+                    for name in names
+                    if name.lower().endswith(catalog_suffix)
+                }
+                taxonomy_roots = {
+                    name[:-len(taxonomy_suffix)].lower()
+                    for name in names
+                    if name.lower().endswith(taxonomy_suffix)
+                }
+                layout_roots = catalog_roots & taxonomy_roots
+                xhtml_name = next(
+                    (
+                        name
+                        for name in names
+                        for root in layout_roots
+                        if name.lower().startswith(f"{root}reports/")
+                        and "/" not in name[len(root) + len("reports/"):]
+                        and name.lower().endswith(".xhtml")
+                    ),
+                    None,
+                )
+                if xhtml_name is None:
+                    return _failure(
+                        source_sha,
+                        "unsupported_package",
+                        "ESEF package lacks reportPackage.json or the catalog/taxonomy/report layout",
+                    )
+                metadata: dict[str, object] = {}
+            else:
+                xhtml_name = next((name for name in names if name.lower().endswith((".xhtml", ".html"))), None)
+                if xhtml_name is None:
+                    return _failure(source_sha, "unsupported_package", "ESEF package lacks an XHTML report")
+                try:
+                    metadata = json.loads(archive.read(report_package).decode("utf-8"))
+                except (KeyError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    return _failure(source_sha, "malformed_archive", f"Could not parse ESEF package metadata: {type(exc).__name__}")
+                if not isinstance(metadata, dict):
+                    return _failure(source_sha, "malformed_archive", "ESEF reportPackage.json must contain an object")
             if not any(name.lower().endswith("taxonomypackage.xml") for name in names):
                 warnings.append(ParseWarning("missing_taxonomy_package", "ESEF taxonomyPackage.xml is missing; facts remain retained with bounded local parsing", "warning", report_package))
             xhtml_payload = archive.read(xhtml_name)
@@ -118,9 +158,11 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
         return _failure(source_sha, "malformed_archive", f"Could not parse ESEF package: {type(exc).__name__}")
 
     contexts = _contexts(root)
+    units = _units(root, namespace_map)
     default_lei = _extract_lei(metadata, names) or next((item["entity_lei"] for item in contexts.values() if item["entity_lei"] != "unknown"), "unknown")
     period_hint = _extract_period(metadata, names)
     consolidation_scope = _extract_consolidation_scope(metadata)
+    metadata_has_scope = _has_consolidation_scope(metadata)
     facts: list[XbrlFact] = []
     seen: set[tuple[object, ...]] = set()
     warned_extensions: set[str] = set()
@@ -138,7 +180,8 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
             value, numeric_problem = _decode_numeric_fact(value, element.attrib)
         context_id = _optional_text(element.attrib.get("contextRef"))
         context = contexts.get(context_id or "", {})
-        unit = _optional_text(element.attrib.get("unitRef"))
+        unit_ref = _optional_text(element.attrib.get("unitRef"))
+        unit = units.get(unit_ref, unit_ref) if unit_ref else None
         decimals = _optional_text(element.attrib.get("decimals"))
         duplicate_key = (raw_name, value, unit, decimals, context_id, context.get("period_start"), context.get("period_end"))
         if duplicate_key in seen:
@@ -172,7 +215,8 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
                 mapping_status,
                 tuple(context.get("dimensions", ())),
                 namespace,
-                consolidation_scope,
+                consolidation_scope if metadata_has_scope else _context_consolidation_scope(context, namespace_map),
+                local_name == "nonFraction",
             )
         )
 
@@ -332,6 +376,72 @@ def _contexts(root: Any) -> dict[str, dict[str, Any]]:
                 dimensions.append((_optional_text(child.attrib.get("dimension")) or "unknown", text))
         contexts[context_id] = {"entity_lei": entity_lei, "period_start": period_start, "period_end": period_end, "dimensions": tuple(dimensions)}
     return contexts
+
+
+def _units(root: Any, namespace_map: dict[str, str]) -> dict[str, str]:
+    units: dict[str, str] = {}
+    for element in root.iter():
+        if _local_name(element.tag) != "unit":
+            continue
+        unit_id = _optional_text(element.attrib.get("id"))
+        if not unit_id:
+            continue
+        divide = next((child for child in element if _local_name(child.tag) == "divide"), None)
+        if divide is None:
+            measures = [_unit_measure_name(child, namespace_map) for child in element.iter() if _local_name(child.tag) == "measure"]
+            value = "*".join(measures)
+        else:
+            numerator = next((child for child in divide if _local_name(child.tag) == "unitNumerator"), None)
+            denominator = next((child for child in divide if _local_name(child.tag) == "unitDenominator"), None)
+            numerator_measures = [_unit_measure_name(child, namespace_map) for child in numerator.iter() if _local_name(child.tag) == "measure"] if numerator is not None else []
+            denominator_measures = [_unit_measure_name(child, namespace_map) for child in denominator.iter() if _local_name(child.tag) == "measure"] if denominator is not None else []
+            value = f"{'*'.join(numerator_measures)}/{'*'.join(denominator_measures)}" if numerator_measures and denominator_measures else ""
+        if value:
+            units[unit_id] = value
+    return units
+
+
+def _unit_measure_name(element: Any, namespace_map: dict[str, str]) -> str:
+    value = _optional_text("".join(element.itertext())) or ""
+    prefix, separator, local_name = value.partition(":")
+    if not separator:
+        return value
+    namespace = namespace_map.get(prefix)
+    if namespace == "http://www.xbrl.org/2003/iso4217":
+        return local_name
+    if namespace == "http://www.xbrl.org/2003/instance" and local_name.casefold() in {"shares", "pure", "item"}:
+        return local_name
+    return value
+
+
+def _context_consolidation_scope(context: dict[str, Any], namespace_map: dict[str, str]) -> str | None:
+    scope_members = [
+        member
+        for axis, member in context.get("dimensions", ())
+        if _is_ifrs_full_qname(axis, "ConsolidatedAndSeparateFinancialStatementsAxis", namespace_map)
+    ]
+    if not scope_members:
+        return "consolidated"
+    if len(scope_members) != 1:
+        return None
+    member = scope_members[0]
+    if _is_ifrs_full_qname(member, "SeparateMember", namespace_map):
+        return "separate"
+    if _is_ifrs_full_qname(member, "ConsolidatedMember", namespace_map):
+        return "consolidated"
+    return None
+
+
+def _is_ifrs_full_qname(value: str, local_name: str, namespace_map: dict[str, str]) -> bool:
+    prefix, separator, actual_local_name = value.partition(":")
+    if not separator or actual_local_name != local_name:
+        return False
+    namespace = namespace_map.get(prefix, "").rstrip("/")
+    return namespace.endswith("/ifrs-full") if namespace else prefix.lower() in _IFRS_PREFIXES
+
+
+def _has_consolidation_scope(metadata: Any) -> bool:
+    return isinstance(metadata, dict) and any(key in metadata for key in ("consolidationScope", "consolidation_scope"))
 
 
 def _extract_lei(metadata: Any, names: list[str]) -> str | None:

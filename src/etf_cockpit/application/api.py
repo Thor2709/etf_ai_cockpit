@@ -580,12 +580,9 @@ class LocalApplicationApi:
         return _paper_order_view_model(order)
 
     def get_paper_orders(self, page: PageRequest = PageRequest(), *, account_id: str = "local-paper") -> PageView[PaperOrderViewModel]:
-        from etf_cockpit.portfolio.paper_trading import PaperLedger, PaperLedgerError
+        from etf_cockpit.portfolio.paper_trading import PaperLedger
 
-        try:
-            orders = tuple(_paper_order_view_model(item) for item in PaperLedger(self._root, account_id=account_id).orders())
-        except PaperLedgerError:
-            orders = ()
+        orders = tuple(_paper_order_view_model(item) for item in PaperLedger(self._root, account_id=account_id).orders())
         return _page(orders, page)
 
     def mark_paper_position(self, request: PaperPositionMarkRequest) -> PaperViewModel:

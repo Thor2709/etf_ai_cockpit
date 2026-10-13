@@ -1,6 +1,7 @@
 """Financial-institution (bank) evidence read model for Instrument Detail (application; ADR-0002)."""
 
 from collections.abc import Mapping
+import json
 import math
 from numbers import Real
 from pathlib import Path
@@ -20,6 +21,12 @@ from etf_cockpit.signals.feature_drivers import _source_vintage_hash
 from etf_cockpit.analysis.bank_metric_facts import (
     _financial_metric_facts,
 )
+from etf_cockpit.application.sparebank_evidence import (
+    merge_bank_economics_evidence,
+    pillar3_evidence,
+    statement_series,
+    with_derived_owner_earnings,
+)
 
 
 def load_financial_institution_projection(
@@ -27,22 +34,32 @@ def load_financial_institution_projection(
     *,
     projection: FinancialInstitutionProjection | Mapping[str, object] | None = None,
     storage_root: Path | None = None,
+    universe_root: Path | None = None,
     decision_time: str | None = None,
     effective_at: str | None = None,
     context: object | None = None,
     tactical_evidence: Mapping[str, object] | None = None,
+    record_history: bool = False,
 ) -> dict[str, object]:
-    """Load a verified projection, or build one from local point-in-time evidence."""
+    """Load a verified projection, or build one from local point-in-time evidence.
 
+    Views are read-only; only the Sparebank refresh passes ``record_history=True`` to store the score.
+    """
+
+    # A cached projection for another instrument (stale UI selection) is ignored and rebuilt.
+    if isinstance(projection, Mapping) and str(projection.get("instrument_id")) != str(instrument_id):
+        projection = None
     if projection is None:
         try:
             return _build_financial_projection_from_evidence(
                 instrument_id,
                 storage_root=storage_root,
+                universe_root=universe_root,
                 decision_time=decision_time,
                 effective_at=effective_at,
                 context=context,
                 tactical_evidence=tactical_evidence,
+                record_history=record_history,
             )
         except (FinancialAdapterError, OSError, TypeError, ValueError, KeyError):
             return unavailable_financial_projection(
@@ -63,10 +80,12 @@ def _build_financial_projection_from_evidence(
     instrument_id: str,
     *,
     storage_root: Path | None,
+    universe_root: Path | None,
     decision_time: str | None,
     effective_at: str | None,
     context: object | None,
     tactical_evidence: Mapping[str, object] | None = None,
+    record_history: bool = False,
 ) -> dict[str, object]:
     """Adapt #699's persisted statement/EC artifacts to the domain adapter."""
     from datetime import datetime, timezone
@@ -74,9 +93,30 @@ def _build_financial_projection_from_evidence(
 
     root = Path(storage_root or ROOT).resolve()
     identity = _read_json_artifact(root, "identity.json", instrument_id=instrument_id) or {}
-    cutoff = str(decision_time or identity.get("known_at") or "").strip()
+    if context is None and not decision_time:
+        from etf_cockpit.application.identity_views import load_classification_projection
+
+        load_classification_projection(
+            instrument_id,
+            storage_root=root,
+            universe_root=universe_root,
+        )
+    # The live view decides "as of now"; the filing's known_at only bounds which evidence is eligible.
+    cutoff = str(decision_time or "").strip()
     if not cutoff:
-        return unavailable_financial_projection(instrument_id, "financial_decision_time_unavailable")
+        from etf_cockpit.data.universe_store import load_sparebank_records
+
+        configured = next(
+            (
+                record
+                for record in load_sparebank_records(universe_root or ROOT)
+                if record.instrument_id == str(instrument_id)
+            ),
+            None,
+        )
+        if configured is None:
+            return unavailable_financial_projection(instrument_id, "financial_decision_time_unavailable")
+        cutoff = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     decision = datetime.fromisoformat(cutoff.replace("Z", "+00:00"))
     cutoff = decision.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
     effective = str(effective_at or identity.get("effective_at") or cutoff).strip()
@@ -85,6 +125,15 @@ def _build_financial_projection_from_evidence(
         effective = f"{effective}T00:00:00Z"
 
     if context is None:
+        from etf_cockpit.application.identity_views import load_classification_projection
+
+        load_classification_projection(
+            instrument_id,
+            storage_root=root,
+            universe_root=universe_root,
+            effective_at=effective,
+            decision_time=cutoff,
+        )
         context = read_instrument_context(
             root,
             instrument_id,
@@ -97,8 +146,6 @@ def _build_financial_projection_from_evidence(
     frame = _read_financial_statement_frame(root, instrument_id=instrument_id)
     rows = _financial_rows_for_instrument(frame, instrument_id, decision)
     facts = _financial_metric_facts(rows, context, cutoff, target_period=requested_period)
-    if not facts:
-        return unavailable_financial_projection(instrument_id, "financial_statement_evidence_unavailable")
 
     registry = AdapterRegistry([financial_adapter_definition()])
     result = build_financial_institution_projection(
@@ -111,6 +158,9 @@ def _build_financial_projection_from_evidence(
     ec_payload = _read_json_artifact(root, "ec_facts.json", instrument_id=instrument_id) or {}
     ec_revision = _select_ec_revision(ec_payload, instrument_id, decision)
     ec_facts = ec_revision.get("facts", {}) if isinstance(ec_revision, Mapping) else {}
+    statements = statement_series(rows, target_period=requested_period)
+    if isinstance(ec_facts, Mapping) and ec_facts:
+        ec_facts = with_derived_owner_earnings(ec_facts, statements)
     from etf_cockpit.analysis.sparebank import analyse_sparebank_ec
     route_evidence = {
         "facts": ec_facts,
@@ -137,13 +187,15 @@ def _build_financial_projection_from_evidence(
     }
     valuation_assumptions = ec_revision.get("valuation_assumptions")
     valuation_assumptions = valuation_assumptions if isinstance(valuation_assumptions, Mapping) else None
-    valuation_currency = str(
-        (valuation_assumptions or {}).get("currency")
-        or (valuation_assumptions or {}).get("output_currency")
-        or ""
-    ).strip().upper()
+    bank_economics_evidence = merge_bank_economics_evidence(
+        ec_revision.get("bank_economics_evidence") if isinstance(ec_revision, Mapping) else None,
+        statements,
+        pillar3_evidence(root, instrument_id, cutoff, target_period=requested_period or statements.get("period_end")),
+    )
+    valuation_currency = _valuation_currency(valuation_assumptions, context, ec_facts)
     price_path = root / "data" / "clean" / "prices.parquet"
     decision_price = None
+    market_data_prices = None
     decision_price_projection: dict[str, object] = {
         "status": "unavailable",
         "reason_code": "decision_price_store_missing",
@@ -154,10 +206,12 @@ def _build_financial_projection_from_evidence(
             from etf_cockpit.data.duckdb_store import load_prices
 
             prices = load_prices(price_path)
-            if not {"instrument_id", "date", "close", "currency"}.issubset(prices.columns):
+            instrument_column = "instrument_id" if "instrument_id" in prices.columns else "etf_id" if "etf_id" in prices.columns else None
+            if instrument_column is None or not {"date", "close", "currency"}.issubset(prices.columns):
                 decision_price_projection["reason_code"] = "decision_price_store_invalid"
             else:
-                eligible = prices.loc[prices["instrument_id"].astype(str).eq(str(instrument_id))].copy()
+                market_data_prices = prices
+                eligible = prices.loc[prices[instrument_column].astype(str).eq(str(instrument_id))].copy()
                 eligible["_price_date"] = pd.to_datetime(eligible["date"], errors="coerce", utc=True)
                 available_at = eligible["_price_date"].where(
                     eligible["_price_date"].ne(eligible["_price_date"].dt.normalize()),
@@ -207,9 +261,18 @@ def _build_financial_projection_from_evidence(
         decision_time=cutoff,
         price=decision_price,
         bank_metrics=result.metrics,
-        bank_economics_evidence=(ec_revision.get("bank_economics_evidence") if isinstance(ec_revision, Mapping) else None),
+        bank_economics_evidence=bank_economics_evidence or None,
         events=(ec_revision.get("events", ()) if isinstance(ec_revision, Mapping) else ()),
-        valuation_assumptions=valuation_assumptions,
+        valuation_assumptions=_with_policy_defaults(
+            _with_local_marketability(
+                root,
+                instrument_id,
+                decision,
+                market_data_prices,
+                valuation_assumptions,
+                price=decision_price,
+            )
+        ),
         tactical_evidence=tactical_evidence,
     )
     if sparebank_analysis.routing.applies or (isinstance(ec_facts, Mapping) and ec_facts):
@@ -221,6 +284,9 @@ def _build_financial_projection_from_evidence(
                 "value": value.get("value") if isinstance(value, Mapping) else None,
                 "unit": value.get("unit") if isinstance(value, Mapping) else None,
                 "period": value.get("period") if isinstance(value, Mapping) else None,
+                "concept": value.get("concept") if isinstance(value, Mapping) else None,
+                "context": value.get("context") if isinstance(value, Mapping) else None,
+                "sha256": value.get("sha256") if isinstance(value, Mapping) else None,
                 "known_at": value.get("known_at") if isinstance(value, Mapping) else None,
                 "source": value.get("source_url") if isinstance(value, Mapping) else None,
             }
@@ -229,11 +295,16 @@ def _build_financial_projection_from_evidence(
         }
         sparebank_payload = asdict(sparebank_analysis)
         sparebank_payload["decision_price"] = decision_price_projection
+        from etf_cockpit.analysis.sparebank.dividends import dividend_history
+
+        sparebank_payload["dividends"] = dividend_history(_market_prices_as_of(market_data_prices, instrument_id, decision), decision_price)
         source_vintage_hash = _source_vintage_hash(route_evidence.get("sha256")) or "unavailable"
         sparebank_payload["source_vintage_hash"] = source_vintage_hash
         scorecard = sparebank_analysis.scorecard
         composite = getattr(scorecard, "composite_10", None)
-        if isinstance(composite, Real) and not isinstance(composite, bool) and math.isfinite(float(composite)):
+        if not record_history:
+            history_status = {"status": "not_requested", "reason": "read_only_view"}
+        elif isinstance(composite, Real) and not isinstance(composite, bool) and math.isfinite(float(composite)):
             try:
                 from etf_cockpit.data.score_history import append_score_run
 
@@ -243,11 +314,14 @@ def _build_financial_projection_from_evidence(
                             {
                                 "instrument_id": str(instrument_id),
                                 "final_combined_score_10": float(composite),
+                                "coverage": getattr(scorecard, "composite_coverage", None),
+                                "missing_components": "|".join(getattr(scorecard, "missing_axes", ()) or ()),
                                 "price_as_of_date": decision_price_projection.get("date", ""),
                                 "data_as_of_date": decision.date().isoformat(),
                                 "formula_version": getattr(scorecard, "formula_version", "unavailable"),
                                 "formula_checksum": getattr(scorecard, "formula_checksum", "unavailable"),
                                 "source_vintage_hash": source_vintage_hash,
+                                "effective_at": str(route_evidence.get("effective_at") or ""),
                             }
                         ]
                     ),
@@ -255,7 +329,8 @@ def _build_financial_projection_from_evidence(
                     cutoff,
                     root=root,
                 )
-                history_status = {"status": "written", "reason": None}
+                # Partial scores are recorded (owner 2026-10-09); a missing decision price is kept as the reason.
+                history_status = {"status": "written", "reason": decision_price_projection.get("reason_code")}
             except Exception:
                 history_status = {"status": "not_written", "reason": "score_history_write_failed"}
         else:
@@ -372,3 +447,193 @@ def _financial_rows_for_instrument(
         row["_effective"] = effective
         rows.append(row)
     return rows
+
+
+def _with_policy_defaults(assumptions: Mapping[str, object]) -> dict[str, object]:
+    """Normalize explicit valuation assumptions before adding missing policy defaults."""
+
+    from etf_cockpit.analysis.sparebank import load_sparebank_scorecard_policy
+    from etf_cockpit.analysis.sparebank.valuation import normalise_valuation_assumptions
+
+    defaults = load_sparebank_scorecard_policy().valuation_defaults
+    result = normalise_valuation_assumptions(assumptions, defaults=defaults)
+    if not any(name in assumptions for name in ("cost_of_equity", "k", "cost_of_equity_pct")) and defaults.get("cost_of_equity") is not None:
+        result.setdefault("assumption_source", defaults.get("assumption_source"))
+    if not any(name in assumptions for name in ("long_run_growth", "g", "long_run_growth_pct")) and defaults.get("long_run_growth") is not None:
+        result.setdefault("assumption_source", defaults.get("assumption_source"))
+    return result
+
+
+def _with_local_marketability(
+    root: Path,
+    instrument_id: str,
+    decision: object,
+    prices: pd.DataFrame | None,
+    assumptions: Mapping[str, object] | None,
+    *,
+    price: float | None = None,
+) -> dict[str, object]:
+    result = dict(assumptions or {})
+    marketability = dict(result.get("marketability", {})) if isinstance(result.get("marketability"), Mapping) else {}
+    report, report_name = _candidate_report_as_of(root, instrument_id, decision)
+    price_rows = _market_prices_as_of(prices, instrument_id, decision)
+    volume: float | None = None
+    if not price_rows.empty and "volume" in price_rows.columns:
+        volume_values = pd.to_numeric(price_rows["volume"], errors="coerce").dropna()
+        if not volume_values.empty:
+            volume = float(volume_values.tail(60).median())
+    if volume is None and report is not None:
+        volume = _finite_number(report.get("median_volume_60d"))
+
+    quantity = _finite_number(report.get("shares")) if report is not None else None
+    if quantity is None or quantity <= 0:
+        quantity = _finite_number(marketability.get("order_quantity", marketability.get("quantity")))
+    from etf_cockpit.analysis.sparebank import load_sparebank_scorecard_policy
+    from etf_cockpit.analysis.sparebank.valuation import days_to_trade
+
+    policy = load_sparebank_scorecard_policy()
+    policy_marketability = policy.scorecard.get("marketability", {})
+    reference_position = _finite_number(policy_marketability.get("reference_position_nok")) if isinstance(policy_marketability, Mapping) else None
+    if (quantity is None or quantity <= 0) and reference_position is not None and price is not None and price > 0:
+        # No candidate position: use the documented reference position (NOK) at the decision price.
+        quantity = reference_position / price
+        marketability["reference_position_nok"] = reference_position
+    participation = _finite_number(policy_marketability.get("participation_rate")) if isinstance(policy_marketability, Mapping) else None
+    days = None
+    if quantity is not None and quantity > 0 and volume is not None and volume > 0 and participation is not None:
+        calculated = days_to_trade(quantity, volume, participation)
+        days = _finite_number(calculated)
+    marketability.update(order_quantity=quantity, participation_rate=participation)
+    if days is not None:
+        marketability["days_to_trade"] = days
+    if volume is not None:
+        marketability["median_volume_60d"] = volume
+    if not price_rows.empty and {"close", "volume"}.issubset(price_rows.columns):
+        turnover = (
+            pd.to_numeric(price_rows["close"], errors="coerce") * pd.to_numeric(price_rows["volume"], errors="coerce")
+        ).dropna()
+        if not turnover.empty:
+            marketability["median_turnover_nok_60d"] = float(turnover.tail(60).median())
+    if report_name is not None:
+        marketability["candidate_report"] = report_name
+    if not price_rows.empty:
+        marketability["market_data_as_of"] = price_rows["_price_date"].max().date().isoformat()
+    result["marketability"] = marketability
+    return result
+
+
+def _candidate_report_as_of(
+    root: Path, instrument_id: str, decision: object
+) -> tuple[Mapping[str, object] | None, str | None]:
+    reports = root / "data" / "reports"
+    if not reports.is_dir():
+        return None, None
+    cutoff = pd.Timestamp(decision)
+    selected: tuple[pd.Timestamp, Mapping[str, object], str] | None = None
+    for path in reports.glob("yfinance_trade_candidate_analysis_*"):
+        suffix = path.stem.removeprefix("yfinance_trade_candidate_analysis_")
+        generated = pd.to_datetime(suffix, format="%Y%m%dT%H%M%SZ", errors="coerce", utc=True)
+        if pd.isna(generated) or generated > cutoff:
+            continue
+        try:
+            if path.suffix.casefold() == ".json":
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                rows = payload if isinstance(payload, list) else payload.get("candidates", payload.get("rows", ())) if isinstance(payload, Mapping) else ()
+            elif path.suffix.casefold() == ".csv":
+                rows = pd.read_csv(path).to_dict("records")
+            else:
+                continue
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(rows, (tuple, list)):
+            continue
+        for row in rows:
+            if not isinstance(row, Mapping) or str(row.get("instrument_id") or "") != str(instrument_id):
+                continue
+            latest = pd.to_datetime(row.get("latest_date"), errors="coerce", utc=True)
+            if pd.isna(latest) or latest.normalize() + pd.Timedelta(days=1) - pd.Timedelta(seconds=1) > cutoff:
+                continue
+            candidate = (generated, dict(row), path.name)
+            if selected is None or candidate[0] > selected[0]:
+                selected = candidate
+    if selected is None:
+        return None, None
+    return selected[1], selected[2]
+
+
+def _market_prices_as_of(
+    prices: pd.DataFrame | None, instrument_id: str, decision: object
+) -> pd.DataFrame:
+    if prices is None or prices.empty:
+        return pd.DataFrame()
+    instrument_column = "instrument_id" if "instrument_id" in prices.columns else "etf_id" if "etf_id" in prices.columns else None
+    if instrument_column is None or not {"date", "volume"}.issubset(prices.columns):
+        return pd.DataFrame()
+    eligible = prices.loc[prices[instrument_column].astype(str).eq(str(instrument_id))].copy()
+    if eligible.empty:
+        return eligible
+    eligible["_price_date"] = pd.to_datetime(eligible["date"], errors="coerce", utc=True)
+    available_at = eligible["_price_date"].where(
+        eligible["_price_date"].ne(eligible["_price_date"].dt.normalize()),
+        eligible["_price_date"].dt.normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59),
+    )
+    if "known_at" in eligible.columns:
+        known_at = pd.to_datetime(eligible["known_at"], errors="coerce", utc=True)
+        available_at = pd.concat([available_at, known_at], axis=1).max(axis=1, skipna=False)
+    cutoff = pd.Timestamp(decision)
+    eligible = eligible.loc[
+        eligible["_price_date"].notna()
+        & available_at.notna()
+        & eligible["_price_date"].le(cutoff)
+        & available_at.le(cutoff)
+    ]
+    return eligible.sort_values("_price_date", kind="stable")
+
+
+def _finite_number(value: object) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _valuation_currency(
+    assumptions: Mapping[str, object] | None,
+    context: object,
+    facts: object,
+) -> str:
+    """Resolve the listed price currency from explicit or filing evidence."""
+
+    for value in (
+        (assumptions or {}).get("currency"),
+        (assumptions or {}).get("output_currency"),
+        _record_value(context, "share_class_currency"),
+        _record_value(context, "trading_currency"),
+        _record_value(context, "reporting_currency"),
+    ):
+        currency = _currency_code(value)
+        if currency:
+            return currency
+    if not isinstance(facts, Mapping):
+        return ""
+    currencies = {
+        currency
+        for name in ("owner_attributable_book", "ec_capital", "overkursfond", "utjevningsfond")
+        if isinstance(facts.get(name), Mapping)
+        and (currency := _currency_code(facts[name].get("unit")))
+    }
+    return next(iter(currencies)) if len(currencies) == 1 else ""
+
+
+def _record_value(value: object, name: str) -> object:
+    if isinstance(value, Mapping):
+        return value.get(name)
+    return getattr(value, name, None)
+
+
+def _currency_code(value: object) -> str:
+    currency = str(value or "").strip().upper()
+    return currency if len(currency) == 3 and currency.isalpha() else ""

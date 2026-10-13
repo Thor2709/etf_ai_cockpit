@@ -47,7 +47,8 @@ def _production_fixture(tmp_path: Path, *, price_rows: list[dict[str, object]] |
         "credit_loss": 0.0,
         "rwa": 1000.0,
         "target_ratio": 0.1,
-        "funding": {"lcr": 2.0, "nsfr": 1.2},
+        # v1.1 scores only bank axes: funding evidence keeps the fixture above the coverage floor.
+        "funding": {"lcr": 2.0, "nsfr": 1.2, "deposit_to_loan_ratio": 0.8},
     }
     ec_payload["valuation_assumptions"] = {
         "central_owner_value_per_ec": 130.0,
@@ -102,14 +103,19 @@ def test_manifest_requirements_have_existing_file_function_and_test_locators() -
     equations = manifest["equations"]
     expected = [
         f"BOOK-EQ-{chapter}.{equation}"
-        for chapter, maximum in ((1, 7), (2, 4), (3, 5), (4, 3), (5, 10), (6, 4), (7, 5), (8, 3))
+        # The owner's book: 7 chapters, equations numbered 1.1 to 7.49 (SB2 numbering).
+        for chapter, maximum in ((1, 30), (2, 25), (3, 43), (4, 73), (5, 64), (6, 54), (7, 49))
         for equation in range(1, maximum + 1)
     ]
     assert [row["id"] for row in equations] == expected
-    assert len({row["id"] for row in equations}) == 41
+    assert len({row["id"] for row in equations}) == 338
     assert {item["table_reference"] for item in manifest["analytical_tables"]} == {
-        "table 2.1", "table 2.2", "table 3.2", "table 4.1", "table 4.2", "table 5.2",
-        "table 6.1", "table 6.2", "table 7.1", "table 7.2", "table 8.2", "table 9.2",
+        f"table {chapter}.{number}"
+        for chapter, maximum in ((1, 3), (2, 4), (3, 3), (4, 4), (5, 4), (6, 8), (7, 1))
+        for number in range(1, maximum + 1)
+    }
+    assert {row["status"] for row in [*equations, *manifest["requirements"], *manifest["analytical_tables"]]} <= {
+        "implemented", "partial", "unimplemented", "background",
     }
 
     rows = [*equations, *manifest["requirements"], *manifest["analytical_tables"]]
@@ -166,11 +172,12 @@ def test_teaching_bank_production_route_exposes_scorecard_and_workspace(tmp_path
         decision_time="2025-03-01T00:00:00Z",
         context=context,
         tactical_evidence={"status": "available", "components": ({"key": "momentum", "raw_metric": 0.8},)},
+        record_history=True,
     )
     identity = projection["share_class_identity"]
     assert identity["native_suite"] == "sparebank-analysis-suite.v1"
     analysis = identity["sparebank_analysis"]
-    assert analysis["scorecard"]["formula_version"] == "sparebank-scorecard-v1.0.0"
+    assert analysis["scorecard"]["formula_version"] == "sparebank-scorecard-v1.2.0"
     assert analysis["scorecard"]["composite_10"] is not None
     assert analysis["decision_price"] == {
         "status": "available", "price": 100.0, "date": "2025-02-28", "currency": "NOK",
@@ -227,11 +234,15 @@ def test_sparebank_score_history_requires_price_at_decision_time(
         storage_root=tmp_path,
         decision_time="2025-03-01T00:00:00Z",
         context=context,
+        record_history=True,
     )
     analysis = projection["share_class_identity"]["sparebank_analysis"]
-    assert analysis["scorecard"]["composite_10"] is None
-    assert analysis["history_status"] == {"status": "not_written", "reason": expected_reason}
-    assert score_history_frame(root=tmp_path).empty
+    # Owner policy 2026-10-09: partial composite allowed; the price-dependent axis must stay unavailable.
+    scorecard = analysis["scorecard"]
+    assert scorecard["status"] != "complete"
+    assert scorecard["axes"]["owner_valuation_expectations"]["status"] == "UNAVAILABLE"
+    assert analysis["history_status"] == {"status": "written", "reason": expected_reason}
+    assert not score_history_frame(root=tmp_path).empty
 
 
 def test_point_in_time_selection_ignores_later_filing_facts() -> None:

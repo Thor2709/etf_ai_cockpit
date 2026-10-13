@@ -3,7 +3,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0\.."
 
 set APPNAME=ETF_AI_Cockpit
-set OUTDIR=build\ETF_AI_Cockpit_Portable_v0.1.0rc1
+set OUTDIR=build\ETF_AI_Cockpit_Portable_v1.1.0b1
 set NATIVE_OUT_ROOT=build\flet_dist_rc1
 set NATIVE_OUT_ROOT_FILE=build\native_outdir.txt
 set NATIVE_DIST=%NATIVE_OUT_ROOT%\%APPNAME%
@@ -86,37 +86,36 @@ if errorlevel 1 exit /b 1
 set /p OUTDIR=<"%OUTDIR_FILE%"
 mkdir "%OUTDIR%"
 
-xcopy /e /i /y src "%OUTDIR%\app\src" >nul
+call :copy_required src "%OUTDIR%\app\src"
+if errorlevel 1 exit /b 1
 for /d /r "%OUTDIR%\app\src" %%d in (__pycache__) do if exist "%%d" rmdir /s /q "%%d"
-xcopy /e /i /y configs "%OUTDIR%\configs" >nul
-xcopy /e /i /y scripts "%OUTDIR%\scripts" >nul
+call :copy_required configs "%OUTDIR%\configs"
+if errorlevel 1 exit /b 1
+call :copy_required scripts "%OUTDIR%\scripts"
+if errorlevel 1 exit /b 1
+rem Private user data (portfolios, reports, audit packets, caches) is never shipped; the app bootstraps its own data folder.
 mkdir "%OUTDIR%\data"
-if exist data\backtests xcopy /e /i /y data\backtests "%OUTDIR%\data\backtests" >nul
-if exist data\audit_packets xcopy /e /i /y data\audit_packets "%OUTDIR%\data\audit_packets" >nul
-if exist data\clean xcopy /e /i /y data\clean "%OUTDIR%\data\clean" >nul
-if exist data\derived xcopy /e /i /y data\derived "%OUTDIR%\data\derived" >nul
-if exist data\features xcopy /e /i /y data\features "%OUTDIR%\data\features" >nul
-if exist data\forecasts xcopy /e /i /y data\forecasts "%OUTDIR%\data\forecasts" >nul
-if exist data\portfolios xcopy /e /i /y data\portfolios "%OUTDIR%\data\portfolios" >nul
-if exist data\reports xcopy /e /i /y data\reports "%OUTDIR%\data\reports" >nul
-if exist data\raw\prices xcopy /e /i /y data\raw\prices "%OUTDIR%\data\raw\prices" >nul
-if exist data\raw\trade_candidates xcopy /e /i /y data\raw\trade_candidates "%OUTDIR%\data\raw\trade_candidates" >nul
-if exist data\validated xcopy /e /i /y data\validated "%OUTDIR%\data\validated" >nul
 mkdir "%OUTDIR%\logs"
 mkdir "%OUTDIR%\models"
 mkdir "%OUTDIR%\exports"
-copy README.md "%OUTDIR%\README.md" >nul
-copy README_FIRST_RUN.md "%OUTDIR%\README_FIRST_RUN.md" >nul
-copy requirements.txt "%OUTDIR%\requirements.txt" >nul
-copy requirements-parsers.txt "%OUTDIR%\requirements-parsers.txt" >nul
-copy requirements-models.txt "%OUTDIR%\requirements-models.txt" >nul
+set "LAUNCHER_REQ=requirements.txt"
+set "LAUNCHER_REQ_PARSERS=requirements-parsers.txt"
+if /I "%ETF_COCKPIT_RELEASE_BUILD%"=="1" (
+  set "LAUNCHER_REQ=requirements-release.txt"
+  set "LAUNCHER_REQ_PARSERS=requirements-release-parsers.txt"
+)
+for %%f in (README.md README_FIRST_RUN.md requirements.txt requirements-parsers.txt requirements-models.txt %LAUNCHER_REQ% %LAUNCHER_REQ_PARSERS%) do (
+  call :copy_required "%%f" "%OUTDIR%\%%f"
+  if errorlevel 1 exit /b 1
+)
 if exist CHANGELOG.md copy CHANGELOG.md "%OUTDIR%\CHANGELOG.md" >nul
 if exist RELEASE_NOTES.md copy RELEASE_NOTES.md "%OUTDIR%\RELEASE_NOTES.md" >nul
 if exist packaging\THIRD_PARTY_NOTICES.md copy packaging\THIRD_PARTY_NOTICES.md "%OUTDIR%\THIRD_PARTY_NOTICES.md" >nul
 
 if "%NATIVE_PACK_READY%"=="1" (
   mkdir "%OUTDIR%\native"
-  xcopy /e /i /y "%NATIVE_DIST%" "%OUTDIR%\native\%APPNAME%" >nul
+  call :copy_required "%NATIVE_DIST%" "%OUTDIR%\native\%APPNAME%"
+  if errorlevel 1 exit /b 1
 )
 
 call :write_source_launcher "%OUTDIR%\ETF_AI_Cockpit.bat"
@@ -128,6 +127,16 @@ if /I "%ETF_COCKPIT_BUILD_SMOKE%"=="1" (
 )
 
 echo Portable folder created at %OUTDIR%
+exit /b 0
+
+:copy_required
+rem Usage: call :copy_required <source file or dir> <destination>; a failed copy fails the build.
+if exist "%~1\*" (
+  xcopy /e /i /y "%~1" "%~2" >nul
+) else (
+  copy /y "%~1" "%~2" >nul
+)
+if errorlevel 1 exit /b 1
 exit /b 0
 
 :write_source_launcher
@@ -147,9 +156,9 @@ exit /b 0
   echo   pause
   echo   exit /b 1
   echo ^)
-  echo ".venv\Scripts\python.exe" -m pip install -r requirements.txt
+  echo ".venv\Scripts\python.exe" -m pip install -r %LAUNCHER_REQ%
   echo if errorlevel 1 exit /b 1
-  echo ".venv\Scripts\python.exe" -m pip install -r requirements-parsers.txt
+  echo ".venv\Scripts\python.exe" -m pip install -r %LAUNCHER_REQ_PARSERS%
   echo if errorlevel 1 ^(
   echo   echo Dependency installation failed.
   echo   pause

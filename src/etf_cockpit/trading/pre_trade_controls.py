@@ -84,7 +84,7 @@ class PreTradeControls:
         else:
             local_config = self.root / "configs" / PRE_TRADE_LIMITS_FILE
             packaged_config = CONFIG_DIR / PRE_TRADE_LIMITS_FILE
-            source_config = Path(__file__).resolve().parents[3] / "configs" / PRE_TRADE_LIMITS_FILE
+            source_config = CONFIG_DIR / PRE_TRADE_LIMITS_FILE
             self.limits_path = next(
                 (candidate for candidate in (local_config, packaged_config, source_config) if candidate.is_file()),
                 local_config,
@@ -177,6 +177,25 @@ class PreTradeControls:
             order_value = abs(quantity) * price * fx
             positions_value, open_orders_value = _current_exposure(instrument_id, positions, open_orders)
             current_turnover = _daily_turnover(at, paper_events, daily_turnover, path)
+            sell_quantity_within_holding = True
+            if quantity < 0:
+                position = positions.get(instrument_id, {})
+                assert isinstance(position, Mapping)
+                held_quantity = _finite_number(position.get("quantity", 0), "position quantity")
+                open_sell_quantity = Decimal("0")
+                for order in open_orders.values():
+                    assert isinstance(order, Mapping)
+                    if (
+                        str(order.get("instrument_id", "")).upper() != instrument_id
+                        or str(order.get("status")) not in {"accepted", "partially_filled"}
+                        or str(order.get("side")) != "sell"
+                    ):
+                        continue
+                    remaining = _finite_number(order.get("remaining_quantity"), "open sell remaining quantity")
+                    if remaining < 0:
+                        raise PreTradeControlError("An open sell order has invalid remaining quantity.")
+                    open_sell_quantity += remaining
+                sell_quantity_within_holding = abs(quantity) <= held_quantity - open_sell_quantity
         except PreTradeControlError as exc:
             return self._block(
                 "order_state_unknown", str(exc), actor, at, proposal_id=proposal_id, instrument_id=instrument_id
@@ -185,6 +204,8 @@ class PreTradeControls:
         current_exposure = positions_value + open_orders_value
         proposed_exposure = max(Decimal("0"), current_exposure + (order_value if quantity > 0 else -order_value))
         checks = (
+            ("sell_quantity_within_holding", sell_quantity_within_holding,
+             "Sell quantity exceeds holdings after open sell orders."),
             ("allowed_instruments", instrument_id in limits.allowed_instruments,
              f"Instrument {instrument_id} is not in the independently configured allowlist."),
             ("max_order_value", order_value <= limits.max_order_value,

@@ -8,7 +8,7 @@ from pathlib import Path
 
 try:
     from scripts.issue_registry_core import REGISTRY_PATH, ready_records
-except ModuleNotFoundError:
+except ImportError:  # also pywin32's top-level 'scripts' namespace
     from issue_registry_core import REGISTRY_PATH, ready_records
 
 

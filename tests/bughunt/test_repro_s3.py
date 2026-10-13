@@ -146,10 +146,11 @@ def test_s3_06_drawdown_is_peak_to_trough_inside_window():
 
 def test_s3_07_baseline_ensemble_weight_is_preserved():
     config = N(models=N(ensemble={"weights": {"momentum": 0.5, "baseline_ml": 0.5}}))
-    score = canonical_score_from_signal_row(
-        {"etf_id": "X", "score_momentum": 0.0, "score_baseline_ml": 1.0}, config, "2026-01-01"
-    )
-    assert score.legacy_composite_raw == pytest.approx(0.5)
+    row = {"etf_id": "X", "score_momentum": 0.0, "score_baseline_ml": 1.0}
+    unknown = canonical_score_from_signal_row(row, config, "2026-01-01")
+    score = canonical_score_from_signal_row({**row, "price_freshness": "ok"}, config, "2026-01-01")
+    # P04-N012: a decision date alone does not establish price freshness.
+    assert (unknown.legacy_composite_raw, score.legacy_composite_raw) == (None, pytest.approx(0.5))
 
 
 def test_s3_08_configured_stock_uses_stock_policy(monkeypatch):

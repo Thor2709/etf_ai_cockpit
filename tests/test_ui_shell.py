@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import base64
 from dataclasses import replace
-from importlib.resources import files
+from pathlib import Path
 from types import SimpleNamespace
 
 import flet as ft
@@ -25,30 +24,27 @@ def _state(snapshot) -> AppState:
 
 EXPECTED_WORKSPACES = (
     ("Home", ("/", "/onboarding")),
-    ("Research", ("/stock-research", "/etf", "/instrument", "/signals", "/screener", "/strategy-builder")),
-    ("Compare", ("/comparison",)),
-    ("Map", ("/macro",)),
-    (
-        "Universe",
-        ("/universe", "/catalogue", "/providers", "/filings", "/etf-disclosures", "/news-context", "/data-health"),
-    ),
+    ("Universe", ("/universe", "/data-health", "/providers", "/catalogue", "/filings", "/etf-disclosures", "/news-context")),
+    ("Research", ("/stock-research", "/instrument", "/etf", "/signals", "/screener", "/strategy-builder")),
     (
         "Portfolio",
-        ("/portfolio", "/portfolio-optimiser", "/risk", "/stress-lab", "/decision-journal", "/forward-evidence", "/operations"),
+        ("/portfolio", "/risk", "/portfolio-optimiser", "/stress-lab", "/decision-journal", "/forward-evidence", "/operations"),
     ),
-    ("Lab", ("/forecasts", "/training-centre", "/feature-catalogue", "/data-models", "/backtests")),
+    ("Compare", ("/comparison",)),
+    ("Lab", ("/forecasts", "/backtests", "/training-centre", "/feature-catalogue", "/data-models")),
+    ("Map", ("/sectors", "/macro")),
     ("Changes", ("/what-changed", "/jobs")),
     (
         "Help",
         (
             "/help",
             "/settings",
+            "/import-export",
             "/diagnostics",
             "/errors",
-            "/import-export",
-            "/system-map",
-            "/chatgpt",
             "/evidence",
+            "/chatgpt",
+            "/system-map",
             "/release-readiness",
             "/roadmap",
         ),
@@ -57,17 +53,15 @@ EXPECTED_WORKSPACES = (
 
 EXPECTED_ICONS = {
     "Home": "house",
-    "Research": "telescope",
-    "Compare": "abacus",
-    "Map": "compass",
     "Universe": "globe",
+    "Research": "telescope",
     "Portfolio": "briefcase",
+    "Compare": "abacus",
     "Lab": "alembic",
+    "Map": "compass",
     "Changes": "newspaper",
     "Help": "bulb",
 }
-
-EXPECTED_GROUPS = EXPECTED_WORKSPACES
 
 
 def _walk(control: ft.Control):
@@ -84,137 +78,82 @@ def _by_key(view: ft.View, key: str) -> ft.Control:
     return next(control for control in _walk(view) if getattr(control, "key", None) == key)
 
 
-def _text_values(control: ft.Control) -> list[str]:
-    return [item.value for item in _walk(control) if isinstance(item, ft.Text)]
-
-
 def _texts(control: ft.Control) -> list[str]:
-    return [str(item.value) for item in _walk(control) if isinstance(item, ft.Text)]
+    values = [str(item.value) for item in _walk(control) if isinstance(item, ft.Text)]
+    return values
 
 
 def test_workspaces_cover_every_route_once_in_dock_order() -> None:
     assert WORKSPACE_GROUPS == EXPECTED_WORKSPACES
     grouped_routes = [route for _workspace, routes in WORKSPACE_GROUPS for route in routes]
-    assert len(grouped_routes) == 41
+    assert len(grouped_routes) == 42
     assert len(grouped_routes) == len(router.PAGES) == len(set(grouped_routes))
     assert set(grouped_routes) == set(router.PAGES)
     assert router.workspace_for_route("/instrument/VWCE") == "Research"
+    assert router.workspace_for_route("/sectors") == "Map"
 
 
-def test_dock_keys_labels_order_and_package_icons(snapshot) -> None:
-    view = build_shell(SimpleNamespace(width=1920, route="/"), _state(snapshot), "/")
+def test_dock_keys_labels_order_tooltips_and_package_icons(snapshot) -> None:
+    view = build_shell(SimpleNamespace(width=1920, height=1200, route="/"), _state(snapshot), "/")
     dock = _by_key(view, "shell.dock")
     items = [control for control in _walk(dock) if str(getattr(control, "key", "")).startswith("nav.workspace.")]
     workspaces = tuple(workspace for workspace, _routes in EXPECTED_WORKSPACES)
 
     assert router.WORKSPACE_ICONS == EXPECTED_ICONS
     assert [item.key for item in items] == [f"nav.workspace.{workspace}" for workspace in workspaces]
-    assert [item.tooltip for item in items] == [f"Workspace: {workspace}" for workspace in workspaces]
-    assert sum(item.data == "active" for item in items) == 1
-    assert [item.key.removeprefix("nav.workspace.") for item in items if item.data == "active"] == ["Home"]
-    assert sum(
-        control.visible
-        for control in _walk(dock)
-        if getattr(control, "key", "") and str(control.key).startswith("shell.dock.label.")
-    ) == 1
+    assert [item.data for item in items].count("active") == 1 and items[0].data == "active"
+    research = next(item for item in items if item.key == "nav.workspace.Research")
+    assert research.tooltip.startswith("Research — Stock Research, Instrument Detail, Scores")
+    assert research.tooltip.count("Instrument Detail") == 1  # /etf alias is not listed twice
+    assert dock.width == 84
+    visible_labels = [
+        c for c in _walk(dock) if str(getattr(c, "key", "") or "").startswith("shell.dock.label.") and c.visible
+    ]
+    assert [label.key for label in visible_labels] == ["shell.dock.label.Home"]
 
-    active = next(item for item in items if item.data == "active")
-    active_pad = next(
-        control
-        for control in _walk(active)
-        if isinstance(control, ft.Container) and getattr(control, "width", None) == 54
-    )
-    assert active_pad.gradient.colors == list(router.theme.QUAIL_SELECTED_COLORS)
-    assert [
-        button.key
-        for button in _walk(_by_key(view, "shell.workspace-navigation"))
-        if str(getattr(button, "key", "")).startswith("navigation.")
-    ] == ["navigation.home", "navigation.onboarding"]
-
-    dock_column = dock.content
+    dock_column = dock.content.controls[0].content
     assert dock_column.controls[-2].key == "shell.dock.help-spacer"
     assert dock_column.controls[-1].key == "nav.workspace.Help"
 
+    app = Path(router.__file__).parent
     images = [control for control in _walk(dock) if isinstance(control, ft.Image)]
     assert len(images) == 9
     for workspace, image_name in EXPECTED_ICONS.items():
         image = next(item for item in images if item.semantics_label == f"{workspace} workspace icon")
-        packaged = files("etf_cockpit.app").joinpath("assets", "icons", f"{image_name}.png").read_bytes()
-        assert packaged.startswith(b"\x89PNG\r\n\x1a\n")
-        assert int.from_bytes(packaged[16:20], "big") == 160
-        assert int.from_bytes(packaged[20:24], "big") == 160
-        assert image.src.startswith("data:image/png;base64,")
-        assert base64.b64decode(image.src.split(",", 1)[1]) == packaged
+        assert image.src == f"icons/{image_name}.png"
+        assert (app / "assets" / image.src).read_bytes()[1:4] == b"PNG"
 
 
-def test_as_of_bar_and_safety_rail_show_state_or_explained_unavailable(snapshot) -> None:
+def test_footer_rail_shows_state_or_explained_unavailable(snapshot) -> None:
     state = _state(snapshot)
-    view = build_shell(SimpleNamespace(width=1920, route="/"), state, "/")
-    as_of_date = str(state.snapshot.data_report.as_of_date)
-
-    assert as_of_date in _texts(_by_key(view, "shell.as-of.data-date"))
-    for key in (
-        "shell.as-of.horizon",
-        "shell.as-of.currency",
-        "shell.as-of.risk-profile",
-        "shell.as-of.analysis-depth",
-        "shell.safety.as-of-time",
-    ):
-        item = _by_key(view, key)
-        assert any("Unavailable" in value for value in _texts(item))
-        assert isinstance(item.tooltip, str) and item.tooltip
-    assert "adjusted" in _texts(_by_key(view, "shell.as-of.price-basis"))
-    assert any("adjusted" in value for value in _texts(_by_key(view, "shell.safety.price-basis")))
-    assert any(str(state.snapshot.data_report.status) in value for value in _texts(_by_key(view, "shell.safety.data-quality")))
-    assert "execution_allowed=false" in _texts(_by_key(view, "shell.safety.execution-authority"))
+    view = build_shell(SimpleNamespace(width=1920, height=1200, route="/"), state, "/")
+    rail = _by_key(view, "shell.safety-rail")
+    assert rail.height == 48
     assert "Execution locked" in _texts(_by_key(view, "shell.safety.execution"))
-
-    missing_date_report = replace(state.snapshot.data_report, as_of_date=None)
-    missing_date_snapshot = replace(state.snapshot, data_report=missing_date_report)
-    missing_date_view = build_shell(
-        SimpleNamespace(width=1920, route="/"),
-        _state(missing_date_snapshot),
-        "/",
-    )
-    date_pill = _by_key(missing_date_view, "shell.as-of.data-date")
-    assert "Unavailable" in _texts(date_pill)
-    assert isinstance(date_pill.tooltip, str) and date_pill.tooltip
+    assert any(str(state.snapshot.data_report.status) in v or v in {"OK", "Review", "Failed"} for v in _texts(_by_key(view, "shell.safety.data-quality")))
+    assert "adjusted" in _texts(_by_key(view, "shell.safety.price-basis"))
+    assert any("execution_allowed=false" in v for v in _texts(_by_key(view, "shell.safety.execution-authority")))
+    depth = _by_key(view, "shell.as-of.analysis-depth")
+    assert "Depth:" in _texts(depth) and depth.on_click is not None
+    assert _by_key(view, "shell.as-of.profile").on_click is not None
 
     unavailable_snapshot = replace(
         state.snapshot,
         data_report=SimpleNamespace(status=None, as_of_date=None),
         forecasts=None,
     )
-    unavailable_view = build_shell(
-        SimpleNamespace(width=1920, route="/"),
-        _state(unavailable_snapshot),
-        "/",
-    )
-    for key in (
-        "shell.as-of.data-date",
-        "shell.as-of.horizon",
-        "shell.as-of.currency",
-        "shell.as-of.risk-profile",
-        "shell.as-of.analysis-depth",
-        "shell.safety.data-quality",
-        "shell.safety.as-of-time",
-        "shell.safety.forecast-source",
-    ):
+    unavailable_view = build_shell(SimpleNamespace(width=1920, height=1200, route="/"), _state(unavailable_snapshot), "/")
+    for key in ("shell.safety.data-quality", "shell.safety.as-of-time", "shell.safety.forecast-source"):
         item = _by_key(unavailable_view, key)
         assert any("Unavailable" in value for value in _texts(item))
         assert item.data == "unavailable"
         assert isinstance(item.tooltip, str) and item.tooltip
-    assert any("adjusted" in value for value in _texts(_by_key(unavailable_view, "shell.safety.price-basis")))
-    assert "execution_allowed=false" in _texts(_by_key(unavailable_view, "shell.safety.execution-authority"))
+    assert any("execution_allowed=false" in v for v in _texts(_by_key(unavailable_view, "shell.safety.execution-authority")))
 
 
 @pytest.mark.parametrize(("width", "narrow"), [(1920, False), (1000, True)])
-def test_shell_layout_wraps_and_hides_dock_labels_when_narrow(
-    snapshot,
-    width: int,
-    narrow: bool,
-) -> None:
-    page = SimpleNamespace(width=width, route="/")
+def test_shell_layout_resizes_in_place(snapshot, width: int, narrow: bool) -> None:
+    page = SimpleNamespace(width=width, height=1000, route="/")
     state = _state(snapshot)
     view = build_shell(page, state, "/")
     dock = _by_key(view, "shell.dock")
@@ -223,23 +162,33 @@ def test_shell_layout_wraps_and_hides_dock_labels_when_narrow(
 
     assert uses_narrow_layout(page, state) is narrow
     assert NARROW_LAYOUT_BREAKPOINT == 1100
-    assert dock.width == 84
+    assert dock.width == (64 if narrow else 84)
     assert label.visible is not narrow
     assert _by_key(view, "shell.command-palette")
-    assert _by_key(view, "shell.evidence-mode")
-    assert _by_key(view, "shell.safety-rail").height == 48
-    assert topbar.content.controls[0].wrap is True
-    assert topbar.content.controls[1].wrap is True
-    assert topbar.content.controls[2].wrap is True
+    assert topbar.height == 80
+    row = topbar.content.controls[0].content
+    assert row.wrap is False  # the top bar never wraps
     content_area = _by_key(view, "shell.content")
     assert any(
         control.key == "dashboard.refresh-yfinance"
         for control in _walk(content_area)
         if getattr(control, "key", None)
     )
+    assert _by_key(view, "dashboard.open-what-changed").on_click is not None
 
-    if not narrow:
-        assert view.data["relayout"](1000) is True
-        assert label.visible is False
-        assert view.data["relayout"](1920) is True
-        assert label.visible is True
+    flipped = 1920 if narrow else 1000
+    assert view.data["relayout"](flipped) is True
+    assert dock.width == (84 if narrow else 64)
+    assert label.visible is narrow
+    assert view.data["relayout"](width) is True
+    assert label.visible is not narrow
+
+
+@pytest.mark.parametrize("route", ["/what-changed", "/sectors"])
+@pytest.mark.parametrize("width", [1100, 1920])
+def test_pages_build_without_route_failure_at_narrow_and_wide_width(snapshot, route: str, width: int) -> None:
+    """Regression: the shell must build these routes at 1100x900 without the safe route-failure fallback."""
+    view = build_shell(SimpleNamespace(width=width, height=900, route=route), _state(snapshot), route)
+    assert isinstance(view, ft.View)
+    assert "could not be rendered safely" not in repr(view.controls)
+    assert "not registered" not in repr(view.controls)

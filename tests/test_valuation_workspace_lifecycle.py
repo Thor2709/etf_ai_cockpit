@@ -99,6 +99,7 @@ def test_real_shell_render_discards_only_owned_workspace(monkeypatch, target):
         model = InstrumentDetailViewModel(instrument, instrument, "available", {"asset_type": "stock"}, {"valuation": {"status": "unavailable"}})
         return detail._valuation_workspace(page, model, "2026-07-01")
     monkeypatch.setitem(router.PAGES, "/instrument", ("Instrument", builder))
+    monkeypatch.setattr(router, "_DEFERRED_RENDER_ROUTES", router._DEFERRED_RENDER_ROUTES - {"/instrument"})
     state = SimpleNamespace(snapshot=SimpleNamespace(config=SimpleNamespace(ui=SimpleNamespace(window_width=1280)),
         data_report=SimpleNamespace(as_of_date="2026-07-01")), evidence_mode="simple", current_activity=None, last_message="Ready")
     router.render_shell(page, state, page.route)

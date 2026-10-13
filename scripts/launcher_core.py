@@ -227,6 +227,10 @@ def launch(
     exe_path: Path | None = None,
 ) -> int:
     app_root = resolve_app_root(root)
+    selected_root = os.getenv("ETF_COCKPIT_ROOT", "").strip()
+    runtime_root = Path(selected_root).expanduser().resolve() if selected_root else app_root
+    if not (runtime_root / "configs" / "universe.yaml").is_file():
+        raise RuntimeError(f"Selected install root lacks configs/universe.yaml: {runtime_root}")
     port = normalise_port(preferred_port or os.getenv("ETF_COCKPIT_PORT") or DEFAULT_PORT)
     decision = choose_launch_port(host, port, allow_reuse=True)
     print(f"launch_port requested={decision.requested_port} selected={decision.port} reason={decision.reason}")
@@ -240,7 +244,7 @@ def launch(
 
     command, cwd = _launch_command(app_root, mode, exe_path=exe_path)
     env = os.environ.copy()
-    env["ETF_COCKPIT_ROOT"] = str(app_root)
+    env["ETF_COCKPIT_ROOT"] = str(runtime_root)
     env["ETF_COCKPIT_VIEW"] = "web"
     env["ETF_COCKPIT_PORT"] = str(decision.port)
     env["ETF_COCKPIT_OPEN_BROWSER"] = "0"

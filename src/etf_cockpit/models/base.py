@@ -22,3 +22,5 @@ class ModelInput:
     etf_id: str
     as_of_date: date
     series: pd.DataFrame
+    # Finite adjusted log returns of the target known at ``as_of_date``, before any context trimming.
+    observed_returns: int | None = None

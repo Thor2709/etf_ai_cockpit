@@ -11,10 +11,17 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from etf_cockpit.core.atomic_io import sha256_file
+
 
 SCHEMA_VERSION = "1.0"
 SIGNING_KEY_ENV = "ETF_COCKPIT_RELEASE_SIGNING_KEY"
 MAX_MEMBER_BYTES = 256 * 1024 * 1024
+MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024
+# Same count/expanded-size/ratio limits as data.bulk_cache (core must not import the data layer).
+MAX_ARCHIVE_MEMBERS = 50_000
+MAX_EXPANDED_BYTES = 8 * 1024 * 1024 * 1024
+MAX_COMPRESSION_RATIO = 200.0
 
 
 @dataclass(frozen=True)
@@ -43,9 +50,23 @@ def _safe_member(name: str) -> str:
     if not name or "\x00" in name or "\\" in name:
         raise ValueError(f"unsafe update member name: {name!r}")
     path = PurePosixPath(name)
+    if not path.parts:
+        raise ValueError(f"unsafe update member name: {name!r}")
     if path.is_absolute() or ":" in path.parts[0] or any(part in {"", ".", ".."} for part in path.parts):
         raise ValueError(f"unsafe update member name: {name!r}")
     return path.as_posix()
+
+
+def _check_archive_limits(members: list[zipfile.ZipInfo]) -> None:
+    if len(members) > MAX_ARCHIVE_MEMBERS:
+        raise ValueError(f"update archive contains too many members: {len(members)}")
+    total = 0
+    for info in members:
+        if info.file_size > MAX_EXPANDED_BYTES or (info.compress_size > 0 and info.file_size / info.compress_size > MAX_COMPRESSION_RATIO):
+            raise ValueError(f"update archive member exceeds safety limits: {info.filename}")
+        total += info.file_size
+        if total > MAX_EXPANDED_BYTES:
+            raise ValueError("update archive expands beyond the configured byte limit")
 
 
 def _file_infos(archive: zipfile.ZipFile) -> list[tuple[str, zipfile.ZipInfo]]:
@@ -66,6 +87,7 @@ def _file_infos(archive: zipfile.ZipFile) -> list[tuple[str, zipfile.ZipInfo]]:
         rows.append((name, info))
     if not rows:
         raise ValueError("update archive contains no files")
+    _check_archive_limits(archive.infolist())
     return sorted(rows, key=lambda row: row[0])
 
 
@@ -78,7 +100,7 @@ def build_update_manifest(archive_path: str | Path) -> dict[str, object]:
             entries.append({"path": name, "bytes": len(payload), "sha256": sha256_bytes(payload)})
     manifest: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
-        "archive_sha256": sha256_bytes(archive.read_bytes()),
+        "archive_sha256": sha256_file(archive),
         "entries": entries,
         "offline_only": True,
     }
@@ -99,6 +121,25 @@ def sign_update_manifest(manifest: dict[str, object], key: bytes, *, key_id: str
     }
 
 
+def detached_signature_errors(payload: bytes, signature: dict[str, object] | None, key: bytes | None) -> list[str]:
+    """HMAC-SHA256 detached-signature check over `payload`; an empty list means valid."""
+
+    if signature is None or not key:
+        return ["a signing key and detached signature are required"]
+    errors: list[str] = []
+    for field in ("payload_sha256", "signature"):
+        value = signature.get(field)
+        if not isinstance(value, str) or len(value) != 64 or any(character not in "0123456789abcdefABCDEF" for character in value):
+            errors.append(f"detached signature {field} must be a 64-character hexadecimal ASCII digest")
+    if errors:
+        return errors
+    if str(signature.get("payload_sha256", "")) != sha256_bytes(payload):
+        errors.append("detached signature payload hash does not match the manifest")
+    if not hmac.compare_digest(str(signature.get("signature", "")), hmac.new(key, payload, hashlib.sha256).hexdigest()):
+        errors.append("detached signature is invalid")
+    return errors
+
+
 def verify_update_bundle(
     archive_path: str | Path,
     manifest: dict[str, object],
@@ -109,20 +150,14 @@ def verify_update_bundle(
     errors: list[str] = []
     try:
         expected_archive = str(manifest["archive_sha256"])
-        archive_sha = sha256_bytes(archive.read_bytes())
+        if archive.stat().st_size > MAX_ARCHIVE_BYTES:
+            raise ValueError("update archive exceeds size limit")
+        archive_sha = sha256_file(archive)
         if not hmac.compare_digest(str(manifest.get("manifest_sha256", "")), _manifest_digest(manifest)):
             errors.append("manifest SHA-256 does not match its contents")
         if not hmac.compare_digest(archive_sha, expected_archive):
             errors.append("archive SHA-256 does not match the signed manifest")
-        expected_payload = sha256_bytes(canonical_json(manifest))
-        if signature is None or not key:
-            errors.append("a signing key and detached signature are required")
-        else:
-            if str(signature.get("payload_sha256", "")) != expected_payload:
-                errors.append("detached signature payload hash does not match the manifest")
-            expected_signature = hmac.new(key, canonical_json(manifest), hashlib.sha256).hexdigest()
-            if not hmac.compare_digest(str(signature.get("signature", "")), expected_signature):
-                errors.append("detached signature is invalid")
+        errors.extend(detached_signature_errors(canonical_json(manifest), signature, key))
         expected_entries = manifest.get("entries")
         if not isinstance(expected_entries, list):
             raise ValueError("manifest entries must be a list")
@@ -161,15 +196,39 @@ def extract_verified_update(
     if staging.exists():
         shutil.rmtree(staging)
     staging.mkdir(parents=True, exist_ok=False)
-    with zipfile.ZipFile(archive_path) as bundle:
-        for name, info in _file_infos(bundle):
-            output = (staging / Path(*PurePosixPath(name).parts)).resolve()
-            if staging not in output.parents:
-                raise ValueError(f"update member escaped staging directory: {name}")
-            output.parent.mkdir(parents=True, exist_ok=True)
-            with bundle.open(info) as source, output.open("wb") as destination_file:
-                shutil.copyfileobj(source, destination_file)
+    expected_by_path = {str(row["path"]): row for row in manifest["entries"]}  # type: ignore[union-attr,index]
+    try:
+        # Everything below reads from this one handle: the file verified above may have been swapped.
+        with Path(archive_path).open("rb") as handle:
+            if not hmac.compare_digest(_hash_handle(handle), str(manifest["archive_sha256"])):
+                raise ValueError("archive SHA-256 changed after verification")
+            handle.seek(0)
+            with zipfile.ZipFile(handle) as bundle:
+                for name, info in _file_infos(bundle):
+                    output = (staging / Path(*PurePosixPath(name).parts)).resolve()
+                    if staging not in output.parents:
+                        raise ValueError(f"update member escaped staging directory: {name}")
+                    output.parent.mkdir(parents=True, exist_ok=True)
+                    digest, size = hashlib.sha256(), 0
+                    with bundle.open(info) as source, output.open("wb") as destination_file:
+                        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                            digest.update(chunk)
+                            size += len(chunk)
+                            destination_file.write(chunk)
+                    row = expected_by_path[name]
+                    if int(row.get("bytes", -1)) != size or str(row.get("sha256", "")) != digest.hexdigest():
+                        raise ValueError(f"update member hash mismatch: {name}")
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
     return staging
+
+
+def _hash_handle(handle) -> str:
+    digest = hashlib.sha256()
+    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        digest.update(chunk)
+    return digest.hexdigest()
 
 
 def describe_release_evidence(root: str | Path) -> dict[str, str]:

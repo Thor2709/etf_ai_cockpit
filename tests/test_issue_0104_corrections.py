@@ -1193,7 +1193,7 @@ def test_cached_structure_validation_rejects_future_holdings_confidence() -> Non
 
 
 def test_real_260_session_backtest_accepts_structural_holdings() -> None:
-    from etf_cockpit.data.etf_structure import structure_confidence_caps
+    from etf_cockpit.data.etf_structure import structure_cap_scope, structure_confidence_caps
 
     config = load_config()
     prices = generate_sample_prices(config, periods=260, end_date=date(2026, 7, 10))
@@ -1216,7 +1216,8 @@ def test_real_260_session_backtest_accepts_structural_holdings() -> None:
     assert report.signal_log["structural_provenance_hash"].astype(str).str.len().gt(0).all()
     for row in report.signal_log.to_dict("records"):
         caps = structure_confidence_caps(
-            [row["etf_id"]], holdings=holdings, decision_time=row["date"]
+            [row["etf_id"]], holdings=holdings, decision_time=row["date"],
+            not_applicable_types=structure_cap_scope(config),
         )
         assert row["structural_confidence_cap"] == caps[row["etf_id"]]
         assert row["structural_provenance_hash"] == caps.provenance[row["etf_id"]][

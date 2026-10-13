@@ -11,7 +11,7 @@ import pandas as pd
 from etf_cockpit.core.config import AppConfig, ETFConfig, ProviderSection
 from etf_cockpit.core.paths import RAW_DIR as RAW_DIR
 from etf_cockpit.core.session_log import redact_text
-from etf_cockpit.core.values import dict_or_empty as _safe_dict
+from etf_cockpit.core.values import dict_or_empty as _safe_dict, years_before
 from etf_cockpit.data.providers import DataProvider, PriceProvider, ProviderResult
 from etf_cockpit.data.provenance import metadata_from_frame
 from etf_cockpit.data.retrieval_batch import BatchRetriever, provider_rate_limiter
@@ -90,7 +90,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
     def validate_symbol(self, symbol: str) -> bool:
         try:
             end = date.today()
-            start = end.replace(year=end.year - 1)
+            start = years_before(end, 1)
             return not self.fetch_daily_prices(symbol, start, end).empty
         except Exception:
             return False
@@ -339,6 +339,10 @@ class YFinanceProvider(DataProvider, PriceProvider):
             }
         )
         out = out.dropna(subset=["open", "high", "low", "close", "adjusted_close"])
+        divisor = _minor_unit_divisor(yf, symbol)
+        if divisor != 1:
+            for column in ("open", "high", "low", "close", "adjusted_close", "dividends", "capital_gains"):
+                out[column] = out[column] / divisor
         return out
 
     def _quote_currency(self, symbol: str, etf_id: str) -> str | None:
@@ -539,3 +543,19 @@ def _single_or_mixed(series: pd.Series | None) -> str | None:
     if not values:
         return None
     return values[0] if len(values) == 1 else "mixed"
+
+
+# Yahoo quotes some venues in minor units (London in pence). Prices are stored in
+# the major currency the instrument is configured with, so they are scaled once here.
+_MINOR_UNIT_CURRENCIES = {"GBp": 100.0, "GBX": 100.0, "ILA": 100.0, "ZAc": 100.0}
+_MINOR_UNIT_SUFFIXES = (".L", ".IL", ".TA", ".JO")
+
+
+def _minor_unit_divisor(yf: Any, symbol: str) -> float:
+    if not str(symbol).upper().endswith(_MINOR_UNIT_SUFFIXES) or not hasattr(yf, "Ticker"):
+        return 1.0
+    try:
+        currency = yf.Ticker(symbol).fast_info["currency"]
+    except Exception:  # pragma: no cover - provider metadata is best effort
+        currency = None
+    return _MINOR_UNIT_CURRENCIES.get(str(currency), 1.0)

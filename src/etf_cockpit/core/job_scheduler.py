@@ -655,7 +655,11 @@ class DurableJobScheduler:
         # Hashes form one global append-only stream.  Verify every event even
         # when the caller only wants the result for one workflow; filtering
         # first would make a valid cross-workflow predecessor look broken.
-        events = self.list_events(None, limit=100_000)
+        with TransactionalStore(self.root) as store:
+            rows = store.connection.execute(
+                "SELECT * FROM durable_job_events ORDER BY event_id ASC"
+            ).fetchall()
+        events = tuple(_event_record(row) for row in rows)
         previous = ""
         for event in events:
             if event.previous_hash != previous:

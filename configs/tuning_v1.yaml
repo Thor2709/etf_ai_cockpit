@@ -1,0 +1,147 @@
+# Tunable-knob registry for bounded parameter optimisation (issue #262).
+# Read-only: the tuner reads the CURRENT value of every knob from its source file and never
+# writes to any settings file; output is a proposal artefact only (execution_allowed=false).
+# Bounds/step are conservative +/-0.10 around today's weights (clamped to [0, 1]); weights that
+# share a `group` are rescaled to keep the group's current total. `model` marks knobs whose
+# evidence depends on an optional forecast model, so pretraining cutoffs apply to them.
+# No knob exists yet for the final-score group blend (canonical_scoring has no configured weight).
+schema_version: 1
+version: tuning-v1
+defaults:
+  search:
+    max_trials: 60
+    max_seconds: 60.0
+    max_memory_mb: 256
+    seed: 42
+    refine_after: 8        # trials before the seeded one-step local refinement of the best trial
+    patience: 25           # stop after this many consecutive non-improving completed trials
+    prune_warmup_trials: 5 # completed trials needed before median pruning applies
+  guards:
+    min_tune_samples: 250
+    min_eval_samples: 60
+    eval_blocks: 4
+    min_block_win_fraction: 0.75
+    change_penalty: 0.02   # score units per unit of mean normalised distance from current
+    min_improvement: 0.0   # extra out-of-sample margin required on top of the penalty
+  split:
+    eval_size: 120
+    horizon: 20
+    embargo: 0
+    final_test_size: 60    # reserved tail, never used for tuning or evaluation
+parameters:
+  - key: score.etf.attractiveness.momentum
+    file: score_engine_v3.yaml
+    path: [asset_policies, ETF, attractiveness, momentum]
+    lower: 0.18
+    upper: 0.38
+    step: 0.05
+    group: score.etf.attractiveness
+  - key: score.etf.attractiveness.trend
+    file: score_engine_v3.yaml
+    path: [asset_policies, ETF, attractiveness, trend]
+    lower: 0.14
+    upper: 0.34
+    step: 0.05
+    group: score.etf.attractiveness
+  - key: score.etf.attractiveness.relative_strength
+    file: score_engine_v3.yaml
+    path: [asset_policies, ETF, attractiveness, relative_strength]
+    lower: 0.08
+    upper: 0.28
+    step: 0.05
+    group: score.etf.attractiveness
+  - key: score.etf.attractiveness.etf_exposure
+    file: score_engine_v3.yaml
+    path: [asset_policies, ETF, attractiveness, etf_exposure]
+    lower: 0.02
+    upper: 0.22
+    step: 0.05
+    group: score.etf.attractiveness
+  - key: score.etf.expected_return.baseline
+    file: score_engine_v3.yaml
+    path: [asset_policies, ETF, expected_return, baseline]
+    lower: 0.5
+    upper: 0.7
+    step: 0.05
+    group: score.etf.expected_return
+  - key: score.etf.expected_return.timesfm
+    file: score_engine_v3.yaml
+    path: [asset_policies, ETF, expected_return, timesfm]
+    lower: 0.1
+    upper: 0.3
+    step: 0.05
+    group: score.etf.expected_return
+    model: timesfm
+  - key: score.etf.expected_return.toto
+    file: score_engine_v3.yaml
+    path: [asset_policies, ETF, expected_return, toto]
+    lower: 0.1
+    upper: 0.3
+    step: 0.05
+    group: score.etf.expected_return
+    model: toto
+  - key: ensemble.momentum
+    file: model_settings.yaml
+    path: [ensemble, weights, momentum]
+    lower: 0.1
+    upper: 0.3
+    step: 0.05
+    group: ensemble.weights
+  - key: ensemble.trend
+    file: model_settings.yaml
+    path: [ensemble, weights, trend]
+    lower: 0.05
+    upper: 0.25
+    step: 0.05
+    group: ensemble.weights
+  - key: ensemble.risk
+    file: model_settings.yaml
+    path: [ensemble, weights, risk]
+    lower: 0.0
+    upper: 0.2
+    step: 0.05
+    group: ensemble.weights
+  - key: ensemble.rebalance
+    file: model_settings.yaml
+    path: [ensemble, weights, rebalance]
+    lower: 0.0
+    upper: 0.2
+    step: 0.05
+    group: ensemble.weights
+  - key: ensemble.relative_strength
+    file: model_settings.yaml
+    path: [ensemble, weights, relative_strength]
+    lower: 0.0
+    upper: 0.2
+    step: 0.05
+    group: ensemble.weights
+  - key: ensemble.toto
+    file: model_settings.yaml
+    path: [ensemble, weights, toto]
+    lower: 0.05
+    upper: 0.25
+    step: 0.05
+    group: ensemble.weights
+    model: toto
+  - key: ensemble.timesfm
+    file: model_settings.yaml
+    path: [ensemble, weights, timesfm]
+    lower: 0.0
+    upper: 0.2
+    step: 0.05
+    group: ensemble.weights
+    model: timesfm
+  - key: ensemble.baseline_ml
+    file: model_settings.yaml
+    path: [ensemble, weights, baseline_ml]
+    lower: 0.0
+    upper: 0.15
+    step: 0.05
+    group: ensemble.weights
+  - key: ensemble.chatgpt_thesis
+    file: model_settings.yaml
+    path: [ensemble, weights, chatgpt_thesis]
+    lower: 0.0
+    upper: 0.15
+    step: 0.05
+    group: ensemble.weights

@@ -1,6 +1,6 @@
 # Limitations, unsupported cases and update cadence
 
-Release version: `0.1.0rc1`.
+Release version: `1.1.0b1`.
 
 This page states what the application does not do. It describes this release
 candidate, not completion of the full programme; current issue status is in

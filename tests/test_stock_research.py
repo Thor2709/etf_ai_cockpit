@@ -381,12 +381,14 @@ def test_valuation_page_receives_market_inputs_from_snapshot(monkeypatch) -> Non
         return report
 
     monkeypatch.setattr(stock_research_page, "build_stock_research_report", capture_report)
-    stock_research_page.stock_research_page(
+    stock_research_page._fundamentals(
         None,
         SimpleNamespace(
             selected_etf="ACME",
             snapshot=SimpleNamespace(benchmark_reference_decision_time="2028-01-02T00:00:00Z"),
         ),
+        "ACME",
+        "Statements",
     )
 
     assert reports[0][1]["market_inputs"]["market_cap"] == 300.0
@@ -456,7 +458,7 @@ def test_profitability_production_wiring_injects_sector_and_peers(monkeypatch) -
     monkeypatch.setattr(ui_facade, "load_stock_research_context", lambda instrument_id, statements_path=None, **_kwargs: context)
     monkeypatch.setattr(stock_research_page, "build_stock_research_report", capture_report)
     monkeypatch.setattr(stock_research_page, "load_capital_allocation_analysis", lambda *_args, **_kwargs: {})
-    stock_research_page.stock_research_page(None, SimpleNamespace(selected_etf="ACME"))
+    stock_research_page._fundamentals(None, SimpleNamespace(selected_etf="ACME"), "ACME", "Statements")
 
     result = captured[0]["profitability"]
     assert result["sector"] == "industrial"
@@ -575,7 +577,7 @@ def test_stock_research_page_uses_snapshot_decision_time(monkeypatch) -> None:
 
     monkeypatch.setattr(stock_research_page, "load_capital_allocation_analysis", load_capital_allocation)
 
-    page = stock_research_page.stock_research_page(None, state)
+    page = stock_research_page._fundamentals(None, state, "ACME", "Statements")
 
     assert page is not None
     assert seen_decision_times == [decision_time]

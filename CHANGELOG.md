@@ -7,6 +7,12 @@
 - Archived the legacy master specification while retaining its root
   compatibility path; no product behaviour or programme status changed.
 
+## 1.1.0b1 - 2026-10-07
+
+- Refactor (#907).
+- Bug-fix programme (#908).
+- Fixed frozen-build packaging by bundling package data and resolving configs.
+
 ## 0.1.0rc1 - 2026-07-14
 
 First usable Windows release candidate for the local-first ETF AI Evidence

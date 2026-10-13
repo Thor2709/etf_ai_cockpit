@@ -129,6 +129,16 @@ def validate_etf_metadata(
     normalised["name"] = _first_available_series(frame, ("name", "fund_name", "etf_name"), "")
     normalised["currency"] = _first_available_series(frame, ("currency", "base_currency", "fund_currency"), "")
     normalised["ter"] = pd.to_numeric(_first_available_series(frame, ("ter", "total_expense_ratio"), ""), errors="coerce")
+    # Preserve the provider's currency-unit AUM; never infer its currency from
+    # the share's trading currency or manufacture a missing fund size.
+    aum = pd.to_numeric(frame.get("aum", pd.Series(index=frame.index, dtype=float)), errors="coerce")
+    total_assets = pd.to_numeric(frame.get("total_assets", pd.Series(index=frame.index, dtype=float)), errors="coerce")
+    normalised["aum"] = aum.combine_first(total_assets)
+    invalid_aum = normalised["aum"].notna() & (~normalised["aum"].map(lambda value: pd.isna(value) or float("-inf") < value < float("inf")) | normalised["aum"].lt(0))
+    if invalid_aum.any():
+        errors.append("ETF factsheets contain negative or non-finite AUM values.")
+    normalised["aum_unit"] = _first_available_series(frame, ("aum_unit",), "currency_units")
+    normalised["aum_currency"] = _first_available_series(frame, ("aum_currency", "fund_currency"), "")
     normalised["provider"] = _first_available_series(frame, ("provider", "issuer", "source"), "manual_import")
     normalised["factsheet_url"] = _first_available_series(frame, ("factsheet_url", "url"), "")
     normalised["staleness_status"] = _staleness_for_frame(normalised, "etf_factsheet", today=today)
@@ -465,7 +475,7 @@ def _preserve_structural_provenance(
 
 
 def _empty_etf_metadata_frame() -> pd.DataFrame:
-    return pd.DataFrame(columns=["as_of_date", "etf_id", "isin", "ticker", "name", "currency", "ter", "provider", "factsheet_url", "staleness_status"])
+    return pd.DataFrame(columns=["as_of_date", "etf_id", "isin", "ticker", "name", "currency", "ter", "aum", "aum_unit", "aum_currency", "provider", "factsheet_url", "staleness_status"])
 
 
 def _empty_etf_holdings_frame() -> pd.DataFrame:

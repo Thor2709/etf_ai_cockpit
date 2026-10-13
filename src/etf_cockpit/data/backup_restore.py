@@ -14,6 +14,13 @@ from io import BytesIO
 from pathlib import Path, PurePosixPath
 
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_bytes, atomic_write_group
+from etf_cockpit.data.bulk_cache import (
+    DEFAULT_MAX_ARCHIVE_BYTES,
+    DEFAULT_MAX_ARCHIVE_MEMBERS,
+    DEFAULT_MAX_COMPRESSION_RATIO,
+    ArchiveValidationError,
+    _validate_archive_members,
+)
 from etf_cockpit.core.settings_bundle import SETTINGS_SCHEMA_VERSION, SettingsError, load_settings_bundle
 
 
@@ -35,6 +42,8 @@ class BackupManifest:
     encrypted: bool = False
     incremental: bool = False
     base_manifest_checksum: str | None = None
+    # Archive payload checksums stay sparse; chained deltas need the full inventory.
+    inventory_checksums: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -65,6 +74,10 @@ class RecoveryDrillResult:
     errors: tuple[str, ...] = ()
 
 
+class BackupError(RuntimeError):
+    """Raised when a backup cannot be created without losing or mixing files."""
+
+
 class EncryptionUnavailable(RuntimeError):
     """Raised when the approved cryptography dependency is unavailable."""
 
@@ -93,12 +106,15 @@ def create_incremental_backup(
     *,
     include_transient: bool = False,
 ) -> BackupManifest:
-    """Write only changed, policy-approved files relative to a prior manifest."""
+    """Archive changed files and return the complete policy-approved current inventory."""
 
+    seen: set[str] = set()
+    previous_inventory = base_manifest.inventory_checksums if base_manifest.inventory_checksums is not None else base_manifest.checksums
     checksums, excluded, payloads = _collect_payloads(
         paths,
         include_transient=include_transient,
-        previous_checksums=base_manifest.checksums,
+        previous_checksums=previous_inventory,
+        seen=seen,
     )
     manifest_payload = _manifest_payload(
         checksums,
@@ -106,6 +122,7 @@ def create_incremental_backup(
         schema_version=2,
         incremental=True,
         base_manifest_checksum=base_manifest.manifest_checksum,
+        deleted=sorted(set(previous_inventory) - seen),
     )
     manifest_checksum = hashlib.sha256(manifest_payload).hexdigest()
     _write_backup_archive(destination, _zip_payload(payloads, manifest_payload))
@@ -119,6 +136,7 @@ def create_incremental_backup(
         False,
         True,
         base_manifest.manifest_checksum,
+        {**{name: value for name, value in previous_inventory.items() if name in seen}, **checksums},
     )
 
 
@@ -172,6 +190,9 @@ def validate_restore(
             names = [info.filename.replace("\\", "/") for info in archive.infolist()]
             if len(names) != len(set(names)):
                 errors.append("duplicate_entry")
+            limit_error = _archive_limit_error(archive.infolist())
+            if limit_error:
+                errors.append(limit_error)
             for name in names:
                 if name != "manifest.json":
                     if _unsafe(name):
@@ -179,7 +200,9 @@ def validate_restore(
                     elif not _approved_payload_root(name):
                         errors.append(f"unapproved_path:{name}")
                     entries.append(name)
-            if "manifest.json" not in names:
+            if limit_error:
+                pass  # nothing is read from an archive that exceeds the member/size/ratio limits
+            elif "manifest.json" not in names:
                 errors.append("manifest_missing")
             else:
                 manifest_bytes = archive.read("manifest.json")
@@ -190,6 +213,9 @@ def validate_restore(
                 else:
                     checksums = {str(name): str(value) for name, value in payload["checksums"].items()}
                     excluded = tuple(str(name) for name in payload.get("excluded", ()) if str(name))
+                    for name in payload.get("deleted", ()):
+                        if _unsafe(str(name)) or not _approved_payload_root(str(name)):
+                            errors.append(f"unsafe_path:{name}")
                     if set(checksums) != set(entries):
                         errors.append("manifest_entries_mismatch")
                     for name, expected in checksums.items():
@@ -209,7 +235,7 @@ def validate_restore(
                         schema_error = _validate_payload_schema(name, archive.read(name))
                         if schema_error:
                             errors.append(schema_error)
-            if check_consistency and any(name.casefold().startswith("configs/") for name in entries):
+            if not limit_error and check_consistency and any(name.casefold().startswith("configs/") for name in entries):
                 consistency_error = _validate_config_consistency(
                     archive,
                     entries,
@@ -220,6 +246,27 @@ def validate_restore(
     except (OSError, zipfile.BadZipFile, json.JSONDecodeError, TypeError, ValueError, KeyError) as exc:
         errors.append(f"archive_invalid:{type(exc).__name__}")
     return RestorePreview(Path(archive_path), not errors, tuple(sorted(set(entries))), tuple(errors), checksums, manifest_checksum, excluded)
+
+
+_LIMIT_CHECK_ROOT = Path(tempfile.gettempdir()).resolve()
+
+
+def _archive_limit_error(members: list[zipfile.ZipInfo]) -> str:
+    """Member-count, total-size and ratio limits shared with bulk_cache (unsafe names are reported separately)."""
+
+    safe = [member for member in members if not _unsafe(member.filename.replace("\\", "/"))]
+    try:
+        _validate_archive_members(
+            safe,
+            _LIMIT_CHECK_ROOT,
+            DEFAULT_MAX_ARCHIVE_MEMBERS,
+            DEFAULT_MAX_ARCHIVE_BYTES,
+            DEFAULT_MAX_COMPRESSION_RATIO,
+            zip_mode=True,
+        )
+    except ArchiveValidationError as exc:
+        return f"archive_limits_exceeded:{exc}"
+    return ""
 
 
 def commit_restore(preview: RestorePreview, destination: Path) -> RestoreResult:
@@ -266,6 +313,7 @@ def commit_incremental_restore(previews: list[RestorePreview] | tuple[RestorePre
         targets: dict[str, Path] = {}
         previous_manifest_checksum: str | None = None
         touched_names: list[str] = []
+        deleted_names: set[str] = set()
         for preview in previews:
             current = validate_restore(preview.archive, check_consistency=False)
             if not current.valid or current.manifest_checksum != preview.manifest_checksum or current.checksums != preview.checksums:
@@ -279,8 +327,15 @@ def commit_incremental_restore(previews: list[RestorePreview] | tuple[RestorePre
                     manifest.get("incremental") is not True or linkage != previous_manifest_checksum
                 ):
                     return RestoreResult(Path(destination), 0, False, "incremental_base_manifest_mismatch")
+                for name in manifest.get("deleted", ()):
+                    name = str(name)
+                    targets.setdefault(name, _restore_target(destination_root, name))
+                    composed.pop(name, None)
+                    checksums.pop(name, None)
+                    deleted_names.add(name)
                 for name in preview.entries:
                     payload = archive.read(name)
+                    deleted_names.discard(name)
                     if name not in snapshot:
                         target = _restore_target(destination_root, name)
                         targets[name] = target
@@ -304,7 +359,24 @@ def commit_incremental_restore(previews: list[RestorePreview] | tuple[RestorePre
             if consistency_error:
                 raise ValueError(consistency_error)
 
-        atomic_write_group(requests, precondition=precondition)
+        # Delete before publishing replacements, retaining the original bytes
+        # until the write group commits. Its own rollback covers replacements.
+        deletion_backups = {
+            name: targets[name].read_bytes()
+            for name in sorted(deleted_names)
+            if targets[name].is_file()
+        }
+        try:
+            precondition()
+            for name in sorted(deleted_names):
+                targets[name].unlink(missing_ok=True)
+            atomic_write_group(requests, precondition=precondition)
+        except Exception:
+            atomic_write_group([
+                AtomicWriteRequest(targets[name], payload, _checksum_validator(hashlib.sha256(payload).hexdigest(), name))
+                for name, payload in deletion_backups.items()
+            ])
+            raise
     except Exception as exc:
         return RestoreResult(Path(destination), 0, False, f"restore_failed:{type(exc).__name__}:{exc}")
     return RestoreResult(Path(destination), len(requests), True)
@@ -398,16 +470,19 @@ def _collect_payloads(
     *,
     include_transient: bool,
     previous_checksums: dict[str, str] | None = None,
+    seen: set[str] | None = None,
 ) -> tuple[dict[str, str], list[str], dict[str, bytes]]:
-    files = sorted(_iter_files(paths), key=lambda item: str(item))
+    found, skipped = _iter_files(paths)
+    files = sorted(found, key=lambda item: str(item))
     sqlite_mains = {
         path.resolve()
         for path in files
         if path.is_file() and path.read_bytes().startswith(b"SQLite format 3\x00")
     }
     checksums: dict[str, str] = {}
-    excluded: list[str] = []
+    excluded: list[str] = [_archive_name(path) for path in skipped]
     payloads: dict[str, bytes] = {}
+    origins: dict[str, Path] = {}
     for path in files:
         if path.name.endswith(("-wal", "-shm", "-journal")) and any(
             path.resolve() == Path(f"{database}{suffix}").resolve()
@@ -416,12 +491,16 @@ def _collect_payloads(
         ):
             continue
         relative = _archive_name(path)
+        if origins.setdefault(relative, path.resolve()) != path.resolve():
+            raise BackupError(f"archive_name_collision:{relative}")
         data = path.read_bytes()
         if data.startswith(b"SQLite format 3\x00"):
             data = _sqlite_snapshot(path)
         if _secret_path(path) or _secret_content(data, path) or (not include_transient and _transient_path(path)):
             excluded.append(relative)
             continue
+        if seen is not None:
+            seen.add(relative)
         checksum = hashlib.sha256(data).hexdigest()
         if previous_checksums is not None and previous_checksums.get(relative) == checksum:
             continue
@@ -522,13 +601,27 @@ def _preview_from_plaintext(
         temporary.unlink(missing_ok=True)
 
 
-def _iter_files(paths: list[Path]):
+def _iter_files(paths: list[Path]) -> tuple[list[Path], list[Path]]:
+    """Return (files to archive, links/reparse points or items resolving outside their root)."""
+
+    found: list[Path] = []
+    skipped: list[Path] = []
+
+    def inside(item: Path, root: Path) -> bool:
+        return not (item.is_symlink() or _is_reparse_point(item) or os.path.isjunction(item)) and item.resolve().is_relative_to(root)
+
     for path in paths:
         source = Path(path)
-        if source.is_dir():
-            yield from (item for item in source.rglob("*") if item.is_file())
-        elif source.is_file():
-            yield source
+        if source.is_symlink() or os.path.isjunction(source) or _is_reparse_point(source):
+            skipped.append(source)
+        elif source.is_dir():
+            root = source.resolve()
+            for item in source.rglob("*"):
+                if item.is_symlink() or os.path.isjunction(item) or _is_reparse_point(item) or item.is_file():
+                    (found if inside(item, root) and item.is_file() else skipped).append(item)
+        elif source.is_file() or source.is_symlink():
+            (found if inside(source, source.resolve().parent) and source.is_file() else skipped).append(source)
+    return found, skipped
 
 
 def _manifest_payload(
@@ -538,6 +631,7 @@ def _manifest_payload(
     schema_version: int = 1,
     incremental: bool = False,
     base_manifest_checksum: str | None = None,
+    deleted: list[str] | None = None,
 ) -> bytes:
     payload: dict[str, object] = {
         "schema_version": schema_version,
@@ -547,6 +641,7 @@ def _manifest_payload(
     if incremental:
         payload["incremental"] = True
         payload["base_manifest_checksum"] = base_manifest_checksum
+        payload["deleted"] = sorted(set(deleted or ()))
     return (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
 
 

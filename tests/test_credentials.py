@@ -332,10 +332,11 @@ def test_settings_saves_resolves_and_deletes_credentials_by_active_provider_id(
 
     state = SimpleNamespace(snapshot=SimpleNamespace(config=config), last_message="Ready")
     view = settings_module.settings_page(SimpleNamespace(update=lambda: None), state)
-    controls = _walk_controls(view)
+    view.chrome.segment_groups[0].on_change("Data & models")
+    controls = list(_walk_controls(view))
     provider_control = next(item for item in controls if getattr(item, "key", None) == "settings.credential-provider")
     credential_control = next(item for item in controls if getattr(item, "key", None) == "settings.credential-value")
-    provider_control.value = "finnhub"
+    next(item for item in provider_control.controls[1].content.items if item.content.value == "Finnhub").on_click(None)
     credential_control.value = "new-credential"
     next(item for item in controls if getattr(item, "key", None) == "settings.credential-save").on_click(None)
 
@@ -345,6 +346,8 @@ def test_settings_saves_resolves_and_deletes_credentials_by_active_provider_id(
     assert "finnhub" not in set(pd.read_parquet(cache_path)["provider_id"].astype(str))
 
     registry.persist_probe_results(cache_path, capabilities=(registry._probe("finnhub")[0],))
+    next(item for item in controls if getattr(item, "key", None) == "settings.credential-delete").on_click(None)
+    assert resolve_provider_api_key("finnhub", vault=vault) == "new-credential"
     next(item for item in controls if getattr(item, "key", None) == "settings.credential-delete").on_click(None)
 
     assert resolve_provider_api_key("finnhub", vault=vault) is None

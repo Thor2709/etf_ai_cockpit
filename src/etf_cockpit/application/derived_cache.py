@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from etf_cockpit.features.feature_pipeline import RELATIVE_STRENGTH_FALLBACK_ANCHOR
+
 from collections.abc import (
     Callable,
     Mapping,
@@ -29,7 +31,7 @@ from etf_cockpit.core.atomic_io import (
 )
 from etf_cockpit.core.versioning import current_settings_revision
 from etf_cockpit.data.duckdb_store import _cache_binding_matches as _price_binding_matches
-from etf_cockpit.data.etf_structure import structure_confidence_caps
+from etf_cockpit.data.etf_structure import structure_cap_scope, structure_confidence_caps
 from etf_cockpit.data.universe_store import load_universe
 from etf_cockpit.models.forecast_scores import forecast_request_identity
 from etf_cockpit.portfolio.benchmark_reference_contract import (
@@ -141,6 +143,8 @@ def _cached_structure_columns_match(
     structural_hashes: pd.Series,
     structure_evidence: object,
     allowed_instrument_ids: object,
+    *,
+    config: AppConfig | None = None,
 ) -> bool:
     """Validate cached structural identity without replaying once per row."""
 
@@ -162,6 +166,7 @@ def _cached_structure_columns_match(
         or not instrument_ids.isin(allowed_ids).all()
     ):
         return False
+    scope = structure_cap_scope(config)
     evidence_channels = (
         structure_evidence.document_registry,
         structure_evidence.report_records,
@@ -169,7 +174,8 @@ def _cached_structure_columns_match(
         structure_evidence.holdings,
     )
     if all(isinstance(channel, pd.DataFrame) and channel.empty for channel in evidence_channels):
-        return bool(structural_caps.eq(0.0).all() and structural_hashes.eq("unavailable").all())
+        expected_caps = instrument_ids.map(lambda instrument_id: 1.0 if instrument_id in scope else 0.0)
+        return bool(structural_caps.eq(expected_caps).all() and structural_hashes.eq("unavailable").all())
 
     replay_rows = pd.DataFrame(
         {
@@ -187,6 +193,7 @@ def _cached_structure_columns_match(
             supplemental_rows=structure_evidence.supplemental_rows,
             holdings=structure_evidence.holdings,
             decision_time=decision_date,
+            not_applicable_types=scope,
         )
         for row in rows.itertuples(index=False):
             expected_cap = float(expected_caps.get(row.instrument_id, 0.0))
@@ -374,6 +381,7 @@ def _reference_binding(reference_context: CanonicalReferenceContext) -> dict[str
     strategy_identity = {
         "strategy": strategy,
         "benchmark_data_id": reference_context.benchmark_data_id,
+        "relative_strength_fallback_anchor": RELATIVE_STRENGTH_FALLBACK_ANCHOR,
         "reference_identity_hash": identity_hash,
     }
     return {

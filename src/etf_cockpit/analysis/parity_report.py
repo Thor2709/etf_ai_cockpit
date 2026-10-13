@@ -23,11 +23,11 @@ import yaml
 from etf_cockpit.analysis.decision.contracts import OpportunityResult
 from etf_cockpit.analysis.decision.opportunity import opportunity_result_payload
 from etf_cockpit.core.atomic_io import atomic_write_json
-from etf_cockpit.core.paths import project_root
+from etf_cockpit.core.paths import CONFIG_DIR, project_root
 from etf_cockpit.core.values import finite_real_or_none as _finite_number
 
 
-_CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "analysis_parity_v1.yaml"
+_CONFIG_PATH = CONFIG_DIR / "analysis_parity_v1.yaml"
 _CORE_SURFACES = ("detail", "bulk", "holdings")
 _PORTFOLIO_ARTIFACTS = ("ledger", "performance_series", "csv_export")
 _SENSITIVE_FIELD = re.compile(r"(?:api[_-]?key|authorization|password|secret|bearer)", re.I)

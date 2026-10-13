@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 
 import flet as ft
 
@@ -90,6 +91,14 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
         f"{item.source_group} | Yahoo {item.yahoo_symbol} | ISIN {item.isin or 'N/A'} | "
         f"{item.asset_type} | Latest {item.latest_date} | {item.one_line_reason}"
     )
+    canonical_detail = _canonical_score_detail(item)
+    canonical_coverage = (
+        f"{item.canonical_score.coverage:.0%}"
+        if item.canonical_score is not None
+        else "Unavailable"
+    )
+    coverage_chip = evidence_chip("Coverage", canonical_coverage, theme.CYAN)
+    coverage_chip.tooltip = canonical_detail
     details = ft.Container(
         visible=False,
         padding=ft.Padding(left=10, top=8, right=10, bottom=12),
@@ -103,8 +112,8 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
                         evidence_chip("Risk/friction", _score_badge(item.risk_friction_10), score_colour(item.risk_friction_10)),
                         evidence_chip(
                             "Components",
-                            f"{item.valid_component_count}/{item.total_component_count} valid",
-                            theme.GREEN if item.valid_component_count >= max(5, item.total_component_count - 3) else theme.AMBER,
+                            f"{item.evidence_component_counts[0]}/{item.evidence_component_counts[1]} valid",
+                            theme.GREEN if item.evidence_component_counts[0] >= max(5, item.evidence_component_counts[1] - 3) else theme.AMBER,
                         ),
                         evidence_chip("Warnings", str(len(item.warnings)), theme.AMBER if item.warnings else theme.GREEN),
                     ],
@@ -117,11 +126,12 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
                         evidence_chip("Expected return", _score_badge(item.canonical_score.expected_return_10 if item.canonical_score else None), score_colour(item.canonical_score.expected_return_10 if item.canonical_score else None)),
                         evidence_chip("Risk/implementation", _score_badge(item.canonical_score.risk_implementation_10 if item.canonical_score else None), score_colour(item.canonical_score.risk_implementation_10 if item.canonical_score else None)),
                         evidence_chip("Evidence confidence", _score_badge(item.canonical_score.evidence_confidence_10 if item.canonical_score else None), score_colour(item.canonical_score.evidence_confidence_10 if item.canonical_score else None)),
-                        evidence_chip("Coverage", f"{item.canonical_score.coverage:.0%}" if item.canonical_score else "N/A", theme.CYAN),
+                        coverage_chip,
                     ],
                     spacing=8,
                     wrap=True,
                 ),
+                ft.Text(canonical_detail, color=theme.MUTED, size=11, selectable=True),
                 ft.Text(
                     f"Formula {item.canonical_score.formula_version} | formula checksum {item.canonical_score.formula_checksum} | source-vintage {item.canonical_score.source_vintage_hash}"
                     if item.canonical_score
@@ -300,6 +310,25 @@ def _score_tile(item: SimpleInstrumentScore, history_rows: list[dict[str, object
             spacing=0,
         ),
     )
+
+
+def _canonical_score_detail(item: SimpleInstrumentScore) -> str:
+    score = item.canonical_score
+    if score is None:
+        reason = str(item.one_line_reason or "No canonical score payload is attached to this snapshot.").strip()
+        return f"Canonical score unavailable: {reason}"
+    missing: list[str] = []
+    for component in score.components:
+        if isinstance(component, Mapping):
+            eligible = component.get("score_eligible")
+            name = str(component.get("key") or "component")
+        else:
+            eligible = getattr(component, "eligible", None)
+            name = str(getattr(component, "key", None) or "component")
+        if eligible is False:
+            missing.append(name)
+    missing_text = ", ".join(sorted(set(missing))) or "none"
+    return f"Canonical score coverage {score.coverage:.0%}; missing components: {missing_text}."
 
 
 def _score_history_panel(

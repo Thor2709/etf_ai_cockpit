@@ -13,7 +13,7 @@ from pathlib import Path, PurePosixPath
 try:
     from scripts.git_change_paths import changed_paths
     from scripts.validation_identity import identity_groups
-except ModuleNotFoundError:
+except ImportError:  # also pywin32's top-level 'scripts' namespace
     from git_change_paths import changed_paths  # type: ignore[no-redef]
     from validation_identity import identity_groups  # type: ignore[no-redef]
 

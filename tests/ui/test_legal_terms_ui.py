@@ -10,6 +10,9 @@ from etf_cockpit.application.snapshot_builder import build_snapshot
 
 def _walk(control):
     yield control
+    body = getattr(control, "body", None)
+    if body is not None:
+        yield from _walk(body)
     for child in getattr(control, "controls", []) or []:
         yield from _walk(child)
     content = getattr(control, "content", None)
@@ -25,7 +28,9 @@ def test_provider_status_exposes_terms_and_restricted_export_boundaries() -> Non
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
 
-    text = _text(provider_status_page(None, state))
+    page = provider_status_page(None, state)
+    page.chrome.segment_groups[0].on_change("Terms")
+    text = _text(page)
 
     assert "Legal terms and export boundaries" in text
     assert "Restricted sources are local-only or metadata-only" in text
@@ -39,5 +44,9 @@ def test_user_facing_surfaces_show_disclaimer_and_terms_acknowledgement() -> Non
 
     assert disclaimer in _text(onboarding_page(None, state))
     assert "Terms acknowledgement" in _text(onboarding_page(None, state))
-    assert disclaimer in _text(settings_page(None, state))
-    assert "restricted sources are not redistributed" in _text(help_glossary_page(None, state))
+    settings = settings_page(None, state)
+    settings.chrome.segment_groups[0].on_change("Data & models")
+    assert disclaimer in _text(settings)
+    help_view = help_glossary_page(None, state)
+    help_view.chrome.segment_groups[0].on_change("Boundaries")  # legal status lives in the Boundaries segment
+    assert "restricted sources are not redistributed" in _text(help_view.body)

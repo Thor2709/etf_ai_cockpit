@@ -8,9 +8,10 @@ import yaml
 
 from etf_cockpit.plugins.contracts import PluginHealth, PluginManifest, PluginResult, PluginStatus
 from etf_cockpit.plugins.registry import PluginRegistry
+from etf_cockpit.core.paths import CONFIG_DIR
 
 
-DEFAULT_PLUGIN_CONFIG = Path(__file__).resolve().parents[3] / "configs" / "plugin_registry.yaml"
+DEFAULT_PLUGIN_CONFIG = CONFIG_DIR / "plugin_registry.yaml"
 _BUILTIN_VERSIONS = {
     "builtin.local-provider": "1.0.0",
     "builtin.baseline-model": "1.0.0",

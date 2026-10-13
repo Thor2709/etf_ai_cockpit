@@ -1,92 +1,270 @@
-"""Render-only strategy template builder page."""
+"""Research-only strategy template page."""
 
 from __future__ import annotations
 
 import flet as ft
 
 from etf_cockpit.app import theme
-from etf_cockpit.app.components.cards import section_header
-from etf_cockpit.app.components.kit import glass_panel, status_tag
+from etf_cockpit.app.components.chartkit import bar_chart
+from etf_cockpit.app.components.kit import (
+    Disclosure,
+    GateCheck,
+    GlassCard,
+    ListRow,
+    Note,
+    Tag,
+    Toggle,
+)
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.strategy_templates import StrategyTemplateFacade
 
 
-def strategy_builder_page(page: ft.Page, state: AppState) -> ft.Control:
-    facade = StrategyTemplateFacade()
-    snapshot = getattr(state.snapshot, "signals", ())
-    matches = facade.matches(snapshot)
-    match_ids = {template_id: sum(item.template_id == template_id for item in matches) for template_id in facade.enabled}
-    status = ft.Text("Local preferences are stored atomically; execution_allowed=false.", color=theme.MUTED, selectable=True)
+_STAGES = (
+    ("analyse", "Analyse"),
+    ("portfolio", "Portfolio"),
+    ("backtest", "Backtest"),
+    ("paper", "Paper"),
+    ("draft_order", "Draft order"),
+    ("canary", "Canary"),
+    ("bounded_automatic", "Bounded automatic"),
+)
 
-    rows: list[ft.Control] = []
-    for template in facade.templates:
-        enabled_now = facade.is_enabled(template.template_id)
-        badge = status_tag("Enabled" if enabled_now else "Disabled", "g" if enabled_now else "w", key=f"strategy-builder.status.{template.template_id}")
-        button = ft.Button(
-            "Disable" if enabled_now else "Enable",
-            data=(template.template_id, not enabled_now),
-            key="strategy-builder.template.*",
+
+def strategy_builder_page(page: ft.Page, state: AppState) -> PageView:
+    facade = StrategyTemplateFacade()
+    signal_data = getattr(getattr(state, "snapshot", None), "signals", None)
+    if isinstance(signal_data, ft.Control):
+        signal_data_available = False
+    elif hasattr(signal_data, "empty"):
+        signal_data_available = not bool(signal_data.empty)
+    else:
+        signal_data_available = bool(signal_data)
+    matches = facade.matches(signal_data) if signal_data_available else []
+    by_template = {template.template_id: [] for template in facade.templates}
+    for match in matches:
+        by_template.setdefault(match.template_id, []).append(match)
+
+    templates = list(facade.templates)
+    template_rows_by_id: dict[str, ft.Control] = {}
+    filter_state = {"selected": "All"}
+
+    def select_template(template_id: str) -> None:
+        template = templates_by_id[template_id]
+        body.controls[0].controls[1] = GlassCard(
+            f"Template detail · {template.name}",
+            body=_template_detail(template, by_template[template_id]),
+            expand=5,
+        )
+        if callable(getattr(page, "update", None)):
+            page.update()
+
+    templates_by_id = {template.template_id: template for template in templates}
+    template_rows: list[ft.Control] = []
+    for template in templates:
+        enabled = facade.is_enabled(template.template_id)
+        enabled_tag = Tag(
+            "Enabled" if enabled else "Disabled",
+            "ok" if enabled else "mute",
+            key=f"strategy-builder.status.{template.template_id}",
         )
 
         def toggle_template(
-            event: ft.ControlEvent,
+            enabled_now: bool,
             template_id: str = template.template_id,
-            action_button: ft.Button = button,
-            status_badge: ft.Container = badge,
+            status_tag: ft.Container = enabled_tag,
         ) -> None:
-            control = getattr(event, "control", action_button)
-            data = getattr(control, "data", action_button.data)
-            enabled = bool(data[1]) if isinstance(data, tuple) and len(data) > 1 else False
-            try:
-                facade.set_enabled(template_id, enabled)
-                action_button.data = (template_id, not enabled)
-                action_button.text = "Disable" if not enabled else "Enable"
-                status_badge.content.value = "Enabled" if enabled else "Disabled"
-                status_badge.content.color = theme.GREEN if enabled else theme.AMBER
-                status_badge.bgcolor = "#296fcfa6" if enabled else "#29e6c27a"
-                status.value = f"Saved {template_id} preference locally; no analysis or execution was started."
-                status.color = theme.GREEN
-            except (KeyError, OSError, ValueError) as exc:
-                status.value = f"Template preference was not saved: {type(exc).__name__}."
-                status.color = theme.AMBER
-            if callable(getattr(page, "update", None)):
-                page.update()
+            facade.set_enabled(template_id, enabled_now)
+            status_tag.content.value = "Enabled" if enabled_now else "Disabled"
+            status_tag.data = {"kit": "Tag", "kind": "ok" if enabled_now else "mute", "text": status_tag.content.value}
+            tone = "ok" if enabled_now else "mute"
+            status_tag.bgcolor = theme.TAG_TONES[tone][1]
+            status_tag.content.color = theme.TAG_TONES[tone][0]
+            filter_templates(filter_state["selected"])
 
-        button.on_click = toggle_template
-        rows.append(
-            glass_panel(
-                ft.Column(
-                    [
-                        ft.Row(
-                            [
-                                badge,
-                                button,
-                                ft.Text(template.name, color=theme.TEXT, weight=ft.FontWeight.BOLD),
-                                ft.Text(f"matches: {match_ids.get(template.template_id, 0)}", color=theme.CYAN, size=theme.FONT_SM),
-                            ],
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        ),
-                        ft.Text(f"v{template.version} · hash {template.definition_hash[:16]} · benchmark {template.benchmark}", color=theme.MUTED, selectable=True),
-                        ft.Text(f"stages: {dict(template.stages)}", color=theme.MUTED, selectable=True),
-                        ft.Text("context-only; no trade actions" if template.context_only else "long-only research/review template; no execution authority", color=theme.AMBER, selectable=True),
-                    ],
-                    spacing=6,
+        row = ft.Row(
+            [
+                ListRow(
+                    "info",
+                    template.name,
+                    f"v{template.version} · benchmark {template.benchmark}",
+                    on_click=lambda _e, template_id=template.template_id: select_template(template_id),
+                    last=True,
                 ),
-                key=f"strategy-builder.card.{template.template_id}",
-                label=f"Strategy template {template.name}",
-                padding=18,
-            )
+                Toggle(
+                    enabled,
+                    on_change=toggle_template,
+                    key=f"strategy-builder.template.{template.template_id}",
+                ),
+                enabled_tag,
+                (
+                    Note(f"Matches {len(by_template[template.template_id])}")
+                    if signal_data_available
+                    else Note("Unavailable · no saved signal data is available.")
+                ),
+                Tag("context-only" if template.context_only else "long-only research", "warn" if template.context_only else "mute"),
+            ],
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
-    return ft.Column(
-        [
-            section_header("Strategy builder", "Enable or disable reproducible, benchmarked long-only/context-only templates. Matches are descriptive review evidence."),
-            status,
-            *rows,
+        template_rows.append(row)
+        template_rows_by_id[template.template_id] = row
+
+    templates_card = GlassCard(
+        "Strategy templates",
+        note=f"{len(templates)} templates · {sum(facade.enabled.values())} enabled",
+        body=[
+            ft.Column(template_rows, spacing=8, key="strategy-builder.template.*"),
+            Note("Local preferences are stored atomically; execution_allowed=false."),
         ],
-        spacing=12,
+        key="strategy-builder.card.templates",
+    )
+    detail = GlassCard(
+        f"Template detail · {templates[0].name}" if templates else "Template detail",
+        body=_template_detail(templates[0], by_template[templates[0].template_id]) if templates else Note("Unavailable · no strategy templates are registered."),
+    )
+    most_matches = (
+        max((len(by_template[template.template_id]) for template in templates), default=None)
+        if signal_data_available
+        else None
+    )
+    most_template = next(
+        (template for template in templates if most_matches is not None and len(by_template[template.template_id]) == most_matches),
+        None,
+    )
+    match_insight = (
+        f"{most_template.name} has the most matches ({most_matches})."
+        if most_template is not None
+        else "Unavailable · no saved signal data is available for strategy matching."
+    )
+    matches_card = GlassCard(
+        "Matches per template",
+        insight=match_insight,
+        body=bar_chart(
+            [template.name for template in templates],
+            [len(by_template[template.template_id]) for template in templates],
+            x_name="Template",
+            y_name="Matches (count)",
+            unit="matches",
+            show_labels=True,
+            unavailable_reason=(
+                "No strategy templates are registered."
+                if not templates
+                else "No saved signal data is available for strategy matching."
+                if not signal_data_available
+                else None
+            ),
+            insight=match_insight,
+        ),
+    )
+    stage_headers = ft.Row(
+        [Note("Template"), *[ft.Container(content=Note(label), width=40, alignment=ft.Alignment(0, 0)) for _, label in _STAGES]],
+        spacing=4,
+        wrap=False,
+    )
+    coverage_rows = [
+        ft.Row(
+            [
+                ft.Container(content=Note(template.name), expand=True),
+                *[_stage_cell(template.stages.get(key)) for key, _ in _STAGES],
+            ],
+            spacing=4,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+        for template in templates
+    ]
+    coverage_card = GlassCard(
+        "Stage coverage",
+        body=[stage_headers, *(coverage_rows or [Note("Unavailable · no strategy stage coverage is registered.")])],
+    )
+
+    def filter_templates(option: str) -> None:
+        filter_state["selected"] = option
+        for template in templates:
+            enabled = facade.is_enabled(template.template_id)
+            template_rows_by_id[template.template_id].visible = (
+                option == "All"
+                or (option == "Enabled" and enabled)
+                or (option == "Disabled" and not enabled)
+            )
+        if callable(getattr(page, "update", None)):
+            page.update()
+
+    body = ft.Column(
+        [
+            ft.Row([templates_card, detail], spacing=16, vertical_alignment=ft.CrossAxisAlignment.START),
+            ft.Row([matches_card, coverage_card], spacing=16, vertical_alignment=ft.CrossAxisAlignment.START),
+        ],
+        spacing=16,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
     )
+    return PageView(
+        chrome=PageChrome(
+            "Strategy Builder",
+            "Reproducible long-only and context-only templates · matches are review evidence",
+            [SegmentGroup("template-filter", ["All", "Enabled", "Disabled"], "All", filter_templates)],
+        ),
+        body=body,
+    )
+
+
+def _template_detail(template: object, matches: list[object]) -> ft.Control:
+    stages = getattr(template, "stages", {})
+    checks = []
+    for key, label in _STAGES:
+        stage_status = stages.get(key)
+        if stage_status == "supported":
+            reason = "Supported"
+        elif stage_status == "supported_with_limitations":
+            reason = "Supported with limitations"
+        else:
+            reason = "Unavailable"
+        checks.append(
+            GateCheck(stage_status in {"supported", "supported_with_limitations"}, label, reason)
+        )
+    matched = [
+        ListRow("info", str(getattr(match, "instrument_id", "—")), str(getattr(match, "reason", "Unavailable")), last=index == len(matches) - 1)
+        for index, match in enumerate(matches)
+    ]
+    return ft.Column(
+        [
+            Note(str(getattr(template, "description", "")) or "Description unavailable."),
+            *checks,
+            Disclosure("stage policy", str(dict(stages))),
+            Disclosure("template definition", str(getattr(template, "definition", {}))),
+            Disclosure("definition hash", str(getattr(template, "definition_hash", "")) or None),
+            Note("Matched instruments"),
+            *(matched or [Note("Unavailable · no instruments match this template.")]),
+        ],
+        spacing=8,
+    )
+
+
+def _stage_cell(value: object) -> ft.Control:
+    if value == "supported":
+        symbol, color = "✓", theme.TAG_TONES["ok"][1]
+    elif value == "supported_with_limitations":
+        symbol, color = "~", theme.TAG_TONES["warn"][1]
+    else:
+        symbol, color = "–", theme.HOVER_OVERLAY
+    return ft.Container(
+        content=ft.Text(symbol, size=13, text_align=ft.TextAlign.CENTER),
+        width=28,
+        height=28,
+        alignment=ft.Alignment(0, 0),
+        bgcolor=color,
+        border_radius=6,
+        tooltip=str(value or "unavailable"),
+    )
+
+
+def _stage_label(value: object) -> ft.Control:
+    if value == "supported":
+        return Tag("✓", "ok", dense=True)
+    if value == "supported_with_limitations":
+        return Tag("~", "warn", dense=True)
+    return Tag("–", "mute", dense=True)
 
 
 __all__ = ["strategy_builder_page"]

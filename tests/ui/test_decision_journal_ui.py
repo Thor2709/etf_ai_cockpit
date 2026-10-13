@@ -8,20 +8,28 @@ from etf_cockpit.application.snapshot_builder import build_snapshot
 
 def _walk(control):
     yield control
+    page_body = getattr(control, "body", None)
+    if page_body is not None and page_body is not control:
+        yield from _walk(page_body)
     for child in getattr(control, "controls", []) or []:
         yield from _walk(child)
     content = getattr(control, "content", None)
-    if content is not None:
+    if content is not None and content is not page_body:
         yield from _walk(content)
 
 
 def test_decision_journal_is_local_only_with_one_primary_save_action() -> None:
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
-    controls = list(_walk(decision_journal_page(None, state)))
+    page = decision_journal_page(None, state)
+    controls = list(_walk(page))
     text = "\n".join(str(getattr(item, "value", "") or getattr(item, "text", "")) for item in controls)
-    buttons = [item for item in controls if item.__class__.__name__ in {"FilledButton", "ElevatedButton", "TextButton"}]
-    assert "User-owned local journal" in text
+    buttons = [
+        item
+        for item in controls
+        if isinstance(getattr(item, "data", None), dict) and item.data.get("kit") == "Button"
+    ]
+    assert "user-owned notes" in page.chrome.subtitle.casefold()
     assert "No broker execution" in text
     assert sum(getattr(item, "key", "") == "decision-journal.save" for item in buttons) == 1
 

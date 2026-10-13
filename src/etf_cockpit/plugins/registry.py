@@ -18,6 +18,10 @@ from etf_cockpit.plugins.contracts import (
 )
 
 
+# `import` is a Python keyword, so the capability maps to a differently named method.
+_HANDLER = {"import": "import_data"}
+
+
 class PluginRegistrationError(ValueError):
     """Raised when a plugin is not safe or not explicitly allow-listed."""
 
@@ -94,7 +98,8 @@ class PluginRegistry:
         plugin = self._require(plugin_id)
         if not self._enabled[plugin_id]:
             return PluginResult(status="unavailable", message="Plugin disabled by local allow-list policy.")
-        method = getattr(plugin, str(operation).strip(), None)
+        name = str(operation).strip()
+        method = getattr(plugin, _HANDLER.get(name, name), None) if name in plugin.manifest.capabilities else None
         if not callable(method):
             return PluginResult(status="unsupported", message=f"Plugin does not support operation {operation!r}.")
         context = PluginContext(request_id=f"{operation}:{plugin_id}", inputs=payload or {})

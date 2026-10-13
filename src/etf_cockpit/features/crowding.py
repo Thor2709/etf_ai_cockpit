@@ -102,6 +102,7 @@ def build_correlation_clusters(
         )
     top_ranked_theme_concentration, top_ranked_theme_warning = _ranked_theme_concentration(labels, normalised_weights)
     risk_by_cluster = _cluster_risk_contributions(returns, groups, normalised_weights, min_pair_samples)
+    pair_counts = _pair_observation_counts(returns)
     risk_covariance_unavailable = bool(normalised_weights) and risk_by_cluster is None
     rows: list[ClusterRow] = []
     for members in sorted(groups.values(), key=lambda values: values[0]):
@@ -129,7 +130,11 @@ def build_correlation_clusters(
             valid_peer_values = []
             pair_sample_counts: list[int] = []
             for peer in peers.index:
-                pair_count = int(returns[[instrument_id, peer]].dropna().shape[0])
+                pair_count = (
+                    int(pair_counts.loc[instrument_id, peer])
+                    if pair_counts is not None
+                    else int(returns[[instrument_id, peer]].dropna().shape[0])
+                )
                 if pair_count >= min_pair_samples:
                     valid_peer_values.append(float(peers.loc[peer]))
                     pair_sample_counts.append(pair_count)
@@ -183,6 +188,19 @@ def build_correlation_clusters(
         top_ranked_theme_concentration=top_ranked_theme_concentration,
         top_ranked_theme_warning=top_ranked_theme_warning,
     )
+
+
+def _pair_observation_counts(returns: pd.DataFrame) -> pd.DataFrame | None:
+    """Return rows with both returns observed for every column pair in one matrix product.
+
+    Equals ``returns[[a, b]].dropna().shape[0]`` per pair without the O(n^2) frame
+    slices; ``None`` (caller falls back to the slice) when column labels repeat.
+    """
+
+    if not returns.columns.is_unique:
+        return None
+    observed = returns.notna().to_numpy(dtype="int64")
+    return pd.DataFrame(observed.T @ observed, index=returns.columns, columns=returns.columns)
 
 
 def _ranked_theme_concentration(

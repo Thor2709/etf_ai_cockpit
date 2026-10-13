@@ -209,10 +209,9 @@ def test_s11_top_shell_topbar_shows_saved_settings_controls(tmp_path):
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf, settings_root=tmp_path)
     view = build_shell(SimpleNamespace(width=1920, route="/"), state, "/")
-    assert _pill_text(view, "shell.as-of.horizon") == (["Horizon", "2Y"], "available")
-    assert _pill_text(view, "shell.as-of.currency") == (["Currency", "USD"], "available")
-    assert _pill_text(view, "shell.as-of.risk-profile") == (["Risk profile", "aggressive"], "available")
+    # Horizon, currency and risk profile moved from header pills into one footer-rail control (spec 5.4).
+    assert _pill_text(view, "shell.as-of.profile") == (["USD · 2Y · Aggressive risk", "▸"], "available")
 
     unbound = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     unbound_view = build_shell(SimpleNamespace(width=1920, route="/"), unbound, "/")
-    assert _pill_text(unbound_view, "shell.as-of.horizon")[1] == "unavailable"
+    assert _pill_text(unbound_view, "shell.as-of.profile")[1] == "unavailable"

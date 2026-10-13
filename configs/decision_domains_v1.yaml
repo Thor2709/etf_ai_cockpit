@@ -155,6 +155,21 @@ stock_decision:
   schema_version: 1
   version: stock-decision-v1.0.0
   rank_authority: true
+  cyclical_metrics:
+    - metric_id: cyclical_normalised_margin
+      source_metric: normalised_margin
+      domain: profitability_economic_returns
+      subfamily: through_cycle_profitability
+      metric_shape: higher_is_better
+      comparison_scope: BUSINESS_MODEL
+      requirement_class: CONDITIONAL
+    - metric_id: cyclical_cycle_adjusted_ev_to_earnings
+      source_metric: cycle_adjusted_ev_to_earnings
+      domain: valuation
+      subfamily: cycle_adjusted_valuation
+      metric_shape: lower_is_better
+      comparison_scope: BUSINESS_MODEL
+      requirement_class: CONDITIONAL
   subdomains:
     - domain: profitability_economic_returns
       label: Profitability and economic returns

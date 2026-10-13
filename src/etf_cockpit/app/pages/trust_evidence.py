@@ -14,6 +14,8 @@ import pandas as pd
 
 from etf_cockpit.app import theme
 from etf_cockpit.app.components import kit
+from etf_cockpit.app.components import chartkit as ck
+from etf_cockpit.app.components.shell.page_view import PageChrome, PageView
 from etf_cockpit.app.components.cards import evidence_chip, section_header
 from etf_cockpit.app.pages._glass import glass
 from etf_cockpit.app.state import ActivityUnavailableError, AppState
@@ -255,7 +257,7 @@ def _require_disclosure_available(label: str, result: object) -> None:
         raise ActivityUnavailableError(f"{label} unavailable: {status_value or 'parse failed'}.")
 
 
-def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
+def _legacy_provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
     registry = ProviderRegistry(state.snapshot.config.data_providers)
     capabilities = registry.probe_all()
     status_rows = registry.status_rows(capabilities) + plugin_status_rows()
@@ -332,23 +334,160 @@ def provider_status_page(_page: ft.Page, state: AppState) -> ft.Control:
     )
 
 
-def evidence_ledger_page(_page: ft.Page, _state) -> ft.Control:
-    return _status_page(
-        "Evidence Ledger",
-        "Score components, evidence provenance and source conflicts. Evidence rows are advisory inputs only.",
-        [
-            ("Evidence ledger", EVIDENCE_LEDGER_PATH, ["instrument_id", "component", "source_id", "source_authority", "authority_rank", "as_of_date", "freshness_status", "conflict_id", "score_eligible", "reason"]),
-            ("Score components", SCORE_COMPONENTS_PATH, ["instrument_id", "component", "source_id", "source_authority", "normalised_score_10", "status", "authority", "freshness_status", "conflict_id", "driver_text"]),
-            ("Feature drivers", FEATURE_DRIVERS_PATH, FEATURE_DRIVER_EVIDENCE_COLUMNS, normalise_feature_driver_frame),
-            ("Score history", SCORE_HISTORY_PATH, ["instrument_id", "run_completed_at", "final_combined_score_10", "final_label", "blocked_by"]),
-            ("Score metric history", SCORE_METRIC_HISTORY_PATH, ["instrument_id", "component_name", "normalised_score_10", "score_available", "na_reason"]),
-            ("Correlation clusters", CORRELATION_CLUSTERS_PATH, ["instrument_id", "cluster_label", "average_peer_correlation", "crowding_warning", "cluster_risk_contribution", "ranking_coverage", "pair_sample_size", "sector", "theme", "theme_warning", "top_ranked_theme_concentration", "top_ranked_theme_warning", "sample_size", "status", "execution_allowed"]),
-            ("Benchmark attribution", BENCHMARK_ATTRIBUTION_PATH, ["instrument_id", "benchmark_id", "benchmark_beta", "benchmark_correlation", "alpha_proxy", "sector_relative_return", "sector_alpha_proxy", "sector_attribution_status", "theme_relative_return", "theme_alpha_proxy", "theme_attribution_status", "net_expected_edge_bps", "friction_status", "status", "execution_allowed"]),
-        ],
+def evidence_ledger_page(page: ft.Page, state) -> PageView:
+    sources = [
+        ("Evidence ledger", EVIDENCE_LEDGER_PATH, ["instrument_id", "component", "source_id", "source_authority", "authority_rank", "as_of_date", "freshness_status", "conflict_id", "score_eligible", "reason"], None),
+        ("Score components", SCORE_COMPONENTS_PATH, ["instrument_id", "component", "source_id", "source_authority", "normalised_score_10", "status", "authority", "freshness_status", "conflict_id", "driver_text"], None),
+        ("Feature drivers", FEATURE_DRIVERS_PATH, FEATURE_DRIVER_EVIDENCE_COLUMNS, normalise_feature_driver_frame),
+        ("Score history", SCORE_HISTORY_PATH, ["instrument_id", "run_completed_at", "final_combined_score_10", "final_label", "blocked_by"], None),
+        ("Score metric history", SCORE_METRIC_HISTORY_PATH, ["instrument_id", "component_name", "normalised_score_10", "score_available", "na_reason"], None),
+        ("Correlation clusters", CORRELATION_CLUSTERS_PATH, ["instrument_id", "cluster_label", "average_peer_correlation", "crowding_warning", "cluster_risk_contribution", "ranking_coverage", "pair_sample_size", "sector", "theme", "theme_warning", "top_ranked_theme_concentration", "top_ranked_theme_warning", "sample_size", "status", "execution_allowed"], None),
+        ("Benchmark attribution", BENCHMARK_ATTRIBUTION_PATH, ["instrument_id", "benchmark_id", "benchmark_beta", "benchmark_correlation", "alpha_proxy", "sector_relative_return", "sector_alpha_proxy", "sector_attribution_status", "theme_relative_return", "theme_alpha_proxy", "theme_attribution_status", "net_expected_edge_bps", "friction_status", "status", "execution_allowed"], None),
+    ]
+    frames: list[tuple[str, Path, list[str], pd.DataFrame]] = []
+    tables_by_name = {}
+    counts: list[int] = []
+    for label, path, columns, normaliser in sources:
+        frame = _read_frame(path)
+        if normaliser is not None:
+            try:
+                frame = normaliser(frame)
+            except Exception:
+                frame = pd.DataFrame()
+        frames.append((label, path, columns, frame))
+        counts.append(len(frame.index))
+        actual_columns = [column for column in columns if column in frame.columns]
+        visible_columns = [
+            column
+            for column in actual_columns
+            if "hash" not in column.casefold()
+            and "path" not in column.casefold()
+            and "span" not in column.casefold()
+            and column not in {"status", "blocked_by", "freshness_status", "missingness", "conflict", "flags", "reason", "na_reason", "execution_allowed"}
+        ]
+        rows = []
+        table_columns = [kit.TableColumn(key=column, label=column.replace("_", " ").title()) for column in visible_columns]
+        for row in frame[visible_columns].to_dict(orient="records") if visible_columns else []:
+            rows.append({key: ("—" if pd.isna(value) else _short(value)) for key, value in row.items()})
+        tables_by_name[label] = {
+            "columns": table_columns,
+            "rows": rows,
+            "file_name": path.name,
+            "source_path": str(path),
+            "source_rows": len(frame.index),
+        }
+
+    selected_table = {"name": sources[0][0]}
+
+    def table_note(label: str) -> str:
+        row_count = len(tables_by_name[label]["rows"])
+        return f"{row_count} rows" if row_count else "Unavailable: no evidence rows are available in this table."
+
+    def render_table(label: str) -> list[ft.Control]:
+        table_data = tables_by_name[label]
+        rows = table_data["rows"]
+        if rows:
+            table_control = kit.DataTable(table_data["columns"], rows, expand=True)
+        elif table_data["source_rows"]:
+            table_control = kit.EmptyState("Unavailable", "No supported display columns are available in this evidence table.")
+        else:
+            table_control = kit.EmptyState("No rows", f"{table_data['file_name']} has no rows; evidence is unavailable.")
+        return [table_control, kit.Disclosure("Source path", table_data["source_path"])]
+
+    table_view = ft.Column(render_table(selected_table["name"]), spacing=8, expand=True, scroll=ft.ScrollMode.AUTO)
+
+    def select_table(label: str) -> None:
+        if label not in tables_by_name:
+            return
+        selected_table["name"] = label
+        table_view.controls = render_table(label)
+        evidence_tables.data["note_control"].value = table_note(label)
+        if hasattr(page, "update"):
+            page.update()
+
+    table_picker = kit.Field("Table", options=list(tables_by_name), value=selected_table["name"], on_change=select_table)
+    evidence_tables = kit.GlassCard(
+        "Evidence tables",
+        note=table_note(selected_table["name"]),
+        body=ft.Column(
+            [
+                table_picker,
+                table_view,
+                kit.Disclosure(
+                    "Technical evidence details",
+                    "\n\n".join(
+                        f"{label}\n{json.dumps(frame[actual_columns].to_dict(orient='records'), default=str, ensure_ascii=False)}"
+                        for label, _path, actual_columns, frame in frames
+                        if not frame.empty
+                    ) or "No technical evidence rows are available.",
+                ),
+            ],
+            spacing=8,
+            expand=True,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        expand=True,
     )
+    nonempty = [(label, count) for (label, _, _, _), count in zip(sources, counts, strict=True) if count]
+    unavailable_rows = [
+        f"{label}: Unavailable — no rows are available."
+        for (label, _, _, _), count in zip(sources, counts, strict=True)
+        if not count
+    ]
+    rows_chart = ck.horizontal_stacked_bar(
+        [label for label, _ in nonempty],
+        [[ck.Segment(count, "pos")] for _, count in nonempty],
+        x_name="Rows (count)",
+        x_max=max((count for _, count in nonempty), default=0) or None,
+        unit="rows",
+        insight="Row counts describe local evidence files.",
+        unavailable_reason="No evidence table has rows available." if not nonempty else None,
+    )
+    rows_by_table = kit.GlassCard(
+        "Rows by evidence table",
+        note="Rows (count)",
+        body=ft.Column([kit.Well(rows_chart), *(kit.Note(note) for note in unavailable_rows)], spacing=8, scroll=ft.ScrollMode.AUTO),
+        expand=True,
+    )
+    boundaries = kit.GlassCard(
+        "Boundaries",
+        body=ft.Column(
+            [
+                kit.ListRow("info", "Authority", "Advisory/context only", tag=("Advisory", "mute")),
+                kit.ListRow("warn", "Missing data", "Unavailable, not invented", tag=("Unavailable", "warn")),
+                kit.ListRow("bad", "Broker execution", "Disabled", tag=("Disabled", "bad")),
+            ],
+            spacing=8,
+        ),
+    )
+    total = sum(counts)
+    strip = kit.KpiStrip(
+        "Local evidence",
+        f"{total} evidence rows" if total else "Unavailable",
+        "Local derived evidence" if total else "No evidence ledger rows are available.",
+        [(label, str(count) if count else "Unavailable", "rows" if count else "No rows available.", None) for label, count in zip(("Evidence ledger", "Score components", "Feature drivers", "Score history"), counts[:4], strict=True)],
+    )
+    body = ft.Column(
+        [
+            strip,
+            ft.ResponsiveRow(
+                [
+                    ft.Container(content=evidence_tables, col={"xs": 12, "md": 8}),
+                    ft.Container(content=ft.Column([rows_by_table, boundaries], spacing=12, expand=True), col={"xs": 12, "md": 4}),
+                ],
+                spacing=12,
+                run_spacing=12,
+                expand=True,
+            ),
+        ],
+        spacing=12,
+        expand=True,
+        scroll=ft.ScrollMode.AUTO,
+    )
+    return PageView(PageChrome("Evidence Ledger", "Score components, provenance and source conflicts · advisory inputs only"), body)
 
 
-def filings_page(page: ft.Page, state: AppState) -> ft.Control:
+def _legacy_filings_page(page: ft.Page, state: AppState) -> ft.Control:
     return _status_page(
         "Filings & Statements",
         "Official SEC/ESEF/local filing evidence. Missing filings remain missing; vendor fundamentals cannot outrank official matched filings.",
@@ -366,7 +505,7 @@ def filings_page(page: ft.Page, state: AppState) -> ft.Control:
     )
 
 
-def etf_disclosures_page(page: ft.Page, state: AppState) -> ft.Control:
+def _legacy_etf_disclosures_page(page: ft.Page, state: AppState) -> ft.Control:
     return _status_page(
         "ETF Disclosures",
         "ETF factsheets, holdings, PRIIPs KIDs, SFDR disclosures, reports and index methodology inventory. Disclosure reviews are advisory only; score_eligible=false and execution_allowed=false. Partial coverage is shown explicitly.",
@@ -412,7 +551,7 @@ def _sfdr_panel(path: Path) -> ft.Control:
     return glass("disclosures.sfdr", "SFDR disclosure", ft.Column([section_header("SFDR disclosure", "Classification and sustainability disclosures are evidence-only; SFDR never contributes return alpha, scores or execution authority."), body], spacing=8))
 
 
-def news_context_page(page: ft.Page, state: AppState) -> ft.Control:
+def _legacy_news_context_page(page: ft.Page, state: AppState) -> ft.Control:
     return _status_page(
         "News & Context",
         "Free/manual news and context evidence. News is non-executable and cannot directly change scores or actions.",
@@ -1309,3 +1448,27 @@ def _slug(label: str) -> str:
 def _short(value: object, max_len: int = 96) -> str:
     text = str(value)
     return text if len(text) <= max_len else text[: max_len - 3] + "..."
+
+
+def provider_status_page(page: ft.Page, state: AppState):
+    from etf_cockpit.app.pages.provider_status import provider_status_page as build_page
+
+    return build_page(page, state)
+
+
+def filings_page(page: ft.Page, state: AppState):
+    from etf_cockpit.app.pages.filings import filings_page as build_page
+
+    return build_page(page, state)
+
+
+def etf_disclosures_page(page: ft.Page, state: AppState):
+    from etf_cockpit.app.pages.etf_disclosures import etf_disclosures_page as build_page
+
+    return build_page(page, state)
+
+
+def news_context_page(page: ft.Page, state: AppState):
+    from etf_cockpit.app.pages.news_context import news_context_page as build_page
+
+    return build_page(page, state)

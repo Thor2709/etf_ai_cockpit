@@ -10,6 +10,7 @@ from typing import Mapping, Sequence
 import pandas as pd
 
 from etf_cockpit.core.paths import ROOT
+from etf_cockpit.core.session_log import log_event
 from etf_cockpit.features.overlap import DirectOverlapReport, calculate_direct_overlap
 
 
@@ -35,10 +36,21 @@ def load_direct_holdings(*, root: Path = ROOT) -> pd.DataFrame:
     if canonical_path is not None:
         try:
             canonical = pd.read_parquet(canonical_path) if canonical_path.suffix == ".parquet" else pd.read_csv(canonical_path)
-        except Exception:
+        except Exception as exc:
             # A present but corrupt canonical store must not silently downgrade
             # to lower-authority legacy evidence.
-            return pd.DataFrame()
+            log_event(
+                event_type="data_read_failed",
+                severity="warning",
+                component="etf_holdings",
+                operation="read_canonical_holdings",
+                file_paths=canonical_path,
+                exception_type=type(exc).__name__,
+                exception_message_redacted=str(exc),
+            )
+            unavailable = pd.DataFrame()
+            unavailable.attrs["unavailable_reason"] = "canonical_holdings_store_unreadable"
+            return unavailable
 
     legacy = _contained_local_path(destination.with_name("etf_holdings.parquet"), base)
     legacy_csv = _contained_local_path(destination.with_name("etf_holdings.csv"), base)
@@ -48,8 +60,18 @@ def load_direct_holdings(*, root: Path = ROOT) -> pd.DataFrame:
         try:
             raw_legacy = pd.read_parquet(legacy_path) if legacy_path.suffix == ".parquet" else pd.read_csv(legacy_path)
             legacy_context = _legacy_holdings(raw_legacy)
-        except Exception:
+        except Exception as exc:
+            log_event(
+                event_type="data_read_failed",
+                severity="warning",
+                component="etf_holdings",
+                operation="read_legacy_holdings",
+                file_paths=legacy_path,
+                exception_type=type(exc).__name__,
+                exception_message_redacted=str(exc),
+            )
             legacy_context = pd.DataFrame()
+            legacy_context.attrs["unavailable_reason"] = "legacy_holdings_store_unreadable"
     if canonical.empty:
         return legacy_context
     if legacy_context.empty:

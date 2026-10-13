@@ -74,18 +74,9 @@ def _write_current_scoreboard(session: ScoreboardSession) -> Path:
     calibration = evaluate_forecast_calibration(load_forecast_history(), session.snapshot.prices)
     with session.activity_publication():
         write_forecast_calibration(calibration)
-    scores = build_simple_instrument_scores(
-        session.snapshot.config,
-        session.snapshot.signals,
-        session.snapshot.forecasts,
-        session.snapshot.prices,
-        benchmark_data_id=reference_context.benchmark_data_id,
-        benchmark_reference=reference_context.projection,
-        benchmark_registry=reference_context.registry,
-        reference_identity=reference_context.identity,
-        peer_member_ids=reference_context.peer_member_ids,
-        cash_observation_time=session.snapshot.benchmark_reference_decision_time,
-    )
+    from etf_cockpit.application.score_views import snapshot_scores
+
+    scores = snapshot_scores(session.snapshot)
     with session.activity_publication():
         path = write_simple_scoreboard(scores)
     try:

@@ -166,7 +166,9 @@ def test_s1_07_equal_partial_fill_actions_not_silently_dropped(tmp_path: Path) -
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     state.application_api = type(state.application_api)(lambda: state.snapshot, root=tmp_path)
     rendered = operations_page(None, state)
+    rendered.chrome.segment_groups[0].on_change("Paper ledger")
     controls = {getattr(item, "key", None): item for item in _walk(rendered)}
+    controls["operations.paper-account-id"].value = ledger.account_id
     controls["operations.paper-order-id"].value = str(order["order_id"])
     controls["operations.paper-fill-quantity"].value = "5"
     controls["operations.paper-fill-price"].value = "10"

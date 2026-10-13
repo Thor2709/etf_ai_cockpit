@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import date, datetime, time, timezone
+from functools import lru_cache
 import hashlib
 import json
 import math
@@ -65,7 +66,7 @@ def compose_etf_decision(
     comparison_groups: Mapping[str, Mapping[str, str]] | Mapping[str, str] | None = None,
     registry_path: str | Path = _DEFAULT_REGISTRY_PATH,
     minimum_support: int = 3,
-    strict_exposure_peers: bool = False,
+    strict_exposure_peers: bool = True,
 ) -> InstrumentDecisionAssessment:
     """Compose an ETF assessment from canonical local evidence.
 
@@ -84,6 +85,26 @@ def compose_etf_decision(
     vehicle_registry, exposure_registry, checksum = _load_etf_registries(registry_path)
     vehicle_metrics = dict(vehicle_metrics or {})
     structural_metrics = dict(structural_metrics or {})
+    vehicle_rank_peers = list(peer_observations)
+    exposure_rank_peers = list(exposure_peer_observations)
+    if strict_exposure_peers:
+        scoped_groups = comparison_groups
+        if comparison_groups is not None and any(
+            isinstance(value, Mapping) for value in comparison_groups.values()
+        ):
+            scoped_groups = comparison_groups.get("ETF_EXPOSURE_PEERS")
+        scoped_groups = scoped_groups if isinstance(scoped_groups, Mapping) else {}
+        target_group = scoped_groups.get(target_context.instrument_id)
+        vehicle_rank_peers = [
+            item
+            for item in vehicle_rank_peers
+            if target_group and scoped_groups.get(item.instrument_id) == target_group
+        ]
+        exposure_rank_peers = [
+            item
+            for item in exposure_rank_peers
+            if target_group and scoped_groups.get(item.instrument_id) == target_group
+        ]
     vehicle_evidence = _vehicle_scored_metrics(
         vehicle_registry,
         etf_economics,
@@ -104,7 +125,7 @@ def compose_etf_decision(
                 try:
                     construct_cohort(
                         target_context,
-                        peer_observations,
+                        vehicle_rank_peers,
                         metric=item.metric_id,
                         effective_at=decision_time,
                         decision_time=decision_time,
@@ -140,7 +161,7 @@ def compose_etf_decision(
                 try:
                     construct_cohort(
                         target_context,
-                        exposure_peer_observations,
+                        exposure_rank_peers,
                         metric=item.metric_id,
                         effective_at=decision_time,
                         decision_time=decision_time,
@@ -166,7 +187,7 @@ def compose_etf_decision(
         vehicle_evidence,
         vehicle_registry,
         target_context=target_context,
-        peer_observations=peer_observations,
+        peer_observations=vehicle_rank_peers,
         comparison_groups=comparison_groups,
         minimum_support=minimum_support,
     )
@@ -210,7 +231,7 @@ def compose_etf_decision(
             exposure_evidence,
             exposure_registry,
             target_context=target_context,
-            peer_observations=exposure_peer_observations,
+            peer_observations=exposure_rank_peers,
             comparison_groups=comparison_groups,
             minimum_support=minimum_support,
         )
@@ -292,7 +313,15 @@ def compose_etf_decision(
 def _load_etf_registries(
     path: str | Path,
 ) -> tuple[DomainRegistry, DomainRegistry, str]:
-    content = Path(path).read_bytes()
+    return _etf_registries_for_content(Path(path).read_bytes())
+
+
+@lru_cache(maxsize=8)
+def _etf_registries_for_content(
+    content: bytes,
+) -> tuple[DomainRegistry, DomainRegistry, str]:
+    """Parse once per distinct file content (frozen result; exceptions are never cached)."""
+
     parsed = yaml.safe_load(content.decode("utf-8"))
     graph = parsed.get("etf_decision_graph") if isinstance(parsed, Mapping) else None
     if not isinstance(graph, Mapping):

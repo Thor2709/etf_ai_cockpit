@@ -6,9 +6,20 @@ Helpers that need pandas live in :mod:`etf_cockpit.core.pandas_values`.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
+from datetime import date
 from numbers import Real
 
+
+
+def years_before(value: date, years: int) -> date:
+    """Return the same calendar day ``years`` earlier, clamping leap day to February 28."""
+
+    target_year = value.year - years
+    try:
+        return value.replace(year=target_year)
+    except ValueError:
+        return value.replace(month=2, day=28, year=target_year)
 
 
 def finite_float_or_none(value: object) -> float | None:
@@ -16,9 +27,16 @@ def finite_float_or_none(value: object) -> float | None:
 
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     return number if math.isfinite(number) else None
+
+
+def all_finite_or_none(values: Iterable[object]) -> tuple[float, ...] | None:
+    """Return every item as a finite float, or None when any single item is missing or not finite."""
+
+    numbers = tuple(finite_float_or_none(value) for value in values)
+    return None if any(number is None for number in numbers) else numbers  # type: ignore[return-value]
 
 
 def finite_non_bool_float_or_none(value: object) -> float | None:

@@ -1,0 +1,14 @@
+ROOT CAUSES: Sign-based optional probabilities; annualised optional volatility versus baseline horizon sigma; compressed TimesFM session gaps; unchecked predicted levels; global score availability.
+CHANGES: One shared row-CDF interpolation at zero, clamped to outer supplied probabilities; missing/crossing/non-finite quantiles yield None. TimesFM 2.5/3.0 and live Toto use it.
+CHANGES: Horizon log-return sigma = (q90-q10)/2/1.2816; baseline/mock interval widths aligned; uniform horizon-unit benchmark probability with overflow-safe sigmoid.
+CHANGES: Own price rows preserve explicit NaNs; certified instrument calendars restore missing sessions and exclude closures. Identity mismatch, uncovered history, conflicting observations and ambiguous grids fail unavailable.
+CHANGES: Official TimesFM APIs preserve/interpolate NaN positions; Transformers NaN context fails unavailable. Invalid point/native quantile levels fail unavailable; TimesFM rows label median and distribution availability.
+CHANGES: Per-instrument finite-component renormalisation; model_missing provenance; complete rows retain scores. Core types, optional score eligibility defaults and configured weights unchanged.
+TESTS: Required combined command plus all test_*scoring*.py: 89 passed, 0 failed, 0 skipped; logs/work-w-validation.xml. All 22 new weight-free regressions pass.
+TESTS: Exact fix/work-V baseline selected parity suite: 10 passed. Runtime-attested reviewer and risk_reviewer approved source/tests after one consolidated calendar/dtype correction.
+GOLDENS (+why): Refreshed only with ETF_REFRESH_REFACTOR_GOLDENS=1; optional_models (CDF/sigma/intervals/labels), persisted_schema (forecast fields), backtest (finite signal scores), snapshot (corrected signal score/order).
+GOLDENS (+why): Exact-base parity passed; unaffected sections and scoreboard remain unchanged. Refresh-mode failures were intentional; final run had refresh disabled. No assertions or gates weakened.
+OWNER-COPY RESULT: Forecasts ran once, exit 0, date 2026-10-09, 324 rows: baseline 80 ok/1 unavailable; TimesFM 2.5 0 ok/81 unavailable; TimesFM 3.0 0 ok/81 unavailable; Toto 0 ok/81 unavailable.
+OWNER-COPY RESULT: Each TimesFM has 80 unavailable session grids lacking certified calendar evidence and 1 missing checkpoint. Signals exit 1: WinError 123 at .owner-root/models/timesfm; blocked_by counts unavailable because generation aborted.
+OPEN: Read-only models junction target is malformed (C:\C:\Users\thor2\Desktop\Trading App\etf_ai_cockpit\models\); left untouched. Live-weight acceptance and owner blocked_by counts remain unverified; no NEEDS_OPUS_DECISION (official NaN interpolation exists).
+BASE: fix/work-V / 0ffcb5a566db367fe6354cc549aade42be21bd37; delivery on fix/work-W is commit-only. execution_allowed=false; no packages installed, external publication or model-directory writes.

@@ -22,7 +22,10 @@ def model_availability(
         "toto": any(status.model_name == "toto" and status.live_ready for status in inventory),
     }
     reasons: dict[str, str | None] = {"timesfm": None, "toto": None}
-    for model_name in ("timesfm", "toto"):
+    if "timesfm3" in config.models.models:
+        availability["timesfm3"] = any(status.model_name == "timesfm3" and status.live_ready for status in inventory)
+        reasons["timesfm3"] = None
+    for model_name in reasons:
         status = next((item for item in inventory if item.model_name == model_name), None)
         if not availability[model_name] and status is not None:
             reasons[model_name] = status.message
@@ -35,7 +38,7 @@ def model_availability(
         registry = LocalTrainingRegistry(ROOT)
     try:
         registered_models = registry.list_records("training.model")
-        for model_name in ("timesfm", "toto"):
+        for model_name in reasons:
             matching = [
                 model
                 for model in registered_models
@@ -50,7 +53,7 @@ def model_availability(
                     break
     except Exception as exc:
         reason = f"registered model integrity is unavailable: {type(exc).__name__}: {exc}"
-        for model_name in ("timesfm", "toto"):
+        for model_name in reasons:
             availability[model_name] = False
             reasons[model_name] = reason
     availability["reasons"] = reasons

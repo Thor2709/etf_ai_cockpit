@@ -79,6 +79,29 @@ def storage_layout(root: Path) -> StorageLayout:
     return StorageLayout(Path(root).resolve())
 
 
+def transactional_store_initialized(root: Path) -> bool:
+    """Return whether an existing store has its transactional schema marker."""
+
+    path = storage_layout(root).transactional_path
+    if not path.is_file():
+        return False
+    try:
+        connection = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+        try:
+            tables = {
+                str(row[0])
+                for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            }
+            if "schema_migrations" not in tables or "transactional_records" not in tables:
+                return False
+            marker = connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
+            return marker is not None and int(marker[0] or 0) > 0
+        finally:
+            connection.close()
+    except sqlite3.DatabaseError as exc:
+        raise StorageSchemaError(f"transactional store schema marker is unreadable: {exc}") from exc
+
+
 def connect_storage(root: Path) -> sqlite3.Connection:
     layout = storage_layout(root)
     layout.transactional_path.parent.mkdir(parents=True, exist_ok=True)

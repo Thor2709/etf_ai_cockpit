@@ -311,13 +311,16 @@ def test_valuation_missing_decision_time_does_not_load(monkeypatch, cutoff) -> N
     ("value", float("inf")), ("value", float("nan")), ("value", True),
     ("end", ["2025-12-31"]), ("end", "not-a-date"),
 ])
-def test_valuation_invalid_selected_evidence_blocks_panel(monkeypatch, field, bad_value) -> None:
+def test_valuation_invalid_selected_evidence_blocks_panel(tmp_path, monkeypatch, field, bad_value) -> None:
     from etf_cockpit.application import instrument_detail_view as selector
 
     valid = {"instrument_id": "ACME", "canonical_metric": "net_income", "value": 10.0,
              "available_at": "2026-01-01", "filed": "2026-01-01", "end": "2025-12-31", "source_id": "known"}
     bad = valid | {"canonical_metric": "market_cap", "value": 100.0, field: bad_value}
     frame = pd.DataFrame([valid, bad])
+    path = tmp_path / "statements.parquet"
+    path.touch()
+    monkeypatch.setattr(selector, "STATEMENT_FACTS_PATH", path)
     monkeypatch.setattr("pandas.read_parquet", lambda *_args: frame)
     panel = selector._valuation_panel("ACME", "stock", "2026-07-01T12:00:00Z")
     assert panel["status"] == "unavailable"
@@ -650,8 +653,9 @@ def test_instrument_detail_missing_or_corrupt_optional_stores_are_explicitly_una
 def test_instrument_detail_reads_holdings_csv_mirror_when_parquet_is_unavailable(tmp_path, monkeypatch) -> None:
     import etf_cockpit.application.instrument_detail_view as selector
 
-    parquet_path = tmp_path / "fund_holdings.parquet"
-    csv_path = tmp_path / "fund_holdings.csv"
+    parquet_path = tmp_path / "data" / "clean" / "fund_holdings.parquet"
+    parquet_path.parent.mkdir(parents=True)
+    csv_path = parquet_path.with_suffix(".csv")
     pd.DataFrame(
         [{
             "instrument_id": "VWCE",
@@ -667,6 +671,8 @@ def test_instrument_detail_reads_holdings_csv_mirror_when_parquet_is_unavailable
         }]
     ).to_csv(csv_path, index=False)
     monkeypatch.setattr(selector, "FUND_HOLDINGS_PATH", parquet_path)
+    original_load = selector.load_direct_holdings
+    monkeypatch.setattr(selector, "load_direct_holdings", lambda: original_load(root=tmp_path))
 
     model = build_instrument_detail(_snapshot_copy(), "VWCE")
 
@@ -1177,9 +1183,9 @@ def test_fundamentals_panel_renders_complete_five_section_provenance() -> None:
     assert "valuation=7.0" in text
     assert "period_end" in text
     assert as_of in text
-    assert "source_id: sec-filing-2026-q2" in text
-    assert "freshness_status: fresh" in text
-    assert "execution_allowed: False" in text
+    assert "source_id=sec-filing-2026-q2" in text
+    assert "freshness_status=fresh" in text
+    assert "execution_allowed=False" in text
 
 
 def test_fundamentals_panel_fails_closed_without_section_source_and_period() -> None:
@@ -1297,7 +1303,7 @@ def test_instrument_detail_exposes_functional_export_control_and_disabled_state(
     export = next(item for item in _walk(control) if getattr(item, "key", "") == "instrument-detail.export-evidence")
 
     assert export.disabled is False
-    assert getattr(export, "content", "") == "Export audit evidence"
+    assert export.content.value == "Export audit evidence"
     export.on_click(None)
     assert calls == [True]
     rendered = "\n".join(_text_values(control))
@@ -1840,12 +1846,14 @@ def test_detail_disclosure_keeps_every_record_and_bounds_scroll():
 
     records = [{"source_id": f"source-{index}", "value": index} for index in range(200)]
     rendered = _render_evidence_section("Complete history", {"status": "available", "history": records})
-    assert isinstance(rendered, ft.ExpansionTile)
-    assert rendered.title.value == "Complete history"
-    assert rendered.subtitle.value == "available"
-    assert rendered.expanded is False and rendered.maintain_state is True
+    assert rendered.data["kit"] == "GlassCard"
+    assert rendered.data["title"] == "Complete history"
+    disclosure = next(item for item in _walk(rendered) if isinstance(getattr(item, "data", None), dict) and item.data.get("label") == "Evidence records")
+    assert disclosure.controls[1].visible is False
+    disclosure.controls[0].on_click(None)
+    assert disclosure.controls[1].visible is True
     text = "\n".join(_text_values(rendered))
-    assert all(f"source_id=source-{index} | value={index}" in text for index in range(200))
+    assert all(f"source_id=source-{index}, value={index}" in text for index in range(200))
     assert any(isinstance(control, ft.Column) and control.height == 320 for control in _walk(rendered))
 
 

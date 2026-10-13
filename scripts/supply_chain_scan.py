@@ -18,7 +18,7 @@ if str(ROOT / "src") not in sys.path:
 
 try:
     from scripts.release_gate import build_sbom, build_source_manifest, canonical_json, dependency_snapshot
-except ModuleNotFoundError:
+except ImportError:  # also pywin32's top-level 'scripts' namespace
     from release_gate import build_sbom, build_source_manifest, canonical_json, dependency_snapshot
 
 from etf_cockpit.governance.supply_chain_intake import supply_chain_intake_report  # noqa: E402

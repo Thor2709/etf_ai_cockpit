@@ -96,15 +96,29 @@ def test_data_health_ui_names_cache_provenance_and_failure_columns() -> None:
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
     page = type("Page", (), {"route": "/data-health", "update": lambda self: None})()
-    values = set(value for value in _text_values(data_health_page(page, state)) if value)
-    assert {"Data Health", "Dataset", "Path", "Checksum", "Last success", "Last failure"} <= values
+    dialogs = []
+    page.open = dialogs.append
+    rendered = data_health_page(page, state)
+    values = set(value for value in _text_values(rendered) if value)
+    values.add(rendered.chrome.title)
+    def walk(node):
+        yield node
+        for child in getattr(node, "controls", ()) or ():
+            yield from walk(child)
+        if getattr(node, "content", None) is not None:
+            yield from walk(node.content)
+    row = next(node for node in walk(rendered) if isinstance(getattr(node, "data", None), dict) and node.data.get("kit") == "DataTableRow")
+    row.on_click(None)
+    detail = "\n".join(_text_values(dialogs[-1]))
+    assert all(label + ":" in detail for label in ("Path", "Checksum", "Last success", "Last failure"))
+    assert {"data health", "dataset", "checksum", "last success / failure"} <= {value.casefold() for value in values}
     assert "Bulk source cache" in values
     assert any("network_calls=false" in value for value in values)
-    assert {"Filter status", "Filter dataset", "Filter provider", "Provider status", "Filings", "ETF", "Errors"} <= values
+    assert {label.casefold() for label in ("Filter status", "Filter dataset", "Filter provider", "Provider status", "Filings", "ETF", "Errors")} <= {value.casefold() for value in values}
     assert "Anomaly rules and quarantine" in values
-    assert any("rule coverage=" in value for value in values)
+    assert any("rule coverage:" in value.casefold() for value in values)
     assert any("pass=" in value and "quarantine=" in value and "block=" in value for value in values)
-    assert any("blocked downstream=" in value and "corrections=" in value for value in values)
+    assert any("blocked downstream " in value and "corrections " in value for value in values)
     assert any("execution_allowed=false" in value for value in values)
 
 
@@ -128,7 +142,13 @@ def test_data_health_export_failure_is_visible_and_refreshes_page(monkeypatch) -
 
     assert state.last_message == "Data health export failed: OSError: disk full"
     assert updates
-    feedback = next(control for control in rendered.controls[0].content.controls if getattr(control, "value", "") == state.last_message)
+    def walk(node):
+        yield node
+        for child in getattr(node, "controls", ()) or ():
+            yield from walk(child)
+        if getattr(node, "content", None) is not None:
+            yield from walk(node.content)
+    feedback = next(control for control in walk(rendered) if getattr(control, "value", "") == state.last_message)
     assert feedback.color == theme.RED
 
 

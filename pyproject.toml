@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "etf-ai-cockpit"
-version = "0.1.0rc1"
+version = "1.1.0b1"
 description = "Private local-first investment research and decision-support cockpit."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Local project" }]
 dependencies = [
-  "flet>=0.28",
-  "flet-web>=0.85",
+  "flet>=0.28,<1.0",
+  "flet-web>=0.85,<1.0",
   "pandas>=2.2",
   "numpy>=1.26",
   "pyarrow>=15",
@@ -44,14 +44,19 @@ parsers = [
   "feedparser>=6.0.11,<7"
 ]
 models = [
-  "torch>=2.4.0",
-  "safetensors>=0.5.3",
-  "huggingface-hub>=0.23.0",
-  "transformers>=4.57.0",
-  "einops>=0.7.0",
-  "gluonts[torch]>=0.16.0",
-  "jaxtyping>=0.2.25",
-  "dd-unit-scaling>=0.1.0"
+  # Keep in step with requirements-models.txt (exact verified pins live there).
+  "torch>=2.11,<2.13",
+  "safetensors>=0.8,<0.9",
+  "huggingface-hub>=1.27,<2",
+  "transformers>=5.15,<6",
+  "timesfm==3.0.2",
+  "toto-2==2.0.0; python_version >= '3.12'",  # toto-2 requires Python 3.12+
+  "einops>=0.8,<0.9",
+  "gluonts[torch]>=0.17,<0.18",
+  "jaxtyping>=0.3,<0.4",
+  "dd-unit-scaling>=0.1.0,<0.2",
+  "rotary-embedding-torch>=0.9,<0.10",
+  "lightning>=2.6.6,<2.7"
 ]
 
 [tool.setuptools.packages.find]
@@ -59,7 +64,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "etf_cockpit.resources" = ["benchmark_reference_registry.json"]
-"etf_cockpit.app" = ["assets/icons/*.png"]
+"etf_cockpit.app" = ["assets/icons/*.png", "assets/fonts/*", "assets/background/*", "assets/globe/*", "assets/geo/*"]
 
 [tool.setuptools.data-files]
 "configs" = ["configs/ui_acceptance.yaml"]

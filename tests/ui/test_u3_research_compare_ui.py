@@ -5,10 +5,14 @@ from types import SimpleNamespace
 import flet as ft
 
 from etf_cockpit.app.pages import comparison, strategy_builder
+from etf_cockpit.app.components.shell.page_view import PageView
 
 
 def _walk(control):
     yield control
+    page_body = getattr(control, "body", None)  # PageView wraps the page body
+    if page_body is not None and page_body is not control:
+        yield from _walk(page_body)
     for attr in ("content", "controls"):
         child = getattr(control, attr, None)
         if child is None:
@@ -56,8 +60,9 @@ def test_strategy_builder_cards_have_stable_keys_and_status_tags(tmp_path, monke
     page = SimpleNamespace(update=lambda: None)
     state = SimpleNamespace(snapshot=SimpleNamespace(signals=()))
     content = strategy_builder.strategy_builder_page(page, state)
-    keys = {getattr(c, "key", None) for c in _walk(content)}
+    assert isinstance(content, PageView)
+    keys = {getattr(c, "key", None) for c in _walk(content.body)}
     assert any(str(k).startswith("strategy-builder.card.") for k in keys)
     assert any(str(k).startswith("strategy-builder.status.") for k in keys)
     assert "strategy-builder.template.*" in keys
-    assert isinstance(content, ft.Column)
+    assert isinstance(content.body, ft.Column)

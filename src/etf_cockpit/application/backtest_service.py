@@ -534,6 +534,7 @@ class BacktestService:
                 structural_hashes,
                 structure_evidence,
                 self.config.universe.enabled_ids,
+                config=self.config,
             ):
                 return None
             if metadata.get("input_checksum") != backtest_input_checksum(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from functools import lru_cache
 import hashlib
 import json
 import math
@@ -12,6 +13,8 @@ from typing import Mapping, Sequence
 
 import yaml
 
+from etf_cockpit.core.paths import CONFIG_DIR
+
 from etf_cockpit.analysis.decision.contracts import (
     DecisionDriver,
     OpportunityBenchmarkRank,
@@ -19,9 +22,7 @@ from etf_cockpit.analysis.decision.contracts import (
 )
 
 
-_DEFAULT_CONFIG = (
-    Path(__file__).resolve().parents[4] / "configs" / "decision_opportunity_v1.yaml"
-)
+_DEFAULT_CONFIG = CONFIG_DIR / "decision_opportunity_v1.yaml"
 _RANKER_NAMES = ("v3", "Q", "V", "M", "R", "QV", "QVM", "five_factor")
 
 
@@ -51,7 +52,13 @@ def load_opportunity_policy(path: str | Path = _DEFAULT_CONFIG) -> OpportunityPo
     are policy choices, not estimated thresholds.
     """
 
-    content = Path(path).read_bytes()
+    return _opportunity_policy_for_content(Path(path).read_bytes())
+
+
+@lru_cache(maxsize=8)
+def _opportunity_policy_for_content(content: bytes) -> OpportunityPolicy:
+    """Parse once per distinct file content (frozen result; exceptions are never cached)."""
+
     parsed = yaml.safe_load(content.decode("utf-8"))
     if not isinstance(parsed, Mapping) or parsed.get("schema_version") != 1:
         raise ValueError("opportunity policy requires schema_version 1")

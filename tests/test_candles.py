@@ -210,7 +210,7 @@ def test_instrument_detail_renders_candle_evidence_section(monkeypatch: pytest.M
     monkeypatch.setattr(instrument_detail_page_module, "build_instrument_detail", lambda *_args, **_kwargs: model)
     monkeypatch.setattr(instrument_detail_page_module, "bitemporal_history_summary", lambda _instrument_id: {"status": "unavailable"})
     monkeypatch.setattr(instrument_detail_page_module, "contradiction_digest_records", lambda *_args, **_kwargs: [])
-    monkeypatch.setattr(instrument_detail_page_module, "_instrument_alerts_panel", lambda _instrument_id: ft.Text("alerts"))
+    monkeypatch.setattr(instrument_detail_page_module, "_instrument_alerts_panel", lambda _model, _state: ft.Text("alerts"))
     monkeypatch.setattr(instrument_detail_page_module, "_render_feature_driver_panel", lambda _value: ft.Text("drivers"))
     monkeypatch.setattr(instrument_detail_page_module, "_render_crowding_attribution_panel", lambda _value: ft.Text("crowding"))
     monkeypatch.setattr(instrument_detail_page_module, "render_etf_disclosure_panel", lambda _model: ft.Text("disclosure"))

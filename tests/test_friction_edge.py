@@ -120,9 +120,9 @@ def test_friction_adjusted_return_rejects_mismatched_cost_basis_and_fractional_h
 def test_forecast_return_distribution_aggregates_allowed_model_quantiles() -> None:
     forecasts = pd.DataFrame(
         [
-            {"model_name": "baseline", "etf_id": "VWCE", "horizon_days": 60, "expected_return": 0.05, "q10_return": -0.03, "q50_return": 0.05, "q90_return": 0.13, "status": "ok", "model_allowed_in_score": True},
-            {"model_name": "timesfm", "etf_id": "VWCE", "horizon_days": 60, "expected_return": 0.07, "q10_return": -0.01, "q50_return": 0.07, "q90_return": 0.15, "status": "ok", "model_allowed_in_score": True},
-            {"model_name": "toto", "etf_id": "VWCE", "horizon_days": 60, "expected_return": 0.50, "q10_return": 0.40, "q50_return": 0.50, "q90_return": 0.60, "status": "ok", "model_allowed_in_score": False},
+            {"forecast_date": "2026-01-02", "model_name": "baseline", "etf_id": "VWCE", "horizon_days": 60, "expected_return": 0.05, "q10_return": -0.03, "q50_return": 0.05, "q90_return": 0.13, "status": "ok", "model_allowed_in_score": True},
+            {"forecast_date": "2026-01-02", "model_name": "timesfm", "etf_id": "VWCE", "horizon_days": 60, "expected_return": 0.07, "q10_return": -0.01, "q50_return": 0.07, "q90_return": 0.15, "status": "ok", "model_allowed_in_score": True},
+            {"forecast_date": "2026-01-02", "model_name": "toto", "etf_id": "VWCE", "horizon_days": 60, "expected_return": 0.50, "q10_return": 0.40, "q50_return": 0.50, "q90_return": 0.60, "status": "ok", "model_allowed_in_score": False},
         ]
     )
 

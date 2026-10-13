@@ -493,7 +493,7 @@ def _liquidity_adjusted_risk(prices: pd.DataFrame, allocation: pd.DataFrame | No
     frame["volume"] = pd.to_numeric(frame["volume"], errors="coerce")
     frame["dollar_volume"] = frame["adjusted_close"] * frame["volume"]
     average = frame.groupby("etf_id")["dollar_volume"].mean().reindex(returns.columns)
-    if average.isna().any() or (average <= 0).any():
+    if not np.isfinite(average.to_numpy(dtype=float)).all() or (average <= 0).any():
         return {"status": "unavailable", "message": "At least one instrument lacks a positive average traded-value proxy."}
     pressure = weights / np.maximum(average.to_numpy(float), 1e-12)
     multiplier = float(np.sqrt(1.0 + np.mean(np.clip(pressure * 10_000.0, 0.0, 100.0))))

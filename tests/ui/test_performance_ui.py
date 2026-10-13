@@ -7,6 +7,9 @@ from etf_cockpit.application.snapshot_builder import build_snapshot
 
 def _walk(control):
     yield control
+    page_body = getattr(control, "body", None)
+    if page_body is not None and page_body is not control:
+        yield from _walk(page_body)
     for child in getattr(control, "controls", []) or []:
         yield from _walk(child)
     content = getattr(control, "content", None)

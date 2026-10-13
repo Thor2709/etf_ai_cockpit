@@ -698,8 +698,11 @@ def identity_master_exists(root: Path) -> bool:
     """Return whether a root already contains an identity-master marker.
 
     The check is read-only so a presentation read never creates a database or
-    mutates an unrelated transactional store.  An unreadable existing store is
-    an explicit error rather than permission to fall back to stale evidence.
+    mutates an unrelated transactional store. A valid transactional database
+    without an identity-master marker has not been initialised for identity
+    data, so callers may use the parquet projection fallback. An unreadable
+    existing store remains an explicit error rather than permission to fall
+    back to stale evidence.
     """
 
     path = storage_layout(root).transactional_path
@@ -720,9 +723,7 @@ def identity_master_exists(root: Path) -> bool:
                 (_META_TYPE, _META_ID),
             ).fetchone()
             if marker is None:
-                raise IdentityMasterSchemaError(
-                    "identity master store exists without its schema marker"
-                )
+                return False
             return True
         finally:
             connection.close()

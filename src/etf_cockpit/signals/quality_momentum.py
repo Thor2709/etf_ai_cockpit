@@ -148,6 +148,7 @@ def quality_momentum_weights(
     score_column = {"quality": "quality_score", "momentum": "momentum_score", "quality_momentum": "composite_score"}[mode]
     usable = evidence.loc[evidence["status"] == "available", ["instrument_id", score_column]].copy()
     usable[score_column] = pd.to_numeric(usable[score_column], errors="coerce")
+    usable = usable[usable["instrument_id"].isin(weights.index)]
     usable = usable[usable[score_column].notna() & usable[score_column].map(math.isfinite)]
     if usable.empty or float(usable[score_column].sum()) <= 0:
         return weights

@@ -39,7 +39,26 @@ def test_scoreboard_golden_is_not_vacuous(pipeline_capture: dict[str, object]) -
     ranks = [rank for rank in objects["rank"] if rank is not None]
     assert ranks == list(range(1, len(ranks) + 1))
     assert any(value is not None for value in objects["final_score_10"])
-    # Unranked instruments carry no components and no score at the base.
+    # Unranked instruments are the Sparebank equity certificates, which sit outside the ordinary cohort. Everything
+    # else unranked carries no components. A native-scorecard row (decision "Sparebank scorecard") is scored by the
+    # scorecard itself and has no ordinary components; a row below the scorecard evidence floor (decision "Sparebank
+    # scorecard pending") shows the labelled generic stock score, so it must carry a full ordinary component set.
+    decisions = columns["decision"]
+    unranked = [
+        (index, components)
+        for index, (rank, components) in enumerate(zip(objects["rank"], objects["components"], strict=True))
+        if rank is None
+    ]
     assert all(len(components) >= 5 for rank, components in zip(objects["rank"], objects["components"], strict=True) if rank is not None)
-    assert all(len(components) == 0 for rank, components in zip(objects["rank"], objects["components"], strict=True) if rank is None)
+    for index, components in unranked:
+        decision = decisions[index]
+        if decision == "Sparebank scorecard":
+            assert len(components) == 0, objects["order"][index]
+        elif decision == "Sparebank scorecard pending":
+            assert columns["analysis_tier"][index] == "sparebanken", objects["order"][index]
+            assert len(components) >= 5, objects["order"][index]
+            assert objects["final_score_10"][index] is not None, objects["order"][index]
+        else:
+            assert len(components) == 0, objects["order"][index]
+    assert all(columns["analysis_tier"][index] == "sparebanken" for index, _ in unranked)
     assert len(ranks) >= 40

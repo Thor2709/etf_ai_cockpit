@@ -23,6 +23,7 @@ from etf_cockpit.core.constants import TRADING_DAYS_PER_YEAR
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.core.types import DataQualityReport
+from etf_cockpit.core.values import finite_float_or_none
 from etf_cockpit.data.validation import validate_prices
 from etf_cockpit.data.provenance import sha256_dataframe
 from etf_cockpit.data.market_calendar import (
@@ -31,7 +32,7 @@ from etf_cockpit.data.market_calendar import (
     MarketCalendarService,
     MarketClockError,
 )
-from etf_cockpit.data.etf_structure import structure_confidence_caps, structure_input_checksum
+from etf_cockpit.data.etf_structure import structure_cap_scope, structure_confidence_caps, structure_input_checksum
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
 from etf_cockpit.portfolio.costs import COST_MODEL_ID, CostEstimate, estimate_rebalance_cost
 from etf_cockpit.portfolio.benchmark_reference_contract import (
@@ -81,6 +82,10 @@ class BacktestReport:
         rows = self.metadata.get("operational_evidence_rows", [])
         if not isinstance(rows, list):
             return pd.DataFrame()
+        # Built once per rows list (callers ask once per instrument); each caller gets its own copy.
+        cached = self.__dict__.get("_operational_evidence_cache")
+        if cached is not None and cached[0] is rows and cached[1] == len(rows):
+            return cached[2].copy()
         if any(not isinstance(row, Mapping) for row in rows):
             return pd.DataFrame()
         frame = pd.DataFrame([dict(row) for row in rows])
@@ -94,6 +99,7 @@ class BacktestReport:
                     [row.get(field_name) for row in rows],
                     dtype=object,
                 )
+        self.__dict__["_operational_evidence_cache"] = (rows, len(rows), frame.copy())
         return frame
 
 
@@ -152,6 +158,33 @@ def quality_momentum_evidence_checksum(evidence: pd.DataFrame | bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+MIN_INSTRUMENT_HISTORY_SESSIONS = 260
+
+
+def _exclude_late_listed_short_history(pivot: pd.DataFrame, columns: list[str]) -> tuple[list[str], tuple[str, ...]]:
+    """Leave out instruments that started trading late and lack one year of sessions.
+
+    Only late listings are dropped: an instrument whose history starts with the
+    window but stops early (for example a delisting) stays in, so the complete-
+    session rule still fails closed instead of hiding survivorship gaps.
+    """
+    if not columns:
+        return columns, ()
+    observed = pivot[columns].notna()
+    counts = observed.sum()
+    first_seen = observed.idxmax()
+    window_start = first_seen.min()
+    short = [
+        column
+        for column in columns
+        if int(counts[column]) < MIN_INSTRUMENT_HISTORY_SESSIONS and first_seen[column] > window_start
+    ]
+    if len(short) == len(columns):
+        return columns, ()
+    kept = [column for column in columns if column not in short]
+    return kept, tuple(short)
+
+
 def _price_pivot(prices: pd.DataFrame) -> pd.DataFrame:
     if not isinstance(prices, pd.DataFrame) or prices.empty:
         raise BacktestDataUnavailableError("not_enough_data: no price rows were supplied")
@@ -162,6 +195,10 @@ def _price_pivot(prices: pd.DataFrame) -> pd.DataFrame:
     frame = prices.copy()
     frame["date"] = pd.to_datetime(frame["date"])
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
+    invalid = ~np.isfinite(frame["adjusted_close"].to_numpy(dtype=float)) | frame["adjusted_close"].le(0).to_numpy()
+    if invalid.any():
+        row = frame.loc[invalid].iloc[0]
+        raise BacktestDataUnavailableError(f"invalid_price_data: {row['etf_id']} {row['date']}")
     return frame.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index().dropna(how="all")
 
 
@@ -1049,6 +1086,14 @@ def run_backtest(
     benchmark_registry: CanonicalBenchmarkRegistry | None = None,
     calendar_identity_resolver: Callable[[str, object], Mapping[str, object] | None] | None = None,
 ) -> BacktestReport:
+    if isinstance(rebalance_frequency_days, bool) or not isinstance(rebalance_frequency_days, int) or rebalance_frequency_days < 1:
+        raise ValueError("rebalance_frequency_days must be an integer of at least 1")
+    initial_value = finite_float_or_none(initial_value_eur)
+    if initial_value is None or initial_value <= 0:
+        raise ValueError("initial_value_eur must be finite and greater than 0")
+    transaction_cost = finite_float_or_none(transaction_cost_bps)
+    if transaction_cost_bps is not None and (transaction_cost is None or transaction_cost < 0):
+        raise ValueError("transaction_cost_bps must be finite and non-negative")
     validate_execution_disabled(benchmark_reference or unavailable_reference_projection())
     validate_execution_disabled(reference_identity or {})
     calculation_window = _declared_calculation_window(reference_identity)
@@ -1073,7 +1118,9 @@ def run_backtest(
     columns = [column for column in config.universe.enabled_ids if column in pivot_raw.columns]
     if not columns:
         raise BacktestDataUnavailableError("not_enough_data: no configured instruments have adjusted-close history")
+    columns, short_history_ids = _exclude_late_listed_short_history(pivot_raw, columns)
     selected_raw = pivot_raw.reindex(columns=columns)
+    column_set = set(columns)
     complete_mask = selected_raw.notna().all(axis=1)
     missing_observation_rows = int((~complete_mask).sum())
     pivot = selected_raw.loc[complete_mask].copy()
@@ -1140,6 +1187,13 @@ def run_backtest(
     }
     if missing_observation_rows:
         metadata["data_warning"] = "Incomplete adjusted-price rows were excluded; no forward-fill was applied."
+    metadata["excluded_short_history_instruments"] = list(short_history_ids)
+    if short_history_ids:
+        metadata["data_status"] = "warning"
+        metadata["short_history_warning"] = (
+            f"{len(short_history_ids)} instrument(s) listed later with fewer than {MIN_INSTRUMENT_HISTORY_SESSIONS} "
+            "adjusted-price sessions were left out of this backtest: " + ", ".join(short_history_ids)
+        )
     # The first complete price row is a zero-return warm-up placeholder; it is never traded, and pre-listing rows were excluded above.
     # Holdings accounting aggregates SIMPLE returns across instruments (log returns do not add across assets).
     simple_returns = (pivot / pivot.shift(1) - 1.0).fillna(0.0)
@@ -1375,6 +1429,7 @@ def run_backtest(
                 supplemental_rows=structure_supplemental_rows,
                 holdings=structure_holdings,
                 decision_time=dt.date(),
+                not_applicable_types=structure_cap_scope(config),
             )
             signals = generate_signals(
                 config,
@@ -1390,6 +1445,8 @@ def run_backtest(
             signal_weight = weights["signal_strategy"].copy()
             target = target_weights(config, columns)
             for signal in signals:
+                if signal.etf_id not in column_set:
+                    continue  # disabled/unscorable instruments are outside the backtest universe (and the cache contract)
                 canonical = signal.canonical_score
                 structural_identity = structure_caps.provenance.get(signal.etf_id, {})
                 signal_rows.append(

@@ -221,7 +221,7 @@ class ImportService:
             )
 
             with holdings_store_guard(destination):
-                date_column = _first_column(frame, ("as_of", "as_of_date", "date", "holdings_date", "report_date"))
+                date_column = _first_column(frame, ("as_of_date", "date", "holdings_date", "report_date", "as_of"))
                 instrument_column = _first_column(frame, ("instrument_id", "etf_id", "parent_etf_id", "isin", "fund_isin", "ticker"))
                 if date_column is None or instrument_column is None:
                     raise ValueError("ETF holdings import requires as_of date and instrument identity")
@@ -319,6 +319,20 @@ def _validate_frame(import_type: str, frame: pd.DataFrame) -> tuple[list[str], l
         if weight is not None and (pd.to_numeric(frame[weight], errors="coerce") > 1).any():
             errors.append(f"invalid_weight:{weight}")
     if import_type == "etf_holdings":
+        canonical_dates = None
+        for alias in ("as_of_date", "date", "holdings_date", "report_date", "as_of"):
+            date_column = _first_column(frame, (alias,))
+            if date_column is None:
+                continue
+            dates = pd.to_datetime(frame[date_column], errors="coerce", utc=True, format="mixed").dt.date
+            if dates.isna().any():
+                errors.append(f"invalid_date:{date_column}")
+            if dates.nunique() > 1:
+                errors.append(f"multiple_as_of_dates_not_allowed:{date_column}")
+            if canonical_dates is None:
+                canonical_dates = dates
+            elif not dates.equals(canonical_dates):
+                errors.append(f"conflicting_date_alias:{date_column}")
         instrument_column = _first_column(frame, ("instrument_id", "etf_id", "parent_etf_id", "isin", "fund_isin", "ticker"))
         if instrument_column is not None:
             instrument_values = frame[instrument_column].astype("string").str.strip()

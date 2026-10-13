@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import lru_cache
 import hashlib
 import json
 import math
@@ -161,7 +162,13 @@ def load_domain_registry(
     path: str | Path = "configs/decision_domains_v1.yaml",
 ) -> DomainRegistry:
     registry_path = Path(path)
-    content = registry_path.read_bytes()
+    return _domain_registry_for_content(registry_path.read_bytes())
+
+
+@lru_cache(maxsize=8)
+def _domain_registry_for_content(content: bytes) -> DomainRegistry:
+    """Parse once per distinct file content (frozen result; exceptions are never cached)."""
+
     parsed = yaml.safe_load(content.decode("utf-8"))
     if not isinstance(parsed, dict):
         raise ValueError("decision domain registry must be a mapping")

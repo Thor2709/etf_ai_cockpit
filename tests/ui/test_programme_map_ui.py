@@ -15,10 +15,15 @@ def _walk(control):
     content = getattr(control, "content", None)
     if content is not None:
         yield from _walk(content)
+    body = getattr(control, "body", None)
+    if body is not None:
+        yield from _walk(body)
 
 
 def _text(control) -> str:
-    return "\n".join(str(getattr(item, "value", "") or getattr(item, "text", "")) for item in _walk(control))
+    chrome = getattr(control, "chrome", None)
+    header = [getattr(chrome, "title", ""), getattr(chrome, "subtitle", "")]
+    return "\n".join([*header, *(str(getattr(item, "value", "") or getattr(item, "text", "")) for item in _walk(control))])
 
 
 def test_programme_map_shows_canonical_status_dimensions() -> None:

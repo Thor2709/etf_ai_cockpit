@@ -522,6 +522,9 @@ def test_public_news_context_route_composes_event_calendar_panel(monkeypatch) ->
         value = getattr(node, "value", None)
         if value:
             values.append(str(value))
+        body = getattr(node, "body", None)
+        if body is not None and body is not node:
+            collect(body)
         for child_name in ("controls", "content"):
             children = getattr(node, child_name, None)
             if isinstance(children, (list, tuple)):

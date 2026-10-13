@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import asdict, dataclass, replace
 import hashlib
 import json
 import math
 from pathlib import Path
 import sqlite3
+import threading
 from datetime import date, datetime
 from types import MappingProxyType
 from typing import Mapping
@@ -15,6 +17,7 @@ from typing import Mapping
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes
+from etf_cockpit.core.frame_signature import columns_key
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data.local_storage import (
     StorageRevisionConflict,
@@ -916,10 +919,33 @@ def _overlap_cutoff(raw: str | None) -> datetime | None:
     return parsed.to_pydatetime()
 
 
+_CHECKSUM_CACHE: OrderedDict[tuple[object, ...], str] = OrderedDict()
+_CHECKSUM_CACHE_LOCK = threading.Lock()
+_CHECKSUM_CACHE_SIZE = 16
+
+
 def _prices_checksum(prices: object) -> str:
     if not isinstance(prices, pd.DataFrame):
         return hashlib.sha256(b"unavailable").hexdigest()
     stable = prices.reset_index(drop=True).sort_index(axis=1)
+    # Pure function of the frame content: the same snapshot prices are fingerprinted several times per page.
+    content_key = columns_key(stable, tuple(stable.columns)) if not stable.empty else None
+    key = (tuple(str(column) for column in stable.columns), content_key) if content_key is not None else None
+    if key is not None:
+        with _CHECKSUM_CACHE_LOCK:
+            if key in _CHECKSUM_CACHE:
+                _CHECKSUM_CACHE.move_to_end(key)
+                return _CHECKSUM_CACHE[key]
+    checksum = _prices_checksum_uncached(stable)
+    if key is not None:
+        with _CHECKSUM_CACHE_LOCK:
+            _CHECKSUM_CACHE[key] = checksum
+            while len(_CHECKSUM_CACHE) > _CHECKSUM_CACHE_SIZE:
+                _CHECKSUM_CACHE.popitem(last=False)
+    return checksum
+
+
+def _prices_checksum_uncached(stable: pd.DataFrame) -> str:
     payload = stable.to_json(
         orient="split",
         date_format="iso",
@@ -1463,13 +1489,23 @@ def _filter_knowledge_columns(frame: pd.DataFrame, cutoff: pd.Timestamp) -> pd.D
 
     for column in ("known_at", "available_at", "imported_at", "ingested_at", "retrieved_at", "published_at"):
         if column in result:
-            known = pd.to_datetime(result[column].map(lambda value: _temporal_claim(value, end_of_day=True)), errors="coerce", utc=True)
+            known = pd.to_datetime(_temporal_claims(result[column]), errors="coerce", utc=True)
             eligible = known.notna() & (known <= cutoff)
             if not eligible.all():
                 prior = result.attrs.get("sandbox_binding_warning", "")
                 result.attrs["sandbox_binding_warning"] = (prior + "; " if prior else "") + f"{column} rows excluded: unavailable at cutoff or malformed knowledge"
             result = result.loc[eligible].copy()
     return result
+
+
+def _temporal_claims(values: pd.Series) -> pd.Series:
+    """``_temporal_claim`` (end of day) per row, evaluated once per distinct value."""
+
+    try:
+        resolved = {value: _temporal_claim(value, end_of_day=True) for value in values.drop_duplicates()}
+        return values.map(resolved.get)
+    except TypeError:  # unhashable cell values: fall back to the row-wise definition
+        return values.map(lambda value: _temporal_claim(value, end_of_day=True))
 
 
 def _temporal_claim(value: object, *, end_of_day: bool) -> pd.Timestamp:

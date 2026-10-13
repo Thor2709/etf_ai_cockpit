@@ -199,7 +199,7 @@ def test_what_changed_page_renders_upstream_reasons_and_context(monkeypatch) -> 
         },
     )
 
-    text = "\n".join(_texts(what_changed.what_changed_page(None, SimpleNamespace())))
+    text = "\n".join(_texts(what_changed.what_changed_page(None, SimpleNamespace()).body))
 
     for expected in (
         "Upstream context",

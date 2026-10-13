@@ -33,6 +33,7 @@ import numpy as np
 import yaml
 
 from etf_cockpit.analysis.decision.contracts import OpportunityResult
+from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.core.values import finite_non_bool_float_or_none as _finite, positive_int_or_none as _positive_int
 from etf_cockpit.portfolio.forecast_aggregation import PortfolioForecastSnapshot
 from etf_cockpit.portfolio.goals_constraints import (
@@ -50,7 +51,7 @@ from etf_cockpit.portfolio.risk_profiles import (
 
 
 SELECTION_RUN_ENTITY_TYPE = "top_n_selection_run.v1"
-SELECTION_CONFIG = Path(__file__).resolve().parents[3] / "configs" / "top_n_selection_v1.yaml"
+SELECTION_CONFIG = CONFIG_DIR / "top_n_selection_v1.yaml"
 _ASSET_FAMILIES = ("stock", "etf", "ordinary_fund", "bond")
 _UTILITY_FIELDS = (
     "net_expected_return",

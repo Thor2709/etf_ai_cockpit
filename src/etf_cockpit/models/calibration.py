@@ -512,6 +512,10 @@ def load_forecast_history(directory: Path = FORECASTS_DIR) -> pd.DataFrame:
             continue
         if frame.empty:
             continue
+        # Filesystem write time is conservative for copied legacy files: never infer
+        # creation from their origin or run label. A supplied row timestamp takes precedence.
+        if "created_at" not in frame:
+            frame["created_at"] = pd.Timestamp(path.stat().st_mtime, unit="s", tz="UTC").isoformat()
         frame["source_file"] = str(path)
         frames.append(frame)
     if not frames:
@@ -598,7 +602,7 @@ def evaluate_forecast_calibration(forecasts: pd.DataFrame, prices: pd.DataFrame)
         directional = float(eval_frame["direction_hit"].mean())
         interval_rows = eval_frame[eval_frame["has_interval"] > 0]
         coverage = float(interval_rows["covered"].mean()) if not interval_rows.empty else None
-        score, status, label = _calibration_score_and_label(len(eval_frame), mase, directional)
+        score, status, label = _calibration_score_and_label(len(eval_frame), mase, directional, coverage)
         rows.append(
             {
                 "instrument_id": str(instrument_id),
@@ -670,6 +674,18 @@ def _actual_horizon_return(series: pd.Series, forecast_date: pd.Timestamp, horiz
     return float(np.log(target_price / start_price))
 
 
+def realised_horizon_return(series: pd.Series, forecast_date: pd.Timestamp, horizon_days: int) -> float | None:
+    """Public view of the matured log return used by calibration; None until the target session exists."""
+
+    return _actual_horizon_return(series, forecast_date, horizon_days)
+
+
+def calibration_grade(matured: int, mase: float | None, directional: float, coverage: float | None = None) -> str:
+    """Good requires observed q10-q90 coverage within 0.10 of the nominal 0.80."""
+
+    return _calibration_score_and_label(matured, mase, directional, coverage)[1]
+
+
 def _mase_scale(series: pd.Series, horizon_days: int) -> float:
     clean = series.dropna().sort_index().astype(float)
     log_prices = np.log(clean.where(clean > 0))
@@ -696,11 +712,13 @@ def _pending_row(instrument_id: str, model_name: str, evaluated: int, status: st
     }
 
 
-def _calibration_score_and_label(n: int, mase: float | None, directional: float) -> tuple[float, str, str]:
+def _calibration_score_and_label(n: int, mase: float | None, directional: float, coverage: float | None = None) -> tuple[float, str, str]:
     if n < 3:
         return 4.0, "limited", f"Limited calibration: only {n} matured forecast rows."
-    if mase is not None and mase <= 1.0 and directional >= 0.55:
-        return 8.0, "good", "Good calibration: forecast errors beat the local naive scale and direction is useful."
+    # An 80% central band must achieve 70%-90% empirical coverage to be good.
+    coverage_passes = coverage is not None and isfinite(coverage) and 0.70 <= coverage <= 0.90
+    if mase is not None and mase <= 1.0 and directional >= 0.55 and coverage_passes:
+        return 8.0, "good", "Good calibration: useful point forecasts and q10-q90 coverage within 0.10 of 0.80."
     if mase is not None and mase <= 1.5 and directional >= 0.50:
         return 6.0, "mixed", "Mixed calibration: useful but not yet strong enough for high authority."
     return 3.5, "weak", "Weak calibration: forecast error or direction accuracy is not good enough."

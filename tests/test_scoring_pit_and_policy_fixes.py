@@ -73,9 +73,11 @@ def test_candidate_peer_reference_ignores_future_and_undated_peers() -> None:
 def test_baseline_weight_is_redistributed_from_unavailable_models() -> None:
     config = N(models=N(ensemble={"weights": {"momentum": 0.5, "baseline_ml": 0.25, "timesfm": 0.25}}))
     row = {"etf_id": "X", "score_momentum": 0.0, "score_baseline_ml": 1.0}
-    score = canonical_score_from_signal_row(row, config, "2026-01-01")
-    # timesfm is unavailable: its 0.25 splits 50/50 into momentum and baseline.
-    assert score.legacy_composite_raw == pytest.approx(0.375)
+    unknown = canonical_score_from_signal_row(row, config, "2026-01-01")
+    score = canonical_score_from_signal_row({**row, "price_freshness": "ok"}, config, "2026-01-01")
+    # P04-N012 blocks unknown freshness; with fresh evidence, unavailable
+    # timesfm's 0.25 still splits 50/50 into momentum and baseline.
+    assert (unknown.legacy_composite_raw, score.legacy_composite_raw) == (None, pytest.approx(0.375))
 
 
 @pytest.mark.parametrize(

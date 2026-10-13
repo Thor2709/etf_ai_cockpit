@@ -187,7 +187,7 @@ def _read_local_table(path: Path) -> pd.DataFrame:
 def _infer_as_of_date(frame: pd.DataFrame) -> date | None:
     for column in ("as_of_date", "date"):
         if column in frame.columns and frame[column].notna().any():
-            return pd.to_datetime(frame[column]).max().date()
+            return pd.to_datetime(frame[column], errors="coerce").max().date()
     return None
 
 

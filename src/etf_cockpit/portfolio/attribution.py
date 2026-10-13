@@ -654,7 +654,10 @@ def _money_weighted_return(wealth: pd.Series, dates: Iterable[object], cashflows
     end = end.tz_localize("UTC") if end.tzinfo is None else end.tz_convert("UTC")
     dated = [(start, 0.0)] + [(pd.Timestamp(row.date), -float(row.amount)) for row in flow.itertuples()] + [(end, float(wealth.iloc[-1]))]
     dated = sorted(dated, key=lambda row: row[0])
-    return _xirr(dated), "available" if len(dated) >= 3 else "partial"
+    rate = _xirr(dated)
+    if rate is None:
+        return None, "unavailable_no_xirr_root"
+    return rate, "available" if len(dated) >= 3 else "partial"
 
 
 def _xirr(cashflows: list[tuple[pd.Timestamp, float]]) -> float | None:

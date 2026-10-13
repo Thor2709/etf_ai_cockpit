@@ -9,7 +9,7 @@ from pathlib import Path
 
 try:
     from scripts.issue_registry_core import deterministic_json
-except ModuleNotFoundError:
+except ImportError:  # also pywin32's top-level 'scripts' namespace
     from issue_registry_core import deterministic_json
 
 

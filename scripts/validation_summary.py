@@ -33,7 +33,7 @@ except ModuleNotFoundError:
 
 try:
     from scripts.validation_identity import identity_groups
-except ModuleNotFoundError:
+except ImportError:  # also pywin32's top-level 'scripts' namespace
     from validation_identity import identity_groups  # type: ignore[no-redef]
 
 

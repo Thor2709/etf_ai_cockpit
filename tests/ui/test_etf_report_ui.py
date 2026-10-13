@@ -13,7 +13,12 @@ from etf_cockpit.application.snapshot_builder import build_snapshot
 
 def _walk(control):
     yield control
+    body = getattr(control, "body", None)
+    if body is not None and body is not control:
+        yield from _walk(body)
     for child in getattr(control, "controls", []) or []:
+        yield from _walk(child)
+    for child in getattr(control, "items", []) or []:
         yield from _walk(child)
     content = getattr(control, "content", None)
     if content is not None:

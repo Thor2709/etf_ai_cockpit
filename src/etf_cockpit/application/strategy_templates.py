@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from etf_cockpit.core.atomic_io import atomic_write_json
-from etf_cockpit.core.paths import ROOT
+from etf_cockpit.core.paths import CONFIG_DIR, ROOT
 from etf_cockpit.signals.strategy_templates import (
     StrategyTemplate,
     TemplateMatch,
@@ -75,7 +75,7 @@ class StrategyTemplateFacade:
 def load_template_preferences(path: Path, template_ids: Iterable[str]) -> dict[str, bool]:
     """Read preferences without constructing a UI or contacting a provider."""
 
-    facade = StrategyTemplateFacade(state_path=path, registry_path=Path(__file__).resolve().parents[3] / "configs" / "strategy_templates_v1.yaml")
+    facade = StrategyTemplateFacade(state_path=path, registry_path=CONFIG_DIR / "strategy_templates_v1.yaml")
     allowed = set(template_ids)
     return {template_id: value for template_id, value in facade.enabled.items() if template_id in allowed}
 

@@ -12,6 +12,9 @@ def _walk(control):
     content = getattr(control, "content", None)
     if content is not None:
         yield from _walk(content)
+    body = getattr(control, "body", None)
+    if body is not None:
+        yield from _walk(body)
 
 
 def _text(control) -> str:

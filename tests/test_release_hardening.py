@@ -693,6 +693,7 @@ def test_valid_forecast_rows_become_model_score_inputs() -> None:
         [
             {
                 "model_name": "toto",
+                "forecast_date": "2026-01-02",
                 "etf_id": "VWCE",
                 "horizon_days": 60,
                 "expected_return": 0.06,
@@ -701,6 +702,7 @@ def test_valid_forecast_rows_become_model_score_inputs() -> None:
             },
             {
                 "model_name": "timesfm",
+                "forecast_date": "2026-01-02",
                 "etf_id": "VWCE",
                 "horizon_days": 60,
                 "expected_return": None,

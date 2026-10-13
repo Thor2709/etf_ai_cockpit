@@ -1,4 +1,6 @@
-# Informational assumptions only. Tax and hedging effects remain disabled.
+# Informational defaults only. Tax/hedging remain disabled; the prefilled
+# withholding rate and label are inert legacy scenario inputs, not accepted
+# owner tax guidance. Residence tax and hedge costs require explicit evidence.
 version: 1
 tax_enabled: false
 tax_residence_country: null

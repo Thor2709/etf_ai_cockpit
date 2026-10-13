@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from etf_cockpit.data.etf_structure import (
     load_local_structural_evidence,
+    structure_cap_scope,
     structure_confidence_caps,
 )
 from etf_cockpit.data.fund_documents import read_document_registry
@@ -21,10 +22,11 @@ def _load_local_structural_evidence():
     )
 
 
-def _load_structure_caps(instrument_ids: object, decision_time: object) -> dict[str, float]:
+def _load_structure_caps(instrument_ids: object, decision_time: object, *, config: object = None) -> dict[str, float]:
     """Load local structural evidence once at the signal service boundary."""
 
     ids = [str(item) for item in instrument_ids] if instrument_ids is not None else []
+    scope = structure_cap_scope(config)
     try:
         evidence = _load_local_structural_evidence()
         return structure_confidence_caps(
@@ -34,10 +36,13 @@ def _load_structure_caps(instrument_ids: object, decision_time: object) -> dict[
             supplemental_rows=evidence.supplemental_rows,
             holdings=evidence.holdings,
             decision_time=decision_time,
+            not_applicable_types=scope,
         )
     except (OSError, ValueError, TypeError, KeyError) as exc:
-        caps = structure_confidence_caps(ids, decision_time=decision_time)
+        caps = structure_confidence_caps(ids, decision_time=decision_time, not_applicable_types=scope)
         for item in ids:
+            if caps.provenance[item].get("status") == "not_applicable":
+                continue
             caps.provenance[item] = {
                 "structure_projection_version": "unavailable",
                 "structure_schema_version": "unavailable",

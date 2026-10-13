@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from etf_cockpit.app.components.shell.page_menu import build_page_menu
 from etf_cockpit.app.router import PAGES, WORKSPACE_GROUPS, build_shell
 from etf_cockpit.core.ui_acceptance import load_ui_acceptance_contracts
 from etf_cockpit.application.snapshot_builder import build_snapshot
@@ -26,6 +27,7 @@ def _snapshot_template():
 def _snapshot_copy():
     assert _SNAPSHOT_TEMPLATE is not None
     snapshot = _SNAPSHOT_TEMPLATE
+    snapshot.ensure_backtest()  # backtest loads lazily since the startup-speed change
     return replace(
         snapshot,
         config=copy.deepcopy(snapshot.config),
@@ -103,7 +105,10 @@ def test_shell_exposes_stable_navigation_and_dashboard_keys() -> None:
     page = type("Page", (), {"width": 1400, "route": "/"})()
     view = build_shell(page, state, "/")
     keys = {str(control.key) for control in _walk(view) if getattr(control, "key", None)}
-    assert {"navigation.home", "navigation.onboarding"} <= keys
+    # The page chips moved into the page menu (spec 5.3); its rows keep the stable navigation keys.
+    menu = build_page_menu(dict(WORKSPACE_GROUPS)["Home"], "/", PAGES, navigate_to=lambda _route: None)
+    menu_keys = {str(control.key) for control in _walk(menu.panel) if getattr(control, "key", None)}
+    assert {"navigation.home", "navigation.onboarding"} <= menu_keys
     assert {f"nav.workspace.{workspace}" for workspace, _routes in WORKSPACE_GROUPS} <= keys
     assert {"dashboard.refresh-yfinance", "dashboard.run-algorithms", "dashboard.run-forecasting-models", "dashboard.show-scores"} <= keys
 

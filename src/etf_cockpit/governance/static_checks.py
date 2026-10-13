@@ -285,8 +285,6 @@ def _iter_scannable_files(root: Path) -> Iterator[Path]:
             or _is_excluded_archive(root, path)
         ):
             continue
-        if path.stat().st_size > MAX_TEXT_FILE_BYTES:
-            continue
         if _is_dependency_manifest(path) or _is_env_file(path) or path.suffix.lower() in _TEXT_SUFFIXES:
             yield path
 
@@ -1178,6 +1176,9 @@ def run_static_execution_boundary_check(root: Path) -> ExecutionBoundaryReport:
 
     for path in files:
         if _is_allow_listed(root, path):
+            continue
+        if path.stat().st_size > MAX_TEXT_FILE_BYTES:
+            violations.append(_violation(root, path, "UNSCANNED_TOO_LARGE", f"Resource exceeds the {MAX_TEXT_FILE_BYTES}-byte boundary scan limit and was not inspected."))
             continue
         try:
             text = path.read_text(encoding="utf-8")

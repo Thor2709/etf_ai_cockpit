@@ -102,7 +102,7 @@ def test_s10_04_review_targets_clicked_note(monkeypatch):
     monkeypatch.setattr(trust_evidence, "save_manual_note_credibility_review", save)
     state = NS(snapshot=NS(prices=pd.DataFrame(), data_report=NS(as_of_date="2026-10-06")))
     root = trust_evidence._news_context_extra(state)
-    controls = {c.key: c for c in _walk_controls(root)}
+    controls = {getattr(c, "key", None): c for c in _walk_controls(root)}
     controls["manual-note.reviewer"].value = "Reviewer"
     controls["manual-note.review-note"].value = "Checked this note"
     controls["manual-note.clear.0"].on_click(None)
@@ -115,9 +115,11 @@ def test_s10_05_save_uses_current_controls(monkeypatch):
     facade.run.return_value = NS(status="available")
     facade.save.return_value = NS(scenario=NS(scenario_id="edited-stress"), revision=1)
     monkeypatch.setattr(stress_lab, "StressLabFacade", lambda *a: facade)
-    monkeypatch.setattr(stress_lab, "_result_view", lambda result: ft.Text("result"))
-    root = stress_lab.stress_lab_page(None, NS(snapshot=NS()))
-    controls = {c.key: c for c in _walk_controls(root)}
+    root = stress_lab.stress_lab_page(None, NS(snapshot=NS(config=NS(targets=NS(base_currency="EUR")))))
+    controls = {getattr(c, "key", None): c for c in _walk_controls(root)}
+    controls["stress-lab.scenario-id"].value = "edited-stress"
+    controls["stress-lab.name"].value = "Edited stress"
+    controls["stress-lab.equity"].value = "-10"
     controls["stress-lab.run"].on_click(None)
     controls["stress-lab.equity"].value = "-30"
     controls["stress-lab.scenario-id"].value = "edited-stress"
@@ -164,7 +166,7 @@ def test_s10_07_metric_dropdown_registers_selection_handler(monkeypatch):
         lambda *a, **k: NS(control=ft.Text("chart")),
     )
     root = portfolio._portfolio_performance_block(None)
-    metric = next(c for c in _walk_controls(root) if c.key == "portfolio.performance.metric")
+    metric = next(c for c in _walk_controls(root) if getattr(c, "key", None) == "portfolio.performance.metric")
     assert callable(metric.on_select)
 
 
@@ -182,13 +184,13 @@ def test_s10_08_strategy_can_toggle_twice_without_navigation(monkeypatch):
             context_only=False,
         )
     ]
-    facade.enabled = ["t"]
+    facade.enabled = {"t": True}
     facade.matches.return_value = []
     facade.is_enabled.side_effect = lambda tid: enabled[tid]
     facade.set_enabled.side_effect = lambda tid, value: enabled.__setitem__(tid, value)
     monkeypatch.setattr(strategy_builder, "StrategyTemplateFacade", lambda: facade)
     root = strategy_builder.strategy_builder_page(None, NS(snapshot=NS(signals=[])))
-    button = next(c for c in _walk_controls(root) if c.key == "strategy-builder.template.*")
+    button = next(c for c in _walk_controls(root) if getattr(c, "key", None) == "strategy-builder.template.t")
     button.on_click(NS(control=button))
     button.on_click(NS(control=button))
     assert enabled["t"] is True

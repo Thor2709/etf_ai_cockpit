@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from etf_cockpit.app.pages import dashboard, instrument_detail
+from etf_cockpit.app.state import AppState
 from etf_cockpit.application.alerts import AlertReadback
+from etf_cockpit.application.snapshot_builder import build_snapshot
 from etf_cockpit.data.alerts import AlertRevisionConflict, AlertStore, AlertType, build_alert
 
 
@@ -113,13 +115,18 @@ def test_alert_ui_distinguishes_unavailable_from_healthy_empty(tmp_path, monkeyp
 def test_instrument_detail_renders_unavailable_alert_state(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(instrument_detail, "ROOT", tmp_path)
     monkeypatch.setattr(instrument_detail, "read_local_alerts", lambda *_args, **_kwargs: AlertReadback("unavailable"))
-    rendered = "\n".join(_text_values(instrument_detail._instrument_alerts_panel("VWCE")))
+    snapshot = build_snapshot()
+    state = AppState(snapshot=snapshot, selected_etf="VWCE")
+    model = instrument_detail._model_for(state, "VWCE")
+    rendered = "\n".join(_text_values(instrument_detail._alerts_card(model, state)))
     assert "Alerts unavailable" in rendered
     assert "manual review" in rendered.lower()
     assert "No local alerts" not in rendered
 
 
 def test_instrument_detail_alert_readback_is_scoped_and_non_executable(tmp_path, monkeypatch) -> None:
+    snapshot = build_snapshot()
+    event_at = f"{snapshot.data_report.as_of_date}T12:00:00+00:00"
     alert = build_alert(
         AlertType.MODEL_FORECAST_FAILURE,
         subject_id="VWCE",
@@ -127,14 +134,16 @@ def test_instrument_detail_alert_readback_is_scoped_and_non_executable(tmp_path,
         message="The optional model failed locally.",
         severity="critical",
         confidence="medium",
-        occurred_at="2026-08-01T12:00:00+00:00",
-        available_at="2026-08-01T12:00:00+00:00",
+        occurred_at=event_at,
+        available_at=event_at,
         dedupe_key="ui-model-failure",
     )
     with AlertStore(tmp_path) as store:
         store.create(alert)
     monkeypatch.setattr(instrument_detail, "ROOT", tmp_path)
-    rendered = "\n".join(_text_values(instrument_detail._instrument_alerts_panel("VWCE")))
+    state = AppState(snapshot=snapshot, selected_etf="VWCE")
+    model = instrument_detail._model_for(state, "VWCE")
+    rendered = "\n".join(_text_values(instrument_detail._alerts_card(model, state)))
     assert "Alerts & review reminders" in rendered
     assert "model_forecast_failure" in rendered
     assert "severity=critical" in rendered

@@ -353,7 +353,8 @@ def test_settings_page_previews_and_saves_local_settings(tmp_path: Path, monkeyp
     state = SimpleNamespace(snapshot=SimpleNamespace(config=config), last_message="Ready")
     view = settings_module.settings_page(SimpleNamespace(update=lambda: None), state)
 
-    _control_by_key(view, "settings.risk-profile").value = "safe"
+    selector = _control_by_key(view, "settings.risk-profile")
+    next(item for item in selector.content.content.controls if item.content.value == "Safe").on_click(None)
     _control_by_key(view, "settings.preview").on_click(None)
     _control_by_key(view, "settings.save").on_click(None)
 

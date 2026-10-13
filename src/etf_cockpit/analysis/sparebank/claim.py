@@ -19,7 +19,10 @@ from .models import (
 
 _OWNER_FACTS = ("ec_capital", "overkursfond", "utjevningsfond")
 _SELF_FACTS = ("sparebankens_fond", "gavefond", "kompensasjonsfond")
-_REQUIRED_ROUTING_EC_TOKENS = {"equity_certificate", "certificate", "ec", "egenkapitalbevis"}
+# Optional ownerless pools: a bank may simply hold none. A missing figure is flagged, and the reconstructed eierbrok is
+# still cross-checked against the reported one, so an omission that matters shows as REPORTED_RECONSTRUCTED_EIERBROK_DIFFER.
+_OPTIONAL_SELF_FACTS = ("kompensasjonsfond",)
+_REQUIRED_ROUTING_EC_TOKENS = {"equity_certificate", "ec", "egenkapitalbevis"}
 _NO_TOKENS = {"no", "norway", "norge", "norwegian"}
 _SAVINGS_BANK_TOKENS = {
     "savings_bank",
@@ -152,11 +155,25 @@ def build_claim_state(
 
     owner_pools = _available_pool_values(values, _OWNER_FACTS)
     self_owned_pools = _available_pool_values(values, _SELF_FACTS)
-    missing_pool_components = _missing_pool_components(values)
-    owner_total = _pool_total(owner_pools) if not any(name in missing_pool_components for name in _OWNER_FACTS) else None
-    self_total = _pool_total(self_owned_pools) if not any(name in missing_pool_components for name in _SELF_FACTS) else None
-    reconstructed = reconstruct_eierbrok(owner_pools, self_owned_pools) if not missing_pool_components else None
     reported = _fact_number(values, "eierbrok")
+    missing_pool_components = list(_missing_pool_components(values))
+    gavefond_reported = _fact_number(values, "gavefond") is not None
+    if _fact_number(values, "sparebankens_fond") is None:
+        missing_pool_components.append("sparebankens_fond")
+    if reported is not None and 0.0 <= reported <= 1.0:
+        missing_pool_components = [name for name in missing_pool_components if name != "gavefond"]
+    if not gavefond_reported and not (reported is not None and 0.0 <= reported <= 1.0):
+        missing_pool_components.append("gavefond")
+    missing_pool_components = tuple(dict.fromkeys(missing_pool_components))
+    compensation_not_reported = _fact_number(values, "kompensasjonsfond") is None
+    owner_total = _pool_total(owner_pools) if not any(name in missing_pool_components for name in _OWNER_FACTS) else None
+    self_total = (
+        _pool_total(self_owned_pools)
+        if all(_fact_number(values, name) is not None for name in _SELF_FACTS if name not in _OPTIONAL_SELF_FACTS)
+        else None
+    )
+    reconstruction_missing = (*missing_pool_components, *(('gavefond',) if not gavefond_reported else ()))
+    reconstructed = reconstruct_eierbrok(owner_pools, self_owned_pools) if not reconstruction_missing else None
     difference = abs(reconstructed - reported) if reconstructed is not None and reported is not None else None
     if difference is not None and difference > 0.005:
         reasons.append("REPORTED_RECONSTRUCTED_EIERBROK_DIFFER" )
@@ -173,6 +190,10 @@ def build_claim_state(
     voting_share = _fact_number(values, "voting_share")
     accounting_equity = _fact_number(values, "accounting_equity")
     count_reasons = _count_reconciliation_reasons(registered, outstanding, treasury, foundation_count)
+    if compensation_not_reported:
+        reasons.append("KOMPENSASJONSFOND_NOT_REPORTED")
+    if not gavefond_reported and not (reported is not None and 0.0 <= reported <= 1.0):
+        reasons.append("GAVEFOND_NOT_REPORTED")
     if missing_pool_components:
         reasons.append("POOL_COMPONENT_EVIDENCE_MISSING")
     reasons.extend(count_reasons)
@@ -196,7 +217,7 @@ def build_claim_state(
     if reconstructed is not None:
         field_provenance["reconstructed_eierbrok"] = "reconstructed"
     unavailable = tuple(dict.fromkeys(
-        (*missing_pool_components, *(name for name, value in (
+        (*missing_pool_components, *(('kompensasjonsfond',) if compensation_not_reported else ()), *(name for name, value in (
             ("eierbrok", reconstructed),
             ("period_end_ec_count", period_end),
             ("weighted_average_ec_count", weighted),
@@ -204,7 +225,10 @@ def build_claim_state(
             ("owner_attributable_earnings", owner_earnings),
         ) if value is None))
     ))
-    resolved = reconstructed is not None and not any(
+    reported_share_used = reported is not None and 0.0 <= reported <= 1.0 and not any(
+        name in missing_pool_components for name in _OWNER_FACTS
+    )
+    resolved = (reconstructed is not None or reported_share_used) and not any(
         reason in {
             "CLAIM_KNOWN_AFTER_DECISION_TIME",
             "CLAIM_KNOWN_AT_MISSING",
@@ -227,7 +251,7 @@ def build_claim_state(
     else:
         status = "partial"
     observed_fields = sum(value is not None for value in (reconstructed, reported, period_end, weighted, owner_book, owner_earnings))
-    coverage = observed_fields / 6.0
+    coverage = min(observed_fields / 6.0, 5.0 / 6.0) if compensation_not_reported else observed_fields / 6.0
     return ECClaimState(
         effective_at=effective_at,
         known_at=known_at,
@@ -336,19 +360,23 @@ def owner_per_ec_figures(
                 "owner_pe": "weighted_average_ec_count",
             },
         }
-    book = _divide(claim_state.owner_attributable_book, claim_state.period_end_ec_count)
-    eps = _divide(claim_state.owner_attributable_earnings, claim_state.weighted_average_ec_count)
+    # One canonical path: the matched-claim valuation owns the count fallbacks (period-end, outstanding,
+    # registered less treasury; weighted average, else period-end as a stated proxy).
+    from .valuation import owner_valuation
+
+    owner = owner_valuation(claim_state, price=price, allow_partial=True)
     result: dict[str, object] = {
-        "owner_book_per_ec": book,
-        "owner_eps": eps,
-        "owner_pb": _divide(price, book),
-        "owner_pe": _divide(price, eps),
+        "owner_book_per_ec": owner.get("owner_book_per_ec"),
+        "owner_eps": owner.get("owner_eps"),
+        "owner_pb": owner.get("owner_pb"),
+        "owner_pe": owner.get("owner_pe"),
         "count_conventions": {
             "owner_book_per_ec": "period_end_ec_count",
             "owner_eps": "weighted_average_ec_count",
             "owner_pb": "period_end_ec_count",
             "owner_pe": "weighted_average_ec_count",
         },
+        "count_sources": owner.get("count_sources", {}),
     }
     return result
 
@@ -381,13 +409,23 @@ def analyse_sparebank_ec(
     )
     if generic_reason:
         reasons.append("GENERIC_BANK_VALUATION_INAPPLICABLE")
-    from .bank_economics import build_bank_economics
+    from .bank_economics import build_bank_economics, owner_normalisation
     from .events import analyse_events
     from .valuation import valuation
     from .scorecard import build_sparebank_scorecard
-    bank_economics = build_bank_economics(bank_economics_evidence, bank_metrics=bank_metrics)
+    assumptions = dict(valuation_assumptions or {})
+    bank_economics = owner_normalisation(
+        build_bank_economics(bank_economics_evidence, bank_metrics=bank_metrics),
+        claim,
+        sustainable_roe_assumption=assumptions.get("sustainable_roe"),
+        assumption_source=str(assumptions.get("assumption_source") or "") or None,
+    )
     event_analysis = analyse_events(events, decision_time=decision_time)
-    valuation_section = valuation(claim, price=price, assumptions=valuation_assumptions)
+    # The sustainable ROE of the owner claim feeds the justified-value and reverse-valuation models once.
+    sustainable = bank_economics.normalised.get("normalised_roe") if isinstance(bank_economics.normalised, Mapping) else None
+    if sustainable is not None:
+        assumptions.setdefault("sustainable_roe", sustainable)
+    valuation_section = valuation(claim, price=price, assumptions=assumptions)
     analysis = SparebankAnalysis(
         contract=CONTRACT_ID,
         routing=routed,
@@ -413,7 +451,7 @@ def analyse_sparebank_ec(
             analysis,
             decision_time=decision_time,
             decision_price=price,
-            valuation_assumptions=valuation_assumptions,
+            valuation_assumptions=assumptions,
             tactical_evidence=tactical_evidence,
         ),
     )
@@ -483,6 +521,8 @@ def _available_pool_values(values: Mapping[str, object], names: Iterable[str]) -
 def _missing_pool_components(values: Mapping[str, object]) -> tuple[str, ...]:
     missing: list[str] = []
     for name in (*_OWNER_FACTS, *_SELF_FACTS):
+        if name in _OPTIONAL_SELF_FACTS:
+            continue
         if name in values and _fact_number(values, name) is None:
             missing.append(name)
     return tuple(missing)

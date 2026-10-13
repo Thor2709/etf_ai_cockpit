@@ -62,6 +62,7 @@ capabilities:
   - {capability_id: "route:/forecasts", kind: route, authority_stage: research, description: Forecast evidence workspace}
   - {capability_id: "route:/forward-evidence", kind: route, authority_stage: research, description: Forward evidence workspace}
   - {capability_id: "route:/macro", kind: route, authority_stage: research, description: Macro context workspace}
+  - {capability_id: "route:/sectors", kind: route, authority_stage: research, description: Sectors and countries map workspace}
   - {capability_id: "route:/portfolio-optimiser", kind: route, authority_stage: research, description: Portfolio optimisation workspace}
   - {capability_id: "route:/stock-research", kind: route, authority_stage: research, description: Stock research workspace}
   - {capability_id: "route:/stress-lab", kind: route, authority_stage: research, description: Stress testing workspace}

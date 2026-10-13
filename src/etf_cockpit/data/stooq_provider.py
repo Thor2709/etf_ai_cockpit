@@ -6,6 +6,7 @@ import pandas as pd
 import requests
 
 from etf_cockpit.core.config import ProviderSection
+from etf_cockpit.core.values import years_before
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority
 from etf_cockpit.data.providers import PriceProvider
 
@@ -62,7 +63,7 @@ class StooqProvider(PriceProvider):
     def validate_symbol(self, symbol: str) -> bool:
         try:
             end = date.today()
-            start = end.replace(year=end.year - 1)
+            start = years_before(end, 1)
             return not self.fetch_daily_prices(symbol, start, end).empty
         except Exception:
             return False

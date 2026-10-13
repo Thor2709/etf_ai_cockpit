@@ -174,9 +174,9 @@ class LocalFeatureStore:
         if not decisions:
             return pd.DataFrame(columns=[entity_column, "decision_time", "inference_mode"])
         source = features.copy()
-        source["__feature_time"] = _timestamps(source[date_column])
+        source["__feature_time"] = _timestamps(source[date_column], normalize=False)
         if "available_at" in source.columns:
-            source["__available_at"] = _timestamps(source["available_at"])
+            source["__available_at"] = _timestamps(source["available_at"], normalize=False)
         else:
             source["__available_at"] = source["__feature_time"]
         entities = sorted(source[entity_column].dropna().astype(str).unique())
@@ -188,8 +188,8 @@ class LocalFeatureStore:
                 output: dict[str, object] = {entity_column: entity, "decision_time": decision.date().isoformat(), "inference_mode": mode}
                 selected_times: list[pd.Timestamp] = []
                 for definition in definitions:
-                    cutoff = decision - pd.Timedelta(days=definition.availability_delay_days)
-                    candidates = entity_rows[(entity_rows["__feature_time"] <= cutoff) & (entity_rows["__available_at"] <= decision)]
+                    cutoff = decision.normalize() - pd.Timedelta(days=definition.availability_delay_days)
+                    candidates = entity_rows[(entity_rows["__feature_time"].dt.normalize() <= cutoff) & (entity_rows["__feature_time"] <= decision) & (entity_rows["__available_at"] <= decision)]
                     if candidates.empty:
                         if definition.missing_policy == "reject":
                             raise FeatureStoreError(f"feature {definition.feature_id} is unavailable for {entity} at {decision.date()}")
@@ -294,9 +294,11 @@ class LocalFeatureStore:
             raise FeatureStoreError(f"target frame is missing {end_column}")
         ends = _timestamps(targets[end_column])
         decisions = _timestamps(targets["decision_time"])
-        overlaps = int(((decisions < cutoff) & (ends >= cutoff)).sum())
+        unknown = decisions.lt(cutoff) & ends.isna()
+        overlaps = int((decisions.lt(cutoff) & (ends.ge(cutoff) | ends.isna())).sum())
         safe = overlaps == 0
-        return LeakageCheck(safe, overlaps, definition.embargo_days, "safe" if safe else "training targets overlap the validation embargo window")
+        message = "safe" if safe else "embargo_unknown" if unknown.any() else "training targets overlap the validation embargo window"
+        return LeakageCheck(safe, overlaps, definition.embargo_days, message)
 
     @staticmethod
     def coverage(matrix: pd.DataFrame) -> dict[str, object]:
@@ -376,21 +378,22 @@ def _first_column(frame: pd.DataFrame, candidates: Sequence[str]) -> str | None:
     return next((column for column in candidates if column in frame.columns), None)
 
 
-def _parse_timestamp(value: str | date | datetime | pd.Timestamp) -> pd.Timestamp:
+def _parse_timestamp(value: str | date | datetime | pd.Timestamp, *, normalize: bool = True) -> pd.Timestamp:
     timestamp = pd.Timestamp(value)
     if timestamp.tzinfo is not None:
         timestamp = timestamp.tz_convert("UTC").tz_localize(None)
-    return timestamp.normalize()
+    return timestamp.normalize() if normalize else timestamp
 
 
-def _timestamps(values: Iterable[object]) -> pd.Series:
+def _timestamps(values: Iterable[object], *, normalize: bool = True) -> pd.Series:
     series = values if isinstance(values, pd.Series) else pd.Series(list(values))
     parsed = pd.to_datetime(series, errors="coerce", utc=True)
-    return parsed.dt.tz_localize(None).dt.normalize()
+    parsed = parsed.dt.tz_localize(None)
+    return parsed.dt.normalize() if normalize else parsed
 
 
 def _decision_dates(values: Iterable[str | date | datetime]) -> list[pd.Timestamp]:
-    return sorted({_parse_timestamp(value) for value in values})
+    return sorted({_parse_timestamp(value, normalize=False) for value in values})
 
 
 def _safe_scalar(value: object) -> object:
@@ -417,7 +420,7 @@ def _prepare_benchmark(frame: pd.DataFrame, date_column: str, price_column: str)
 
 def _forward_benchmark_return(frame: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> float | None:
     left = frame[frame["__date"] <= start].tail(1)
-    right = frame[frame["__date"] >= end].head(1)
+    right = frame[frame["__date"].gt(start) & frame["__date"].le(end)].tail(1)
     if left.empty or right.empty or float(left.iloc[0]["__price"]) == 0:
         return None
     return float(right.iloc[0]["__price"]) / float(left.iloc[0]["__price"]) - 1.0

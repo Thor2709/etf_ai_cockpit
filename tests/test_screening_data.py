@@ -60,7 +60,10 @@ def _sections_json(values: dict[str, float], as_of: str) -> str:
     )
 
 
-def test_screen_rows_join_local_evidence_without_inventing_unavailable_fields() -> None:
+def test_screen_rows_join_local_evidence_without_inventing_unavailable_fields(monkeypatch) -> None:
+    from etf_cockpit.application import score_views
+
+    monkeypatch.setattr(score_views, "snapshot_scores", lambda _snapshot: [SimpleNamespace(display_id="ETF1", final_score_10=7.5)])
     values = {"valuation": 5.0, "profitability": 9.0, "leverage": 5.0, "growth": 8.0, "shareholder_return": 8.5}
     fundamentals = pd.DataFrame(
         [
@@ -78,7 +81,8 @@ def test_screen_rows_join_local_evidence_without_inventing_unavailable_fields() 
     )
     frame = build_screen_rows(_snapshot(), fundamentals)
     row = frame.iloc[0]
-    assert row["score"] == 7.5
+    assert row["score"] == 7.5  # canonical final score
+    assert row["attractiveness"] == 7.5
     assert row["region"] == "Europe"
     assert row["quality"] == 8.5
     assert row["news_conflict"] == "unavailable"
@@ -204,3 +208,13 @@ def test_snapshot_query_carries_reproducible_lineage() -> None:
     assert first.universe_revision == "revision-3"
     assert first.formula_version == "canonical-v1"
     assert dict(first.dataset_checksums)["local_screen_rows"]
+
+
+def test_screen_score_is_the_canonical_final_score(monkeypatch) -> None:
+    from etf_cockpit.application import score_views
+
+    row_score = SimpleNamespace(display_id="ETF1", final_score_10=6.4, evidence_quality_10=7.1, risk_friction_10=3.2)
+    monkeypatch.setattr(score_views, "snapshot_scores", lambda _snapshot: [row_score])
+    row = build_screen_rows(_snapshot(), pd.DataFrame()).iloc[0]
+    assert row["score"] == 6.4 and row["attractiveness"] == 7.5
+    assert row["evidence_quality"] == 7.1 and row["risk_friction"] == 3.2

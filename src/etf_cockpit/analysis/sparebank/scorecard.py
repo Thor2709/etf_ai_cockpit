@@ -1,8 +1,8 @@
-"""Pure, gated Sparebank scorecard over the native analysis contract."""
+"""Pure, coverage-aware Sparebank scorecard over the native analysis contract."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
 import math
@@ -32,7 +32,10 @@ class SparebankScorecardPolicy:
     judgement_source: str
     horizons: Mapping[str, str]
     hard_gates: Mapping[str, object]
+    scorecard: Mapping[str, object]
     axes: Mapping[str, object]
+    # Assumptions (not evidence) the book itself uses in its worked examples; labelled wherever shown.
+    valuation_defaults: Mapping[str, object] = field(default_factory=dict)
 
 
 def load_sparebank_scorecard_policy(path: Path = SCORECARD_CONFIG_PATH) -> SparebankScorecardPolicy:
@@ -44,11 +47,13 @@ def load_sparebank_scorecard_policy(path: Path = SCORECARD_CONFIG_PATH) -> Spare
     except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
         raise SparebankScorecardError(f"could not load Sparebank scorecard policy: {type(exc).__name__}") from exc
     judgement = payload.get("judgement")
+    scorecard = payload.get("scorecard", {})
     axes = payload.get("axes")
     if (
         not isinstance(payload, Mapping)
         or not str(payload.get("formula_version") or "").strip()
         or not isinstance(judgement, Mapping)
+        or not isinstance(scorecard, Mapping)
         or not isinstance(axes, Mapping)
         or not isinstance(payload.get("hard_gates"), Mapping)
     ):
@@ -67,7 +72,9 @@ def load_sparebank_scorecard_policy(path: Path = SCORECARD_CONFIG_PATH) -> Spare
         judgement_source=str(judgement.get("source") or ""),
         horizons=dict(payload.get("horizons") or {}),
         hard_gates=dict(payload["hard_gates"]),
+        scorecard=dict(scorecard),
         axes=dict(axes),
+        valuation_defaults=dict(payload.get("valuation_defaults") or {}),
     )
 
 
@@ -85,7 +92,9 @@ def build_sparebank_scorecard(
     selected = policy or load_sparebank_scorecard_policy()
     route = _field(analysis, "routing")
     if not bool(_field(route, "applies", False)):
-        return _empty_scorecard(selected, "SPAREBANK_ROUTE_NOT_APPLICABLE")
+        reasons = _field(route, "reason_codes", ())
+        route_reasons = tuple(str(reason) for reason in reasons) or ("SPAREBANK_ROUTE_NOT_APPLICABLE",)
+        return _empty_scorecard(selected, route_reasons)
 
     claim = _field(analysis, "claim_state")
     bank = _field(analysis, "bank_economics")
@@ -124,37 +133,79 @@ def build_sparebank_scorecard(
         for input_rule in axis.get("inputs", []):
             row = dict(input_rule)
             value = _input_value(row, context)
-            rating = None if value is None else _rating(value, row["anchors"])
+            scored = not bool(row.get("display_only"))
+            rating = None if value is None or not scored else _rating(value, row["anchors"])
+            bank_reasons = _field(bank, "reasons", {})
+            reason_text = None
+            if value is None:
+                reason_text = (bank_reasons.get(str(row["id"])) if isinstance(bank_reasons, Mapping) else None) or row.get("missing_reason")
             row.update(
                 value=value,
                 rating_10=rating,
-                status="rated" if value is not None else "UNAVAILABLE",
+                scored=scored,
+                status=("rated" if scored else "shown") if value is not None else "UNAVAILABLE",
                 reason_code=None if value is not None else "SCORECARD_INPUT_UNAVAILABLE",
+                reason=reason_text,
+                source_locator=_input_source(row, context),
             )
             rated_inputs.append(row)
             raw_values[str(row["id"])] = value
-        available = [row for row in rated_inputs if row["rating_10"] is not None]
-        defined_count = len(rated_inputs)
+        scored_inputs = [row for row in rated_inputs if row["scored"]]
+        available = [row for row in scored_inputs if row["rating_10"] is not None]
+        defined_count = len(scored_inputs)
         coverage = len(available) / defined_count if defined_count else 0.0
         rating = None if not available else round(sum(float(row["rating_10"]) for row in available) / len(available), 6)
         axis.update(
-            status="UNAVAILABLE" if not available else "rated",
+            status="UNAVAILABLE" if not available else "partial" if coverage < 1.0 else "rated",
             rating_10=rating,
             coverage=coverage,
             inputs=tuple(rated_inputs),
+            missing_inputs=tuple(str(row["id"]) for row in scored_inputs if row["rating_10"] is None),
             calculation_ids=tuple(dict.fromkeys(str(row["calculation_id"]) for row in rated_inputs)),
             rule_version=selected.judgement_version,
             threshold_label="judgement",
             critical=bool(axis.get("critical")),
         )
+        if axis_id == "owner_claim_integrity" and (
+            str(_field(claim, "claim_status", "partial")).casefold() != "resolved"
+            or "KOMPENSASJONSFOND_NOT_REPORTED" in _field(claim, "reason_codes", ())
+        ):
+            claim_coverage = _number(_field(claim, "coverage"))
+            axis["coverage"] = min(coverage, claim_coverage) if claim_coverage is not None else 0.0
+            axis["status"] = "partial"
+        if axis_id == "owner_claim_integrity" and "KOMPENSASJONSFOND_NOT_REPORTED" in _field(claim, "reason_codes", ()):
+            axis["partial_reason"] = "kompensasjonsfond not reported"
         axes[str(axis_id)] = axis
 
     coverage_values = [float(_field(axis, "coverage", 0.0)) for axis in axes.values()]
     overall_coverage = sum(coverage_values) / len(selected.axes) if selected.axes else 0.0
+    weights = _axis_weights(selected)
+    total_weight = sum(weights.values())
+    composite_coverage = (
+        sum(weights[axis_id] * float(_field(axis, "coverage", 0.0)) for axis_id, axis in axes.items()) / total_weight
+        if total_weight > 0
+        else 0.0
+    )
+    missing_axes = tuple(
+        axis_id for axis_id, axis in axes.items()
+        if float(_field(axis, "coverage", 0.0)) < 1.0
+    )
     critical_axes = tuple(axis_id for axis_id, definition in selected.axes.items() if definition.get("critical"))
-    critical_rated = all(_field(axes[axis_id], "rating_10") is not None for axis_id in critical_axes)
-    rated = [float(_field(axis, "rating_10")) for axis in axes.values() if _field(axis, "rating_10") is not None]
-    before_cap = round(sum(rated) / len(rated), 6) if critical_rated and rated and not reasons else None
+    rated = [
+        (weights[axis_id], float(_field(axis, "rating_10")))
+        for axis_id, axis in axes.items()
+        if _field(axis, "rating_10") is not None and weights[axis_id] > 0
+    ]
+    minimum_coverage = _number(_field(selected.scorecard, "min_coverage_for_composite", 0.25))
+    if minimum_coverage is None or not 0.0 <= minimum_coverage <= 1.0:
+        raise SparebankScorecardError("min_coverage_for_composite must be between 0 and 1")
+    if composite_coverage < minimum_coverage:
+        reasons.append("MINIMUM_COMPOSITE_COVERAGE_NOT_MET")
+    before_cap = (
+        round(sum(weight * rating for weight, rating in rated) / sum(weight for weight, _ in rated), 6)
+        if composite_coverage >= minimum_coverage and rated
+        else None
+    )
     caps: list[tuple[float, str]] = []
     if before_cap is not None:
         headroom = raw_values.get("cet1_headroom_pp")
@@ -170,19 +221,28 @@ def build_sparebank_scorecard(
             caps.append((float(gates["cap_nsfr_below_minimum"]), "NSFR_BELOW_MINIMUM"))
         if days is not None and days > float(gates["days_to_trade_limit"]):
             caps.append((float(gates["cap_days_to_trade_above_limit"]), "DAYS_TO_TRADE_ABOVE_LIMIT"))
+        for gate_name, reason in (
+            ("unresolved_claim", "OWNER_CLAIM_UNRESOLVED"),
+            ("failed_pit_check", "PIT_CHECK_FAILED"),
+            ("invalid_valuation_denominator", "INVALID_VALUATION_DENOMINATOR"),
+        ):
+            cap = _number(gates.get(gate_name))
+            if cap is not None:
+                caps.append((cap, reason))
     selected_cap = min((cap for cap, _ in caps), default=None)
     final_composite = None if before_cap is None else round(min(before_cap, selected_cap) if selected_cap is not None else before_cap, 6)
     gate_reasons = tuple(dict.fromkeys((*reasons, *(reason for _, reason in caps))))
-    blocked = bool(reasons)
-    scorecard_status = "BLOCKED" if blocked else "resolved" if final_composite is not None and overall_coverage == 1.0 else "partial"
+    scorecard_status = "complete" if final_composite is not None and composite_coverage == 1.0 else "partial"
     underwriting = {
         "label": "Underwriting",
         "horizon": selected.horizons.get("underwriting", "multi-year owner economics"),
-        "status": "BLOCKED" if blocked else "rated" if final_composite is not None else "UNAVAILABLE",
+        "status": "rated" if final_composite is not None else "partial",
         "composite_10": final_composite,
         "composite_before_gate_cap_10": before_cap,
         "gate_cap_10": selected_cap,
         "overall_coverage": round(overall_coverage, 6),
+        "composite_coverage": round(composite_coverage, 6),
+        "missing_axes": missing_axes,
         "critical_axes": critical_axes,
         "gate_reasons": gate_reasons,
         "execution_allowed": False,
@@ -207,6 +267,8 @@ def build_sparebank_scorecard(
         composite_before_gate_cap_10=before_cap,
         gate_cap_10=selected_cap,
         overall_coverage=round(overall_coverage, 6),
+        composite_coverage=round(composite_coverage, 6),
+        missing_axes=missing_axes,
         gate_reasons=gate_reasons,
         underwriting=underwriting,
         tactical=tactical,
@@ -214,7 +276,7 @@ def build_sparebank_scorecard(
     )
 
 
-def _empty_scorecard(policy: SparebankScorecardPolicy, reason: str) -> SparebankScorecard:
+def _empty_scorecard(policy: SparebankScorecardPolicy, reasons: tuple[str, ...]) -> SparebankScorecard:
     tactical = {
         "label": "Tactical",
         "horizon": policy.horizons.get("tactical", "1-3 months"),
@@ -229,11 +291,13 @@ def _empty_scorecard(policy: SparebankScorecardPolicy, reason: str) -> Sparebank
         "status": "UNAVAILABLE",
         "composite_10": None,
         "overall_coverage": 0.0,
-        "gate_reasons": (reason,),
+        "composite_coverage": 0.0,
+        "missing_axes": tuple(policy.axes),
+        "gate_reasons": reasons,
         "execution_allowed": False,
     }
     return SparebankScorecard(
-        status="UNAVAILABLE",
+        status="BLOCKED",
         formula_version=policy.formula_version,
         formula_checksum=policy.formula_checksum,
         judgement_version=policy.judgement_version,
@@ -244,11 +308,28 @@ def _empty_scorecard(policy: SparebankScorecardPolicy, reason: str) -> Sparebank
         composite_before_gate_cap_10=None,
         gate_cap_10=None,
         overall_coverage=0.0,
-        gate_reasons=(reason,),
+        composite_coverage=0.0,
+        missing_axes=tuple(policy.axes),
+        gate_reasons=reasons,
         underwriting=underwriting,
         tactical=tactical,
         execution_allowed=False,
     )
+
+
+def _axis_weights(policy: SparebankScorecardPolicy) -> dict[str, float]:
+    configured = _field(policy.scorecard, "axis_weights", {})
+    if not isinstance(configured, Mapping):
+        raise SparebankScorecardError("scorecard.axis_weights must be a mapping")
+    result: dict[str, float] = {}
+    for axis_id in policy.axes:
+        weight = _number(configured.get(axis_id, 1.0))
+        if weight is None or weight < 0:
+            raise SparebankScorecardError(f"scorecard weight is invalid: {axis_id}")
+        result[str(axis_id)] = weight
+    if not any(result.values()):
+        raise SparebankScorecardError("scorecard axis weights must have a positive total")
+    return result
 
 
 def _input_value(rule: Mapping[str, object], context: Mapping[str, object]) -> float | None:
@@ -310,6 +391,8 @@ def _input_value(rule: Mapping[str, object], context: Mapping[str, object]) -> f
             value = _path(context, "valuation.implementation.days_to_trade")
         return _number(value)
     value = _path(context, str(rule.get("source") or ""))
+    if value is None and str(rule.get("source") or "") == "valuation.marketability.median_volume_60d":
+        value = _path(context, "assumptions.marketability.median_volume_60d")
     number = _number(value)
     if number is None:
         return None
@@ -318,6 +401,67 @@ def _input_value(rule: Mapping[str, object], context: Mapping[str, object]) -> f
     if transform == "ratio_to_basis_points":
         return number * 10000.0
     return number
+
+
+def _input_source(rule: Mapping[str, object], context: Mapping[str, object]) -> str | None:
+    """Resolve source citations for the evidence path behind one scorecard input."""
+
+    path = str(rule.get("source") or "")
+    if not path:
+        return None
+    parts = path.split(".")
+    leaf = parts[-1]
+    citations: list[str] = []
+
+    def add(value: object) -> None:
+        if isinstance(value, Mapping):
+            locator = value.get("source_locator") or value.get("source_url")
+            title = value.get("document_title") or value.get("title")
+            page = value.get("page")
+            pieces = [str(item) for item in (locator, title, f"page {page}" if page is not None else None) if item]
+            if pieces:
+                citations.append(" | ".join(pieces))
+        elif value is not None and str(value).strip():
+            citations.append(str(value).strip())
+
+    parent = _path(context, ".".join(parts[:-1])) if len(parts) > 1 else context
+    parent_provenance = _field(parent, "provenance", {})
+    if isinstance(parent_provenance, Mapping):
+        add(parent_provenance.get(leaf))
+        if not citations:
+            for item in parent_provenance.values():
+                add(item)
+    if not citations:
+        bank = _field(context, "bank_economics", {})
+        reported = _field(bank, "reported", {})
+        provenance = _field(reported, "provenance", {})
+        if isinstance(provenance, Mapping):
+            direct = provenance.get(leaf)
+            if direct is not None:
+                add(direct)
+            elif ".lending." in path or ".normalised." in path:
+                for item in provenance.values():
+                    add(item)
+    if not citations:
+        claim = _field(context, "claim_state", {})
+        provenance = _field(claim, "provenance", {})
+        if isinstance(provenance, Mapping):
+            direct = provenance.get(leaf)
+            if direct is not None:
+                add(direct)
+            elif path.startswith("claim_state.") or ".normalised." in path:
+                for item in provenance.values():
+                    add(item)
+    elif ".normalised." in path:
+        claim = _field(context, "claim_state", {})
+        provenance = _field(claim, "provenance", {})
+        if isinstance(provenance, Mapping):
+            for item in provenance.values():
+                add(item)
+    if not citations and path.startswith("valuation."):
+        add(_field(_field(context, "valuation", {}), "assumption_source"))
+    unique = tuple(dict.fromkeys(item for item in citations if item))
+    return " | ".join(unique) or None
 
 
 def _path(context: object, path: str) -> object:

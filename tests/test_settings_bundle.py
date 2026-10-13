@@ -342,3 +342,42 @@ def test_atomic_group_precondition_fails_before_any_destination_is_replaced(tmp_
         atomic_write_group((request,), precondition=lambda: (_ for _ in ()).throw(RuntimeError("revision changed")))
 
     assert destination.read_text(encoding="utf-8") == "old\n"
+
+
+def test_untouched_shipped_default_is_rebound_when_the_local_universe_differs(tmp_path) -> None:
+    import shutil
+
+    import yaml
+
+    from etf_cockpit.core.settings_bundle import load_settings_bundle_with_issues
+
+    shutil.copytree(Path("configs"), tmp_path / "configs")
+    settings = tmp_path / "configs" / "settings.yaml"
+    raw = yaml.safe_load(settings.read_text(encoding="utf-8"))
+    assert raw["settings_version"] == 0
+    raw["revision"] = "0" * 64  # as if the local universe changed after the default shipped
+    settings.write_text(yaml.safe_dump(raw), encoding="utf-8")
+
+    bundle, issues = load_settings_bundle_with_issues(tmp_path)
+
+    assert bundle.revision != "0" * 64
+    assert [issue.code for issue in issues] == ["SETTINGS_DEFAULT_REBOUND"]
+    assert yaml.safe_load(settings.read_text(encoding="utf-8"))["revision"] == "0" * 64  # never written
+
+
+def test_saved_settings_with_a_stale_revision_still_fail_closed(tmp_path) -> None:
+    import shutil
+
+    import pytest
+    import yaml
+
+    from etf_cockpit.core.settings_bundle import SettingsError, load_settings_bundle_with_issues
+
+    shutil.copytree(Path("configs"), tmp_path / "configs")
+    settings = tmp_path / "configs" / "settings.yaml"
+    raw = yaml.safe_load(settings.read_text(encoding="utf-8"))
+    raw.update(settings_version=3, revision="0" * 64)
+    settings.write_text(yaml.safe_dump(raw), encoding="utf-8")
+
+    with pytest.raises(SettingsError, match="revision does not match"):
+        load_settings_bundle_with_issues(tmp_path)

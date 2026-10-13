@@ -5,6 +5,7 @@ from pathlib import Path
 import flet as ft
 import pandas as pd
 
+from etf_cockpit.app.components.shell.page_view import PageView
 from etf_cockpit.app.router import PAGES
 from etf_cockpit.app.state import AppState
 from etf_cockpit.analysis.screening import ScreenQuery, ScreenSort
@@ -12,6 +13,8 @@ from etf_cockpit.application.snapshot_builder import build_snapshot
 
 
 def _walk(control):
+    if isinstance(control, PageView):
+        control = control.body
     yield control
     for child in getattr(control, "controls", []) or []:
         yield from _walk(child)
@@ -77,13 +80,13 @@ def test_screener_exposes_canonical_fundamentals_and_explicit_missing_state(monk
     text = _visible_text(controls)
 
     assert "MSFT" in text
-    assert "Valuation" in text
+    assert "Valuation".upper() in text  # kit table headers are upper-cased
     assert "7.0" in text
-    assert "Profitability" in text
-    assert "Eligibility" in text
+    assert "Profitability".upper() in text  # kit table headers are upper-cased
+    assert "Eligibility".upper() in text  # kit table headers are upper-cased
     assert "sec_edgar" in text
     assert "2026-07-10" in text
-    assert "Sector-relative" in text
+    assert "Sector-relative".upper() in text  # kit table headers are upper-cased
     assert "NO_DATA" in text
     assert "unavailable" in text
     assert "missing_fundamental_fields" in text

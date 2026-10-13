@@ -4,7 +4,8 @@ This module deliberately evaluates stored forecast rows rather than training or
 promoting models.  Outcomes are matured only from adjusted prices known at the
 evaluation as-of date, each forecast is valued net of the canonical round-trip
 execution cost, walk-forward folds are evaluated per model, and measured local
-run durations are reported as resource use.  Promotion stays shadow-only.
+run durations are reported as resource use.  Promotion is decided by
+``models.model_promotion``; this module never grants score authority.
 """
 
 from __future__ import annotations
@@ -17,7 +18,11 @@ import pandas as pd
 
 from etf_cockpit.core.values import finite_float_or_none as _finite_or_none
 from etf_cockpit.core.pandas_values import stripped_text_or_none as _noneable_text
-from etf_cockpit.models.calibration import coverage_confidence_interval, conformal_quantile_adjustment
+from etf_cockpit.models.calibration import (
+    _mase_scale as _promotion_mase_scale,
+    conformal_quantile_adjustment,
+    coverage_confidence_interval,
+)
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.resource_profiles import ResourcePolicy, estimate_workflow_resources
 from etf_cockpit.core.timing import timing_summary
@@ -51,6 +56,7 @@ LAB_MODEL_COLUMNS = [
     "matured_rows",
     "mae",
     "mase",
+    "mase_method",
     "directional_accuracy",
     "net_forward_value",
     "net_value_status",
@@ -80,7 +86,7 @@ FORECAST_OUTCOME_COLUMNS = [
     "actual_return",
     "prediction_id",
     "fold_id",
-    "out_of_fold",
+    "evidence_basis",
 ]
 LAB_RUN_COLUMNS = [
     "run_id",
@@ -91,6 +97,11 @@ LAB_RUN_COLUMNS = [
     "promotion_state",
     "execution_allowed",
 ]
+# Walk-forward folds here are date groups over already-stored forecasts: a retrospective
+# view, not prospective or independent out-of-sample evidence.
+EVIDENCE_BASIS_RETROSPECTIVE = "retrospective_date_grouped"
+EVIDENCE_BASIS_UNGROUPED = "ungrouped"
+MASE_METHOD = "per_instrument_horizon_naive_scale"
 SPLIT_COLUMNS = ["split_id", "train_end", "test_start", "test_end", "status"]
 WALK_FORWARD_EVALUATION_COLUMNS = [
     "split_id",
@@ -349,6 +360,7 @@ def build_forecast_lab_report(
         minimum_calibration_samples,
         model_runtime_ms,
         configured_horizons,
+        price_lookup,
     )
     run_rows = _run_summaries(frame)
     notes = [
@@ -356,11 +368,15 @@ def build_forecast_lab_report(
         "uses only prices up to that date.",
         "Net forward value = forecast direction x matured adjusted return - canonical round-trip cost "
         "(2 x estimated_cost_bps); it is unavailable when a cost is unavailable.",
-        "Walk-forward folds evaluate stored forecasts per model; model fitting and promotion belong to later issues.",
+        "Walk-forward folds are retrospective date groups over stored forecasts; no model is fitted here and they "
+        "are not prospective or independent out-of-sample evidence.",
+        "MASE scales each error by the mean absolute naive change of that instrument at that horizon (the same scale as "
+        "promotion calibration); MAE is the unscaled mean absolute log-return error.",
         "Resource use is the duration measured for the displayed forecast run; not_recorded when no matching run measurement exists.",
         "A forecast is graded only from its exact origin session to the exact target session; missing or stale sessions are unavailable.",
         "Forecasts are low-authority and cannot rescue or upgrade weak deterministic evidence.",
-        "TimesFM and Toto remain optional challengers and are shadow-only.",
+        "TimesFM and Toto are optional models: each counts in scores only after promotion finds lower error than the baseline on "
+        "matured forecasts dated after its pretraining cutoff or first local run.",
     ]
     return {
         "status": "ok",
@@ -458,6 +474,9 @@ def _mark_walk_forward_provenance(frame: pd.DataFrame, splits: pd.DataFrame) -> 
     marked = frame.copy()
     marked["prediction_id"] = marked.apply(_prediction_identifier, axis=1)
     marked["fold_id"] = None
+    marked["evidence_basis"] = EVIDENCE_BASIS_UNGROUPED
+    # Legacy column kept for readers of old artefacts. A retrospective date group is
+    # never out-of-fold evidence, so it is always False here and calibration cannot use it.
     marked["out_of_fold"] = False
     fold_count = pd.Series(0, index=marked.index, dtype="int64")
     for split in splits.itertuples(index=False):
@@ -467,11 +486,27 @@ def _mark_walk_forward_provenance(frame: pd.DataFrame, splits: pd.DataFrame) -> 
         fold_count.loc[mask] += 1
         first_assignment = mask & fold_count.eq(1)
         marked.loc[first_assignment, "fold_id"] = str(split.split_id)
-        marked.loc[first_assignment, "out_of_fold"] = True
+        marked.loc[first_assignment, "evidence_basis"] = EVIDENCE_BASIS_RETROSPECTIVE
     overlapping = fold_count.ne(1)
     marked.loc[overlapping, "fold_id"] = None
+    marked.loc[overlapping, "evidence_basis"] = EVIDENCE_BASIS_UNGROUPED
     marked.loc[overlapping, "out_of_fold"] = False
     return marked
+
+
+def normalise_evidence_basis(frame: pd.DataFrame) -> pd.DataFrame:
+    """Return ``frame`` with ``evidence_basis``; older artifacts only carried ``out_of_fold``.
+
+    The legacy flag came from the same date grouping, so a true value maps to the
+    retrospective label and is never read as prospective evidence.
+    """
+
+    if "evidence_basis" in frame.columns or "out_of_fold" not in frame.columns:
+        return frame
+    legacy = frame["out_of_fold"].astype(str).str.strip().str.lower().isin({"true", "1", "yes"})
+    return frame.drop(columns=["out_of_fold"]).assign(
+        evidence_basis=np.where(legacy, EVIDENCE_BASIS_RETROSPECTIVE, EVIDENCE_BASIS_UNGROUPED)
+    )
 
 
 def _prediction_identifier(row: pd.Series) -> str:
@@ -514,7 +549,7 @@ def _matured_rows(
             "actual_return": None,
             "prediction_id": row["prediction_id"],
             "fold_id": row["fold_id"],
-            "out_of_fold": bool(row["out_of_fold"]),
+            "evidence_basis": str(row["evidence_basis"]),
         }
         if row["status"] != "ok":
             outcome_row["outcome_status"] = "skipped" if row["status"] == "skipped" else "unavailable"
@@ -567,7 +602,7 @@ def _matured_rows(
                 "q90_return": q90,
                 "prediction_id": row["prediction_id"],
                 "fold_id": row["fold_id"],
-                "out_of_fold": bool(row["out_of_fold"]),
+                "evidence_basis": str(row["evidence_basis"]),
                 "interval_hit": None if q10 is None or q90 is None else float(q10 <= actual <= q90),
                 "gross_forward_value": gross_value,
                 "round_trip_cost": round_trip_cost,
@@ -587,6 +622,7 @@ def _model_summaries(
     minimum_samples: int,
     model_runtime_ms: Mapping[tuple[str, str], float] | None = None,
     configured_horizons: Iterable[int] | None = None,
+    price_lookup: Mapping[str, pd.DataFrame] | None = None,
 ) -> pd.DataFrame:
     rows = []
     configured = _normalise_horizons(configured_horizons)
@@ -596,7 +632,7 @@ def _model_summaries(
         model_outcomes = outcomes.loc[outcomes["model_name"] == model_name] if not outcomes.empty else pd.DataFrame()
         conformal = _conformal_diagnostics(evaluated, minimum_samples)
         errors = evaluated["absolute_error"] if not evaluated.empty else pd.Series(dtype=float)
-        scale = _naive_scale(evaluated["actual_return"]) if not evaluated.empty else None
+        mase = _pooled_mase(evaluated, price_lookup or {})
         drift_score, drift_status = _comparable_drift(group)
         interval = evaluated["interval_hit"].dropna() if not evaluated.empty else pd.Series(dtype=float)
         net_value, net_status = _net_value(evaluated)
@@ -636,7 +672,8 @@ def _model_summaries(
                 "skipped_horizons": skipped,
                 "matured_rows": int(len(evaluated)),
                 "mae": _rounded(errors.mean() if not errors.empty else None),
-                "mase": _rounded(errors.mean() / scale if not errors.empty and scale else None),
+                "mase": _rounded(mase),
+                "mase_method": MASE_METHOD,
                 "directional_accuracy": _rounded(evaluated["direction_hit"].mean() if not evaluated.empty else None),
                 "net_forward_value": net_value,
                 "net_value_status": net_status,
@@ -762,11 +799,33 @@ def _naive_utc(values: pd.Series) -> pd.Series:
     return pd.to_datetime(values, errors="coerce", utc=True, format="mixed").dt.tz_convert(None)
 
 
-def _naive_scale(actual: pd.Series) -> float | None:
-    changes = pd.to_numeric(actual, errors="coerce").diff().abs().dropna()
-    if changes.empty:
+def _pooled_mase(evaluated: pd.DataFrame, price_lookup: Mapping[str, pd.DataFrame]) -> float | None:
+    """Mean absolute error scaled per instrument and horizon by the promotion naive scale.
+
+    Each row is divided by ``calibration._mase_scale`` for its own instrument and
+    horizon, so the pooled mean does not depend on row order. Rows whose price
+    history is unavailable are left out; with none left the MASE is unavailable.
+    """
+
+    if evaluated.empty:
         return None
-    return max(float(changes.mean()), 1e-9)
+    scales: dict[tuple[str, int], float | None] = {}
+    scaled: list[float] = []
+    for etf_id, horizon, error in zip(
+        evaluated["etf_id"].astype(str), evaluated["horizon_days"].astype(int), evaluated["absolute_error"], strict=True
+    ):
+        key = (etf_id, horizon)
+        if key not in scales:
+            prices = price_lookup.get(etf_id)
+            scales[key] = (
+                None
+                if prices is None or prices.empty
+                else float(_promotion_mase_scale(pd.to_numeric(prices["adjusted_close"], errors="coerce"), horizon))
+            )
+        scale = scales[key]
+        if scale is not None and scale > 0 and np.isfinite(error):
+            scaled.append(float(error) / scale)
+    return float(np.mean(scaled)) if scaled else None
 
 
 def _drift(values: pd.Series) -> tuple[float | None, str]:

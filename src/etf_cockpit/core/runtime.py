@@ -3,12 +3,15 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from etf_cockpit.core.paths import LOG_DIR, ensure_project_dirs
+from etf_cockpit.core.paths import LOG_DIR, ROOT, ensure_project_dirs
 
 
 def configure_runtime_environment() -> Path:
     """Use project-local runtime folders so Flet web assets stay writable."""
     ensure_project_dirs()
+    from etf_cockpit.core.install_defaults import ensure_install_defaults
+
+    ensure_install_defaults(ROOT)
     runtime_tmp = LOG_DIR / "runtime_tmp"
     runtime_tmp.mkdir(parents=True, exist_ok=True)
 

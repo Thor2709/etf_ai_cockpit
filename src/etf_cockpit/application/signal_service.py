@@ -67,11 +67,13 @@ class SignalService:
             purpose="comparison",
             analysis_id=f"signals:{pd.Timestamp(effective_date).date().isoformat()}",
         )
-        calculation_window = _calculation_window(reference_context, effective_date, prices)
+        # Bind to the enabled universe, exactly like the snapshot and score consumers do.
+        universe_prices = prices[prices["etf_id"].astype(str).isin(set(self.config.universe.enabled_ids))]
+        calculation_window = _calculation_window(reference_context, effective_date, universe_prices)
         price_binding = (
             None
             if calculation_window is None
-            else _price_snapshot_binding(prices, calculation_window=calculation_window)
+            else _price_snapshot_binding(universe_prices, calculation_window=calculation_window)
         )
         universe_revision = _current_universe_revision()
         settings_revision = current_settings_revision()
@@ -100,7 +102,7 @@ class SignalService:
         )
         if supplied_matches and features is not None:
             feature_frame = features.copy()
-            if reference_context.benchmark_data_id is None:
+            if features.attrs.get("relative_strength_anchor") is None:
                 _sanitize_unavailable_relative_features(feature_frame)
         elif not cached_features.empty:
             feature_frame = cached_features
@@ -112,6 +114,22 @@ class SignalService:
             )
         latest = latest_features(feature_frame, effective_date)
         report = DataService(self.config).validate_prices(prices, as_of_date=effective_date, holdings=holdings)
+        price_freshness: dict[str, str] = {}
+        report_issues = getattr(report, "issues", None)
+        report_available = isinstance(report_issues, (list, tuple))
+        for issue in report_issues if report_available else ():
+            if issue.etf_id == "ALL":
+                continue
+            if issue.code == "stale_data":
+                price_freshness[issue.etf_id] = "stale"
+            elif issue.code == "stale_data_warning" and price_freshness.get(issue.etf_id) != "stale":
+                price_freshness[issue.etf_id] = "warning"
+        if "etf_id" in latest.columns:
+            latest = latest.copy()
+            known_ids = latest["etf_id"].dropna().astype(str).unique()
+            for instrument_id in known_ids:
+                price_freshness.setdefault(instrument_id, "ok" if report_available else "unknown")
+            latest["price_freshness"] = latest["etf_id"].astype(str).map(price_freshness).fillna("unknown")
         status = model_availability(self.config)
         forecasts = (
             load_latest_forecasts(
@@ -123,7 +141,7 @@ class SignalService:
             if price_binding is not None
             else pd.DataFrame()
         )
-        structure_caps = _load_structure_caps(self.config.universe.enabled_ids, effective_date)
+        structure_caps = _load_structure_caps(self.config.universe.enabled_ids, effective_date, config=self.config)
         signals = generate_signals(
             self.config,
             latest,
