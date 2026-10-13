@@ -79,7 +79,7 @@ def test_chat_p08_n005_promotion_compares_final_scores_to_baseline_final_score(t
     challenger = np.full(80, 0.3)
     baseline[-10:] = 0.5
     challenger[-10:] = 0.25
-    report = evaluate_registered_trials(tmp_path, str(run["run_id"]), {"baseline": baseline, "challenger": challenger}, spec=spec, frozen_candidate_id="challenger", predeclared_comparator_ids=("baseline",), holdout_id="final-score-regression")
+    report = evaluate_registered_trials(tmp_path, str(run["run_id"]), {"baseline": baseline, "challenger": challenger}, spec=spec, frozen_candidate_id="challenger", predeclared_comparator_ids=("baseline",), holdout_id="final-score-regression", date_labels=pd.date_range("2025-01-01", periods=80).date.tolist())
     missing_baseline = evaluate_trials({"challenger": challenger}, spec=spec)
     baseline_row = next(row for row in report.trials if row.trial_id == "baseline")
 

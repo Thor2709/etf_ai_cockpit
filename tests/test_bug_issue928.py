@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import date, timedelta
+from pathlib import Path
 from statistics import NormalDist
 
 import numpy as np
@@ -36,6 +38,8 @@ def _run(root, run_id="run-928", *, data="aligned-date-panel"):
 
 def _registered(root, scores, *, run_id="run-928", **options):
     _run(root, run_id)
+    # Sealed scoring requires actual calendar identities, never row offsets.
+    options.setdefault("date_labels", [date(2025, 1, 1) + timedelta(days=i) for i in range(len(next(iter(scores.values()))))])
     return evaluate_registered_trials(root, run_id, scores, **options)
 
 
@@ -430,6 +434,81 @@ def test_non_inference_split_keeps_the_legacy_horizon_minus_one_contract() -> No
     assert legacy.validation_indices[-1] == 100 - spec.final_test_size - 1
     assert len(strict.purged_indices) == spec.horizon
     assert strict.validation_indices[-1] == 100 - spec.final_test_size - spec.horizon - 1
+
+
+def test_issue928_pass2_public_development_evaluation_accepts_41_observations(tmp_path) -> None:
+    spec = _spec(n_splits=3, test_size=10, final_test_size=10, horizon=1, embargo=0)
+    scores = {"baseline": np.arange(41.) / 100, "candidate": np.arange(41.) / 100 + 0.01}
+    report = evaluate_trials(scores, spec=spec)
+    assert report.folds == build_walk_forward_splits(41, spec)
+    assert report.folds[0].train_indices == (0,)
+    assert report.folds[-1].validation_indices[-1] == 30
+    assert report.deflated_sharpe is report.probability_of_backtest_overfitting is report.false_discovery_rate is None
+    assert report.final_test_score is None and report.promotion_eligible is False
+    with pytest.raises(ValueError, match="at least 44 observations"):
+        _registered(tmp_path, scores, spec=spec)
+
+
+def test_issue928_pass2_holdout_dates_survive_cross_experiment_dataset_revisions(tmp_path) -> None:
+    registry = _run(tmp_path, "first")
+    dates = [date(2025, 1, 1) + timedelta(days=i) for i in range(80)]
+    scores = {"baseline": np.full(80, 0.01), "candidate": np.full(80, 0.02)}
+    options = dict(spec=_spec(), frozen_candidate_id="candidate", predeclared_comparator_ids=("baseline",))
+    first = registry.evaluate_validation_trials("first", scores, date_labels=dates, holdout_id="original", **options)
+    assert first.holdout_status == "scored"
+    revised = {key: value.copy() for key, value in scores.items()}
+    for values in revised.values():
+        values[:70] += 0.001
+    experiment = registry.create_experiment("revised-experiment")
+    registry.create_run(str(experiment["experiment_id"]), run_id="revised", dataset_hash=hashlib.sha256(b"revised-development").hexdigest(),
+                        feature_hash="b" * 64, code_hash="c" * 64, environment_hash="d" * 64)
+    # Canonical dates must survive different serialization and input row order.
+    second = LocalTrainingRegistry(tmp_path).evaluate_validation_trials(
+        "revised", {key: values[::-1] for key, values in revised.items()},
+        date_labels=[day.isoformat() + "T12:00:00" for day in dates[::-1]], holdout_id="renamed", **options,
+    )
+    assert second.holdout_status == "development_reuse"
+    assert second.final_test_score is None and all(row.final_test_score is None for row in second.trials)
+    assert max(second.folds[-1].validation_indices) == 79
+    audits = registry.list_validation_holdout_uses()
+    assert len(audits) == 2 and audits[1]["reused"] is True
+    assert audits[0]["data_hash"] != audits[1]["data_hash"]
+    assert audits[0]["holdout_fingerprint"] == audits[1]["holdout_fingerprint"]
+    for labels in (None, list(range(80))):
+        unavailable = _registered(tmp_path / str(labels is None), scores, date_labels=labels, holdout_id="unverifiable", **options)
+        assert unavailable.holdout_status == "unavailable"
+        assert unavailable.final_test_score is None
+        assert "holdout_window_identity_unverifiable" in unavailable.warnings
+    # Unknown historic declarations cannot certify a new dataset/window either.
+    historic_root = tmp_path / "legacy-audit"
+    historic = _run(historic_root, "declaration")
+    historic.record_validation_holdout_use("legacy", run_id="declaration", candidate_id="candidate", comparator_ids=("baseline",))
+    other = historic.create_experiment("another-experiment")
+    historic.create_run(str(other["experiment_id"]), run_id="new-data", dataset_hash="e" * 64,
+                        feature_hash="b" * 64, code_hash="c" * 64, environment_hash="d" * 64)
+    denied = historic.evaluate_validation_trials("new-data", scores, date_labels=dates, holdout_id="new-window", **options)
+    assert denied.holdout_status == "unavailable" and denied.final_test_score is None
+    assert "holdout_window_history_unverifiable" in denied.warnings
+    assert len(historic.list_validation_holdout_uses()) == 1
+
+
+def test_issue928_pass2_handoff_records_outcomes_base_evidence_and_checked_callers() -> None:
+    handoff = (Path(__file__).resolve().parents[1] / "docs/development/st1-issue928-correction-handoff.md").read_text(encoding="utf-8")
+    current = handoff.split("## Correction pass 2 — current handoff", 1)[1]
+    for finding in ("BLOCKING 1", "BLOCKING 2", "BLOCKING 3", "BLOCKING 4"):
+        row = next(line for line in current.splitlines() if line.startswith(f"| {finding} |"))
+        assert any(outcome in row for outcome in ("FIXED", "REJECTED", "DEFERRED"))
+    for evidence in ("27 passed, 2 failed", "20 passed", "104 passed", "DEFAULTS", "OPEN"):
+        assert evidence in current
+    for caller in (
+        "validation.protocol._evaluate_trials", "features.training_centre.LocalTrainingRegistry.evaluate_validation_trials",
+        "validation.optimisation.run_walk_forward_tuning", "application.validation.evaluate_registered_trials",
+        "application.validation.build_validation_preview", "validation.__init__",
+        "features.forecast_lab.build_forecast_lab_report", "analysis.decision.rank_validation",
+        "tests/test_validation_protocol.py", "tests/test_bug_issue928.py", "tests/test_training_centre.py",
+        "tests/test_bugfix_t-pit.py", "tests/test_forecast_lab.py", "tests/test_forecast_calibration.py",
+    ):
+        assert caller in current
 
 
 def test_optimiser_search_trials_count_in_the_validation_family(tmp_path) -> None:

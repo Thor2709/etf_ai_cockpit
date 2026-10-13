@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import numpy as np
 import pytest
 
@@ -40,6 +42,7 @@ def test_validation_retains_discarded_trials_and_never_uses_final_test_for_selec
         tmp_path, str(run["run_id"]),
         {"baseline": baseline, "challenger": challenger},
         spec=spec, frozen_candidate_id="challenger", predeclared_comparator_ids=("baseline",), holdout_id="final-score-regression",
+        date_labels=[date(2025, 1, 1) + timedelta(days=i) for i in range(80)],
         parameters={"baseline": {"kind": "naive"}, "challenger": {"kind": "candidate"}},
         regime_labels=["calm" if index % 2 else "stress" for index in range(80)],
         subgroup_labels=["A" if index % 3 else "B" for index in range(80)],

@@ -226,6 +226,7 @@ def _evaluate_trials(
     _family_reason: str = "durable_trial_family_missing",
     _family_detail: str = "",
     _evaluation_id: str | None = None,
+    _holdout_reason: str = "",
 ) -> ValidationReport:
     """Select on development folds and score only an audited frozen holdout family.
 
@@ -263,7 +264,7 @@ def _evaluate_trials(
     reserve_final = not holdout_reused
     n_samples = len(next(iter(arrays.values())))
     folds = build_walk_forward_splits(
-        n_samples, definition, reserve_final_test=reserve_final, strict_label_purge=True,
+        n_samples, definition, reserve_final_test=reserve_final, strict_label_purge=_evaluation_id is not None,
     )
     validation_indices = np.concatenate([np.asarray(fold.validation_indices, dtype=int) for fold in folds])
     if reserve_final:
@@ -308,6 +309,9 @@ def _evaluate_trials(
     elif holdout_reused:
         holdout_status = "development_reuse"
         warnings.append("holdout_reused_as_development")
+    elif requested_holdout_ids and _holdout_reason:
+        holdout_status = "unavailable"
+        warnings.append(_holdout_reason)
     elif requested_holdout_ids and missing_holdout_ids:
         holdout_status = "unavailable"
         warnings.append("holdout_predeclaration_missing_trial")

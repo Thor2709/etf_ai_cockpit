@@ -22,7 +22,9 @@ champion/challenger promotion remain separate issues.
 
 The application `evaluate_registered_trials(root, run_id, scores, ...)` binds
 validation to an existing local experiment run. `evaluate_trials` without a
-registry remains a development preview: caller-supplied history and holdout
+registry remains a development preview using the legacy split minimum and
+`horizon - 1` purge; registered evaluations retain strict label purge and two
+post-purge training observations. Caller-supplied history and holdout
 booleans grant no inference or holdout authority. Existing final-score callers
 must declare a frozen candidate, distinct comparators and a holdout ID through
 the registered application boundary. Their candidate and baseline final-score
@@ -44,8 +46,16 @@ unrecorded external experiment is never claimed to be verified.
 An append-only `validation.holdout_use` payload is committed in the same existing
 SQLite transaction before scoring. It binds run lineage, candidate/comparator
 identities and series fingerprints, holdout identity and evaluation ID. History,
-not flags, determines reuse. Conservative consumption is dataset-wide, so
-renaming or resizing a holdout cannot restore independence. A crash after the
+not flags, determines reuse. Calendar dates are canonicalized from the validated
+observation groups and fingerprinted independently of dataset hashes, row
+offsets, return values, candidate names and caller-declared holdout IDs. Reuse
+is checked across every experiment and dataset version; any overlapping consumed
+calendar date blocks sealed scoring. Consumption also remains dataset-wide, so
+renaming or resizing a holdout cannot restore independence. Calendar identity
+absent or supplied only as numeric offsets is unavailable. Missing, conflicting,
+deleted or revised historic date bindings also fail closed; legacy declarations
+cannot certify a new window. No persistence migration is required: these are
+bindings in the existing immutable audit payload. A crash after the
 commit consumes the holdout. Later evaluations include the formerly sealed
 tail in development folds, expose `development_reuse`, and have no final score.
 Unverified families cannot authorize a first holdout read. Direct audit

@@ -273,21 +273,30 @@ class LocalTrainingRegistry:
             candidate = options.get("frozen_candidate_id")
             comparators = tuple(dict.fromkeys(options.get("predeclared_comparator_ids", ())))
             holdout_id = options.get("holdout_id")
+            # Derive calendar identity independently of dataset version, row
+            # positions, strategy returns and the caller's holdout name.
+            holdout_dates = None
+            labels = options.get("date_labels")
+            if labels is not None:
+                try:
+                    holdout_dates = [
+                        datetime.fromisoformat(str(labels[group[0]]).replace("Z", "+00:00")).date().isoformat()
+                        for group in groups[-spec.final_test_size:]
+                    ]
+                except ValueError:
+                    pass  # Numeric offsets cannot establish a calendar window.
+            reused, holdout_reason = self._holdout_use_state(store, run, holdout_id, holdout_dates)
             audit = None
             # Unavailable family cannot authorize a first holdout inspection.
-            if not reason and holdout_id and candidate in arrays and comparators and candidate not in comparators and all(item in arrays for item in comparators):
+            if not reason and not holdout_reason and holdout_id and candidate in arrays and comparators and candidate not in comparators and all(item in arrays for item in comparators):
                 audit = self._append_holdout_use(
                     store, connection, run, holdout_id, candidate, comparators,
                     candidate_fingerprint=_hash_payload([candidate, arrays[candidate].tolist(), (options.get("parameters") or {}).get(candidate, {})]),
                     comparators_fingerprint=_hash_payload({item: arrays[item].tolist() for item in comparators}),
-                    holdout_fingerprint=_hash_payload([alignment, [list(group) for group in groups[-spec.final_test_size:]]]),
+                    holdout_dates=holdout_dates,
+                    holdout_fingerprint=_hash_payload(holdout_dates),
                     evaluation_id=evaluation_id,
                 )
-            # Even an unauthorized invocation must never seal data already inspected.
-            reused = any(
-                row.payload.get("data_hash") == run["dataset_hash"] or (holdout_id and row.payload.get("holdout_id") == holdout_id)
-                for row in store.list(_ENTITY_VALIDATION_HOLDOUT_USE, include_deleted=True)
-            )
             if audit is not None:
                 reused = bool(audit["reused"])
         return _evaluate_trials(
@@ -296,6 +305,7 @@ class LocalTrainingRegistry:
             holdout_use_recorded=audit is not None, holdout_reused=reused,
             _family_verified=not reason, _family_reason=reason or "", _family_detail=family_detail,
             _evaluation_id=evaluation_id,
+            _holdout_reason=holdout_reason,
         )
 
     def _validation_family(self, store, current_run, alignment):
@@ -388,6 +398,33 @@ class LocalTrainingRegistry:
             details.append(f"report(s) without stored trials: {','.join(missing_members)}")
         return prior, reason, retained_count, "; ".join(dict.fromkeys(details))
 
+    def _holdout_use_state(self, store, run, holdout_id, holdout_dates):
+        history = store.list(_ENTITY_VALIDATION_HOLDOUT_USE, include_deleted=True)
+        reused = any(
+            row.payload.get("data_hash") == run["dataset_hash"]
+            or (holdout_id and row.payload.get("holdout_id") == holdout_id)
+            for row in history
+        )
+        if not holdout_dates:
+            return reused, "holdout_window_identity_unverifiable"
+        for row in history:
+            dates = row.payload.get("holdout_dates")
+            # Legacy declarations, mutable/tombstoned audits, and conflicting
+            # bindings cannot prove that an independent window is still sealed.
+            if (row.deleted_at or row.revision != 1 or not isinstance(dates, list)
+                    or not dates or any(not isinstance(item, str) for item in dates)
+                    or row.payload.get("holdout_fingerprint") != _hash_payload(dates)):
+                return reused, "holdout_window_history_unverifiable"
+            try:
+                canonical_dates = [datetime.fromisoformat(item).date().isoformat() for item in dates]
+            except ValueError:
+                return reused, "holdout_window_history_unverifiable"
+            if canonical_dates != dates or dates != sorted(set(dates)):
+                return reused, "holdout_window_history_unverifiable"
+            if set(dates).intersection(holdout_dates):
+                reused = True
+        return reused, ""
+
     def _append_holdout_use(self, store, connection, run, holdout_id, candidate_id, comparator_ids, **bindings):
         holdout_id = _identifier(holdout_id, "holdout_id")
         candidate_id = _identifier(candidate_id, "candidate_id")
@@ -395,15 +432,14 @@ class LocalTrainingRegistry:
         if not comparators or candidate_id in comparators:
             raise TrainingRegistryError("holdout requires a distinct frozen candidate and comparators")
         history = store.list(_ENTITY_VALIDATION_HOLDOUT_USE, include_deleted=True)
-        # Dataset-wide consumption is conservative: renaming a tail or changing
-        # its boundaries can never restore independent sealed-test authority.
-        previous = [row for row in history if row.payload.get("data_hash") == run["dataset_hash"] or row.payload.get("holdout_id") == holdout_id]
+        reused, identity_reason = self._holdout_use_state(store, run, holdout_id, bindings.get("holdout_dates"))
         payload = {
             "use_id": f"holdout_use_{uuid4().hex}", "holdout_id": holdout_id,
             "run_id": run["run_id"], "candidate_id": candidate_id, "comparator_ids": list(comparators),
             "data_hash": run["dataset_hash"], "run_lineage_hash": run["lineage_hash"],
             "candidate_fingerprint": _hash_payload([run["lineage_hash"], candidate_id]),
-            "reused": bool(previous), "sequence": len(history) + 1, "recorded_at": _utc_now(),
+            "reused": bool(reused), "holdout_identity_reason": identity_reason,
+            "sequence": len(history) + 1, "recorded_at": _utc_now(),
             "execution_allowed": False, **bindings,
         }
         store.put_in_transaction(connection, _ENTITY_VALIDATION_HOLDOUT_USE, payload["use_id"], payload, immutable=True)

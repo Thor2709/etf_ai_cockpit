@@ -132,3 +132,124 @@ no broker/provider writes, forbidden directories or named ports were used.
 Open: supply the original complete bughunt register and independently identified
 DSR/CSCV examples or reference implementation to close BLOCKING 3 and attest to
 every original entry. This correction pass stops here with that gap explicit.
+
+## Correction pass 2 — current handoff
+
+The preceding pass-1 record is retained as historical evidence. This section
+is the current audit. Exact base/unchanged HEAD:
+`a399d1082ff7bc48306d96c87341921b51ffb67e`; the worktree was clean at entry.
+The configured remote is `Thor2709/etf_ai_cockpit`. The owner's explicit
+in-worktree, no-network, no-commit/no-branch instructions override fresh-main
+fetch/worktree admission for this bounded correction. No programme, lifecycle,
+PR, merge, release or packaged acceptance is claimed.
+
+### Complete register for the four supplied pass-2 findings
+
+| ID | Outcome | Base evidence and current evidence |
+| --- | --- | --- |
+| BLOCKING 1 | FIXED | `test_issue928_pass2_holdout_dates_survive_cross_experiment_dataset_revisions` failed on the exact base: the revised dataset in a different experiment scored the same final dates as sealed. It now passes: canonical date fingerprints match despite different dataset hashes, renamed holdouts, reversed observations and datetime serialization; every final score is absent on reuse. Missing calendar labels, numeric offsets and legacy audit bindings return unavailable with explicit reasons. |
+| BLOCKING 2 | FIXED | `test_issue928_pass2_public_development_evaluation_accepts_41_observations` failed on the exact base with a 44-observation minimum. It now passes: the public development call uses exactly the legacy folds at 41 observations; inference and final scores remain unavailable. The registered call still rejects 41 observations with its strict 44-observation minimum. |
+| BLOCKING 3 | DEFERRED | Independently sourced DSR/PBO numerical evidence is unavailable locally; existing hand-derived assertions remain intact and passing. A runtime-attested read-only documentation researcher confirmed only citations and hand-derived cases, with no installed independent DSR/PBO implementation. No expected value or provenance was invented. A local published fixture or independently maintained implementation is required. |
+| BLOCKING 4 | DEFERRED (original register coverage); FIXED (supplied register/caller/default/final handoff) | `test_issue928_pass2_handoff_records_outcomes_base_evidence_and_checked_callers` failed before this section existed (`IndexError`). The supplied four findings now have explicit outcomes, failing-first evidence, checked callers and defaults. The original complete bughunt register is still absent; absent IDs cannot be reconstructed from test names or certified as rejected. |
+
+### Observed original labels and preserved assertions
+
+These are every explicit numbered issue928 label present in the existing test
+file, not a reconstruction of an unavailable original register. REJECTED means
+the existing test already passed on this correction base, not that earlier work
+is rejected or that a broader unseen finding has been disproved.
+
+| Observed ID | Outcome on this correction base | Base test evidence |
+| --- | --- | --- |
+| issue928_1 | REJECTED (test already passed on the base) | `test_issue928_1_chronological_clusters_and_paired_block_reference` |
+| issue928_2 | REJECTED (test already passed on the base); independent numerical acceptance DEFERRED | `test_issue928_2_published_method_numeric_references`; all DSR/PBO/BY assertions retained |
+| issue928_3 | REJECTED (test already passed on the base) | `test_issue928_3_incomplete_or_misaligned_durable_family_fails_closed` |
+| issue928_4 | REJECTED (test already passed on the base); cross-version omission separately FIXED under BLOCKING 1 | `test_issue928_4_caller_flags_cannot_authorize_or_reset_holdout` |
+| issue928_8 | REJECTED (test already passed on the base) | `test_issue928_8_single_trial_and_too_small_inference_guards` |
+
+### Commands and evidence
+
+All pytest runs set `ETF_COCKPIT_OPEN_BROWSER=0`, used `-o addopts= -q
+--tb=line -p no:cacheprovider`, and ran locally without network or installs.
+
+- Before any production edits, the existing issue file plus the two new runtime
+  regressions: `python -m pytest tests/test_bug_issue928.py ...` ->
+  **27 passed, 2 failed**, 6.34 s. The original 27 cases (including both promotion
+  parameters and SciPy BY) passed. The only failures were BLOCKING 1 and 2.
+  Existing sealed-scoring fixtures were given actual calendar dates; assertions
+  were preserved. Production modules remained byte-identical to HEAD.
+- Before production edits: `python -m pytest tests/test_validation_protocol.py
+  tests/test_validation_application.py tests/test_training_centre.py
+  tests/test_optimisation.py ...` -> **20 passed**, 4.22 s.
+- After the two runtime corrections: those four files plus the issue file ->
+  **49 passed**, 12.74 s.
+- After extending the same holdout regression to legacy-history unavailability
+  and updating affected caller fixtures: those five files plus
+  `tests/test_bugfix_t-pit.py tests/test_forecast_lab.py
+  tests/test_forecast_calibration.py` -> **104 passed**, 20.42 s.
+- The new handoff regression alone failed before documentation edits; its
+  subsequent result is recorded in the final response. This is a document
+  completeness guard, not invented numerical acceptance evidence.
+- Ruff over both changed production modules and the three changed test files,
+  and `git diff --check`: passed. No unchanged full-suite or hosted gate was
+  rerun. The user's reported prior 1745-pass full suite is supplied evidence,
+  not current-diff independently verified acceptance.
+
+### Complete checked-caller list
+
+Searches: `rg -n 'build_walk_forward_splits|evaluate_trials\(' src tests -g
+'*.py'` and `rg -n 'evaluate_registered_trials|evaluate_validation_trials|
+holdout_id=' tests -g '*.py'`. All discovered call sites below were inspected.
+
+| Checked caller/export | Verified contract |
+| --- | --- |
+| `validation.protocol._evaluate_trials` | Public unregistered development uses the legacy default; internal registry evaluation ID selects strict splits. Reused windows use `reserve_final_test=False`. Public underscore evidence options remain rejected. |
+| `features.training_centre.LocalTrainingRegistry.evaluate_validation_trials` | Strict pre-check before immutable submission; canonical calendar identity and all-experiment reuse audit in the same transaction before scoring. |
+| `validation.optimisation.run_walk_forward_tuning` | Explicit `strict_label_purge=False`, existing tuning windows unchanged. |
+| `application.validation.evaluate_registered_trials` | Routes only through the registry with an existing run; registered strict behavior retained. |
+| `application.validation.build_validation_preview` | Uses the public development-only evaluator; legacy split contract restored. |
+| `validation.__init__` | Re-exports the existing helper and public evaluator; no alternate calculation. |
+| `tests/test_validation_protocol.py` | Default split assertions retained; registered final-score fixture now declares actual dates. |
+| `tests/test_bug_issue928.py` | All strict boundary/default legacy assertions retained; one cross-experiment regression and one 41-observation regression added; sealed-scoring fixtures declare dates. |
+| `tests/test_training_centre.py` | Development-only public report at 20 observations, complete retained trial assertions unchanged. |
+| `tests/test_bugfix_t-pit.py` | Public missing-baseline call unchanged; registered final-score fixture now declares actual dates, all assertions retained. |
+| `features.forecast_lab.build_forecast_lab_report` | Uses the separate existing date-based helper with default three training dates/one test date; unchanged. |
+| `analysis.decision.rank_validation.evaluate_rank_validation` | Uses forecast-lab's helper with explicit three/one settings; unchanged. |
+| `tests/test_forecast_lab.py` | Separate forecast-lab helper default/chronological assertions unchanged and passing. |
+| `tests/test_forecast_calibration.py` | Separate forecast-lab helper and out-of-fold provenance assertions unchanged and passing. |
+
+### Independent numerical-source audit
+
+The named `documentation_researcher` ran with attested `gpt-5.6-luna`, high
+reasoning, this worktree, and a read-only assignment. Runtime attestation reported
+`V2_RUNTIME_ATTESTATION_PROVEN`. Inspected references: the issue test file,
+`docs/architecture/validation-protocol.md`, the pass-1 handoff and `REPORT.md`.
+The root independently confirmed the original cases' hand-derived qualification
+and the absence of independent fixture locators in the scoped source/documents.
+Installed SciPy 1.18.0 supplies independent BY evidence only;
+`mlfinlab`, `quantstats`, `empyrical`, and `vectorbt` are not installed.
+SciPy `_morestats.py` source SHA-256:
+`cd9e4918f2b63299bcaa439496dfc1111478640f0310d64832cfa38d42c2d305`.
+No paper citation alone was counted as numerical evidence. A local source and
+the original register were requested asynchronously; neither was supplied at
+the time this record was written. No network fallback was attempted.
+
+### DEFAULTS and OPEN
+
+DEFAULTS: holdout date overlap consumes authority conservatively across the
+entire local registry, even across datasets/instruments/experiments. Row offsets
+are insufficient for sealed identity. No dates or unverifiable historical
+bindings yield unavailable with a reason. Dataset-wide/declared-ID consumption
+is retained as an additional conservative check. Calendar identity is verified
+from supplied observations' canonical date groups; no external provenance
+attestation is inferred. Legacy audit rows are retained without migration.
+Strict splits remain registered-only; public split/evaluation development
+defaults retain `horizon - 1`, the old sample minimum and reserved tail.
+No score weights, thresholds, statistical defaults or dependencies changed;
+`execution_allowed=false` remains enforced. No earlier assertions were deleted.
+
+OPEN: independently sourced DSR/PBO inputs/expected values with inspectable
+provenance, and the complete original bughunt register. Consequently BLOCKING 3
+and the original-register part of BLOCKING 4 remain deferred. Linux/Windows
+packaged gates and full formal product acceptance are outside this offline,
+uncommitted correction handoff; this pass does not claim the train complete.
