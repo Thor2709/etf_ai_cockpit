@@ -11,9 +11,14 @@ from datetime import UTC, datetime
 import hashlib
 import json
 import math
+from decimal import Decimal, InvalidOperation
 import re
 from types import MappingProxyType
 from typing import Any, Iterable, Literal, Mapping
+
+import pandas as pd
+
+from etf_cockpit.portfolio.valuation import calculate_money_weighted_return, link_time_weighted_return
 
 MODEL_VERSION = "benchmark-relative-diagnostics-v1"
 DIMENSIONS = (
@@ -727,6 +732,124 @@ def _revision(value: object) -> int:
     return value
 
 
+PERIOD_EXCESS_LABEL = "Period excess return R_p - R_b (arithmetic difference of period returns; not compounded)"
+RELATIVE_WEALTH_LABEL = "Compounded relative wealth W_p / W_b - 1 (cash-flow-matched end values)"
+RELATIVE_RETURN_LABEL = PERIOD_EXCESS_LABEL  # BenchmarkRelativeReport.relative_return is a period difference.
+
+
+@dataclass(frozen=True, slots=True)
+class RelativePerformance:
+    """Strategy versus cash-flow-matched benchmark, with each measure separately labelled.
+
+    ``strategy_twr`` / ``benchmark_twr`` measure the strategy independent of investor flow timing;
+    ``strategy_mwr`` / ``benchmark_mwr`` are de-annualised XIRR period returns that include timing.
+    The excess return and the relative wealth are different quantities and are never merged.
+    """
+
+    status: Literal["available", "partial", "unavailable"]
+    reasons: tuple[str, ...]
+    period_excess_return: float | None
+    period_excess_return_label: str
+    compounded_relative_wealth: float | None
+    compounded_relative_wealth_label: str
+    strategy_twr: float | None
+    benchmark_twr: float | None
+    strategy_mwr: float | None
+    benchmark_mwr: float | None
+    investor_timing_gap: float | None
+    execution_allowed: Literal[False] = False
+
+
+def build_relative_performance(
+    strategy_snapshots: pd.DataFrame | None,
+    benchmark_snapshots: pd.DataFrame | None,
+    *,
+    start: object = None,
+    end: object = None,
+) -> RelativePerformance:
+    """Compare a strategy with its cash-flow-matched benchmark from canonical daily snapshots.
+
+    Both inputs are standard valuation snapshots and flow through the canonical TWR and XIRR functions. Relative
+    wealth additionally requires identical dates and external flows in both accounts; otherwise it is unavailable
+    rather than approximated.
+    """
+
+    reasons: list[str] = []
+    twr_p = link_time_weighted_return(strategy_snapshots, start=start, end=end)
+    twr_b = link_time_weighted_return(benchmark_snapshots, start=start, end=end)
+    mwr_p = calculate_money_weighted_return(strategy_snapshots, start=start, end=end)
+    mwr_b = calculate_money_weighted_return(benchmark_snapshots, start=start, end=end)
+
+    def value(result: dict[str, object], label: str) -> float | None:
+        if result.get("status") != "available" or not isinstance(result.get("value"), (int, float)):
+            reasons.append(f"{label}_unavailable:{result.get('reason')}")
+            return None
+        return float(result["value"])  # type: ignore[arg-type]
+
+    strategy_twr = value(twr_p, "strategy_twr")
+    benchmark_twr = value(twr_b, "benchmark_twr")
+    strategy_mwr = value(mwr_p, "strategy_mwr")
+    benchmark_mwr = value(mwr_b, "benchmark_mwr")
+    excess = None if strategy_twr is None or benchmark_twr is None else strategy_twr - benchmark_twr
+    timing_gap = None if strategy_mwr is None or strategy_twr is None else strategy_mwr - strategy_twr
+    wealth, wealth_reason = _relative_wealth(strategy_snapshots, benchmark_snapshots, start, end)
+    if wealth_reason:
+        reasons.append(wealth_reason)
+    results = (excess, wealth)
+    status: Literal["available", "partial", "unavailable"] = (
+        "unavailable" if all(item is None for item in results) else "available" if not reasons else "partial"
+    )
+    return RelativePerformance(
+        status,
+        tuple(dict.fromkeys(reasons)),
+        excess,
+        PERIOD_EXCESS_LABEL,
+        wealth,
+        RELATIVE_WEALTH_LABEL,
+        strategy_twr,
+        benchmark_twr,
+        strategy_mwr,
+        benchmark_mwr,
+        timing_gap,
+    )
+
+
+def _relative_wealth(
+    strategy: pd.DataFrame | None,
+    benchmark: pd.DataFrame | None,
+    start: object,
+    end: object,
+) -> tuple[float | None, str | None]:
+    """Return ``W_p / W_b - 1`` exactly (Decimal) when both accounts have matched dates and flows."""
+
+    frames = []
+    for frame in (strategy, benchmark):
+        if not isinstance(frame, pd.DataFrame) or frame.empty or not {"date", "total_value", "external_flow"}.issubset(frame.columns):
+            return None, "relative_wealth_unavailable:snapshots_missing"
+        selected = frame.copy()
+        selected["date"] = pd.to_datetime(selected["date"]).dt.normalize()
+        if start is not None:
+            selected = selected.loc[selected["date"] >= pd.Timestamp(start)]
+        if end is not None:
+            selected = selected.loc[selected["date"] <= pd.Timestamp(end)]
+        frames.append(selected.sort_values("date").reset_index(drop=True))
+    left, right = frames
+    if left.empty or len(left) != len(right) or not (left["date"] == right["date"]).all():
+        return None, "relative_wealth_unavailable:dates_not_matched"
+    flows_left = pd.to_numeric(left["external_flow"], errors="coerce")
+    flows_right = pd.to_numeric(right["external_flow"], errors="coerce")
+    if flows_left.isna().any() or flows_right.isna().any() or not (flows_left == flows_right).all():
+        return None, "relative_wealth_unavailable:cash_flows_not_matched"
+    try:
+        w_p = Decimal(repr(float(left["total_value"].iloc[-1])))
+        w_b = Decimal(repr(float(right["total_value"].iloc[-1])))
+    except (InvalidOperation, ValueError, TypeError):
+        return None, "relative_wealth_unavailable:end_value_invalid"
+    if not w_p.is_finite() or not w_b.is_finite() or w_b <= 0 or w_p < 0:
+        return None, "relative_wealth_unavailable:end_value_invalid"
+    return float(w_p / w_b - Decimal(1)), None
+
+
 __all__ = [
     "AttributionEvidence",
     "BenchmarkDiagnosticsError",
@@ -734,8 +857,13 @@ __all__ = [
     "Contribution",
     "DimensionDiagnostic",
     "MODEL_VERSION",
+    "PERIOD_EXCESS_LABEL",
+    "RELATIVE_RETURN_LABEL",
+    "RELATIVE_WEALTH_LABEL",
+    "RelativePerformance",
     "ReturnObservation",
     "build_benchmark_relative_report",
+    "build_relative_performance",
     "canonical_report_hash",
     "verify_benchmark_relative_report",
 ]

@@ -10,18 +10,25 @@ from datetime import date
 import hashlib
 import json
 import math
+from pathlib import Path
+import re
 import threading
 from types import MappingProxyType
+from typing import Literal
 
+import numpy as np
 import pandas as pd
+import yaml
 
 from etf_cockpit.core.frame_signature import columns_key
+from etf_cockpit.core.paths import CONFIG_DIR
 
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     AnalysisDeclaration,
     AnalysisResolution,
     BenchmarkReferenceError,
     CanonicalBenchmarkRegistry,
+    VWCE_CANONICAL_ISIN,
     unavailable_reference_projection as contract_unavailable_reference_projection,
 )
 
@@ -668,15 +675,266 @@ def context_from_snapshot(
     )
 
 
+VWCE_LISTING_TICKER = "VWCE.DE"
+VWCE_QUOTE_CURRENCY = "EUR"
+VWCE_BENCHMARK_ID = "benchmark:ftse-all-world"
+# Documented defaults: a one-day move above 25% in either price column is a split/adjustment discontinuity, and
+# the adjusted/raw price ratio of an accumulating share class must stay constant to within one part in a million.
+DEFAULT_MAX_DAILY_MOVE = 0.25
+DEFAULT_ADJUSTMENT_TOLERANCE = 1e-6
+_SHA256_TEXT = re.compile(r"^[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True)
+class VwceReferenceSeriesCheck:
+    """Contract verdict for one candidate VWCE price series (never a guessed value)."""
+
+    status: Literal["available", "unavailable"]
+    reasons: tuple[str, ...]
+    source_hash: str | None
+    known_at: str | None
+    observations: int
+    first_date: str | None
+    last_date: str | None
+    execution_allowed: Literal[False] = False
+
+
+def vwce_series_source_hash(frame: pd.DataFrame) -> str:
+    """Hash the canonical (date, close, adjusted close) rows of a candidate series."""
+
+    adjusted = "adjusted_close" if "adjusted_close" in frame.columns else "adj_close"
+    rows = [
+        [pd.Timestamp(day).date().isoformat(), repr(float(close)), repr(float(adj))]
+        for day, close, adj in zip(frame["date"], frame["close"], frame[adjusted], strict=True)
+    ]
+    return hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def validate_vwce_reference_series(
+    frame: pd.DataFrame | None,
+    *,
+    known_at: object,
+    isin: str = VWCE_CANONICAL_ISIN,
+    ticker: str = VWCE_LISTING_TICKER,
+    currency: str = VWCE_QUOTE_CURRENCY,
+    accumulating: bool = True,
+    fx_converted: bool = False,
+    declared_source_hash: str | None = None,
+    max_daily_move: float = DEFAULT_MAX_DAILY_MOVE,
+    adjustment_tolerance: float = DEFAULT_ADJUSTMENT_TOLERANCE,
+) -> VwceReferenceSeriesCheck:
+    """Check VWCE identity, price/currency invariants and corporate-action consistency; fail closed.
+
+    The series is the EUR-quoted Xetra listing, so the fund's USD base currency is never converted again
+    (``fx_converted``); the OCF is already in the NAV and no fee is subtracted. An accumulating share class
+    distributes nothing, so a ``dividends`` entry or an adjusted/raw ratio that changes is an artificial
+    distribution (a distribution would be counted twice: once in the adjusted close, once as cash).
+    """
+
+    reasons: list[str] = []
+    if isin != VWCE_CANONICAL_ISIN:
+        reasons.append("identity_isin_mismatch")
+    if ticker != VWCE_LISTING_TICKER:
+        reasons.append("identity_listing_mismatch")
+    if currency != VWCE_QUOTE_CURRENCY:
+        reasons.append("quote_currency_not_eur")
+    if accumulating is not True:
+        reasons.append("distribution_policy_not_accumulating")
+    if fx_converted is not False:
+        reasons.append("double_fx_conversion")
+    known_stamp: pd.Timestamp | None
+    try:
+        known_stamp = pd.Timestamp(known_at)
+    except (TypeError, ValueError):
+        known_stamp = None
+    if known_stamp is None or pd.isna(known_stamp):
+        reasons.append("known_at_unavailable")
+        known_stamp = None
+    elif known_stamp.tzinfo is None:
+        reasons.append("known_at_not_timezone_aware")
+        known_stamp = None
+    adjusted_column = next(
+        (name for name in ("adjusted_close", "adj_close") if isinstance(frame, pd.DataFrame) and name in frame.columns),
+        None,
+    )
+    if (
+        not isinstance(frame, pd.DataFrame)
+        or "date" not in frame.columns
+        or "close" not in frame.columns
+        or adjusted_column is None
+    ):
+        reasons.append("series_columns_missing")
+        return _series_check(reasons, None, known_stamp, 0, None, None)
+    if len(frame) < 2:
+        reasons.append("series_too_short")
+        return _series_check(reasons, None, known_stamp, len(frame), None, None)
+    dates = pd.to_datetime(frame["date"], errors="coerce")
+    if dates.isna().any():
+        reasons.append("invalid_dates")
+        return _series_check(reasons, None, known_stamp, len(frame), None, None)
+    if getattr(dates.dt, "tz", None) is not None:
+        dates = dates.dt.tz_convert("UTC").dt.tz_localize(None)
+    dates = dates.dt.normalize()
+    if dates.duplicated().any():
+        reasons.append("duplicate_dates")
+    elif not dates.is_monotonic_increasing:
+        reasons.append("dates_not_sorted")
+    first_date = dates.min().date().isoformat()
+    last_date = dates.max().date().isoformat()
+    if known_stamp is not None and dates.max().date() > known_stamp.tz_convert("UTC").date():
+        reasons.append("observation_after_known_at")
+    close = pd.to_numeric(frame["close"], errors="coerce")
+    adjusted = pd.to_numeric(frame[adjusted_column], errors="coerce")
+    valid_prices = bool(
+        np.isfinite(close.to_numpy(dtype=float)).all()
+        and np.isfinite(adjusted.to_numpy(dtype=float)).all()
+        and (close > 0).all()
+        and (adjusted > 0).all()
+    )
+    if not valid_prices:
+        reasons.append("prices_missing_or_non_positive")
+    else:
+        if "dividends" in frame.columns:
+            dividends = pd.to_numeric(frame["dividends"], errors="coerce")
+            if dividends.isna().any() or (dividends != 0).any():
+                reasons.append("distribution_on_accumulating_share_class")
+        ratio = adjusted / close
+        if float(ratio.max() / ratio.min() - 1.0) > adjustment_tolerance:
+            reasons.append("adjusted_price_embeds_distribution")
+        for label, prices in (("close", close), ("adjusted_close", adjusted)):
+            moves = prices.pct_change().abs().iloc[1:]
+            if bool((moves > max_daily_move).any()):
+                reasons.append(f"split_or_adjustment_discontinuity:{label}")
+    computed = vwce_series_source_hash(frame) if valid_prices else None
+    if declared_source_hash is not None and (
+        not isinstance(declared_source_hash, str)
+        or _SHA256_TEXT.fullmatch(declared_source_hash) is None
+        or declared_source_hash != computed
+    ):
+        reasons.append("source_hash_mismatch")
+    return _series_check(reasons, computed, known_stamp, len(frame), first_date, last_date)
+
+
+def _series_check(
+    reasons: list[str],
+    source_hash: str | None,
+    known_stamp: pd.Timestamp | None,
+    observations: int,
+    first_date: str | None,
+    last_date: str | None,
+) -> VwceReferenceSeriesCheck:
+    failed = bool(reasons) or source_hash is None or known_stamp is None
+    return VwceReferenceSeriesCheck(
+        "unavailable" if failed else "available",
+        tuple(dict.fromkeys(reasons)) or (("series_unverifiable",) if failed else ()),
+        None if failed else source_hash,
+        None if known_stamp is None else known_stamp.isoformat(),
+        observations,
+        first_date,
+        last_date,
+    )
+
+
+def vwce_reference_status(
+    registry: CanonicalBenchmarkRegistry,
+    check: VwceReferenceSeriesCheck,
+    *,
+    benchmark_id: str = VWCE_BENCHMARK_ID,
+) -> dict[str, object]:
+    """Report ``available`` only when the registry record AND the series contract both pass.
+
+    The shipped registry stays ``unavailable`` until a source-backed record carrying the series source hash
+    is imported; a passing series alone never upgrades it.
+    """
+
+    def unavailable(reason: str) -> dict[str, object]:
+        return {
+            "status": "unavailable",
+            "reason": reason,
+            "benchmark_id": benchmark_id,
+            "source_hash": None,
+            "execution_allowed": False,
+        }
+
+    if not isinstance(registry, CanonicalBenchmarkRegistry) or not isinstance(check, VwceReferenceSeriesCheck):
+        return unavailable("reference_inputs_invalid")
+    if check.status != "available" or not check.source_hash:
+        return unavailable("series_contract_failed:" + ",".join(check.reasons))
+    records = [item for item in registry.benchmarks if item.benchmark_id == benchmark_id]
+    if not records:
+        return unavailable("registry_record_missing")
+    available = [item for item in records if item.status == "available" and item.source_hashes]
+    if not available:
+        return unavailable("registry_record_not_available")
+    if not any(check.source_hash in item.source_hashes for item in available):
+        return unavailable("series_hash_not_in_registry")
+    return {
+        "status": "available",
+        "reason": None,
+        "benchmark_id": benchmark_id,
+        "source_hash": check.source_hash,
+        "known_at": check.known_at,
+        "execution_allowed": False,
+    }
+
+
+def load_passive_default_policy(path: Path | None = None) -> dict[str, object]:
+    """Load the versioned passive-default policy; unavailable until the owner has approved it."""
+
+    def unavailable(reason: str) -> dict[str, object]:
+        return {"status": "unavailable", "reason": reason, "execution_allowed": False}
+
+    target = path or CONFIG_DIR / "portfolio_policy_v1.yaml"
+    try:
+        payload = yaml.safe_load(Path(target).read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError, UnicodeDecodeError):
+        return unavailable("policy_unreadable")
+    if not isinstance(payload, Mapping) or payload.get("schema_version") != "portfolio-policy.v1":
+        return unavailable("policy_schema_invalid")
+    if payload.get("execution_allowed") is not False:
+        return unavailable("policy_execution_authority_forbidden")
+    default = payload.get("passive_default")
+    approval = payload.get("approval")
+    if (
+        not isinstance(default, Mapping)
+        or default.get("instrument_id") != "VWCE"
+        or default.get("isin") != VWCE_CANONICAL_ISIN
+        or default.get("applies_when") != "no_active_edge_shown"
+        or not isinstance(payload.get("version"), str)
+    ):
+        return unavailable("policy_default_invalid")
+    if (
+        not isinstance(approval, Mapping)
+        or approval.get("status") != "approved"
+        or not approval.get("approved_by")
+        or not approval.get("approved_at")
+    ):
+        return unavailable("owner_approval_pending")
+    return {
+        "status": "available",
+        "reason": None,
+        "policy_id": payload.get("policy_id"),
+        "version": payload["version"],
+        "default_instrument_id": "VWCE",
+        "applies_when": "no_active_edge_shown",
+        "execution_allowed": False,
+    }
+
+
 __all__ = [
     "CanonicalReferenceContext",
     "adjusted_price_binding_for_reference",
     "adjusted_price_snapshot_binding",
     "clip_to_decision_window",
     "context_from_snapshot",
+    "VwceReferenceSeriesCheck",
+    "load_passive_default_policy",
     "resolve_canonical_reference",
     "unavailable_reference_projection",
     "validate_benchmark_reference",
+    "validate_vwce_reference_series",
+    "vwce_reference_status",
+    "vwce_series_source_hash",
 ]
 
 
