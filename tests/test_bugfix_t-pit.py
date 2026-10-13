@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -29,6 +29,8 @@ from etf_cockpit.features.feature_store import (
 from etf_cockpit.models.coverage_audit import build_coverage_audit
 from etf_cockpit.models.uncertainty import uncertainty_gate_reasons
 from etf_cockpit.signals.canonical_scoring import canonical_score_from_signal_row
+from etf_cockpit.application.validation import evaluate_registered_trials
+from etf_cockpit.features.training_centre import LocalTrainingRegistry
 from etf_cockpit.validation.protocol import ValidationSpec, evaluate_trials
 
 
@@ -65,13 +67,19 @@ def test_chat_p03_n002_backfilled_fx_is_known_at_decision_time() -> None:
     assert late_start is None
 
 
-def test_chat_p08_n005_promotion_compares_final_scores_to_baseline_final_score() -> None:
+def test_chat_p08_n005_promotion_compares_final_scores_to_baseline_final_score(tmp_path) -> None:
+    registry = LocalTrainingRegistry(tmp_path)
+    experiment = registry.create_experiment("audited-validation")
+    run = registry.create_run(
+        str(experiment["experiment_id"]), dataset_hash="a" * 64, feature_hash="b" * 64,
+        code_hash="c" * 64, environment_hash="d" * 64,
+    )
     spec = ValidationSpec(n_splits=3, test_size=10, final_test_size=10, bootstrap_repetitions=30, seed=7)
     baseline = np.full(80, 0.2)
     challenger = np.full(80, 0.3)
     baseline[-10:] = 0.5
     challenger[-10:] = 0.25
-    report = evaluate_trials({"baseline": baseline, "challenger": challenger}, spec=spec)
+    report = evaluate_registered_trials(tmp_path, str(run["run_id"]), {"baseline": baseline, "challenger": challenger}, spec=spec, frozen_candidate_id="challenger", predeclared_comparator_ids=("baseline",), holdout_id="final-score-regression")
     missing_baseline = evaluate_trials({"challenger": challenger}, spec=spec)
     baseline_row = next(row for row in report.trials if row.trial_id == "baseline")
 

@@ -1,16 +1,39 @@
 from __future__ import annotations
 
+import hashlib
 from statistics import NormalDist
 
 import numpy as np
 import pytest
 
-from etf_cockpit.features.training_centre import LocalTrainingRegistry
+from etf_cockpit.application.validation import evaluate_registered_trials
+from etf_cockpit.data.local_storage import TransactionalStore
+from etf_cockpit.features.training_centre import LocalTrainingRegistry, TrainingRegistryError
 from etf_cockpit.validation.protocol import (
     ValidationSpec,
+    _deflated_sharpe,
+    _false_discovery_rate,
+    _pbo_probability,
     build_walk_forward_splits,
     evaluate_trials,
 )
+
+
+def _run(root, run_id="run-928", *, data="aligned-date-panel"):
+    registry = LocalTrainingRegistry(root)
+    experiment = registry.create_experiment("issue928", experiment_id="experiment-928")
+    def digest(value):
+        return hashlib.sha256(value.encode()).hexdigest()
+    registry.create_run(
+        str(experiment["experiment_id"]), run_id=run_id, dataset_hash=digest(data),
+        feature_hash=digest("features"), code_hash=digest("code"), environment_hash=digest("environment"),
+    )
+    return registry
+
+
+def _registered(root, scores, *, run_id="run-928", **options):
+    _run(root, run_id)
+    return evaluate_registered_trials(root, run_id, scores, **options)
 
 
 def _spec(**changes: object) -> ValidationSpec:
@@ -29,34 +52,36 @@ def _spec(**changes: object) -> ValidationSpec:
     return ValidationSpec(**options)  # type: ignore[arg-type]
 
 
-def test_dsr_uses_skew_kurtosis_trial_count_and_declared_frequency() -> None:
+def test_dsr_uses_skew_kurtosis_trial_count_and_declared_frequency(tmp_path) -> None:
     values = np.array([-0.01, 0.00, 0.01, 0.02, -0.005, 0.015] * 10, dtype=float)
     spec = _spec(n_splits=2, test_size=10, final_test_size=10, periods_per_year=12)
-    report = evaluate_trials({"baseline": np.zeros(80), "candidate": np.resize(values, 80)}, spec=spec)
+    baseline = np.resize(values, 80) - 0.004
+    report = _registered(tmp_path, {"baseline": baseline, "candidate": np.resize(values, 80)}, spec=spec)
 
     selected = np.resize(values, 80)
     validation = np.concatenate([selected[list(fold.validation_indices)] for fold in report.folds])
     sample_std = validation.std(ddof=1)
     periodic_sr = validation.mean() / sample_std
-    annual_sr = periodic_sr * np.sqrt(12)
-    standardized = (validation - validation.mean()) / sample_std
+    standardized = (validation - validation.mean()) / validation.std(ddof=0)
     skew = np.mean(standardized**3)
     pearson_kurtosis = np.mean(standardized**4)
-    variance = (1 - skew * annual_sr + ((pearson_kurtosis - 1) / 4) * annual_sr**2) / (len(validation) - 1)
+    variance = (1 - skew * periodic_sr + ((pearson_kurtosis - 1) / 4) * periodic_sr**2) / (len(validation) - 1)
+    baseline_validation = np.concatenate([baseline[list(fold.validation_indices)] for fold in report.folds])
+    trial_variance = np.var([periodic_sr, baseline_validation.mean() / baseline_validation.std(ddof=1)], ddof=1)
     trials = report.effective_independent_trial_count
     gamma = 0.5772156649015329
     normal = NormalDist()
-    expected_max = np.sqrt(variance) * (
+    expected_max = np.sqrt(trial_variance) * (
         (1 - gamma) * normal.inv_cdf(1 - 1 / trials)
         + gamma * normal.inv_cdf(1 - 1 / (trials * np.e))
     )
-    expected_probability = normal.cdf((annual_sr - expected_max) / np.sqrt(variance))
+    expected_probability = normal.cdf((periodic_sr - expected_max) / np.sqrt(variance))
 
     assert report.deflated_sharpe == pytest.approx(expected_probability)
     assert 0 <= report.deflated_sharpe <= 1
 
 
-def test_pbo_uses_cscv_winner_ranks_not_full_run_rank_disagreement() -> None:
+def test_pbo_uses_cscv_winner_ranks_not_full_run_rank_disagreement(tmp_path) -> None:
     # The first strategy wins every complementary split. The two inferior
     # strategies exchange order between development and the reserved window.
     anchor = np.full(80, 0.03)
@@ -64,8 +89,8 @@ def test_pbo_uses_cscv_winner_ranks_not_full_run_rank_disagreement() -> None:
     lower_b = np.tile(np.r_[np.full(10, 0.00), np.full(10, 0.02)], 4)
     lower_a[-10:] = 0.00
     lower_b[-10:] = 0.02
-    report = evaluate_trials(
-        {"anchor": anchor, "lower_a": lower_a, "lower_b": lower_b},
+    report = _registered(
+        tmp_path, {"anchor": anchor, "lower_a": lower_a, "lower_b": lower_b},
         spec=_spec(n_splits=3, test_size=10, final_test_size=10),
     )
 
@@ -79,26 +104,26 @@ def test_single_trial_pbo_is_unavailable_with_a_reason() -> None:
     assert any("pbo_unavailable" in warning for warning in report.warnings)
 
 
-def test_fdr_responds_to_paired_p_value_evidence() -> None:
+def test_fdr_responds_to_paired_p_value_evidence(tmp_path) -> None:
     rng = np.random.default_rng(29)
     baseline = np.zeros(80)
     strong = baseline + 0.01
     weak = rng.normal(0.0, 0.02, 80)
     spec = _spec(n_splits=3, test_size=10, final_test_size=10)
-    strong_report = evaluate_trials({"baseline": baseline, "candidate": strong}, spec=spec)
-    weak_report = evaluate_trials({"baseline": baseline, "candidate": weak}, spec=spec)
+    strong_report = _registered(tmp_path / "strong", {"baseline": baseline, "candidate": strong}, spec=spec)
+    weak_report = _registered(tmp_path / "weak", {"baseline": baseline, "candidate": weak}, spec=spec)
 
     assert strong_report.false_discovery_rate is not None
     assert weak_report.false_discovery_rate is not None
     assert strong_report.false_discovery_rate < weak_report.false_discovery_rate
 
 
-def test_only_frozen_candidate_and_predeclared_comparators_read_holdout() -> None:
+def test_only_frozen_candidate_and_predeclared_comparators_read_holdout(tmp_path) -> None:
     baseline = np.full(80, 0.01)
     frozen = np.full(80, 0.02)
     unregistered = np.full(80, 0.03)
-    report = evaluate_trials(
-        {"baseline": baseline, "frozen": frozen, "unregistered": unregistered},
+    report = _registered(
+        tmp_path, {"baseline": baseline, "frozen": frozen, "unregistered": unregistered},
         spec=_spec(),
         frozen_candidate_id="frozen",
         predeclared_comparator_ids=("baseline",),
@@ -151,7 +176,7 @@ def test_final_holdout_does_not_inflate_trial_correlation_count() -> None:
 def test_minimum_split_rejects_fewer_than_two_post_purge_training_rows() -> None:
     spec = _spec(n_splits=2, test_size=5, final_test_size=5, horizon=2, periods_per_year=None)
 
-    with pytest.raises(ValueError, match="two training observations"):
+    with pytest.raises(ValueError, match="two post-purge training observations"):
         build_walk_forward_splits(17, spec)
 
 
@@ -170,21 +195,24 @@ def test_date_clustered_bootstrap_counts_origins_not_cross_section_rows() -> Non
         date_labels=dates,
     )
 
-    assert report.uncertainty["observations"] == 16
-    assert report.uncertainty["effective_dates"] == 16
+    assert report.uncertainty["observations"] == 4
+    assert report.uncertainty["effective_dates"] == 4
 
 
-def test_prior_validation_trials_join_the_multiple_testing_family() -> None:
+def test_prior_validation_trials_join_the_multiple_testing_family(tmp_path) -> None:
     rng = np.random.default_rng(7)
     scores = {"baseline": np.zeros(80), "candidate": rng.normal(0.001, 0.01, 80)}
     prior = {f"prior-{index}": rng.normal(0.0, 0.01, 80) for index in range(4)}
-    report = evaluate_trials(scores, spec=_spec(), prior_trial_scores=prior)
+    _registered(tmp_path, prior, run_id="rejected-run", spec=_spec())
+    # A fresh registry/application instance discovers all rejected trials itself.
+    report = _registered(tmp_path, scores, run_id="later-run", spec=_spec())
 
     assert report.effective_independent_trial_count >= len(scores) + len(prior)
 
 
 def test_holdout_use_audit_is_append_only_and_detects_reuse(tmp_path) -> None:
-    registry = LocalTrainingRegistry(tmp_path)
+    registry = _run(tmp_path, "validation-run-1")
+    _run(tmp_path, "validation-run-2")
     first = registry.record_validation_holdout_use(
         "holdout-928", run_id="validation-run-1", candidate_id="candidate", comparator_ids=("baseline",)
     )
@@ -195,3 +223,101 @@ def test_holdout_use_audit_is_append_only_and_detects_reuse(tmp_path) -> None:
     assert first["reused"] is False
     assert second["reused"] is True
     assert registry.list_validation_holdout_uses("holdout-928") == (first, second)
+    with pytest.raises(TrainingRegistryError, match="immutable"):
+        registry._put_immutable("validation.holdout_use", first["use_id"], {**first, "reused": True})
+    assert registry.list_validation_holdout_uses("holdout-928") == (first, second)
+
+
+def test_issue928_1_chronological_clusters_and_paired_block_reference() -> None:
+    # Reversing complete date clusters preserves chronological folds and paired evidence.
+    dates = np.repeat(np.arange(20), 2)
+    scores = {"baseline": np.sin(dates), "candidate": np.sin(dates) + 0.025}
+    spec = _spec(n_splits=2, test_size=2, final_test_size=2, block_size=1)
+    ascending = evaluate_trials(scores, spec=spec, date_labels=dates)
+    reversed_report = evaluate_trials({key: value[::-1] for key, value in scores.items()}, spec=spec, date_labels=dates[::-1])
+    assert reversed_report.uncertainty == ascending.uncertainty
+    assert ascending.uncertainty["mean"] == pytest.approx(0.025)
+    assert ascending.uncertainty["lower_5"] == pytest.approx(0.025)
+    assert ascending.uncertainty["p_value"] == pytest.approx(1 / 101)
+    assert ascending.uncertainty["observations"] == 4
+
+
+def test_issue928_2_published_method_numeric_references() -> None:
+    # DSR: symmetric returns give SR=0, skew=0, Pearson kurtosis=1.64,
+    # estimator variance=1/3; two trial SRs (-1,+1) give variance=2.
+    # Bailey/Lopez de Prado expected-max formula => probability below.
+    values = np.array([-2., -1., 1., 2.])
+    assert _deflated_sharpe(values, 2, 12, [-1., 1.]) == pytest.approx(0.10148500228858098)
+    assert _deflated_sharpe(values, 2, 252, [-1., 1.]) == pytest.approx(0.10148500228858098)
+    # CSCV: six complementary 2-of-4 splits; OOS relative winner ranks
+    # (1/4, 3/8, 5/8, 5/8, 3/8, 1/4) have four non-positive logits.
+    probability, reason = _pbo_probability({
+        "a": np.array([3., 2., 1., 0.]), "b": np.array([0., 1., 2., 3.]), "c": np.ones(4),
+    })
+    assert probability == pytest.approx(2 / 3)
+    assert reason is None
+    # BY m=4, H_m=25/12: ordered step-up values are
+    # (1/12, 1/12, 5/36, 5/3); minimum adjusted q = 1/12.
+    assert _false_discovery_rate([0.8, 0.01, 0.05, 0.02]) == pytest.approx(1 / 12)
+
+
+def test_issue928_3_incomplete_or_misaligned_durable_family_fails_closed(tmp_path) -> None:
+    scores = {"baseline": np.linspace(-0.02, 0.02, 80), "candidate": np.linspace(-0.01, 0.03, 80)}
+    _run(tmp_path, "unrecorded-run")
+    missing = _registered(tmp_path, scores, run_id="current-run", spec=_spec(periods_per_year=12))
+    assert missing.uncertainty["trial_family_reason"] == "prior_run_trial_evidence_missing"
+    assert missing.deflated_sharpe is missing.probability_of_backtest_overfitting is missing.false_discovery_rate is None
+    assert missing.promotion_eligible is False
+    other = tmp_path / "alignment"
+    _registered(other, scores, run_id="prior", spec=_spec(), date_labels=list(range(80)))
+    changed = _registered(other, scores, run_id="later", spec=_spec(), date_labels=list(range(1, 81)))
+    assert changed.uncertainty["trial_family_reason"] == "trial_family_alignment_unverifiable"
+    assert changed.false_discovery_rate is None
+    bare = evaluate_trials(scores, spec=_spec(), prior_trial_scores=scores)
+    assert bare.uncertainty["trial_family_status"] == "unavailable"
+    deleted_root = tmp_path / "deleted-member"
+    _registered(deleted_root, scores, spec=_spec())
+    row = LocalTrainingRegistry(deleted_root).list_validation_trials()[0]
+    with TransactionalStore(deleted_root) as store:
+        store.delete("validation.trial", row["evidence_id"])
+    deleted = _registered(deleted_root, scores, spec=_spec())
+    assert deleted.uncertainty["trial_family_status"] == "unavailable"
+    assert deleted.false_discovery_rate is None
+
+
+def test_issue928_4_caller_flags_cannot_authorize_or_reset_holdout(tmp_path) -> None:
+    scores = {"baseline": np.full(80, 0.01), "candidate": np.full(80, 0.02)}
+    declaration = dict(spec=_spec(), frozen_candidate_id="candidate", predeclared_comparator_ids=("baseline",), holdout_id="sealed-928")
+    denied = evaluate_trials(scores, **declaration, holdout_use_recorded=True, holdout_reused=False)
+    assert denied.final_test_score is None
+    assert "holdout_audit_missing" in denied.warnings
+    first = _registered(tmp_path, scores, **declaration)
+    assert first.holdout_status == "scored"
+    audit = LocalTrainingRegistry(tmp_path).list_validation_holdout_uses()[0]
+    assert audit["candidate_id"] == "candidate"
+    assert audit["comparator_ids"] == ["baseline"]
+    assert audit["evaluation_id"] == first.uncertainty["evaluation_id"]
+    assert len(audit["candidate_fingerprint"]) == len(audit["holdout_fingerprint"]) == 64
+    declaration["holdout_id"] = "renamed-sealed-928"
+    reused = _registered(tmp_path, scores, **declaration, holdout_use_recorded=True, holdout_reused=False)
+    assert reused.holdout_status == "development_reuse"
+    assert reused.final_test_score is None
+    assert all(trial.final_test_score is None for trial in reused.trials)
+    assert max(reused.folds[-1].validation_indices) == 79
+    assert reused.total_trial_count == 4
+    assert len(LocalTrainingRegistry(tmp_path).list_validation_holdout_uses()) == 2
+
+
+def test_issue928_8_single_trial_and_too_small_inference_guards(tmp_path) -> None:
+    one = _registered(tmp_path, {"only": np.linspace(-0.01, 0.02, 80)}, spec=_spec(periods_per_year=12))
+    assert one.deflated_sharpe is one.false_discovery_rate is one.probability_of_backtest_overfitting is None
+    assert any("dsr_unavailable" in warning for warning in one.warnings)
+    assert any("fdr_unavailable" in warning for warning in one.warnings)
+    tiny = _registered(tmp_path / "tiny", {"baseline": np.arange(8.), "candidate": np.arange(8.) + 1},
+                       spec=_spec(n_splits=1, test_size=1, final_test_size=1, periods_per_year=12))
+    assert tiny.deflated_sharpe is tiny.false_discovery_rate is tiny.probability_of_backtest_overfitting is None
+    assert tiny.uncertainty["status"] == "unavailable"
+    assert tiny.uncertainty["reason"] == "at_least_two_finite_paired_dates_required"
+    assert _false_discovery_rate([]) is None
+    assert _false_discovery_rate([float("nan")]) is None
+    assert _deflated_sharpe(np.array([1., 2.]), 2, 12, [0., 1.]) is None

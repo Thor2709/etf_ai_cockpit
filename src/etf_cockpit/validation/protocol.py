@@ -9,6 +9,7 @@ never consulted while selecting a trial.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import date, datetime
 import hashlib
 from itertools import combinations
 import json
@@ -167,6 +168,30 @@ def build_walk_forward_splits(
 def evaluate_trials(
     scores: Mapping[str, Sequence[float]],
     *,
+    registry=None,
+    run_id: str | None = None,
+    **options,
+) -> ValidationReport:
+    """Evaluate development evidence; durable registry evidence authorizes inference.
+
+    Legacy caller-supplied history and holdout booleans are not authority. Use
+    the application facade with a registered run to retain the complete family
+    and atomically consume a holdout before scoring it.
+    """
+    for name in ("holdout_use_recorded", "holdout_reused", "prior_trial_scores", "external_trial_count"):
+        options.pop(name, None)
+    if any(name.startswith("_") for name in options):
+        raise TypeError("internal evaluation evidence cannot be supplied by callers")
+    if registry is not None:
+        if not run_id:
+            raise ValueError("registered validation requires run_id")
+        return registry.evaluate_validation_trials(run_id, scores, **options)
+    return _evaluate_trials(scores, **options)
+
+
+def _evaluate_trials(
+    scores: Mapping[str, Sequence[float]],
+    *,
     spec: ValidationSpec | None = None,
     parameters: Mapping[str, Mapping[str, object]] | None = None,
     regime_labels: Sequence[str] | None = None,
@@ -180,6 +205,9 @@ def evaluate_trials(
     date_labels: Sequence[object] | None = None,
     prior_trial_scores: Mapping[str, Sequence[float]] | None = None,
     external_trial_count: int = 0,
+    _family_verified: bool = False,
+    _family_reason: str = "durable_trial_family_missing",
+    _evaluation_id: str | None = None,
 ) -> ValidationReport:
     """Select on development folds and score only an audited frozen holdout family.
 
@@ -214,8 +242,6 @@ def evaluate_trials(
         prior_arrays[f"prior:{trial_id}"] = _aggregate_by_groups({"series": values}, groups)["series"]
     if set(arrays).intersection(prior_arrays):
         raise ValueError("current and prior trial identifiers must be distinct")
-    if holdout_reused and not holdout_id:
-        raise ValueError("a reused holdout requires its holdout_id")
     reserve_final = not holdout_reused
     n_samples = len(next(iter(arrays.values())))
     folds = build_walk_forward_splits(n_samples, definition, reserve_final_test=reserve_final)
@@ -257,7 +283,7 @@ def evaluate_trials(
     final_scores: dict[str, float | None] = {trial_id: None for trial_id in arrays}
     if holdout_ready:
         for trial_id in requested_holdout_ids:
-            final_scores[trial_id] = float(arrays[trial_id][final_indices].mean())
+            final_scores[trial_id] = float(math.fsum(arrays[trial_id][final_indices]) / len(final_indices))
         holdout_status = "scored"
     elif holdout_reused:
         holdout_status = "development_reuse"
@@ -312,24 +338,25 @@ def evaluate_trials(
             definition,
             paired_with=baseline_trial_id,
         )
-    regime_results = _group_results(arrays[selected_id], regime_labels, folds)
-    subgroup_results = _group_results(arrays[selected_id], subgroup_labels, folds)
+    regime_results = _group_results(arrays[selected_id], _group_labels(regime_labels, groups), folds)
+    subgroup_results = _group_results(arrays[selected_id], _group_labels(subgroup_labels, groups), folds)
     family_arrays = {**arrays, **prior_arrays}
     development_family = {trial_id: values[validation_indices] for trial_id, values in family_arrays.items()}
-    comparable_independent_count = _effective_trial_count(development_family)
-    independent_count = float(min(
-        max(1.0, len(family_arrays) + int(external_trial_count)),
-        comparable_independent_count + int(external_trial_count),
-    ))
     total_trial_count = len(arrays) + len(prior_arrays) + int(external_trial_count)
-    deflated = _deflated_sharpe(selected_validation, independent_count, definition.periods_per_year)
+    # No correlation discount without independently verified trial-dependence evidence.
+    independent_count = float(total_trial_count)
+    trial_sharpes = [_periodic_sharpe(values) for values in development_family.values()]
+    deflated = (
+        _deflated_sharpe(selected_validation, independent_count, definition.periods_per_year, trial_sharpes)
+        if _family_verified else None
+    )
     if deflated is None:
         warnings.append("dsr_unavailable_requires_frequency_sample_and_multiple_trials")
-    pbo, pbo_reason = _pbo_probability(development_family)
+    pbo, pbo_reason = _pbo_probability(development_family) if _family_verified else (None, _family_reason)
     if pbo is None:
         warnings.append(f"pbo_unavailable:{pbo_reason or 'insufficient_evidence'}")
     p_values: list[float] = []
-    if baseline_validation is not None and total_trial_count >= 2 and external_trial_count == 0:
+    if _family_verified and baseline_validation is not None and total_trial_count >= 2 and external_trial_count == 0:
         for trial_id, values in family_arrays.items():
             if trial_id == baseline_trial_id or trial_id == f"prior:{baseline_trial_id}":
                 continue
@@ -349,6 +376,11 @@ def evaluate_trials(
     if false_discovery is None:
         reason = "prior_trial_p_values_unavailable" if external_trial_count else "insufficient_paired_trials_or_dates"
         warnings.append(f"fdr_unavailable:{reason}")
+    if not _family_verified:
+        warnings.append(f"trial_family_unavailable:{_family_reason}")
+    uncertainty["trial_family_status"] = "available" if _family_verified else "unavailable"
+    uncertainty["trial_family_reason"] = None if _family_verified else _family_reason
+    uncertainty["evaluation_id"] = _evaluation_id
     uncertainty["effective_dates"] = int(len(validation_indices))
     uncertainty["total_trial_count"] = total_trial_count
     uncertainty["effective_independent_trial_count"] = independent_count
@@ -365,6 +397,7 @@ def evaluate_trials(
         warnings.append("promotion_evidence_insufficient_or_unstable")
     promotion = bool(
         stable
+        and _family_verified
         and holdout_status == "scored"
         and frozen_candidate_id == selected_id
         and baseline_final_score is not None
@@ -402,28 +435,72 @@ def report_fingerprint(report: ValidationReport) -> str:
     return _sha256(_canonical(payload))
 
 
-def _block_bootstrap(values: np.ndarray, spec: ValidationSpec) -> dict[str, object]:
-    if len(values) < 2:
-        return {"status": "unavailable", "observations": int(len(values))}
+def _date_groups(labels: Sequence[object] | None, n_samples: int) -> tuple[tuple[int, ...], ...]:
+    """Chronological whole-date clusters; reject ambiguous/missing date identities."""
+    if labels is None:
+        return tuple((index,) for index in range(n_samples))
+    if len(labels) != n_samples:
+        raise ValueError("date labels must align with score observations")
+    grouped: dict[object, list[int]] = {}
+    for index, label in enumerate(labels):
+        if label is None or str(label) in {"NaT", "nan", ""}:
+            raise ValueError("date labels must be non-missing chronological identities")
+        if isinstance(label, (str, date, np.datetime64)):
+            try:
+                label = datetime.fromisoformat(str(label).replace("Z", "+00:00")).date()
+            except ValueError as exc:
+                raise ValueError("date labels must use unambiguous ISO dates") from exc
+        elif isinstance(label, (int, float, np.integer, np.floating)):
+            if not math.isfinite(float(label)) or isinstance(label, bool):
+                raise ValueError("date labels must be finite chronological identities")
+        else:
+            raise ValueError("date labels must be ISO dates or numeric chronological identities")
+        try:
+            grouped.setdefault(label, []).append(index)
+        except TypeError as exc:
+            raise ValueError("date labels must be hashable chronological identities") from exc
+    try:
+        ordered = sorted(grouped)
+    except TypeError as exc:
+        raise ValueError("date labels must have a consistent chronological ordering") from exc
+    return tuple(tuple(grouped[label]) for label in ordered)
+
+
+def _aggregate_by_groups(scores: Mapping[str, np.ndarray], groups: Sequence[Sequence[int]]) -> dict[str, np.ndarray]:
+    return {trial: np.asarray([values[list(group)].mean() for group in groups]) for trial, values in scores.items()}
+
+
+def _group_labels(labels: Sequence[str] | None, groups: Sequence[Sequence[int]]) -> list[str] | None:
+    if labels is None or len(labels) != sum(map(len, groups)):
+        return None
+    # Mixed cross-sectional membership cannot be attributed to a date-level score.
+    if any(len({str(labels[index]) for index in group}) != 1 for group in groups):
+        return None
+    return [str(labels[group[0]]) for group in groups]
+
+
+def _paired_block_bootstrap(values: np.ndarray, spec: ValidationSpec, *, paired_with: str) -> dict[str, object]:
+    """Moving-block paired mean interval and centered-null one-sided bootstrap test."""
+    n = len(values)
+    if n < 2 or not np.isfinite(values).all():
+        return {"status": "unavailable", "reason": "at_least_two_finite_paired_dates_required", "observations": n}
     rng = np.random.default_rng(spec.seed)
-    block = min(spec.block_size, len(values))
-    samples: list[float] = []
-    for _ in range(spec.bootstrap_repetitions):
-        indices: list[int] = []
-        while len(indices) < len(values):
-            start = int(rng.integers(0, len(values) - block + 1))
-            indices.extend(range(start, start + block))
-        samples.append(float(values[indices[: len(values)]].mean()))
-    distribution = np.asarray(samples, dtype=float)
+    # At least two blocks must fit, including in a short inference window.
+    block = min(spec.block_size, max(1, n // 2))
+    draws = np.empty(spec.bootstrap_repetitions)
+    for repetition in range(spec.bootstrap_repetitions):
+        starts = rng.integers(0, n - block + 1, size=math.ceil(n / block))
+        indices = (starts[:, None] + np.arange(block)).ravel()[:n]
+        draws[repetition] = values[indices].mean()
+    observed = float(values.mean())
+    null_draws = draws - observed
     return {
-        "status": "available",
-        "observations": int(len(values)),
-        "repetitions": int(spec.bootstrap_repetitions),
-        "block_size": int(block),
-        "seed": int(spec.seed),
-        "mean": float(distribution.mean()),
-        "lower_5": float(np.quantile(distribution, 0.05)),
-        "upper_95": float(np.quantile(distribution, 0.95)),
+        "status": "available", "observations": n, "paired_with": paired_with,
+        "repetitions": spec.bootstrap_repetitions, "block_size": block, "seed": spec.seed,
+        "mean": observed, "lower_5": float(np.quantile(draws, 0.05)),
+        "upper_95": float(np.quantile(draws, 0.95)),
+        "p_value": float((1 + np.count_nonzero(null_draws >= observed)) / (len(draws) + 1)),
+        "method": "paired moving-block bootstrap, centered null, one-sided improvement",
     }
 
 
@@ -438,38 +515,88 @@ def _group_results(values: np.ndarray, labels: Sequence[str] | None, folds: tupl
     return result
 
 
-def _effective_trial_count(scores: Mapping[str, np.ndarray]) -> float:
-    if len(scores) <= 1:
-        return 1.0
-    matrix = np.vstack([values for values in scores.values()])
-    correlations = np.corrcoef(matrix)
-    upper = correlations[np.triu_indices_from(correlations, 1)]
-    mean_abs = float(np.nanmean(np.abs(upper))) if len(upper) else 0.0
-    return float(max(1.0, len(scores) / max(1.0, 1.0 + (len(scores) - 1) * mean_abs)))
-
-
-def _deflated_sharpe(values: np.ndarray, independent_trials: float) -> float | None:
-    if len(values) < 2 or float(values.std(ddof=1)) <= 0:
+def _periodic_sharpe(values: np.ndarray) -> float | None:
+    if len(values) < 3 or not np.isfinite(values).all():
         return None
-    sharpe = float(values.mean() / values.std(ddof=1) * math.sqrt(252.0))
-    penalty = math.sqrt(max(0.0, 2.0 * math.log(max(1.0, independent_trials))))
-    return sharpe - penalty
+    deviation = float(values.std(ddof=1))
+    return float(values.mean() / deviation) if deviation > 0 else None
 
 
-def _pbo_probability(validation: Mapping[str, float], final: Mapping[str, float]) -> float:
-    if len(validation) < 2:
-        return 0.0
-    validation_order = sorted(validation, key=validation.get, reverse=True)
-    final_order = sorted(final, key=final.get, reverse=True)
-    discordant = sum(left != right for left, right in zip(validation_order, final_order))
-    return float(discordant / len(validation_order))
+def _deflated_sharpe(
+    values: np.ndarray,
+    independent_trials: float,
+    periods_per_year: float | None = None,
+    trial_sharpes: Sequence[float | None] | None = None,
+) -> float | None:
+    """Bailey & Lopez de Prado (2014), DSR equations (1), (3) and (4).
 
-
-def _false_discovery_rate(validation: Mapping[str, float], baseline: float | None) -> float | None:
-    if baseline is None or not validation:
+    Expected maximum uses empirical variance across trial Sharpe estimates.
+    PSR's estimator variance uses selected-return skew and Pearson kurtosis.
+    Every estimate remains in periodic units (annualization cancels).
+    """
+    sharpe = _periodic_sharpe(values)
+    if (sharpe is None or independent_trials <= 1 or periods_per_year is None
+            or not math.isfinite(periods_per_year) or periods_per_year <= 0
+            or trial_sharpes is None or len(trial_sharpes) < 2
+            or any(value is None or not math.isfinite(value) for value in trial_sharpes)):
         return None
-    positives = sum(value > baseline for value in validation.values())
-    return float(max(0, positives - 1) / max(1, positives))
+    centered = values - values.mean()
+    population_std = float(np.sqrt(np.mean(centered**2)))
+    skew = float(np.mean((centered / population_std)**3))
+    kurtosis = float(np.mean((centered / population_std)**4))
+    estimator_variance = (1 - skew * sharpe + (kurtosis - 1) * sharpe**2 / 4) / (len(values) - 1)
+    if estimator_variance <= 0 or not math.isfinite(estimator_variance):
+        return None
+    across_trial_variance = float(np.var(trial_sharpes, ddof=1))
+    gamma = 0.5772156649015329
+    normal = NormalDist()
+    expected_maximum = math.sqrt(across_trial_variance) * (
+        (1 - gamma) * normal.inv_cdf(1 - 1 / independent_trials)
+        + gamma * normal.inv_cdf(1 - 1 / (independent_trials * math.e))
+    )
+    return normal.cdf((sharpe - expected_maximum) / math.sqrt(estimator_variance))
+
+
+def _pbo_probability(scores: Mapping[str, np.ndarray]) -> tuple[float | None, str | None]:
+    """CSCV (Bailey et al., 2017): complementary contiguous splits, OOS rank logit.
+
+    The supplied observations are scores, so the selection statistic is their
+    mean, as in the walk-forward selector. Equal OOS scores receive midranks.
+    """
+    if len(scores) < 2:
+        return None, "multiple_trials_required"
+    rows = [np.asarray(values, dtype=float) for _, values in sorted(scores.items())]
+    if any(values.ndim != 1 or len(values) < 4 or not np.isfinite(values).all() for values in rows):
+        return None, "at_least_four_finite_dates_required"
+    if len({len(values) for values in rows}) != 1:
+        return None, "trial_dates_not_aligned"
+    matrix = np.vstack(rows)
+    n_dates = matrix.shape[1]
+    partitions = min(10, n_dates - n_dates % 2)
+    blocks = np.array_split(np.arange(n_dates), partitions)
+    losses = []
+    for chosen in combinations(range(partitions), partitions // 2):
+        train = np.concatenate([blocks[index] for index in chosen])
+        test = np.concatenate([blocks[index] for index in range(partitions) if index not in chosen])
+        in_sample = matrix[:, train].mean(axis=1)
+        # Match the deterministic ID tie break of development selection.
+        winner = len(rows) - 1 - int(np.argmax(in_sample[::-1]))
+        out_sample = matrix[:, test].mean(axis=1)
+        performance = out_sample[winner]
+        rank = np.count_nonzero(out_sample < performance) + (np.count_nonzero(out_sample == performance) + 1) / 2
+        relative_rank = rank / (len(rows) + 1)
+        losses.append(relative_rank <= 0.5)
+    return float(np.mean(losses)), None
+
+
+def _false_discovery_rate(p_values: Sequence[float]) -> float | None:
+    """Benjamini-Yekutieli (2001) step-up minimum adjusted q-value."""
+    values = np.asarray(p_values, dtype=float)
+    if values.ndim != 1 or not len(values) or not np.isfinite(values).all() or np.any((values < 0) | (values > 1)):
+        return None
+    count = len(values)
+    harmonic = sum(1 / index for index in range(1, count + 1))
+    return float(min(1.0, np.min(np.sort(values) * count * harmonic / np.arange(1, count + 1))))
 
 
 def _canonical(value: object) -> bytes:

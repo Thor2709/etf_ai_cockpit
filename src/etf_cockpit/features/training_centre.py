@@ -19,6 +19,8 @@ import re
 from typing import Any, Literal
 from uuid import uuid4
 
+import numpy as np
+
 from etf_cockpit.core.atomic_io import sha256_file as _sha256_file
 from etf_cockpit.core.job_scheduler import DurableJobScheduler, JobSpec, WorkflowRecord
 from etf_cockpit.core.session_log import redact_text
@@ -46,6 +48,7 @@ _ENTITY_VALIDATION_REPORT = "validation.report"
 _ENTITY_VALIDATION_TRIAL = "validation.trial"
 _ENTITY_VALIDATION_DECISION = "validation.researcher_decision"
 _ENTITY_VALIDATION_PROMOTION = "validation.promotion_result"
+_ENTITY_VALIDATION_HOLDOUT_USE = "validation.holdout_use"
 _ENTITY_MODEL_AUDIT = "training.model.audit"
 _ENTITY_DRIFT_ALERT = "training.model.drift_alert"
 _ENTITY_MONITORING_REVIEW = "training.model.monitoring_review"
@@ -218,6 +221,175 @@ class LocalTrainingRegistry:
         metric_id = f"{run_id}:{_identifier(name, 'metric_name')}:{step}"
         return self._put(_ENTITY_METRIC, metric_id, {"metric_id": metric_id, "run_id": run_id, "name": _bounded_text(name, "metric_name"), "value": float(value), "step": int(step), "recorded_at": _utc_now()})
 
+    def evaluate_validation_trials(self, run_id: str, scores: Mapping[str, Sequence[float]], **options):
+        """Retain the full submission and consume any sealed holdout before scoring.
+
+        Existing immutable trial payloads carry an evaluation manifest. The same
+        SQLite transaction reads the complete experiment family, appends this
+        submission (including rejected alternatives), and records holdout use.
+        A crash after commit conservatively consumes that holdout.
+        """
+        from etf_cockpit.validation.protocol import (
+            ValidationSpec, _date_groups, _evaluate_trials, build_walk_forward_splits,
+        )
+
+        if any(name.startswith("_") for name in options):
+            raise TypeError("internal evaluation evidence cannot be supplied by callers")
+        for name in ("holdout_use_recorded", "holdout_reused", "prior_trial_scores", "external_trial_count"):
+            options.pop(name, None)
+        spec = options.get("spec") or ValidationSpec()
+        arrays = {str(key): np.asarray(value, dtype=float) for key, value in scores.items()}
+        if not arrays or any(values.ndim != 1 or not len(values) or not np.isfinite(values).all() for values in arrays.values()):
+            raise ValueError("trial scores must be finite nonempty one-dimensional series")
+        if len({len(values) for values in arrays.values()}) != 1:
+            raise ValueError("trial scores must have equal finite lengths")
+        count = len(next(iter(arrays.values())))
+        groups = _date_groups(options.get("date_labels"), count)
+        build_walk_forward_splits(len(groups), spec)
+        evaluation_id = f"evaluation_{uuid4().hex}"
+        with TransactionalStore(self.root) as store, store.transaction() as connection:
+            stored_run = store.get(_ENTITY_RUN, run_id)
+            if stored_run is None:
+                raise TrainingRegistryError(f"unknown run: {run_id}")
+            run = stored_run.payload
+            alignment = {
+                "data_hash": run["dataset_hash"], "spec_fingerprint": spec.fingerprint,
+                "observations": count,
+                "date_labels": [str(value) for value in options["date_labels"]] if options.get("date_labels") is not None else None,
+            }
+            prior, reason, retained_count = self._validation_family(store, run, alignment)
+            family_ids = sorted(arrays)
+            for trial_id, values in arrays.items():
+                _identifier(trial_id, "trial_id")
+                evidence_id = f"{evaluation_id}:{trial_id}"
+                payload = {
+                    "evidence_id": evidence_id, "evaluation_id": evaluation_id, "run_id": run_id,
+                    "trial_id": trial_id, "family_trial_ids": family_ids, "alignment": alignment,
+                    "return_series": values.tolist(), "data_hash": run["dataset_hash"], "code_hash": run["code_hash"],
+                    "parameters": _safe_mapping((options.get("parameters") or {}).get(trial_id, {})),
+                    "execution_allowed": False,
+                }
+                store.put_in_transaction(connection, _ENTITY_VALIDATION_TRIAL, evidence_id, payload, immutable=True)
+            candidate = options.get("frozen_candidate_id")
+            comparators = tuple(dict.fromkeys(options.get("predeclared_comparator_ids", ())))
+            holdout_id = options.get("holdout_id")
+            audit = None
+            # Unavailable family cannot authorize a first holdout inspection.
+            if not reason and holdout_id and candidate in arrays and comparators and candidate not in comparators and all(item in arrays for item in comparators):
+                audit = self._append_holdout_use(
+                    store, connection, run, holdout_id, candidate, comparators,
+                    candidate_fingerprint=_hash_payload([candidate, arrays[candidate].tolist(), (options.get("parameters") or {}).get(candidate, {})]),
+                    comparators_fingerprint=_hash_payload({item: arrays[item].tolist() for item in comparators}),
+                    holdout_fingerprint=_hash_payload([alignment, [list(group) for group in groups[-spec.final_test_size:]]]),
+                    evaluation_id=evaluation_id,
+                )
+            # Even an unauthorized invocation must never seal data already inspected.
+            reused = any(
+                row.payload.get("data_hash") == run["dataset_hash"] or (holdout_id and row.payload.get("holdout_id") == holdout_id)
+                for row in store.list(_ENTITY_VALIDATION_HOLDOUT_USE, include_deleted=True)
+            )
+            if audit is not None:
+                reused = bool(audit["reused"])
+        return _evaluate_trials(
+            arrays, **options, prior_trial_scores=prior,
+            external_trial_count=max(0, retained_count - len(prior)),
+            holdout_use_recorded=audit is not None, holdout_reused=reused,
+            _family_verified=not reason, _family_reason=reason or "",
+            _evaluation_id=evaluation_id,
+        )
+
+    def _validation_family(self, store, current_run, alignment):
+        """Verify all prior runs/manifests; never silently filter incompatible trials."""
+        runs = {row.entity_id: row for row in store.list(_ENTITY_RUN, include_deleted=True)
+                if row.payload.get("experiment_id") == current_run["experiment_id"]}
+        records = [row for row in store.list(_ENTITY_VALIDATION_TRIAL, include_deleted=True)
+                   if row.payload.get("run_id") in runs]
+        reports = {row.entity_id: row for row in store.list(_ENTITY_VALIDATION_REPORT, include_deleted=True)
+                   if row.payload.get("run_id") in runs}
+        submissions: dict[str, list[StoredRecord]] = {}
+        reason = None
+        for row in records:
+            key = str(row.payload.get("evaluation_id") or row.payload.get("report_id") or "")
+            submissions.setdefault(key, []).append(row)
+        prior = {}
+        retained_count = 0
+        covered_runs = set()
+        for key, members in submissions.items():
+            head = members[0].payload
+            covered_runs.add(head.get("run_id"))
+            report = reports.get(key)
+            # A retained report of an already-ledgered submission is a view, not another trial.
+            if report is not None:
+                linked = report.payload.get("uncertainty", {}).get("evaluation_id")
+                if linked in submissions:
+                    original = {item.payload.get("trial_id"): item.payload.get("return_series") for item in submissions[linked]}
+                    if original != {item.payload.get("trial_id"): item.payload.get("return_series") for item in members}:
+                        reason = "retained_report_conflicts_with_trial_ledger"
+                    continue
+            retained_count += len(members)
+            expected = head.get("family_trial_ids") if head.get("evaluation_id") else (report.payload.get("trial_ids") if report else None)
+            if not expected or sorted(expected) != sorted(item.payload.get("trial_id", "") for item in members):
+                reason = "trial_family_manifest_incomplete"
+            for item in members:
+                payload = item.payload
+                try:
+                    values = np.asarray(payload.get("return_series", []), dtype=float)
+                except (ValueError, TypeError):
+                    reason = "trial_family_return_series_unverifiable"
+                    continue
+                if item.deleted_at or item.revision != 1:
+                    reason = "trial_family_record_not_immutable"
+                if (payload.get("alignment") != alignment or values.ndim != 1
+                        or len(values) != alignment["observations"] or not np.isfinite(values).all()):
+                    reason = "trial_family_alignment_unverifiable"
+                elif payload.get("family_trial_ids") != expected and head.get("evaluation_id"):
+                    reason = "trial_family_manifest_conflict"
+                else:
+                    prior[item.entity_id] = values
+        if any(run_id != current_run["run_id"] and run_id not in covered_runs for run_id in runs):
+            reason = "prior_run_trial_evidence_missing"
+        if any(row.deleted_at for row in runs.values()) or any(row.deleted_at or row.revision != 1 for row in reports.values()):
+            reason = "trial_family_history_unverifiable"
+        if any(report_id not in submissions for report_id in reports):
+            reason = "trial_family_report_members_missing"
+        return prior, reason, retained_count
+
+    def _append_holdout_use(self, store, connection, run, holdout_id, candidate_id, comparator_ids, **bindings):
+        holdout_id = _identifier(holdout_id, "holdout_id")
+        candidate_id = _identifier(candidate_id, "candidate_id")
+        comparators = tuple(dict.fromkeys(_identifier(item, "comparator_id") for item in comparator_ids))
+        if not comparators or candidate_id in comparators:
+            raise TrainingRegistryError("holdout requires a distinct frozen candidate and comparators")
+        history = store.list(_ENTITY_VALIDATION_HOLDOUT_USE, include_deleted=True)
+        # Dataset-wide consumption is conservative: renaming a tail or changing
+        # its boundaries can never restore independent sealed-test authority.
+        previous = [row for row in history if row.payload.get("data_hash") == run["dataset_hash"] or row.payload.get("holdout_id") == holdout_id]
+        payload = {
+            "use_id": f"holdout_use_{uuid4().hex}", "holdout_id": holdout_id,
+            "run_id": run["run_id"], "candidate_id": candidate_id, "comparator_ids": list(comparators),
+            "data_hash": run["dataset_hash"], "run_lineage_hash": run["lineage_hash"],
+            "candidate_fingerprint": _hash_payload([run["lineage_hash"], candidate_id]),
+            "reused": bool(previous), "sequence": len(history) + 1, "recorded_at": _utc_now(),
+            "execution_allowed": False, **bindings,
+        }
+        store.put_in_transaction(connection, _ENTITY_VALIDATION_HOLDOUT_USE, payload["use_id"], payload, immutable=True)
+        return payload
+
+    def record_validation_holdout_use(self, holdout_id: str, *, run_id: str, candidate_id: str, comparator_ids: Sequence[str]) -> dict[str, object]:
+        """Append a conservative use declaration; declarations are never scoring tokens."""
+        with TransactionalStore(self.root) as store, store.transaction() as connection:
+            run = store.get(_ENTITY_RUN, run_id)
+            if run is None:
+                raise TrainingRegistryError(f"unknown run: {run_id}")
+            return self._append_holdout_use(store, connection, run.payload, holdout_id, candidate_id, comparator_ids)
+
+    def list_validation_holdout_uses(self, holdout_id: str | None = None) -> tuple[dict[str, object], ...]:
+        return tuple(sorted(
+            (row.payload for row in self._list(_ENTITY_VALIDATION_HOLDOUT_USE)
+             if holdout_id is None or row.payload.get("holdout_id") == holdout_id),
+            key=lambda row: row["sequence"],
+        ))
+
     def record_validation_report(
         self,
         run_id: str,
@@ -262,6 +434,8 @@ class LocalTrainingRegistry:
             "selected_trial_id": report.selected_trial_id,
             "final_test_score": report.final_test_score,
             "final_test_used_for_selection": report.final_test_used_for_selection,
+            "holdout_status": report.holdout_status,
+            "total_trial_count": report.total_trial_count,
             "uncertainty": _safe_mapping(report.uncertainty),
             "regime_results": _safe_mapping(report.regime_results),
             "subgroup_results": _safe_mapping(report.subgroup_results),
