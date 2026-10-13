@@ -214,7 +214,7 @@ def _run_card(
     tiles = common.tile_grid(
         (
             ("Forecast rows", None if forecast_rows is None else format_count(forecast_rows), f"Source: stored local forecast rows · {len(models)} model summary rows" if forecast_rows is not None else "Source: local forecast store · no rows are stored", None),
-            ("Matured outcomes", None if matured is None else format_count(matured), f"Source: stored model outcome rows · {share}", None),
+            ("Matured outcomes", None if matured is None else format_count(matured), f"Source: stored model outcome rows · {share} · all-matured, descriptive (out-of-sample figures: walk-forward fold table)", None),
             ("Walk-forward splits", format_count(len(splits)) if report["status"] == "ok" else None, "Source: stored walk-forward splits · expanding folds" if report["status"] == "ok" else "Source: walk-forward evaluation · not enough forecast dates", None),
             _promotion_tile(report.get("promotion", pd.DataFrame())),
         )
@@ -237,7 +237,7 @@ def _run_card(
             ft.Row([run, open_governance], spacing=12),
             _run_status(state),
             tiles,
-            Note(f"Conformal intervals are diagnostic until enough matured samples exist. Model availability source: snapshot model-status registry. Cached model status: {available}."),
+            Note(f"Conformal intervals are diagnostic until enough matured samples exist. Model availability source: snapshot model-status registry (current runtime view, not an as-of view). Cached model status: {available}."),
         ],
         spacing=12,
         scroll=ft.ScrollMode.AUTO,
@@ -270,7 +270,7 @@ def _comparison_card(layout: common.GridLayout, ids: list[str], models: pd.DataF
             key="forecast-lab.model-comparison",
         )
         body = ft.Column(
-            [table, Note("Net value = forecast direction × matured adjusted return less the canonical round-trip cost.")],
+            [table, Note("Net value = forecast direction × matured adjusted return less the canonical round-trip cost. Rows, direction and net value here are all-matured descriptive figures that include the reserved pre-test dates; only the walk-forward test-fold figures are out-of-sample validation.")],
             spacing=12,
             width=width,
         )
@@ -432,11 +432,22 @@ def _horizon_card(layout: common.GridLayout, models: pd.DataFrame) -> ft.Control
 def _governance_card(layout: common.GridLayout, state: AppState, report: dict, ids: list[str], catalogue: pd.DataFrame, models: pd.DataFrame) -> ft.Control:
     status = dict(getattr(state.snapshot, "model_status", {}) or {})
     stored = set(models["model_name"].astype(str)) if not models.empty else set()
+    # Optional models: availability is the as-of-bounded stored artefact, shown apart from the installed runtime.
+    optional = report.get("optional_model_status")
+    optional_rows = {str(row.model_id): row for row in optional.itertuples(index=False)} if isinstance(optional, pd.DataFrame) else {}
     rows: list[ft.Control] = []
     for index, model_id in enumerate(ids):
         card_rows = catalogue.loc[catalogue["model_id"] == model_id] if not catalogue.empty else catalogue
-        available = bool(status.get(model_id, model_id in stored)) if not lab_view.is_baseline(model_id) else True
+        optional_row = optional_rows.get(model_id)
+        available = (
+            True if lab_view.is_baseline(model_id)
+            else bool(optional_row.artefact_available) if optional_row is not None
+            else bool(status.get(model_id, model_id in stored))
+        )
         reason = (str(card_rows.iloc[0]["state_reason"]) if not card_rows.empty else "Not in the model zoo.") if not available else "Local rows are stored for this model."
+        if optional_row is not None:
+            installed = optional_row.runtime_installed
+            reason += f" Artefact as of {optional_row.as_of_date or 'latest'}; runtime {'installed' if installed is True else 'not installed' if installed is False else 'unknown'}."
         rows.append(
             ListRow("ok" if available else "bad", f"{_display_name(model_id, catalogue)}: {'Available' if available else 'Unavailable'}", reason, ("Available" if available else "Unavailable", "ok" if available else "bad"), last=index == len(ids) - 1, key=f"forecast-lab.model-status.{model_id}")
         )
@@ -447,6 +458,9 @@ def _governance_card(layout: common.GridLayout, state: AppState, report: dict, i
         Note("Resource use: duration measured for the displayed forecast run; not_recorded when no matching run measurement exists."),
         Note("Forecasts are low-authority and cannot rescue or upgrade weak deterministic evidence."),
     ]
+    completeness = report.get("completeness") or {}
+    if completeness.get("excluded_rows"):
+        notes.append(Note(f"{completeness['excluded_rows']} of {completeness['forecast_rows']} stored forecast rows cannot be graded (missing_price_series); they stay in the completeness denominator."))
     if report["status"] != "ok":
         notes.append(Note("\n".join(report["notes"])))
     return GlassCard("Governance and availability", "forecast evidence remains advisory and local-first", body=[*rows, *notes], width=layout.span_width(12), key="forecast-lab.governance")

@@ -26,7 +26,11 @@ from etf_cockpit.models.calibration import (
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.resource_profiles import ResourcePolicy, estimate_workflow_resources
 from etf_cockpit.core.timing import timing_summary
-from etf_cockpit.models.coverage_audit import build_coverage_audit
+from etf_cockpit.models.coverage_audit import (
+    CURRENT_CONFIGURATION,
+    POINT_IN_TIME_MEMBERSHIP,
+    build_coverage_audit,
+)
 from etf_cockpit.models.model_zoo import model_zoo_frame
 from etf_cockpit.portfolio.costs import estimated_cost_bps
 
@@ -53,6 +57,7 @@ LAB_MODEL_COLUMNS = [
     "configured_horizons",
     "observed_horizons",
     "skipped_horizons",
+    "excluded_rows",
     "matured_rows",
     "mae",
     "mase",
@@ -60,6 +65,17 @@ LAB_MODEL_COLUMNS = [
     "directional_accuracy",
     "net_forward_value",
     "net_value_status",
+    "all_matured_label",
+    "all_matured_rows",
+    "all_matured_mae",
+    "all_matured_directional_accuracy",
+    "oos_label",
+    "oos_rows",
+    "oos_mae",
+    "oos_mase",
+    "oos_directional_accuracy",
+    "oos_net_forward_value",
+    "oos_net_value_status",
     "interval_coverage",
     "conformal_coverage",
     "conformal_coverage_ci_lower",
@@ -114,6 +130,23 @@ WALK_FORWARD_EVALUATION_COLUMNS = [
     "net_forward_value",
     "net_value_status",
 ]
+# ``matured_rows``/``mae``/``mase``/``directional_accuracy``/``net_forward_value`` are the all-matured
+# descriptive overview (they include the reserved pre-test dates). Only the ``oos_*`` fields, which use
+# rows inside a walk-forward test fold, may be called validation.
+ALL_MATURED_LABEL = "all matured forecasts (descriptive overview; includes pre-test rows, not validation)"
+OOS_LABEL = "out-of-sample (walk-forward test folds only; the validation figures)"
+MISSING_PRICE_SERIES = "missing_price_series"
+EXCLUDED_COLUMNS = ["run_id", "model_name", "etf_id", "forecast_date", "horizon_days", "prediction_id", "reason"]
+# Optional foundation models whose availability is judged from stored forecast artefacts.
+OPTIONAL_FORECAST_MODELS = ("timesfm", "timesfm3", "toto")
+OPTIONAL_STATUS_COLUMNS = [
+    "model_id",
+    "artefact_available",
+    "first_ok_forecast_date",
+    "runtime_installed",
+    "as_of_date",
+    "basis",
+]
 FORECAST_RUNTIME_ACTION = "forecasts"
 FORECAST_RUNTIME_STEP_PREFIX = "model:"
 
@@ -166,6 +199,8 @@ def build_forecast_lab_workspace(
     timing_records: Iterable[Mapping[str, object]] | None = None,
     scenario_records: Mapping[str, Mapping[str, object]] | None = None,
     profile_id: str = "auto",
+    subgroup_membership: pd.DataFrame | None = None,
+    runtime_installed: Mapping[str, bool] | None = None,
 ) -> dict[str, object]:
     """Build the Forecast Lab report with canonical costs and measured runtimes."""
 
@@ -184,6 +219,8 @@ def build_forecast_lab_workspace(
         scenario_records=scenario_records,
         subgroup_universe=config.universe.etfs,
         profile_id=profile_id,
+        subgroup_membership=subgroup_membership,
+        runtime_installed=runtime_installed,
     )
 
 
@@ -199,6 +236,8 @@ def build_forecast_lab_report(
     scenario_records: Mapping[str, Mapping[str, object]] | None = None,
     subgroup_universe: Iterable[object] | None = None,
     profile_id: str = "auto",
+    subgroup_membership: pd.DataFrame | None = None,
+    runtime_installed: Mapping[str, bool] | None = None,
 ) -> dict[str, object]:
     """Build a read-only report from local forecast and adjusted-price rows.
 
@@ -210,6 +249,12 @@ def build_forecast_lab_report(
     the same model/horizon, so the current observation cannot calibrate itself.
     Net forward value is the forecast direction times the matured return less
     ``round_trip_cost_bps`` for that instrument; without a cost it is unavailable.
+    The model overview is all-matured and descriptive; ``oos_*`` fields use walk-forward test folds only.
+    Optional-model availability is judged from the as-of-bounded forecast rows (a historical as-of never
+    shows a model that had not produced a forecast yet) and is kept apart from ``runtime_installed``.
+    Forecasts whose instrument has no price series are kept in ``excluded`` and in the completeness
+    denominator. Subgroup coverage uses ``subgroup_membership`` for a requested as-of, else the
+    current configuration, and says which.
     """
 
     policy = ResourcePolicy(requested_profile=profile_id)
@@ -223,6 +268,12 @@ def build_forecast_lab_report(
     empty_splits = pd.DataFrame(columns=SPLIT_COLUMNS)
     empty_evaluation = pd.DataFrame(columns=WALK_FORWARD_EVALUATION_COLUMNS)
     empty_outcomes = pd.DataFrame(columns=FORECAST_OUTCOME_COLUMNS)
+    empty_extras: dict[str, object] = {
+        "excluded": pd.DataFrame(columns=EXCLUDED_COLUMNS),
+        "completeness": _completeness(0, 0, 0),
+        "optional_model_status": _optional_model_status(None, runtime_installed),
+        "coverage_basis": None,
+    }
     model_catalogue = model_zoo_frame()
     scenario_replay_inputs = _scenario_replay_inputs(scenario_records)
     missing_forecasts = sorted(FORECAST_REQUIRED_COLUMNS - set(forecasts.columns))
@@ -244,6 +295,7 @@ def build_forecast_lab_report(
             + tuple([f"Adjusted-price columns missing: {', '.join(missing_prices)}."] if missing_prices else []),
             "resource_profile": resource_estimate,
             "execution_allowed": False,
+            **empty_extras,
         }
 
     price_frame = prices.copy()
@@ -261,6 +313,7 @@ def build_forecast_lab_report(
             "notes": ("Unadjusted price rows were rejected; forecast diagnostics require adjusted_close.",),
             "resource_profile": resource_estimate,
             "execution_allowed": False,
+            **empty_extras,
         }
 
     price_frame["date"] = _naive_utc(price_frame["date"]).dt.normalize()
@@ -275,11 +328,6 @@ def build_forecast_lab_report(
     for column in ("expected_return", "q10_return", "q90_return"):
         frame[column] = pd.to_numeric(frame.get(column), errors="coerce")
     frame["status"] = frame["status"].astype(str).str.lower()
-    optional_status = {
-        model: bool((frame.loc[frame["model_name"] == model, "status"] == "ok").any())
-        for model in ("timesfm", "toto")
-    }
-    model_catalogue = model_zoo_frame(optional_status=optional_status)
     frame = frame.dropna(subset=["model_name", "etf_id", "forecast_date", "horizon_days"])
     if frame.empty:
         return {
@@ -295,6 +343,7 @@ def build_forecast_lab_report(
             "notes": ("No dated forecast rows are available in the local cache.",),
             "resource_profile": resource_estimate,
             "execution_allowed": False,
+            **empty_extras,
         }
 
     requested_as_of = (
@@ -302,6 +351,14 @@ def build_forecast_lab_report(
     )
     effective_as_of = requested_as_of if pd.notna(requested_as_of) else frame["forecast_date"].max()
     frame = frame.loc[frame["forecast_date"] <= effective_as_of].copy()
+    # Availability comes from the as-of-bounded rows only, so a historical view never shows a model
+    # that had not yet produced a forecast.
+    optional_table = _optional_model_status(frame, runtime_installed, effective_as_of)
+    optional_status = {
+        str(row.model_id): bool(row.artefact_available) for row in optional_table.itertuples(index=False)
+    }
+    model_catalogue = model_zoo_frame(optional_status=optional_status)
+    empty_extras["optional_model_status"] = optional_table
     if frame.empty:
         return {
             "status": "unavailable",
@@ -316,10 +373,14 @@ def build_forecast_lab_report(
             "notes": ("No forecast rows are available at the selected as-of date.",),
             "resource_profile": resource_estimate,
             "execution_allowed": False,
+            **empty_extras,
         }
 
     subgroup_results_by_model: dict[str, list[dict[str, object]]] = {}
+    coverage_basis: str | None = None
     if subgroup_universe is not None:
+        point_in_time = pd.notna(requested_as_of) and subgroup_membership is not None
+        coverage_basis = POINT_IN_TIME_MEMBERSHIP if point_in_time else CURRENT_CONFIGURATION
         known_model_ids = set(model_catalogue["model_id"].astype(str))
         for model_name, model_forecasts in frame.groupby("model_name", sort=True):
             if str(model_name) not in known_model_ids:
@@ -329,6 +390,7 @@ def build_forecast_lab_report(
                 price_frame,
                 model_forecasts,
                 as_of_date=effective_as_of.date(),
+                membership=subgroup_membership if point_in_time else None,
             ).to_dict()["groups"]
         model_catalogue = model_zoo_frame(
             optional_status=optional_status,
@@ -353,6 +415,7 @@ def build_forecast_lab_report(
     split_rows = build_walk_forward_splits(frame["forecast_date"].dt.date.unique())
     frame = _mark_walk_forward_provenance(frame, split_rows)
     matured, outcomes = _matured_rows(frame, price_lookup, round_trip_cost_bps)
+    excluded = _excluded_rows(outcomes)
     model_rows = _model_summaries(
         frame,
         matured,
@@ -361,6 +424,7 @@ def build_forecast_lab_report(
         model_runtime_ms,
         configured_horizons,
         price_lookup,
+        excluded,
     )
     run_rows = _run_summaries(frame)
     notes = [
@@ -372,6 +436,16 @@ def build_forecast_lab_report(
         "are not prospective or independent out-of-sample evidence.",
         "MASE scales each error by the mean absolute naive change of that instrument at that horizon (the same scale as "
         "promotion calibration); MAE is the unscaled mean absolute log-return error.",
+        "The model overview (matured_rows, mae, ...) is an all-matured descriptive figure that includes the reserved "
+        "pre-test dates; only the oos_* fields (walk-forward test folds) are validation figures.",
+        "Forecasts whose instrument has no price series cannot be graded: they stay listed under excluded "
+        f"(reason {MISSING_PRICE_SERIES}) and in the completeness denominator; no return is fabricated.",
+        "Subgroup coverage uses "
+        + (
+            "captured point-in-time universe membership for the as-of date."
+            if coverage_basis == POINT_IN_TIME_MEMBERSHIP
+            else "the current configuration, not the historical membership."
+        ),
         "Resource use is the duration measured for the displayed forecast run; not_recorded when no matching run measurement exists.",
         "A forecast is graded only from its exact origin session to the exact target session; missing or stale sessions are unavailable.",
         "Forecasts are low-authority and cannot rescue or upgrade weak deterministic evidence.",
@@ -394,6 +468,63 @@ def build_forecast_lab_report(
         "notes": tuple(notes),
         "resource_profile": resource_estimate,
         "execution_allowed": False,
+        "excluded": excluded,
+        "completeness": _completeness(len(frame), len(excluded), len(matured)),
+        "optional_model_status": optional_table,
+        "coverage_basis": coverage_basis,
+    }
+
+
+def _optional_model_status(
+    bounded: pd.DataFrame | None,
+    runtime_installed: Mapping[str, bool] | None,
+    as_of: pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    """Per optional model: stored-artefact availability as of the view, kept apart from runtime installation.
+
+    ``artefact_available`` means an ``ok`` forecast row dated on or before the as-of exists;
+    ``runtime_installed`` is only what the caller reports (``None`` = unknown), never inferred here.
+    """
+
+    rows = []
+    for model in OPTIONAL_FORECAST_MODELS:
+        ok_dates = (
+            bounded.loc[bounded["model_name"].eq(model) & bounded["status"].eq("ok"), "forecast_date"]
+            if bounded is not None and not bounded.empty
+            else pd.Series(dtype="datetime64[ns]")
+        )
+        installed = (runtime_installed or {}).get(model)
+        rows.append(
+            {
+                "model_id": model,
+                "artefact_available": bool(len(ok_dates)),
+                "first_ok_forecast_date": None if ok_dates.empty else ok_dates.min().date().isoformat(),
+                "runtime_installed": None if installed is None else bool(installed),
+                "as_of_date": None if as_of is None else as_of.date().isoformat(),
+                "basis": "ok forecast rows dated on or before the as-of date",
+            }
+        )
+    return pd.DataFrame(rows, columns=OPTIONAL_STATUS_COLUMNS)
+
+
+def _excluded_rows(outcomes: pd.DataFrame) -> pd.DataFrame:
+    """Forecasts that cannot be graded because their instrument has no price series."""
+
+    if outcomes.empty:
+        return pd.DataFrame(columns=EXCLUDED_COLUMNS)
+    missing = outcomes.loc[outcomes["outcome_reason"].eq(MISSING_PRICE_SERIES)]
+    return missing.assign(reason=MISSING_PRICE_SERIES).loc[:, EXCLUDED_COLUMNS].reset_index(drop=True)
+
+
+def _completeness(forecast_rows: int, excluded_rows: int, matured_rows: int) -> dict[str, object]:
+    gradable = forecast_rows - excluded_rows
+    return {
+        "forecast_rows": int(forecast_rows),
+        "excluded_rows": int(excluded_rows),
+        "gradable_rows": int(gradable),
+        "matured_rows": int(matured_rows),
+        "excluded_share": None if not forecast_rows else round(excluded_rows / forecast_rows, 4),
+        "denominator": "all stored forecast rows at the as-of date, including excluded ones",
     }
 
 
@@ -623,6 +754,7 @@ def _model_summaries(
     model_runtime_ms: Mapping[tuple[str, str], float] | None = None,
     configured_horizons: Iterable[int] | None = None,
     price_lookup: Mapping[str, pd.DataFrame] | None = None,
+    excluded: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     rows = []
     configured = _normalise_horizons(configured_horizons)
@@ -636,6 +768,12 @@ def _model_summaries(
         drift_score, drift_status = _comparable_drift(group)
         interval = evaluated["interval_hit"].dropna() if not evaluated.empty else pd.Series(dtype=float)
         net_value, net_status = _net_value(evaluated)
+        oos = _out_of_sample(evaluated)
+        oos_errors = oos["absolute_error"] if not oos.empty else pd.Series(dtype=float)
+        oos_net, oos_net_status = _net_value(oos)
+        excluded_count = (
+            int(excluded["model_name"].eq(model_name).sum()) if excluded is not None and not excluded.empty else 0
+        )
         latest_sort_columns = ["forecast_date", "etf_id", "horizon_days"]
         if "run_id" in group.columns:
             latest_sort_columns.append("run_id")
@@ -670,6 +808,7 @@ def _model_summaries(
                 "configured_horizons": configured,
                 "observed_horizons": observed,
                 "skipped_horizons": skipped,
+                "excluded_rows": excluded_count,
                 "matured_rows": int(len(evaluated)),
                 "mae": _rounded(errors.mean() if not errors.empty else None),
                 "mase": _rounded(mase),
@@ -677,6 +816,19 @@ def _model_summaries(
                 "directional_accuracy": _rounded(evaluated["direction_hit"].mean() if not evaluated.empty else None),
                 "net_forward_value": net_value,
                 "net_value_status": net_status,
+                "all_matured_label": ALL_MATURED_LABEL,
+                "all_matured_rows": int(len(evaluated)),
+                "all_matured_mae": _rounded(errors.mean() if not errors.empty else None),
+                "all_matured_directional_accuracy": _rounded(
+                    evaluated["direction_hit"].mean() if not evaluated.empty else None
+                ),
+                "oos_label": OOS_LABEL,
+                "oos_rows": int(len(oos)),
+                "oos_mae": _rounded(oos_errors.mean() if not oos_errors.empty else None),
+                "oos_mase": _rounded(_pooled_mase(oos, price_lookup or {})),
+                "oos_directional_accuracy": _rounded(oos["direction_hit"].mean() if not oos.empty else None),
+                "oos_net_forward_value": oos_net,
+                "oos_net_value_status": "oos_pending" if oos.empty else oos_net_status,
                 "interval_coverage": _rounded(interval.mean() if not interval.empty else None),
                 "conformal_coverage": conformal["coverage"],
                 "conformal_coverage_ci_lower": conformal["coverage_ci_lower"],
@@ -692,6 +844,14 @@ def _model_summaries(
             }
         )
     return pd.DataFrame(rows, columns=LAB_MODEL_COLUMNS)
+
+
+def _out_of_sample(evaluated: pd.DataFrame) -> pd.DataFrame:
+    """Matured rows that fall inside a walk-forward test fold (the reserved pre-test dates are excluded)."""
+
+    if evaluated.empty or "fold_id" not in evaluated.columns:
+        return evaluated.iloc[0:0]
+    return evaluated.loc[evaluated["fold_id"].notna()]
 
 
 def _run_summaries(frame: pd.DataFrame) -> pd.DataFrame:
@@ -764,7 +924,7 @@ def _actual_return(
     series: pd.DataFrame | None, forecast_date: pd.Timestamp, horizon_days: int
 ) -> tuple[float | None, pd.Timestamp | None, str | None]:
     if series is None or series.empty:
-        return None, None, "price_series_missing"
+        return None, None, MISSING_PRICE_SERIES
     if horizon_days <= 0:
         return None, None, "invalid_horizon"
     # ``price_lookup`` is normalised and sorted once before forecasts are

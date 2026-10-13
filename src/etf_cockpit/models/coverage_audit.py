@@ -21,6 +21,14 @@ COVERAGE_SCHEMA_VERSION = "coverage-audit.v1"
 COVERAGE_HISTORY_SCHEMA_VERSION = "coverage-audit-history.v1"
 DIMENSIONS = ("geography", "sector", "size", "currency", "listing")
 _UNAVAILABLE = "unavailable"
+CURRENT_CONFIGURATION = "current_configuration"
+POINT_IN_TIME_MEMBERSHIP = "point_in_time_membership"
+POINT_IN_TIME_UNAVAILABLE = "point_in_time_membership_unavailable"
+_UNIVERSE_TEXT = {
+    CURRENT_CONFIGURATION: "enabled local configuration",
+    POINT_IN_TIME_MEMBERSHIP: "captured point-in-time universe membership",
+    POINT_IN_TIME_UNAVAILABLE: "captured point-in-time universe membership unavailable for the as-of date",
+}
 _DIMENSION_COLUMNS = {
     "geography": ("geography", "region", "country"),
     "sector": ("sector",),
@@ -102,8 +110,15 @@ def build_coverage_audit(
     as_of_date: date | str | None = None,
     thresholds: CoverageThresholds | None = None,
     provenance: Mapping[str, object] | None = None,
+    membership: pd.DataFrame | None = None,
 ) -> CoverageAudit:
     """Build coverage evidence from the enabled local universe.
+
+    Without ``membership`` the universe is today's enabled configuration and the audit says so
+    (``universe_basis="current_configuration"``). With a captured ``membership`` frame (the
+    ``data.universe_membership.membership_frame`` schema) and an ``as_of_date``, the universe is the
+    captured point-in-time membership of the latest snapshot on or before that date, so a later
+    membership change cannot alter a historical view; without a usable snapshot the audit is unavailable.
 
     Coverage is based on rows containing ``adjusted_close``. Missing subgroup
     metadata is an explicit unsupported zone. Model metrics are descriptive
@@ -112,9 +127,18 @@ def build_coverage_audit(
     """
 
     policy = thresholds or CoverageThresholds()
-    records = _universe_records(universe)
-    instrument_ids = tuple(sorted(records))
     effective_as_of = _date_text(as_of_date)
+    universe_basis = CURRENT_CONFIGURATION
+    membership_snapshot: str | None = None
+    if membership is not None and effective_as_of:
+        members, membership_snapshot = _membership_ids(membership, effective_as_of)
+        universe_basis = POINT_IN_TIME_MEMBERSHIP if members else POINT_IN_TIME_UNAVAILABLE
+        configured = _universe_records(universe, include_disabled=True)
+        empty_record = {name: None for name in _DIMENSION_COLUMNS}
+        records = {member: configured.get(member, dict(empty_record)) for member in sorted(members)}
+    else:
+        records = _universe_records(universe)
+    instrument_ids = tuple(sorted(records))
     price_ids = _observed_price_ids(prices, effective_as_of, policy.minimum_history_observations)
     bounded_forecasts = forecasts
     if forecasts is not None:
@@ -192,7 +216,9 @@ def build_coverage_audit(
         thresholds=policy,
         groups=tuple(groups),
         provenance={
-            "universe": "enabled local configuration",
+            "universe": _UNIVERSE_TEXT[universe_basis],
+            "universe_basis": universe_basis,
+            "membership_snapshot_date": membership_snapshot,
             "price_value": "adjusted_close",
             "minimum_history_observations": policy.minimum_history_observations,
             "effective_price_as_of": effective_as_of or "unavailable",
@@ -246,11 +272,32 @@ def coverage_summary_lines(report: CoverageAudit, *, limit: int = 12) -> tuple[s
     return tuple(lines)
 
 
-def _universe_records(universe: Iterable[object]) -> dict[str, dict[str, object]]:
+def _membership_ids(membership: pd.DataFrame, as_of_date: str) -> tuple[set[str], str | None]:
+    """Instruments in the latest complete captured snapshot on or before ``as_of_date`` (empty if none)."""
+
+    required = {"instrument_id", "valid_from", "valid_to", "snapshot_date", "snapshot_complete"}
+    if membership.empty or not required.issubset(membership.columns):
+        return set(), None
+    day = as_of_date[:10]
+    snapshots = membership["snapshot_date"].astype(str).str[:10]
+    eligible = snapshots[snapshots <= day]
+    if eligible.empty:
+        return set(), None
+    latest = eligible.max()
+    rows = membership.loc[snapshots == latest]
+    if not rows["snapshot_complete"].map(bool).all():
+        return set(), latest
+    valid_from = rows["valid_from"].astype(str).str[:10]
+    valid_to = rows["valid_to"].map(lambda value: None if value is None or pd.isna(value) else str(value)[:10])
+    covered = (valid_from <= day) & valid_to.map(lambda value: value is None or day < value)
+    return {str(value).strip() for value in rows.loc[covered, "instrument_id"] if str(value).strip()}, latest
+
+
+def _universe_records(universe: Iterable[object], *, include_disabled: bool = False) -> dict[str, dict[str, object]]:
     records: dict[str, dict[str, object]] = {}
     for item in universe:
         enabled = _value(item, "enabled")
-        if enabled is False:
+        if enabled is False and not include_disabled:
             continue
         instrument_id = str(_value(item, "id", "instrument_id") or "").strip()
         if not instrument_id:
@@ -425,6 +472,9 @@ def _markdown(report: CoverageAudit, checksum: str) -> str:
 
 __all__ = [
     "COVERAGE_SCHEMA_VERSION",
+    "CURRENT_CONFIGURATION",
+    "POINT_IN_TIME_MEMBERSHIP",
+    "POINT_IN_TIME_UNAVAILABLE",
     "DIMENSIONS",
     "CoverageAudit",
     "CoverageGroup",
