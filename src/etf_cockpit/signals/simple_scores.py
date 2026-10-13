@@ -1073,8 +1073,8 @@ def _business_model_for_sector(sector: object) -> str | None:
     return "bank" if str(sector or "").strip().casefold() in _BANK_SECTORS else None
 
 
-def _sparebank_evidence_ids(display_id: str) -> set[str]:
-    """Capital and owner-claim evidence ids a Sparebank EC holds, read from the stored native scorecard row.
+def _sparebank_evidence_ids(display_id: str) -> dict[str, str | None]:
+    """Capital and owner-claim evidence ids (with the native row's as-of date) a Sparebank EC holds.
 
     A fully covered axis is the only proof: the owner-claim axis is partial until the eierbrøk is resolved, and the
     capital axis is partial until its CET1 inputs exist. No stored native row means no evidence (fails closed).
@@ -1082,49 +1082,79 @@ def _sparebank_evidence_ids(display_id: str) -> set[str]:
 
     row = latest_sparebank_scores().get(str(display_id))
     if row is None or row.get("final_combined_score_10") is None:
-        return set()
+        return {}
     missing = {part for part in str(row.get("missing_components") or "").split("|") if part}
-    held: set[str] = set()
+    as_of = _noneable_str(row.get("data_as_of_date"))
+    held: dict[str, str | None] = {}
     if "owner_claim_integrity" not in missing:
-        held.update({"eierbrok", "equity_certificates"})
+        held.update({"eierbrok": as_of, "equity_certificates": as_of})
     if "capital_liquidity_resilience" not in missing:
-        held.add("cet1_ratio")
+        held["cet1_ratio"] = as_of
+    return held
+
+
+def _critical_evidence_dated(score: SimpleInstrumentScore) -> dict[str, str | None]:
+    """Evidence ids the score holds with their as-of date: eligible component keys, inputs used, identity.
+
+    Each id carries the date of the component that holds it; identity is static metadata (no date).
+    """
+
+    held: dict[str, str | None] = {}
+
+    def add(item: str, as_of: str | None) -> None:
+        if as_of is not None or item not in held:
+            held[item] = as_of
+
+    for component in score.components:
+        if component.score_eligible:
+            add(component.key, component.as_of_date)
+        for item in component.inputs_used:
+            add(item, component.as_of_date)
+    if str(score.isin or "").strip() or str(score.yahoo_symbol or "").strip():
+        add("identity", None)
+    if _is_sparebank_ec_asset_type(score.asset_type):
+        for item, as_of in _sparebank_evidence_ids(score.display_id).items():
+            add(item, as_of)
     return held
 
 
 def _critical_evidence_ids_of(score: SimpleInstrumentScore) -> set[str]:
-    """Evidence ids the score holds: eligible component keys, evidence-derived inputs and identity."""
+    """Evidence ids the score holds (without dates)."""
 
-    held = {component.key for component in score.components if component.score_eligible}
-    for component in score.components:
-        held.update(component.inputs_used)
-    if str(score.isin or "").strip() or str(score.yahoo_symbol or "").strip():
-        held.add("identity")
-    if _is_sparebank_ec_asset_type(score.asset_type):
-        held.update(_sparebank_evidence_ids(score.display_id))
-    return held
+    return set(_critical_evidence_dated(score))
 
 
 def _with_critical_evidence(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
-    """A failed critical-evidence gate turns a Buy-type label into Insufficient evidence (scores stay visible).
+    """The score gate for labels: a failed gate or an unavailable score turns a Buy-type label into Insufficient evidence.
 
-    Banks (sector ``Banks``) use the BANK gate set (capital plus owner claim) and Sparebank ECs, including the
-    generic score shown while the native scorecard is pending, need a confirmed eierbrøk and capital evidence.
+    The canonical score is built here (through the same gate function) and attached, so the label and the v3 values can
+    never disagree; the descriptive scores stay visible. Banks (sector ``Banks``) use the BANK gate set (capital plus
+    owner claim) and Sparebank ECs, including the generic score shown while the native scorecard is pending, need a
+    confirmed eierbrøk and capital evidence from the stored native row.
     """
 
     if score.identity_conflict_reason is not None:
         return score
     from etf_cockpit.analysis.decision import gates
 
+    score = _with_canonical_score(score)
+    canonical = score.canonical_score
     if not gates.is_buy_label(score.final_label):
         return score
-    results = gates.evaluate_critical_gates(
-        gates.critical_asset_class(score.asset_type, score.business_model), _critical_evidence_ids_of(score)
-    )
-    failed = gates.failed_gates(results)
-    if not failed:
+    if canonical is not None:
+        failed = gates.failed_gates(canonical.critical_gates)
+        unavailable = canonical.unavailable_reason
+    else:  # Sparebank EC: no canonical score exists; the same gate function without a coverage check
+        decision = gates.evaluate_score_gate(
+            gates.critical_asset_class(score.asset_type, score.business_model),
+            _critical_evidence_dated(score),
+            decision_time=score.latest_date,
+        )
+        failed = gates.failed_gates(decision.gates)
+        unavailable = decision.unavailable_reason
+    if not failed and unavailable is None:
         return score
-    names = ", ".join(result.gate_id for result in failed)
+    names = ", ".join(result.gate_id for result in failed) or str(unavailable)
     return replace(
         score,
         final_label=gates.INSUFFICIENT_LABEL,
@@ -1134,8 +1164,8 @@ def _with_critical_evidence(score: SimpleInstrumentScore) -> SimpleInstrumentSco
         research_state=ResearchState.MANUAL_REVIEW,
         internal_intent=InternalSignalIntent.NONE,
         one_line_reason=(
-            f"Insufficient evidence: critical evidence is missing ({names}); the descriptive scores stay visible "
-            f"but no Buy-type label is issued. {score.one_line_reason or ''}"
+            f"Insufficient evidence: critical evidence is missing, stale or too thin ({names}); the descriptive scores "
+            f"stay visible but no Buy-type label is issued. {score.one_line_reason or ''}"
         ).strip(),
         warnings=[*score.warnings, "critical_evidence_insufficient"],
     )
@@ -1153,7 +1183,7 @@ def _with_canonical_score(score: SimpleInstrumentScore) -> SimpleInstrumentScore
         score.asset_type,
         score.latest_date,
         score.components,
-        critical_evidence=_critical_evidence_ids_of(score),
+        critical_evidence=_critical_evidence_dated(score),
         business_model=score.business_model,
     )
     source_vintage_hash = hashlib.sha256(

@@ -8,6 +8,7 @@ raises the weight of the remaining inputs, and a coverage shrink can never turn 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 from functools import lru_cache
 import math
 from pathlib import Path
@@ -23,6 +24,14 @@ INSUFFICIENT_LABEL = "insufficient_evidence"
 _NOT_APPLICABLE_STATUSES = frozenset({"n/a", "na", "not_applicable", "inapplicable"})
 _STOCK_TYPES = frozenset({"stock", "equity", "certificate", "stock_like"})
 _BANK_MODELS = frozenset({"bank", "sparebank", "savings_bank", "equity_certificate", "ec", "egenkapitalbevis"})
+_NO_DATE = frozenset({"", "nan", "nat", "none", "<na>"})
+
+# Unavailable reasons of the single score gate (a score with either reason shows no 0-10 value and no ranking).
+REASON_CRITICAL_DOMAIN = "critical_domain_insufficient"
+REASON_COVERAGE = "insufficient_coverage"
+GATE_REASON_STALE = "CRITICAL_EVIDENCE_STALE"
+GATE_REASON_INVALID = "CRITICAL_EVIDENCE_INVALID"
+GATE_REASON_UNMAPPED = "ASSET_CLASS_UNMAPPED"
 
 
 class CriticalEvidenceError(ValueError):
@@ -34,6 +43,7 @@ class GateDefinition:
     gate_id: str
     evidence_any_of: tuple[str, ...]
     group: str | None = None
+    max_age_days: int | None = None  # None = static metadata without an age limit
 
 
 @dataclass(frozen=True)
@@ -44,6 +54,8 @@ class CriticalEvidencePolicy:
     buy_labels: frozenset[str]
     gates: Mapping[str, tuple[GateDefinition, ...]]
     inapplicable_inputs: Mapping[str, frozenset[str]]
+    minimum_coverage: float = 0.5
+    price_only_components: frozenset[str] = frozenset()
 
 
 @lru_cache(maxsize=8)
@@ -65,9 +77,25 @@ def _policy_for_content(content: bytes) -> CriticalEvidencePolicy:
                 if not evidence:
                     raise CriticalEvidenceError(f"gate {gate_id} lists no evidence ids")
                 group = raw.get("group")
-                definitions.append(GateDefinition(str(gate_id), evidence, None if group is None else str(group)))
+                if "max_age_days" not in raw:
+                    raise CriticalEvidenceError(f"gate {gate_id} has no max_age_days (use null for static evidence)")
+                max_age = raw["max_age_days"]
+                if max_age is not None and (isinstance(max_age, bool) or int(max_age) != max_age or int(max_age) < 1):
+                    raise CriticalEvidenceError(f"gate {gate_id} max_age_days must be a positive integer or null")
+                definitions.append(
+                    GateDefinition(
+                        str(gate_id), evidence, None if group is None else str(group), None if max_age is None else int(max_age)
+                    )
+                )
             gates[str(asset_class).upper()] = tuple(definitions)
             inapplicable[str(asset_class).upper()] = frozenset(str(item) for item in body.get("inapplicable_inputs", ()))
+        availability = section["score_availability"]
+        minimum_coverage = float(availability["minimum_coverage"])
+        if not math.isfinite(minimum_coverage) or not 0.0 < minimum_coverage <= 1.0:
+            raise CriticalEvidenceError("score_availability.minimum_coverage must be in (0, 1]")
+        price_only = frozenset(str(item) for item in availability["price_only_components"])
+        if not price_only:
+            raise CriticalEvidenceError("score_availability.price_only_components lists no component keys")
         return CriticalEvidencePolicy(
             str(section["version"]),
             quality_minimum,
@@ -75,6 +103,8 @@ def _policy_for_content(content: bytes) -> CriticalEvidencePolicy:
             frozenset(str(item) for item in section["buy_labels"]),
             gates,
             inapplicable,
+            minimum_coverage,
+            price_only,
         )
     except CriticalEvidenceError:
         raise
@@ -104,33 +134,116 @@ def critical_asset_class(asset_type: object, business_model: object = None) -> s
     return None
 
 
+def _as_date(value: object) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value if value is not None else "").strip()
+    if text.casefold() in _NO_DATE:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def evidence_as_of(evidence: Iterable[str] | Mapping[str, object]) -> dict[str, object]:
+    """Evidence ids with their as-of date; plain ids carry no date (``None``)."""
+
+    if isinstance(evidence, Mapping):
+        return {str(key): value for key, value in evidence.items()}
+    return {str(item): None for item in evidence}
+
+
+def _evidence_state(definition: GateDefinition, as_of: object, decision: date | None) -> str:
+    """``fresh`` / ``stale`` / ``invalid`` for one present evidence id; undated or future-dated evidence is invalid."""
+
+    if definition.max_age_days is None:
+        return "fresh"
+    observed = _as_date(as_of)
+    if observed is None or decision is None or observed > decision:
+        return "invalid"
+    return "fresh" if (decision - observed).days <= definition.max_age_days else "stale"
+
+
 def evaluate_critical_gates(
     asset_class: str | None,
-    evidence: Iterable[str],
+    evidence: Iterable[str] | Mapping[str, object],
     *,
+    decision_time: object = None,
     policy: CriticalEvidencePolicy | None = None,
 ) -> tuple[CriticalGateResult, ...]:
-    """Evaluate every required-evidence gate; an unmapped asset class fails closed."""
+    """Evaluate every required-evidence gate against the decision date; an unmapped asset class fails closed.
+
+    ``evidence`` is a mapping of evidence id to its as-of date (plain ids are undated). A gate passes only on
+    evidence that is no older than its ``max_age_days`` at ``decision_time`` and not dated after it; present but
+    stale or invalid evidence fails the gate with a distinct reason, it is never treated as a pass.
+    """
 
     selected = policy or load_critical_evidence_policy()
     if asset_class is None or asset_class.upper() not in selected.gates:
-        return (CriticalGateResult("asset_class", "INSUFFICIENT_EVIDENCE", ("asset_class",), "ASSET_CLASS_UNMAPPED"),)
-    present = {str(item) for item in evidence}
+        return (CriticalGateResult("asset_class", "INSUFFICIENT_EVIDENCE", ("asset_class",), GATE_REASON_UNMAPPED),)
+    present = evidence_as_of(evidence)
+    decision = _as_date(decision_time)
     results = []
     for definition in selected.gates[asset_class.upper()]:
-        if present & set(definition.evidence_any_of):
+        states = [_evidence_state(definition, present[item], decision) for item in definition.evidence_any_of if item in present]
+        if "fresh" in states:
             results.append(CriticalGateResult(definition.gate_id, "PASS", (), "EVIDENCE_PRESENT", definition.group))
-        else:
-            results.append(
-                CriticalGateResult(
-                    definition.gate_id,
-                    "INSUFFICIENT_EVIDENCE",
-                    definition.evidence_any_of,
-                    "CRITICAL_EVIDENCE_MISSING",
-                    definition.group,
-                )
-            )
+            continue
+        reason = GATE_REASON_STALE if "stale" in states else GATE_REASON_INVALID if states else "CRITICAL_EVIDENCE_MISSING"
+        results.append(
+            CriticalGateResult(definition.gate_id, "INSUFFICIENT_EVIDENCE", definition.evidence_any_of, reason, definition.group)
+        )
     return tuple(results)
+
+
+@dataclass(frozen=True)
+class ScoreGateDecision:
+    """Outcome of the single score gate: failed gates, and whether the score may be shown at all."""
+
+    gates: tuple[CriticalGateResult, ...]
+    coverage: float | None
+    unavailable_reason: str | None
+
+    @property
+    def available(self) -> bool:
+        return self.unavailable_reason is None
+
+    @property
+    def blocks_buy_label(self) -> bool:
+        return self.unavailable_reason is not None or blocks_buy_label(self.gates)
+
+
+def evaluate_score_gate(
+    asset_class: str | None,
+    evidence: Iterable[str] | Mapping[str, object],
+    *,
+    decision_time: object,
+    coverage: float | None = None,
+    eligible_components: Collection[str] | None = None,
+    policy: CriticalEvidencePolicy | None = None,
+) -> ScoreGateDecision:
+    """The one gate every score path calls before a 0-10 value is shown.
+
+    Unavailable with ``critical_domain_insufficient`` when a critical gate holds only stale or invalid evidence (or the
+    asset class is unmapped); then with ``insufficient_coverage`` when ``coverage`` is below the policy minimum or no
+    eligible non-price component exists. ``coverage`` / ``eligible_components`` of ``None`` skip that check (label-only
+    callers without a canonical score). Missing evidence keeps the group-level insufficient-evidence handling.
+    """
+
+    selected = policy or load_critical_evidence_policy()
+    results = evaluate_critical_gates(asset_class, evidence, decision_time=decision_time, policy=selected)
+    reason: str | None = None
+    domain_reasons = {GATE_REASON_STALE, GATE_REASON_INVALID, GATE_REASON_UNMAPPED}
+    if any(not result.passed and result.reason_code in domain_reasons for result in results):
+        reason = REASON_CRITICAL_DOMAIN
+    elif coverage is not None and (not math.isfinite(coverage) or coverage < selected.minimum_coverage):
+        reason = REASON_COVERAGE
+    elif eligible_components is not None and not any(key not in selected.price_only_components for key in eligible_components):
+        reason = REASON_COVERAGE
+    return ScoreGateDecision(results, coverage, reason)
 
 
 def failed_gates(results: Iterable[CriticalGateResult]) -> tuple[CriticalGateResult, ...]:
@@ -271,10 +384,17 @@ __all__ = [
     "CriticalEvidencePolicy",
     "GateDefinition",
     "INSUFFICIENT_LABEL",
+    "GATE_REASON_INVALID",
+    "GATE_REASON_STALE",
     "InputCompleteness",
+    "REASON_COVERAGE",
+    "REASON_CRITICAL_DOMAIN",
+    "ScoreGateDecision",
     "blocks_buy_label",
     "critical_asset_class",
     "evaluate_critical_gates",
+    "evaluate_score_gate",
+    "evidence_as_of",
     "failed_gate_groups",
     "failed_gates",
     "inapplicable_inputs",

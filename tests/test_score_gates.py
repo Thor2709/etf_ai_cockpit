@@ -5,10 +5,14 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
+import pandas as pd
 import pytest
+import yaml
 
 from etf_cockpit.analysis.decision import gates
+from etf_cockpit.analysis.decision.opportunity import _benchmark_scores
 from etf_cockpit.analysis.decision.contracts import ScoreAuthorityFlags
 from etf_cockpit.analysis.sparebank.claim import build_claim_state
 from etf_cockpit.analysis.sparebank.valuation import valuation
@@ -18,11 +22,30 @@ from etf_cockpit.application.score_views import (
     score_card_values,
     score_display_values,
 )
+from etf_cockpit.core.config import load_config
 from etf_cockpit.signals import simple_scores as ss
-from etf_cockpit.signals.canonical_scoring import CanonicalComponent, ScorePolicy, build_canonical_score, simple_quality_status
+from etf_cockpit.signals.canonical_scoring import (
+    CanonicalComponent,
+    ScorePolicy,
+    build_canonical_score,
+    canonical_score_from_signal_row,
+    canonical_score_from_simple_components,
+    simple_quality_status,
+)
 
 
-def _component(key: str, raw: float | None, role: str = "attractiveness", *, status: str = "ok") -> CanonicalComponent:
+DECISION = "2026-10-09"
+
+
+def _fresh(*ids: str, as_of: str = DECISION) -> dict[str, str]:
+    """Evidence ids with an as-of date (the gates compare it with the decision date)."""
+
+    return {item: as_of for item in ids}
+
+
+def _component(
+    key: str, raw: float | None, role: str = "attractiveness", *, status: str = "ok", as_of: str | None = DECISION
+) -> CanonicalComponent:
     return CanonicalComponent(
         key=key,
         raw_metric=raw,
@@ -34,14 +57,36 @@ def _component(key: str, raw: float | None, role: str = "attractiveness", *, sta
         uncertainty="low",
         status=status,
         explanation=f"{key} explanation",
+        as_of_date=as_of,
     )
+
+
+def _non_price() -> list[CanonicalComponent]:
+    """Non-price evidence that lifts coverage above the 0.50 minimum: value, quality, a model and implementation."""
+
+    return [
+        _component("stock_value", 1.0),
+        _component("stock_quality", 1.0),
+        _component("baseline", 1.0, "expected_return"),
+        _component("risk", 1.0, "risk_implementation"),
+        _component("liquidity_cost", 1.0, "risk_implementation"),
+    ]
 
 
 def _top_momentum() -> list[CanonicalComponent]:
     return [_component("momentum", 1.0), _component("trend", 1.0), _component("relative_strength", 1.0)]
 
 
-def _simple(key: str, raw: float, *, used: tuple[str, ...] = (), configured: tuple[str, ...] = ()) -> ss.SimpleScoreComponent:
+def _simple(
+    key: str,
+    raw: float,
+    *,
+    used: tuple[str, ...] = (),
+    configured: tuple[str, ...] = (),
+    role: str = "evidence",
+    source_id: str = "yfinance:prices",
+    as_of: str | None = DECISION,
+) -> ss.SimpleScoreComponent:
     return ss.SimpleScoreComponent(
         key=key,
         label=key,
@@ -51,15 +96,28 @@ def _simple(key: str, raw: float, *, used: tuple[str, ...] = (), configured: tup
         explanation="",
         good_score="",
         why="synthetic",
-        source_id="yfinance:prices",
-        as_of_date="2026-10-09",
+        source_id=source_id,
+        as_of_date=as_of,
         freshness_status="ok",
+        score_role=role,
         inputs_used=used,
         inputs_configured=configured,
     )
 
 
-def _strong_stock(*, with_solvency: bool, final_label: str = "strong_evidence_candidate") -> ss.SimpleInstrumentScore:
+def _implementation() -> list[ss.SimpleScoreComponent]:
+    """Expected-return and implementation components: with them a simple stock clears the coverage minimum."""
+
+    return [
+        _simple("baseline", 0.5, role="model_confirmation", source_id="model:baseline"),
+        _simple("risk", 0.5, role="risk_friction"),
+        _simple("liquidity_cost", 0.5, role="risk_friction"),
+    ]
+
+
+def _strong_stock(
+    *, with_solvency: bool, final_label: str = "strong_evidence_candidate", quality_as_of: str | None = DECISION
+) -> ss.SimpleInstrumentScore:
     quality_inputs = ("roe", "roic", "ebit_margin", "net_debt_to_ebitda", "fcf_conversion", "revenue_cagr")
     used = quality_inputs if with_solvency else ("roe", "roic", "ebit_margin", "revenue_cagr")
     components = [
@@ -67,7 +125,8 @@ def _strong_stock(*, with_solvency: bool, final_label: str = "strong_evidence_ca
         _simple("trend", 0.9),
         _simple("relative_strength", 0.9),
         _simple("stock_value", 0.5, used=("earnings_yield", "market_cap")),
-        _simple("stock_quality", 0.5, used=used, configured=quality_inputs),
+        _simple("stock_quality", 0.5, used=used, configured=quality_inputs, as_of=quality_as_of),
+        *_implementation(),
     ]
     return ss.SimpleInstrumentScore(
         instrument_key="stock:ACME",
@@ -100,7 +159,7 @@ def test_missing_solvency_is_insufficient_despite_top_momentum() -> None:
         asset_type="STOCK",
         decision_time="2026-10-09",
         components=_top_momentum(),
-        critical_evidence=("market_cap",),  # owner claim present, solvency missing
+        critical_evidence=_fresh("market_cap"),  # owner claim present, solvency missing
     )
     assert gated.attractiveness_10 is None
     assert "attractiveness" in gated.insufficient_groups
@@ -119,8 +178,8 @@ def test_missing_solvency_is_insufficient_despite_top_momentum() -> None:
         instrument_id="ACME",
         asset_type="STOCK",
         decision_time="2026-10-09",
-        components=_top_momentum(),
-        critical_evidence=("market_cap", "net_debt_to_ebitda"),
+        components=[*_top_momentum(), *_non_price()],
+        critical_evidence=_fresh("market_cap", "net_debt_to_ebitda"),
         quality_status="complete",
     )
     assert held.attractiveness_10 == 10.0 and held.authority is not None and held.authority.score_rankable
@@ -248,10 +307,12 @@ def test_sparebank_without_confirmed_eierbrok_has_no_certified_valuation() -> No
 
 def test_bank_gates_require_capital_and_owner_claim() -> None:
     assert gates.critical_asset_class("Stock", "bank") == "BANK"
-    results = gates.evaluate_critical_gates("BANK", {"eierbrok"})
+    results = gates.evaluate_critical_gates("BANK", _fresh("eierbrok"), decision_time=DECISION)
     assert {result.gate_id for result in gates.failed_gates(results)} == {"capital"}
     assert gates.blocks_buy_label(results)
-    assert not gates.blocks_buy_label(gates.evaluate_critical_gates("BANK", {"cet1_ratio", "equity_certificates"}))
+    assert not gates.blocks_buy_label(
+        gates.evaluate_critical_gates("BANK", _fresh("cet1_ratio", "equity_certificates"), decision_time=DECISION)
+    )
 
 
 # 5. 2 of 6 quality inputs gives partial.
@@ -265,10 +326,34 @@ def test_two_of_six_quality_inputs_is_partial_and_not_safety_verified() -> None:
     components = [_simple("stock_quality", 0.2, used=("roe", "net_debt_to_ebitda"), configured=inputs)]
     assert simple_quality_status(components, "Stock") == "partial"
     flags = gates.score_authority_flags(
-        gates.evaluate_critical_gates("STOCK", {"market_cap", "net_debt_to_ebitda"}), score_present=True, quality_status="partial"
+        gates.evaluate_critical_gates("STOCK", _fresh("market_cap", "net_debt_to_ebitda"), decision_time=DECISION),
+        score_present=True,
+        quality_status="partial",
     )
     assert flags.score_rankable is True and flags.financial_safety_verified is False
     assert flags.research_decision_status == "partial"
+
+    # A partial quality component adds no active weight and no coverage (review fix 1, decision item 4).
+    evidence = _fresh("market_cap", "net_debt_to_ebitda")
+    parts = [*_top_momentum(), *_non_price()]
+    common = dict(instrument_id="Q", asset_type="STOCK", decision_time=DECISION, components=parts, critical_evidence=evidence)
+    complete = build_canonical_score(**common, quality_status="complete")
+    partial = build_canonical_score(**common, quality_status="partial")
+    assert partial.coverage == pytest.approx(complete.coverage - 0.24 / 3.0, abs=1e-5)
+    row = next(item for item in partial.components if item["key"] == "stock_quality")
+    assert row["status"] == "partial" and row["score_eligible"] is False and row["contribution_raw"] is None
+    assert all(item["key"] != "stock_quality" for item in partial.contributions)
+    assert partial.authority is not None and partial.authority.financial_safety_verified is False
+    full_stock = _strong_stock(with_solvency=True).components
+    thin_quality = [
+        _simple("stock_quality", 0.2, used=("roe", "net_debt_to_ebitda"), configured=inputs, as_of=DECISION)
+        if item.key == "stock_quality"
+        else item
+        for item in full_stock
+    ]
+    simple_complete = canonical_score_from_simple_components("Q", "Stock", DECISION, full_stock)
+    simple_partial = canonical_score_from_simple_components("Q", "Stock", DECISION, thin_quality)
+    assert simple_partial.coverage < simple_complete.coverage
 
 
 # Remaining contract points.
@@ -277,20 +362,21 @@ def test_authority_flags_are_separate_and_fail_closed() -> None:
     with pytest.raises(ValueError):
         ScoreAuthorityFlags(execution_allowed=True)
     flags = gates.score_authority_flags(
-        gates.evaluate_critical_gates("ETF", {"identity", "liquidity_cost", "etf_exposure"}),
+        gates.evaluate_critical_gates("ETF", _fresh("identity", "liquidity_cost", "etf_exposure"), decision_time=DECISION),
         score_present=True,
         quality_status=None,
         forecast_calibrated=False,
         benchmark_eligible=False,
     )
     assert flags.score_rankable is True and flags.forecast_calibrated is False and flags.benchmark_eligible is False
-    assert gates.evaluate_critical_gates(None, {"identity"})[0].reason_code == "ASSET_CLASS_UNMAPPED"
-    assert gates.evaluate_critical_gates("ETF", {"identity"})[0].passed
-    assert {r.gate_id for r in gates.failed_gates(gates.evaluate_critical_gates("ETF", {"identity"}))} == {"cost", "exposure"}
+    assert gates.evaluate_critical_gates(None, {"identity"}, decision_time=DECISION)[0].reason_code == "ASSET_CLASS_UNMAPPED"
+    assert gates.evaluate_critical_gates("ETF", {"identity"}, decision_time=DECISION)[0].passed
+    failed = gates.failed_gates(gates.evaluate_critical_gates("ETF", {"identity"}, decision_time=DECISION))
+    assert {r.gate_id for r in failed} == {"cost", "exposure"}
 
 
 def test_etf_without_exposure_loses_its_buy_label_but_not_its_score() -> None:
-    components = [_simple("momentum", 0.9), _simple("liquidity_cost", 0.5)]
+    components = [_simple("momentum", 0.9), _simple("trend", 0.9), _simple("relative_strength", 0.9), *_implementation()]
     score = ss.SimpleInstrumentScore(
         instrument_key="etf:ETF1",
         display_id="ETF1",
@@ -340,7 +426,7 @@ def test_sparebank_ec_generic_score_needs_confirmed_owner_claim_and_capital(monk
     partial = {"ACME": {"final_combined_score_10": 6.0, "missing_components": "owner_claim_integrity|capital_liquidity_resilience"}}
     monkeypatch.setattr(ss, "latest_sparebank_scores", lambda: partial)
     assert ss._with_critical_evidence(ec).final_label == "insufficient_evidence"  # claim unresolved
-    covered = {"ACME": {"final_combined_score_10": 6.0, "missing_components": "marketability"}}
+    covered = {"ACME": {"final_combined_score_10": 6.0, "missing_components": "marketability", "data_as_of_date": "2026-10-09"}}
     monkeypatch.setattr(ss, "latest_sparebank_scores", lambda: covered)
     assert ss._with_critical_evidence(ec).final_label == "strong_evidence_candidate"
 
@@ -364,8 +450,233 @@ def test_cyclical_candidate_row_keeps_solvency_and_owner_claim_evidence(monkeypa
 
     covered = candidate(market_cap=5.0e9, debt_to_equity=0.8)
     assert {"market_cap", "debt_to_equity"} <= ss._critical_evidence_ids_of(covered)
-    assert covered.canonical_score is not None and not covered.canonical_score.gate_failed
+    assert covered.canonical_score is not None and not gates.failed_gates(covered.canonical_score.critical_gates)
+    # A candidate has no price/risk components: coverage stays below 0.50, so its v3 values are unavailable, never shrunk.
+    assert covered.canonical_score.unavailable_reason == "insufficient_coverage"
     bare = candidate()
     assert not ({"market_cap", "debt_to_equity"} & ss._critical_evidence_ids_of(bare))
-    assert bare.canonical_score is not None and bare.canonical_score.gate_failed
+    assert bare.canonical_score is not None and gates.failed_gates(bare.canonical_score.critical_gates)
     assert set(ss._candidate_critical_inputs(pd.Series({"market_cap": None, "debt_to_equity": float("nan")}))) == set()
+
+
+# Review fix 1 (decision item 2): a minimum-coverage rule makes the score unavailable, with no ranking.
+def _unavailable_everywhere(score: object) -> bool:
+    return (
+        score.attractiveness_10 is None
+        and score.expected_return_10 is None
+        and score.risk_implementation_10 is None
+        and score.evidence_confidence_10 is None
+        and score.legacy_composite_raw is None
+        and score.contributions == ()
+        and score.authority is not None
+        and score.authority.score_rankable is False
+        and score.gate_failed
+    )
+
+
+def test_one_input_instrument_is_unavailable_for_insufficient_coverage() -> None:
+    thin = build_canonical_score(
+        instrument_id="THIN",
+        asset_type="STOCK",
+        decision_time=DECISION,
+        components=_top_momentum(),
+        legacy_component_weights={"momentum": 1.0},
+        critical_evidence=_fresh("market_cap", "net_debt_to_ebitda"),  # momentum, trend + solvency evidence: coverage ~0.17
+    )
+    assert thin.unavailable_reason == "insufficient_coverage" and _unavailable_everywhere(thin)
+    assert "score_unavailable:insufficient_coverage" in thin.warnings
+    assert thin.as_dict()["unavailable_reason"] == "insufficient_coverage"
+    single = build_canonical_score(
+        instrument_id="ONE",
+        asset_type="STOCK",
+        decision_time=DECISION,
+        components=[_component("momentum", 1.0)],
+        critical_evidence=_fresh("market_cap", "net_debt_to_ebitda"),
+    )
+    assert single.unavailable_reason == "insufficient_coverage" and _unavailable_everywhere(single)
+
+
+def test_price_only_components_are_unavailable_even_with_enough_coverage() -> None:
+    policy = ScorePolicy(
+        "test-v1",
+        "0" * 64,
+        "1-3 months",
+        "STOCK",
+        {"attractiveness": {"momentum": 0.5, "trend": 0.5}, "expected_return": {"baseline": 1.0}, "risk_implementation": {"risk": 1.0}},
+    )
+    components = [_component("momentum", 1.0), _component("trend", 1.0), _component("risk", 1.0, "risk_implementation")]
+    kwargs = dict(
+        instrument_id="PX", asset_type="STOCK", decision_time=DECISION, policy=policy, critical_evidence=_fresh("market_cap", "net_debt_to_ebitda")
+    )
+    price_only = build_canonical_score(components=components, **kwargs)
+    assert price_only.coverage == pytest.approx(2.0 / 3.0, abs=1e-5)  # above 0.50, yet no non-price family
+    assert price_only.unavailable_reason == "insufficient_coverage" and _unavailable_everywhere(price_only)
+    with_model = build_canonical_score(components=[*components, _component("baseline", 1.0, "expected_return")], **kwargs)
+    assert with_model.unavailable_reason is None and with_model.attractiveness_10 == 10.0
+
+
+def test_missing_component_lowers_coverage_but_does_not_inflate_the_others() -> None:
+    kwargs = dict(instrument_id="Q", asset_type="STOCK", decision_time=DECISION, critical_evidence=_fresh("market_cap", "net_debt_to_ebitda"))
+    full = build_canonical_score(components=[*_top_momentum(), *_non_price()], **kwargs)
+    without_risk = build_canonical_score(
+        components=[*_top_momentum(), *[item for item in _non_price() if item.key != "risk"]], **kwargs
+    )
+    assert full.unavailable_reason is None and without_risk.unavailable_reason is None
+    assert without_risk.coverage == pytest.approx(full.coverage - 0.45 / 3.0, abs=1e-5)
+    assert without_risk.attractiveness_10 == full.attractiveness_10
+    assert without_risk.expected_return_10 == full.expected_return_10
+    rows = {item["key"]: item for item in without_risk.components}
+    assert "risk" not in rows  # nothing was substituted or zero-filled for the missing component
+    full_weights = {item["key"]: item["weight"] for item in full.components}
+    assert {key: item["weight"] for key, item in rows.items()} == {key: full_weights[key] for key in rows}
+
+
+# Review fix 2 (decision item 3): stale, undated or invalid critical evidence makes the score unavailable.
+def _dated_stock(**evidence_dates: str | None) -> object:
+    return build_canonical_score(
+        instrument_id="DATED",
+        asset_type="STOCK",
+        decision_time=DECISION,
+        components=[*_top_momentum(), *_non_price()],
+        critical_evidence=evidence_dates,
+    )
+
+
+def test_stale_critical_evidence_makes_the_score_unavailable() -> None:
+    fresh = _dated_stock(market_cap=DECISION, net_debt_to_ebitda=DECISION)
+    assert fresh.unavailable_reason is None and fresh.attractiveness_10 == 10.0
+    stale = _dated_stock(market_cap=DECISION, net_debt_to_ebitda="2022-12-31")  # a years-old solvency figure
+    assert stale.unavailable_reason == "critical_domain_insufficient" and _unavailable_everywhere(stale)
+    assert {gate.gate_id: gate.reason_code for gate in stale.critical_gates if not gate.passed} == {
+        "solvency_liquidity": "CRITICAL_EVIDENCE_STALE"
+    }
+    assert gates.load_critical_evidence_policy().gates["STOCK"][0].max_age_days == 456
+    edge = gates.evaluate_critical_gates("STOCK", _fresh("net_debt_to_ebitda", "market_cap", as_of="2025-07-10"), decision_time=DECISION)
+    assert all(result.passed for result in edge)  # exactly 456 days old is still inside the limit
+    over = gates.evaluate_critical_gates("STOCK", _fresh("net_debt_to_ebitda", "market_cap", as_of="2025-07-09"), decision_time=DECISION)
+    assert {result.gate_id for result in gates.failed_gates(over)} == {"solvency_liquidity", "owner_claim"}
+
+
+@pytest.mark.parametrize("as_of", [None, "", "not-a-date", "2026-10-10"], ids=["undated", "empty", "unparseable", "after-decision"])
+def test_invalid_critical_evidence_makes_the_score_unavailable(as_of: str | None) -> None:
+    invalid = _dated_stock(market_cap=DECISION, net_debt_to_ebitda=as_of)
+    assert invalid.unavailable_reason == "critical_domain_insufficient" and _unavailable_everywhere(invalid)
+    assert {gate.gate_id: gate.reason_code for gate in invalid.critical_gates if not gate.passed} == {
+        "solvency_liquidity": "CRITICAL_EVIDENCE_INVALID"
+    }
+    # Plain ids carry no date: unverifiable, never a pass. Without a decision date nothing can be compared either.
+    undated = gates.evaluate_critical_gates("STOCK", {"net_debt_to_ebitda", "market_cap"}, decision_time=DECISION)
+    assert undated[0].reason_code == "CRITICAL_EVIDENCE_INVALID"
+    no_decision = gates.evaluate_critical_gates("STOCK", _fresh("net_debt_to_ebitda", "market_cap"), decision_time=None)
+    assert no_decision[0].reason_code == "CRITICAL_EVIDENCE_INVALID"
+
+
+def test_stale_evidence_in_the_scoreboard_path_blocks_the_label_and_the_v3_values() -> None:
+    stale = ss._with_critical_evidence(_strong_stock(with_solvency=True, quality_as_of="2022-12-31"))
+    assert stale.final_label == "insufficient_evidence" and stale.final_action == "manual_review"
+    assert stale.canonical_score is not None and stale.canonical_score.unavailable_reason == "critical_domain_insufficient"
+    assert stale.canonical_score.attractiveness_10 is None and stale.final_score_10 == 8.9
+    fresh = ss._with_critical_evidence(_strong_stock(with_solvency=True))
+    assert fresh.final_label == "strong_evidence_candidate" and fresh.canonical_score.unavailable_reason is None
+
+
+# Review fix 3 (decision item 1): every score path goes through the one gate before a 0-10 value is shown.
+def _thin_stock() -> ss.SimpleInstrumentScore:
+    base = _strong_stock(with_solvency=True)
+    return ss.SimpleInstrumentScore(**{**base.__dict__, "components": base.components[:5]})  # no model / implementation
+
+
+def test_every_score_path_applies_the_gate() -> None:
+    # Scoreboard (label + attached v3 view): coverage 0.33 -> no Buy label, no 0-10 v3 values.
+    board = ss._with_canonical_score(ss._with_critical_evidence(_thin_stock()))
+    assert board.final_label == "insufficient_evidence"
+    assert board.canonical_score is not None and board.canonical_score.unavailable_reason == "insufficient_coverage"
+    assert board.canonical_score.attractiveness_10 is None and board.canonical_score.legacy_composite_raw is None
+
+    # Default scoring entry point (simple components) is gated without the caller passing any evidence.
+    default = canonical_score_from_simple_components("ACME", "Stock", DECISION, _thin_stock().components)
+    assert default.unavailable_reason == "insufficient_coverage" and _unavailable_everywhere(default)
+
+    # Signal-row path and the legacy composite it feeds.
+    config = load_config()
+    thin_row = pd.Series({"etf_id": "AAA", "price_freshness": "ok", "score_momentum": 0.4, "score_trend": 0.3})
+    thin = canonical_score_from_signal_row(thin_row, config, DECISION)
+    assert thin.unavailable_reason == "insufficient_coverage" and _unavailable_everywhere(thin)
+    assert thin.legacy_composite_10 is None
+    full_row = pd.Series(
+        {
+            "etf_id": "AAA",
+            "price_freshness": "ok",
+            "score_momentum": 0.4,
+            "score_trend": 0.3,
+            "score_relative_strength": 0.2,
+            "score_risk": 0.1,
+            "score_rebalance": 0.0,
+            "cost_penalty": 0.01,
+            "turnover_penalty": 0.0,
+            "score_baseline_ml": 0.2,
+            "score_etf_exposure": 0.3,
+        }
+    )
+    full = canonical_score_from_signal_row(full_row, config, DECISION)
+    assert full.unavailable_reason is None and full.attractiveness_10 is not None and full.legacy_composite_raw is not None
+    assert {gate.gate_id for gate in full.critical_gates} == {"identity", "cost", "exposure"} and not full.gate_failed
+    stock_row = pd.Series({**full_row.to_dict(), "asset_type": "Stock"})
+    assert canonical_score_from_signal_row(stock_row, config, DECISION).gate_failed  # no solvency / owner-claim evidence
+
+    # Decision layer: the benchmark v3 input reads the gated legacy composite, so an unavailable score is absent.
+    state = {"candidate": {"signal": SimpleNamespace(canonical_score=thin, components=None)}}
+    assert _benchmark_scores(state)["v3"] is None
+    state = {"candidate": {"signal": SimpleNamespace(canonical_score=full, components=None)}}
+    assert _benchmark_scores(state)["v3"] == full.legacy_composite_raw
+
+    # v3 view: the display values flag the gate failure of an unavailable score.
+    assert score_display_values(board)["gate_failed"] is True
+
+
+# Review fix 5 (decision item 5): a malformed policy configuration fails at load time.
+def _policy_text(mutate) -> str:
+    parsed = yaml.safe_load(gates.POLICY_PATH.read_text(encoding="utf-8"))
+    mutate(parsed)
+    return yaml.safe_dump(parsed)
+
+
+def _stock_gate(parsed: dict) -> dict:
+    return parsed["critical_evidence"]["asset_classes"]["STOCK"]["gates"]["solvency_liquidity"]
+
+
+_MALFORMED = {
+    "missing_section": lambda parsed: parsed.pop("critical_evidence"),
+    "empty_evidence_any_of": lambda parsed: _stock_gate(parsed).update(evidence_any_of=[]),
+    "minimum_above_configured": lambda parsed: parsed["critical_evidence"]["quality_minimum_inputs"].update(minimum=7),
+    "missing_asset_classes": lambda parsed: parsed["critical_evidence"].pop("asset_classes"),
+    "missing_max_age": lambda parsed: _stock_gate(parsed).pop("max_age_days"),
+    "zero_max_age": lambda parsed: _stock_gate(parsed).update(max_age_days=0),
+    "text_max_age": lambda parsed: _stock_gate(parsed).update(max_age_days="old"),
+    "missing_availability": lambda parsed: parsed["critical_evidence"].pop("score_availability"),
+    "zero_minimum_coverage": lambda parsed: parsed["critical_evidence"]["score_availability"].update(minimum_coverage=0),
+    "no_price_only_components": lambda parsed: parsed["critical_evidence"]["score_availability"].update(price_only_components=[]),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_MALFORMED))
+def test_malformed_policy_config_fails_at_load_time(case: str, tmp_path: Path) -> None:
+    path = tmp_path / "decision_domains_v1.yaml"
+    path.write_text(_policy_text(_MALFORMED[case]), encoding="utf-8")
+    with pytest.raises(gates.CriticalEvidenceError):
+        gates.load_critical_evidence_policy(path)
+    assert gates.load_critical_evidence_policy().minimum_coverage == 0.5  # the shipped policy still loads
+
+
+def test_unreadable_or_unparseable_policy_file_fails_at_load_time(tmp_path: Path) -> None:
+    with pytest.raises(gates.CriticalEvidenceError):
+        gates.load_critical_evidence_policy(tmp_path / "missing.yaml")
+    with pytest.raises(gates.CriticalEvidenceError):
+        gates.load_critical_evidence_policy(tmp_path)  # a directory is unreadable as a file
+    broken = tmp_path / "broken.yaml"
+    broken.write_text("critical_evidence: [unclosed", encoding="utf-8")
+    with pytest.raises(gates.CriticalEvidenceError):
+        gates.load_critical_evidence_policy(broken)
+    broken.write_bytes(b"\xff\xfe not utf-8")
+    with pytest.raises(gates.CriticalEvidenceError):
+        gates.load_critical_evidence_policy(broken)
