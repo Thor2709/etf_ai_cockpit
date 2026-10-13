@@ -36,6 +36,23 @@ YAHOO_SUFFIX_BY_EXCHANGE = {
 YAHOO_SYMBOL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._=-]{0,31}$")
 
 
+def classify_provider_error(error: object) -> str:
+    """Error status of one Yahoo request: ``throttled`` | ``timeout`` | ``not_found`` | ``error``.
+
+    Used so a 404, a throttle and a timeout are told apart in the per-table / per-symbol record
+    instead of being swallowed into one generic failure.
+    """
+
+    text = f"{type(error).__name__} {error}".casefold() if isinstance(error, BaseException) else str(error).casefold()
+    if "429" in text or "too many requests" in text or "rate limit" in text or "ratelimit" in text or "throttl" in text:
+        return "throttled"
+    if isinstance(error, TimeoutError) or "timeout" in text or "timed out" in text:
+        return "timeout"
+    if "404" in text or "not found" in text or "no data found" in text:
+        return "not_found"
+    return "error"
+
+
 @dataclass(frozen=True)
 class YahooSymbolValidation:
     instrument_id: str
@@ -195,7 +212,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
                     ).dropna(subset=["rate"])
                 )
             except Exception as exc:
-                errors.append(f"{pair}: {type(exc).__name__}: {exc}")
+                errors.append(f"{pair}: [{classify_provider_error(exc)}] {type(exc).__name__}: {exc}")
         if not frames:
             return ProviderResult(self.name, "fx", "error", "Yahoo Finance returned no usable FX rows. " + "; ".join(errors))
         data = pd.concat(frames, ignore_index=True).sort_values(["pair", "as_of_date"])
@@ -226,7 +243,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
             try:
                 rows.append(self._metadata_row(etf_id, yahoo_symbol))
             except Exception as exc:
-                errors.append(redact_text(f"{etf_id}/{yahoo_symbol}: {type(exc).__name__}: {exc}"))
+                errors.append(redact_text(f"{etf_id}/{yahoo_symbol}: [{classify_provider_error(exc)}] {type(exc).__name__}: {exc}"))
         if not rows:
             return ProviderResult(self.name, "etf_metadata", "error", "Yahoo Finance returned no usable metadata. " + "; ".join(errors))
         data = pd.DataFrame(rows)
@@ -259,7 +276,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
             try:
                 rows.extend(self._top_holding_rows(etf_id, yahoo_symbol))
             except Exception as exc:
-                errors.append(f"{etf_id}/{yahoo_symbol}: {type(exc).__name__}: {exc}")
+                errors.append(f"{etf_id}/{yahoo_symbol}: [{classify_provider_error(exc)}] {type(exc).__name__}: {exc}")
         if not rows:
             return ProviderResult(
                 self.name,
