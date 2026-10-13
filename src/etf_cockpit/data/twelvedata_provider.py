@@ -289,8 +289,9 @@ class TwelveDataProvider(DataProvider, PriceProvider):
         if not values or not isinstance(values, list):
             return pd.DataFrame()
 
-        meta = payload.get("meta")
-        meta = meta if isinstance(meta, dict) else {}
+        meta = payload.get("meta", {})
+        if not isinstance(meta, dict):  # present but null/malformed: currency unverifiable
+            return pd.DataFrame()
         if not _identity_matches(meta, clean_symbol):
             return pd.DataFrame()
         currency = meta.get("currency") or self.default_currency
@@ -337,8 +338,9 @@ class TwelveDataProvider(DataProvider, PriceProvider):
         if not values or not isinstance(values, list):
             return pd.DataFrame()
 
-        meta = payload.get("meta")
-        meta = meta if isinstance(meta, dict) else {}
+        meta = payload.get("meta", {})
+        if not isinstance(meta, dict):  # present but null/malformed: currency unverifiable
+            return pd.DataFrame()
         if not _identity_matches(meta, clean_symbol):
             return pd.DataFrame()
         currency = meta.get("currency") or self.default_currency

@@ -534,8 +534,9 @@ def _values(*days: str) -> list[dict[str, str]]:
 
 def test_a121_n003_twelvedata_null_meta_is_unavailable_not_an_exception() -> None:
     provider = _twelve({"meta": None, "values": _values("2026-01-02")})
-    frame = provider.fetch_daily_prices("AAA", date(2026, 1, 1), date(2026, 1, 5))
-    assert len(frame) == 1
+    assert provider.fetch_daily_prices("AAA", date(2026, 1, 1), date(2026, 1, 5)).empty
+    assert provider.fetch_intraday_prices("AAA", "5min", date(2026, 1, 1), date(2026, 1, 5)).empty
+    assert len(_twelve({"values": _values("2026-01-02")}).fetch_daily_prices("AAA", date(2026, 1, 1), date(2026, 1, 5))) == 1
     assert _twelve({"meta": None, "values": []}).fetch_daily_prices("AAA", date(2026, 1, 1), date(2026, 1, 5)).empty
     assert _twelve({"meta": {"symbol": "BBB"}, "values": _values("2026-01-02")}).fetch_daily_prices("AAA", date(2026, 1, 1), date(2026, 1, 5)).empty
 
