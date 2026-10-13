@@ -32,6 +32,15 @@ from etf_cockpit.models.uncertainty import (
 )
 from etf_cockpit.models.calibration import calibrate_forecast_distribution
 
+BASELINE_MODEL_VERSION = "momentum_shrunk_v1"
+# Dataset kinds and freshness that count as verified price evidence for the evidence gate.
+_EVIDENCE_SOURCE_TYPES = frozenset({"prices"})
+_EVIDENCE_FRESH_STATUSES = frozenset({"ok"})
+# Per-instrument data-quality codes meaning no verified, current price exists for that instrument.
+_EVIDENCE_BREAKING_CODES = frozenset(
+    {"stale_data", "stale_data_warning", "no_prices_at_as_of", "empty_prices", "missing_adjusted_close", "invalid_price_values"}
+)
+
 
 def generate_signals(
     config: AppConfig,
@@ -143,6 +152,10 @@ def generate_signals(
             if isinstance(adjusted_confidence, (int, float)) and isfinite(float(adjusted_confidence))
             else base_confidence
         )
+        poor_calibration = isinstance(calibration, Mapping) and calibration.get("poor_calibration") is True
+        if poor_calibration:
+            # Poor interval calibration must reduce decision authority, not only warn.
+            action_confidence *= config.models.forecast_uncertainty.confidence_haircut
         candidate = preliminary_action(
             config,
             total_score=total_score,
@@ -178,9 +191,11 @@ def generate_signals(
             )
             blocked_by = sorted(set([*blocked_by, *uncertainty_reasons]))
         calibration_reason = None
-        if isinstance(calibration, Mapping) and calibration.get("poor_calibration") is True:
+        if poor_calibration:
             calibration_reason = str(calibration.get("reason") or "Forecast calibration is outside its tolerance.")
             warnings = sorted(set([*warnings, "forecast_calibration_poor"]))
+        elif isinstance(calibration, Mapping) and calibration.get("status") == "inconclusive":
+            warnings = sorted(set([*warnings, "forecast_calibration_inconclusive"]))
         preliminary_trade_value = suggested_trade_value(total_value, current_weight, projected_weight)
         if candidate in {"buy", "add", "trim", "sell"} and preliminary_trade_value is not None:
             if abs(preliminary_trade_value) < config.risks.portfolio_limits.min_trade_value_eur:
@@ -330,7 +345,7 @@ def generate_signals(
             suggested_new_weight=round(projected_weight, 4) if projected_weight is not None else None,
             status=status,
             model_versions_used={
-                "baseline": "momentum_shrunk_v1",
+                "baseline": BASELINE_MODEL_VERSION,
                 "timesfm": "unavailable" if not timesfm_available else "timesfm_2_5_optional",
                 "toto": "unavailable" if not toto_available else "toto_2_0_optional",
             },
@@ -402,10 +417,8 @@ def _attach_authority(signal: SignalResult, data_report: DataQualityReport) -> S
     etf_issues = [issue for issue in data_report.issues if issue.etf_id in {signal.etf_id, "ALL"}]
     blocked_codes = set(signal.blocked_by)
     warning_codes = set(signal.warnings)
-    has_dataset_evidence = any(
-        bool(metadata.checksum and metadata.provider_or_manual_source)
-        for metadata in data_report.dataset_metadata
-    )
+    has_dataset_evidence = _has_verified_price_evidence(signal, data_report, etf_issues)
+    has_valid_model = _model_validity(signal)
     risk_blocks = {
         "portfolio_validation_block",
         "expected_drawdown_gate",
@@ -438,12 +451,20 @@ def _attach_authority(signal: SignalResult, data_report: DataQualityReport) -> S
         GateResult(
             gate_id="evidence",
             passed=has_dataset_evidence,
-            message="Dated provider evidence is available" if has_dataset_evidence else "Dated provider evidence is unavailable",
+            message=(
+                "Fresh dated price evidence is available"
+                if has_dataset_evidence
+                else "Fresh dated price evidence with checksum and provider is unavailable"
+            ),
         ),
         GateResult(
             gate_id="model_validity",
-            passed=isfinite(float(signal.total_score)) and signal.model_versions_used.get("baseline") not in {None, "unavailable"},
-            message="Baseline score and model version are present",
+            passed=has_valid_model,
+            message=(
+                "Validated baseline model version and canonical score fingerprint are present"
+                if has_valid_model
+                else "Validated baseline model version or canonical score fingerprint is missing"
+            ),
         ),
         GateResult(
             gate_id="risk",
@@ -473,6 +494,41 @@ def _attach_authority(signal: SignalResult, data_report: DataQualityReport) -> S
     ]
     decision = resolve_authority(research_state_for_legacy_action(signal.action), gates, None)
     return replace(signal, authority_decision=decision)
+
+
+def _has_verified_price_evidence(
+    signal: SignalResult,
+    data_report: DataQualityReport,
+    etf_issues: list,
+) -> bool:
+    """True only for fresh, dated, checksummed price evidence that does not post-date the signal."""
+
+    if any(issue.code in _EVIDENCE_BREAKING_CODES for issue in etf_issues):
+        return False
+    for metadata in data_report.dataset_metadata:
+        if str(metadata.source_type).strip().lower() not in _EVIDENCE_SOURCE_TYPES:
+            continue
+        if metadata.staleness_status not in _EVIDENCE_FRESH_STATUSES:
+            continue
+        if not (str(metadata.checksum or "").strip() and str(metadata.provider_or_manual_source or "").strip()):
+            continue
+        if metadata.as_of_date is None or metadata.as_of_date > signal.signal_date:
+            continue
+        return True
+    return False
+
+
+def _model_validity(signal: SignalResult) -> bool:
+    """The model in use must be the validated baseline version with a canonical score fingerprint."""
+
+    canonical = signal.canonical_score
+    return (
+        isfinite(float(signal.total_score))
+        and signal.model_versions_used.get("baseline") == BASELINE_MODEL_VERSION
+        and canonical is not None
+        and bool(str(getattr(canonical, "formula_version", "") or "").strip())
+        and bool(str(getattr(canonical, "formula_checksum", "") or "").strip())
+    )
 
 
 def _cost_stress_metrics(
