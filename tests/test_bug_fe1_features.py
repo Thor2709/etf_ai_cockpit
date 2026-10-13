@@ -212,11 +212,29 @@ def _breadth_panel() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def test_sma_breadth_forward_fill_is_unbounded_by_default_and_capped_when_requested(bound_benchmark) -> None:
+def test_sma_breadth_forward_fill_is_bounded_by_default_and_loosened_only_on_request(bound_benchmark) -> None:
     default = build_market_regime(_breadth_panel(), benchmark_id="BENCH")
-    capped = build_market_regime(_breadth_panel(), benchmark_id="BENCH", max_forward_fill=5)
-    assert default["configured_pct_above_sma200"] == pytest.approx(2 / 3, abs=1e-3)  # stale B close still counted
-    assert capped["configured_pct_above_sma200"] == pytest.approx(1.0)  # B is beyond the 5-session cap
+    explicit = build_market_regime(_breadth_panel(), benchmark_id="BENCH", max_forward_fill=5)
+    loose = build_market_regime(_breadth_panel(), benchmark_id="BENCH", max_forward_fill=None)
+    assert default["configured_pct_above_sma200"] == pytest.approx(1.0)  # B is beyond the 5-session default bound
+    assert explicit["configured_pct_above_sma200"] == pytest.approx(1.0)
+    assert loose["configured_pct_above_sma200"] == pytest.approx(2 / 3, abs=1e-3)  # explicit opt-out counts stale B
+
+
+def test_portfolio_fit_default_forward_fill_is_bounded(bound_benchmark) -> None:
+    days = pd.bdate_range("2025-01-01", periods=260)
+    rng = np.random.default_rng(11)
+    rows = []
+    for etf in ("BENCH", "A", "B"):
+        values = 100 * np.exp(np.cumsum(rng.normal(0.0003, 0.01, len(days))))
+        for index, (d, v) in enumerate(zip(days, values)):
+            if etf == "B" and index >= len(days) - 60:  # B's last close is 60 sessions old
+                continue
+            rows.append({"etf_id": etf, "date": d, "adjusted_close": v})
+    prices = pd.DataFrame(rows)
+    bounded = build_portfolio_fit_lookup(prices, benchmark_id="BENCH")
+    unbounded = build_portfolio_fit_lookup(prices, benchmark_id="BENCH", max_forward_fill=None)
+    assert bounded["B"]["correlation_to_benchmark"] != unbounded["B"]["correlation_to_benchmark"]
 
 
 def test_price_snapshot_with_conflicting_equal_timestamp_prices_has_no_binding() -> None:
