@@ -49,6 +49,7 @@ class StockRecord:
     region: str
     sector: str
     lifecycle_date: date | None = None
+    invalid_lifecycle: bool = False  # a cutoff was given but cannot be parsed: no evidence, with a reason
 
 
 @dataclass
@@ -64,6 +65,18 @@ class UniverseEvidence:
     prices: dict[str, MarketInputs] = field(default_factory=dict)
     periods: dict[str, list[sm.Period]] = field(default_factory=dict)
     config: dict[str, Any] = field(default_factory=dict)
+    excluded: dict[str, str] = field(default_factory=dict)  # instrument_id -> reason it has no evidence
+
+
+def _blank(value: object) -> bool:
+    if value is None:
+        return True
+    try:
+        if bool(pd.isna(value)):
+            return True
+    except (TypeError, ValueError):
+        pass
+    return isinstance(value, str) and value.strip().casefold() in {"", "nan", "nat", "none"}
 
 
 def stock_records(universe_rows: Iterable[Mapping[str, Any]], config: Mapping[str, Any]) -> list[StockRecord]:
@@ -79,8 +92,9 @@ def stock_records(universe_rows: Iterable[Mapping[str, Any]], config: Mapping[st
         instrument_id = str(row.get("id") or "")
         if not instrument_id:
             continue
-        if row.get("lifecycle_date") and sm.as_utc(row.get("lifecycle_date")) is None:
-            continue  # an unparseable lifecycle cutoff cannot prove the stock is still active: fail closed
+        raw_cutoff = row.get("lifecycle_date")
+        cutoff = None if _blank(raw_cutoff) else sm.as_utc(raw_cutoff)  # a blank cell (None/NaN/NaT/"") means no cutoff
+        invalid = not _blank(raw_cutoff) and cutoff is None  # an unparseable cutoff cannot prove the stock is active: fail closed
         records.append(
             StockRecord(
                 instrument_id,
@@ -89,7 +103,8 @@ def stock_records(universe_rows: Iterable[Mapping[str, Any]], config: Mapping[st
                 str(row.get("currency") or ""),
                 str(row.get("region") or ""),
                 str(row.get("sector") or ""),
-                sm.as_utc(row.get("lifecycle_date")).date() if row.get("lifecycle_date") else None,  # type: ignore[union-attr]
+                cutoff.date() if cutoff is not None else None,
+                invalid,
             )
         )
     return records
@@ -221,13 +236,14 @@ def build_universe_evidence(
     root: Path | None = None,
     config: Mapping[str, Any] | None = None,
 ) -> UniverseEvidence:
-    records = [record for record in records if record.lifecycle_date is None or decision_time.date() <= record.lifecycle_date]
+    excluded = {r.instrument_id: "invalid_lifecycle_date: the lifecycle cutoff cannot be parsed, so the stock is not shown as active" for r in records if r.invalid_lifecycle}
+    records = [record for record in records if not record.invalid_lifecycle and (record.lifecycle_date is None or decision_time.date() <= record.lifecycle_date)]
     cfg = dict(config) if config is not None else store.load_stock_config(root)
     chain = list((cfg.get("sources", {}) or {}).get("chain", ["sec_edgar", "yfinance"]))
     periods_frame = store.read_fundamentals(root)
     snapshots = store.read_snapshots(root)
     fx = store.read_fx(root)
-    result = UniverseEvidence(decision_time, config=cfg)
+    result = UniverseEvidence(decision_time, config=cfg, excluded=excluded)
     user_picks = load_user_peers(root)
     result.user_peers = user_picks
     ids = [r.instrument_id for r in records]

@@ -211,13 +211,25 @@ def test_market_cap_without_a_currency_is_not_sized() -> None:
     assert _profile_with_fx({"market_cap_provider": 10e9, "known_at": "2026-01-10"}, currency="").market_cap_eur_bn is None
 
 
-def test_unparseable_lifecycle_cutoff_fails_closed() -> None:
+def test_unparseable_lifecycle_cutoff_fails_closed(tmp_path) -> None:
     rows = [
         {"id": "BAD", "instrument_type": "stock", "ticker": "BAD", "lifecycle_date": "not-a-date"},
         {"id": "OK", "instrument_type": "stock", "ticker": "OK", "lifecycle_date": "2026-12-31"},
         {"id": "LIVE", "instrument_type": "stock", "ticker": "LIVE"},
     ]
-    assert [r.instrument_id for r in su.stock_records(rows, CONFIG)] == ["OK", "LIVE"]
+    records = su.stock_records(rows, CONFIG)
+    assert [r.instrument_id for r in records] == ["BAD", "OK", "LIVE"]
+    assert [r.invalid_lifecycle for r in records] == [True, False, False]
+    result = su.build_universe_evidence(records, pd.DataFrame(), datetime(2026, 6, 1, tzinfo=timezone.utc), root=tmp_path, config=CONFIG)
+    assert "BAD" not in result.evidence and "invalid_lifecycle_date" in result.excluded["BAD"]
+    assert "OK" in result.evidence and "LIVE" in result.evidence
+
+
+@pytest.mark.parametrize("blank", [float("nan"), pd.NaT, None, "", "  ", "NaT"])
+def test_blank_lifecycle_cell_means_no_cutoff(blank: object) -> None:
+    rows = [{"id": "LIVE", "instrument_type": "stock", "ticker": "LIVE", "lifecycle_date": blank}]
+    (record,) = su.stock_records(rows, CONFIG)
+    assert record.lifecycle_date is None and not record.invalid_lifecycle
 
 
 def test_equal_peer_scores_order_by_instrument_id_not_row_order() -> None:
@@ -235,3 +247,19 @@ def test_dataclass_replace_keeps_support_floor_out_of_other_callers() -> None:
     cohort = construct_cohort(_context("TARGET"), (_observation("P1", 1.0),), metric="quality", effective_at=AS_OF, decision_time=DECISION)
     assert calculate_peer_metric("quality", 1.0, cohort, applicable=True).status == "available"
     assert replace(cohort).support == 1
+
+
+def test_sparebank_peer_ranking_uses_one_formula_version(tmp_path) -> None:
+    from etf_cockpit.application import sparebank_peers as sp
+
+    def row(identifier: str, composite: float, version: str | None) -> dict[str, object]:
+        return {"instrument_id": identifier, "name": identifier, "as_of": "2026-10-01T00:00:00Z", "composite": composite, "formula_version": version}
+
+    for item in (row("SELF", 6.0, "v2"), row("OLD", 9.9, "v1"), row("LOW", 5.0, "v2"), row("HIGH", 7.0, "v2"), row("NOVER", 9.0, None)):
+        sp.record_peer_row(tmp_path, item)
+    rows = sp.load_peer_rows(tmp_path, "SELF", "2026-10-09T00:00:00Z")
+    assert [r["instrument_id"] for r in rows] == ["HIGH", "LOW", "NOVER", "OLD"]
+    assert {r["instrument_id"]: r["formula_mismatch"] for r in rows} == {"HIGH": False, "LOW": False, "OLD": True, "NOVER": True}
+    assert all(r["composite"] is None for r in rows if r["formula_mismatch"])
+    # an explicit version of the viewed scorecard wins over the stored row
+    assert [r["instrument_id"] for r in sp.load_peer_rows(tmp_path, "SELF", "2026-10-09T00:00:00Z", "v1")][0] == "OLD"

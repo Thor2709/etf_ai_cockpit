@@ -132,8 +132,18 @@ def record_peer_row(root: Path | None, row: Mapping[str, object]) -> None:
     atomic_write_json(path, {"schema_version": SCHEMA_VERSION, "rows": rows, "execution_allowed": False})
 
 
-def load_peer_rows(root: Path | None, instrument_id: str, decision_time: object = None) -> list[dict[str, object]]:
-    """Other certificates, owner-picked first, then by composite; rows after the decision time are dropped."""
+def load_peer_rows(
+    root: Path | None,
+    instrument_id: str,
+    decision_time: object = None,
+    formula_version: object = None,
+) -> list[dict[str, object]]:
+    """Other certificates, owner-picked first, then by composite; rows after the decision time are dropped.
+
+    Composites are ranked only within one scorecard formula version (the viewed bank's, from ``formula_version`` or its
+    stored row). A peer scored with another version keeps its row but gets ``composite`` None and
+    ``formula_mismatch`` True, and sorts after the comparable peers: scores of different formulas are not comparable.
+    """
 
     try:
         payload = json.loads(_path(root).read_text(encoding="utf-8"))
@@ -142,6 +152,8 @@ def load_peer_rows(root: Path | None, instrument_id: str, decision_time: object 
     rows = payload.get("rows") if isinstance(payload, dict) and isinstance(payload.get("rows"), dict) else {}
     cutoff = pd.to_datetime(decision_time, errors="coerce", utc=True) if decision_time else None
     picked = set(picked_peers(root, instrument_id))
+    own = rows.get(str(instrument_id))
+    reference = str(formula_version or "").strip() or (str(own.get("formula_version") or "").strip() if isinstance(own, Mapping) else "")
     result: list[dict[str, object]] = []
     for key, row in rows.items():
         if key == instrument_id or not isinstance(row, Mapping):
@@ -149,8 +161,11 @@ def load_peer_rows(root: Path | None, instrument_id: str, decision_time: object 
         stamp = pd.to_datetime(row.get("as_of"), errors="coerce", utc=True)
         if cutoff is not None and not pd.isna(cutoff) and (pd.isna(stamp) or stamp > cutoff):
             continue
-        result.append({**row, "picked": key in picked})
-    return sorted(result, key=lambda row: (not row["picked"], -(_number(row.get("composite")) or -1.0), str(row.get("instrument_id"))))
+        entry = {**row, "picked": key in picked, "formula_mismatch": str(row.get("formula_version") or "").strip() != reference}
+        if entry["formula_mismatch"]:
+            entry["composite"] = None
+        result.append(entry)
+    return sorted(result, key=lambda row: (not row["picked"], bool(row["formula_mismatch"]), -(_number(row.get("composite")) or -1.0), str(row.get("instrument_id"))))
 
 
 def load_peer_row(root: Path | None, instrument_id: str) -> dict[str, object] | None:
