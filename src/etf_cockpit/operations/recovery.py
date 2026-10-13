@@ -502,7 +502,9 @@ def recover_incomplete_transactions(
     if direct_root.is_dir():
         roots.add(direct_root)
     canonical_bases = [
-        child for child in (data_root / "data", data_root / "configs") if child.is_dir()
+        child
+        for child in (data_root / "data", data_root / "configs", data_root / "models", data_root / "exports")
+        if child.is_dir()
     ]
     if data_root.name in {"data", "configs"} or not canonical_bases:
         canonical_bases.append(data_root)
