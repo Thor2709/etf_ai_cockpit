@@ -775,8 +775,8 @@ def build_relative_performance(
     """
 
     reasons: list[str] = []
-    twr_p = link_time_weighted_return(strategy_snapshots, start=start, end=end)
-    twr_b = link_time_weighted_return(benchmark_snapshots, start=start, end=end)
+    twr_p = link_time_weighted_return(strategy_snapshots, start=start, end=end, calendar=strategy_snapshots.attrs.get("calendar", "XNYS") if isinstance(strategy_snapshots, pd.DataFrame) else "XNYS")
+    twr_b = link_time_weighted_return(benchmark_snapshots, start=start, end=end, calendar=benchmark_snapshots.attrs.get("calendar", "XNYS") if isinstance(benchmark_snapshots, pd.DataFrame) else "XNYS")
     mwr_p = calculate_money_weighted_return(strategy_snapshots, start=start, end=end)
     mwr_b = calculate_money_weighted_return(benchmark_snapshots, start=start, end=end)
 
@@ -832,6 +832,12 @@ def _relative_wealth(
             selected = selected.loc[selected["date"] >= pd.Timestamp(start)]
         if end is not None:
             selected = selected.loc[selected["date"] <= pd.Timestamp(end)]
+        if not {"valuation_status", "flow_status", "availability_evidence"}.issubset(selected.columns):
+            return None, "relative_wealth_unavailable:canonical_evidence_missing"
+        if (not selected["valuation_status"].eq("available").all()
+                or not selected["flow_status"].eq("available").all()
+                or not selected["availability_evidence"].eq("timestamped").all()):
+            return None, "relative_wealth_unavailable:canonical_evidence_unavailable"
         frames.append(selected.sort_values("date").reset_index(drop=True))
     left, right = frames
     if left.empty or len(left) != len(right) or not (left["date"] == right["date"]).all():

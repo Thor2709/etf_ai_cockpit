@@ -702,18 +702,17 @@ class VwceReferenceSeriesCheck:
 def vwce_series_source_hash(frame: pd.DataFrame) -> str:
     """Hash the canonical (date, close, adjusted close) rows of a candidate series."""
 
-    adjusted = "adjusted_close" if "adjusted_close" in frame.columns else "adj_close"
-    rows = [
-        [pd.Timestamp(day).date().isoformat(), repr(float(close)), repr(float(adj))]
-        for day, close, adj in zip(frame["date"], frame["close"], frame[adjusted], strict=True)
-    ]
-    return hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode("utf-8")).hexdigest()
+    from etf_cockpit.data.provenance import sha256_dataframe
+
+    return sha256_dataframe(frame)
+
 
 
 def validate_vwce_reference_series(
     frame: pd.DataFrame | None,
     *,
     known_at: object,
+    provider_metadata: object = None,
     isin: str = VWCE_CANONICAL_ISIN,
     ticker: str = VWCE_LISTING_TICKER,
     currency: str = VWCE_QUOTE_CURRENCY,
@@ -731,7 +730,43 @@ def validate_vwce_reference_series(
     distribution (a distribution would be counted twice: once in the adjusted close, once as cash).
     """
 
+    from etf_cockpit.core.types import DatasetMetadata
+
     reasons: list[str] = []
+    if (not isinstance(provider_metadata, DatasetMetadata)
+            or provider_metadata.source_name != "yfinance" or provider_metadata.source_type != "prices"
+            or provider_metadata.currency != "EUR" or provider_metadata.ingested_at is None
+            or provider_metadata.ingested_at.tzinfo is None
+            or not isinstance(frame, pd.DataFrame)
+            or provider_metadata.checksum != vwce_series_source_hash(frame)):
+        reasons.append("provider_provenance_unverified")
+    else:
+        try:
+            if pd.Timestamp(known_at) != pd.Timestamp(provider_metadata.ingested_at):
+                reasons.append("known_at_conflicts_with_provider_provenance")
+        except (TypeError, ValueError):
+            reasons.append("known_at_conflicts_with_provider_provenance")
+    if isinstance(frame, pd.DataFrame):
+        for column, expected in (("provider_symbol", VWCE_LISTING_TICKER), ("currency", VWCE_QUOTE_CURRENCY), ("source", "yfinance")):
+            if column not in frame or frame[column].isna().any() or not frame[column].eq(expected).all():
+                reasons.append(f"provider_identity_unverified:{column}")
+        for column, expected in (("ticker", VWCE_LISTING_TICKER), ("isin", VWCE_CANONICAL_ISIN)):
+            if column in frame and not frame[column].eq(expected).all():
+                reasons.append(f"provider_identity_conflict:{column}")
+        if "is_adjusted" not in frame or not frame["is_adjusted"].eq(True).all():
+            reasons.append("provider_adjusted_evidence_missing")
+        for column in ("stock_splits", "splits", "Stock Splits"):
+            if column in frame:
+                splits = pd.to_numeric(frame[column], errors="coerce")
+                if splits.isna().any() or not splits.isin([0, 1]).all():
+                    reasons.append("explicit_split_requires_verified_adjustment")
+        if "stock_splits" not in frame:
+            reasons.append("corporate_action_evidence_missing")
+        for column in ("dividends", "capital_gains"):
+            if column not in frame:
+                reasons.append(f"corporate_action_evidence_missing:{column}")
+            elif pd.to_numeric(frame[column], errors="coerce").ne(0).any():
+                reasons.append("distribution_on_accumulating_share_class")
     if isin != VWCE_CANONICAL_ISIN:
         reasons.append("identity_isin_mismatch")
     if ticker != VWCE_LISTING_TICKER:
@@ -899,6 +934,9 @@ def load_passive_default_policy(path: Path | None = None) -> dict[str, object]:
         not isinstance(default, Mapping)
         or default.get("instrument_id") != "VWCE"
         or default.get("isin") != VWCE_CANONICAL_ISIN
+        or default.get("listing") != VWCE_LISTING_TICKER
+        or default.get("currency") != VWCE_QUOTE_CURRENCY
+        or default.get("active_edge_evidence") != "cash_flow_matched_vwce_shadow_account"
         or default.get("applies_when") != "no_active_edge_shown"
         or not isinstance(payload.get("version"), str)
     ):

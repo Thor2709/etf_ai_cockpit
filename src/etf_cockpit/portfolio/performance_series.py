@@ -159,6 +159,23 @@ def build_portfolio_performance_series(
             return _unavailable(selected_metric, selected_currency, selected_range, selected_aggregation, "The VWCE benchmark series is EUR-quoted; no currency conversion is applied to it.")
         if benchmark_snapshots is None:
             return _unavailable(selected_metric, selected_currency, selected_range, selected_aggregation, "The cash-flow-matched VWCE shadow account snapshots are unavailable.")
+        source_hash = benchmark_reference.get("source_hash")
+        lineage = benchmark_snapshots.attrs
+        if (not isinstance(source_hash, str) or len(source_hash) != 64
+                or benchmark_reference.get("benchmark_id") != "benchmark:ftse-all-world"
+                or not benchmark_reference.get("known_at")
+                or lineage.get("source_hash") != source_hash
+                or lineage.get("known_at") != benchmark_reference.get("known_at")
+                or lineage.get("benchmark_id") != "benchmark:ftse-all-world"
+                or not lineage.get("shadow_account_id")
+                or not isinstance(snapshots, pd.DataFrame)
+                or snapshots.attrs.get("account_id") != lineage.get("active_account_id")):
+            return _unavailable(selected_metric, selected_currency, selected_range, selected_aggregation, "Canonical reference and active-account snapshot lineage are unavailable.")
+        from etf_cockpit.portfolio.benchmark_relative_diagnostics import build_relative_performance
+
+        matched = build_relative_performance(snapshots, benchmark_snapshots)
+        if matched.compounded_relative_wealth is None:
+            return _unavailable(selected_metric, selected_currency, selected_range, selected_aggregation, "Canonical active and benchmark dates, flows or valuation evidence are not matched.")
         inner = build_portfolio_performance_series(
             benchmark_snapshots,
             metric="twr_return",
@@ -608,7 +625,7 @@ def _metric_value(
 def _canonical_twr(snapshots: pd.DataFrame) -> dict[str, object]:
     if len(snapshots) < 2:
         return {"status": "unavailable", "value": None, "reason": "At least two complete daily snapshots are required."}
-    return link_time_weighted_return(snapshots, start=snapshots.iloc[0]["date"], end=snapshots.iloc[-1]["date"])
+    return link_time_weighted_return(snapshots, start=snapshots.iloc[0]["date"], end=snapshots.iloc[-1]["date"], calendar=snapshots.attrs.get("calendar", "XNYS"))
 
 
 def _canonical_mwr(snapshots: pd.DataFrame) -> dict[str, object]:
