@@ -28,6 +28,7 @@ from etf_cockpit.portfolio.benchmark_reference import (
 from etf_cockpit.application.derived_cache import (
     _calculation_window,
     _current_universe_revision,
+    _feature_cache_binding,
     _price_snapshot_binding,
     _reference_identity_hash,
 )
@@ -114,6 +115,7 @@ class FeatureService:
                     "settings_revision": str(settings_identity["settings_revision"]),
                     "reference_identity": context.identity,
                     **price_binding,
+                    **_feature_cache_binding(frame, calculation_window=calculation_window),
                 },
             )
         return features

@@ -17,12 +17,30 @@ from etf_cockpit.features.volatility import ewma_volatility, realised_volatility
 RELATIVE_STRENGTH_FALLBACK_ANCHOR = "VWCE"
 
 
+# Bumped whenever a feature formula changes so derived feature caches written by an older
+# algorithm are never reused (the cache key binds this version).
+FEATURE_ALGORITHM_VERSION = "features-2"
+
+# Scale of a normal distribution from the mean absolute deviation (sqrt(pi / 2)); used only when
+# more than half of the values are equal and the median absolute deviation collapses to zero.
+_MEAN_ABS_DEVIATION_SCALE = 1.2533
+
+
 def robust_zscore(values: pd.Series) -> pd.Series:
+    """Robust z-score clipped to +-3; unavailable (all NaN) when no finite scale exists.
+
+    A zero MAD (over half of the values equal) falls back to the scaled mean absolute
+    deviation so real outliers keep their sign; a constant series has no scale and is
+    unavailable rather than neutral.
+    """
+
     median = values.median(skipna=True)
-    mad = (values - median).abs().median(skipna=True)
-    denom = 1.4826 * mad
+    deviation = (values - median).abs()
+    denom = 1.4826 * deviation.median(skipna=True)
     if not np.isfinite(denom) or denom == 0:
-        return pd.Series(0.0, index=values.index)
+        denom = _MEAN_ABS_DEVIATION_SCALE * deviation.mean(skipna=True)
+    if not np.isfinite(denom) or denom == 0:
+        return pd.Series(float("nan"), index=values.index)
     return ((values - median) / denom).clip(-3, 3)
 
 
@@ -32,11 +50,10 @@ def compute_features(prices: pd.DataFrame, benchmark_etf_id: str | None = None) 
         return pd.DataFrame(columns=["date", "etf_id"])
     frame["date"] = pd.to_datetime(frame["date"]).dt.date
     feature_frames: list[pd.DataFrame] = []
-    benchmark_returns: pd.Series | None = None
+    benchmark_prices: pd.Series | None = None
 
     if benchmark_etf_id and benchmark_etf_id in set(frame["etf_id"]):
-        benchmark = frame[frame["etf_id"] == benchmark_etf_id].set_index("date")["adjusted_close"]
-        benchmark_returns = horizon_log_returns(benchmark, 60)
+        benchmark_prices = frame[frame["etf_id"] == benchmark_etf_id].set_index("date")["adjusted_close"].astype(float)
 
     for etf_id, group in frame.groupby("etf_id", sort=False):
         group = group.sort_values("date").copy()
@@ -73,18 +90,14 @@ def compute_features(prices: pd.DataFrame, benchmark_etf_id: str | None = None) 
                 "last_price": price.values,
             }
         )
-        if benchmark_returns is not None and etf_id == benchmark_etf_id:
+        if benchmark_prices is not None and etf_id == benchmark_etf_id:
             # The benchmark measured against itself carries no information: unavailable, not neutral.
             out["relative_strength_60d"] = float("nan")
             out["relative_strength_120d"] = float("nan")
-        elif benchmark_returns is not None:
-            own_returns = pd.Series(out["return_60d_log"].values, index=group["date"])
-            relative = own_returns - _benchmark_as_of(benchmark_returns, own_returns.index)
-            out["relative_strength_60d"] = relative.values
-            own_returns_120 = pd.Series(horizon_log_returns(price, 120).values, index=group["date"])
-            bench_price = frame[frame["etf_id"] == benchmark_etf_id].set_index("date")["adjusted_close"]
-            bench_120 = horizon_log_returns(bench_price, 120)
-            out["relative_strength_120d"] = (own_returns_120 - _benchmark_as_of(bench_120, own_returns_120.index)).values
+        elif benchmark_prices is not None:
+            dates = pd.Index(group["date"].values)
+            out["relative_strength_60d"] = _relative_strength(price.values, dates, benchmark_prices, 60)
+            out["relative_strength_120d"] = _relative_strength(price.values, dates, benchmark_prices, 120)
         else:
             out["relative_strength_60d"] = out["return_60d_log"]
             out["relative_strength_120d"] = out["momentum_120d"]
@@ -97,6 +110,27 @@ def compute_features(prices: pd.DataFrame, benchmark_etf_id: str | None = None) 
 # Exchanges close on different days; a benchmark close is reused for at most this many
 # calendar days after it was observed (never a later close, so no look-ahead).
 BENCHMARK_AS_OF_MAX_GAP_DAYS = 5
+
+
+def _relative_strength(prices: np.ndarray, dates: pd.Index, benchmark: pd.Series, horizon: int) -> np.ndarray:
+    """Own horizon log return minus the benchmark return over the same calendar window.
+
+    The window starts on the instrument's own observation ``horizon`` sessions back; the
+    benchmark is read as-of that same start and end instant, so exchanges with different
+    holiday calendars are never compared over mismatched dates.
+    """
+
+    own = pd.Series(prices, dtype=float)
+    own_return = np.log(own / own.shift(horizon)).to_numpy()
+    start_dates = pd.Series(list(dates)).shift(horizon)
+    valid = start_dates.notna().to_numpy()
+    benchmark_end = _benchmark_as_of(benchmark, dates).to_numpy(dtype=float)
+    benchmark_start = np.full(len(dates), np.nan)
+    if valid.any():
+        benchmark_start[valid] = _benchmark_as_of(benchmark, pd.Index(start_dates[valid])).to_numpy(dtype=float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        benchmark_return = np.log(benchmark_end / benchmark_start)
+    return own_return - benchmark_return
 
 
 def _benchmark_as_of(benchmark: pd.Series, dates: pd.Index) -> pd.Series:

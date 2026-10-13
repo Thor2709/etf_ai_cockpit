@@ -29,6 +29,9 @@ class FeatureStoreError(ValueError):
 MissingPolicy = Literal["null", "zero", "reject"]
 TargetKind = Literal["forward_return", "excess_return", "drawdown", "tail", "event"]
 
+# Outcome-bearing column names (targets, labels, future/forward values) can never feed an input,
+# whatever feature identifier they are registered under.
+_OUTCOME_COLUMN = re.compile(r"(^|[_.:-])(target|label|future|forward|outcome)([_.:-]|$)", re.IGNORECASE)
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9_.:-]{1,120}$")
 _ENTITY_COLUMNS = ("etf_id", "instrument_id", "entity_id")
 _ENTITY_TYPE = "feature.definition"
@@ -56,7 +59,7 @@ class FeatureDefinition:
 
     def __post_init__(self) -> None:
         _identifier(self.feature_id, "feature_id")
-        if not str(self.source_column).strip() or str(self.source_column).startswith(("target_", "label_")):
+        if not str(self.source_column).strip() or _OUTCOME_COLUMN.search(str(self.source_column)):
             raise FeatureStoreError("feature source columns must be named data fields, not target or label fields")
         if self.lookback_days < 0 or self.availability_delay_days < 0:
             raise FeatureStoreError("feature lookback and availability delay must be non-negative")
@@ -104,6 +107,9 @@ BUILTIN_FEATURES: tuple[FeatureDefinition, ...] = (
 )
 
 
+_BUILTIN_IDS = frozenset(item.feature_id for item in BUILTIN_FEATURES)
+
+
 class LocalFeatureStore:
     """Durable feature/target catalogue and point-in-time materialiser."""
 
@@ -114,6 +120,9 @@ class LocalFeatureStore:
 
     def register_feature(self, definition: FeatureDefinition) -> FeatureDefinition:
         payload = _definition_payload(definition)
+        builtin = next((item for item in BUILTIN_FEATURES if item.feature_id == definition.feature_id), None)
+        if builtin is not None and _definition_payload(builtin) != payload:
+            raise FeatureStoreError(f"builtin feature identifiers cannot be shadowed: {definition.feature_id}")
         existing = self.get(_ENTITY_TYPE, definition.feature_id)
         if existing is not None and existing != payload:
             raise FeatureStoreError(f"feature definition already exists with different content: {definition.feature_id}")
@@ -131,7 +140,8 @@ class LocalFeatureStore:
     def feature_catalogue(self, *, include_builtins: bool = True) -> tuple[FeatureDefinition, ...]:
         stored = tuple(_feature_definition(row) for row in self._list(_ENTITY_TYPE))
         by_id = {item.feature_id: item for item in (BUILTIN_FEATURES if include_builtins else ())}
-        by_id.update({item.feature_id: item for item in stored})
+        # Builtin identifiers always win: a stored record can never shadow a builtin definition.
+        by_id.update({item.feature_id: item for item in stored if item.feature_id not in _BUILTIN_IDS})
         return tuple(by_id[key] for key in sorted(by_id))
 
     def target_catalogue(self) -> tuple[TargetDefinition, ...]:
@@ -167,6 +177,10 @@ class LocalFeatureStore:
         definitions = self._selected_definitions(feature_ids)
         if feature_ids is None:
             definitions = tuple(item for item in definitions if item.source_column in features.columns)
+        selected_ids = {item.feature_id for item in definitions}
+        unmet = sorted({f"{item.feature_id}->{name}" for item in definitions for name in item.dependencies if name not in selected_ids})
+        if unmet:
+            raise FeatureStoreError(f"declared feature dependencies are not materialised: {', '.join(unmet)}")
         missing_columns = [item.source_column for item in definitions if item.source_column not in features.columns]
         if missing_columns:
             raise FeatureStoreError(f"registered feature columns are unavailable: {', '.join(sorted(missing_columns))}")
@@ -179,14 +193,17 @@ class LocalFeatureStore:
             source["__available_at"] = _timestamps(source["available_at"], normalize=False)
         else:
             source["__available_at"] = source["__feature_time"]
+        tie_columns = sorted({item.source_column for item in definitions})
+        source["__tie_break"] = source[tie_columns].astype(str).agg("|".join, axis=1) if tie_columns else ""
         entities = sorted(source[entity_column].dropna().astype(str).unique())
         rows: list[dict[str, object]] = []
         definition_hash = self.definition_hash(definitions)
         for entity in entities:
-            entity_rows = source[source[entity_column].astype(str) == entity].sort_values(["__feature_time", "__available_at"])
+            entity_rows = source[source[entity_column].astype(str) == entity].sort_values(["__feature_time", "__available_at", "__tie_break"], kind="stable")
             for decision in decisions:
                 output: dict[str, object] = {entity_column: entity, "decision_time": decision.date().isoformat(), "inference_mode": mode}
                 selected_times: list[pd.Timestamp] = []
+                selected_available: list[pd.Timestamp] = []
                 for definition in definitions:
                     cutoff = decision.normalize() - pd.Timedelta(days=definition.availability_delay_days)
                     candidates = entity_rows[(entity_rows["__feature_time"].dt.normalize() <= cutoff) & (entity_rows["__feature_time"] <= decision) & (entity_rows["__available_at"] <= decision)]
@@ -198,10 +215,20 @@ class LocalFeatureStore:
                         output[f"missing_{definition.feature_id}"] = True
                         continue
                     selected = candidates.iloc[-1]
-                    output[definition.feature_id] = _safe_scalar(selected[definition.source_column])
-                    output[f"missing_{definition.feature_id}"] = pd.isna(selected[definition.source_column])
-                    selected_times.extend([selected["__feature_time"], selected["__available_at"]])
+                    raw = selected[definition.source_column]
+                    if pd.isna(raw):
+                        if definition.missing_policy == "reject":
+                            raise FeatureStoreError(f"feature {definition.feature_id} is NaN for {entity} at {decision.date()}")
+                        output[definition.feature_id] = 0.0 if definition.missing_policy == "zero" else None
+                        output[f"missing_{definition.feature_id}"] = True
+                    else:
+                        output[definition.feature_id] = _safe_scalar(raw)
+                        output[f"missing_{definition.feature_id}"] = False
+                    selected_times.append(selected["__feature_time"])
+                    selected_available.append(selected["__available_at"])
+                # feature_time is the observation instant only; availability is reported separately.
                 output["feature_time"] = max(selected_times).date().isoformat() if selected_times else None
+                output["available_at"] = max(selected_available).isoformat() if selected_available else None
                 output["feature_definition_hash"] = definition_hash
                 output["source_vintage_hash"] = _hash_payload({key: output[key] for key in sorted(output) if key not in {"inference_mode"}})
                 rows.append(output)
@@ -239,13 +266,13 @@ class LocalFeatureStore:
         benchmark = _prepare_benchmark(benchmark_prices, date_column, price_column) if benchmark_prices is not None else None
         rows: list[dict[str, object]] = []
         for entity, group in source.groupby(entity_column, sort=True):
-            group = group.sort_values("__date").dropna(subset=["__price"])
+            group = group.sort_values("__date", kind="stable").dropna(subset=["__price"]).reset_index(drop=True)
             for decision in decisions:
                 current = group[group["__date"] <= decision].tail(1)
                 if current.empty:
                     continue
                 current_row = current.iloc[0]
-                current_position = int(group.index.get_loc(current.index[-1]))
+                current_position = int(current.index[-1])
                 current_price = float(current_row["__price"])
                 output: dict[str, object] = {entity_column: str(entity), "decision_time": decision.date().isoformat()}
                 for definition in definitions:
@@ -304,8 +331,14 @@ class LocalFeatureStore:
     def coverage(matrix: pd.DataFrame) -> dict[str, object]:
         if matrix.empty:
             return {"rows": 0, "features": 0, "coverage": {}, "missing_rows": 0}
-        feature_columns = [column for column in matrix.columns if not column.startswith(("missing_", "__")) and column not in {"decision_time", "feature_time", "feature_definition_hash", "source_vintage_hash", "inference_mode"} and column not in _ENTITY_COLUMNS]
-        coverage = {column: round(float(1.0 - matrix[column].isna().mean()), 6) for column in feature_columns}
+        feature_columns = [column for column in matrix.columns if not column.startswith(("missing_", "__")) and column not in {"decision_time", "feature_time", "available_at", "feature_definition_hash", "source_vintage_hash", "inference_mode"} and column not in _ENTITY_COLUMNS]
+        # A zero-imputed value is not an observation: coverage follows the missing flag when present.
+        coverage = {
+            column: round(float(1.0 - (matrix[f"missing_{column}"].astype(bool) | matrix[column].isna()).mean()), 6)
+            if f"missing_{column}" in matrix
+            else round(float(1.0 - matrix[column].isna().mean()), 6)
+            for column in feature_columns
+        }
         missing_rows = int(matrix[[f"missing_{column}" for column in feature_columns if f"missing_{column}" in matrix]].any(axis=1).sum())
         return {"rows": int(len(matrix)), "features": len(feature_columns), "coverage": coverage, "missing_rows": missing_rows}
 
