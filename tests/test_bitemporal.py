@@ -207,6 +207,21 @@ def test_retracting_one_source_never_drops_another_sources_row(tmp_path: Path) -
         assert list(frame["value"]) == [{"value": "official"}]
 
 
+def test_retracted_later_revision_never_clears_another_sources_older_row(tmp_path: Path) -> None:
+    with BitemporalStore(tmp_path) as store:
+        _record(store, revision=1, available_at="2026-01-05T10:00:00Z", value="x1", source_id="source:x")
+        _record(store, revision=1, available_at="2026-01-08T10:00:00Z", value="y1", source_id="source:y")
+        y2 = _record(store, revision=2, available_at="2026-01-10T10:00:00Z", value="y2", source_id="source:y")
+        store.record_retraction(
+            y2.observation_id,
+            available_at="2026-01-12T10:00:00Z",
+            run_id="run-retraction",
+            reason="y rev2 withdrawn",
+        )
+        frame = store.as_of("fundamentals", "2026-01-12T12:00:00Z")
+        assert list(frame["value"]) == [{"value": "x1"}]
+
+
 def test_supersession_is_an_append_only_marker(tmp_path: Path) -> None:
     with BitemporalStore(tmp_path) as store:
         original = _record(store, revision=1, available_at="2026-01-02T10:00:00Z", value="old")

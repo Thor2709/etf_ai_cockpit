@@ -296,25 +296,30 @@ class BitemporalStore:
                 marker = json.loads(str(row["value_json"]))
                 if isinstance(marker, dict) and marker.get("retracts_observation_id"):
                     retracted_ids.add(str(marker["retracts_observation_id"]))
-        selected: dict[tuple[str, str], Any] = {}
+        # One slot per (entity, stable_id, source): a retracted or lower-revision row only
+        # clears or skips its own source's slot, never another source's live row.
+        per_source: dict[tuple[str, str, str], Any] = {}
         highest: dict[tuple[str, str, str], int] = {}
         for row in rows:
-            key = (str(row["entity_id"]), str(row["stable_id"]))
             if str(row["status"]) == "retracted":
                 continue
+            revision_key = (str(row["entity_id"]), str(row["stable_id"]), str(row["source_id"]))
             # A later-available but lower revision of the same source never wins.
-            revision_key = (*key, str(row["source_id"]))
             if int(row["revision"]) < highest.get(revision_key, 0):
                 continue
             highest[revision_key] = int(row["revision"])
             if str(row["observation_id"]) in retracted_ids:
                 # The retracted revision supersedes any older revision of the same
                 # source, so that source yields nothing; other sources' rows stay.
-                current = selected.get(key)
-                if current is not None and str(current["source_id"]) == str(row["source_id"]):
-                    selected.pop(key)
+                per_source.pop(revision_key, None)
                 continue
-            selected[key] = row
+            per_source[revision_key] = row
+        selected: dict[tuple[str, str], Any] = {}
+        for (entity, stable, _source), row in per_source.items():
+            key = (entity, stable)
+            current = selected.get(key)
+            if current is None or _selection_rank(row) > _selection_rank(current):
+                selected[key] = row
         # Effective validity applies after selection so an expired newer vintage
         # cannot fall back to an older one.
         records = [
@@ -499,6 +504,10 @@ def _observation_payload(observation: BitemporalObservation) -> dict[str, object
     payload.pop("value", None)
     payload["value"] = observation.value
     return payload
+
+
+def _selection_rank(row: Any) -> tuple[str, int, str]:
+    return (str(row["available_at"]), int(row["revision"]), str(row["observation_id"]))
 
 
 def _effective_at(row: Any, cutoff: str | None) -> bool:
