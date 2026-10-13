@@ -210,7 +210,7 @@ def test_vwce_only_active_account_with_identical_flows_has_zero_relative_wealth(
     assert relative.period_excess_return == 0.0
     assert relative.strategy_twr == relative.benchmark_twr
     # The shadow account follows the next-session rule: flow 1 buys at the 04 Mar close, never the 03 Mar close.
-    flow = _record(shadow, 
+    flow = _record(shadow,
         flow_id="f1", kind="contribution", amount=1000, flow_at=_at("2025-03-03"),
         prices=frame, series_check=_check(frame), cost_policy=POLICY,
     )
@@ -332,11 +332,11 @@ def test_shadow_account_uses_shared_costs_lot_policy_and_next_session_price(tmp_
     shadow = _ledger(tmp_path, "shadow-vwce", policy)
     check = _check(frame)
     with pytest.raises(PaperLedgerError, match="policy"):
-        _record(shadow, 
+        _record(shadow,
             flow_id="x", kind="contribution", amount=1000, flow_at=_at("2025-03-03"),
             prices=frame, series_check=check, cost_policy=ShadowCostPolicy(commission=Decimal("2"), lot_size=Decimal("1")),
         )
-    buy = _record(shadow, 
+    buy = _record(shadow,
         flow_id="f1", kind="contribution", amount=1000, flow_at=_at("2025-03-07"),
         prices=frame, series_check=check, cost_policy=policy,
     )
@@ -350,24 +350,24 @@ def test_shadow_account_uses_shared_costs_lot_policy_and_next_session_price(tmp_
         prices=frame, series_check=check, cost_policy=policy,
     ) == buy
     with pytest.raises(PaperLedgerError, match="different terms"):
-        _record(shadow, 
+        _record(shadow,
             flow_id="f1", kind="contribution", amount=2000, flow_at=_at("2025-03-07"),
             prices=frame, series_check=check, cost_policy=policy,
         )
-    sale = _record(shadow, 
+    sale = _record(shadow,
         flow_id="w1", kind="withdrawal", amount=300, flow_at=_at("2025-03-11"),
         prices=frame, series_check=check, cost_policy=policy,
     )
     assert sale["side"] == "sell" and sale["executed_session"] == "2025-03-12"
     assert Decimal(sale["price"]) == Decimal("103") * Decimal("0.999")
     with pytest.raises(PaperLedgerError, match="exceeds|evidence"):
-        _record(shadow, 
+        _record(shadow,
             flow_id="w2", kind="withdrawal", amount=10_000, flow_at=_at("2025-03-11"),
             prices=frame, series_check=check, cost_policy=policy,
         )
     # No later session yet: nothing is recorded.
     with pytest.raises(PaperLedgerError, match="No eligible"):
-        _record(shadow, 
+        _record(shadow,
             flow_id="late", kind="contribution", amount=100, flow_at=_at("2025-03-14"),
             prices=frame, series_check=check, cost_policy=policy,
         )
@@ -388,14 +388,14 @@ def test_shadow_account_rejects_unverified_series_and_proposals(tmp_path: Path) 
     shadow = _ledger(tmp_path, "shadow-vwce", POLICY)
     bad = _check(_series(dividends=[0, 0, 0, 0.35, 0, 0, 0, 0, 0, 0]))
     with pytest.raises(PaperLedgerError, match="source-backed"):
-        _record(shadow, 
+        _record(shadow,
             flow_id="f1", kind="contribution", amount=1000, flow_at=_at("2025-03-03"),
             prices=frame, series_check=bad, cost_policy=POLICY,
         )
     tampered = frame.copy()
     tampered.loc[4, "close"] = tampered.loc[4, "adjusted_close"] = 90.0
     with pytest.raises(PaperLedgerError, match="source hash"):
-        _record(shadow, 
+        _record(shadow,
             flow_id="f1", kind="contribution", amount=1000, flow_at=_at("2025-03-03"),
             prices=tampered, series_check=_check(frame), cost_policy=POLICY,
         )
