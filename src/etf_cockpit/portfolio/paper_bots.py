@@ -18,7 +18,7 @@ from typing import Any, Collection, Mapping
 import pandas as pd
 import yaml
 
-from etf_cockpit.core.paths import ROOT
+from etf_cockpit.core.paths import CONFIG_DIR, ROOT
 from etf_cockpit.data.local_storage import (
     StorageRevisionConflict,
     StorageSchemaError,
@@ -30,7 +30,7 @@ from etf_cockpit.data.trust_artifacts import SCORE_HISTORY_PATH
 
 # DEFAULTS: the history location is the configured trust-artifact path, relocated under the recorder root.
 _SCORE_HISTORY_RELATIVE_PATH = SCORE_HISTORY_PATH.resolve().relative_to(ROOT.resolve())
-PAPER_BOTS_CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "paper_bots_v1.yaml"
+PAPER_BOTS_CONFIG_PATH = CONFIG_DIR / "paper_bots_v1.yaml"
 DECISION_ENTITY_TYPE = "paper_bot_decision"
 MONTH_SLOT_ENTITY_TYPE = "paper_bot_month_slot"
 BASELINE_ENTITY_TYPE = "paper_bot_score_baseline"
