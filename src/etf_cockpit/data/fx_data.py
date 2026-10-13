@@ -434,11 +434,13 @@ def _parse_currency_pairs(frame: pd.DataFrame) -> _CurrencyPairs:
             quote_values.append(compact[3:])
         base = pd.Series(base_values, index=frame.index)
         quote = pd.Series(quote_values, index=frame.index)
-        if {"base_currency", "quote_currency"}.issubset(frame.columns):
-            explicit_base = frame["base_currency"].fillna("").astype(str).str.upper().str.strip()
-            explicit_quote = frame["quote_currency"].fillna("").astype(str).str.upper().str.strip()
-            if ((explicit_base != base) | (explicit_quote != quote)).any():
+        for field, parsed in (("base_currency", base), ("quote_currency", quote)):
+            if field not in frame.columns:
+                continue
+            explicit = frame[field].fillna("").astype(str).str.upper().str.strip()
+            if (explicit != parsed).any():
                 errors.append("FX rates contain contradictory pair and base/quote currency fields.")
+                break
     else:
         base = frame["base_currency"].fillna("").astype(str).str.upper().str.strip()
         quote = frame["quote_currency"].fillna("").astype(str).str.upper().str.strip()

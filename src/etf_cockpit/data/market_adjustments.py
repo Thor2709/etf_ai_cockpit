@@ -1226,7 +1226,10 @@ def derive_fx_cross(
             next_path = (*path, neighbour)
             next_used = (*used, *sources)
             next_label = "executable" if label == edge_label == "executable" else "reference" if "reference" in {label, edge_label} else "indicative"
-            next_rate = rate * edge_rate
+            try:
+                next_rate = _fx_rate_float(rate * edge_rate)
+            except MarketAdjustmentError:
+                return FXRateResult("unavailable", None, base, quote, target, (), (), (), None, ("fx_cross_rate_out_of_supported_range",))
             if neighbour == quote:
                 paths.append((next_rate, next_path, next_used, next_label))
             else:
@@ -1350,14 +1353,14 @@ def selected_currency_return(
         if transaction_at is not None:
             transaction_timestamp = _utc(transaction_at, "transaction_at")
         else:
-            # The implicit start is per currency: only quotes touching the requested currencies count,
-            # and the start is the earliest quote date where the requested pair is derivable.
+            # The start is the earliest date where the requested pair is derivable.
+            # Intermediate-edge dates also count; each candidate retains its own decision cutoff.
             relevant = {_currency(base_currency, required=True), _currency(output_currency, required=True)}
             scoped = [item for item in eligible if relevant & {item.base_currency, item.quote_currency}]
             if not scoped:
                 return SelectedCurrencyReturn("unavailable", local, None, None, None, reason_code="FX_MISSING")
             transaction_timestamp = min(item.valid_at for item in scoped)
-            for candidate in sorted({item.valid_at for item in scoped}):
+            for candidate in sorted({item.valid_at for item in eligible}):
                 if derive_fx_cross(fx_store, base_currency, output_currency, as_of=candidate, decision_time=candidate, max_age_days=max_age_days).available:
                     transaction_timestamp = candidate
                     break
