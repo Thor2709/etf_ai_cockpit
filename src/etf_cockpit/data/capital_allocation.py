@@ -20,6 +20,9 @@ from etf_cockpit.data.market_adjustments import (
     CorporateActionCoverage,
     reconcile_provider_observations,
 )
+from etf_cockpit.data.market_calendar import (
+    BusinessDayConvention, ListingCalendarEvidence, MarketCalendarService, MarketClockError,
+)
 from etf_cockpit.data.statement_normalisation import statement_coverage, statement_view
 
 
@@ -102,7 +105,7 @@ def capital_allocation_analysis(
     periods = _flow_periods(frame)
     history: list[dict[str, object]] = []
     for period_frame, period, period_end in periods:
-        previous_end = _prior_period_end(periods, period_end)
+        previous_end = _opening_period_end(period_frame, period_end)
         previous_frame = _point_rows_for_end(frame, previous_end) if previous_end else pd.DataFrame()
         point_frame = _point_rows_for_end(frame, period_end)
         period_metrics, allocation, reconciliations = _period_analysis(
@@ -380,6 +383,8 @@ def _period_analysis(
         point_rows,
         period_end=period_end,
         statement_currency=payout_currency,
+        instrument_id=instrument_id,
+        decision_time=decision_time,
     )
     if _finite(market_inputs.get("market_cap")) is not None:
         market_provenance = _market_source_provenance(market_inputs, "market_cap")
@@ -430,7 +435,7 @@ def _period_analysis(
         period, currency=payout_currency, denominator="dated_market_cap", denominator_value=market_cap,
         sign_convention="positive distributions and gross repurchases less positive issuance proceeds",
         source_ids=_sources(dividend, buyback, issuance, extra=market_sources),
-        status="available" if shareholder_value is not None else "missing",
+        status="available" if shareholder_value is not None else "unavailable",
         limitation=shareholder_reason,
         unit="ratio",
         source_provenance=_merge_source_provenance(
@@ -438,10 +443,25 @@ def _period_analysis(
             extra=market_provenance,
         ),
     )
+    for name, components in (
+        ("dividend_yield", (dividend,)),
+        ("buyback_yield", (buyback,)),
+        ("issuance_dilution_yield", (issuance,)),
+        ("shareholder_yield", payout_components),
+    ):
+        metric = metrics[name]
+        provenance = _merge_source_provenance(*components, extra=market_provenance)
+        metric["source_provenance"] = provenance
+        metric["market_input_date"] = market_date
+        timing_valid = not market_reason and _source_timing_complete(provenance, decision_time)
+        metric["source_timing_status"] = "available" if timing_valid else "unavailable"
+        if not timing_valid:
+            metric.update(value=None, denominator_value=None, status="missing" if market_reason == "dated_price_or_market_cap_missing" else "unavailable", confidence="low")
+            metric["limitation"] = metric["limitation"] or "source_timing_unavailable_or_not_point_in_time"
     metrics["shareholder_yield"]["market_input_date"] = market_date
     metrics["shareholder_yield"]["source_timing_status"] = (
         "available"
-        if _source_timing_complete(metrics["shareholder_yield"].get("source_provenance", ()))
+        if _source_timing_complete(metrics["shareholder_yield"].get("source_provenance", ()), decision_time) and not market_reason
         else "unavailable"
     )
     if metrics["shareholder_yield"]["source_timing_status"] == "unavailable":
@@ -630,7 +650,6 @@ def _equity_reconciliation(flow_rows: pd.DataFrame, point_rows: pd.DataFrame, pr
 def _share_reconciliation(flow_rows: pd.DataFrame, point_rows: pd.DataFrame, previous_rows: pd.DataFrame, *, period: str, action_evidence: Mapping[str, object]) -> dict[str, object]:
     checks: list[tuple[str, dict[str, object], dict[str, object]]] = [
         ("shares_outstanding", _first_metric_value(point_rows, ("shares_outstanding", "basic_shares")), _first_metric_value(previous_rows, ("shares_outstanding", "basic_shares"))),
-        ("diluted_shares", _metric_value(point_rows, "diluted_shares"), _metric_value(previous_rows, "diluted_shares")),
     ]
     discrepancies: list[float] = []
     source_items: list[dict[str, object]] = []
@@ -666,6 +685,10 @@ def _split_factor(
     period_end: str,
     decision_time: pd.Timestamp,
 ) -> dict[str, object]:
+    if not instrument_id or not str(instrument_id).strip():
+        return {"status": "unavailable", "split_factor": None, "source_ids": (), "source_provenance": (), "reason": "corporate_action_instrument_id_required"}
+    if previous_end is None:
+        return {"status": "unavailable", "split_factor": None, "source_ids": (), "source_provenance": (), "reason": "flow_period_opening_date_required"}
     if coverage is None:
         return {"status": "unavailable", "split_factor": None, "source_ids": (), "source_provenance": (), "reason": "corporate_action_coverage_missing"}
     if coverage.status != "active" or (instrument_id and coverage.instrument_id != str(instrument_id)):
@@ -681,7 +704,7 @@ def _split_factor(
     start = _timestamp(previous_end) if previous_end else None
     eligible: list[CorporateAction] = []
     for action in actions:
-        if action.action_type != "split" or action.status != "active":
+        if action.action_type not in {"split", "stock_dividend"}:
             continue
         if instrument_id and action.instrument_id != str(instrument_id):
             continue
@@ -689,8 +712,14 @@ def _split_factor(
         event = _timestamp(action.event_at)
         if known is None or event is None or known > decision_time or event > end or (start is not None and event <= start):
             continue
+        # Do not resurrect an older active observation when supplied lineage
+        # contains a decision-known retraction or other unresolved status.
+        if action.status != "active":
+            return {"status": "unavailable", "split_factor": None, "source_ids": (action.source_id,), "source_provenance": (), "reason": "corporate_action_status_requires_resolved_lineage"}
         try:
             action.validate()
+            if _finite(action.ratio) is None or float(action.ratio) <= 0:
+                raise ValueError("explicit_positive_quantity_ratio_required")
         except (TypeError, ValueError):
             return {"status": "quarantined", "split_factor": None, "source_ids": (action.source_id,), "source_provenance": (), "reason": "invalid_split_action"}
         eligible.append(action)
@@ -709,7 +738,7 @@ def _split_factor(
             "source_id": item.source_id,
             "effective_at": item.effective_at,
             "known_at": item.known_at,
-            "canonical_metric": "corporate_action:split",
+            "canonical_metric": f"corporate_action:{item.action_type}",
         }
         for item in selected
     ]
@@ -750,7 +779,7 @@ def _share_change_record(name: str, current: Mapping[str, object], previous: Map
         "current_shares / (prior_shares * split_quantity_factor) - 1",
         period, currency="not_applicable", denominator="prior_shares * split_quantity_factor",
         denominator_value=None if previous["value"] is None or factor is None else float(previous["value"]) * float(factor),
-        sign_convention="positive means share-count growth after known splits; treasury-share movements are not added again",
+        sign_convention="positive means share-count growth after known splits and stock dividends; treasury-share movements are not added again",
         source_ids=source_ids, status="available" if value is not None else "missing",
         limitation=limitation, unit="ratio",
         source_provenance=_merge_source_provenance(
@@ -784,17 +813,26 @@ def _market_cap(
     *,
     period_end: str,
     statement_currency: str | None,
+    instrument_id: str | None,
+    decision_time: pd.Timestamp,
 ) -> tuple[float | None, str | None, str | None, tuple[str, ...], str]:
+    if market_inputs.get("market_cap") is None and market_inputs.get("share_price") is None:
+        return None, None, None, (), "dated_price_or_market_cap_missing"
     market_cap = _finite(market_inputs.get("market_cap"))
     market_date_raw = market_inputs.get("market_cap_at") or market_inputs.get("market_cap_date")
     market_currency = _currency_text(market_inputs.get("currency"))
-    market_source = str(market_inputs.get("source_id") or "").strip()
+    input_name = "market_cap" if market_inputs.get("market_cap") is not None else "share_price"
+    provenance = _market_source_provenance(market_inputs, input_name)
+    market_source = str(market_inputs.get(f"{input_name}_source_id") or market_inputs.get("source_id") or "").strip()
+    timing_reason = _market_evidence_reason(market_inputs, input_name, provenance, period_end, instrument_id, decision_time)
+    if timing_reason:
+        return None, market_currency, _date_text(market_date_raw) or None, tuple(item["source_id"] for item in provenance if item.get("source_id")), timing_reason
+    if input_name == "market_cap" and market_cap is None:
+        return None, market_currency, None, (), "market_cap_must_be_finite"
     if market_cap is not None:
         if market_date_raw is None:
             return None, market_currency, None, (market_source,) if market_source else (), "dated_market_cap_missing_date"
         market_date = _date_text(market_date_raw)
-        if market_date != _date_text(period_end):
-            return None, market_currency, market_date, (market_source,) if market_source else (), "market_cap_date_must_match_statement_period_end"
         if market_cap <= 0:
             return None, market_currency, market_date, (market_source,) if market_source else (), "market_cap_must_be_positive"
         if not market_currency:
@@ -810,8 +848,6 @@ def _market_cap(
     if price_date_raw is None:
         return None, market_currency, None, (market_source,) if market_source else (), "dated_share_price_missing_date"
     price_date = _date_text(price_date_raw)
-    if price_date != _date_text(period_end):
-        return None, market_currency, price_date, (market_source,) if market_source else (), "share_price_date_must_match_statement_period_end"
     shares = _first_metric_value(point_rows, ("shares_outstanding", "basic_shares"))
     if price <= 0 or shares["value"] is None or float(shares["value"]) <= 0:
         return None, market_currency, price_date, _sources(shares, extra=((market_source,) if market_source else ())), "share_price_and_positive_basic_share_count_required"
@@ -820,6 +856,89 @@ def _market_cap(
     if statement_currency and market_currency != statement_currency:
         return None, market_currency, price_date, _sources(shares, extra=((market_source,) if market_source else ())), "market_statement_currency_mismatch"
     return price * float(shares["value"]), market_currency, price_date, _sources(shares, extra=((market_source,) if market_source else ())), ""
+
+
+def _market_evidence_reason(
+    inputs: Mapping[str, object], name: str, provenance: list[dict[str, object]],
+    period_end: str, instrument_id: str | None, decision_time: pd.Timestamp,
+) -> str:
+    if inputs.get("instrument_id") is not None and str(inputs["instrument_id"]) != str(instrument_id or ""):
+        return "market_instrument_identity_conflict"
+    raw_map = inputs.get("source_provenance")
+    if "source_provenance" in inputs and not isinstance(raw_map, Mapping):
+        return "market_source_provenance_invalid"
+    raw = inputs.get(f"{name}_source_provenance", raw_map.get(name) if isinstance(raw_map, Mapping) else None)
+    if raw is not None and (
+        not isinstance(raw, (Mapping, tuple, list))
+        or isinstance(raw, (tuple, list)) and (not raw or any(not isinstance(item, Mapping) for item in raw))
+    ):
+        return "market_source_provenance_invalid"
+    if not _source_timing_complete(provenance, decision_time):
+        return "market_source_timing_unavailable_or_not_point_in_time"
+    source_keys = (f"{name}_source_ids", "source_ids") + (("price_source_ids",) if name == "share_price" else ())
+    for key in source_keys:
+        supplied = inputs.get(key)
+        if supplied is not None:
+            ids = supplied if isinstance(supplied, (tuple, list)) else (supplied,)
+            if {_source_text(item) for item in ids} != {item["source_id"] for item in provenance}:
+                return "market_source_provenance_conflict"
+    by_source: dict[str, tuple[object, object]] = {}
+    for item in provenance:
+        identity = str(item["source_id"])
+        timing = (_timestamp(item["effective_at"]), _timestamp(item["known_at"]))
+        if identity in by_source and by_source[identity] != timing:
+            return "market_source_provenance_conflict"
+        by_source[identity] = timing
+    date_keys = ("market_cap_at", "market_cap_date") if name == "market_cap" else ("share_price_at", "price_at", "price_date")
+    dates = {_date_text(inputs[key]) for key in date_keys if inputs.get(key) is not None}
+    if len(dates) != 1 or "" in dates:
+        return "market_input_date_missing_or_conflicting"
+    observed = next(iter(dates))
+    for item in provenance:
+        if _date_text(item["effective_at"]) != observed:
+            return "market_effective_date_conflicts_with_input_date"
+    # A mapped record cannot override conflicting scalar evidence.
+    aliases = {
+        "effective_at": (f"{name}_effective_at",),
+        "known_at": (f"{name}_known_at",),
+        "source_id": (f"{name}_source_id", "source_id"),
+    }
+    if name == "share_price":
+        aliases["effective_at"] += ("price_timestamp",)
+        aliases["known_at"] += ("price_known_at", "known_at")
+    for field, keys in aliases.items():
+        for key in keys:
+            if inputs.get(key) is None:
+                continue
+            value = _source_text(inputs[key]) if field == "source_id" else _timestamp(inputs[key])
+            if value is None or any(value != (_source_text(item[field]) if field == "source_id" else _timestamp(item[field])) for item in provenance):
+                return "market_source_provenance_conflict"
+    raw_map = inputs.get("source_provenance")
+    mapped = raw_map.get(name) if isinstance(raw_map, Mapping) else None
+    explicit = inputs.get(f"{name}_source_provenance")
+    if mapped is not None and explicit is not None:
+        alternate = dict(inputs)
+        alternate.pop(f"{name}_source_provenance", None)
+        if _market_source_provenance(alternate, name) != provenance:
+            return "market_source_provenance_conflict"
+    end = _timestamp(period_end)
+    if end is None:
+        return "statement_period_end_invalid"
+    listing = inputs.get("listing_calendar_evidence")
+    if listing is None:
+        return "market_calendar_evidence_required"
+    if not isinstance(listing, ListingCalendarEvidence) or not instrument_id or listing.instrument_id != str(instrument_id):
+        return "market_calendar_identity_unavailable"
+    try:
+        expected = MarketCalendarService().adjust_business_day(
+            listing, end.date(), BusinessDayConvention.PRECEDING,
+            knowledge_cutoff=decision_time.to_pydatetime(),
+        ).isoformat()
+    except (MarketClockError, TypeError, ValueError, OverflowError):
+        return "market_calendar_evidence_unavailable"
+    if observed != expected:
+        return "market_input_date_must_be_last_trading_close"
+    return ""
 
 
 def _yield_record(
@@ -852,7 +971,7 @@ def _yield_record(
         denominator="dated_market_cap", denominator_value=market_cap,
         sign_convention=sign_convention or "positive payout amount divided by dated market capitalisation",
         source_ids=_sources(flow, extra=market_sources),
-        status="available" if value is not None else "missing",
+        status="available" if value is not None else "unavailable",
         limitation=limitation,
         unit="ratio",
     )
@@ -1121,7 +1240,7 @@ def _market_source_provenance(
     else:
         source_values = market_inputs.get(
             f"{input_name}_source_ids",
-            market_inputs.get(f"{input_name}_source_id"),
+            market_inputs.get(f"{input_name}_source_id", market_inputs.get("source_ids", market_inputs.get("source_id"))),
         )
         effective = market_inputs.get(f"{input_name}_effective_at", market_inputs.get(f"{input_name}_at"))
         known = market_inputs.get(f"{input_name}_known_at")
@@ -1152,23 +1271,24 @@ def _merge_source_provenance(
     return records
 
 
-def _source_timing_complete(provenance: object) -> bool:
+def _source_timing_complete(provenance: object, decision_time: pd.Timestamp | None = None) -> bool:
     if not isinstance(provenance, (tuple, list)) or not provenance:
         return False
     for item in provenance:
-        if not isinstance(item, Mapping):
+        if not isinstance(item, Mapping) or not _source_text(item.get("source_id")):
             return False
-        known_value = _source_text(item.get("known_at"))
         try:
-            known = pd.Timestamp(known_value)
+            known = pd.Timestamp(_source_text(item.get("known_at")))
+            effective = pd.Timestamp(_source_text(item.get("effective_at")))
         except (TypeError, ValueError, OverflowError):
-            known = pd.NaT
-        if (
-            not _source_text(item.get("source_id"))
-            or not _source_text(item.get("effective_at"))
-            or pd.isna(known)
-            or known.tzinfo is None
-        ):
+            return False
+        if pd.isna(known) or known.tzinfo is None or pd.isna(effective):
+            return False
+        effective = _timestamp(effective)
+        if effective is None or (decision_time is not None and known > decision_time):
+            return False
+        # Announced corporate actions may legitimately precede their effective date.
+        if not str(item.get("canonical_metric", "")).startswith("corporate_action:") and effective > known:
             return False
     return True
 
@@ -1209,7 +1329,13 @@ def _flow_periods(frame: pd.DataFrame) -> list[tuple[pd.DataFrame, str, str]]:
         if column not in flow:
             flow[column] = ""
         flow[column] = flow[column].fillna("").astype(str)
-    flow = flow.sort_values(["period_end", "period_type", "period_key"], kind="stable", na_position="last")
+    # Annual evidence wins a shared end date, with explicit FY ahead of TTM.
+    flow["_headline_priority"] = flow.apply(
+        lambda row: 3 if row["fiscal_period"].upper() == "FY" else
+        2 if row["period_type"].lower() == "annual" else
+        1 if row["period_type"].lower() == "ttm" or row["fiscal_period"].upper() == "TTM" else 0, axis=1,
+    )
+    flow = flow.sort_values(["period_end", "_headline_priority", "period_type", "period_key"], kind="stable", na_position="last")
     result = []
     group_columns = ["period_type", "period_key", "period_end", "fiscal_year", "fiscal_period"]
     for key, rows in flow.groupby(group_columns, dropna=False, sort=False):
@@ -1237,9 +1363,21 @@ def _point_rows_for_end(frame: pd.DataFrame, period_end: str | None) -> pd.DataF
     return frame.loc[ends.eq(end_date)].copy()
 
 
-def _prior_period_end(periods: Sequence[tuple[pd.DataFrame, str, str]], current_end: str) -> str | None:
-    ends = sorted({period_end for _, _, period_end in periods if period_end < current_end})
-    return ends[-1] if ends else None
+def _opening_period_end(rows: pd.DataFrame, period_end: str) -> str | None:
+    """Use the actual duration boundary, including non-calendar fiscal years."""
+    if "start" not in rows or rows.empty:
+        return None
+    starts = rows["start"].map(_timestamp)
+    if any(value is None for value in starts):
+        return None
+    unique = set(starts)
+    end = _timestamp(period_end)
+    if len(unique) != 1 or end is None:
+        return None
+    start = next(iter(unique))
+    if start > end:
+        return None
+    return (start - pd.Timedelta(days=1)).date().isoformat()
 
 
 def _exclude_future_periods(frame: pd.DataFrame, cutoff: pd.Timestamp) -> pd.DataFrame:

@@ -1,16 +1,26 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pandas as pd
 
 from etf_cockpit.application import ui_facade, valuation_views
 from etf_cockpit.data.capital_allocation import capital_allocation_analysis
 from etf_cockpit.data.market_adjustments import CorporateAction, CorporateActionCoverage
+from etf_cockpit.data.market_calendar import ListingCalendarEvidence
 
 
 DECISION = "2026-12-31T00:00:00Z"
 _CHECKSUM = "0" * 64
+
+
+def _calendar_evidence() -> ListingCalendarEvidence:
+    return ListingCalendarEvidence(
+        listing_id="ACME-XNYS", instrument_id="ACME", mic="XNYS",
+        calendar_id="XNYS", timezone="America/New_York", source_id="fixture-calendar",
+        source_checksum=_CHECKSUM, valid_from=date(2020, 1, 1),
+        known_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+    )
 
 
 def _fact(
@@ -171,7 +181,7 @@ def _analyse(frame: pd.DataFrame | None = None, **kwargs: object) -> dict[str, o
 
 def test_cash_flow_quality_is_period_aligned_formula_labelled_and_separate_from_reported_fcf() -> None:
     result = _analyse(
-        market_inputs={"market_cap": 1000.0, "market_cap_at": "2025-12-31", "currency": "USD", "source_id": "caller-market-cap"},
+        market_inputs={"market_cap": 1000.0, "market_cap_at": "2025-12-31", "currency": "USD", "source_id": "caller-market-cap", "market_cap_source_id": "caller-market-cap", "market_cap_effective_at": "2025-12-31T21:00:00Z", "market_cap_known_at": "2026-01-01T00:00:00Z", "listing_calendar_evidence": _calendar_evidence()},
         corporate_action_coverage=_coverage(),
     )
     metrics = result["metrics"]
@@ -223,7 +233,7 @@ def test_cash_sources_and_uses_reconcile_to_cash_and_broken_identity_is_flagged(
 
 def test_shareholder_yield_and_buyback_offset_require_separated_components() -> None:
     result = _analyse(
-        market_inputs={"market_cap": 1000.0, "market_cap_at": date(2025, 12, 31), "currency": "USD", "source_id": "caller-market-cap"},
+        market_inputs={"market_cap": 1000.0, "market_cap_at": date(2025, 12, 31), "currency": "USD", "source_id": "caller-market-cap", "market_cap_source_id": "caller-market-cap", "market_cap_effective_at": "2025-12-31T21:00:00Z", "market_cap_known_at": "2026-01-01T00:00:00Z", "listing_calendar_evidence": _calendar_evidence()},
         corporate_action_coverage=_coverage(),
     )
     metrics = result["metrics"]
@@ -388,6 +398,7 @@ def test_invalid_market_cap_and_missing_decision_time_do_not_become_zero() -> No
 
 def test_shareholder_yield_carries_exact_market_and_statement_timing() -> None:
     exact_market = {
+        "listing_calendar_evidence": _calendar_evidence(),
         "market_cap": 1000.0,
         "market_cap_at": "2025-12-31",
         "market_cap_effective_at": "2025-12-31T00:00:00Z",
@@ -417,3 +428,5 @@ def test_shareholder_yield_carries_exact_market_and_statement_timing() -> None:
         item["source_id"] for item in metric["source_provenance"]
     }
     assert untimed["metrics"]["shareholder_yield"]["source_timing_status"] == "unavailable"
+    assert untimed["metrics"]["shareholder_yield"]["value"] is None
+    assert untimed["metrics"]["shareholder_yield"]["status"] == "unavailable"
