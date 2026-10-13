@@ -5785,7 +5785,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 8.2,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 8.0,
     "evidence_confidence_10": 1.5,
@@ -5982,8 +5982,40 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +11.2%, 120d +8.0%.", "trend: Price is above its 200-day trend filter.", "relative_strength: Relative strength input is 8.4/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -2.5%; 60-day annualised volatility +17.3%.", "liquidity_cost: Average traded value proxy is EUR 88,044,046; high-low spread proxy is about 113 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:exposure:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:exposure", "attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +11.2%, 120d +8.0%.", "trend: Price is above its 200-day trend filter.", "relative_strength: Relative strength input is 8.4/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -2.5%; 60-day annualised volatility +17.3%.", "liquidity_cost: Average traded value proxy is EUR 88,044,046; high-low spread proxy is about 113 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "identity",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": null
+     },
+     {
+      "gate_id": "cost",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": "risk_implementation"
+     },
+     {
+      "gate_id": "exposure",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["etf_exposure"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "LYP6",
@@ -5993,7 +6025,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 7.8,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 8.3,
     "evidence_confidence_10": 1.5,
@@ -6190,8 +6222,40 @@
       "contribution_raw": 0.2142857143
      }
     ],
-    "warnings": ["attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +5.5%, 120d +3.6%.", "trend: Price is above its 200-day trend filter.", "relative_strength: Relative strength input is 7.1/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -1.4%; 60-day annualised volatility +15.2%.", "liquidity_cost: Average traded value proxy is EUR 3,471,212; high-low spread proxy is about 98 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:exposure:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:exposure", "attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +5.5%, 120d +3.6%.", "trend: Price is above its 200-day trend filter.", "relative_strength: Relative strength input is 7.1/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -1.4%; 60-day annualised volatility +15.2%.", "liquidity_cost: Average traded value proxy is EUR 3,471,212; high-low spread proxy is about 98 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "identity",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": null
+     },
+     {
+      "gate_id": "cost",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": "risk_implementation"
+     },
+     {
+      "gate_id": "exposure",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["etf_exposure"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "XAIX",
@@ -6201,7 +6265,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 7.4,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 8.7,
     "evidence_confidence_10": 1.5,
@@ -6398,8 +6462,40 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +7.4%, 120d -4.3%.", "trend: Price is above its 200-day trend filter.", "relative_strength: Relative strength input is 7.5/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -9.2%; 60-day annualised volatility +15.4%.", "liquidity_cost: Average traded value proxy is EUR 137,599,136; high-low spread proxy is about 90 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:exposure:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:exposure", "attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +7.4%, 120d -4.3%.", "trend: Price is above its 200-day trend filter.", "relative_strength: Relative strength input is 7.5/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -9.2%; 60-day annualised volatility +15.4%.", "liquidity_cost: Average traded value proxy is EUR 137,599,136; high-low spread proxy is about 90 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "identity",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": null
+     },
+     {
+      "gate_id": "cost",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": "risk_implementation"
+     },
+     {
+      "gate_id": "exposure",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["etf_exposure"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "SPYK",
@@ -6409,7 +6505,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 7.4,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 8.3,
     "evidence_confidence_10": 1.5,
@@ -6606,8 +6702,40 @@
       "contribution_raw": 0.25
      }
     ],
-    "warnings": ["attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +2.3%, 120d +2.7%.", "trend: Price is above its 200-day trend filter.", "relative_strength: Relative strength input is 6.3/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -4.1%; 60-day annualised volatility +15.2%.", "liquidity_cost: Average traded value proxy is EUR 4,632,525; high-low spread proxy is about 74 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:exposure:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:exposure", "attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +2.3%, 120d +2.7%.", "trend: Price is above its 200-day trend filter.", "relative_strength: Relative strength input is 6.3/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -4.1%; 60-day annualised volatility +15.2%.", "liquidity_cost: Average traded value proxy is EUR 4,632,525; high-low spread proxy is about 74 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "identity",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": null
+     },
+     {
+      "gate_id": "cost",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": "risk_implementation"
+     },
+     {
+      "gate_id": "exposure",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["etf_exposure"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "EUNK",
@@ -6617,7 +6745,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 7.2,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 7.9,
     "evidence_confidence_10": 1.5,
@@ -6814,8 +6942,40 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +4.7%, 120d +9.0%.", "trend: Price is above its 200-day trend filter.", "relative_strength: Relative strength input is 6.9/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -6.8%; 60-day annualised volatility +17.4%.", "liquidity_cost: Average traded value proxy is EUR 134,332,243; high-low spread proxy is about 96 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:exposure:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:exposure", "attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +4.7%, 120d +9.0%.", "trend: Price is above its 200-day trend filter.", "relative_strength: Relative strength input is 6.9/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -6.8%; 60-day annualised volatility +17.4%.", "liquidity_cost: Average traded value proxy is EUR 134,332,243; high-low spread proxy is about 96 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "identity",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": null
+     },
+     {
+      "gate_id": "cost",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": "risk_implementation"
+     },
+     {
+      "gate_id": "exposure",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["etf_exposure"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    null,
    null,
@@ -6828,7 +6988,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 6.1,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 8.7,
     "evidence_confidence_10": 1.5,
@@ -7025,8 +7185,40 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -2.6%, 120d +4.8%.", "trend: Price is above its 200-day trend filter.", "relative_strength: Relative strength input is 5.2/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -8.7%; 60-day annualised volatility +15.1%.", "liquidity_cost: Average traded value proxy is EUR 36,046,296; high-low spread proxy is about 85 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:exposure:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:exposure", "attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -2.6%, 120d +4.8%.", "trend: Price is above its 200-day trend filter.", "relative_strength: Relative strength input is 5.2/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -8.7%; 60-day annualised volatility +15.1%.", "liquidity_cost: Average traded value proxy is EUR 36,046,296; high-low spread proxy is about 85 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "identity",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": null
+     },
+     {
+      "gate_id": "cost",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": "risk_implementation"
+     },
+     {
+      "gate_id": "exposure",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["etf_exposure"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "SXRJ_EMU_SMALL",
@@ -7036,7 +7228,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 6.3,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 7.7,
     "evidence_confidence_10": 1.5,
@@ -7233,8 +7425,40 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -2.1%, 120d +3.8%.", "trend: Price is above its 200-day trend filter.", "relative_strength: Relative strength input is 5.3/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -8.5%; 60-day annualised volatility +17.3%.", "liquidity_cost: Average traded value proxy is EUR 12,783,967; high-low spread proxy is about 98 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:exposure:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:exposure", "attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -2.1%, 120d +3.8%.", "trend: Price is above its 200-day trend filter.", "relative_strength: Relative strength input is 5.3/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -8.5%; 60-day annualised volatility +17.3%.", "liquidity_cost: Average traded value proxy is EUR 12,783,967; high-low spread proxy is about 98 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "identity",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": null
+     },
+     {
+      "gate_id": "cost",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": "risk_implementation"
+     },
+     {
+      "gate_id": "exposure",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["etf_exposure"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "VWCE",
@@ -7244,7 +7468,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 6.7,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 7.0,
     "evidence_confidence_10": 1.3,
@@ -7436,8 +7660,40 @@
       "contribution_raw": 0.2142857143
      }
     ],
-    "warnings": ["attractiveness_coverage:0.634", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +1.3%, 120d +5.1%.", "trend: Price is above its 200-day trend filter.", "risk: Current drawdown -5.5%; 60-day annualised volatility +18.1%.", "liquidity_cost: Average traded value proxy is EUR 4,913,605; high-low spread proxy is about 109 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:exposure:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:exposure", "attractiveness_coverage:0.634", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +1.3%, 120d +5.1%.", "trend: Price is above its 200-day trend filter.", "risk: Current drawdown -5.5%; 60-day annualised volatility +18.1%.", "liquidity_cost: Average traded value proxy is EUR 4,913,605; high-low spread proxy is about 109 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "identity",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": null
+     },
+     {
+      "gate_id": "cost",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": "risk_implementation"
+     },
+     {
+      "gate_id": "exposure",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["etf_exposure"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    null,
    {
@@ -7448,7 +7704,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 5.9,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 6.6,
     "evidence_confidence_10": 1.5,
@@ -7645,8 +7901,40 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -0.6%, 120d +4.3%.", "trend: Price is above its 200-day trend filter.", "relative_strength: Relative strength input is 5.7/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -7.5%; 60-day annualised volatility +20.4%.", "liquidity_cost: Average traded value proxy is EUR 70,781,859; high-low spread proxy is about 117 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:exposure:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:exposure", "attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -0.6%, 120d +4.3%.", "trend: Price is above its 200-day trend filter.", "relative_strength: Relative strength input is 5.7/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -7.5%; 60-day annualised volatility +20.4%.", "liquidity_cost: Average traded value proxy is EUR 70,781,859; high-low spread proxy is about 117 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "identity",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": null
+     },
+     {
+      "gate_id": "cost",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": "risk_implementation"
+     },
+     {
+      "gate_id": "exposure",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["etf_exposure"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "VFEM",
@@ -7656,7 +7944,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 5.5,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 7.2,
     "evidence_confidence_10": 1.5,
@@ -7853,8 +8141,40 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -6.4%, 120d -3.9%.", "trend: Price is above its 200-day trend filter.", "relative_strength: Relative strength input is 4.3/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -13.6%; 60-day annualised volatility +18.4%.", "liquidity_cost: Average traded value proxy is EUR 121,861,902; high-low spread proxy is about 99 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:exposure:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:exposure", "attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -6.4%, 120d -3.9%.", "trend: Price is above its 200-day trend filter.", "relative_strength: Relative strength input is 4.3/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -13.6%; 60-day annualised volatility +18.4%.", "liquidity_cost: Average traded value proxy is EUR 121,861,902; high-low spread proxy is about 99 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "identity",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": null
+     },
+     {
+      "gate_id": "cost",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": "risk_implementation"
+     },
+     {
+      "gate_id": "exposure",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["etf_exposure"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "HO",
@@ -7864,7 +8184,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 4.6,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 7.1,
     "evidence_confidence_10": 1.2,
@@ -8079,8 +8399,33 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +5.8%, 120d -10.3%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 7.2/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -12.6%; 60-day annualised volatility +19.3%.", "liquidity_cost: Average traded value proxy is EUR 64,395,855; high-low spread proxy is about 114 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +5.8%, 120d -10.3%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 7.2/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -12.6%; 60-day annualised volatility +19.3%.", "liquidity_cost: Average traded value proxy is EUR 64,395,855; high-low spread proxy is about 114 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "ENX",
@@ -8090,7 +8435,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 3.7,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 8.7,
     "evidence_confidence_10": 1.2,
@@ -8305,8 +8650,33 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +1.7%, 120d -17.4%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 6.2/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -17.5%; 60-day annualised volatility +15.1%.", "liquidity_cost: Average traded value proxy is EUR 29,386,030; high-low spread proxy is about 97 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +1.7%, 120d -17.4%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 6.2/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -17.5%; 60-day annualised volatility +15.1%.", "liquidity_cost: Average traded value proxy is EUR 29,386,030; high-low spread proxy is about 97 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "UCG",
@@ -8316,7 +8686,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 3.6,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 9.2,
     "evidence_confidence_10": 1.2,
@@ -8531,8 +8901,33 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -4.8%, 120d -8.8%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 4.7/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -14.3%; 60-day annualised volatility +13.6%.", "liquidity_cost: Average traded value proxy is EUR 13,841,942; high-low spread proxy is about 83 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -4.8%, 120d -8.8%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 4.7/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -14.3%; 60-day annualised volatility +13.6%.", "liquidity_cost: Average traded value proxy is EUR 13,841,942; high-low spread proxy is about 83 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "LDO",
@@ -8542,7 +8937,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 4.3,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 6.8,
     "evidence_confidence_10": 1.2,
@@ -8757,8 +9152,33 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +0.0%, 120d -9.3%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 5.8/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -11.2%; 60-day annualised volatility +19.4%.", "liquidity_cost: Average traded value proxy is EUR 53,624,232; high-low spread proxy is about 86 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +0.0%, 120d -9.3%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 5.8/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -11.2%; 60-day annualised volatility +19.4%.", "liquidity_cost: Average traded value proxy is EUR 53,624,232; high-low spread proxy is about 86 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "EXX1",
@@ -8768,7 +9188,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 4.7,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 6.4,
     "evidence_confidence_10": 1.5,
@@ -8965,8 +9385,40 @@
       "contribution_raw": 0.2142857143
      }
     ],
-    "warnings": ["attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +0.1%, 120d +0.7%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 5.8/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -12.5%; 60-day annualised volatility +19.3%.", "liquidity_cost: Average traded value proxy is EUR 8,958,326; high-low spread proxy is about 109 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:exposure:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:exposure", "attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +0.1%, 120d +0.7%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 5.8/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -12.5%; 60-day annualised volatility +19.3%.", "liquidity_cost: Average traded value proxy is EUR 8,958,326; high-low spread proxy is about 109 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "identity",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": null
+     },
+     {
+      "gate_id": "cost",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": "risk_implementation"
+     },
+     {
+      "gate_id": "exposure",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["etf_exposure"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "H4ZT",
@@ -8976,7 +9428,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 4.0,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 7.9,
     "evidence_confidence_10": 1.5,
@@ -9173,8 +9625,40 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +1.2%, 120d -9.7%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 6.1/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -11.3%; 60-day annualised volatility +17.4%.", "liquidity_cost: Average traded value proxy is EUR 22,030,031; high-low spread proxy is about 105 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:exposure:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:exposure", "attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +1.2%, 120d -9.7%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 6.1/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -11.3%; 60-day annualised volatility +17.4%.", "liquidity_cost: Average traded value proxy is EUR 22,030,031; high-low spread proxy is about 105 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "identity",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": null
+     },
+     {
+      "gate_id": "cost",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": "risk_implementation"
+     },
+     {
+      "gate_id": "exposure",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["etf_exposure"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "IDR",
@@ -9184,7 +9668,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 3.5,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 8.3,
     "evidence_confidence_10": 1.2,
@@ -9399,8 +9883,33 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -5.3%, 120d -17.7%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 4.5/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -19.6%; 60-day annualised volatility +15.9%.", "liquidity_cost: Average traded value proxy is EUR 27,963,994; high-low spread proxy is about 114 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -5.3%, 120d -17.7%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 4.5/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -19.6%; 60-day annualised volatility +15.9%.", "liquidity_cost: Average traded value proxy is EUR 27,963,994; high-low spread proxy is about 114 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "NEX",
@@ -9410,7 +9919,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 3.7,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 8.0,
     "evidence_confidence_10": 1.2,
@@ -9625,8 +10134,33 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -2.5%, 120d -12.4%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 5.2/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -14.7%; 60-day annualised volatility +16.7%.", "liquidity_cost: Average traded value proxy is EUR 20,727,029; high-low spread proxy is about 95 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -2.5%, 120d -12.4%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 5.2/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -14.7%; 60-day annualised volatility +16.7%.", "liquidity_cost: Average traded value proxy is EUR 20,727,029; high-low spread proxy is about 95 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "SU",
@@ -9636,7 +10170,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 3.9,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 7.5,
     "evidence_confidence_10": 1.2,
@@ -9851,8 +10385,33 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -6.1%, 120d -4.1%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 4.4/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -13.8%; 60-day annualised volatility +17.8%.", "liquidity_cost: Average traded value proxy is EUR 15,948,628; high-low spread proxy is about 101 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -6.1%, 120d -4.1%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 4.4/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -13.8%; 60-day annualised volatility +17.8%.", "liquidity_cost: Average traded value proxy is EUR 15,948,628; high-low spread proxy is about 101 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "SGO",
@@ -9862,7 +10421,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 3.5,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 7.7,
     "evidence_confidence_10": 1.2,
@@ -10077,8 +10636,33 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -8.1%, 120d -3.7%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 3.9/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -15.5%; 60-day annualised volatility +17.1%.", "liquidity_cost: Average traded value proxy is EUR 27,970,470; high-low spread proxy is about 103 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -8.1%, 120d -3.7%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 3.9/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -15.5%; 60-day annualised volatility +17.1%.", "liquidity_cost: Average traded value proxy is EUR 27,970,470; high-low spread proxy is about 103 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "SPCX",
@@ -10088,7 +10672,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 4.5,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 6.7,
     "evidence_confidence_10": 1.0,
@@ -10298,8 +10882,33 @@
       "contribution_raw": 0.3481650455
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.450"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -0.0%, 120d -1.7%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 5.8/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -10.1%; 60-day annualised volatility +17.3%."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.450"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -0.0%, 120d -1.7%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 5.8/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -10.1%; 60-day annualised volatility +17.3%."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "AM",
@@ -10309,7 +10918,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 3.6,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 7.2,
     "evidence_confidence_10": 1.2,
@@ -10524,8 +11133,33 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -12.0%, 120d -3.3%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 3.0/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -17.5%; 60-day annualised volatility +18.2%.", "liquidity_cost: Average traded value proxy is EUR 49,123,310; high-low spread proxy is about 115 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -12.0%, 120d -3.3%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 3.0/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -17.5%; 60-day annualised volatility +18.2%.", "liquidity_cost: Average traded value proxy is EUR 49,123,310; high-low spread proxy is about 115 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    null,
    {
@@ -10536,7 +11170,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 3.8,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 5.7,
     "evidence_confidence_10": 1.2,
@@ -10751,8 +11385,33 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -6.4%, 120d -3.4%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 4.3/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -15.8%; 60-day annualised volatility +22.2%.", "liquidity_cost: Average traded value proxy is EUR 55,714,613; high-low spread proxy is about 98 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -6.4%, 120d -3.4%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 4.3/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -15.8%; 60-day annualised volatility +22.2%.", "liquidity_cost: Average traded value proxy is EUR 55,714,613; high-low spread proxy is about 98 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "BRK_B",
@@ -10762,7 +11421,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 4.0,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 6.7,
     "evidence_confidence_10": 1.0,
@@ -10972,8 +11631,33 @@
       "contribution_raw": 0.3398383799
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.450"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -8.5%, 120d -0.3%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 3.8/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -16.2%; 60-day annualised volatility +17.4%."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.450"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -8.5%, 120d -0.3%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 3.8/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -16.2%; 60-day annualised volatility +17.4%."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "LR",
@@ -10983,7 +11667,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 2.7,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 8.2,
     "evidence_confidence_10": 1.2,
@@ -11198,8 +11882,33 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -10.7%, 120d -16.9%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 3.3/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -16.5%; 60-day annualised volatility +15.9%.", "liquidity_cost: Average traded value proxy is EUR 11,785,317; high-low spread proxy is about 82 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -10.7%, 120d -16.9%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 3.3/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -16.5%; 60-day annualised volatility +15.9%.", "liquidity_cost: Average traded value proxy is EUR 11,785,317; high-low spread proxy is about 82 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "SXRV_NASDAQ100",
@@ -11209,7 +11918,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 3.3,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 7.6,
     "evidence_confidence_10": 1.5,
@@ -11406,8 +12115,40 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -12.0%, 120d -8.7%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 3.0/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -17.7%; 60-day annualised volatility +17.3%.", "liquidity_cost: Average traded value proxy is EUR 127,058,074; high-low spread proxy is about 91 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:exposure:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:exposure", "attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -12.0%, 120d -8.7%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 3.0/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -17.7%; 60-day annualised volatility +17.3%.", "liquidity_cost: Average traded value proxy is EUR 127,058,074; high-low spread proxy is about 91 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "identity",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": null
+     },
+     {
+      "gate_id": "cost",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": "risk_implementation"
+     },
+     {
+      "gate_id": "exposure",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["etf_exposure"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "TKA",
@@ -11417,7 +12158,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 2.9,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 7.6,
     "evidence_confidence_10": 1.2,
@@ -11632,8 +12373,33 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -4.7%, 120d -21.1%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 4.7/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -23.0%; 60-day annualised volatility +17.6%.", "liquidity_cost: Average traded value proxy is EUR 72,190,894; high-low spread proxy is about 115 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -4.7%, 120d -21.1%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 4.7/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -23.0%; 60-day annualised volatility +17.6%.", "liquidity_cost: Average traded value proxy is EUR 72,190,894; high-low spread proxy is about 115 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "TKMS",
@@ -11643,7 +12409,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 3.3,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 6.7,
     "evidence_confidence_10": 1.2,
@@ -11858,8 +12624,33 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -2.1%, 120d -18.6%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 5.3/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -22.9%; 60-day annualised volatility +19.6%.", "liquidity_cost: Average traded value proxy is EUR 75,500,711; high-low spread proxy is about 113 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -2.1%, 120d -18.6%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 5.3/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -22.9%; 60-day annualised volatility +19.6%.", "liquidity_cost: Average traded value proxy is EUR 75,500,711; high-low spread proxy is about 113 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "VUSA",
@@ -11869,7 +12660,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 3.2,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 7.9,
     "evidence_confidence_10": 1.5,
@@ -12066,8 +12857,40 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -2.5%, 120d -14.1%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 5.2/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -16.1%; 60-day annualised volatility +17.2%.", "liquidity_cost: Average traded value proxy is EUR 101,318,960; high-low spread proxy is about 115 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:exposure:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:exposure", "attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -2.5%, 120d -14.1%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 5.2/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -16.1%; 60-day annualised volatility +17.2%.", "liquidity_cost: Average traded value proxy is EUR 101,318,960; high-low spread proxy is about 115 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "identity",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": null
+     },
+     {
+      "gate_id": "cost",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": "risk_implementation"
+     },
+     {
+      "gate_id": "exposure",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["etf_exposure"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "PRY",
@@ -12077,7 +12900,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 2.2,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 8.9,
     "evidence_confidence_10": 1.2,
@@ -12292,8 +13115,33 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -14.1%, 120d -22.5%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 2.5/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -23.1%; 60-day annualised volatility +13.8%.", "liquidity_cost: Average traded value proxy is EUR 12,266,094; high-low spread proxy is about 95 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -14.1%, 120d -22.5%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 2.5/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -23.1%; 60-day annualised volatility +13.8%.", "liquidity_cost: Average traded value proxy is EUR 12,266,094; high-low spread proxy is about 95 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    null,
    {
@@ -12304,7 +13152,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 3.9,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 5.6,
     "evidence_confidence_10": 1.0,
@@ -12514,8 +13362,33 @@
       "contribution_raw": 0.1115415358
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.450"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +0.0%, 120d -11.9%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 5.8/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -16.6%; 60-day annualised volatility +19.1%."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.450"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d +0.0%, 120d -11.9%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 5.8/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -16.6%; 60-day annualised volatility +19.1%."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "VIE",
@@ -12525,7 +13398,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 2.4,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 8.0,
     "evidence_confidence_10": 1.2,
@@ -12740,8 +13613,33 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -15.0%, 120d -19.9%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 2.3/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -23.2%; 60-day annualised volatility +16.1%.", "liquidity_cost: Average traded value proxy is EUR 27,430,019; high-low spread proxy is about 82 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -15.0%, 120d -19.9%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 2.3/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -23.2%; 60-day annualised volatility +16.1%.", "liquidity_cost: Average traded value proxy is EUR 27,430,019; high-low spread proxy is about 82 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    null,
    null,
@@ -12754,7 +13652,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 3.4,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 6.7,
     "evidence_confidence_10": 1.0,
@@ -12964,8 +13862,33 @@
       "contribution_raw": 0.3463014048
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.450"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -9.9%, 120d -0.5%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 3.5/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -13.3%; 60-day annualised volatility +17.2%."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.450"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -9.9%, 120d -0.5%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 3.5/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -13.3%; 60-day annualised volatility +17.2%."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "DB1",
@@ -12975,7 +13898,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 2.4,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 7.6,
     "evidence_confidence_10": 1.2,
@@ -13190,8 +14113,33 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -11.3%, 120d -23.5%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 3.1/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -22.1%; 60-day annualised volatility +17.4%.", "liquidity_cost: Average traded value proxy is EUR 14,888,302; high-low spread proxy is about 98 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -11.3%, 120d -23.5%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 3.1/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -22.1%; 60-day annualised volatility +17.4%.", "liquidity_cost: Average traded value proxy is EUR 14,888,302; high-low spread proxy is about 98 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    null,
    null,
@@ -13203,7 +14151,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 3.3,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 6.0,
     "evidence_confidence_10": 1.0,
@@ -13413,8 +14361,33 @@
       "contribution_raw": 0.2018238619
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.450"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -10.1%, 120d -8.8%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 3.4/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -18.1%; 60-day annualised volatility +18.1%."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.450"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -10.1%, 120d -8.8%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 3.4/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -18.1%; 60-day annualised volatility +18.1%."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "KMAR",
@@ -13424,7 +14397,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 3.4,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 5.3,
     "evidence_confidence_10": 1.0,
@@ -13634,8 +14607,33 @@
       "contribution_raw": 0.0676813939
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.450"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -6.3%, 120d -9.9%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 4.3/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -16.0%; 60-day annualised volatility +19.5%."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.450"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -6.3%, 120d -9.9%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 4.3/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -16.0%; 60-day annualised volatility +19.5%."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "SAAB_B",
@@ -13645,7 +14643,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 3.7,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 4.2,
     "evidence_confidence_10": 1.0,
@@ -13855,8 +14853,33 @@
       "contribution_raw": -0.1594177387
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.450"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -2.2%, 120d -18.7%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 5.3/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -18.2%; 60-day annualised volatility +21.3%."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.450"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -2.2%, 120d -18.7%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 5.3/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -18.2%; 60-day annualised volatility +21.3%."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    null,
    {
@@ -13867,7 +14890,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 2.4,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 5.4,
     "evidence_confidence_10": 1.0,
@@ -14077,8 +15100,33 @@
       "contribution_raw": 0.0898260884
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.450"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -8.5%, 120d -13.2%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 3.8/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -34.2%; 60-day annualised volatility +18.8%."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.450"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -8.5%, 120d -13.2%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 3.8/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -34.2%; 60-day annualised volatility +18.8%."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    null,
    null,
@@ -14090,7 +15138,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 1.2,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 6.7,
     "evidence_confidence_10": 1.5,
@@ -14287,8 +15335,40 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -19.6%, 120d -24.4%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 1.2/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -30.9%; 60-day annualised volatility +19.2%.", "liquidity_cost: Average traded value proxy is EUR 38,938,656; high-low spread proxy is about 101 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:exposure:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:exposure", "attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -19.6%, 120d -24.4%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 1.2/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -30.9%; 60-day annualised volatility +19.2%.", "liquidity_cost: Average traded value proxy is EUR 38,938,656; high-low spread proxy is about 101 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "identity",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": null
+     },
+     {
+      "gate_id": "cost",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": "risk_implementation"
+     },
+     {
+      "gate_id": "exposure",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["etf_exposure"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "KOG",
@@ -14298,7 +15378,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 2.3,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 5.1,
     "evidence_confidence_10": 1.0,
@@ -14508,8 +15588,33 @@
       "contribution_raw": 0.0168362062
      }
     ],
-    "warnings": ["attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.450"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -17.5%, 120d -17.8%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 1.7/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -20.8%; 60-day annualised volatility +19.6%."]
+    "warnings": ["critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING", "critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:solvency_liquidity,owner_claim", "attractiveness_coverage:0.520", "expected_return_coverage:0.000", "risk_implementation_coverage:0.450"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -17.5%, 120d -17.8%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 1.7/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -20.8%; 60-day annualised volatility +19.6%."],
+    "critical_gates": [
+     {
+      "gate_id": "solvency_liquidity",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["net_debt_to_ebitda", "debt_to_equity", "interest_coverage", "solvency"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     },
+     {
+      "gate_id": "owner_claim",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["shares_outstanding", "market_cap", "owner_claim"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    {
     "instrument_id": "EUDF",
@@ -14519,7 +15624,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 1.2,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 6.2,
     "evidence_confidence_10": 1.5,
@@ -14716,8 +15821,40 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -19.7%, 120d -29.5%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 1.1/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -29.2%; 60-day annualised volatility +20.3%.", "liquidity_cost: Average traded value proxy is EUR 111,282,561; high-low spread proxy is about 120 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:exposure:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:exposure", "attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -19.7%, 120d -29.5%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 1.1/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -29.2%; 60-day annualised volatility +20.3%.", "liquidity_cost: Average traded value proxy is EUR 111,282,561; high-low spread proxy is about 120 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "identity",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": null
+     },
+     {
+      "gate_id": "cost",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": "risk_implementation"
+     },
+     {
+      "gate_id": "exposure",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["etf_exposure"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    },
    null,
    {
@@ -14728,7 +15865,7 @@
     "formula_version": "score-engine-v3.0.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
-    "attractiveness_10": 0.7,
+    "attractiveness_10": null,
     "expected_return_10": null,
     "risk_implementation_10": 7.0,
     "evidence_confidence_10": 1.5,
@@ -14925,8 +16062,40 @@
       "contribution_raw": 0.3214285714
      }
     ],
-    "warnings": ["attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
-    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -22.8%, 120d -28.1%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 0.4/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -28.6%; 60-day annualised volatility +18.4%.", "liquidity_cost: Average traded value proxy is EUR 92,071,195; high-low spread proxy is about 95 bps. Costs are estimated conservatively from yfinance OHLCV."]
+    "warnings": ["critical_gate:exposure:CRITICAL_EVIDENCE_MISSING", "attractiveness_insufficient_evidence:exposure", "attractiveness_coverage:0.854", "expected_return_coverage:0.000", "risk_implementation_coverage:0.700"],
+    "explanations": ["momentum: Momentum from yfinance adjusted prices: 60d -22.8%, 120d -28.1%.", "trend: Price is below its 200-day trend filter.", "relative_strength: Relative strength input is 0.4/10 after comparing with the canonical benchmark reference.", "risk: Current drawdown -28.6%; 60-day annualised volatility +18.4%.", "liquidity_cost: Average traded value proxy is EUR 92,071,195; high-low spread proxy is about 95 bps. Costs are estimated conservatively from yfinance OHLCV."],
+    "critical_gates": [
+     {
+      "gate_id": "identity",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": null
+     },
+     {
+      "gate_id": "cost",
+      "status": "PASS",
+      "missing": [],
+      "reason_code": "EVIDENCE_PRESENT",
+      "group": "risk_implementation"
+     },
+     {
+      "gate_id": "exposure",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "missing": ["etf_exposure"],
+      "reason_code": "CRITICAL_EVIDENCE_MISSING",
+      "group": "attractiveness"
+     }
+    ],
+    "insufficient_groups": ["attractiveness"],
+    "authority": {
+     "score_rankable": false,
+     "financial_safety_verified": false,
+     "forecast_calibrated": false,
+     "benchmark_eligible": false,
+     "research_decision_status": "insufficient_evidence",
+     "execution_allowed": false
+    }
    }
   ],
   "valid_component_count": [6, 6, 6, 6, 6, 5, 5, 5, 6, 6, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 5, 6, 5, 6, 5, 6, 6, 6, 6, 6, 6, 5, 5, 6, 5, 5, 5, 5, 6, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 5, 6, 5, 6],
@@ -24314,7 +25483,7 @@
   "classification_version_id": "object",
   "classification_invalidation_hash": "object",
   "classification_dependency_status": "object",
-  "canonical_attractiveness_10": "float64",
+  "canonical_attractiveness_10": "object",
   "canonical_expected_return_10": "object",
   "canonical_risk_implementation_10": "float64",
   "canonical_evidence_confidence_10": "float64",
@@ -24813,12 +25982,12 @@
   "classification_version_id": ["<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "unavailable", "unavailable", "unavailable", "<sha256>", "<sha256>", "<sha256>", "unavailable", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "unavailable", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "unavailable", "<sha256>", "<sha256>", "unavailable", "unavailable", "unavailable", "<sha256>", "<sha256>", "unavailable", "unavailable", "<sha256>", "<sha256>", "<sha256>", "unavailable", "<sha256>", "unavailable", "unavailable", "<sha256>", "<sha256>", "<sha256>", "unavailable", "<sha256>"],
   "classification_invalidation_hash": ["<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "unavailable", "unavailable", "unavailable", "<sha256>", "<sha256>", "<sha256>", "unavailable", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "unavailable", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "<sha256>", "unavailable", "<sha256>", "<sha256>", "unavailable", "unavailable", "unavailable", "<sha256>", "<sha256>", "unavailable", "unavailable", "<sha256>", "<sha256>", "<sha256>", "unavailable", "<sha256>", "unavailable", "unavailable", "<sha256>", "<sha256>", "<sha256>", "unavailable", "<sha256>"],
   "classification_dependency_status": ["current", "current", "current", "current", "current", "legacy_unbound", "legacy_unbound", "legacy_unbound", "current", "current", "current", "legacy_unbound", "current", "current", "current", "current", "current", "current", "current", "current", "current", "current", "current", "current", "current", "current", "legacy_unbound", "current", "current", "current", "current", "current", "current", "current", "current", "legacy_unbound", "current", "current", "legacy_unbound", "legacy_unbound", "legacy_unbound", "current", "current", "legacy_unbound", "legacy_unbound", "current", "current", "current", "legacy_unbound", "current", "legacy_unbound", "legacy_unbound", "current", "current", "current", "legacy_unbound", "current"],
-  "canonical_attractiveness_10": [8.2, 7.8, 7.4, 7.4, 7.2, "<NaN>", "<NaN>", "<NaN>", 6.1, 6.3, 6.7, "<NaN>", 5.9, 5.5, 4.6, 3.7, 3.6, 4.3, 4.7, 4.0, 3.5, 3.7, 3.9, 3.5, 4.5, 3.6, "<NaN>", 3.8, 4.0, 2.7, 3.3, 2.9, 3.3, 3.2, 2.2, "<NaN>", 3.9, 2.4, "<NaN>", "<NaN>", "<NaN>", 3.4, 2.4, "<NaN>", "<NaN>", 3.3, 3.4, 3.7, "<NaN>", 2.4, "<NaN>", "<NaN>", 1.2, 2.3, 1.2, "<NaN>", 0.7],
+  "canonical_attractiveness_10": [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null],
   "canonical_expected_return_10": [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null],
   "canonical_risk_implementation_10": [8.0, 8.3, 8.7, 8.3, 7.9, "<NaN>", "<NaN>", "<NaN>", 8.7, 7.7, 7.0, "<NaN>", 6.6, 7.2, 7.1, 8.7, 9.2, 6.8, 6.4, 7.9, 8.3, 8.0, 7.5, 7.7, 6.7, 7.2, "<NaN>", 5.7, 6.7, 8.2, 7.6, 7.6, 6.7, 7.9, 8.9, "<NaN>", 5.6, 8.0, "<NaN>", "<NaN>", "<NaN>", 6.7, 7.6, "<NaN>", "<NaN>", 6.0, 5.3, 4.2, "<NaN>", 5.4, "<NaN>", "<NaN>", 6.7, 5.1, 6.2, "<NaN>", 7.0],
   "canonical_evidence_confidence_10": [1.5, 1.5, 1.5, 1.5, 1.5, "<NaN>", "<NaN>", "<NaN>", 1.5, 1.5, 1.3, "<NaN>", 1.5, 1.5, 1.2, 1.2, 1.2, 1.2, 1.5, 1.5, 1.2, 1.2, 1.2, 1.2, 1.0, 1.2, "<NaN>", 1.2, 1.0, 1.2, 1.5, 1.2, 1.2, 1.5, 1.2, "<NaN>", 1.0, 1.2, "<NaN>", "<NaN>", "<NaN>", 1.0, 1.2, "<NaN>", "<NaN>", 1.0, 1.0, 1.0, "<NaN>", 1.0, "<NaN>", "<NaN>", 1.5, 1.0, 1.5, "<NaN>", 1.5],
   "canonical_coverage": [0.496454, 0.496454, 0.496454, 0.496454, 0.496454, 0.0, 0.0, 0.0, 0.496454, 0.496454, 0.432624, 0.0, 0.496454, 0.496454, 0.406667, 0.406667, 0.406667, 0.406667, 0.496454, 0.496454, 0.406667, 0.406667, 0.406667, 0.406667, 0.323333, 0.406667, 0.0, 0.406667, 0.323333, 0.406667, 0.496454, 0.406667, 0.406667, 0.496454, 0.406667, 0.0, 0.323333, 0.406667, 0.0, 0.0, 0.0, 0.323333, 0.406667, 0.0, 0.0, 0.323333, 0.323333, 0.323333, 0.0, 0.323333, 0.0, 0.0, 0.496454, 0.323333, 0.496454, 0.0, 0.496454],
-  "canonical_warnings": ["attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "canonical_score_unavailable", "canonical_score_unavailable", "canonical_score_unavailable", "attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.634 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "canonical_score_unavailable", "attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.450", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "canonical_score_unavailable", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.450", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "canonical_score_unavailable", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.450", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "canonical_score_unavailable", "canonical_score_unavailable", "canonical_score_unavailable", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.450", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "canonical_score_unavailable", "canonical_score_unavailable", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.450", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.450", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.450", "canonical_score_unavailable", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.450", "canonical_score_unavailable", "canonical_score_unavailable", "attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.450", "attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "canonical_score_unavailable", "attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700"],
+  "canonical_warnings": ["critical_gate:exposure:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:exposure | attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:exposure:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:exposure | attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:exposure:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:exposure | attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:exposure:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:exposure | attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:exposure:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:exposure | attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "canonical_score_unavailable", "canonical_score_unavailable", "canonical_score_unavailable", "critical_gate:exposure:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:exposure | attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:exposure:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:exposure | attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:exposure:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:exposure | attractiveness_coverage:0.634 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "canonical_score_unavailable", "critical_gate:exposure:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:exposure | attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:exposure:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:exposure | attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:exposure:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:exposure | attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:exposure:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:exposure | attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.450", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "canonical_score_unavailable", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.450", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:exposure:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:exposure | attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:exposure:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:exposure | attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "canonical_score_unavailable", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.450", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "canonical_score_unavailable", "canonical_score_unavailable", "canonical_score_unavailable", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.450", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "canonical_score_unavailable", "canonical_score_unavailable", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.450", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.450", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.450", "canonical_score_unavailable", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.450", "canonical_score_unavailable", "canonical_score_unavailable", "critical_gate:exposure:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:exposure | attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "critical_gate:solvency_liquidity:CRITICAL_EVIDENCE_MISSING | critical_gate:owner_claim:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:solvency_liquidity,owner_claim | attractiveness_coverage:0.520 | expected_return_coverage:0.000 | risk_implementation_coverage:0.450", "critical_gate:exposure:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:exposure | attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700", "canonical_score_unavailable", "critical_gate:exposure:CRITICAL_EVIDENCE_MISSING | attractiveness_insufficient_evidence:exposure | attractiveness_coverage:0.854 | expected_return_coverage:0.000 | risk_implementation_coverage:0.700"],
   "valid_components": [6, 6, 6, 6, 6, 5, 5, 5, 6, 6, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 5, 6, 5, 6, 5, 6, 6, 6, 6, 6, 6, 5, 5, 6, 5, 5, 5, 5, 6, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 5, 6, 5, 6],
   "total_components": [10, 10, 10, 10, 10, 12, 12, 12, 10, 10, 10, 12, 10, 10, 12, 12, 12, 12, 10, 10, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 10, 12, 12, 10, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 10, 12, 10, 12, 10],
   "source_quality": ["research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance", "research_grade_yfinance"],

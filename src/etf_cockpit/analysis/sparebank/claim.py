@@ -401,6 +401,10 @@ def analyse_sparebank_ec(
     figures = owner_per_ec_figures(claim, price=price)
     reasons = list(routed.reason_codes)
     reasons.extend(claim.reason_codes)
+    from etf_cockpit.analysis.decision.gates import owner_claim_gate  # late import: the decision package imports this module
+
+    if routed.applies and not owner_claim_gate(claim).passed:
+        reasons.append("OWNER_CLAIM_GATE_INSUFFICIENT_EVIDENCE")
     if figures.get("reason"):
         reasons.append(str(figures["reason"]))
     generic_status = "inapplicable" if routed.applies and claim.claim_status != "resolved" else "not_applicable"

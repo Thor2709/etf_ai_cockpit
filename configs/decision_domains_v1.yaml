@@ -548,6 +548,48 @@ etf_decision_graph:
       requirement_class: OPTIONAL
       rank_authority: true
 
+# Critical-evidence gates (#939). A failed gate blocks Buy-type labels and makes the dependent score group
+# insufficient_evidence; descriptive scores stay visible. A missing critical input never raises the weight of
+# the remaining inputs. Evidence ids are metric ids from the stock/ETF decision maps or component keys.
+# DEFAULTS (conservative, recorded): quality needs 4 of its 6 inputs to be score-complete; a sector
+# definition may exempt only the inputs listed under inapplicable_inputs from the denominator.
+critical_evidence:
+  version: critical-evidence-v1.0.0
+  quality_minimum_inputs:
+    minimum: 4
+    configured: 6
+  buy_labels:
+    - strong_evidence_candidate
+    - positive_evidence_candidate
+  asset_classes:
+    STOCK:
+      gates:
+        solvency_liquidity:
+          group: attractiveness
+          evidence_any_of: [net_debt_to_ebitda, debt_to_equity, interest_coverage, solvency]
+        owner_claim:
+          group: attractiveness
+          evidence_any_of: [shares_outstanding, market_cap, owner_claim]
+    BANK:
+      gates:
+        capital:
+          group: attractiveness
+          evidence_any_of: [cet1_ratio, total_capital_ratio]
+        owner_claim:
+          group: attractiveness
+          evidence_any_of: [eierbrok, equity_certificates]
+      inapplicable_inputs: [net_debt_to_ebitda, fcf_conversion, ebit_ev_yield]
+    ETF:
+      gates:
+        identity:
+          evidence_any_of: [identity]
+        cost:
+          group: risk_implementation
+          evidence_any_of: [liquidity_cost, kid_cost, ter]
+        exposure:
+          group: attractiveness
+          evidence_any_of: [etf_exposure]
+
 # Decision-rank cutover is owner-controlled. Typed thresholds and the
 # promotion-record contract live in decision_cutover_v1.yaml.
 rank_cutover:

@@ -746,6 +746,9 @@ def test_scoreboard_binds_classification_token_and_reader_invalidates_stale_scor
                 "sma50_signal": True,
                 "sma200_signal": True,
                 "median_turnover_60d_eur": 2_500_000,
+                # #939: solvency and owner-claim evidence keep the attractiveness group evaluable.
+                "market_cap": 5_000_000_000.0,
+                "debt_to_equity": 40.0,
                 "blocked_by": "",
             }
         ]
