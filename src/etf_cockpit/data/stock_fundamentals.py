@@ -24,7 +24,7 @@ from typing import Any
 import pandas as pd
 import yaml
 
-from etf_cockpit.analysis.stock_metrics import PERIOD_FIELDS, Period, as_utc
+from etf_cockpit.analysis.stock_metrics import PERIOD_FIELDS, USABLE_STATUSES, VALUE_STATUSES, Period, as_utc
 from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data import stock_sources as src
@@ -203,28 +203,60 @@ def _row_status(row: Mapping[str, Any]) -> dict[str, str]:
 def period_merge_gate(anchor: Mapping[str, Any], row: Mapping[str, Any], *, snap_days: int = 4) -> tuple[bool, str | None]:
     """May ``row`` be merged into the period of ``anchor``?  (P1-11)
 
-    The period end drift is only a candidate filter. A merge also needs a matching reporting
-    standard, consolidation/owner scope, share class and period duration; a differing end date
-    additionally needs both durations verified and the same currency. Unknown attributes never
-    allow a drifted end date.
+    The end-date drift is only a candidate filter. A merge needs a verified, matching reporting
+    standard, consolidation/owner scope, share class and period duration on both rows, and the same
+    currency; an attribute that is unknown on either row is unverified and refuses the merge. The one
+    exception is a row of the same source and the same period end: that is a later version of the
+    same provider period (restatement or sparse update), not a cross-source merge, so unknown
+    attributes are tolerated there (known attributes must still match).
     """
 
     drift = abs((anchor["_end"] - row["_end"]).days)
     if drift > snap_days:
         return False, "period ends are too far apart"
+    same_version_stream = drift == 0 and str(anchor.get("source")) == str(row.get("source"))
     for name in ("reporting_standard", "consolidation_scope", "share_class"):
         left, right = anchor.get(name), row.get(name)
-        if _present(left) and _present(right) and str(left) != str(right):
-            return False, f"{name} differs ({left} vs {right})"
+        if _present(left) and _present(right):
+            if str(left) != str(right):
+                return False, f"{name} differs ({left} vs {right})"
+        elif not same_version_stream:
+            return False, f"{name} is not verified on both rows"
     left_days, right_days = anchor.get("period_days"), row.get("period_days")
-    if _present(left_days) and _present(right_days) and abs(float(left_days) - float(right_days)) > snap_days:
-        return False, f"period duration differs ({left_days} vs {right_days} days)"
-    if drift:
-        if not (_present(left_days) and _present(right_days)):
-            return False, "period ends differ and the period duration is not verified"
-        if str(anchor.get("currency") or "") != str(row.get("currency") or ""):
-            return False, "period ends differ and the currencies differ"
+    if _present(left_days) and _present(right_days):
+        if abs(float(left_days) - float(right_days)) > snap_days:
+            return False, f"period duration differs ({left_days} vs {right_days} days)"
+    elif not same_version_stream:
+        return False, "period duration is not verified on both rows"
+    if not same_version_stream and str(anchor.get("currency") or "") != str(row.get("currency") or ""):
+        return False, "currencies differ"
     return True, None
+
+
+def _cluster_rows(visible: Sequence[dict[str, Any]], snap_days: int) -> list[dict[str, Any]]:
+    """Group the rows known at one moment (sorted best source first) into periods.
+
+    A row that fails the merge gate against every candidate anchor starts its own period. If a
+    better-or-equal ranked row of a *different* source contradicts it, that period is suppressed:
+    the contradicted evidence is not offered as a competing period from that moment on. Later versions
+    of the same source stay as their own period.
+    """
+
+    clusters: list[dict[str, Any]] = []
+    for row in visible:
+        blockers: list[dict[str, Any]] = []
+        for cluster in clusters:
+            if abs((cluster["anchor"]["_end"] - row["_end"]).days) > snap_days:
+                continue
+            allowed, _why = period_merge_gate(cluster["anchor"], row, snap_days=snap_days)
+            if allowed:
+                cluster["rows"].append(row)
+                break
+            blockers.append(cluster["anchor"])
+        else:
+            contradicted = any(str(b["source"]) != str(row["source"]) and b["_rank"] <= row["_rank"] for b in blockers)
+            clusters.append({"rows": [row], "anchor": row, "suppressed": contradicted})
+    return clusters
 
 
 def _row_period(row: Mapping[str, Any], fields: Mapping[str, str]) -> Period | None:
@@ -253,6 +285,114 @@ def _row_period(row: Mapping[str, Any], fields: Mapping[str, str]) -> Period | N
     )
 
 
+# Valueless states that end a fact: carry-forward stops at them, and a lower-ranked source may not fill them in.
+_NON_USABLE = tuple(state for state in VALUE_STATUSES if state not in USABLE_STATUSES)
+_FILL_BLOCKING = ("conflicted", "not_applicable", "invalid")
+
+
+def _merged_view(
+    cluster_rows: Sequence[dict[str, Any]],
+    moment: datetime,
+    rank: Mapping[str, int],
+    last: dict[tuple[str, str], tuple],
+    key: tuple[str, str],
+) -> Period | None:
+    """One point-in-time version of a merged period: first source wins, later sources fill gaps."""
+
+    by_source: dict[str, list[dict[str, Any]]] = {}
+    for row in cluster_rows:
+        by_source.setdefault(str(row["source"]), []).append(row)
+    chosen: list[dict[str, Any]] = []
+    for source in sorted(by_source, key=lambda name: rank.get(name, len(rank))):
+        known = by_source[source]
+        latest = max(known, key=lambda item: item["_known"])
+        merged_source = dict(latest)
+        # A sparse later statement row is not evidence that an earlier field was retracted: carry each
+        # field forward from its newest known version for this source and period. An explicit
+        # non-usable state on a newer version (conflicted, unavailable, not_applicable, stale, invalid,
+        # partial) is such evidence and ends the carry-forward; the state travels with the field.
+        for name in PERIOD_FIELDS:
+            for version in sorted(known, key=lambda item: item["_known"], reverse=True):
+                if str(version.get("currency") or "") != str(latest.get("currency") or ""):
+                    continue
+                version_status = _row_status(version)
+                has_value = name in version and pd.notna(version.get(name))
+                if not has_value and version_status.get(name) in _NON_USABLE:
+                    merged_source[f"_{name}_status"] = version_status[name]
+                    merged_source.pop(name, None)
+                    break
+                if has_value:
+                    merged_source.pop(f"_{name}_status", None)
+                    if name in version_status:
+                        merged_source[f"_{name}_status"] = version_status[name]
+                    merged_source[name] = version[name]
+                    merged_source[f"_{name}_known_at"] = version["_known"].isoformat()
+                    currency_column = f"{name}_currency"
+                    if currency_column in version and pd.notna(version.get(currency_column)):
+                        merged_source[currency_column] = version[currency_column]
+                    break
+                currency_column = f"{name}_currency"
+                if str(version.get(currency_column) or "") == "currency_mismatch":
+                    merged_source[currency_column] = "currency_mismatch"
+                    break
+        chosen.append(merged_source)
+    primary = chosen[0]
+    values: dict[str, Any] = {}
+    field_sources: dict[str, str] = {}
+    field_status: dict[str, str] = {}
+    for row in chosen:
+        if str(row.get("currency") or "") != str(primary.get("currency") or ""):
+            continue
+        for name in PERIOD_FIELDS:
+            if name in values:
+                continue
+            if field_status.get(name) in _FILL_BLOCKING:
+                continue  # a conflicted / not applicable / invalid fact is not filled in from a lower-ranked source
+            row_state = str(row.get(f"_{name}_status") or "")
+            has_value = name in row and pd.notna(row.get(name))
+            if not has_value and row_state in _NON_USABLE:
+                field_status.setdefault(name, row_state)  # unavailable / stale may still be filled by a lower-ranked source
+                continue
+            if has_value:
+                if row_state:
+                    field_status[name] = row_state
+                else:
+                    field_status.pop(name, None)
+                values[name] = row[name]
+                field_sources[name] = str(row["source"])
+                values[f"_{name}_known_at"] = row.get(f"_{name}_known_at", row["_known"].isoformat())
+                field_currency = row.get(f"{name}_currency")
+                if field_currency is not None and not pd.isna(field_currency):
+                    values[f"_{name}_currency"] = str(field_currency)
+            elif f"__currency_{name}" not in values and str(row.get(f"{name}_currency") or "") == "currency_mismatch":
+                values[f"_{name}_currency"] = "currency_mismatch"
+    # Positive NCI invalidates unverified parent-income attribution across the
+    # complete merged view: neither sparse carry-forward nor a fallback source
+    # may restore income removed by a newer filing's ownership-scope guard.
+    blocked_parent_income = (values.get("minority_interest") or 0.0) > 0.0
+    if blocked_parent_income:
+        for name in ("net_income_parent", "_net_income_parent_currency", "_net_income_parent_known_at"):
+            values.pop(name, None)
+        field_sources.pop("net_income_parent", None)
+    signature = (
+        tuple(sorted((k, float(v)) for k, v in values.items() if k in PERIOD_FIELDS)),
+        tuple(sorted((k, str(v)) for k, v in values.items() if k.startswith("_") and k.endswith("_currency"))),
+        str(primary.get("currency")),
+        tuple(sorted(field_status.items())),
+    )
+    if signature == last.get(key):
+        return None
+    last[key] = signature
+    merged = {**primary, **values, "known_at": moment.isoformat(), "period_end": primary["period_end"]}
+    merged["value_status"] = json.dumps(field_status, sort_keys=True) if field_status else ""
+    if blocked_parent_income:
+        merged.pop("net_income_parent", None)
+        merged.pop("net_income_parent_currency", None)
+        merged.pop("_net_income_parent_currency", None)
+        merged.pop("_net_income_parent_known_at", None)
+    return _row_period(merged, field_sources)
+
+
 def periods_for(instrument_id: str, frame: pd.DataFrame, chain: Sequence[str], *, snap_days: int = 4) -> list[Period]:
     """Merged point-in-time versions: the first source in ``chain`` wins, later sources fill gaps.
 
@@ -271,112 +411,20 @@ def periods_for(instrument_id: str, frame: pd.DataFrame, chain: Sequence[str], *
         row["_end"] = as_utc(row.get("period_end"))
         row["_known"] = as_utc(row.get("known_at"))
     rows = [row for row in rows if row["_end"] is not None and row["_known"] is not None]
-    # cluster period ends of the same type (sources may differ by a day)
-    clusters: list[dict[str, Any]] = []
-    # the best-ranked source anchors a cluster, so a lower-ranked row can never displace it by an earlier end date
-    for row in sorted(rows, key=lambda item: (str(item["period_type"]), item["_rank"], item["_end"])):
-        for cluster in clusters:
-            if cluster["type"] == row["period_type"] and abs((cluster["end"] - row["_end"]).days) <= snap_days:
-                allowed, _why = period_merge_gate(cluster["anchor"], row, snap_days=snap_days)
-                if allowed:
-                    cluster["rows"].append(row)
-                # a near-duplicate that fails the gate is neither merged nor offered as a competing period
-                break
-        else:
-            clusters.append({"type": row["period_type"], "end": row["_end"], "rows": [row], "anchor": row})
+    # Compatibility is decided per publication moment from the evidence known at that moment only:
+    # a row is never discarded because of a source that was first known later (point-in-time replay).
     periods: list[Period] = []
-    for cluster in clusters:
-        by_source: dict[str, list[dict[str, Any]]] = {}
-        for row in cluster["rows"]:
-            by_source.setdefault(str(row["source"]), []).append(row)
-        times = sorted({row["_known"] for row in cluster["rows"]})
-        last: tuple | None = None
-        for moment in times:
-            chosen: list[dict[str, Any]] = []
-            for source in sorted(by_source, key=lambda name: rank.get(name, len(rank))):
-                known = [row for row in by_source[source] if row["_known"] <= moment]
-                if known:
-                    latest = max(known, key=lambda item: item["_known"])
-                    merged_source = dict(latest)
-                    # A sparse later statement row is not evidence that an earlier field was
-                    # retracted. Carry each field forward from its newest known non-missing
-                    # version for this source and period.
-                    for name in PERIOD_FIELDS:
-                        for version in sorted(known, key=lambda item: item["_known"], reverse=True):
-                            if str(version.get("currency") or "") != str(latest.get("currency") or ""):
-                                continue
-                            version_status = _row_status(version)
-                            has_value = name in version and pd.notna(version.get(name))
-                            if version_status.get(name) == "conflicted" and not has_value:
-                                merged_source[f"_{name}_status"] = "conflicted"
-                                break
-                            if has_value:
-                                if name in version_status:
-                                    merged_source[f"_{name}_status"] = version_status[name]
-                                merged_source[name] = version[name]
-                                merged_source[f"_{name}_known_at"] = version["_known"].isoformat()
-                                currency_column = f"{name}_currency"
-                                if currency_column in version and pd.notna(version.get(currency_column)):
-                                    merged_source[currency_column] = version[currency_column]
-                                break
-                            currency_column = f"{name}_currency"
-                            if str(version.get(currency_column) or "") == "currency_mismatch":
-                                merged_source[currency_column] = "currency_mismatch"
-                                break
-                    chosen.append(merged_source)
-            if not chosen:
-                continue
-            primary = chosen[0]
-            values: dict[str, Any] = {}
-            field_sources: dict[str, str] = {}
-            field_status: dict[str, str] = {}
-            for row in chosen:
-                if str(row.get("currency") or "") != str(primary.get("currency") or ""):
+    last: dict[tuple[str, str], tuple] = {}
+    for period_type in sorted({str(row["period_type"]) for row in rows}):
+        group = [row for row in rows if str(row["period_type"]) == period_type]
+        for moment in sorted({row["_known"] for row in group}):
+            visible = sorted((row for row in group if row["_known"] <= moment), key=lambda item: (item["_rank"], item["_end"], item["_known"]))
+            for cluster in _cluster_rows(visible, snap_days):
+                if cluster["suppressed"] or not any(row["_known"] == moment for row in cluster["rows"]):
                     continue
-                for name in PERIOD_FIELDS:
-                    if field_status.get(name) == "conflicted" and name not in values:
-                        continue  # a conflicted fact is not filled in from a lower-ranked source
-                    if name not in values and row.get(f"_{name}_status") == "conflicted" and not (name in row and pd.notna(row.get(name))):
-                        field_status[name] = "conflicted"
-                        continue
-                    if name not in values and name in row and pd.notna(row.get(name)):
-                        if row.get(f"_{name}_status"):
-                            field_status[name] = str(row[f"_{name}_status"])
-                        values[name] = row[name]
-                        field_sources[name] = str(row["source"])
-                        values[f"_{name}_known_at"] = row.get(f"_{name}_known_at", row["_known"].isoformat())
-                        field_currency = row.get(f"{name}_currency")
-                        if field_currency is not None and not pd.isna(field_currency):
-                            values[f"_{name}_currency"] = str(field_currency)
-                    elif f"__currency_{name}" not in values and str(row.get(f"{name}_currency") or "") == "currency_mismatch":
-                        values[f"_{name}_currency"] = "currency_mismatch"
-            # Positive NCI invalidates unverified parent-income attribution across the
-            # complete merged view: neither sparse carry-forward nor a fallback source
-            # may restore income removed by a newer filing's ownership-scope guard.
-            blocked_parent_income = (values.get("minority_interest") or 0.0) > 0.0
-            if blocked_parent_income:
-                for name in ("net_income_parent", "_net_income_parent_currency", "_net_income_parent_known_at"):
-                    values.pop(name, None)
-                field_sources.pop("net_income_parent", None)
-            signature = (
-                tuple(sorted((k, float(v)) for k, v in values.items() if k in PERIOD_FIELDS)),
-                tuple(sorted((k, str(v)) for k, v in values.items() if k.startswith("_") and k.endswith("_currency"))),
-                str(primary.get("currency")),
-                tuple(sorted(field_status.items())),
-            )
-            if signature == last:
-                continue
-            last = signature
-            merged = {**primary, **values, "known_at": moment.isoformat(), "period_end": primary["period_end"]}
-            merged["value_status"] = json.dumps(field_status, sort_keys=True) if field_status else ""
-            if blocked_parent_income:
-                merged.pop("net_income_parent", None)
-                merged.pop("net_income_parent_currency", None)
-                merged.pop("_net_income_parent_currency", None)
-                merged.pop("_net_income_parent_known_at", None)
-            period = _row_period(merged, field_sources)
-            if period is not None:
-                periods.append(period)
+                period = _merged_view(cluster["rows"], moment, rank, last, (period_type, cluster["anchor"]["_end"].date().isoformat()))
+                if period is not None:
+                    periods.append(period)
     return periods
 
 

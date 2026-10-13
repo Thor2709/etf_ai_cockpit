@@ -648,7 +648,8 @@ def growth_analysis(
             "earnings_per_share",
             ("earnings_per_share",),
             basis="per_share",
-            derived_from=("net_income", "shares_outstanding"),
+            derived_from=("net_income", "weighted_average_shares"),
+            unavailable_reason="weighted-average shares are not reported for the period; period-end shares are not a valid EPS denominator",
         ),
         "free_cash_flow_per_share": _growth_series(
             periods,
@@ -905,18 +906,13 @@ def _period_rows(frame: pd.DataFrame) -> list[dict[str, object]]:
                     sources[logical] = raw_sources.get(alias, ())
                     formulas[logical] = f"reported {alias}"
                     break
-        if "earnings_per_share" not in values and "net_income" in values:
-            # EPS divides a period flow by the weighted-average share count of that period; the
-            # period-end count is only a labelled fallback when no weighted average is reported.
-            share_key = "weighted_average_shares" if values.get("weighted_average_shares") not in (None, 0) else "shares_outstanding"
-            if values.get(share_key) not in (None, 0):
-                values["earnings_per_share"] = values["net_income"] / values[share_key]
-                sources["earnings_per_share"] = tuple(sorted(set(sources.get("net_income", ())) | set(sources.get(share_key, ()))))
-                formulas["earnings_per_share"] = (
-                    "net_income / weighted_average_shares"
-                    if share_key == "weighted_average_shares"
-                    else "net_income / shares_outstanding"  # period-end count: the only fallback when no weighted average is reported
-                )
+        if "earnings_per_share" not in values and "net_income" in values and values.get("weighted_average_shares") not in (None, 0):
+            # EPS divides a period flow by the weighted-average share count of that period. Period-end
+            # shares are not a verified denominator for the earnings period, so without a reported EPS or
+            # a weighted average the series stays unavailable (see ``unavailable_reason``).
+            values["earnings_per_share"] = values["net_income"] / values["weighted_average_shares"]
+            sources["earnings_per_share"] = tuple(sorted(set(sources.get("net_income", ())) | set(sources.get("weighted_average_shares", ()))))
+            formulas["earnings_per_share"] = "net_income / weighted_average_shares"
 
         first = rows.iloc[0]
         fiscal_year = str(first.get("fiscal_year", "") or "")
@@ -952,6 +948,7 @@ def _growth_series(
     *,
     basis: str,
     derived_from: tuple[str, str] | None = None,
+    unavailable_reason: str | None = None,
 ) -> dict[str, object]:
     history: list[dict[str, object]] = []
     for period in periods:
@@ -978,6 +975,7 @@ def _growth_series(
                 "formula": formula or f"reported {name}",
                 "source_ids": list(source_ids),
                 "status": "available" if value is not None else "missing",
+                **({"reason": unavailable_reason} if value is None and unavailable_reason else {}),
             }
         )
     growth: list[dict[str, object]] = []

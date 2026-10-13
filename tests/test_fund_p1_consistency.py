@@ -6,6 +6,7 @@ B104-N002, B102-N002, B105-N002, B106-N002, B02-C2-N002, B06-C2-N001.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import random
 from datetime import date, datetime, timezone
@@ -66,6 +67,10 @@ def _period(year: int, *, currency: str = "EUR", scale: float = 1.0, **overrides
     }
     values.update(overrides)
     return sm.Period(date(year, 12, 31), "FY", datetime(year + 1, 2, 15, tzinfo=UTC), currency, "sec_edgar", values)
+
+
+# Identity attributes that make a cross-source merge verifiable (SEC companyfacts rows carry them from the parser).
+VERIFIED = {"reporting_standard": "us-gaap", "consolidation_scope": "consolidated", "share_class": "all_classes", "period_days": 365}
 
 
 def _evidence(periods: list[sm.Period], market: MarketInputs | None = None):
@@ -150,7 +155,7 @@ def test_b102_conflicted_sec_quarter_is_not_filled_from_a_lower_ranked_source() 
     sec = _rows(_payload(Revenues=_q4_revenue(150.0)))[("2025-12-31", "Q")]
     yahoo = {
         "period_end": "2025-12-31", "period_type": "Q", "currency": "USD", "source": "yfinance", "known_at": "2026-03-01",
-        "revenue": 777.0, "ebit": 20.0,
+        "revenue": 777.0, "ebit": 20.0, **{**VERIFIED, "period_days": 91},
     }
     frame = pd.DataFrame([{**sec, "instrument_id": "T"}, {**yahoo, "instrument_id": "T"}])
     period = store.periods_for("T", frame, ["sec_edgar", "yfinance"])[-1]
@@ -225,14 +230,14 @@ def _store_row(source: str, end: str = "2025-12-31", **extra: object) -> dict[st
 
 
 def test_t15_scope_standard_or_duration_mismatch_does_not_merge() -> None:
-    primary = _store_row("sec_edgar", revenue=500.0, reporting_standard="us-gaap", consolidation_scope="consolidated", period_days=365)
+    primary = _store_row("sec_edgar", revenue=500.0, **VERIFIED)
     for mismatch in (
         {"consolidation_scope": "parent_only"},
         {"reporting_standard": "ifrs"},
         {"share_class": "B"},
         {"period_days": 91},
     ):
-        base = {"reporting_standard": "us-gaap", "consolidation_scope": "consolidated", "period_days": 365, "share_class": "A" if "share_class" in mismatch else None}
+        base = {**VERIFIED, "share_class": "A" if "share_class" in mismatch else VERIFIED["share_class"]}
         secondary = _store_row("yfinance", ebit=20.0, **{**base, **mismatch})
         primary_row = {**primary, "share_class": base["share_class"]}
         periods = store.periods_for("T", pd.DataFrame([primary_row, secondary]), ["sec_edgar", "yfinance"])
@@ -241,20 +246,27 @@ def test_t15_scope_standard_or_duration_mismatch_does_not_merge() -> None:
 
 
 def test_t15_a_four_day_end_date_tolerance_alone_does_not_merge() -> None:
-    primary = _store_row("sec_edgar", revenue=500.0, period_days=365, reporting_standard="us-gaap", consolidation_scope="consolidated")
+    primary = _store_row("sec_edgar", revenue=500.0, **VERIFIED)
     unverified = _store_row("yfinance", end="2025-12-29", ebit=20.0)  # no verified duration / scope
     periods = store.periods_for("T", pd.DataFrame([primary, unverified]), ["sec_edgar", "yfinance"])
     assert len(periods) == 1 and "ebit" not in periods[0].values
-    verified = _store_row("yfinance", end="2025-12-29", ebit=20.0, period_days=363, reporting_standard="us-gaap", consolidation_scope="consolidated")
+    verified = _store_row("yfinance", end="2025-12-29", ebit=20.0, **{**VERIFIED, "period_days": 363})
     merged = store.periods_for("T", pd.DataFrame([primary, verified]), ["sec_edgar", "yfinance"])
     assert merged[-1].values["ebit"] == 20.0 and merged[-1].period_end == date(2025, 12, 31)  # positive control: all attributes verified
 
 
-def test_t15_the_same_end_date_with_unknown_attributes_still_merges() -> None:
-    primary = _store_row("sec_edgar", revenue=500.0)
-    secondary = _store_row("yfinance", ebit=20.0)
-    period = store.periods_for("T", pd.DataFrame([primary, secondary]), ["sec_edgar", "yfinance"])[-1]
-    assert period.values["revenue"] == 500.0 and period.values["ebit"] == 20.0
+def test_t15_the_same_end_date_with_unknown_attributes_does_not_merge_across_sources() -> None:
+    # consolidated revenue must not be merged with EBIT whose owner scope / standard / duration is unverified
+    primary = _store_row("sec_edgar", revenue=500.0, **VERIFIED)
+    for unknown in ({}, {**VERIFIED, "consolidation_scope": None}, {**VERIFIED, "period_days": None}):
+        secondary = _store_row("yfinance", ebit=20.0, **unknown)
+        period = store.periods_for("T", pd.DataFrame([primary, secondary]), ["sec_edgar", "yfinance"])[-1]
+        assert period.values["revenue"] == 500.0 and "ebit" not in period.values, unknown
+    # two sparse versions of the SAME provider period are one version stream and still merge
+    first = _store_row("yfinance", revenue=500.0)
+    later = {**_store_row("yfinance", ebit=20.0), "known_at": "2026-04-01"}
+    merged = store.periods_for("T", pd.DataFrame([first, later]), ["sec_edgar", "yfinance"])[-1]
+    assert merged.values["revenue"] == 500.0 and merged.values["ebit"] == 20.0
 
 
 # ---------------------------------------------------------------------------------------------
@@ -426,8 +438,14 @@ def test_b02_c2_eps_uses_weighted_average_shares_when_reported() -> None:
     eps = result["series"]["per_share"]["earnings_per_share"]
     assert eps["history"][-1]["value"] == pytest.approx(20.0 / 8.0)  # not 20 / 10 period-end shares
     assert eps["history"][-1]["formula"] == "net_income / weighted_average_shares"
+    # period-end shares are not a verified denominator for the earnings period: no weighted average -> unavailable + reason
     fallback = growth_analysis(_statements(), instrument_id="ACME")["series"]["per_share"]["earnings_per_share"]
-    assert fallback["history"][-1]["value"] == pytest.approx(2.0)  # period-end fallback unchanged when nothing better is reported
+    assert fallback["history"][-1]["value"] is None and fallback["history"][-1]["status"] == "missing"
+    assert "weighted-average shares" in fallback["history"][-1]["reason"]
+    zero = growth_analysis(_statements({"weighted_average_shares": 0.0}), instrument_id="ACME")["series"]["per_share"]["earnings_per_share"]
+    assert zero["history"][-1]["value"] is None
+    reported = growth_analysis(_statements({"earnings_per_share": 3.0}), instrument_id="ACME")["series"]["per_share"]["earnings_per_share"]
+    assert reported["history"][-1]["value"] == 3.0  # a reported EPS is still used
 
 
 # ---------------------------------------------------------------------------------------------
@@ -539,3 +557,103 @@ def test_t24_refresh_reports_partial_statements_per_instrument(tmp_path) -> None
     )
     assert "balance_sheet" in report.per_instrument["T"] and report.per_instrument["T"] != "ok"
     assert report.rows_added > 0 and not report.failures
+
+
+# ---------------------------------------------------------------------------------------------
+# Correction pass 1 (review findings 1-7)
+# ---------------------------------------------------------------------------------------------
+
+
+def test_fix1_failed_identities_and_tiny_denominators_block_production_metrics() -> None:
+    legs = {"total_liabilities": 1100.0}  # assets 2000 = liabilities 1100 + parent equity 900 + NCI 0
+    ok = _evidence([_period(y, **legs) for y in (2024, 2025)]).metrics
+    assert ok["roic"].status == sm.OK and ok["debt_to_equity"].status == sm.OK and ok["net_debt"].status == sm.OK
+    broken = _evidence([_period(y, total_liabilities=500.0) for y in (2024, 2025)]).metrics
+    for key in ("roic", "debt_to_equity", "net_debt", "net_debt_to_ebitda"):
+        assert broken[key].status == sm.UNAVAILABLE and broken[key].value is None, key
+        assert "balance_identity" in str(broken[key].reason), key
+    # cash roll-forward: 100 + CFO 220 + CFI -150 + CFF -50 + FX 0 = 120
+    flows = {"cfi": -150.0, "cff": -50.0, "fx_effect": 0.0}
+    rolled = [_period(2024, cash=100.0, **legs), _period(2025, cash=120.0, **legs, **flows)]
+    assert _evidence(rolled).metrics["net_debt"].status == sm.OK
+    drifted = [_period(2024, cash=100.0, **legs), _period(2025, cash=400.0, **legs, **flows)]
+    metrics = _evidence(drifted).metrics
+    assert metrics["net_debt"].status == sm.UNAVAILABLE and "cash_rollforward" in str(metrics["net_debt"].reason)
+    assert metrics["roic"].status == sm.UNAVAILABLE and "cash_rollforward" in str(metrics["roic"].reason)
+    # a tiny denominator is blocked, not turned into a huge ratio
+    tiny = _evidence([_period(y, equity_parent=0.5, total_liabilities=1999.5) for y in (2024, 2025)]).metrics["debt_to_equity"]
+    assert tiny.status == sm.UNAVAILABLE and "tiny_denominator" in str(tiny.reason)
+    # the identity legs are ingested from the provider statements (SEC companyfacts)
+    row = _rows(_payload(**_balance("Liabilities", 1100.0), **_balance("Assets", 2000.0), Revenues=[_fact("2025-01-01", "2025-12-31", 500.0, "2026-02-10")]))[("2025-12-31", "FY")]
+    assert row["total_liabilities"] == 1100.0 and row["total_assets"] == 2000.0
+
+
+def test_fix2_evidence_states_decide_whether_a_fact_is_usable() -> None:
+    stale = dataclasses.replace(_period(2025), value_status={"revenue": "stale", "gross_profit": "invalid"})
+    assert not stale.has("revenue") and not stale.has("gross_profit") and stale.has("ebit")
+    assert stale.blocked_state("revenue") == "stale" and stale.status_of("gross_profit") == "invalid"
+    metric = _evidence([dataclasses.replace(_period(2025), value_status={"gross_profit": "stale"})]).metrics["gross_margin"]
+    assert metric.status == sm.UNAVAILABLE and metric.value is None and "is stale" in str(metric.reason)
+    assert sm.metric_value_status(metric) == "stale"  # the state reaches the output through the metric reason
+    # an explicit valueless state on a newer version ends the sparse carry-forward (it never restores an older number)
+    for state in ("unavailable", "not_applicable", "conflicted", "invalid", "stale"):
+        old = {**_store_row("sec_edgar", ebit=20.0, revenue=500.0, **VERIFIED), "known_at": "2026-02-10"}
+        new = {**_store_row("sec_edgar", **VERIFIED), "known_at": "2026-03-10", "value_status": json.dumps({"ebit": state})}
+        periods = store.periods_for("T", pd.DataFrame([old, new]), ["sec_edgar"])
+        latest = max(periods, key=lambda p: p.known_at)
+        assert "ebit" not in latest.values and latest.values["revenue"] == 500.0, state
+        assert latest.status_of("ebit") == state and not latest.has("ebit"), state
+        earlier = [p for p in periods if p.known_at <= datetime(2026, 3, 1, tzinfo=UTC)][-1]
+        assert earlier.has("ebit"), state  # the earlier replay still sees the number
+    # a numeric fact carried with a non-usable state keeps the state through the store merge
+    flagged = {**_store_row("sec_edgar", ebit=20.0, **VERIFIED), "value_status": json.dumps({"ebit": "stale"})}
+    assert not store.periods_for("T", pd.DataFrame([flagged]), ["sec_edgar"])[-1].has("ebit")
+    # a stale balance is not replaced by an older usable one
+    older = dataclasses.replace(_period(2024), value_status={})
+    newer = dataclasses.replace(_period(2025), value_status={"equity_parent": "stale"})
+    assert sm.latest_balance([older, newer], ["equity_parent"]) is None
+
+
+def test_fix4_a_later_incompatible_source_never_removes_earlier_evidence_from_a_replay() -> None:
+    yahoo = {**_store_row("yfinance", revenue=480.0, ebit=20.0, **VERIFIED), "known_at": "2026-02-10"}
+    sec = {**_store_row("sec_edgar", revenue=500.0, **{**VERIFIED, "consolidation_scope": "parent_only"}), "known_at": "2026-05-10"}
+    periods = store.periods_for("T", pd.DataFrame([yahoo, sec]), ["sec_edgar", "yfinance"])
+    march = sm.known_periods(periods, datetime(2026, 3, 15, tzinfo=UTC))
+    assert len(march) == 1 and march[0].values["ebit"] == 20.0 and march[0].values["revenue"] == 480.0  # not lost to May evidence
+    june = sm.known_periods(periods, datetime(2026, 6, 15, tzinfo=UTC))
+    assert len(june) == 1 and june[0].values["revenue"] == 500.0 and "ebit" not in june[0].values  # incompatible Yahoo is not merged in
+    # an incompatible later version of the SAME source is its own period view, not discarded against the first anchor
+    first = {**_store_row("sec_edgar", revenue=500.0, **VERIFIED), "known_at": "2026-02-10"}
+    restated = {**_store_row("sec_edgar", revenue=450.0, **{**VERIFIED, "consolidation_scope": "parent_only"}), "known_at": "2026-08-10"}
+    versions = store.periods_for("T", pd.DataFrame([first, restated]), ["sec_edgar"])
+    assert sm.known_periods(versions, datetime(2026, 3, 1, tzinfo=UTC))[0].values["revenue"] == 500.0
+    assert sm.known_periods(versions, datetime(2026, 9, 1, tzinfo=UTC))[0].values["revenue"] == 450.0
+
+
+def test_fix5_debt_parts_are_partial_unless_every_required_portion_is_reported() -> None:
+    revenue = [_fact("2025-01-01", "2025-12-31", 500.0, "2026-02-10")]
+    cash = _balance("CashAndCashEquivalentsAtCarryingValue", 40.0)
+
+    def period_for(**debt: dict) -> sm.Period:
+        row = _rows(_payload(Revenues=revenue, **debt, **cash))[("2025-12-31", "FY")]
+        return store.periods_for("T", pd.DataFrame([{**row, "instrument_id": "T"}]), ["sec_edgar"])[0]
+
+    noncurrent_only = period_for(**_balance("LongTermDebtNoncurrent", 100.0))  # current portion unreported: not 0
+    assert noncurrent_only.status_of("ib_debt") == "partial" and not noncurrent_only.has("ib_debt")
+    net_debt = _evidence([noncurrent_only]).metrics["net_debt"]
+    assert net_debt.status == sm.UNAVAILABLE and net_debt.value is None and "partial" in str(net_debt.reason)
+    explicit_zero = period_for(**_balance("LongTermDebtNoncurrent", 100.0), **_balance("LongTermDebtCurrent", 0.0))
+    assert explicit_zero.status_of("ib_debt") == "derived" and _evidence([explicit_zero]).metrics["net_debt"].value == pytest.approx(60.0)
+    total_with_extra = period_for(**_balance("LongTermDebt", 100.0), **_balance("ShortTermBorrowings", 7.0))
+    assert total_with_extra.status_of("ib_debt") == "derived" and total_with_extra.values["ib_debt"] == 107.0
+
+
+@pytest.mark.parametrize("scale", [0.01, 1.0, 100.0])
+def test_fix7_quarter_conflict_resolution_does_not_depend_on_the_monetary_scale(scale: float) -> None:
+    def scaled(direct: float) -> list[dict[str, object]]:
+        return [{**fact, "val": float(fact["val"]) * scale} for fact in _q4_revenue(direct)]
+
+    conflicted = _rows(_payload(Revenues=scaled(150.0)))[("2025-12-31", "Q")]  # direct 150 vs FY - 9M = 110
+    assert "revenue" not in conflicted and json.loads(conflicted["value_status"]) == {"revenue": "conflicted"}
+    agreeing = _rows(_payload(Revenues=scaled(110.0)))[("2025-12-31", "Q")]
+    assert agreeing["revenue"] == pytest.approx(110.0 * scale) and "value_status" not in agreeing

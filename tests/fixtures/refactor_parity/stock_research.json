@@ -2032,20 +2032,54 @@
      "per_share": {
       "earnings_per_share": {
        "basis": "per_share",
-       "history": [],
+       "history": [
+        {
+         "period_type": "annual",
+         "period_key": "duration:2024-01-01:2024-12-31:FY",
+         "period_end": "2024-12-31",
+         "value": null,
+         "basis": "per_share",
+         "formula": "reported earnings_per_share",
+         "source_ids": [],
+         "status": "missing",
+         "reason": "weighted-average shares are not reported for the period; period-end shares are not a valid EPS denominator"
+        },
+        {
+         "period_type": "annual",
+         "period_key": "duration:2025-01-01:2025-12-31:FY",
+         "period_end": "2025-12-31",
+         "value": null,
+         "basis": "per_share",
+         "formula": "reported earnings_per_share",
+         "source_ids": [],
+         "status": "missing",
+         "reason": "weighted-average shares are not reported for the period; period-end shares are not a valid EPS denominator"
+        },
+        {
+         "period_type": "annual",
+         "period_key": "duration:2026-01-01:2026-12-31:FY",
+         "period_end": "2026-12-31",
+         "value": null,
+         "basis": "per_share",
+         "formula": "reported earnings_per_share",
+         "source_ids": [],
+         "status": "missing",
+         "reason": "weighted-average shares are not reported for the period; period-end shares are not a valid EPS denominator"
+        }
+       ],
        "growth": [],
        "latest_growth": {
         "status": "unavailable",
         "value": null,
-        "reason": "currency_unavailable",
+        "reason": "insufficient_comparable_periods",
         "execution_allowed": false
        },
-       "status": "unavailable",
+       "status": "missing",
        "formula": "(current / prior) - 1",
        "execution_allowed": false,
        "comparability": {
         "status": "unavailable",
-        "reason": "currency_unavailable",
+        "reason": "insufficient_comparable_periods",
         "execution_allowed": false
        }
       },
@@ -5245,85 +5279,49 @@
          "period_type": "annual",
          "period_key": "duration:2024-01-01:2024-12-31:FY",
          "period_end": "2024-12-31",
-         "value": 1.2,
+         "value": null,
          "basis": "per_share",
-         "formula": "net_income / shares_outstanding",
-         "source_ids": ["filing-2024"],
-         "status": "available"
+         "formula": "reported earnings_per_share",
+         "source_ids": [],
+         "status": "missing",
+         "reason": "weighted-average shares are not reported for the period; period-end shares are not a valid EPS denominator"
         },
         {
          "period_type": "annual",
          "period_key": "duration:2025-01-01:2025-12-31:FY",
          "period_end": "2025-12-31",
-         "value": 1.5,
+         "value": null,
          "basis": "per_share",
-         "formula": "net_income / shares_outstanding",
-         "source_ids": ["filing-2025"],
-         "status": "available"
+         "formula": "reported earnings_per_share",
+         "source_ids": [],
+         "status": "missing",
+         "reason": "weighted-average shares are not reported for the period; period-end shares are not a valid EPS denominator"
         },
         {
          "period_type": "annual",
          "period_key": "duration:2026-01-01:2026-12-31:FY",
          "period_end": "2026-12-31",
-         "value": 2.0,
+         "value": null,
          "basis": "per_share",
-         "formula": "net_income / shares_outstanding",
-         "source_ids": ["filing-2026"],
-         "status": "available"
+         "formula": "reported earnings_per_share",
+         "source_ids": [],
+         "status": "missing",
+         "reason": "weighted-average shares are not reported for the period; period-end shares are not a valid EPS denominator"
         }
        ],
-       "growth": [
-        {
-         "period_type": "annual",
-         "period_key": "duration:2025-01-01:2025-12-31:FY",
-         "period_end": "2025-12-31",
-         "base_period_key": "duration:2024-01-01:2024-12-31:FY",
-         "value": 0.25,
-         "basis": "per_share",
-         "formula": "(current / prior) - 1",
-         "comparison": "year_over_year",
-         "base_effect": "normal",
-         "status": "available",
-         "source_ids": ["filing-2024", "filing-2025"],
-         "execution_allowed": false
-        },
-        {
-         "period_type": "annual",
-         "period_key": "duration:2026-01-01:2026-12-31:FY",
-         "period_end": "2026-12-31",
-         "base_period_key": "duration:2025-01-01:2025-12-31:FY",
-         "value": 0.33333333333333326,
-         "basis": "per_share",
-         "formula": "(current / prior) - 1",
-         "comparison": "year_over_year",
-         "base_effect": "normal",
-         "status": "available",
-         "source_ids": ["filing-2025", "filing-2026"],
-         "execution_allowed": false
-        }
-       ],
+       "growth": [],
        "latest_growth": {
-        "period_type": "annual",
-        "period_key": "duration:2026-01-01:2026-12-31:FY",
-        "period_end": "2026-12-31",
-        "base_period_key": "duration:2025-01-01:2025-12-31:FY",
-        "value": 0.33333333333333326,
-        "basis": "per_share",
-        "formula": "(current / prior) - 1",
-        "comparison": "year_over_year",
-        "base_effect": "normal",
-        "status": "available",
-        "source_ids": ["filing-2025", "filing-2026"],
+        "status": "unavailable",
+        "value": null,
+        "reason": "insufficient_comparable_periods",
         "execution_allowed": false
        },
-       "status": "available",
+       "status": "missing",
        "formula": "(current / prior) - 1",
        "execution_allowed": false,
        "comparability": {
-        "status": "available",
-        "currency": "EUR",
-        "accounting_scope": "consolidated",
-        "periods": 3,
+        "status": "unavailable",
+        "reason": "insufficient_comparable_periods",
         "execution_allowed": false
        }
       },
@@ -7483,7 +7481,8 @@
          "basis": "per_share",
          "formula": "reported earnings_per_share",
          "source_ids": [],
-         "status": "missing"
+         "status": "missing",
+         "reason": "weighted-average shares are not reported for the period; period-end shares are not a valid EPS denominator"
         },
         {
          "period_type": "annual",
@@ -7493,7 +7492,8 @@
          "basis": "per_share",
          "formula": "reported earnings_per_share",
          "source_ids": [],
-         "status": "missing"
+         "status": "missing",
+         "reason": "weighted-average shares are not reported for the period; period-end shares are not a valid EPS denominator"
         },
         {
          "period_type": "annual",
@@ -7503,7 +7503,8 @@
          "basis": "per_share",
          "formula": "reported earnings_per_share",
          "source_ids": [],
-         "status": "missing"
+         "status": "missing",
+         "reason": "weighted-average shares are not reported for the period; period-end shares are not a valid EPS denominator"
         }
        ],
        "growth": [],
@@ -10191,61 +10192,38 @@
          "period_type": "annual",
          "period_key": "duration:2024-01-01:2024-12-31:FY",
          "period_end": "2024-12-31",
-         "value": 1.2,
+         "value": null,
          "basis": "per_share",
-         "formula": "net_income / shares_outstanding",
-         "source_ids": ["filing-2024"],
-         "status": "available"
+         "formula": "reported earnings_per_share",
+         "source_ids": [],
+         "status": "missing",
+         "reason": "weighted-average shares are not reported for the period; period-end shares are not a valid EPS denominator"
         },
         {
          "period_type": "annual",
          "period_key": "duration:2025-01-01:2025-12-31:FY",
          "period_end": "2025-12-31",
-         "value": 1.5,
+         "value": null,
          "basis": "per_share",
-         "formula": "net_income / shares_outstanding",
-         "source_ids": ["filing-2025"],
-         "status": "available"
+         "formula": "reported earnings_per_share",
+         "source_ids": [],
+         "status": "missing",
+         "reason": "weighted-average shares are not reported for the period; period-end shares are not a valid EPS denominator"
         }
        ],
-       "growth": [
-        {
-         "period_type": "annual",
-         "period_key": "duration:2025-01-01:2025-12-31:FY",
-         "period_end": "2025-12-31",
-         "base_period_key": "duration:2024-01-01:2024-12-31:FY",
-         "value": 0.25,
-         "basis": "per_share",
-         "formula": "(current / prior) - 1",
-         "comparison": "year_over_year",
-         "base_effect": "normal",
-         "status": "available",
-         "source_ids": ["filing-2024", "filing-2025"],
-         "execution_allowed": false
-        }
-       ],
+       "growth": [],
        "latest_growth": {
-        "period_type": "annual",
-        "period_key": "duration:2025-01-01:2025-12-31:FY",
-        "period_end": "2025-12-31",
-        "base_period_key": "duration:2024-01-01:2024-12-31:FY",
-        "value": 0.25,
-        "basis": "per_share",
-        "formula": "(current / prior) - 1",
-        "comparison": "year_over_year",
-        "base_effect": "normal",
-        "status": "available",
-        "source_ids": ["filing-2024", "filing-2025"],
+        "status": "unavailable",
+        "value": null,
+        "reason": "insufficient_comparable_periods",
         "execution_allowed": false
        },
-       "status": "available",
+       "status": "missing",
        "formula": "(current / prior) - 1",
        "execution_allowed": false,
        "comparability": {
-        "status": "available",
-        "currency": "EUR",
-        "accounting_scope": "consolidated",
-        "periods": 2,
+        "status": "unavailable",
+        "reason": "insufficient_comparable_periods",
         "execution_allowed": false
        }
       },
@@ -13256,85 +13234,49 @@
           "period_type": "annual",
           "period_key": "duration:2024-01-01:2024-12-31:FY",
           "period_end": "2024-12-31",
-          "value": 1.2,
+          "value": null,
           "basis": "per_share",
-          "formula": "net_income / shares_outstanding",
-          "source_ids": ["filing-2024"],
-          "status": "available"
+          "formula": "reported earnings_per_share",
+          "source_ids": [],
+          "status": "missing",
+          "reason": "weighted-average shares are not reported for the period; period-end shares are not a valid EPS denominator"
          },
          {
           "period_type": "annual",
           "period_key": "duration:2025-01-01:2025-12-31:FY",
           "period_end": "2025-12-31",
-          "value": 1.5,
+          "value": null,
           "basis": "per_share",
-          "formula": "net_income / shares_outstanding",
-          "source_ids": ["filing-2025"],
-          "status": "available"
+          "formula": "reported earnings_per_share",
+          "source_ids": [],
+          "status": "missing",
+          "reason": "weighted-average shares are not reported for the period; period-end shares are not a valid EPS denominator"
          },
          {
           "period_type": "annual",
           "period_key": "duration:2026-01-01:2026-12-31:FY",
           "period_end": "2026-12-31",
-          "value": 2.0,
+          "value": null,
           "basis": "per_share",
-          "formula": "net_income / shares_outstanding",
-          "source_ids": ["filing-2026"],
-          "status": "available"
+          "formula": "reported earnings_per_share",
+          "source_ids": [],
+          "status": "missing",
+          "reason": "weighted-average shares are not reported for the period; period-end shares are not a valid EPS denominator"
          }
         ],
-        "growth": [
-         {
-          "period_type": "annual",
-          "period_key": "duration:2025-01-01:2025-12-31:FY",
-          "period_end": "2025-12-31",
-          "base_period_key": "duration:2024-01-01:2024-12-31:FY",
-          "value": 0.25,
-          "basis": "per_share",
-          "formula": "(current / prior) - 1",
-          "comparison": "year_over_year",
-          "base_effect": "normal",
-          "status": "available",
-          "source_ids": ["filing-2024", "filing-2025"],
-          "execution_allowed": false
-         },
-         {
-          "period_type": "annual",
-          "period_key": "duration:2026-01-01:2026-12-31:FY",
-          "period_end": "2026-12-31",
-          "base_period_key": "duration:2025-01-01:2025-12-31:FY",
-          "value": 0.33333333333333326,
-          "basis": "per_share",
-          "formula": "(current / prior) - 1",
-          "comparison": "year_over_year",
-          "base_effect": "normal",
-          "status": "available",
-          "source_ids": ["filing-2025", "filing-2026"],
-          "execution_allowed": false
-         }
-        ],
+        "growth": [],
         "latest_growth": {
-         "period_type": "annual",
-         "period_key": "duration:2026-01-01:2026-12-31:FY",
-         "period_end": "2026-12-31",
-         "base_period_key": "duration:2025-01-01:2025-12-31:FY",
-         "value": 0.33333333333333326,
-         "basis": "per_share",
-         "formula": "(current / prior) - 1",
-         "comparison": "year_over_year",
-         "base_effect": "normal",
-         "status": "available",
-         "source_ids": ["filing-2025", "filing-2026"],
+         "status": "unavailable",
+         "value": null,
+         "reason": "insufficient_comparable_periods",
          "execution_allowed": false
         },
-        "status": "available",
+        "status": "missing",
         "formula": "(current / prior) - 1",
         "execution_allowed": false,
         "comparability": {
-         "status": "available",
-         "currency": "EUR",
-         "accounting_scope": "consolidated",
-         "periods": 3,
+         "status": "unavailable",
+         "reason": "insufficient_comparable_periods",
          "execution_allowed": false
         }
        },

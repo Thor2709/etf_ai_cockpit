@@ -22,6 +22,23 @@ import pandas as pd
 from etf_cockpit.analysis.stock_metrics import BALANCE_FIELDS, FLOW_FIELDS
 from etf_cockpit.data.yfinance_provider import classify_provider_error
 
+# Accounting-identity legs (cash roll-forward, balance identity). They default here so a config that
+# predates them still ingests them; a configured entry of the same name wins.
+IDENTITY_SEC_CONCEPTS: dict[str, list[str]] = {
+    "cfi": ["NetCashProvidedByUsedInInvestingActivities"],
+    "cff": ["NetCashProvidedByUsedInFinancingActivities"],
+    "fx_effect": [
+        "EffectOfExchangeRateOnCashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+        "EffectOfExchangeRateOnCashAndCashEquivalents",
+    ],
+    "total_liabilities": ["Liabilities"],
+}
+IDENTITY_YF_LABELS: dict[str, list[str]] = {
+    "cfi": ["Investing Cash Flow", "Cash Flow From Continuing Investing Activities"],
+    "cff": ["Financing Cash Flow", "Cash Flow From Continuing Financing Activities"],
+    "fx_effect": ["Effect Of Exchange Rate Changes"],
+    "total_liabilities": ["Total Liabilities Net Minority Interest"],
+}
 SEC_COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
 SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 
@@ -188,7 +205,7 @@ def fetch_yfinance(
             return pd.DataFrame()
         return value if value is not None else pd.DataFrame()
 
-    labels = config.get("yfinance_labels", {})
+    labels = {**IDENTITY_YF_LABELS, **(config.get("yfinance_labels", {}) or {})}
     annual = _statement_rows(
         [frame("income_stmt"), frame("cashflow"), frame("balance_sheet")], labels, "FY", financial_currency, known_at, ref
     )
@@ -280,7 +297,7 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
     restatements never overwrite what was known earlier.
     """
 
-    concepts = config.get("sec_edgar_concepts", {})
+    concepts = {**IDENTITY_SEC_CONCEPTS, **(config.get("sec_edgar_concepts", {}) or {})}
     gaap = (payload.get("facts", {}) or {}).get("us-gaap", {}) or {}
     dei = (payload.get("facts", {}) or {}).get("dei", {}) or {}
     currency = ""
@@ -371,8 +388,11 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                 "currency": currency,
                 "source": "sec_edgar",
                 "source_ref": source_ref,
+                # companyfacts holds only the us-gaap taxonomy and un-dimensioned (entity-wide) facts, so the
+                # standard, the consolidated scope and "all share classes" are verified by the source structure
                 "reporting_standard": "us-gaap",
                 "consolidation_scope": "consolidated",
+                "share_class": "all_classes",
                 "_filed": [],
             },
         )
@@ -430,6 +450,8 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
     for (name, end), candidates in sorted(quarter_candidates.items()):
         entry = row(end, "Q")
         entry["_filed"].extend(item for candidate in candidates for item in candidate["filed"])
+        # the duration belongs to the period, not to the value: it stays verified even when the value is conflicted
+        entry.setdefault("period_days", min(candidates, key=lambda candidate: candidate["kind"] != "direct")["days"])
         units = {candidate["unit"] for candidate in candidates}
         if "currency_mismatch" in units or len(units) > 1:
             entry[f"{name}_currency"] = "currency_mismatch"
@@ -438,14 +460,14 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
         direct = [candidate for candidate in candidates if candidate["kind"] == "direct"]
         inferred = [candidate for candidate in candidates if candidate["kind"] == "inferred"]
         pool = [float(candidate["value"]) for candidate in candidates]
-        if max(pool) - min(pool) > max(1.0, 0.005 * max(abs(item) for item in pool)):
-            # a reported quarter and its cumulative difference (or two chains) disagree: neither is guessed
+        if max(pool) - min(pool) > 0.005 * max(abs(item) for item in pool):
+            # a reported quarter and its cumulative difference (or two chains) disagree: neither is guessed;
+            # the tolerance is purely relative, so the verdict never depends on the monetary scale of the filing
             statuses[(end, "Q")][name] = "conflicted"
             continue
         chosen = (direct or inferred)[0]
         entry[name] = float(chosen["value"])
         entry[f"{name}_currency"] = chosen["unit"]
-        entry.setdefault("period_days", chosen["days"])
         if not direct:
             statuses[(end, "Q")][name] = "derived"
         if name == "net_income_parent":
@@ -455,6 +477,7 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
     equity = collect_instant(concepts.get("equity_parent", []))
     minority = collect_instant(concepts.get("minority_interest", []))
     total_assets = collect_instant(concepts.get("total_assets", []))
+    total_liabilities = collect_instant(concepts.get("total_liabilities", []))
     cash = collect_instant(concepts.get("cash", []))
     sti = collect_instant(concepts.get("short_term_investments", []))
     debt_total_names = list(concepts.get("debt_total", []))
@@ -468,7 +491,7 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
         def pick(series: Mapping[str, tuple[float, str, str]]) -> tuple[float, str, str] | None:
             return series.get(end)
 
-        for name, series in (("equity_parent", equity), ("minority_interest", minority), ("total_assets", total_assets), ("shares_outstanding", shares)):
+        for name, series in (("equity_parent", equity), ("minority_interest", minority), ("total_assets", total_assets), ("total_liabilities", total_liabilities), ("shares_outstanding", shares)):
             item = pick(series)
             if item is not None:
                 entry[name] = item[0]
@@ -537,9 +560,11 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
             extras = [(name, item) for name, item in extras if item is not None]
             debt_items = [debt, *(item for _, item in extras)]
             comprehensive = debt_name == "DebtAndCapitalLeaseObligations"
+            summed = bool(extras)
             if comprehensive and lease_currency == debt[2]:
                 finance_leases = [item for name, item in lease_found if "FinanceLease" in name]
                 debt_value = debt[0] - sum(item[0] for item in finance_leases)
+                summed = summed or bool(finance_leases)
             else:
                 debt_value = debt[0] + sum(item[0] for _, item in extras)
             if len({item[2] for item in debt_items}) != 1 or (comprehensive and lease_found and lease_currency != debt[2]):
@@ -547,6 +572,8 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
             else:
                 entry["ib_debt"] = debt_value
                 entry["ib_debt_currency"] = debt[2]
+                if summed:
+                    statuses[(end, ptype)]["ib_debt"] = "derived"  # a reported total plus optional parts: computed, not one reported fact
             entry["_filed"].extend([debt[1], *(item[1] for _, item in extras)])
         else:
             parts = [(name, pick(series)) for name, series in debt_parts.items()]
@@ -556,9 +583,11 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                     entry["ib_debt"] = sum(item[0] for _, item in parts)
                     entry["ib_debt_currency"] = parts[0][1][2]
                     found = {name for name, _ in parts}
-                    if "LongTermDebtNoncurrent" in debt_parts and "LongTermDebtNoncurrent" not in found:
-                        # the current portion alone is not the debt: the missing non-current part is not 0
-                        statuses[(end, ptype)]["ib_debt"] = "partial"
+                    # Both long-term portions are required components. companyfacts cannot tell "none" from
+                    # "not reported" for an absent portion, so an absent required part is never counted as 0:
+                    # the sum is partial. ShortTermBorrowings / CommercialPaper are optional supplements.
+                    required = {"LongTermDebtNoncurrent", "LongTermDebtCurrent"} & set(debt_parts)
+                    statuses[(end, ptype)]["ib_debt"] = "partial" if required - found else "derived"
                 else:
                     entry["ib_debt_currency"] = "currency_mismatch"
                 entry["_filed"].extend(item[1] for _, item in parts)

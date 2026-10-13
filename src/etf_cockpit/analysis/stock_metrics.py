@@ -45,6 +45,9 @@ FLOW_FIELDS = (
     "capex",
     "capex_extra",
     "dividends_paid",
+    "cfi",  # accounting-identity legs (cash roll-forward); signed as reported
+    "cff",
+    "fx_effect",
 )
 BALANCE_FIELDS = (
     "equity_parent",
@@ -54,6 +57,7 @@ BALANCE_FIELDS = (
     "cash_sti",
     "cash",
     "total_assets",
+    "total_liabilities",  # accounting-identity leg (balance identity)
     "shares_outstanding",
 )
 PERIOD_FIELDS = FLOW_FIELDS + BALANCE_FIELDS
@@ -76,6 +80,8 @@ VALUE_STATUSES = (
     "stale",
     "invalid",
 )
+# Only these states may feed a ratio; every other state is reported as such and never used as a number.
+USABLE_STATUSES = ("observed", "reported_zero", "derived")
 FCF_PROXY_LABEL = "CFO−capex, not FCFE"
 
 
@@ -93,8 +99,27 @@ class Period:
     source_ref: str = ""
     value_status: Mapping[str, str] = field(default_factory=dict)  # per-field state when not plain "observed"
 
-    def has(self, *names: str) -> bool:
+    def has_numeric(self, *names: str) -> bool:
+        """Every name carries a finite number, whatever its evidence state."""
+
         return all(_finite(self.values.get(name)) is not None for name in names)
+
+    def usable(self, name: str) -> bool:
+        """A finite number whose explicit evidence state allows use (stale, invalid, partial, conflicted... do not)."""
+
+        explicit = str(self.value_status.get(name) or "")
+        return _finite(self.values.get(name)) is not None and (not explicit or explicit in USABLE_STATUSES)
+
+    def has(self, *names: str) -> bool:
+        return all(self.usable(name) for name in names)
+
+    def blocked_state(self, name: str) -> str | None:
+        """The explicit non-usable state of a field (number or not), else None."""
+
+        explicit = str(self.value_status.get(name) or "")
+        if explicit and explicit not in USABLE_STATUSES:
+            return explicit
+        return None
 
     def status_of(self, name: str) -> str:
         """Evidence state of one field: missing is ``unavailable`` (never 0), a reported 0 is ``reported_zero``."""
@@ -250,17 +275,21 @@ def source_label(window: Window) -> str:
 
 
 def balance_near(periods: Sequence[Period], target: date, names: Sequence[str], *, tolerance_days: int = 40) -> Period | None:
-    """The period (any type) closest to ``target`` that reports every name, within the tolerance."""
+    """The period (any type) closest to ``target`` that reports every name, within the tolerance.
+
+    The nearest reporting period decides: if its evidence state is not usable the result is None, an
+    older or farther balance never stands in for it.
+    """
 
     best: Period | None = None
     best_gap = tolerance_days + 1
     for period in periods:
-        if not period.has(*names):
+        if not period.has_numeric(*names):
             continue
         gap = abs((period.period_end - target).days)
         if gap < best_gap:
             best, best_gap = period, gap
-    return best
+    return best if best is not None and best.has(*names) else None
 
 
 def opening_balance(periods: Sequence[Period], window_end: date, names: Sequence[str]) -> Period | None:
@@ -270,8 +299,11 @@ def opening_balance(periods: Sequence[Period], window_end: date, names: Sequence
 
 
 def latest_balance(periods: Sequence[Period], names: Sequence[str]) -> Period | None:
-    candidates = [period for period in periods if period.has(*names)]
-    return max(candidates, key=lambda item: (item.period_end, item.period_type == "FY"), default=None)
+    """Latest period reporting every name; a latest period whose state is not usable yields None (no older fallback)."""
+
+    candidates = [period for period in periods if period.has_numeric(*names)]
+    latest = max(candidates, key=lambda item: (item.period_end, item.period_type == "FY"), default=None)
+    return latest if latest is not None and latest.has(*names) else None
 
 
 # ---------------------------------------------------------------------------------------------
@@ -556,6 +588,9 @@ def metric_value_status(metric: Metric) -> str:
         return "not_applicable"
     if "stale report" in reason or reason.startswith("stale"):
         return "stale"
+    for state in ("stale", "invalid", "conflicted", "partial", "not_applicable"):
+        if f" is {state};" in reason:  # "<fact> for the period ending <date> is <state>; a fact in that state is not used"
+            return state
     if "mismatch" in reason or "conflict" in reason:
         return "conflicted"
     if "partial" in reason:
