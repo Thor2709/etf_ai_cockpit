@@ -564,14 +564,16 @@ def _select_holdings(
     date_column = next((name for name in ("as_of", "as_of_date") if name in frame.columns), None)
     if date_column is None:
         return frame.iloc[0:0], None, source, "The holdings snapshot has no as-of date.", None
-    known_column = next((name for name in ("known_at", "available_at") if name in frame.columns), None)
-    if known_column is None:
+    if not any(name in frame.columns for name in ("known_at", "available_at")):
         return frame.iloc[0:0], None, source, _NO_KNOWN_AT, None
     requested_date = _as_date(holdings_date) if holdings_date is not None else None
 
     work = frame.assign(
         _lt_date=frame[date_column].map(_as_date),
-        _lt_known=frame[known_column].map(normalise_event_decision_time),
+        _lt_known=[
+            normalise_event_decision_time(_first_present(record, "known_at", "available_at"))
+            for record in frame.to_dict("records")
+        ],
     )
     work = work.loc[work["_lt_date"].notna()]
     if work.empty:
@@ -1321,10 +1323,18 @@ def _unique_text(values: object) -> tuple[str, ...]:
     return tuple(sorted({_clean_text(value) for value in values if _clean_text(value)}))
 
 
+def _first_present(row: Mapping[str, object], *names: str) -> object:
+    """First of ``names`` that is present and non-empty (``None``/blank/NaN/NaT count as empty)."""
+
+    for name in names:
+        value = row.get(name)
+        if value is None or (isinstance(value, str) and not value.strip()) or (not isinstance(value, str) and pd.isna(value)):
+            continue
+        return value
+    return None
+
+
 def _available_or_known(row: Mapping[str, object]) -> object:
     """``available_at``, falling back to ``known_at`` when it is absent *or empty*."""
 
-    value = row.get("available_at")
-    if value is None or (isinstance(value, str) and not value.strip()) or (not isinstance(value, str) and pd.isna(value)):
-        return row.get("known_at")
-    return value
+    return _first_present(row, "available_at", "known_at")

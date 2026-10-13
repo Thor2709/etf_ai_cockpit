@@ -9,7 +9,7 @@ import sqlite3
 import pandas as pd
 import pytest
 
-from etf_cockpit.analysis.look_through import _available_or_known
+from etf_cockpit.analysis.look_through import _available_or_known, calculate_look_through
 from etf_cockpit.data.bitemporal import BitemporalError, BitemporalStore
 from etf_cockpit.data.contracts import CONTEXT_ONLY_AUTHORITIES, PRIMARY_SOURCE_AUTHORITIES, SourceAuthority
 from etf_cockpit.data.evidence_ledger import EvidenceSource, ledger_entry_for_component
@@ -356,6 +356,24 @@ def test_fingerprint_changes_when_only_the_vintage_as_of_changes() -> None:
 def test_known_at_is_used_when_available_at_is_present_but_empty(empty) -> None:
     assert _available_or_known({"available_at": empty, "known_at": "2026-01-01T00:00:00Z"}) == "2026-01-01T00:00:00Z"
     assert _available_or_known({"available_at": "2026-02-01T00:00:00Z", "known_at": "2026-01-01T00:00:00Z"}) == "2026-02-01T00:00:00Z"
+
+
+@pytest.mark.parametrize("empty", ("", "  ", None, float("nan")))
+@pytest.mark.parametrize("fallback_column", ("known_at", "available_at"))
+def test_look_through_uses_populated_column_when_the_other_is_empty(empty, fallback_column) -> None:
+    other = "available_at" if fallback_column == "known_at" else "known_at"
+
+    def run(visible_at: str):
+        row = {
+            "security": "Apple", "isin": "US0378331005", "weight": 1.0, "issuer": "apple", "company": "apple",
+            "currency": "USD", "exposure_type": "security", "as_of": "2026-07-01", "source": "issuer",
+            "source_id": "issuer:holdings-v1", "revision": "revision-1", "instrument_id": "TESTETF",
+            fallback_column: visible_at, other: empty,
+        }
+        return calculate_look_through(pd.DataFrame([row]), instrument_id="TESTETF", decision_time="2026-07-15T16:00:00Z")
+
+    assert run("2026-07-02T12:00:00Z").status != "unavailable"
+    assert run("2026-07-20T00:00:00Z").status == "unavailable"
 
 
 def test_naive_datetime_claim_timestamp_is_not_interpreted_as_utc() -> None:
