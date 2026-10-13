@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -11,7 +10,6 @@ import pytest
 from scripts import release_gate
 from tests.issue0014._support import (
     copy_repository_runtime,
-    isolated_environment,
     run_offline_smoke,
 )
 
@@ -21,22 +19,14 @@ _PACKAGING_SUBPROCESS_TIMEOUT_SECONDS = 300
 
 
 def test_real_sdist_runs_packaged_offline_smoke_from_artifact_root(tmp_path: Path) -> None:
-    assert importlib.util.find_spec("setuptools") is not None, (
-        "The real sdist smoke test requires the configured setuptools build backend; "
-        "install the pyproject.toml build-system requirements before running it. "
-        "Missing release tooling is not an allowed platform-capability skip."
-    )
     package_source = copy_repository_runtime(tmp_path / "package-source", packaging=True)
     artifact_root = package_source / "build" / "python-dist"
     artifact_root.mkdir(parents=True)
-    build_expression = (
-        "from setuptools.build_meta import build_sdist; "
-        f"print(build_sdist({str(artifact_root)!r}))"
-    )
+    # Same mechanism as release_gate.package_command: isolated `python -m build`, so the
+    # pyproject build backend is provisioned by the build front-end, not the test interpreter.
     built = subprocess.run(
-        [sys.executable, "-c", build_expression],
+        [sys.executable, "-m", "build", "--sdist", "--outdir", "build/python-dist"],
         cwd=package_source,
-        env=isolated_environment(package_source),
         capture_output=True,
         text=True,
         encoding="utf-8",
