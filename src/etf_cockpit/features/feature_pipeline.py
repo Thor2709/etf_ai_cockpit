@@ -31,6 +31,9 @@ def compute_features(prices: pd.DataFrame, benchmark_etf_id: str | None = None) 
     if frame.empty:
         return pd.DataFrame(columns=["date", "etf_id"])
     frame["date"] = pd.to_datetime(frame["date"]).dt.date
+    # One row per (instrument, date): an equal duplicate must not shift every rolling horizon by a row.
+    # Conflicting duplicates are blocked by price validation before features are computed.
+    frame = frame.drop_duplicates(["etf_id", "date"], keep="last")
     feature_frames: list[pd.DataFrame] = []
     benchmark_returns: pd.Series | None = None
 
