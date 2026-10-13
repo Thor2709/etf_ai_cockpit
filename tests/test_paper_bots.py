@@ -175,6 +175,43 @@ def test_publication_binding_records_exact_board_bytes_and_history_identity(tmp_
     assert records[0].payload == binding
 
 
+def test_publication_binding_accepts_nested_empty_model_readiness_arrays(tmp_path: Path) -> None:
+    derived = tmp_path / "data" / "derived"
+    derived.mkdir(parents=True)
+    board_path = derived / "scoreboard.parquet"
+    expected_board = pd.DataFrame(
+        {
+            "instrument_id": ["AAA"],
+            "model_readiness": [
+                {
+                    "status": "unavailable",
+                    "available_models": [],
+                    "reason": "Model evidence unavailable.",
+                }
+            ],
+        }
+    )
+    expected_board.to_parquet(board_path, index=False)
+    now = datetime.now(timezone.utc)
+    history_path = derived / "score_history.parquet"
+    pd.DataFrame(
+        [
+            {
+                "run_id": "run-1",
+                "run_completed_at": _time(now),
+                "snapshot_hash": "a" * 64,
+            }
+        ]
+    ).to_parquet(history_path, index=False)
+
+    binding = scoreboard_publication._record_scoreboard_publication_binding(
+        board_path, history_path, expected_board
+    )
+
+    assert binding["run_id"] == "run-1"
+    assert binding["scoreboard_sha256"] == hashlib.sha256(board_path.read_bytes()).hexdigest()
+
+
 @pytest.mark.parametrize("boundary", ["consumer", "producer"])
 def test_publication_uses_one_immutable_scoreboard_buffer(monkeypatch, tmp_path: Path, boundary: str) -> None:
     now = datetime.now(timezone.utc)

@@ -7,8 +7,10 @@ import hashlib
 from io import BytesIO
 import json
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, Protocol
 
+import numpy as np
 import pandas as pd
 
 from etf_cockpit.data.local_storage import TransactionalStore
@@ -129,8 +131,8 @@ def _record_scoreboard_publication_binding(
     actual_scoreboard = pd.read_parquet(BytesIO(scoreboard_bytes))
     try:
         pd.testing.assert_frame_equal(
-            expected_scoreboard.reset_index(drop=True),
-            actual_scoreboard.reset_index(drop=True),
+            _normalise_scoreboard_values(expected_scoreboard),
+            _normalise_scoreboard_values(actual_scoreboard),
             check_dtype=False,
             check_exact=True,
         )
@@ -178,3 +180,26 @@ def _record_scoreboard_publication_binding(
             immutable=True,
         )
     return payload
+
+
+def _normalise_scoreboard_values(frame: pd.DataFrame) -> pd.DataFrame:
+    """Convert Arrow-backed nested arrays and NumPy scalars to comparable Python values."""
+
+    normalised = frame.reset_index(drop=True).copy()
+    for column in normalised.columns:
+        normalised[column] = normalised[column].map(_normalise_nested_value)
+    return normalised
+
+
+def _normalise_nested_value(value: object) -> object:
+    if isinstance(value, np.ndarray):
+        return _normalise_nested_value(value.item() if value.ndim == 0 else value.tolist())
+    if isinstance(value, np.generic):
+        return _normalise_nested_value(value.item())
+    if isinstance(value, Mapping):
+        return {key: _normalise_nested_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_normalise_nested_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_normalise_nested_value(item) for item in value)
+    return value
