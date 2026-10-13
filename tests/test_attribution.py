@@ -56,6 +56,7 @@ def test_explicit_cashflows_costs_factors_currency_and_decisions_are_visible() -
         factor_exposures=exposures,
         cashflows=pd.DataFrame({"date": [pd.Timestamp("2026-01-01")], "amount": [1.0]}),
         costs=pd.DataFrame({"category": ["commission", "tax"], "amount": [2.0, 1.0]}),
+        nav_eur=1_000.0,
         decisions=pd.DataFrame({"instrument_id": ["AAA"], "model_weight": [0.5], "approved_weight": [0.6], "realised_weight": [0.55]}),
     )
 
