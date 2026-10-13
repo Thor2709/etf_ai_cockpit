@@ -675,7 +675,7 @@ def dry_run_universe_import(
             leveraged=leveraged is True,
             inverse=inverse is True,
         )
-        keys = _identity_keys(record, provider_name or _field(row, "provider", "provider_id"), provider_symbol)
+        keys = _identity_keys(record, _field(row, "provider", "provider_id") or provider_name, provider_symbol)
         duplicate_key = next((key for key in keys if key in seen), None)
         if duplicate_key is not None:
             duplicate_rows.append(row_number)
