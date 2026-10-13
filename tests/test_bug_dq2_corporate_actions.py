@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date
 from decimal import Decimal
 import math
 from pathlib import Path
@@ -23,6 +24,8 @@ from etf_cockpit.data.market_adjustments import (
     reconcile_adjustments,
     selected_currency_return,
 )
+from etf_cockpit.core.config import ProviderSection
+from etf_cockpit.data.tiingo_provider import TiingoProvider
 from etf_cockpit.data.ohlcv_discrepancy import (
     OhlcvNormalisationError,
     build_discrepancy_report,
@@ -481,3 +484,29 @@ def test_series_projection_passes_local_currency_to_the_cash_action_check(tmp_pa
 
     unknown = _series_projection(tmp_path, _prices(SPLIT_DATES, [100.0, 100.0, 99.0, 99.0, 99.0, 99.0]), basis="total_return", local_currency="")
     assert unknown["status"] == "unavailable" and unknown["reason_code"] == "price_currency_unavailable"
+
+
+def test_same_key_duplicate_rows_with_different_dividend_or_nav_quarantine() -> None:
+    dates = pd.bdate_range("2026-01-01", periods=3)
+    base = pd.DataFrame({"date": [*dates, dates[-1]], "close": [100.0, 101.0, 102.0, 102.0], "nav": [99.0, 100.0, 101.0, 101.0], "dividend": 0.0})
+    assert apply_total_return_adjustments(base).status != "quarantined"  # exact duplicate collapses
+    for column, value in (("dividend", 0.5), ("nav", 100.0)):
+        changed = base.copy()
+        changed.loc[3, column] = value
+        result = apply_total_return_adjustments(changed)
+        assert result.status == "quarantined"
+        assert any(w.startswith("conflicting_duplicate_candle:") for w in result.warnings)
+
+
+def test_conflicting_provider_rows_make_only_that_instrument_unavailable() -> None:
+    good = [{"date": "2024-01-09", "close": 1.0}, {"date": "2024-01-10", "close": 1.5}]
+    bad = [{"date": "2024-01-10", "close": 1.0}, {"date": "2024-01-10", "close": 9.0}]
+
+    def transport(url: str, _headers: dict[str, str]) -> list[dict[str, object]]:
+        return bad if "/BAD/" in url else good
+
+    provider = TiingoProvider(section=ProviderSection(active_provider="tiingo", api_key="k"), transport=transport)
+    assert provider.fetch_daily_prices("BAD", date(2024, 1, 1), date(2024, 1, 31)).empty
+    result = provider.fetch_prices(["BAD", "GOOD"], date(2024, 1, 1), date(2024, 1, 31))
+    assert result.data is not None and set(result.data["provider_symbol"]) == {"GOOD"}
+    assert result.status == "unavailable" and "BAD: conflicting rows for the same timestamp" in result.message

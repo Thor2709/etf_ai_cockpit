@@ -767,6 +767,29 @@ def _price_currency_of(raw_prices: pd.DataFrame, explicit: str | None) -> tuple[
     return (next(iter(values)) if values else None), False
 
 
+def _duplicate_rows_disagree(
+    frame: pd.DataFrame, identity: pd.DataFrame, duplicated: pd.Series, tolerance: float
+) -> pd.Series:
+    """Flag duplicate rows whose other evidence columns (nav, dividend, index, ...) differ from the first row of their key."""
+    clash = pd.Series(False, index=frame.index)
+    keys = [identity[column] for column in identity.columns]
+    for column in frame.columns:
+        if column in {"date", "close", "raw_close", "known_at"}:
+            continue
+        values = frame[column]
+        first = values.groupby(keys, dropna=False, sort=False).transform("first")
+        numeric = pd.to_numeric(values, errors="coerce")
+        first_numeric = pd.to_numeric(first, errors="coerce")
+        if numeric.notna().sum() == values.notna().sum() and first_numeric.notna().sum() == first.notna().sum():
+            left, right = numeric.to_numpy(dtype=float), first_numeric.to_numpy(dtype=float)
+            same = (np.isnan(left) & np.isnan(right)) | np.isclose(left, right, rtol=tolerance, atol=0.0, equal_nan=False)
+            differs = pd.Series(~same, index=frame.index)
+        else:
+            differs = pd.Series(values.astype(str).to_numpy() != first.astype(str).to_numpy(), index=frame.index)
+        clash |= duplicated & differs
+    return clash
+
+
 def apply_total_return_adjustments(
     raw_prices: pd.DataFrame | Sequence[float] | None = None,
     actions: Sequence[CorporateAction] = (),
@@ -865,6 +888,7 @@ def apply_total_return_adjustments(
             rtol=discrepancy_tolerance,
             atol=0.0,
         )
+        clash = clash | _duplicate_rows_disagree(frame, identity, duplicated, discrepancy_tolerance)
         if clash.any():
             warnings.extend(f"conflicting_duplicate_candle:{item}" for item in sorted({day.iloc[i].date().isoformat() for i in frame.index[clash]}))
             return _mark_canonical_adjustment(

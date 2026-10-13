@@ -20,7 +20,7 @@ from etf_cockpit.core.config import ProviderSection
 from etf_cockpit.core.http_fetch import requests_get_checked, same_host_https
 from etf_cockpit.core.values import years_before
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority, redact_text
-from etf_cockpit.data.ohlcv_discrepancy import normalise_ohlcv
+from etf_cockpit.data.ohlcv_discrepancy import OhlcvNormalisationError, normalise_ohlcv
 from etf_cockpit.data.provenance import metadata_from_frame
 from etf_cockpit.data.providers import DataProvider, PriceProvider, ProviderResult
 from etf_cockpit.data.twelvedata_provider import RateLimiter, RateLimitState, within_window
@@ -61,6 +61,7 @@ class TiingoProvider(DataProvider, PriceProvider):
         self.transport = transport
         self.default_currency = default_currency
         self.last_limiter_state: RateLimitState | None = None
+        self.last_normalisation_errors: dict[str, str] = {}
 
     @property
     def is_configured(self) -> bool:
@@ -131,6 +132,16 @@ class TiingoProvider(DataProvider, PriceProvider):
         except Exception as exc:
             return None, self._redact(f"{type(exc).__name__}: {exc}")
 
+    def _normalise(self, raw: pd.DataFrame, symbol: str, currency: str) -> pd.DataFrame:
+        """Normalise rows; conflicting or ambiguous data makes this instrument unavailable, never the run."""
+        try:
+            frame = normalise_ohlcv(raw, source=self.name, symbol=symbol, currency=currency)
+        except OhlcvNormalisationError as exc:
+            self.last_normalisation_errors[symbol] = self._redact(str(exc))
+            return pd.DataFrame()
+        self.last_normalisation_errors.pop(symbol, None)
+        return frame
+
     def fetch_daily_prices(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         """Fetch daily OHLCV from Tiingo and normalise to canonical schema."""
         if not self.is_configured:
@@ -157,7 +168,7 @@ class TiingoProvider(DataProvider, PriceProvider):
             return pd.DataFrame()
 
         raw_df = pd.DataFrame(payload)
-        frame = normalise_ohlcv(raw_df, source=self.name, symbol=clean_symbol, currency=self.default_currency)
+        frame = self._normalise(raw_df, clean_symbol, self.default_currency)
         return within_window(frame, start, end)
 
     def fetch_intraday_prices(
@@ -196,7 +207,7 @@ class TiingoProvider(DataProvider, PriceProvider):
         if err or not isinstance(payload, list) or not payload:
             return pd.DataFrame()
 
-        frame = normalise_ohlcv(pd.DataFrame(payload), source=self.name, symbol=clean_symbol, currency=self.default_currency)
+        frame = self._normalise(pd.DataFrame(payload), clean_symbol, self.default_currency)
         return within_window(frame, start, end)
 
     def fetch_prices(self, symbols: list[str], start_date: date, end_date: date) -> ProviderResult:
@@ -222,9 +233,11 @@ class TiingoProvider(DataProvider, PriceProvider):
                 errors.append(f"{symbol}: rate limit reached (non-blocking)")
                 break
 
+            self.last_normalisation_errors.pop(symbol.strip(), None)
             df = self.fetch_daily_prices(symbol, start_date, end_date)
             if df.empty:
-                errors.append(f"{symbol}: no rows returned")
+                reason = self.last_normalisation_errors.get(symbol.strip())
+                errors.append(f"{symbol}: {reason}" if reason else f"{symbol}: no rows returned")
             else:
                 frames.append(df)
 

@@ -16,7 +16,7 @@ from etf_cockpit.analysis.etf_tax_context import ETFContextAssumptions, calculat
 from etf_cockpit.core.config import load_config
 from etf_cockpit.data.classification import ClassificationEvidence, resolve_instrument_context
 from etf_cockpit.data.contracts import SourceAuthority
-from etf_cockpit.data.etf_economics import TotalReturnEvidence, calculate_etf_economics
+from etf_cockpit.data.etf_economics import EtfEconomicsError, TotalReturnEvidence, calculate_etf_economics
 from etf_cockpit.data.market_adjustments import apply_total_return_adjustments
 from etf_cockpit.features.etf_economics import calculate_etf_liquidity
 from etf_cockpit.models.ensemble import effective_ensemble_weights
@@ -411,7 +411,10 @@ def test_same_date_return_rows_differing_only_in_nav_or_dividend_conflict() -> N
             "VWCE", _economics_records(), fund_total_return=fund, benchmark_total_return=benchmark,
             as_of="2026-01-06T18:00:00Z", horizon_days=3, closure_policy=_closure_policy(),
         )
-    assert "conflicting fund total-return revisions" in report(evidence(104.0)).message  # NAV differs, TRI equal
+    # NAV differs, TRI equal: same-key rows with conflicting evidence are quarantined at derivation (DQ2 #955),
+    # so the evidence can no longer be bound at all (stricter than the former downstream revision conflict).
+    with pytest.raises(EtfEconomicsError, match="available and reconciled"):
+        evidence(104.0)
     assert "conflicting" not in report(evidence(103.0)).message  # an exact duplicate row is not a conflict
 
 
