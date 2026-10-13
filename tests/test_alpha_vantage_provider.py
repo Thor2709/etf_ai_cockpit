@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 import json
 
 import pandas as pd
+import pytest
 
 from etf_cockpit.core.config import ProviderSection
 from etf_cockpit.data.alphavantage_provider import AlphaVantageProvider
@@ -143,3 +144,40 @@ def test_post_decision_vendor_evidence_is_unavailable() -> None:
     assert result.status == "unavailable"
     assert result.data is None
     assert "no rows" in result.message.lower()
+
+
+@pytest.mark.parametrize("explicit_cutoff", [False, True])
+def test_advancing_clock_filters_at_response_observation_unless_cutoff_is_explicit(
+    explicit_cutoff: bool,
+) -> None:
+    started_at = datetime(2026, 1, 3, 12, tzinfo=timezone.utc)
+    observations: list[datetime] = []
+
+    def clock() -> datetime:
+        observed_at = started_at + timedelta(seconds=len(observations))
+        observations.append(observed_at)
+        return observed_at
+
+    provider = AlphaVantageProvider(
+        section=_section("secret-key"),
+        transport=lambda url, headers: (json.dumps(_payload()).encode(), 200),
+        clock=clock,
+    )
+    result = provider.fetch_prices(
+        ["MSFT"],
+        date(2026, 1, 1),
+        date(2026, 1, 3),
+        decision_time=started_at if explicit_cutoff else None,
+    )
+
+    assert observations[-1] > started_at
+    if explicit_cutoff:
+        assert result.status == "unavailable"
+        assert result.data is None
+        assert "no rows" in result.message.lower()
+    else:
+        assert result.status == "ok"
+        assert result.data is not None and len(result.data) == 1
+        expected = pd.Timestamp(observations[-1]).tz_convert(None)
+        assert result.data.loc[0, "known_at"] == expected
+        assert result.data.loc[0, "available_at"] == expected
