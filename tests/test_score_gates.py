@@ -311,3 +311,57 @@ def test_etf_without_exposure_loses_its_buy_label_but_not_its_score() -> None:
         ss.SimpleInstrumentScore(**{**score.__dict__, "components": [*components, _simple("etf_exposure", 0.4)]})
     )
     assert with_exposure.final_label == "positive_evidence_candidate"
+
+
+# Review fix 1: banks and Sparebank ECs reach the BANK gate set in the production score path.
+def test_listed_bank_without_capital_evidence_loses_its_buy_label() -> None:
+    bank = ss.SimpleInstrumentScore(**{**_strong_stock(with_solvency=True).__dict__, "business_model": ss._business_model_for_sector("Banks")})
+    assert bank.business_model == "bank"
+    blocked = ss._with_critical_evidence(bank)  # passes the STOCK gates on debt/market cap alone, but has no CET1
+    assert blocked.final_label == "insufficient_evidence" and blocked.final_score_10 == 8.9
+    capital = _simple("stock_quality", 0.5, used=("cet1_ratio", "net_debt_to_ebitda"))
+    still_blocked = ss._with_critical_evidence(
+        ss.SimpleInstrumentScore(**{**bank.__dict__, "components": [*bank.components[:4], capital]})
+    )
+    assert still_blocked.final_label == "insufficient_evidence"  # capital present, owner claim (eierbrok) still missing
+    canonical = ss._with_canonical_score(blocked).canonical_score
+    assert canonical is not None and {gate.gate_id for gate in canonical.critical_gates} == {"capital", "owner_claim"}
+    assert ss._business_model_for_sector("Technology") is None
+
+
+def test_sparebank_ec_generic_score_needs_confirmed_owner_claim_and_capital(monkeypatch: pytest.MonkeyPatch) -> None:
+    ec = ss.SimpleInstrumentScore(**{**_strong_stock(with_solvency=True).__dict__, "asset_type": "Equity certificate"})
+    monkeypatch.setattr(ss, "latest_sparebank_scores", lambda: {})
+    assert ss._with_critical_evidence(ec).final_label == "insufficient_evidence"  # no stored native row
+    partial = {"ACME": {"final_combined_score_10": 6.0, "missing_components": "owner_claim_integrity|capital_liquidity_resilience"}}
+    monkeypatch.setattr(ss, "latest_sparebank_scores", lambda: partial)
+    assert ss._with_critical_evidence(ec).final_label == "insufficient_evidence"  # claim unresolved
+    covered = {"ACME": {"final_combined_score_10": 6.0, "missing_components": "marketability"}}
+    monkeypatch.setattr(ss, "latest_sparebank_scores", lambda: covered)
+    assert ss._with_critical_evidence(ec).final_label == "strong_evidence_candidate"
+
+
+# Review fix 2: a cyclical-sector candidate row keeps its solvency and owner-claim evidence.
+def test_cyclical_candidate_row_keeps_solvency_and_owner_claim_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
+    import pandas as pd
+    from dataclasses import replace
+
+    cyclical = [replace(_simple(key, 0.5), status="OK") for key in ("stock_value", "stock_quality")]
+    monkeypatch.setattr(ss, "_etf_exposure_lookup", lambda: {})
+    monkeypatch.setattr(ss, "_cyclical_stock_components", lambda *args, **kwargs: cyclical)
+
+    def candidate(**evidence: object) -> ss.SimpleInstrumentScore:
+        report = pd.DataFrame(
+            [{"instrument_id": "OIL", "asset_type": "STOCK", "instrument_type": "stock", "sector": "energy",
+              "latest_date": "2026-10-09", "latest_price": 50.0, **evidence}]
+        )
+        (result,) = ss.build_candidate_simple_scores(report, pd.DataFrame())
+        return result
+
+    covered = candidate(market_cap=5.0e9, debt_to_equity=0.8)
+    assert {"market_cap", "debt_to_equity"} <= ss._critical_evidence_ids_of(covered)
+    assert covered.canonical_score is not None and not covered.canonical_score.gate_failed
+    bare = candidate()
+    assert not ({"market_cap", "debt_to_equity"} & ss._critical_evidence_ids_of(bare))
+    assert bare.canonical_score is not None and bare.canonical_score.gate_failed
+    assert set(ss._candidate_critical_inputs(pd.Series({"market_cap": None, "debt_to_equity": float("nan")}))) == set()

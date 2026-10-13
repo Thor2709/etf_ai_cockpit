@@ -433,6 +433,8 @@ class SimpleInstrumentScore:
     classification_invalidation_hash: str = "unavailable"
     classification_dependency_status: str = "legacy_unbound"
     identity_conflict_reason: str | None = None
+    # Gate-class hint from the instrument's sector (``bank``); not an input to any score, only selects the gate set (#939).
+    business_model: str | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -1062,6 +1064,34 @@ def _with_classification_dependency(score: SimpleInstrumentScore) -> SimpleInstr
     )
 
 
+_BANK_SECTORS = frozenset({"bank", "banks", "savings bank", "savings banks", "savings_banks", "savings_bank"})
+
+
+def _business_model_for_sector(sector: object) -> str | None:
+    """``bank`` for the configured bank sectors (the same labels stock fundamentals exclude), else ``None``."""
+
+    return "bank" if str(sector or "").strip().casefold() in _BANK_SECTORS else None
+
+
+def _sparebank_evidence_ids(display_id: str) -> set[str]:
+    """Capital and owner-claim evidence ids a Sparebank EC holds, read from the stored native scorecard row.
+
+    A fully covered axis is the only proof: the owner-claim axis is partial until the eierbrøk is resolved, and the
+    capital axis is partial until its CET1 inputs exist. No stored native row means no evidence (fails closed).
+    """
+
+    row = latest_sparebank_scores().get(str(display_id))
+    if row is None or row.get("final_combined_score_10") is None:
+        return set()
+    missing = {part for part in str(row.get("missing_components") or "").split("|") if part}
+    held: set[str] = set()
+    if "owner_claim_integrity" not in missing:
+        held.update({"eierbrok", "equity_certificates"})
+    if "capital_liquidity_resilience" not in missing:
+        held.add("cet1_ratio")
+    return held
+
+
 def _critical_evidence_ids_of(score: SimpleInstrumentScore) -> set[str]:
     """Evidence ids the score holds: eligible component keys, evidence-derived inputs and identity."""
 
@@ -1070,19 +1100,27 @@ def _critical_evidence_ids_of(score: SimpleInstrumentScore) -> set[str]:
         held.update(component.inputs_used)
     if str(score.isin or "").strip() or str(score.yahoo_symbol or "").strip():
         held.add("identity")
+    if _is_sparebank_ec_asset_type(score.asset_type):
+        held.update(_sparebank_evidence_ids(score.display_id))
     return held
 
 
 def _with_critical_evidence(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
-    """A failed critical-evidence gate turns a Buy-type label into Insufficient evidence (scores stay visible)."""
+    """A failed critical-evidence gate turns a Buy-type label into Insufficient evidence (scores stay visible).
 
-    if score.identity_conflict_reason is not None or _is_sparebank_ec_asset_type(score.asset_type):
+    Banks (sector ``Banks``) use the BANK gate set (capital plus owner claim) and Sparebank ECs, including the
+    generic score shown while the native scorecard is pending, need a confirmed eierbrøk and capital evidence.
+    """
+
+    if score.identity_conflict_reason is not None:
         return score
     from etf_cockpit.analysis.decision import gates
 
     if not gates.is_buy_label(score.final_label):
         return score
-    results = gates.evaluate_critical_gates(gates.critical_asset_class(score.asset_type), _critical_evidence_ids_of(score))
+    results = gates.evaluate_critical_gates(
+        gates.critical_asset_class(score.asset_type, score.business_model), _critical_evidence_ids_of(score)
+    )
     failed = gates.failed_gates(results)
     if not failed:
         return score
@@ -1116,6 +1154,7 @@ def _with_canonical_score(score: SimpleInstrumentScore) -> SimpleInstrumentScore
         score.latest_date,
         score.components,
         critical_evidence=_critical_evidence_ids_of(score),
+        business_model=score.business_model,
     )
     source_vintage_hash = hashlib.sha256(
         (
@@ -1737,6 +1776,7 @@ def build_universe_simple_scores(
                 theme_attribution_status=str(attribution_info.get("theme_attribution_status", "N/A")),
                 theme_sample_size=_safe_int(attribution_info.get("theme_sample_size")),
                 sector_theme_warning=_sector_theme_warning(identity),
+                business_model=_business_model_for_sector(identity.sector) if stock_like else None,
                 **_friction_edge_fields(
                     evidence_score,
                     components,
@@ -1910,7 +1950,12 @@ def build_candidate_simple_scores(
                 sector=row.get("sector"),
             )
             if cyclical_components is not None and all(row.status == "OK" for row in cyclical_components):
-                component_rows.extend(cyclical_components)
+                # Same solvency / owner-claim / capital evidence as the generic branch below.
+                held = _candidate_critical_inputs(row)
+                component_rows.extend(
+                    replace(item, inputs_used=held) if item.key == "stock_quality" else item
+                    for item in cyclical_components
+                )
                 component_rows.append(
                     _optional_score_component(
                         "analyst_revision",
@@ -1929,7 +1974,7 @@ def build_candidate_simple_scores(
                                 _candidate_value_why(row),
                                 authority="medium",
                             ),
-                            inputs_used=("market_cap",) if _safe_float(row.get("market_cap")) else (),
+                            inputs_used=tuple(item for item in _candidate_critical_inputs(row) if item == "market_cap"),
                         ),
                         replace(
                             _optional_score_component(
@@ -1938,7 +1983,7 @@ def build_candidate_simple_scores(
                                 _candidate_quality_why(row),
                                 authority="medium",
                             ),
-                            inputs_used=("debt_to_equity",) if _safe_float(row.get("debt_to_equity")) is not None else (),
+                            inputs_used=tuple(item for item in _candidate_critical_inputs(row) if item != "market_cap"),
                         ),
                         _optional_score_component(
                             "analyst_revision",
@@ -2016,6 +2061,7 @@ def build_candidate_simple_scores(
                 warnings=blocked,
                 model_versions_used=_forecast_versions_for_instrument(forecasts, instrument_id),
                 portfolio_fit_label="Candidate portfolio fit pending: not in clean portfolio price panel.",
+                business_model=_business_model_for_sector(row.get("sector")) if asset_type != "ETF" else None,
                 portfolio_fit_score_10=None,
                 benchmark_attribution_label="Benchmark attribution pending: candidate price history is not yet in the clean yfinance price panel.",
                 sector_theme_warning="Sector/theme concentration pending: candidate metadata is not yet normalised into the configured universe.",
@@ -2030,6 +2076,18 @@ def build_candidate_simple_scores(
             )
         )
     return [_with_canonical_score(_with_critical_evidence(score)) for score in output]
+
+
+def _candidate_critical_inputs(row: pd.Series) -> tuple[str, ...]:
+    """Solvency, owner-claim and capital evidence ids a candidate row holds (finite values only)."""
+
+    held = []
+    if _safe_float(row.get("market_cap")):
+        held.append("market_cap")
+    for name in ("debt_to_equity", "net_debt_to_ebitda", "interest_coverage", "cet1_ratio", "total_capital_ratio"):
+        if _safe_float(row.get(name)) is not None:
+            held.append(name)
+    return tuple(held)
 
 
 def _read_latest_csv(directory: Path, pattern: str) -> tuple[pd.DataFrame, Path | None]:
@@ -2784,7 +2842,7 @@ def _stock_fundamental_components(
         inputs = {}
         if key in {"stock_value", "stock_quality"}:
             inputs = {
-                "inputs_used": _used_input_keys(part) + (_owner_claim_ids(evidence) if key == "stock_value" else ()),
+                "inputs_used": _used_input_keys(part) + (_owner_claim_ids(evidence) + _capital_ids(evidence) if key == "stock_value" else ()),
                 "inputs_configured": (
                     tuple(str(getattr(item, "key", "")) for item in (getattr(part, "inputs", ()) or ()))
                     if key == "stock_quality"
@@ -2801,6 +2859,17 @@ def _owner_claim_ids(evidence: object) -> tuple[str, ...]:
     return ("market_cap",) if market_cap is not None and getattr(market_cap, "available", False) is True else ()
 
 
+def _capital_ids(evidence: object) -> tuple[str, ...]:
+    """Bank capital ratios (CET1 / total capital) when the stock evidence reports them as available."""
+
+    metrics = getattr(evidence, "metrics", None)
+    if not isinstance(metrics, Mapping):
+        return ()
+    return tuple(
+        name for name in ("cet1_ratio", "total_capital_ratio") if getattr(metrics.get(name), "available", False) is True
+    )
+
+
 def _used_input_keys(part: object) -> tuple[str, ...]:
     return tuple(str(getattr(item, "key", "")) for item in (getattr(part, "used", ()) or ()))
 
@@ -2809,7 +2878,7 @@ def _critical_evidence_ids(evidence: object) -> tuple[str, ...]:
     """Solvency/leverage and owner-claim evidence ids the generic fundamentals actually hold."""
 
     quality = getattr(evidence, "components", {}).get("stock_quality")
-    return _used_input_keys(quality) + _owner_claim_ids(evidence)
+    return _used_input_keys(quality) + _owner_claim_ids(evidence) + _capital_ids(evidence)
 
 
 def _cyclical_stock_components(
