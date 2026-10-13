@@ -15,6 +15,7 @@ from etf_cockpit.data.score_history import latest_sparebank_scores
 from etf_cockpit.signals.simple_scores import build_simple_instrument_scores
 
 NEUTRAL_SCORE_10 = 5.0
+INSUFFICIENT_LABEL = "insufficient_evidence"  # equals analysis.decision.gates.INSUFFICIENT_LABEL (kept import-light)
 
 _LOCK = threading.Lock()
 _CACHE: dict[str, object] = {}
@@ -109,17 +110,65 @@ def sparebank_score_context(score: object) -> dict[str, object] | None:
     return load_peer_row(None, str(getattr(score, "display_id", "")))
 
 
+def score_gate_failed(score: object) -> bool:
+    """True when a critical-evidence gate failed: the score is descriptive only and carries no Buy-type label."""
+
+    canonical = getattr(score, "canonical_score", None)
+    if canonical is not None and bool(getattr(canonical, "gate_failed", False)):
+        return True
+    return str(getattr(score, "final_label", "") or "") == INSUFFICIENT_LABEL
+
+
+def score_buy_eligible(score: object) -> bool:
+    """A Buy-type label counts only while no critical gate has failed; the display shrink never changes this."""
+
+    from etf_cockpit.analysis.decision.gates import is_buy_label
+
+    return not score_gate_failed(score) and is_buy_label(getattr(score, "final_label", ""))
+
+
 def apply_missing_data_penalty(score: object) -> object:
-    """Pull a score toward neutral 5 by its missing evidence: 5 + (score - 5) x coverage."""
+    """Pull a score toward neutral 5 by its missing evidence: 5 + (score - 5) x coverage.
+
+    The result is a display adjustment, never a confidence or probability, and it never touches the label or
+    action: a gate-failed instrument stays "Insufficient evidence" whatever the shrunk value is.
+    """
 
     raw = getattr(score, "final_score_10", None)
     coverage = score_coverage(score)
     if raw is None or coverage is None:
         return score
     adjusted = round(NEUTRAL_SCORE_10 + (float(raw) - NEUTRAL_SCORE_10) * coverage, 2)
-    note = f"Missing-data penalty on: {float(raw):.1f} -> {adjusted:.1f} at {coverage:.0%} evidence coverage."
+    note = (
+        f"Missing-data penalty on: {float(raw):.1f} -> {adjusted:.1f} at {coverage:.0%} evidence coverage "
+        "(research score -> display-adjusted value; not a confidence or probability)."
+    )
+    if score_gate_failed(score):
+        note += " Critical evidence is missing, so this adjustment cannot make the instrument eligible."
     reason = f"{getattr(score, 'one_line_reason', '') or ''} {note}".strip()
-    return replace(score, final_score_10=adjusted, one_line_reason=reason)
+    presented = replace(score, final_score_10=adjusted, one_line_reason=reason)
+    # Not a dataclass field (the score contract and goldens stay unchanged): the three display numbers.
+    object.__setattr__(presented, "_display_basis", {"research": float(raw), "coverage": coverage, "adjusted": adjusted})
+    return presented
+
+
+def score_display_values(score: object) -> dict[str, object]:
+    """Research score, evidence coverage and display-adjusted value as three separate fields."""
+
+    basis = getattr(score, "_display_basis", None)
+    if isinstance(basis, dict):
+        research, coverage, adjusted = basis["research"], basis["coverage"], basis["adjusted"]
+    else:
+        research = getattr(score, "final_score_10", None)
+        coverage = score_coverage(score)
+        adjusted = research
+    return {
+        "research_score_10": research,
+        "evidence_coverage": coverage,
+        "display_adjusted_score_10": adjusted,
+        "gate_failed": score_gate_failed(score),
+        "buy_eligible": score_buy_eligible(score),
+    }
 
 
 def score_card_values(score: object) -> dict[str, object]:
@@ -148,6 +197,10 @@ def score_card_values(score: object) -> dict[str, object]:
         "valid_components": tuple(getattr(score, "evidence_component_counts", (0, 0)))[0],
         "total_components": tuple(getattr(score, "evidence_component_counts", (0, 0)))[1],
         "confidence_cap": _confidence_cap(canonical),
+        "critical_gates_failed": tuple(
+            str(getattr(gate, "gate_id", "")) for gate in getattr(canonical, "critical_gates", ()) or () if not getattr(gate, "passed", True)
+        ),
+        "research_decision_status": getattr(getattr(canonical, "authority", None), "research_decision_status", None),
     }
 
 

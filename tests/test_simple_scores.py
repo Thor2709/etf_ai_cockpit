@@ -746,12 +746,45 @@ def test_scoreboard_binds_classification_token_and_reader_invalidates_stale_scor
                 "sma50_signal": True,
                 "sma200_signal": True,
                 "median_turnover_60d_eur": 2_500_000,
+                # #939: solvency and owner-claim evidence keep the attractiveness group evaluable.
+                "market_cap": 5_000_000_000.0,
+                "debt_to_equity": 40.0,
                 "blocked_by": "",
             }
         ]
     )
     monkeypatch.setattr(simple_scores_module, "ROOT", tmp_path)
     candidate = build_candidate_simple_scores(report, pd.DataFrame(), decision_date=date(2026, 7, 10))[0]
+    # #939: a bare candidate has no price/risk components (coverage < 0.50) and its v3 values are unavailable; give
+    # it the price, model and implementation evidence of a fully scored stock so the stored value can be invalidated.
+    full_evidence = [
+        SimpleScoreComponent(
+            key=key,
+            label=key,
+            score_10=7.0,
+            raw_score=0.4,
+            status="ok",
+            explanation="",
+            good_score="",
+            why="synthetic",
+            source_id="model:baseline" if key == "baseline" else "yfinance:prices",
+            as_of_date="2026-07-10",
+            freshness_status="ok",
+            score_role=role,
+        )
+        for key, role in (
+            ("momentum", "evidence"),
+            ("trend", "evidence"),
+            ("relative_strength", "evidence"),
+            ("baseline", "model_confirmation"),
+            ("risk", "risk_friction"),
+            ("liquidity_cost", "risk_friction"),
+        )
+    ]
+    replaced = {item.key for item in full_evidence}
+    candidate = replace(
+        candidate, components=[*(c for c in candidate.components if c.key not in replaced), *full_evidence], canonical_score=None
+    )
     bound = simple_scores_module._with_canonical_score(
         simple_scores_module._with_classification_dependency(candidate)
     )

@@ -361,6 +361,7 @@ def test_sparse_promoted_forecast_leaves_other_etfs_scores_and_confidence_finite
     for _, row in scored.iterrows():
         row = row.copy()
         row["price_freshness"] = "ok"
+        row["score_etf_exposure"] = 0.3  # #939: the ETF exposure gate needs exposure evidence for a group score
         canonical = canonical_score_from_signal_row(row, config, "2026-01-06", toto_available=True, timesfm_available=True)
         assert canonical.legacy_composite_raw is not None and pd.notna(canonical.legacy_composite_raw)
         assert canonical.evidence_confidence_10 is not None and pd.notna(canonical.evidence_confidence_10)
@@ -450,6 +451,7 @@ def test_one_etf_has_one_final_score_and_consistent_views() -> None:
     row = pd.Series({
         "etf_id": "AAA", "price_freshness": "ok", "score_momentum": 0.4, "score_trend": 0.3, "score_relative_strength": 0.2, "score_risk": 0.1,
         "score_rebalance": 0.0, "cost_penalty": 0.01, "turnover_penalty": 0.0, "score_baseline_ml": 0.2,
+        "score_etf_exposure": 0.3,  # #939: exposure evidence keeps the ETF attractiveness group evaluable
     })
     first = canonical_score_from_signal_row(row, config, "2026-01-06")
     assert first.as_dict() == canonical_score_from_signal_row(row, config, "2026-01-06").as_dict()
