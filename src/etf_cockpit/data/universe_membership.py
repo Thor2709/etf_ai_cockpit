@@ -88,6 +88,14 @@ class LicensedImportStatus:
     checksum: str
 
 
+@dataclass(frozen=True)
+class LineageRepairStatus:
+    """Outcome of reconciling committed captures with published catalogue lineage."""
+
+    repaired: tuple[str, ...] = ()
+    unavailable: tuple[str, ...] = ()
+
+
 _LAST_CONFIGURED_STATUS = CaptureStatus("not_attempted", "configured")
 
 
@@ -387,6 +395,7 @@ def import_licensed_history(
     checksum = hashlib.sha256(payload).hexdigest()
     active_root = Path(root or ROOT)
     raw_path = _store_raw_payload(payload, checksum, active_root)
+    _repair_before_write(active_root)
     connection = _connect(active_root / _DB_RELATIVE_PATH, create=True)
     processed_rows: list[dict[str, object]] = []
     imported_count = 0
@@ -489,6 +498,7 @@ def _record_capture(
     digest = hashlib.sha256(payload).hexdigest()
     active_root = Path(root).resolve()
     database_path = active_root / _DB_RELATIVE_PATH
+    _repair_before_write(active_root)
     connection = _connect(database_path, create=True)
     try:
         connection.execute("BEGIN IMMEDIATE")
@@ -927,8 +937,9 @@ def _publish_lineage(
     source: str,
     checksum: str,
     raw_path: str,
+    catalogue: DataCatalogue | None = None,
 ) -> None:
-    catalogue = _ensure_catalogue(root)
+    catalogue = catalogue or _ensure_catalogue(root)
     raw_snapshot = _register_raw_snapshot(catalogue, checksum, raw_row_count)
     _register_processed_snapshot(
         catalogue,
@@ -940,6 +951,92 @@ def _publish_lineage(
         checksum=checksum,
         raw_path=raw_path,
     )
+
+
+def repair_catalogue_lineage(root: Path | None = None) -> LineageRepairStatus:
+    """Publish lineage for committed self captures that crashed before publishing it.
+
+    A capture is matched only by its stored raw file path and checksum: the
+    content-addressed raw payload must exist at that path and hash to the stored
+    checksum, and the stored interval revisions are replayed in insertion order.
+    Registration is idempotent, so captures that already have lineage are no-ops.
+    A capture that cannot be matched unambiguously is reported in ``unavailable``
+    (``catalogue_lineage_unavailable``) and is never guessed. Licensed imports are
+    not repaired because their processed rows are not fully recoverable.
+    """
+
+    active_root = Path(root or ROOT).resolve()
+    database_path = active_root / _DB_RELATIVE_PATH
+    if not database_path.is_file():
+        return LineageRepairStatus()
+    connection = _connect(database_path, create=False)
+    try:
+        captures = [
+            dict(row)
+            for row in connection.execute(
+                "SELECT " + ", ".join(_CAPTURE_COLUMNS) + " FROM capture_log WHERE source_kind='self' ORDER BY capture_id"
+            ).fetchall()
+        ]
+        revisions: dict[int, list[dict[str, object]]] = {}
+        for row in connection.execute(
+            "SELECT " + ", ".join((*_INTERVAL_COLUMNS, "interval_id", "capture_id"))
+            + " FROM interval_revisions WHERE source_kind='self' ORDER BY revision_id"
+        ).fetchall():
+            record = dict(row)
+            revisions.setdefault(int(record["capture_id"]), []).append(record)
+    finally:
+        connection.close()
+    if not captures:
+        return LineageRepairStatus()
+    catalogue = _ensure_catalogue(active_root)
+    repaired: list[str] = []
+    unavailable: list[str] = []
+    for capture in captures:
+        checksum = str(capture["checksum"])
+        expected_path = (_RAW_RELATIVE_PATH / f"{checksum}.payload.gz").as_posix()
+        label = f"{capture['scope']}:{checksum}"
+        try:
+            if str(capture["raw_path"]) != expected_path:
+                raise MembershipCaptureError("stored raw path does not match the content-addressed path")
+            load_raw_payload(checksum, root=active_root)
+            raw_row_count = int(capture["row_count"])
+            processed_row = {
+                "snapshot_date": capture["snapshot_date"],
+                "scope": capture["scope"],
+                "source": capture["source"],
+                "source_id": capture["source_id"],
+                "checksum": checksum,
+                "complete": bool(capture["complete"]),
+                "known_at": capture["known_at"],
+                "row_count": raw_row_count,
+                "raw_path": capture["raw_path"],
+                "interval_revisions": revisions.get(int(capture["capture_id"]), []),
+            }
+            before = len(catalogue.snapshots)
+            _publish_lineage(
+                active_root,
+                raw_row_count=raw_row_count,
+                rows=[processed_row],
+                captured_at=str(capture["known_at"]),
+                scope=str(capture["scope"]),
+                source=str(capture["source"]),
+                checksum=checksum,
+                raw_path=expected_path,
+                catalogue=catalogue,
+            )
+            if len(catalogue.snapshots) != before:
+                repaired.append(label)
+        except (MembershipCaptureError, DataCatalogueError, OSError, TimeoutError) as exc:
+            _LOG.warning("catalogue_lineage_unavailable for capture %s: %s", label, exc)
+            unavailable.append(label)
+    return LineageRepairStatus(tuple(repaired), tuple(unavailable))
+
+
+def _repair_before_write(root: Path) -> None:
+    try:
+        repair_catalogue_lineage(root)
+    except (MembershipCaptureError, DataCatalogueError, OSError, TimeoutError, sqlite3.Error) as exc:
+        _LOG.warning("catalogue lineage repair skipped: %s", exc)
 
 
 def _register_raw_snapshot(catalogue: DataCatalogue, checksum: str, row_count: int) -> DatasetSnapshot:
@@ -990,6 +1087,7 @@ __all__ = [
     "CaptureStatus",
     "LicensedImportStatus",
     "MembershipCaptureError",
+    "LineageRepairStatus",
     "capture_log",
     "closure_events",
     "get_configured_capture_status",
@@ -999,4 +1097,5 @@ __all__ = [
     "membership_intervals",
     "record_configured_capture",
     "record_listing_capture",
+    "repair_catalogue_lineage",
 ]

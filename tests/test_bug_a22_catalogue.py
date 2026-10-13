@@ -153,3 +153,53 @@ def test_lineage_publish_failure_after_commit_is_reported_not_hidden(
     )
     assert status.status == "recorded" and status.reason == "catalogue_lineage_unavailable"
     assert len(universe_membership.capture_log(_SCOPE, root=tmp_path)) == 1
+
+
+def _capture_with_lineage_crash(root: Path, monkeypatch: pytest.MonkeyPatch, instrument: str, day: int) -> None:
+    """Commit a capture, but crash before the lineage is published."""
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            universe_membership,
+            "_publish_lineage",
+            lambda *_a, **_k: (_ for _ in ()).throw(OSError("injected crash")),
+        )
+        universe_membership.record_listing_capture(
+            [{"instrument_id": instrument}], "fixture", _SCOPE, datetime(2024, 1, day, 12, tzinfo=timezone.utc), root=root
+        )
+
+
+def test_next_capture_repairs_committed_capture_without_lineage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _capture_with_lineage_crash(tmp_path, monkeypatch, "A", 1)
+    assert DataCatalogue(tmp_path).snapshots == ()
+
+    universe_membership.record_listing_capture(
+        [{"instrument_id": "A"}, {"instrument_id": "B"}],
+        "fixture",
+        _SCOPE,
+        datetime(2024, 1, 2, 12, tzinfo=timezone.utc),
+        root=tmp_path,
+    )
+    catalogue = DataCatalogue(tmp_path)
+    # two captures -> two distinct raw snapshots and two processed snapshots, all linked
+    assert len(catalogue.snapshots) == 4 and len(catalogue.lineage) == 2
+    # repair is idempotent
+    assert universe_membership.repair_catalogue_lineage(tmp_path) == universe_membership.LineageRepairStatus()
+    assert len(DataCatalogue(tmp_path).snapshots) == 4
+
+
+def test_unmatchable_capture_is_reported_unavailable_never_guessed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _capture_with_lineage_crash(tmp_path, monkeypatch, "A", 1)
+    raw = next((tmp_path / "data" / "raw" / "universe_membership").glob("*.payload.gz"))
+    raw.write_bytes(b"corrupt")
+
+    status = universe_membership.repair_catalogue_lineage(tmp_path)
+    assert status.repaired == () and len(status.unavailable) == 1
+    assert DataCatalogue(tmp_path).snapshots == ()
+    # the broken orphan never blocks later captures
+    universe_membership.record_listing_capture(
+        [{"instrument_id": "C"}], "fixture", _SCOPE, datetime(2024, 1, 3, 12, tzinfo=timezone.utc), root=tmp_path
+    )
+    assert len(universe_membership.capture_log(_SCOPE, root=tmp_path)) == 2
