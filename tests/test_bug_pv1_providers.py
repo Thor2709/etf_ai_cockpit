@@ -714,4 +714,3 @@ def test_a103_n007_bulk_download_redirect_must_stay_on_allowlist(monkeypatch, tm
     with pytest.raises(BulkCacheError):
         ContentAddressedCache(tmp_path).download(request)
     assert opened == ["https://example.test/file"]
-
