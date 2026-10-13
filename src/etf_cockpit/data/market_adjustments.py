@@ -751,11 +751,17 @@ def _resolve_actions(actions: Sequence[CorporateAction], tolerance: float) -> _R
 def _price_currency_of(raw_prices: pd.DataFrame, explicit: str | None) -> tuple[str | None, bool]:
     """Return (currency, mixed); mixed rows never get a single guessed currency."""
 
-    if explicit is not None:
-        return _currency(explicit), False
-    if "currency" not in raw_prices.columns:
+    values = (
+        {str(item).strip().upper() for item in raw_prices["currency"].dropna() if str(item).strip()}
+        if "currency" in raw_prices.columns
+        else set()
+    )
+    declared = _currency(explicit)
+    if declared is not None:
+        # Rows quoted in a currency other than the declared one are mixed evidence, not a guessable currency.
+        return declared, bool(values - {declared})
+    if not values:
         return None, False
-    values = {str(item).strip().upper() for item in raw_prices["currency"].dropna() if str(item).strip()}
     if len(values) > 1:
         return None, True
     return (next(iter(values)) if values else None), False
@@ -849,31 +855,22 @@ def apply_total_return_adjustments(
         identity["known_at"] = pd.to_datetime(frame["known_at"], errors="coerce", utc=True)
     duplicated = identity.duplicated(keep="first")
     if duplicated.any():
-        first_close = pd.Series(
-            frame["raw_close"].to_numpy(), index=pd.MultiIndex.from_frame(identity)
-        )[~duplicated.to_numpy()]
-        clash = pd.Series(
-            [
-                bool(duplicated.iloc[index])
-                and not math.isclose(
-                    float(frame.loc[index, "raw_close"]),
-                    float(first_close.loc[tuple(identity.iloc[index])]),
-                    rel_tol=discrepancy_tolerance,
-                    abs_tol=0.0,
-                )
-                for index in range(len(frame))
-            ],
-            index=frame.index,
+        # Same (day, known_at) key with a different close is conflicting evidence; NaT stamps group together.
+        first_close = frame.groupby(
+            [identity[column] for column in identity.columns], dropna=False, sort=False
+        )["raw_close"].transform("first")
+        clash = duplicated & ~np.isclose(
+            frame["raw_close"].to_numpy(dtype=float),
+            first_close.to_numpy(dtype=float),
+            rtol=discrepancy_tolerance,
+            atol=0.0,
         )
-        if clash.any() and "known_at" not in frame.columns:
+        if clash.any():
             warnings.extend(f"conflicting_duplicate_candle:{item}" for item in sorted({day.iloc[i].date().isoformat() for i in frame.index[clash]}))
             return _mark_canonical_adjustment(
                 AdjustmentResult("quarantined", _unavailable_adjustment_frame(frame), convention, (), tuple(warnings))
             )
-        if clash.any():
-            # Revision-stamped evidence keeps same-stamp conflicts; the as-known selector downstream fails closed on them.
-            warnings.extend(f"conflicting_duplicate_candle_revisions:{item}" for item in sorted({day.iloc[i].date().isoformat() for i in frame.index[clash]}))
-        drop = duplicated & ~clash
+        drop = duplicated
         if drop.any():
             warnings.append(f"collapsed_duplicate_candles:{int(drop.sum())}")
             frame = frame.loc[~drop.to_numpy()].reset_index(drop=True)

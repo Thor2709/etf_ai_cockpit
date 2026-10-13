@@ -10,8 +10,12 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from etf_cockpit.application import market_views
 from etf_cockpit.data.market_adjustments import (
     CorporateAction,
+    CorporateActionCoverage,
+    CorporateActionCoverageStore,
+    CorporateActionStore,
     FXObservation,
     FXObservationStore,
     MarketAdjustmentError,
@@ -375,3 +379,96 @@ def test_exact_total_loss_is_representable(tmp_path: Path) -> None:
         apply_total_return_adjustments(prices=(100.0, 0.0, 50.0), actions=())
     with pytest.raises(MarketAdjustmentError):
         apply_total_return_adjustments(_prices(["2024-01-10", "2024-01-11", "2024-01-12"], [100.0, 0.0, 50.0]), ())
+
+
+# --- A010-N005 / A010-N004 / A010-N003 (correction pass 1) -----------------------------
+
+
+def _series_projection(tmp_path: Path, prices: pd.DataFrame, *, basis: str, actions: tuple[CorporateAction, ...] = (), local_currency: str = "USD") -> dict[str, object]:
+    seeded = tmp_path / "seeded.marker"
+    if not seeded.exists():
+        _seed_evidence(tmp_path, actions)
+        seeded.write_text("1", encoding="utf-8")
+    return market_views._load_market_series_projection(
+        prices.assign(etf_id=ASSET),
+        ASSET,
+        basis=basis,
+        local_currency=local_currency,
+        storage_root=tmp_path,
+        decision_time="2024-03-01T00:00:00Z",
+    )
+
+
+def _seed_evidence(tmp_path: Path, actions: tuple[CorporateAction, ...]) -> None:
+    with CorporateActionStore(tmp_path) as store:
+        for action in actions:
+            store.append(action)
+    with CorporateActionCoverageStore(tmp_path) as store:
+        store.append(
+            CorporateActionCoverage(
+                instrument_id=ASSET,
+                coverage_through="2024-02-01T00:00:00Z",
+                published_at="2024-02-02T00:00:00Z",
+                retrieved_at="2024-02-02T00:00:00Z",
+                known_at="2024-02-02T00:00:00Z",
+                revision=1,
+                source="provider:a",
+                source_id="provider:a:coverage",
+                source_checksum="sha256:coverage",
+            )
+        )
+
+
+def test_raw_basis_survives_action_conflict_but_adjusted_bases_do_not(tmp_path: Path) -> None:
+    conflict = (
+        _action("SPLIT-A", "split", ratio=2.0, source="provider:a"),
+        _action("SPLIT-B", "split", ratio=4.0, source="provider:b"),
+    )
+    prices = _prices(SPLIT_DATES, SPLIT_CLOSES)
+
+    raw = _series_projection(tmp_path, prices, basis="raw", actions=conflict)
+    assert raw["status"] == "available" and raw["basis"] == "raw"
+    assert raw["frame"]["series_value"].tolist() == SPLIT_CLOSES
+    for basis in ("adjusted", "total_return"):
+        blocked = _series_projection(tmp_path, prices, basis=basis)
+        assert blocked["status"] != "available"
+        assert blocked["reason_code"] == "corporate_action_discrepancy"
+
+
+def test_raw_fallback_refuses_duplicate_candle_conflict_and_mixed_currency(tmp_path: Path) -> None:
+    conflict = (
+        _action("SPLIT-A", "split", ratio=2.0, source="provider:a"),
+        _action("SPLIT-B", "split", ratio=4.0, source="provider:b"),
+    )
+    duplicate = _prices(["2024-01-10", "2024-01-11", "2024-01-11", "2024-01-12"], [100.0, 50.0, 52.0, 52.0])
+    result = _series_projection(tmp_path, duplicate, basis="raw", actions=conflict)
+    assert result["status"] != "available" and result["reason_code"] == "corporate_action_discrepancy"
+
+    mixed = _prices(SPLIT_DATES, SPLIT_CLOSES, currency=["USD", "USD", "USD", "EUR", "EUR", "EUR"])
+    result = _series_projection(tmp_path, mixed, basis="raw", actions=conflict)
+    assert result["status"] != "available" and result["reason_code"] == "corporate_action_discrepancy"
+
+
+def test_same_known_at_duplicate_close_conflict_is_quarantined() -> None:
+    dates = ["2024-01-10", "2024-01-11", "2024-01-11"]
+    stamps = ["2024-01-10T18:00:00Z", "2024-01-11T18:00:00Z", "2024-01-11T18:00:00Z"]
+    result = apply_total_return_adjustments(_prices(dates, [50.0, 50.0, 52.0], known_at=stamps), ())
+
+    assert result.status == "quarantined"
+    assert "conflicting_duplicate_candle:2024-01-11" in result.warnings
+    assert result.frame["price_return_index"].isna().all()
+    # A later revision stamp is still a legitimate revision, and missing stamps group together.
+    revised = apply_total_return_adjustments(_prices(dates, [50.0, 50.0, 52.0], known_at=[stamps[0], stamps[1], "2024-01-12T18:00:00Z"]), ())
+    assert revised.status == "available" and len(revised.frame) == 3
+    missing = apply_total_return_adjustments(_prices(dates, [50.0, 50.0, 52.0], known_at=[None, None, None]), ())
+    assert missing.status == "quarantined"
+
+
+def test_series_projection_passes_local_currency_to_the_cash_action_check(tmp_path: Path) -> None:
+    dividend = _action("DIV-EUR", "dividend", amount=1.0, currency="EUR")
+    result = _series_projection(tmp_path, _prices(SPLIT_DATES, [100.0, 100.0, 99.0, 99.0, 99.0, 99.0]), basis="total_return", actions=(dividend,))
+    assert result["status"] != "available"
+    assert result["reason_code"] == "corporate_action_discrepancy"
+
+    unknown = _series_projection(tmp_path, _prices(SPLIT_DATES, [100.0, 100.0, 99.0, 99.0, 99.0, 99.0]), basis="total_return", local_currency="")
+    assert unknown["status"] == "unavailable" and unknown["reason_code"] == "price_currency_unavailable"
