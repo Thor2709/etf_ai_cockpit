@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from contextlib import ExitStack, contextmanager
+from datetime import date, datetime, time, timedelta, timezone
 import hashlib
 import json
+import math
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -86,7 +88,7 @@ def statement_facts_from_esef(
     dimensional identity and are never mapped to a canonical total metric.
     """
 
-    from etf_cockpit.parsers.esef_ixbrl import map_ifrs_fact
+    from etf_cockpit.parsers.esef_ixbrl import is_ifrs_full_namespace, map_ifrs_fact
 
     result: list[StatementFact] = []
     for record in records:
@@ -100,14 +102,14 @@ def statement_facts_from_esef(
         canonical_metric = map_ifrs_fact(concept, namespace or None)
         if canonical_metric is None and extension_namespace and namespace == extension_namespace:
             canonical_metric = (extension_mappings or {}).get(concept)
-        if namespace and "ifrs" in namespace.lower():
+        if is_ifrs_full_namespace(namespace):
             canonical_metric = _ESEF_IFRS_METRIC_OVERRIDES.get(concept, canonical_metric)
-        if dimensions or mapping_status == "unsupported_numeric":
+        if dimensions or mapping_status in {"unsupported_numeric", "non_numeric"} or not getattr(record, "is_numeric", True):
             canonical_metric = None
         source_anchor = f"{concept}:{unit}:{period_start}:{period_end}:{_record_value(record, 'context_id')}"
         provider_id = str(source_provider or "filings_xbrl_org").strip() or "filings_xbrl_org"
         source_id = f"{provider_id}:{source_sha256[:16]}:{hashlib.sha256(source_anchor.encode('utf-8')).hexdigest()[:16]}"
-        is_extension = mapping_status == "unmapped_extension" or (namespace and "ifrs" not in namespace.lower())
+        is_extension = mapping_status == "unmapped_extension" or (namespace and not is_ifrs_full_namespace(namespace))
         result.append(
             StatementFact(
                 instrument_id=instrument_id,
@@ -190,6 +192,7 @@ _CANONICAL_CONCEPTS = {
     ("us-gaap", "EffectOfExchangeRateOnCashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"): "cash_from_fx",
     ("us-gaap", "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsPeriodIncreaseDecreaseIncludingExchangeRateEffect"): "cash_net_change",
 }
+_EARLIEST = datetime.min.replace(tzinfo=timezone.utc)
 _STANDARD_TAXONOMIES = frozenset({"us-gaap", "dei", "invest", "srt"})
 
 
@@ -206,8 +209,12 @@ def parse_companyfacts(path: Path, identity: CanonicalIdentity) -> ParseResult[S
     expected_cik = _normalise_cik(getattr(identity, "cik", None))
     if expected_cik is None:
         return _failure(source_sha, "identity_missing", "SEC parsing requires a canonical identity CIK")
-    cik_normalised = _normalise_cik(payload.get("cik", payload.get("cik_str")))
-    if cik_normalised is None:
+    supplied_ciks = [payload[key] for key in ("cik", "cik_str") if key in payload]
+    normalised_ciks = {_normalise_cik(value) for value in supplied_ciks}
+    if len(normalised_ciks) > 1 and None not in normalised_ciks:
+        return _failure(source_sha, "identity_mismatch", "SEC companyfacts cik and cik_str disagree")
+    cik_normalised = _normalise_cik(payload.get("cik", payload.get("cik_str"))) if len(normalised_ciks) <= 1 else None
+    if cik_normalised is None or None in normalised_ciks:
         return _failure(source_sha, "identity_missing", "SEC companyfacts is missing a valid CIK")
     if expected_cik != cik_normalised:
         return _failure(source_sha, "identity_mismatch", f"SEC CIK {cik_normalised} does not match requested identity")
@@ -253,6 +260,9 @@ def parse_companyfacts(path: Path, identity: CanonicalIdentity) -> ParseResult[S
                 value = entry["val"]
                 if isinstance(value, (dict, list, tuple, set, bool)):
                     warnings.append(ParseWarning("malformed_fact", f"{concept} contains a non-scalar value", "warning", concept))
+                    continue
+                if not _is_finite_number(value):
+                    warnings.append(ParseWarning("non_numeric_fact", f"{concept} contains a non-finite or non-numeric value; fact rejected", "warning", concept))
                     continue
                 key = (
                     taxonomy,
@@ -313,7 +323,9 @@ def parse_companyfacts(path: Path, identity: CanonicalIdentity) -> ParseResult[S
                         available_at=_string(entry.get("filed")),
                     )
                 )
-    success = bool(records) or (not had_ambiguous_units and not warnings)
+    if not records and not had_ambiguous_units and not any(warning.severity == "error" for warning in warnings):
+        warnings.append(ParseWarning("no_facts", "SEC companyfacts contains no usable facts", "error"))
+    success = bool(records)
     return ParseResult(tuple(records), tuple(warnings), "sec_companyfacts", "1.1", source_sha, success)
 
 
@@ -412,6 +424,9 @@ def _statement_facts_write_frame(records: tuple[StatementFact, ...], destination
     authoritative = select_authoritative_facts(frame.to_dict(orient="records"), vendor_records)
     authoritative_ids = {_record_value(record, "source_id") for record in authoritative if _record_value(record, "source_id")}
     frame["authority_selection"] = frame["source_id"].map(lambda source_id: _authority_selection(source_id, source_id in authoritative_ids))
+    # Point-in-time companion of ``authority_selection`` (see ``authority_selection_as_of``).
+    supersession = _supersession(frame.to_dict(orient="records"))
+    frame["superseded_at"] = frame["source_id"].map(lambda source_id: supersession.get(source_id, ""))
     return frame
 
 
@@ -434,13 +449,15 @@ def _statement_inventory_write_frame(source: RawDocument | Path, records: Iterab
             "as_of_date": max((record.filed or record.end or record.instant or "" for record in rows), default=""),
             "ingested_at": source.retrieved_at.isoformat() if isinstance(source, RawDocument) else "",
             "checksum": checksum,
-            "coverage_status": "imported" if rows else "unavailable",
+            # Unmapped facts are retained for review but are not evidence coverage.
+            "coverage_status": "imported" if any(record.canonical_metric for record in rows) else "unmapped_only" if rows else "unavailable",
             "fact_count": len(rows),
+            "mapped_fact_count": sum(1 for record in rows if record.canonical_metric),
             "source_ids": tuple(record.source_id for record in rows),
             "mapping_warnings": tuple(sorted({record.concept for record in rows if record.canonical_metric is None})),
             "executable_authority": False,
         }
-    ], columns=["schema_version", "document_id", "instrument_id", "document_type", "path", "source_url", "source_authority", "as_of_date", "ingested_at", "checksum", "coverage_status", "fact_count", "source_ids", "mapping_warnings", "executable_authority"])
+    ], columns=["schema_version", "document_id", "instrument_id", "document_type", "path", "source_url", "source_authority", "as_of_date", "ingested_at", "checksum", "coverage_status", "fact_count", "mapped_fact_count", "source_ids", "mapping_warnings", "executable_authority"])
     existing = _existing_parquet(destination)
     if not existing.empty:
         frame = pd.concat([existing, frame], ignore_index=True, sort=False)
@@ -456,6 +473,9 @@ def _statement_inventory_write_frame(source: RawDocument | Path, records: Iterab
 
 def _statement_source_authority(source: RawDocument | Path) -> str:
     if not isinstance(source, RawDocument):
+        return "local_unverified"
+    if source.provider_id == "sec_local_import" and source.document_type == "sec_companyfacts":
+        # A path-only companyfacts import has no hash or source proof (bulk archives keep manual_review).
         return "local_unverified"
     return {
         "filings_xbrl_org": "official_filing",
@@ -488,45 +508,157 @@ def _ordered_statement_facts(frame):
     return frame.reindex(columns=columns + extras)
 
 
+# Restatement policy (explicit): for one exact fact key the LATEST fact published at or before the
+# as-of time is authoritative; earlier filings stay canonical until the later one is published and a
+# later-published fact never masks an earlier one at an earlier as-of.
+RESTATEMENT_POLICY = "latest_published_as_of"
+
+
 def select_authoritative_facts(
     sec_records: Iterable[StatementFact],
     vendor_records: Iterable[object],
+    *,
+    as_of: str | None = None,
 ) -> tuple[object, ...]:
-    """Prefer SEC only for exact entity/concept/unit/period matches."""
+    """Prefer SEC only for exact entity/concept/unit/period matches.
+
+    ``as_of`` (optional, point in time) drops official facts not yet published at that time, so a
+    later amendment cannot be selected for an earlier decision date.  Date-only publication dates
+    count as available from the next day (see ``_available_instant``).
+    """
 
     official = tuple(sec_records)
     vendors = tuple(vendor_records)
+    if as_of is not None:
+        cutoff = _available_instant(as_of, as_of=True)
+        if cutoff is None:
+            raise ValueError("as_of must be an ISO date or timestamp")
+        official = tuple(
+            record for record in official
+            if (instant := _available_instant(_publication(record))) is not None and instant <= cutoff
+        )
     authoritative = tuple(record for record in official if str(_record_value(record, "source_id")).split(":", 1)[0] in {"sec_edgar", "filings_xbrl_org"})
     retained_non_authoritative = tuple(record for record in official if record not in authoritative)
-    grouped: dict[tuple[str, str, str, str], list[object]] = {}
+    grouped: dict[tuple[str, str, str, str, str], list[object]] = {}
     for record in authoritative:
-        grouped.setdefault(_fact_key(record), []).append(record)
+        grouped.setdefault((*_fact_key(record), _scope(record)), []).append(record)
     by_key = {key: _preferred_sec_fact(records) for key, records in grouped.items()}
     selected: list[object] = []
+    matched: set[tuple[str, str, str, str, str]] = set()
     for vendor in vendors:
-        winner = by_key.get(_fact_key(vendor))
-        if winner is None:
+        key = _vendor_match_key(vendor, by_key)
+        if key is None:
             selected.append(vendor)
         else:
-            selected.append(winner)
-    vendor_keys = {_fact_key(item) for item in vendors}
-    selected.extend(_preferred_sec_fact(records) for key, records in sorted(grouped.items()) if key not in vendor_keys)
+            matched.add(key)
+            winner = by_key[key]
+            # One official fact may match several same-key vendor rows: it is selected once.
+            if not any(winner is item for item in selected):
+                selected.append(winner)
+    selected.extend(winner for key, winner in sorted(by_key.items(), key=lambda item: item[0]) if key not in matched)
     selected.extend(retained_non_authoritative)
     return tuple(selected)
 
 
-def _preferred_sec_fact(records: Iterable[object]) -> object:
-    """Choose one exact-key SEC fact deterministically, preferring latest filing."""
+def _vendor_match_key(vendor: object, by_key: Mapping[tuple[str, str, str, str, str], object]) -> tuple[str, str, str, str, str] | None:
+    """Vendor rows without a scope match only an unscoped or consolidated official fact, never a separate one."""
 
-    return max(
-        tuple(records),
-        key=lambda record: (
-            _record_value(record, "filed"),
-            1 if str(_record_value(record, "form")).upper().endswith("/A") else 0,
+    base = _fact_key(vendor)
+    scope = _scope(vendor)
+    for candidate in ((scope,) if scope else ("", "consolidated")):
+        key = (*base, candidate)
+        if key in by_key:
+            return key
+    return None
+
+
+def _scope(record: object) -> str:
+    return _record_value(record, "consolidation_scope").strip().casefold()
+
+
+def _publication(record: object) -> str:
+    return _record_value(record, "filed") or _record_value(record, "available_at") or _record_value(record, "known_at")
+
+
+def _available_instant(value: str, *, as_of: bool = False) -> datetime | None:
+    """UTC instant from which a publication/as-of string is usable; ``None`` when absent or malformed.
+
+    A date-only publication date is not an exact midnight: the filing may land at any time that day, so
+    it is conservatively available from the start of the NEXT day.  A date-only ``as_of`` is the start
+    of that day.
+    """
+
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        if len(text) == 10:
+            day = datetime.combine(date.fromisoformat(text), time.min, tzinfo=timezone.utc)
+            return day if as_of else day + timedelta(days=1)
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+
+
+def authority_selection_as_of(row: Mapping[str, object], as_of: str) -> str:
+    """Point-in-time view of a stored ``authority_selection``.
+
+    The stored column is the CURRENT view (latest publication wins).  Before a fact's own publication it
+    is unavailable; from a superseding publication (``superseded_at``) on, it is ``retained_*``; before
+    that the earlier filing stays canonical.
+    """
+
+    stored = str(row.get("authority_selection") or "")
+    cutoff = _available_instant(as_of, as_of=True)
+    if cutoff is None:
+        raise ValueError("as_of must be an ISO date or timestamp")
+    if stored not in {"canonical_sec", "retained_sec", "canonical_esef", "retained_esef"}:
+        return stored
+    published = _available_instant(_publication(row))
+    if published is None or published > cutoff:
+        return "unavailable"
+    superseded = _available_instant(_record_value(row, "superseded_at"))
+    family = stored.split("_", 1)[1]
+    if superseded is not None and superseded <= cutoff:
+        return f"retained_{family}"
+    return f"canonical_{family}"
+
+
+def _preferred_sec_fact(records: Iterable[object]) -> object:
+    """Choose one exact-key SEC fact deterministically, preferring the latest publication.
+
+    Publication dates are compared as instants; a malformed or missing date ranks below any valid one
+    (never wins by string order).
+    """
+
+    def rank(record: object) -> tuple[object, ...]:
+        instant = _available_instant(_publication(record))
+        return (
+            instant is not None,
+            instant or _EARLIEST,
+            1 if _record_value(record, "form").upper().endswith("/A") else 0,
             _record_value(record, "accession"),
             _record_value(record, "source_id"),
-        ),
-    )
+        )
+
+    return max(tuple(records), key=rank)
+
+
+def _supersession(records: Iterable[Mapping[str, object]]) -> dict[str, str]:
+    """source_id -> publication of the next later official fact for the same exact key (``""`` if none)."""
+
+    groups: dict[tuple[str, ...], list[Mapping[str, object]]] = {}
+    for record in records:
+        if str(record.get("source_id") or "").split(":", 1)[0] in {"sec_edgar", "filings_xbrl_org"}:
+            groups.setdefault((*_fact_key(record), _scope(record)), []).append(record)
+    result: dict[str, str] = {}
+    for group in groups.values():
+        dated = [(instant, record) for record in group if (instant := _available_instant(_publication(record))) is not None]
+        for instant, record in dated:
+            later = [item for item in dated if item[0] > instant]
+            result[str(record["source_id"])] = _publication(min(later, key=lambda item: item[0])[1]) if later else ""
+    return result
 
 
 def _fact_key(record: object) -> tuple[str, str, str, str]:
@@ -534,11 +666,11 @@ def _fact_key(record: object) -> tuple[str, str, str, str]:
     start = _record_value(record, "start")
     end = _record_value(record, "end")
     instant = _record_value(record, "instant")
-    fiscal_period = _record_value(record, "fiscal_period")
     if instant or (end and not start):
         period = f"instant:{instant or end}"
     elif start or end:
-        period = f"duration:{start}:{end}:{fiscal_period}"
+        # Duration facts match by their start/end dates; the optional fiscal-period label is not identity.
+        period = f"duration:{start}:{end}"
     else:
         period = f"period:{_record_value(record, 'period') or _record_value(record, 'as_of_date')}"
     return _record_value(record, "instrument_id"), concept, _record_value(record, "unit"), period
@@ -546,7 +678,14 @@ def _fact_key(record: object) -> tuple[str, str, str, str]:
 
 def _record_value(record: object, name: str, default: object = "") -> str:
     raw = record.get(name, default) if isinstance(record, dict) else getattr(record, name, default)
-    return "" if raw is None else str(raw)
+    if raw is None:
+        return ""
+    try:
+        if raw != raw:  # NaN / pandas NA from a stored frame is "absent", never the text "nan"
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(raw)
 
 
 def _authority_selection(source_id: object, selected: bool) -> str:
@@ -578,6 +717,14 @@ def _normalise_cik(value: Any) -> str | None:
 
 def _string(value: Any) -> str | None:
     return None if value is None else str(value)
+
+
+def _is_finite_number(value: Any) -> bool:
+    """Only real, finite numbers are financial facts (no NaN/Infinity/text/bool)."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return math.isfinite(value)
 
 
 def _int(value: Any) -> int | None:

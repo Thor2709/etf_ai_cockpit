@@ -518,7 +518,8 @@ class OAMAdapter:
                     else "identifier_unverified_manual_review"
                 )
             else:
-                identity_status = "matched_isin" if isin else "issuer_only_manual_review"
+                # Only an ISIN the caller asked for (and the record carries) is a matched ISIN.
+                identity_status = "matched_isin" if isin and request.isin and request.isin.strip().upper() == isin else "issuer_only_manual_review"
             normalised.append(
                 OAMRecord(
                     provider_id=self.provider_id,
