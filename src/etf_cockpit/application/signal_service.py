@@ -152,7 +152,7 @@ class SignalService:
             as_of_date=effective_date,
             toto_available=status["toto"],
             timesfm_available=status["timesfm"],
-            forecast_scores=forecast_component_maps(forecasts),
+            forecast_scores=forecast_component_maps(forecasts, decision_time=effective_date),
             forecast_distributions=forecast_return_distributions(forecasts, decision_time=effective_date),
             structure_confidence_caps=structure_caps,
             historical_forecasts=load_forecast_history(),

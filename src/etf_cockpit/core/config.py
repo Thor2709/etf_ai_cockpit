@@ -205,7 +205,8 @@ class ForecastCalibrationSettings(BaseModel):
     to a 95% Wilson interval around empirical q10–q90 coverage.
     """
 
-    minimum_matured_samples: int = Field(default=30, ge=2)
+    # At 80% coverage the finite-sample conformal rank ceil((n+1)*0.8) needs n >= 4.
+    minimum_matured_samples: int = Field(default=30, ge=4)
     coverage_tolerance: float = Field(default=0.05, ge=0, le=0.2)
 
 
