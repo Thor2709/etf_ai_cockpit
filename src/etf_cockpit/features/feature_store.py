@@ -185,7 +185,7 @@ class LocalFeatureStore:
         for entity in entities:
             entity_rows = source[source[entity_column].astype(str) == entity].sort_values(["__feature_time", "__available_at"])
             for decision in decisions:
-                output: dict[str, object] = {entity_column: entity, "decision_time": decision.date().isoformat(), "inference_mode": mode}
+                output: dict[str, object] = {entity_column: entity, "decision_time": _decision_key(decision), "inference_mode": mode}
                 selected_times: list[pd.Timestamp] = []
                 for definition in definitions:
                     cutoff = decision.normalize() - pd.Timedelta(days=definition.availability_delay_days)
@@ -200,7 +200,7 @@ class LocalFeatureStore:
                     selected = candidates.iloc[-1]
                     output[definition.feature_id] = _safe_scalar(selected[definition.source_column])
                     output[f"missing_{definition.feature_id}"] = pd.isna(selected[definition.source_column])
-                    selected_times.extend([selected["__feature_time"], selected["__available_at"]])
+                    selected_times.append(selected["__feature_time"])
                 output["feature_time"] = max(selected_times).date().isoformat() if selected_times else None
                 output["feature_definition_hash"] = definition_hash
                 output["source_vintage_hash"] = _hash_payload({key: output[key] for key in sorted(output) if key not in {"inference_mode"}})
@@ -385,11 +385,43 @@ def _parse_timestamp(value: str | date | datetime | pd.Timestamp, *, normalize: 
     return timestamp.normalize() if normalize else timestamp
 
 
+def _decision_key(decision: pd.Timestamp) -> str:
+    """Date for date-only decisions; the full timestamp when it carries a time of day."""
+
+    return decision.date().isoformat() if decision == decision.normalize() else decision.isoformat(timespec="seconds")
+
+
 def _timestamps(values: Iterable[object], *, normalize: bool = True) -> pd.Series:
     series = values if isinstance(values, pd.Series) else pd.Series(list(values))
-    parsed = pd.to_datetime(series, errors="coerce", utc=True)
-    parsed = parsed.dt.tz_localize(None)
+    if not (pd.api.types.is_datetime64_any_dtype(series) and getattr(series.dt, "tz", None) is None):
+        # Mixed offsets: parse each value so local-midnight date labels keep their calendar date.
+        parsed = series.map(_naive_utc_or_local_date)
+        parsed = pd.to_datetime(parsed, errors="coerce")
+    else:
+        parsed = pd.to_datetime(series, errors="coerce", utc=True)
+        parsed = parsed.dt.tz_localize(None)
     return parsed.dt.normalize() if normalize else parsed
+
+
+def _naive_utc_or_local_date(value: object) -> pd.Timestamp:
+    """One PIT convention: a timezone-aware local-midnight stamp is a daily-candle date label.
+
+    Its calendar date is kept as written (the same instant a naive date-only
+    stamp would have) instead of shifting by the UTC offset; every other
+    timezone-aware instant is converted to naive UTC.
+    """
+
+    try:
+        stamp = pd.Timestamp(value)
+    except (TypeError, ValueError):
+        return pd.NaT
+    if pd.isna(stamp):
+        return pd.NaT
+    if stamp.tzinfo is None:
+        return stamp.tz_localize("UTC").tz_localize(None)
+    if stamp == stamp.normalize():
+        return stamp.tz_localize(None)
+    return stamp.tz_convert("UTC").tz_localize(None)
 
 
 def _decision_dates(values: Iterable[str | date | datetime]) -> list[pd.Timestamp]:

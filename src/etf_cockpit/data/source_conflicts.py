@@ -9,7 +9,7 @@ import json
 import math
 from typing import Iterable, Mapping
 
-from etf_cockpit.data.contracts import SourceAuthority
+from etf_cockpit.data.contracts import CONTEXT_ONLY_AUTHORITIES, SourceAuthority
 
 
 class MetricResolutionError(ValueError):
@@ -29,17 +29,20 @@ class MetricPolicy:
     field_tolerances: Mapping[str, tuple[float, float]] | None = None
     minimum_confidence: float | None = None
     blocked_freshness_statuses: tuple[str, ...] = ("stale", "block", "quarantined", "conflicted")
+    # Opt-in: treat claims whose freshness is "unknown" as ineligible.  Off by
+    # default because existing callers build claims without freshness metadata.
+    require_known_freshness: bool = False
 
     def __post_init__(self) -> None:
         if not self.policy_name.strip() or self.version < 1:
             raise MetricResolutionError("metric policy name and positive version are required")
-        if self.absolute_tolerance < 0 or self.relative_tolerance < 0:
-            raise MetricResolutionError("metric tolerances cannot be negative")
-        if self.minimum_confidence is not None and not 0 <= self.minimum_confidence <= 1:
+        if not _finite_non_negative(self.absolute_tolerance) or not _finite_non_negative(self.relative_tolerance):
+            raise MetricResolutionError("metric tolerances must be finite and non-negative")
+        if self.minimum_confidence is not None and not (math.isfinite(self.minimum_confidence) and 0 <= self.minimum_confidence <= 1):
             raise MetricResolutionError("minimum confidence must be between zero and one")
         for value in (self.field_tolerances or {}).values():
-            if len(value) != 2 or value[0] < 0 or value[1] < 0:
-                raise MetricResolutionError("field tolerances must be non-negative absolute/relative pairs")
+            if len(value) != 2 or not _finite_non_negative(value[0]) or not _finite_non_negative(value[1]):
+                raise MetricResolutionError("field tolerances must be finite non-negative absolute/relative pairs")
 
     @property
     def policy_id(self) -> str:
@@ -58,6 +61,8 @@ class MetricPolicy:
             "minimum_confidence": self.minimum_confidence,
             "blocked_freshness_statuses": sorted({item.strip().lower() for item in self.blocked_freshness_statuses}),
         }
+        if self.require_known_freshness:
+            payload["require_known_freshness"] = True
         return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
@@ -167,6 +172,10 @@ def resolve_conflicts(
     items = tuple(_coerce_claim(item) for item in claims)
     active_policy = policy or MetricPolicy("canonical-metric.v1", 1)
     cutoff = _timestamp(decision_time, "decision_time", require_timezone=True) if decision_time is not None else None
+    # Policy/decision-time resolution is strict: unknown freshness and
+    # context-only authority never become canonical.  Bare calls keep the
+    # legacy, descriptive behaviour.
+    strict = cutoff is not None or policy is not None
     active, excluded = _point_in_time_candidates(items, cutoff)
     grouped: dict[tuple[str, str, str, str, str, str, str, str], list[MetricClaim]] = {}
     for claim in active:
@@ -183,7 +192,7 @@ def resolve_conflicts(
     for context, field_claims in sorted(grouped.items()):
         instrument_id, field, period, unit, currency, as_of, valid_from, valid_to = context
         ordered = sorted(field_claims, key=_claim_sort_key)
-        quality_eligible = [item for item in ordered if _quality_eligible(item, active_policy)]
+        quality_eligible = [item for item in ordered if _quality_eligible(item, active_policy, strict=strict)]
         quality_rejected = [item for item in ordered if item not in quality_eligible]
         winner = quality_eligible[0] if quality_eligible else ordered[0]
         key = _selection_key(context, one_instrument=one_instrument, context_count=context_counts[(instrument_id, field)])
@@ -321,6 +330,7 @@ def resolve_conflicts(
         tuple(review_decisions),
         cutoff=cutoff,
         policy=active_policy,
+        strict=strict,
     )
     ordered_claims = tuple(sorted(active, key=lambda item: (item.instrument_id, item.field, *_claim_sort_key(item))))
     state = _aggregate_state(conflicts, selected)
@@ -516,7 +526,12 @@ def _point_in_time_candidates(
     candidates = [
         claim
         for claim in items
-        if cutoff_dt is None or _as_datetime(claim.available_at or cutoff) <= cutoff_dt
+        if cutoff_dt is None
+        or (
+            _as_datetime(claim.available_at or cutoff) <= cutoff_dt
+            # A claim describing a date after the decision time is never current.
+            and (claim.as_of is None or _as_datetime(claim.as_of) <= cutoff_dt)
+        )
     ]
     excluded = [claim for claim in items if claim not in candidates]
     latest: dict[tuple[str, str, str, str, str, str, str, str, str], MetricClaim] = {}
@@ -542,6 +557,25 @@ def _point_in_time_candidates(
     return active, tuple(sorted(excluded, key=lambda item: (item.instrument_id, item.field, item.available_at or "", item.revision)))
 
 
+def _finite_non_negative(value: object) -> bool:
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(number) and number >= 0
+
+
+def _finite_value(value: object) -> bool:
+    """Numeric values must be finite; non-numeric values are not judged here."""
+
+    if isinstance(value, (bool, str, bytes)) or value is None:
+        return True
+    try:
+        return math.isfinite(float(value))  # type: ignore[arg-type]
+    except (TypeError, ValueError, OverflowError):
+        return True
+
+
 def _within_tolerance(values: tuple[object, ...], absolute: float, relative: float) -> bool:
     if len(values) <= 1:
         return False
@@ -561,11 +595,17 @@ def _within_tolerance(values: tuple[object, ...], absolute: float, relative: flo
     return spread <= limit
 
 
-def _quality_eligible(claim: MetricClaim, policy: MetricPolicy) -> bool:
+def _quality_eligible(claim: MetricClaim, policy: MetricPolicy, *, strict: bool = False) -> bool:
     if claim.authority is SourceAuthority.MODEL:
+        return False
+    if not _finite_value(claim.value):
         return False
     blocked = {item.strip().lower() for item in policy.blocked_freshness_statuses}
     if claim.freshness_status in blocked:
+        return False
+    if policy.require_known_freshness and claim.freshness_status == "unknown":
+        return False
+    if strict and claim.authority in CONTEXT_ONLY_AUTHORITIES:
         return False
     if policy.minimum_confidence is None:
         return True
@@ -617,6 +657,7 @@ def _claim_identity(claim: MetricClaim) -> dict[str, object]:
         "valid_from": claim.valid_from,
         "valid_to": claim.valid_to,
         "available_at": claim.available_at,
+        "as_of": claim.as_of,
         "revision": claim.revision,
         "freshness_status": claim.freshness_status,
         "confidence": claim.confidence,
@@ -631,6 +672,7 @@ def _apply_reviews(
     *,
     cutoff: str | None,
     policy: MetricPolicy,
+    strict: bool = False,
 ) -> tuple[dict[str, MetricClaim], list[MetricConflict]]:
     decision_map: dict[str, MetricReviewDecision] = {}
     cutoff_dt = _as_datetime(cutoff) if cutoff else None
@@ -665,9 +707,9 @@ def _apply_reviews(
         matching = [item for item in options if item.source_id == decision.selected_source_id]
         if not matching:
             raise MetricResolutionError("review decision selected source is not a retained candidate")
-        if not any(_quality_eligible(item, policy) for item in matching):
+        if not any(_quality_eligible(item, policy, strict=strict) for item in matching):
             raise MetricResolutionError("review decision selected a quality-ineligible retained candidate")
-        chosen = sorted((item for item in matching if _quality_eligible(item, policy)), key=_claim_sort_key)[0]
+        chosen = sorted((item for item in matching if _quality_eligible(item, policy, strict=strict)), key=_claim_sort_key)[0]
         if key:
             selected[key] = chosen
         updated[index] = replace(
@@ -728,7 +770,7 @@ def _timestamp(value: str | datetime, field: str, *, require_timezone: bool = Fa
     except (TypeError, ValueError) as exc:
         raise MetricResolutionError(f"{field} must be an ISO-8601 timestamp") from exc
     if parsed.tzinfo is None:
-        if require_timezone and "T" in str(value):
+        if require_timezone and (isinstance(value, datetime) or "T" in str(value)):
             raise AmbiguousMetricAvailabilityError(f"{field} must include a timezone")
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")

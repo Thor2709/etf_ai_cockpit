@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 from numbers import Integral
 from pathlib import Path
 import re
@@ -120,7 +121,7 @@ class BitemporalStore:
         timezone_confidence: str = "exact",
         availability_confidence: str = "exact",
         status: str = "active",
-        require_revision_advance: bool = False,
+        require_revision_advance: bool = True,
         _connection: sqlite3.Connection | None = None,
     ) -> BitemporalObservation:
         dataset_id, entity_id, stable_id, run_id, source_id = _identities(dataset_id, entity_id, stable_id or entity_id, run_id, source_id)
@@ -137,6 +138,7 @@ class BitemporalStore:
             raise BitemporalError(f"unsupported observation status: {status}")
         canonical = {
             "dataset_id": dataset_id,
+            "entity_id": entity_id,
             "stable_id": stable_id,
             "source_id": source_id,
             "revision": revision,
@@ -155,17 +157,26 @@ class BitemporalStore:
         }
         if canonical["valid_to"] is not None and canonical["valid_to"] <= canonical["valid_from"]:
             raise BitemporalError("valid_to must be after valid_from")
+        # Nothing can be published or observed after it became available.
+        if canonical["published_at"] > canonical["available_at"]:
+            raise BitemporalError("published_at cannot be later than available_at")
+        if canonical["observed_at"] > canonical["available_at"]:
+            raise BitemporalError("observed_at cannot be later than available_at")
+        if not _finite_json(value):
+            raise BitemporalError("observation value must not contain NaN or Infinity")
         observation_id = hashlib.sha256(
             json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
         ).hexdigest()
-        payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
         transaction = self.store.transaction() if _connection is None else _existing_transaction(_connection)
         with transaction as connection:
             try:
                 if require_revision_advance:
                     row = connection.execute(
-                        "SELECT revision, available_at FROM bitemporal_observations WHERE dataset_id = ? AND stable_id = ? ORDER BY revision DESC, available_at DESC LIMIT 1",
-                        (dataset_id, stable_id),
+                        "SELECT revision, available_at FROM bitemporal_observations "
+                        "WHERE dataset_id = ? AND entity_id = ? AND stable_id = ? AND source_id = ? "
+                        "ORDER BY revision DESC, available_at DESC LIMIT 1",
+                        (dataset_id, entity_id, stable_id, source_id),
                     ).fetchone()
                     maximum = _positive_revision(row[0]) if row is not None else 0
                     if revision <= maximum:
@@ -262,7 +273,17 @@ class BitemporalStore:
             params += (str(entity_id),)
         query += " ORDER BY stable_id, available_at, revision, observation_id"
         rows = list(self.store.connection.execute(query, params))
+        # A retraction marker is honoured whenever it is available by the cutoff,
+        # even if it was backdated before the retracted observation's own
+        # availability: the retracted value must never resurface.
+        retracted_ids: set[str] = set()
+        for row in rows:
+            if str(row["status"]) == "retracted":
+                marker = json.loads(str(row["value_json"]))
+                if isinstance(marker, dict) and marker.get("retracts_observation_id"):
+                    retracted_ids.add(str(marker["retracts_observation_id"]))
         selected: dict[tuple[str, str], Any] = {}
+        highest: dict[tuple[str, str, str], int] = {}
         for row in rows:
             key = (str(row["entity_id"]), str(row["stable_id"]))
             if str(row["status"]) == "retracted":
@@ -275,8 +296,22 @@ class BitemporalStore:
                 ):
                     selected.pop(key, None)
                 continue
+            # A later-available but lower revision of the same source never wins.
+            revision_key = (*key, str(row["source_id"]))
+            if int(row["revision"]) < highest.get(revision_key, 0):
+                continue
+            highest[revision_key] = int(row["revision"])
+            if str(row["observation_id"]) in retracted_ids:
+                selected.pop(key, None)
+                continue
             selected[key] = row
-        records = [_observation(row) for row in selected.values() if str(row["status"]) == "active"]
+        # Effective validity applies after selection so an expired newer vintage
+        # cannot fall back to an older one.
+        records = [
+            _observation(row)
+            for row in selected.values()
+            if str(row["status"]) == "active" and _effective_at(row, cutoff)
+        ]
         return pd.DataFrame([_observation_payload(item) for item in records])
 
     def vintage_manifest(self, dataset_id: str, decision_time: str | datetime, *, entity_id: str | None = None) -> VintageManifest:
@@ -347,6 +382,8 @@ class BitemporalStore:
             timezone_confidence=str(row["timezone_confidence"]),
             availability_confidence="exact",
             status="retracted",
+            # Retractions may be backdated; the revision above already advances.
+            require_revision_advance=False,
         )
 
     def record_supersession(
@@ -452,6 +489,28 @@ def _observation_payload(observation: BitemporalObservation) -> dict[str, object
     payload.pop("value", None)
     payload["value"] = observation.value
     return payload
+
+
+def _effective_at(row: Any, cutoff: str | None) -> bool:
+    if cutoff is None:
+        return True
+    if str(row["valid_from"]) > cutoff:
+        return False
+    valid_to = row["valid_to"]
+    return not valid_to or cutoff < str(valid_to)
+
+
+def _finite_json(value: object) -> bool:
+    if value is None or isinstance(value, (str, bytes, bool, int)):
+        return True
+    if isinstance(value, dict):
+        return all(_finite_json(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return all(_finite_json(item) for item in value)
+    try:
+        return math.isfinite(float(value))  # type: ignore[arg-type]
+    except (TypeError, ValueError, OverflowError):
+        return True
 
 
 def _identities(*values: str) -> tuple[str, ...]:

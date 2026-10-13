@@ -646,7 +646,7 @@ def _aggregate_fundamentals(
 
     rows: list[dict[str, object]] = []
     for row in fundamentals.to_dict("records"):
-        known = normalise_event_decision_time(row.get("available_at", row.get("known_at")))
+        known = normalise_event_decision_time(_available_or_known(row))
         effective = _as_date(row.get("as_of_date", row.get("as_of")))
         if known is None or known > cutoff or effective is None or effective > analysis:
             continue
@@ -680,15 +680,15 @@ def _aggregate_fundamentals(
         if not matches:
             continue
         matches.sort(key=lambda row: (_as_date(row.get("as_of_date", row.get("as_of"))) or date.min,
-                                      normalise_event_decision_time(row.get("available_at", row.get("known_at"))) or datetime.min.replace(tzinfo=cutoff.tzinfo),
+                                      normalise_event_decision_time(_available_or_known(row)) or datetime.min.replace(tzinfo=cutoff.tzinfo),
                                       _clean_text(row.get("source_id"))))
         latest_key = (
             _as_date(matches[-1].get("as_of_date", matches[-1].get("as_of"))),
-            normalise_event_decision_time(matches[-1].get("available_at", matches[-1].get("known_at"))),
+            normalise_event_decision_time(_available_or_known(matches[-1])),
         )
         latest = [row for row in matches if (
             _as_date(row.get("as_of_date", row.get("as_of"))),
-            normalise_event_decision_time(row.get("available_at", row.get("known_at"))),
+            normalise_event_decision_time(_available_or_known(row)),
         ) == latest_key]
         if len({_metric_signature(row) for row in latest}) > 1:
             limitations.append(f"Conflicting same-vintage constituent evidence was excluded for {key}.")
@@ -763,7 +763,7 @@ def _aggregate_fundamentals(
                         "pe_ratio": value,
                         "source_id": _clean_text(row.get("source_id")),
                         "as_of_date": _as_date(row.get("as_of_date", row.get("as_of"))).isoformat(),
-                        "available_at": normalise_event_decision_time(row.get("available_at", row.get("known_at"))).isoformat(),
+                        "available_at": normalise_event_decision_time(_available_or_known(row)).isoformat(),
                     }
                     for weight, value, key, row in selected_metrics["pe_ratio"]
                 ),
@@ -795,7 +795,7 @@ def _aggregate_fundamentals(
                     "roic": value,
                     "source_id": _clean_text(row.get("source_id")),
                     "as_of_date": _as_date(row.get("as_of_date", row.get("as_of"))).isoformat(),
-                    "available_at": normalise_event_decision_time(row.get("available_at", row.get("known_at"))).isoformat(),
+                    "available_at": normalise_event_decision_time(_available_or_known(row)).isoformat(),
                 }
                 for weight, value, key, row in selected_metrics["roic"]
             ),
@@ -1237,3 +1237,12 @@ def _unique_text(values: object) -> tuple[str, ...]:
     if not isinstance(values, pd.Series):
         return ()
     return tuple(sorted({_clean_text(value) for value in values if _clean_text(value)}))
+
+
+def _available_or_known(row: Mapping[str, object]) -> object:
+    """``available_at``, falling back to ``known_at`` when it is absent *or empty*."""
+
+    value = row.get("available_at")
+    if value is None or (isinstance(value, str) and not value.strip()) or (not isinstance(value, str) and pd.isna(value)):
+        return row.get("known_at")
+    return value

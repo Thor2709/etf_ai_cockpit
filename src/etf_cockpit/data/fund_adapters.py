@@ -542,6 +542,30 @@ def _authority(value: object) -> SourceAuthority:
         raise ValueError(f"unsupported fund evidence authority: {redact_text(value)}") from exc
 
 
+def _non_finite_number(value: object) -> bool:
+    try:
+        number = Decimal(str(value).strip())
+    except (InvalidOperation, ValueError):
+        return False
+    return not number.is_finite()
+
+
+def _evidence_value_key(row: Mapping[str, object]) -> tuple[str, str, str]:
+    """Comparison identity: numeric value (100.0 == 100.00) together with unit and currency."""
+
+    raw = str(row.get("value")).strip()
+    try:
+        number = Decimal(raw)
+        text = format(number.normalize(), "f") if number.is_finite() else raw
+    except (InvalidOperation, ValueError):
+        text = raw
+    return (
+        text,
+        str(row.get("unit") or "").strip().casefold(),
+        str(row.get("currency") or "").strip().upper(),
+    )
+
+
 def resolve_fund_evidence(candidates: Iterable[Mapping[str, object]]) -> tuple[tuple[dict[str, object], ...], tuple[dict[str, object], ...]]:
     """Resolve same-date fund evidence by authority and record every conflict.
 
@@ -554,6 +578,8 @@ def resolve_fund_evidence(candidates: Iterable[Mapping[str, object]]) -> tuple[t
     grouped: dict[tuple[str, str, str], list[dict[str, object]]] = defaultdict(list)
     for candidate in candidates:
         if candidate.get("value") is None or not str(candidate.get("value")).strip():
+            continue
+        if _non_finite_number(candidate.get("value")):
             continue
         key = tuple(str(candidate.get(field) or "").strip() for field in ("instrument_id", "metric", "as_of"))
         if not all(key):
@@ -569,7 +595,7 @@ def resolve_fund_evidence(candidates: Iterable[Mapping[str, object]]) -> tuple[t
         top = [row for row in rows if _authority(row["authority"]) is preferred]
         top_values = {str(row.get("value")) for row in top}
         selected = None
-        if len(top_values) == 1:
+        if len({_evidence_value_key(row) for row in top}) == 1:
             selected = sorted(top, key=lambda row: (str(row.get("source", "")), str(row.get("source_id", ""))))[0]
         resolved.append({
             "instrument_id": key[0],
@@ -580,9 +606,9 @@ def resolve_fund_evidence(candidates: Iterable[Mapping[str, object]]) -> tuple[t
             "status": "resolved" if selected is not None else "conflict_at_preferred_authority",
         })
         if selected is not None:
-            selected_value = str(selected.get("value"))
+            selected_value = _evidence_value_key(selected)
             for rejected in rows:
-                if rejected is selected or str(rejected.get("value")) == selected_value:
+                if rejected is selected or _evidence_value_key(rejected) == selected_value:
                     continue
                 conflicts.append({
                     "instrument_id": key[0],
