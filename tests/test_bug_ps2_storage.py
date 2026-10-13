@@ -145,3 +145,13 @@ def test_recovery_finds_nested_models_and_exports_journals(tmp_path: Path, folde
     results = recover_incomplete_transactions(tmp_path, event_path=None)
     assert [result.journal_path.resolve() for result in results] == [journal.resolve()]
     assert results[0].state == "recovery_required"
+
+
+def test_recovery_root_scan_fallback_survives_models_or_exports_only_root(tmp_path: Path) -> None:
+    """D121-N003: no data/ or configs/ keeps the whole-root scan alongside models/exports."""
+
+    (tmp_path / "models").mkdir()
+    (tmp_path / "exports").mkdir()
+    journal = _write_journal(tmp_path / "artifacts" / "x", "{not json")
+    results = recover_incomplete_transactions(tmp_path, event_path=None)
+    assert [result.journal_path.resolve() for result in results] == [journal.resolve()]
