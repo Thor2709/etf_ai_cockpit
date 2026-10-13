@@ -4,12 +4,14 @@ import json
 import math
 import re
 import shutil
+import sys
 from collections import deque
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR, SNAPSHOTS_DIR
@@ -122,15 +124,20 @@ def validate_fx_rates(
     if parsed_dates.isna().any():
         errors.append("FX rates contain invalid or missing as_of_date values.")
     parsed_ingested_at: pd.Series | None = None
-    if ingested_at is not None:
-        parsed_ingested_at = pd.to_datetime(pd.Series([ingested_at] * len(frame), index=frame.index), errors="coerce", utc=True)
-    elif "ingested_at" in frame.columns:
+    if "ingested_at" in frame.columns:
+        # Each row keeps its own ingestion time; batch metadata never overwrites it.
         parsed_ingested_at = pd.to_datetime(frame["ingested_at"], errors="coerce", utc=True)
+    elif ingested_at is not None:
+        parsed_ingested_at = pd.to_datetime(pd.Series([ingested_at] * len(frame), index=frame.index), errors="coerce", utc=True)
     if parsed_ingested_at is not None and parsed_ingested_at.isna().any():
         errors.append("FX rates contain invalid or missing ingested_at values.")
+    if frame[rate_column].map(lambda value: isinstance(value, (bool, np.bool_))).any():
+        errors.append("FX rates must be numeric values, not booleans.")
     rates = pd.to_numeric(frame[rate_column], errors="coerce")
     if not rates.map(math.isfinite).all() or (rates <= 0).any():
         errors.append("FX rates must be finite numeric values greater than zero.")
+    elif not rates.map(_usable_rate).all():
+        errors.append("FX rates must be above the subnormal guard and have a finite inverse.")
     currencies = _parse_currency_pairs(frame)
     errors.extend(currencies.errors)
     warnings.extend(currencies.warnings)
@@ -334,6 +341,8 @@ def fx_cross_rate(
 
     graph: dict[str, list[FxRateLeg]] = {}
     for row in snapshot.rates:
+        if isinstance(row.rate, bool) or not _usable_rate(row.rate):
+            return None
         pair = f"{row.base_currency}/{row.quote_currency}"
         graph.setdefault(row.base_currency, []).append(
             FxRateLeg(row.base_currency, row.quote_currency, pair, row.rate, row.rate, False, row.source)
@@ -355,6 +364,8 @@ def fx_cross_rate(
             if leg.to_currency in visited:
                 continue
             next_factor = factor * leg.applied_rate
+            if not math.isfinite(next_factor) or next_factor <= 0:
+                return None
             next_path = path + (leg,)
             if leg.to_currency == quote:
                 shortest = len(next_path) if shortest is None else shortest
@@ -366,7 +377,7 @@ def fx_cross_rate(
         return None
     matches.sort(key=lambda item: tuple((leg.observed_pair, leg.inverted, leg.from_currency) for leg in item[1]))
     selected_rate, selected_legs = matches[0]
-    if any(not math.isclose(rate, selected_rate, rel_tol=tolerance, abs_tol=tolerance) for rate, _ in matches[1:]):
+    if any(not math.isclose(rate, selected_rate, rel_tol=tolerance, abs_tol=0.0) for rate, _ in matches[1:]):
         return None
     sources = ", ".join(sorted({leg.source for leg in selected_legs if leg.source})) or "unspecified source"
     return FxCrossRate(
@@ -423,6 +434,11 @@ def _parse_currency_pairs(frame: pd.DataFrame) -> _CurrencyPairs:
             quote_values.append(compact[3:])
         base = pd.Series(base_values, index=frame.index)
         quote = pd.Series(quote_values, index=frame.index)
+        if {"base_currency", "quote_currency"}.issubset(frame.columns):
+            explicit_base = frame["base_currency"].fillna("").astype(str).str.upper().str.strip()
+            explicit_quote = frame["quote_currency"].fillna("").astype(str).str.upper().str.strip()
+            if ((explicit_base != base) | (explicit_quote != quote)).any():
+                errors.append("FX rates contain contradictory pair and base/quote currency fields.")
     else:
         base = frame["base_currency"].fillna("").astype(str).str.upper().str.strip()
         quote = frame["quote_currency"].fillna("").astype(str).str.upper().str.strip()
@@ -449,7 +465,7 @@ def _fx_rate_consistency_errors(frame: pd.DataFrame, *, tolerance: float = FX_RA
                     errors.append(f"FX same-currency rate {base}/{quote} must equal 1 on {as_of_date}.")
                 continue
             reciprocal = direct.get((quote, base))
-            if reciprocal is not None and not math.isclose(rate * reciprocal, 1.0, rel_tol=tolerance, abs_tol=tolerance):
+            if reciprocal is not None and not math.isclose(rate * reciprocal, 1.0, rel_tol=tolerance, abs_tol=0.0):
                 errors.append(f"FX reciprocal quotes {base}/{quote} and {quote}/{base} are inconsistent on {as_of_date}.")
 
         graph: dict[str, list[tuple[str, float]]] = {}
@@ -474,7 +490,7 @@ def _fx_rate_consistency_errors(frame: pd.DataFrame, *, tolerance: float = FX_RA
                             implied_value,
                             relative_values[neighbour],
                             rel_tol=tolerance,
-                            abs_tol=tolerance,
+                            abs_tol=0.0,
                         ):
                             errors.append(
                                 f"FX triangular/cycle quotes are inconsistent for {current}/{neighbour} on {as_of_date}."
@@ -509,6 +525,19 @@ def _decision_cutoff(value: date | datetime | str | None) -> tuple[date | None, 
     if pd.isna(timestamp):
         return None, None, False
     return timestamp.date(), timestamp, False
+
+
+def _usable_rate(value: object) -> bool:
+    try:
+        rate = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
+    return (
+        math.isfinite(rate)
+        and rate >= sys.float_info.min
+        and math.isfinite(1.0 / rate)
+        and 1.0 / rate >= sys.float_info.min
+    )
 
 
 def _normalise_currency(value: str) -> str | None:

@@ -18,6 +18,7 @@ import json
 import math
 from pathlib import Path
 import re
+import sys
 from typing import Any, Iterable, Mapping, Sequence, cast
 
 import numpy as np
@@ -303,6 +304,23 @@ def is_canonical_corporate_action_coverage(value: object) -> bool:
     )
 
 
+def _fx_rate_float(rate: object) -> float:
+    """Return a usable FX rate or raise: not bool, finite, positive, above the subnormal guard, invertible."""
+
+    if isinstance(rate, (bool, np.bool_)):
+        raise MarketAdjustmentError("FX rate must be numeric, not boolean")
+    try:
+        value = float(str(rate).strip() if isinstance(rate, str) else rate)  # type: ignore[arg-type]
+    except (TypeError, ValueError, ArithmeticError) as exc:
+        raise MarketAdjustmentError("FX rate must be numeric") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise MarketAdjustmentError("FX rate must be positive")
+    # Subnormal rates lose precision and their inverse overflows; reject both ends.
+    if value < sys.float_info.min or not math.isfinite(1.0 / value) or 1.0 / value < sys.float_info.min:
+        raise MarketAdjustmentError("FX rate is outside the supported range")
+    return value
+
+
 @dataclass(frozen=True)
 class FXObservation:
     observation_id: str
@@ -329,6 +347,7 @@ class FXObservation:
         object.__setattr__(self, "quote_currency", _currency(self.quote_currency, required=True))
         if self.base_currency == self.quote_currency:
             raise MarketAdjustmentError("FX base and quote currencies must differ")
+        _fx_rate_float(self.rate)
         object.__setattr__(self, "valid_at", _utc(self.valid_at, "valid_at"))
         object.__setattr__(self, "published_at", _utc(self.published_at, "published_at"))
         object.__setattr__(self, "retrieved_at", _utc(self.retrieved_at, "retrieved_at"))
@@ -365,9 +384,7 @@ class FXObservation:
         return "reference" if self.is_reference else "executable" if self.executable else "indicative"
 
     def validate(self) -> None:
-        rate = float(str(self.rate))
-        if not math.isfinite(rate) or rate <= 0:
-            raise MarketAdjustmentError("FX rate must be positive")
+        _fx_rate_float(self.rate)
         if self.is_reference and self.executable:
             raise MarketAdjustmentError("a reference FX rate cannot be executable")
 
@@ -619,7 +636,7 @@ def reconcile_provider_observations(*groups: Sequence[CorporateAction | FXObserv
             if left[2:] != right[2:] or not math.isclose(left[0], right[0], rel_tol=tolerance, abs_tol=tolerance) or not math.isclose(left[1], right[1], rel_tol=tolerance, abs_tol=tolerance):
                 discrepancies.append(f"{first.source_id}!={other.source_id}:action_terms")
         elif isinstance(first, FXObservation) and isinstance(other, FXObservation):
-            if first.pair != other.pair or first.valuation_at != other.valuation_at or not math.isclose(float(str(first.rate)), float(str(other.rate)), rel_tol=tolerance, abs_tol=tolerance):
+            if first.pair != other.pair or first.valuation_at != other.valuation_at or not math.isclose(float(str(first.rate)), float(str(other.rate)), rel_tol=tolerance, abs_tol=0.0):
                 discrepancies.append(f"{first.source_id}!={other.source_id}:fx_rate")
         else:
             discrepancies.append("mixed_observation_types")
@@ -1139,10 +1156,16 @@ def _select_fx_edge(candidates: Sequence[FXObservation], *, tolerance: float) ->
     if not candidates:
         return None, (), ("missing_or_stale_fx",), None
     best_rank = min(_authority_rank(item.authority) for item in candidates)
-    ranked = tuple(item for item in candidates if _authority_rank(item.authority) == best_rank)
-    reference = float(str(ranked[0].rate))
-    if any(not math.isclose(float(str(item.rate)), reference, rel_tol=tolerance, abs_tol=tolerance) for item in ranked[1:]):
+    ranked = tuple(sorted((item for item in candidates if _authority_rank(item.authority) == best_rank), key=lambda item: (item.source_id, item.observation_id)))
+    try:
+        rates = [_fx_rate_float(item.rate) for item in ranked]
+    except MarketAdjustmentError:
+        return None, ranked, ("invalid_fx_rate",), None
+    # Relative tolerance only: an absolute floor would accept multi-percent gaps on tiny rates.
+    # Comparing the extremes (not the first item) keeps the verdict independent of input order.
+    if not math.isclose(min(rates), max(rates), rel_tol=tolerance, abs_tol=0.0):
         return None, ranked, ("conflicted_fx_sources",), None
+    reference = rates[0]
     labels = {item.rate_label for item in ranked}
     label = "executable" if labels == {"executable"} else "reference" if "reference" in labels else "indicative"
     return reference, ranked, (), label
@@ -1214,7 +1237,7 @@ def derive_fx_cross(
     shortest = min(len(item[1]) for item in paths)
     comparable = [item for item in paths if len(item[1]) <= shortest + 1]
     chosen = sorted(comparable, key=lambda item: (len(item[1]), item[1]))[0]
-    if any(not math.isclose(item[0], chosen[0], rel_tol=tolerance, abs_tol=tolerance) for item in comparable[1:]):
+    if any(not math.isclose(item[0], chosen[0], rel_tol=tolerance, abs_tol=0.0) for item in comparable[1:]):
         return FXRateResult("quarantined", None, base, quote, target, (), (), (), None, ("triangular_inconsistency",))
     used = chosen[2]
     return FXRateResult(
@@ -1276,6 +1299,32 @@ def selected_currency_return(
     if not math.isfinite(local) or local < -1:
         # Exactly -1 is an exact total loss and stays representable.
         raise MarketAdjustmentError("local_return must be finite and at least -1")
+    if (
+        fx_return is None
+        and start_rate is None
+        and end_rate is None
+        and _currency(base_currency) is not None
+        and _currency(base_currency) == _currency(output_currency)
+    ):
+        # Identity conversion needs no FX evidence, so it is available even with no (or an empty) store.
+        return SelectedCurrencyReturn(
+            "available",
+            local,
+            0.0,
+            local,
+            0.0,
+            _optional_utc(transaction_at, "transaction_at"),
+            _optional_utc(valuation_at, "valuation_at"),
+            1.0,
+            1.0,
+            None,
+            True,
+            False,
+            False,
+            (),
+            (),
+            "reference",
+        )
     if fx_store is None:
         return SelectedCurrencyReturn("unavailable", local, None, None, None, reason_code="FX_SOURCE_UNLINKED")
     if fx_return is not None or start_rate is not None or end_rate is not None:
@@ -1298,7 +1347,20 @@ def selected_currency_return(
         eligible = [item for item in observations if pd.Timestamp(item.valid_at) <= pd.Timestamp(valuation_timestamp) and pd.Timestamp(item.known_at) <= pd.Timestamp(valuation_timestamp)]
         if not eligible:
             return SelectedCurrencyReturn("unavailable", local, None, None, None, reason_code="FX_MISSING")
-        transaction_timestamp = _utc(transaction_at, "transaction_at") if transaction_at is not None else min(item.valid_at for item in eligible)
+        if transaction_at is not None:
+            transaction_timestamp = _utc(transaction_at, "transaction_at")
+        else:
+            # The implicit start is per currency: only quotes touching the requested currencies count,
+            # and the start is the earliest quote date where the requested pair is derivable.
+            relevant = {_currency(base_currency, required=True), _currency(output_currency, required=True)}
+            scoped = [item for item in eligible if relevant & {item.base_currency, item.quote_currency}]
+            if not scoped:
+                return SelectedCurrencyReturn("unavailable", local, None, None, None, reason_code="FX_MISSING")
+            transaction_timestamp = min(item.valid_at for item in scoped)
+            for candidate in sorted({item.valid_at for item in scoped}):
+                if derive_fx_cross(fx_store, base_currency, output_currency, as_of=candidate, decision_time=candidate, max_age_days=max_age_days).available:
+                    transaction_timestamp = candidate
+                    break
         if pd.Timestamp(transaction_timestamp) > pd.Timestamp(valuation_timestamp):
             raise MarketAdjustmentError("valuation_at cannot precede transaction_at")
         start_result = derive_fx_cross(fx_store, base_currency, output_currency, as_of=transaction_timestamp, decision_time=transaction_timestamp, max_age_days=max_age_days)
