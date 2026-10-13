@@ -120,6 +120,12 @@ def statement_view(
             cutoff += pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
         known_at = pd.to_datetime(frame["known_at"], errors="coerce", utc=True)
         available = frame[known_at.notna() & known_at.le(cutoff)].copy()
+        if "authority_selection" in available.columns and not available.empty:
+            # The stored column is the current view; re-derive it for the decision date.
+            from etf_cockpit.parsers.sec_facts import authority_selection_as_of
+
+            instant = cutoff.isoformat()
+            available["authority_selection"] = [authority_selection_as_of(row, instant) for row in available.to_dict("records")]
         return _latest_per_period(available)
     if view == "latest_restated":
         return _latest_per_period(frame)
