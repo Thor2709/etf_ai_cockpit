@@ -614,12 +614,10 @@ def _junit_outcome(case: ET.Element) -> tuple[str, str]:
 
 
 def _junit_outcome_counts(reports: tuple[Path, ...]) -> dict[str, int]:
+    """Count all reported outcomes, including teardown errors of already executed tests."""
     counts = {"passed": 0, "failed": 0, "error": 0, "skipped": 0, "xfail": 0}
     for report in reports:
         for case in ET.parse(report).getroot().iter("testcase"):
-            error = case.find("error")
-            if error is not None and (error.get("message") or "").startswith("failed on teardown"):
-                continue
             counts[_junit_outcome(case)[0]] += 1
     return counts
 
@@ -629,6 +627,7 @@ def _junit_execution_problems(reports: tuple[Path, ...], expected_nodeids: set[s
 
     executed: dict[tuple[str, str], int] = {}
     skipped: dict[tuple[str, str], str] = {}
+    nonexecuting: set[tuple[str, str]] = set()
     for report in reports:
         for case in ET.parse(report).getroot().iter("testcase"):
             error = case.find("error")
@@ -637,6 +636,9 @@ def _junit_execution_problems(reports: tuple[Path, ...], expected_nodeids: set[s
             # Same normalisation as _nodeids_from_collection, which maps every backslash to "/".
             key = (case.get("classname", "").replace("\\", "/"), case.get("name", "").replace("\\", "/"))
             executed[key] = executed.get(key, 0) + 1
+            if case.find("skipped") is not None:
+                # JUnit cannot prove an xfail ran; run=False also emits a skipped element.
+                nonexecuting.add(key)
             outcome, reason = _junit_outcome(case)
             if outcome == "skipped":
                 skipped[key] = reason
@@ -644,7 +646,7 @@ def _junit_execution_problems(reports: tuple[Path, ...], expected_nodeids: set[s
     missing = sorted(expected - executed.keys())
     unexpected = sorted(executed.keys() - expected)
     duplicated = sorted(key for key, count in executed.items() if count > 1)
-    protected = sorted(key for key in skipped if key[0].startswith(PROTECTED_TEST_MODULES))
+    protected = sorted(key for key in nonexecuting if key[0].startswith(PROTECTED_TEST_MODULES))
     unallowed = sorted(key for key, reason in skipped.items() if key not in protected and not _skip_reason_allowed(reason))
     problems = []
     for label, keys in (
@@ -739,6 +741,7 @@ def full_tests(root: Path, output_dir: Path, xdist_workers: int = 0) -> CheckRes
             "phase_a": len(phase_a_nodes),
             "phase_b": len(phase_b_nodes),
         },
+        "collection_nodeids": sorted(full_nodes),
         "collection_duration_ms": {
             "full": collected[0][1],
             "phase_a": collected[1][1],

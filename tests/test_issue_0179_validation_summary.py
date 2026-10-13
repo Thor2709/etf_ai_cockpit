@@ -32,6 +32,8 @@ def _summary(tier: str) -> dict:
                 platform: {
                     "head_sha": ["b" * 40], "shards": [1, 2, 3], "labels": ["1/3", "2/3", "3/3"],
                     "collected": 4, "duplicates": 0, "tests": 4,
+                    "collection_nodeids": [f"tests/m.py::t{number}" for number in range(4)],
+                    "executed_keys": [["tests.m", f"t{number}"] for number in range(4)],
                 }
                 for platform in ("windows", "linux")
             }
@@ -117,7 +119,10 @@ def test_terminal_collection_preserves_platform_artifact_directories(
                 f'<testsuites><testsuite tests="1"><testcase classname="tests.m{shard}" name="t" /></testsuite></testsuites>',
                 encoding="utf-8",
             )
-            evidence = {"test_shard": f"{shard}/3", "collection_node_counts": {"full": 1}}
+            evidence = {
+                "test_shard": f"{shard}/3", "collection_node_counts": {"full": 1},
+                "collection_nodeids": [f"tests/m{shard}.py::t"],
+            }
             (directory / "full_tests.log").write_text(
                 validation_summary.EVIDENCE_PREFIX + json.dumps(evidence) + "\n", encoding="utf-8"
             )

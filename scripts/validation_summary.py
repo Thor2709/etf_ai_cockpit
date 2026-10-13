@@ -33,8 +33,10 @@ except ModuleNotFoundError:
 
 try:
     from scripts.validation_identity import identity_groups
+    from scripts.release_gate import _junit_key
 except ImportError:  # also pywin32's top-level 'scripts' namespace
     from validation_identity import identity_groups  # type: ignore[no-redef]
+    from release_gate import _junit_key  # type: ignore[no-redef]
 
 
 SCHEMA_VERSION = "validation-summary.v1"
@@ -181,7 +183,7 @@ RELEASE_ARTIFACT_RE = re.compile(
     r"release-gate-(?P<sha>[^-]+)-(?P<platform>windows|linux)(?:-s(?P<shard>[0-9]+))?", re.IGNORECASE
 )
 EXPECTED_SHARD_COUNT = 3  # .github/workflows/release-gate.yml matrix.shard [1, 2, 3]
-SHARD_KEYS = {"collected", "duplicates", "head_sha", "labels", "shards", "tests"}
+SHARD_KEYS = {"collected", "collection_nodeids", "executed_keys", "duplicates", "head_sha", "labels", "shards", "tests"}
 CANONICAL_JUNIT = "junit-full.xml"
 PHASE_JUNIT = ("junit-parallel.xml", "junit-serial.xml")
 EVIDENCE_LOG = "full_tests.log"
@@ -196,7 +198,7 @@ def _junit_keys(node: ET.Element) -> list[tuple[str, str]]:
         error = case.find("error")
         if error is not None and (error.get("message") or "").startswith("failed on teardown"):
             continue  # a teardown error is a second entry of an already counted test
-        keys.append((case.get("classname", ""), case.get("name", "")))
+        keys.append((case.get("classname", "").replace("\\", "/"), case.get("name", "").replace("\\", "/")))
     return keys
 
 
@@ -213,7 +215,7 @@ def _shard_reports(directory: Path) -> list[Path]:
 
 
 def _shard_evidence(directory: Path) -> dict[str, Any]:
-    """The release gate's own two-phase evidence line (shard label, collected node count), if present."""
+    """The release gate's authoritative collection identities and shard label, if present."""
 
     try:
         for line in (directory / EVIDENCE_LOG).read_text(encoding="utf-8", errors="replace").splitlines():
@@ -235,7 +237,10 @@ def _collect_platform_junit(artifacts_root: Path, head: str) -> tuple[dict[str, 
 
     platforms = ("windows", "linux")
     shards: dict[str, Any] = {
-        platform: {"head_sha": set(), "shards": [], "labels": [], "collected": 0, "duplicates": 0, "tests": 0}
+        platform: {
+            "head_sha": set(), "shards": [], "labels": [], "collected": 0,
+            "collection_nodeids": [], "executed_keys": [], "duplicates": 0, "tests": 0,
+        }
         for platform in platforms
     }
     seen: dict[str, set[tuple[str, str]]] = {platform: set() for platform in platforms}
@@ -251,7 +256,17 @@ def _collect_platform_junit(artifacts_root: Path, head: str) -> tuple[dict[str, 
         record["labels"].append(str(evidence.get("test_shard", "")))
         counts = evidence.get("collection_node_counts")
         collected = counts.get("full") if isinstance(counts, dict) else None
-        record["collected"] += collected if isinstance(collected, int) else -(10**9)  # unprovable collection
+        nodes = evidence.get("collection_nodeids")
+        if (
+            type(collected) is not int or collected < 0
+            or not isinstance(nodes, list) or len(nodes) != collected
+            or any(not isinstance(node, str) or not node.startswith("tests/") or "::" not in node for node in nodes)
+        ):
+            record["collection_nodeids"] = None  # absent/malformed evidence cannot prove parity
+        elif record["collection_nodeids"] is not None:
+            record["collection_nodeids"].extend(nodes)
+        if record["collected"] is not None:
+            record["collected"] = record["collected"] + collected if type(collected) is int and collected >= 0 else None
         for report in _shard_reports(directory):
             try:
                 keys = _junit_keys(ET.parse(report).getroot())
@@ -263,6 +278,9 @@ def _collect_platform_junit(artifacts_root: Path, head: str) -> tuple[dict[str, 
     for platform in platforms:
         record = shards[platform]
         record["tests"] = len(seen[platform])
+        record["executed_keys"] = [list(key) for key in sorted(seen[platform])]
+        if record["collection_nodeids"] is not None:
+            record["collection_nodeids"].sort()
         record["head_sha"] = sorted(record["head_sha"])
         record["shards"] = sorted(record["shards"])
         record["labels"] = sorted(record["labels"])
@@ -288,6 +306,27 @@ def _shard_coverage_errors(report: dict[str, Any]) -> list[str]:
             errors.append(f"terminal summary {platform} shards are incomplete (expected 1/3 to 3/3)")
         if record["duplicates"] != 0:
             errors.append(f"terminal summary {platform} shards executed {record['duplicates']} duplicate test(s)")
+        nodes = record["collection_nodeids"]
+        keys = record["executed_keys"]
+        if (
+            not isinstance(nodes, list)
+            or any(not isinstance(node, str) or not node.startswith("tests/") or "::" not in node for node in nodes)
+            or not isinstance(keys, list)
+            or any(not isinstance(key, list) or len(key) != 2 or any(not isinstance(part, str) or not part for part in key) for key in keys)
+        ):
+            errors.append(f"terminal summary {platform} collection identities are missing or malformed")
+            continue
+        collected_keys = [_junit_key(node) for node in nodes]
+        executed_keys = [tuple(key) for key in keys]
+        if len(set(collected_keys)) != len(collected_keys):
+            errors.append(f"terminal summary {platform} collection contains duplicate test(s)")
+        if (
+            set(collected_keys) != set(executed_keys)
+            or len(nodes) != record["collected"]
+            or len(set(executed_keys)) != len(executed_keys)
+            or len(executed_keys) != record["tests"]
+        ):
+            errors.append(f"terminal summary {platform} executed test union does not equal the collection")
         if record["tests"] != record["collected"] or (isinstance(junit, dict) and junit.get(platform) != record["tests"]):
             errors.append(f"terminal summary {platform} executed test union does not equal the collection")
     return errors

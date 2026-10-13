@@ -15,6 +15,7 @@ from scripts import release_gate, select_focused_tests, validate_app, validation
 
 HEAD = "b" * 40
 BASE = "a" * 40
+EVIDENCE_PREFIX = "Two-phase xdist evidence: "
 
 
 # --- E21-N001: skipped tests are not executed tests --------------------------------------------
@@ -68,6 +69,32 @@ def test_outcomes_are_counted_separately(tmp_path: Path) -> None:
     }
 
 
+def test_protected_nonrunning_xfail_is_not_execution(tmp_path: Path) -> None:
+    report = _report(
+        tmp_path / "r.xml",
+        [("tests.test_release_gate", "test_a",
+          '<skipped type="pytest.xfail" message="[NOTRUN] known gap" />')],
+    )
+
+    problems = release_gate._junit_execution_problems((report,), {"tests/test_release_gate.py::test_a"})
+
+    assert any("protected test(s) skipped: tests.test_release_gate::test_a" in problem for problem in problems)
+    assert release_gate._junit_outcome_counts((report,))["xfail"] == 1
+
+
+def test_teardown_error_is_outcome_evidence_but_not_a_second_execution(tmp_path: Path) -> None:
+    report = _report(
+        tmp_path / "r.xml",
+        [("tests.test_x", "test_a", ""),
+         ("tests.test_x", "test_a", '<error message="failed on teardown with RuntimeError" />')],
+    )
+
+    assert release_gate._junit_execution_problems((report,), {"tests/test_x.py::test_a"}) == []
+    assert release_gate._junit_outcome_counts((report,)) == {
+        "passed": 1, "failed": 0, "error": 1, "skipped": 0, "xfail": 0,
+    }
+
+
 # --- E21-N002/N003: one canonical report per shard, shard coverage proven ----------------------
 def _artifacts(
     tmp_path: Path,
@@ -101,9 +128,15 @@ def _artifacts(
                 (directory / "junit-serial.xml").write_text(
                     '<testsuites><testsuite tests="0" /></testsuites>', encoding="utf-8"
                 )
-            evidence = {"test_shard": f"{shard}/3", "collection_node_counts": {"full": len(names)}}
+            nodeids = [f"tests/m{shard}.py::{name}" for name in names if name != "shared"]
+            if overlap:
+                nodeids.append("tests/shared.py::shared")
+            evidence = {
+                "test_shard": f"{shard}/3", "collection_node_counts": {"full": len(names)},
+                "collection_nodeids": nodeids,
+            }
             (directory / "full_tests.log").write_text(
-                validation_summary.EVIDENCE_PREFIX + json.dumps(evidence) + "\n", encoding="utf-8"
+                EVIDENCE_PREFIX + json.dumps(evidence) + "\n", encoding="utf-8"
             )
     return artifacts
 
@@ -148,6 +181,30 @@ def test_terminal_summary_requires_all_shards_exact_sha_and_no_duplicates(
     missing.pop("platform_shards")
     assert "terminal summary shard coverage is required" in validation_summary.validate_summary(missing)
     assert validation_summary.validate_summary(good) == []  # control
+
+
+@pytest.mark.parametrize("mutation", ["wrong", "duplicate", "missing", "malformed"])
+def test_terminal_summary_requires_collection_identities_not_just_matching_totals(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str,
+) -> None:
+    artifacts = _artifacts(tmp_path)
+    for directory in artifacts.glob("release-gate-*"):
+        log = directory / "full_tests.log"
+        evidence = json.loads(log.read_text(encoding="utf-8").removeprefix(EVIDENCE_PREFIX))
+        if mutation == "wrong":
+            evidence["collection_nodeids"] = [node.replace("::t", "::wrong") for node in evidence["collection_nodeids"]]
+        elif mutation == "duplicate":
+            evidence["collection_nodeids"] = ["tests/shared.py::test_a", "tests/shared.py::test_a"]
+        elif mutation == "missing":
+            evidence.pop("collection_nodeids")
+        else:
+            evidence["collection_nodeids"] = [None, 7]
+        log.write_text(EVIDENCE_PREFIX + json.dumps(evidence) + "\n", encoding="utf-8")
+
+    report = _collect(artifacts, tmp_path, monkeypatch)
+
+    assert report["platform_junit"] == {"windows": 6, "linux": 6}
+    assert any("collection" in error for error in validation_summary.validate_summary(report))
 
 
 # --- E21-N004 / E021: --changed and the focused selector cover impacted tests ------------------
