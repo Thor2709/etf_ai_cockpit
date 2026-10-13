@@ -8569,5 +8569,5 @@
  },
  "etf_economics_records": 0,
  "candidate_price_binding": true,
- "forecast_run_message": "Configured ETF forecasts refreshed as of 2026-09-30: baseline ok 285, timesfm unavailable 285, toto unavailable 285. Output: <path>"
+ "forecast_run_message": "Configured ETF forecasts refreshed as of 2026-09-30: baseline unavailable 285, timesfm unavailable 285, toto unavailable 285. Output: <path>"
 }

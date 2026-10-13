@@ -19,9 +19,14 @@ from etf_cockpit.models.distribution_store import (
     HORIZON_VALIDATION_STATUSES,
     QUANTILE_FIELDS,
     build_distribution_record,
+    complete_return_quantiles,
+    normalise_quantiles,
 )
+from etf_cockpit.models.calibration import TARGET_REGISTRY, target_matches_evaluation
+from etf_cockpit.models.ensemble import MIXTURE_QUANTILE_METHOD, mixture_quantiles
 from etf_cockpit.models.uncertainty import unavailable_decomposition
 
+EXTRA_QUANTILE_FIELDS = tuple(field for field in QUANTILE_FIELDS if field not in {"q10_return", "q50_return", "q90_return"})
 PRIMARY_MODEL_HORIZON_DAYS = 60
 FALLBACK_MODEL_HORIZONS_DAYS = (120, 20, 5, 180)
 CANONICAL_DISTRIBUTION_HORIZONS_DAYS = frozenset({5, 20, 60, 120, 180, 504, 1260})
@@ -479,13 +484,15 @@ def forecast_return_distributions(
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
     if "calibration_status" not in frame:
         frame["calibration_status"] = "unavailable"
+    if "probability_calibration_status" not in frame:
+        frame["probability_calibration_status"] = "unavailable"
     if "target_id" not in frame:
         frame["target_id"] = None
     if "model_id" not in frame:
         frame["model_id"] = None
     allowed = frame["model_allowed_in_score"].astype(str).str.lower().isin({"true", "1", "yes"})
     frame = frame[(frame["status"].astype(str).str.lower() == "ok") & allowed]
-    frame = frame.dropna(subset=["etf_id", "model_name", "horizon_days", "expected_return"])
+    frame = frame.dropna(subset=["etf_id", "model_name", "horizon_days"])
     model_horizons_by_id = _declared_horizons_by_id(frame, "model_id", "model_horizon_days")
     target_horizons_by_id = _declared_horizons_by_id(frame, "target_id", "target_horizon_days")
     if frame.empty:
@@ -499,12 +506,14 @@ def forecast_return_distributions(
         return output
 
     for instrument_id, instrument_frame in frame.groupby(frame["etf_id"].astype(str), sort=True):
+        invalid_member_reason = None
         selected_rows: list[dict[str, float | int]] = []
         per_model_distributions: list[dict[str, object]] = []
         canonical_quantiles: list[dict[str, float]] = []
         canonical_coverages: list[float] = []
         canonical_components: list[dict[str, float]] = []
         probabilities: list[dict[str, float | None]] = []
+        probability_reasons: list[str] = []
         targets_by_model: dict[str, str | None] = {}
         validations_by_model: dict[str, dict[str, object]] = {}
         model_identities_valid_by_model: dict[str, bool] = {}
@@ -515,9 +524,13 @@ def forecast_return_distributions(
             selected = _latest_row(exact_horizon)
             if selected is None:
                 continue
+            if _target_identity_rejected(selected.get("target_id"), horizon_days):
+                invalid_member_reason = "Selected ensemble member has missing, unregistered or mismatched target identity."
+                break
             expected = _finite_or_none(selected.get("expected_return"))
             if expected is None:
-                continue
+                invalid_member_reason = "Selected ensemble member has a non-finite expected return."
+                break
             q50 = _finite_or_none(selected.get("q50_return"))
             q50 = expected if q50 is None else q50
             q10 = _finite_or_none(selected.get("q10_return"))
@@ -528,8 +541,19 @@ def forecast_return_distributions(
             if q90 is None and volatility is not None and volatility >= 0:
                 q90 = q50 + 1.28 * volatility
             if q10 is None or q90 is None or not q10 <= q50 <= q90:
+                invalid_member_reason = "Selected ensemble member has invalid or non-finite quantiles."
+                break
+            native_quantiles = normalise_quantiles({field: selected.get(field) for field in QUANTILE_FIELDS})
+            # Rows that carry only q10/q50/q90 (extra levels empty) are legacy three-quantile members; a partially
+            # supplied, non-finite or crossing extra level invalidates the member.
+            extras_finite = [_finite_or_none(selected.get(field)) is not None for field in EXTRA_QUANTILE_FIELDS]
+            if (any(extras_finite) and not all(extras_finite)) or (all(extras_finite) and native_quantiles is None):
+                invalid_member_reason = "Selected ensemble member has invalid or non-finite supplied quantiles."
+                break
+            legacy_vector = native_quantiles or complete_return_quantiles(q10, q50, q90)
+            if legacy_vector is None:
                 continue
-            selected_rows.append({"q10": q10, "q50": q50, "q90": q90, "horizon": int(selected["horizon_days"])})
+            selected_rows.append({"q10": q10, "q50": q50, "q90": q90, "horizon": int(selected["horizon_days"]), "vector": legacy_vector})
             model_distribution: dict[str, object] = {
                 "model_name": str(selected.get("model_name") or ""),
                 "model_id": _text_or_none(selected.get("model_id")),
@@ -585,7 +609,12 @@ def forecast_return_distributions(
             positive = _bounded_probability(selected.get("prob_positive_return"))
             beat_cash = _bounded_probability(selected.get("prob_beat_cash"))
             beat_benchmark = _bounded_probability(selected.get("prob_beat_benchmark"))
-            if calibration_status == "good" and calibration_horizon == horizon_days and all(
+            # A probability is shown only after out-of-sample probability calibration (Brier, log loss and
+            # reliability by chronological fold) admitted it; the MASE/coverage grade alone never does.
+            probability_status = str(selected.get("probability_calibration_status") or "unavailable").strip().lower()
+            if probability_status != "calibrated":
+                probability_reasons.append(f"{model_name}: probability calibration status is {probability_status}")
+            if probability_status == "calibrated" and calibration_status == "good" and calibration_horizon == horizon_days and all(
                 value is not None for value in (positive, beat_cash, beat_benchmark)
             ):
                 probabilities.append({
@@ -599,6 +628,9 @@ def forecast_return_distributions(
                     "probability_beat_cash": None,
                     "probability_beat_benchmark": None,
                 })
+        if invalid_member_reason is not None:
+            output[instrument_id] = _unavailable_contract_distribution(invalid_member_reason, horizon_days=horizon_days, decision_time=decision_cutoff, point_in_time_bound=point_in_time_bound)
+            continue
         if not selected_rows:
             output[instrument_id] = _unavailable_contract_distribution(
                 "No successful forecast row exists at the exact requested horizon.",
@@ -607,24 +639,34 @@ def forecast_return_distributions(
                 point_in_time_bound=usable_forecast_dates_by_instrument.get(instrument_id, False) and decision_cutoff is not None,
             )
             continue
+        # The ensemble quantile is the quantile of the equal-weight mixture CDF of the models'
+        # distributions, never the median of the models' quantiles.
+        consensus = mixture_quantiles([row["vector"] for row in selected_rows])
+        if consensus is None:
+            output[instrument_id] = _unavailable_contract_distribution(
+                "The selected model quantile sets cannot form a valid mixture distribution.",
+                horizon_days=horizon_days,
+                decision_time=decision_cutoff,
+                point_in_time_bound=usable_forecast_dates_by_instrument.get(instrument_id, False) and decision_cutoff is not None,
+            )
+            continue
         distribution: dict[str, object] = {
-            "q10_return": round(float(np.median([row["q10"] for row in selected_rows])), 12),
-            "q50_return": round(float(np.median([row["q50"] for row in selected_rows])), 12),
-            "q90_return": round(float(np.median([row["q90"] for row in selected_rows])), 12),
+            "q10_return": round(consensus["q10_return"], 12),
+            "q50_return": round(consensus["q50_return"], 12),
+            "q90_return": round(consensus["q90_return"], 12),
             "horizon_days": int(horizon_days),
             "model_count": len(selected_rows),
             "status": "available",
-            "reason": "Median of allowed successful model return distributions at the selected horizon.",
+            "reason": "Equal-weight mixture-CDF quantiles of allowed successful model return distributions at the selected horizon.",
+            "quantile_method": MIXTURE_QUANTILE_METHOD,
             "source_dataset": "forecast_return_distribution",
             "targets_by_model": targets_by_model,
             "validation_by_model": validations_by_model,
+            "probability_reason": "; ".join(probability_reasons) if probability_reasons else None,
         }
         quantile_vector = None
         if len(canonical_quantiles) == len(selected_rows):
-            quantile_vector = {
-                field: float(np.median([row[field] for row in canonical_quantiles]))
-                for field in QUANTILE_FIELDS
-            }
+            quantile_vector = mixture_quantiles(canonical_quantiles)
         components = None
         if return_components_by_instrument is not None:
             components = return_components_by_instrument.get(instrument_id)
@@ -853,6 +895,16 @@ def _finite_integer(value: object) -> int | None:
     if number is None or not number.is_integer():
         return None
     return int(number)
+
+
+def _target_identity_rejected(target_id: object, horizon_days: int) -> bool:
+    """Fail closed for a missing/blank target_id or a registered target of another horizon or return space;
+    any other id keeps the declared-horizon validation (``_horizon_identity_is_valid``)."""
+
+    if not isinstance(target_id, str) or not target_id.strip():
+        return True
+    identity = target_id.strip()
+    return identity in TARGET_REGISTRY and not target_matches_evaluation(identity, horizon_days)
 
 
 def _declared_horizons_by_id(frame: pd.DataFrame, identity_column: str, horizon_column: str) -> dict[str, frozenset[int]]:

@@ -18,7 +18,8 @@ from tests.test_work_q_promotion import SETTINGS, _days, _forecasts, _prices
 
 def _row(**changes):
     row = ForecastResult("r", "timesfm3", "v", "E1", date(2025, 6, 2), 60, 0.02, 0.02)
-    return replace(row, **changes)
+    changed = replace(row, **changes)
+    return changed if "target_id" in changes else replace(changed, target_id=f"adj_close_log_return_{changed.horizon_days}d")
 
 
 def _promotion(**changes):
@@ -36,6 +37,9 @@ def test_enabled_and_shadow_flags_fail_closed(tmp_path, monkeypatch, enabled, sh
     config = _config_with_optional_models_disabled(load_config())
     config.models.promotion.enabled = enabled
     config.models.shadow_optional_models = shadow
+    config.models.models["timesfm3"] = {**dict(config.models.models.get("timesfm3") or {}), "revision": "a" * 40}
+    # Calibration-evidence sufficiency has its own tests (test_forecast_honesty); this one covers the flags.
+    monkeypatch.setattr("etf_cockpit.application.forecast_service.horizon_calibration_scores", lambda frame: pd.DataFrame({"status": ["ok"]}))
     prices = load_prices()
     as_of = pd.to_datetime(prices["date"]).max().date()
     context = _reference_context_from_inputs(_benchmark_reference_snapshot_inputs(config, as_of, load_holdings()), purpose="comparison", analysis_id="work-v")
@@ -119,7 +123,7 @@ def test_promotion_grants_only_its_evidence_horizon(horizon):
 
 def test_promoted_row_has_canonical_horizon_validation():
     row = _apply_promotion(_row(q10_return=-0.1, q50_return=0.02, q90_return=0.1), {"timesfm3": _promotion()}, False)
-    stored = _forecast_to_row(row, {"timesfm3": _promotion()})
+    stored = _forecast_to_row(row, {"timesfm3": _promotion()}, {"timesfm3": {"revision": "a" * 40}})
     assert stored["promotion_status"] == COUNTING
     assert stored["calibration_status"] in {"good", "mixed", "weak", "limited"}
     assert stored["calibration_horizon_days"] == 60
