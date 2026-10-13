@@ -713,11 +713,10 @@ def test_concurrent_conflicting_revisions_allow_exactly_one_writer(tmp_path: Pat
 
 def test_malformed_action_and_fx_observation_are_rejected_without_zero_fill(tmp_path: Path) -> None:
     invalid_action = _action("BAD-001", "split", ratio=0.0)
-    invalid_fx = _fx("BAD-FX-001", "EUR", "USD", 0.0)
 
     with CorporateActionStore(tmp_path) as action_store:
         with pytest.raises(ValueError):
             action_store.append(invalid_action)
-    with FXObservationStore(tmp_path / "fx") as fx_store:
-        with pytest.raises(ValueError):
-            fx_store.append(invalid_fx)
+    # A zero rate is now rejected at construction (#956), before it can reach any store.
+    with pytest.raises(ValueError):
+        _fx("BAD-FX-001", "EUR", "USD", 0.0)
