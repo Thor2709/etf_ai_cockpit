@@ -59,12 +59,15 @@ _VOLATILE_COLUMNS = ("ingested_at",)
 _SCORE_RUN_NAME = re.compile(r"score_\d{8}T\d{6}_[0-9a-f]{8}")
 # The stamp comes from the frozen clock "now"; the 8-hex suffix is uuid.uuid4().hex[:8] (random per run).
 _SCORE_RUN_MASK = "score_<stamp>_<8hex>"
+# Price-bound feature manifests include a digest of platform-sensitive price values.
+_FEATURE_PRICE_DIGEST = re.compile(r"(features_\d{4}-\d{2}-\d{2}_p)[0-9a-f]{12}(?=__s[0-9a-f]{12}\.json$)")
 # Fields never recorded by value in the persisted-schema golden (listed in the fixture for transparency).
 EXCLUDED_FIELDS = {
     "digests": "every 64-hex sha256 value (payload_sha256, *_checksum, *_hash, content_hash, signatures) is masked: float text feeding them is not bit-stable across platforms",
     "timestamps": "ingested_at / created_at / signal_timestamp values and any run id derived from the clock",
     "paths": "absolute paths (isolated root differs per run)",
     "hashes_in_run_id": "the __s<12 hex> settings suffix of run ids is kept: it is derived from committed config only",
+    "feature_price_digest": "the _p<12 hex> price-binding digest in feature manifest filenames is masked: price float text is not bit-stable across platforms; dates and settings suffixes are kept",
 }
 
 
@@ -340,6 +343,7 @@ def persisted_schema_section(root: Path) -> dict[str, object]:
         if not path.is_file() or path.name == ".atomic-write-group.guard" or ".schema_versions" in path.parts:
             continue
         relative = _SCORE_RUN_NAME.sub(_SCORE_RUN_MASK, path.relative_to(root).as_posix())
+        relative = _FEATURE_PRICE_DIGEST.sub(r"\1<12hex>", relative)
         files[relative] = _describe_file(path)
     return {"excluded_fields": EXCLUDED_FIELDS, "files": files}
 

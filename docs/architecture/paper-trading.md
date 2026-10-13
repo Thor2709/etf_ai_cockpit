@@ -19,6 +19,24 @@ Fill identifiers and corporate-action identifiers are idempotency keys. A
 retry can therefore be safely replayed, while a changed acceptance term or a
 contradictory rejection is rejected.
 
+Cash reservations replay the existing order lifecycle journal at the requested
+cutoff, including historical remaining quantities and release states. Missing
+or conflicting reconstruction evidence raises `CashReservationError` with an
+unavailable reason. Settlement dates alone never release a buy debit: the cash
+source must verify the individual posting. Paper fills are confirmed from the
+same verified event prefix used for cash. The canonical `Ledger` accepts an
+explicit, unambiguous `fill_entry_ids` association and confirms only posted,
+effective, settled, recorded and unreversed cash debits at the cutoff; without
+an association it confirms no fills. Global projection flags cannot establish
+an individual cash posting.
+
+Order settlement requires a configured, available exchange time zone. Unknown
+zones produce an unavailable settlement date and warning; NYSE and NASDAQ use
+America/New_York. Rejection reconciliation after a committed partial fill
+restores `PARTIALLY_FILLED`, journals the requested rejection and committed
+quantity, and conservatively keeps the remaining reservation until an explicit
+cancellation or further accounted fill.
+
 The ledger records long-only orders, partial fills, cancellations, fees and
 FX, realised and unrealised PnL, open positions, win rate, payoff ratio,
 benchmark return, and drawdown. Marks must be adjusted-close observations and

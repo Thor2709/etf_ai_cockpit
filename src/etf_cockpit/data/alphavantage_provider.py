@@ -164,11 +164,16 @@ class AlphaVantageProvider(DataProvider, PriceProvider):
             notice = _quota_notice(payload)
             if notice:
                 return self._replay_or_unavailable(cached, start_date, end_date, effective_decision_time, f"Alpha Vantage quota exhausted: {notice}")
+            # One clock read stamps the rows and, by default, the decision time: two reads differ by microseconds
+            # on a high-resolution clock (Linux), which would hide the rows just retrieved from their own request.
+            retrieved_at = self._observation_time()
+            if decision_time is None:
+                effective_decision_time = retrieved_at
             frame = _normalise_payload(
                 payload,
                 symbol=symbol,
                 provider_symbol=provider_symbol,
-                available_at=self._observation_time(),
+                available_at=retrieved_at,
             )
             if frame.empty:
                 return self._replay_or_unavailable(cached, start_date, end_date, effective_decision_time, "Alpha Vantage returned no usable daily price rows.")
