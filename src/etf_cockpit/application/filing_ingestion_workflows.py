@@ -20,6 +20,7 @@ from etf_cockpit.core.workflow import (
 )
 from etf_cockpit.application.sec_bulk_import import (
     BulkImportResult,
+    _as_local_records,
     import_sec_companyfacts_bulk as _import_sec_companyfacts_bulk,
 )
 from etf_cockpit.application.sec_submissions_import import (
@@ -121,6 +122,9 @@ def import_sec_companyfacts(
         else:
             parsed_path = source_path
         payload = json.loads(source_bytes.decode("utf-8"))
+        supplied_ciks = {str(payload[key]).strip().upper().removeprefix("CIK").lstrip("0") for key in ("cik", "cik_str") if payload.get(key) not in (None, "")}
+        if len(supplied_ciks) > 1:
+            raise ValueError("SEC companyfacts cik and cik_str disagree")
         cik = str(payload.get("cik") or payload.get("cik_str") or "").strip()
         if not cik:
             raise ValueError("SEC companyfacts is missing a CIK")
@@ -163,7 +167,10 @@ def import_sec_companyfacts(
             )
             source = replace(document, path=parsed_path)
         else:
-            source = RawDocument(source_path, source_path.resolve().as_uri(), datetime.now(timezone.utc), parsed.source_sha256, "sec_edgar", "sec_companyfacts", "application/json", 200)
+            # A path-only import has no hash or source proof: it stays local_unverified, never
+            # official_regulator and never canonical_sec (its fact IDs carry the local prefix).
+            source = RawDocument(source_path, source_path.resolve().as_uri(), datetime.now(timezone.utc), parsed.source_sha256, "sec_local_import", "sec_companyfacts", "application/json", 200)
+            parsed = replace(parsed, records=_as_local_records(parsed.records))
         with publication_scope(publish_guard):
             write_statement_evidence(
                 source,

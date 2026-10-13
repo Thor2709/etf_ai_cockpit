@@ -128,6 +128,50 @@ class GateResult:
 
 
 @dataclass(frozen=True)
+class CriticalGateResult:
+    """One required-evidence gate; a failed gate blocks Buy-type labels, never the descriptive scores."""
+
+    gate_id: str
+    status: str  # "PASS" | "INSUFFICIENT_EVIDENCE"
+    missing: tuple[str, ...]
+    reason_code: str
+    group: str | None = None
+
+    @property
+    def passed(self) -> bool:
+        return self.status == "PASS"
+
+
+@dataclass(frozen=True)
+class ScoreAuthorityFlags:
+    """Separate authority flags: a high score never implies safety, calibration or benchmark standing."""
+
+    score_rankable: bool = False
+    financial_safety_verified: bool = False
+    forecast_calibrated: bool = False
+    benchmark_eligible: bool = False
+    research_decision_status: str = "insufficient_evidence"
+    execution_allowed: bool = False
+
+    def __post_init__(self) -> None:
+        if self.execution_allowed:
+            raise ValueError("score authority flags never authorize execution")
+        for name in ("score_rankable", "financial_safety_verified", "forecast_calibrated", "benchmark_eligible"):
+            if not isinstance(getattr(self, name), bool):
+                raise ValueError(f"{name} must be boolean")
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "score_rankable": self.score_rankable,
+            "financial_safety_verified": self.financial_safety_verified,
+            "forecast_calibrated": self.forecast_calibrated,
+            "benchmark_eligible": self.benchmark_eligible,
+            "research_decision_status": self.research_decision_status,
+            "execution_allowed": False,
+        }
+
+
+@dataclass(frozen=True)
 class SubfamilySlot:
     subfamily: str
     status: str

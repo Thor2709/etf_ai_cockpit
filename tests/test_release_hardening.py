@@ -666,10 +666,12 @@ def test_unavailable_models_are_not_allowed_in_score() -> None:
         assert result.reason_unavailable
 
 
-def test_forecast_service_runs_optional_model_rows_when_enabled(tmp_path) -> None:
+def test_forecast_service_runs_optional_model_rows_when_enabled(tmp_path, monkeypatch) -> None:
     config = load_config()
-    config.models.models["timesfm"] = {"enabled": True, "mode": "mock"}
-    config.models.models["toto"] = {"enabled": True, "mode": "mock", "context_length": 128}
+    config.models.models["timesfm"] = {"enabled": True, "mode": "mock", "revision": "a" * 40}
+    config.models.models["toto"] = {"enabled": True, "mode": "mock", "context_length": 128, "revision": "a" * 40}
+    # Calibration-evidence sufficiency has its own tests (test_forecast_honesty); this one covers the run itself.
+    monkeypatch.setattr("etf_cockpit.application.forecast_service.horizon_calibration_scores", lambda frame: pd.DataFrame({"status": ["ok"]}))
     # The run manifest requires the canonical prices dataset; materialise it explicitly instead of
     # relying on an earlier test having written it into shared project data.
     DataService(config).update_prices(force_sample=True)
