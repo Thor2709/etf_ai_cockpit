@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
+from io import BytesIO
 import json
 from pathlib import Path
 from typing import Any, Protocol
@@ -117,7 +118,8 @@ def _record_scoreboard_publication_binding(
 ) -> dict[str, Any]:
     """Bind exact scoreboard bytes to the score-history run that published them."""
 
-    actual_scoreboard = pd.read_parquet(scoreboard_path)
+    scoreboard_bytes = scoreboard_path.read_bytes()
+    actual_scoreboard = pd.read_parquet(BytesIO(scoreboard_bytes))
     try:
         pd.testing.assert_frame_equal(
             expected_scoreboard.reset_index(drop=True),
@@ -148,7 +150,7 @@ def _record_scoreboard_publication_binding(
     root = scoreboard_path.resolve().parents[2]
     score_completed_at = newest.to_pydatetime().astimezone(timezone.utc)
     published_at = max(datetime.now(timezone.utc), score_completed_at)
-    scoreboard_digest = hashlib.sha256(scoreboard_path.read_bytes()).hexdigest()
+    scoreboard_digest = hashlib.sha256(scoreboard_bytes).hexdigest()
     payload = {
         "schema_version": "scoreboard_publication_binding.v1",
         "run_id": run_id,

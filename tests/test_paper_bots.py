@@ -9,10 +9,12 @@ import sys
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from etf_cockpit.data.local_storage import TransactionalStore
 from etf_cockpit.application import scoreboard_publication
 from etf_cockpit.portfolio import paper_bots
+from etf_cockpit.signals import simple_scores
 
 
 def _time(value: datetime) -> str:
@@ -107,7 +109,7 @@ def _run_fixture(
     derived = tmp_path / "data" / "derived"
     derived.mkdir(parents=True, exist_ok=True)
     scoreboard_path = derived / "scoreboard.parquet"
-    scoreboard_bytes = board.to_json(orient="records", date_format="iso").encode("utf-8")
+    scoreboard_bytes = board.to_parquet(index=False)
     scoreboard_path.write_bytes(scoreboard_bytes)
     digest = hashlib.sha256(scoreboard_bytes).hexdigest()
     by_run: dict[tuple[str, str, str], dict[str, object]] = {}
@@ -135,7 +137,7 @@ def _run_fixture(
             )
 
     monkeypatch.setattr(paper_bots, "_load_published_score_history", lambda root: pd.DataFrame(history))
-    monkeypatch.setattr(paper_bots, "load_simple_scoreboard", lambda path, *, root: board.copy())
+    monkeypatch.setattr(simple_scores, "project_classification_score_frame", lambda frame, *, root: frame)
     return paper_bots.run_paper_bots(
         cutoff,
         root=tmp_path,
@@ -173,6 +175,97 @@ def test_publication_binding_records_exact_board_bytes_and_history_identity(tmp_
     assert records[0].payload == binding
 
 
+@pytest.mark.parametrize("boundary", ["consumer", "producer"])
+def test_publication_uses_one_immutable_scoreboard_buffer(monkeypatch, tmp_path: Path, boundary: str) -> None:
+    now = datetime.now(timezone.utc)
+    known_at = now - timedelta(minutes=5)
+    rows = _rows(known_at)
+    board = _scoreboard(rows, known_at)
+    board.loc[board["instrument_id"] == "AAA", "research_promotion_allowed"] = False
+    replacement = board.copy()
+    replacement.loc[replacement["instrument_id"] == "AAA", "research_promotion_allowed"] = True
+    replacement.loc[replacement["instrument_id"] == "VWCE", "current_price"] = 999.0
+    board_path = tmp_path / "data" / "derived" / "scoreboard.parquet"
+    replacement_bytes = replacement.to_parquet(index=False)
+
+    if boundary == "consumer":
+        original_read = Path.read_bytes
+
+        def replace_after_read(path):
+            payload = original_read(path)
+            if path == board_path:
+                path.write_bytes(replacement_bytes)
+            return payload
+
+        monkeypatch.setattr(Path, "read_bytes", replace_after_read)
+        result = _run_fixture(monkeypatch, tmp_path, rows, board, now)
+        assert result.status == "available"
+        benchmark = next(record for record in result.records if record["bot_family"] == "B0")
+        top_n = next(record for record in result.records if record["bot_family"] == "B1")
+        assert benchmark["prices_used"]["VWCE"]["price"] == 100.0
+        assert "AAA" not in top_n["targets"]
+        assert all(record["execution_allowed"] is False for record in result.records)
+    else:
+        board_path.parent.mkdir(parents=True)
+        board.to_parquet(board_path, index=False)
+        history_path = board_path.with_name("score_history.parquet")
+        pd.DataFrame(rows).to_parquet(history_path, index=False)
+        with TransactionalStore(tmp_path):
+            pass
+        original_compare = pd.testing.assert_frame_equal
+
+        def replace_after_comparison(*args, **kwargs):
+            original_compare(*args, **kwargs)
+            board_path.write_bytes(replacement_bytes)
+
+        monkeypatch.setattr(pd.testing, "assert_frame_equal", replace_after_comparison)
+        with pytest.raises(RuntimeError, match="Scoreboard changed"):
+            scoreboard_publication._record_scoreboard_publication_binding(board_path, history_path, board)
+        with TransactionalStore(tmp_path, read_only=True) as store:
+            assert not store.list(paper_bots.PUBLICATION_BINDING_ENTITY_TYPE)
+
+
+@pytest.mark.parametrize("field,invalid", [
+    ("formula_version", None),
+    ("formula_checksum", None),
+    ("formula_checksum", "not-a-checksum"),
+    ("score_schema_version", None),
+    ("gate_policy_version", None),
+    ("gate_policy_checksum", None),
+    ("gate_policy_checksum", "g" * 64),
+])
+def test_every_history_row_requires_valid_lineage(monkeypatch, tmp_path: Path, field: str, invalid) -> None:
+    now = datetime.now(timezone.utc)
+    known_at = now - timedelta(minutes=5)
+    rows = _rows(known_at)
+    rows[0][field] = invalid
+    board = _scoreboard(rows, known_at)
+    assert bool(board.loc[board["instrument_id"] == "AAA", "research_promotion_allowed"].iloc[0])
+
+    result = _run_fixture(monkeypatch, tmp_path, rows, board, now)
+
+    assert result.status == "unavailable"
+    assert result.records
+    assert all(record["status"] == "unavailable" and not record["targets"] for record in result.records)
+    assert all("lineage" in str(record["reason"]) for record in result.records)
+
+
+@pytest.mark.parametrize("duplicate_rank", [1, 9])
+def test_duplicate_history_instruments_reject_publication(monkeypatch, tmp_path: Path, duplicate_rank: int) -> None:
+    now = datetime.now(timezone.utc)
+    known_at = now - timedelta(minutes=5)
+    rows = _rows(known_at)
+    board = _scoreboard(rows, known_at).drop(columns=["rank"])
+    rows.append({**rows[0], "rank": duplicate_rank})
+
+    result = _run_fixture(monkeypatch, tmp_path, rows, board, now)
+
+    assert result.status == "unavailable"
+    assert result.records
+    assert all(record["status"] == "unavailable" and not record["targets"] for record in result.records)
+    assert all("duplicate instrument" in str(record["reason"]) for record in result.records)
+
+
 def test_changed_scoreboard_bytes_cannot_reuse_an_older_publication_binding(monkeypatch, tmp_path: Path) -> None:
     now = datetime.now(timezone.utc)
     known_at = now - timedelta(minutes=5)
@@ -185,9 +278,8 @@ def test_changed_scoreboard_bytes_cannot_reuse_an_older_publication_binding(monk
     changed.loc[changed["instrument_id"] == "AAA", "current_price"] += 1.0
     changed.loc[changed["instrument_id"] == "AAA", "research_promotion_allowed"] = False
     (tmp_path / "data" / "derived" / "scoreboard.parquet").write_bytes(
-        changed.to_json(orient="records", date_format="iso").encode("utf-8")
+        changed.to_parquet(index=False)
     )
-    monkeypatch.setattr(paper_bots, "load_simple_scoreboard", lambda *_args, **_kwargs: changed.copy())
 
     result = paper_bots.run_paper_bots(now, root=tmp_path)
 

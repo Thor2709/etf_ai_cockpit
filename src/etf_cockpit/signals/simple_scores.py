@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 import hashlib
+from io import BytesIO
 import json
 from math import isfinite, tanh
 from pathlib import Path
@@ -1429,13 +1430,15 @@ def write_simple_scoreboard(scores: list[SimpleInstrumentScore], path: Path | No
     return output_path
 
 
-def load_simple_scoreboard(path: Path | None = None, *, root: Path | None = None) -> pd.DataFrame:
+def load_simple_scoreboard(
+    path: Path | None = None, *, root: Path | None = None, scoreboard_bytes: bytes | None = None
+) -> pd.DataFrame:
     """Load the canonical fail-closed projection of the persisted scoreboard."""
 
     output_path = path or DERIVED_DIR / "scoreboard.parquet"
-    if not output_path.exists():
+    if scoreboard_bytes is None and not output_path.exists():
         return pd.DataFrame()
-    frame = pd.read_parquet(output_path)
+    frame = pd.read_parquet(BytesIO(scoreboard_bytes) if scoreboard_bytes is not None else output_path)
     return project_classification_score_frame(frame, root=root)
 
 

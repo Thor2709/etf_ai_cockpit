@@ -117,9 +117,13 @@ def run_paper_bots(
         return _persist_unavailable(project_root, cutoff, month, config, config_hash, group_error)
 
     scoreboard_path = project_root / "data" / "derived" / "scoreboard.parquet"
-    scoreboard_digest = _file_sha256(scoreboard_path)
+    scoreboard_digest = None
     try:
-        scoreboard = load_simple_scoreboard(scoreboard_path, root=project_root)
+        scoreboard_bytes = scoreboard_path.read_bytes()
+        scoreboard_digest = hashlib.sha256(scoreboard_bytes).hexdigest()
+        scoreboard = load_simple_scoreboard(
+            scoreboard_path, root=project_root, scoreboard_bytes=scoreboard_bytes
+        )
         if not isinstance(scoreboard, pd.DataFrame):
             scoreboard = pd.DataFrame()
     except Exception:
@@ -498,13 +502,6 @@ def _bind_publication_groups(
     return tuple(sorted(verified, key=lambda item: (item.known_at, item.run_id, item.score_version, item.lineage_hash)))
 
 
-def _file_sha256(path: Path) -> str | None:
-    try:
-        return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
-    except OSError:
-        return None
-
-
 def _published_groups(history: pd.DataFrame, cutoff: datetime) -> tuple[tuple[_PublishedGroup, ...], str | None]:
     if not isinstance(history, pd.DataFrame) or history.empty:
         return (), None
@@ -529,6 +526,9 @@ def _published_groups(history: pd.DataFrame, cutoff: datetime) -> tuple[tuple[_P
 
     output: list[_PublishedGroup] = []
     for run_id, run_rows in grouped.items():
+        instrument_ids = [_real_text(row.get("instrument_id")) for row in run_rows]
+        if None in instrument_ids or len(set(instrument_ids)) != len(instrument_ids):
+            return (), f"Published score run {run_id} has missing or duplicate instrument identities."
         known_times = {row["_known_at"] for row in run_rows}
         hashes = {_real_text(row.get("snapshot_hash")) for row in run_rows}
         if len(known_times) != 1 or len(hashes) != 1 or None in hashes:
@@ -567,6 +567,12 @@ def _published_groups(history: pd.DataFrame, cutoff: datetime) -> tuple[tuple[_P
 
 
 def _lineage_material(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    required = ("formula_version", "formula_checksum", "score_schema_version", "gate_policy_version", "gate_policy_checksum")
+    for row in rows:
+        if any(_real_text(row.get(field)) is None for field in required):
+            return None
+        if any(not _is_sha256(_real_text(row.get(field))) for field in ("formula_checksum", "gate_policy_checksum")):
+            return None
     formula_versions = sorted({_real_text(row.get("formula_version")) for row in rows} - {None})
     formula_checksums = sorted({_real_text(row.get("formula_checksum")) for row in rows} - {None})
     schema_versions = sorted({_real_text(row.get("score_schema_version")) for row in rows} - {None})
