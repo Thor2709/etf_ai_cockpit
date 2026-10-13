@@ -169,15 +169,7 @@ class PaperLedger:
         if not isinstance(as_of, datetime) or as_of.tzinfo is None:
             raise PaperLedgerError("A timezone-aware cash-balance time is required.")
         with self._lock:
-            # Only events recorded (sequence order) and effective (occurred_at) at or before the cutoff count:
-            # the log is cut at the first event dated after ``as_of``.
-            cutoff = as_of.astimezone(timezone.utc)
-            events: list[dict[str, object]] = []
-            for event in self._read_events():
-                if _event_time(event) > cutoff:
-                    break
-                events.append(event)
-            state = self._replay(events)
+            state = self._replay(self._events_through(as_of))
             self._require_open(state)
             if str(state["base_currency"]).upper() != currency.upper():
                 raise PaperLedgerError("Paper cash is available only in the account base currency.")
@@ -193,15 +185,26 @@ class PaperLedger:
             raise PaperLedgerError("Projected fills requested for a different paper account.")
         if not isinstance(as_of, datetime) or as_of.tzinfo is None:
             raise PaperLedgerError("A timezone-aware projection time is required.")
-        cutoff = as_of.astimezone(timezone.utc)
         with self._lock:
             return frozenset(
                 str(event["payload"].get("fill_id"))
-                for event in self._read_events()
-                if event.get("event_type") == "fill_recorded"
-                and isinstance(event.get("payload"), Mapping)
-                and _event_time(event) <= cutoff
+                for event in self._events_through(as_of)
+                if event.get("event_type") == "fill_recorded" and isinstance(event.get("payload"), Mapping)
             )
+
+    def _events_through(self, as_of: datetime) -> list[dict[str, object]]:
+        """Return the log prefix up to the first event dated after ``as_of`` (shared by cash and fill projections).
+
+        The ledger does not enforce monotonic ``occurred_at``, so both projections must cut the same prefix.
+        """
+
+        cutoff = as_of.astimezone(timezone.utc)
+        events: list[dict[str, object]] = []
+        for event in self._read_events():
+            if _event_time(event) > cutoff:
+                break
+            events.append(event)
+        return events
 
     @property
     def cash_includes_unsettled_trades(self) -> bool:
@@ -463,15 +466,19 @@ class PaperLedger:
         *,
         execution_price: object,
         fee: object = 0,
-        fx_rate: object = 1,
+        fx_rate: object | None = None,
         occurred_at: datetime | None = None,
+        quote_currency: str | None = None,
     ):
-        """Return the independent paper-ledger control result for a sealed canary binding."""
+        """Return the independent paper-ledger control result for a sealed canary binding.
+
+        ``fx_rate`` may be omitted only when the quote currency is the account base currency.
+        """
 
         self._validate_proposal(proposal)
         price = _decimal_number(execution_price, "execution_price", positive=True)
         _decimal_number(fee, "fee", non_negative=True)
-        fx = _decimal_number(fx_rate, "fx_rate", positive=True)
+        explicit_fx = None if fx_rate is None else _decimal_number(fx_rate, "fx_rate", positive=True)
         quantity = _decimal_number(proposal.get("quantity_delta"), "quantity_delta")
         with self._lock, self._file_lock():
             self._recover_interrupted_fills()
@@ -479,6 +486,12 @@ class PaperLedger:
             state = self._replay(events)
             self._require_open(state)
             self._require_order_pipeline_open()
+            if explicit_fx is None:
+                instrument_id = _clean_id(proposal.get("instrument_id"), "instrument_id").upper()
+                currency = self._quote_currency(proposal, instrument_id, quote_currency, state)
+                fx = self._resolve_fx(None, currency, state)
+            else:
+                fx = explicit_fx
             return self._evaluate_pre_trade_controls(
                 proposal,
                 state=state,

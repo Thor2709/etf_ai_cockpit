@@ -254,6 +254,32 @@ def test_mixed_projection_does_not_unlock_unsettled_sale_credit(tmp_path: Path) 
     assert lifecycle.available_buying_power(account_id=ledger.account_id, currency="EUR", as_of=_day(16)) == Decimal("780")
 
 
+# D018-N003 (cutoff parity): a backdated fill recorded after a later-dated event is in neither projection
+def test_projected_fills_use_the_same_cutoff_prefix_as_cash(tmp_path: Path) -> None:
+    ledger = _ledger(tmp_path)
+    first = ledger.accept_proposal(_proposal(source="cut-a"), execution_price=10, occurred_at=_day(1))
+    ledger.accept_proposal(_proposal(source="cut-b"), execution_price=10, occurred_at=_day(10))
+    fill = ledger.record_fill(str(first["order_id"]), quantity=10, price=10, occurred_at=_day(5))  # backdated
+    assert fill is not None
+    assert _cash(ledger, _day(7)) == pytest.approx(1_000)
+    assert ledger.projected_fill_ids(account_id=ledger.account_id, as_of=_day(7)) == frozenset()
+    assert len(ledger.projected_fill_ids(account_id=ledger.account_id, as_of=_day(11))) == 1
+    assert _cash(ledger, _day(11)) == pytest.approx(900)
+
+
+# D024-N003 (control path): no implicit 1:1 FX for a foreign quote
+def test_pre_trade_controls_require_fx_for_foreign_quote(tmp_path: Path) -> None:
+    ledger = _ledger(tmp_path)
+    proposal = _proposal(source="ctl-usd")
+    with pytest.raises(PaperLedgerError, match="fx_rate"):
+        ledger.evaluate_pre_trade_controls(proposal, execution_price=10, quote_currency="USD", occurred_at=_day(1))
+    foreign = ledger.evaluate_pre_trade_controls(
+        proposal, execution_price=10, quote_currency="USD", fx_rate=0.5, occurred_at=_day(1)
+    )
+    base = ledger.evaluate_pre_trade_controls(proposal, execution_price=10, quote_currency="EUR", occurred_at=_day(1))
+    assert foreign.order_value == base.order_value / 2
+
+
 # D024-N003 / D114-N003
 def test_quote_currency_fails_closed_when_universe_cannot_resolve_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from etf_cockpit.portfolio import paper_trading
