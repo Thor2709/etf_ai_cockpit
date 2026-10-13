@@ -381,6 +381,15 @@ def test_exact_total_loss_is_representable(tmp_path: Path) -> None:
         apply_total_return_adjustments(_prices(["2024-01-10", "2024-01-11", "2024-01-12"], [100.0, 0.0, 50.0]), ())
 
 
+def test_total_loss_with_final_day_cash_distribution_is_not_zeroed() -> None:
+    dividend = _action("DIV-LOSS", "dividend", amount=1.0)
+    result = apply_total_return_adjustments(_prices(["2024-01-10", "2024-01-11"], [100.0, 0.0]), (dividend,))
+    assert result.status == "available"
+    adjusted = result.frame["adjusted_close"].tolist()
+    assert adjusted == pytest.approx([100.0, 1.0])
+    assert any(value > 0.0 for value in adjusted)
+
+
 # --- A010-N005 / A010-N004 / A010-N003 (correction pass 1) -----------------------------
 
 

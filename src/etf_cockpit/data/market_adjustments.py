@@ -953,9 +953,11 @@ def apply_total_return_adjustments(
     last_raw = float(frame["raw_close"].iloc[-1])
 
     def _anchored(index: pd.Series) -> pd.Series:
-        # Anchor to the last raw close; an exact total loss (index 0) anchors to the first close instead.
+        # Anchor to the last raw close; an exact total loss (raw close 0 or index 0) anchors to the first close instead.
         last_index = float(index.iloc[-1])
-        return index * last_raw / last_index if last_index != 0.0 else index * first_raw / 100.0
+        if last_raw <= 0.0 or last_index == 0.0:
+            return index * first_raw / 100.0
+        return index * last_raw / last_index
 
     frame["price_return"] = price_returns
     frame["price_return_index"] = 100.0 * (1.0 + frame["price_return"].fillna(0.0)).cumprod()
