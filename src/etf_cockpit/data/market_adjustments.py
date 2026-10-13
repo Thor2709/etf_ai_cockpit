@@ -1353,7 +1353,7 @@ def selected_currency_return(
         if transaction_at is not None:
             transaction_timestamp = _utc(transaction_at, "transaction_at")
         else:
-            # The start is the earliest date where the requested pair is derivable.
+            # Preserve the earliest derivable or conflicted start; later quotes cannot erase a conflict.
             # Intermediate-edge dates also count; each candidate retains its own decision cutoff.
             relevant = {_currency(base_currency, required=True), _currency(output_currency, required=True)}
             scoped = [item for item in eligible if relevant & {item.base_currency, item.quote_currency}]
@@ -1361,7 +1361,11 @@ def selected_currency_return(
                 return SelectedCurrencyReturn("unavailable", local, None, None, None, reason_code="FX_MISSING")
             transaction_timestamp = min(item.valid_at for item in scoped)
             for candidate in sorted({item.valid_at for item in eligible}):
-                if derive_fx_cross(fx_store, base_currency, output_currency, as_of=candidate, decision_time=candidate, max_age_days=max_age_days).available:
+                if candidate < transaction_timestamp:
+                    continue
+                candidate_result = derive_fx_cross(fx_store, base_currency, output_currency, as_of=candidate, decision_time=candidate, max_age_days=max_age_days)
+                conflicted = candidate_result.status == "quarantined" or any("conflict" in item for item in candidate_result.discrepancies)
+                if candidate_result.available or conflicted:
                     transaction_timestamp = candidate
                     break
         if pd.Timestamp(transaction_timestamp) > pd.Timestamp(valuation_timestamp):

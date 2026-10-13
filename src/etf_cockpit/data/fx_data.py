@@ -341,7 +341,7 @@ def fx_cross_rate(
 
     graph: dict[str, list[FxRateLeg]] = {}
     for row in snapshot.rates:
-        if isinstance(row.rate, bool) or not _usable_rate(row.rate):
+        if not _usable_rate(row.rate):
             return None
         pair = f"{row.base_currency}/{row.quote_currency}"
         graph.setdefault(row.base_currency, []).append(
@@ -364,7 +364,7 @@ def fx_cross_rate(
             if leg.to_currency in visited:
                 continue
             next_factor = factor * leg.applied_rate
-            if not math.isfinite(next_factor) or next_factor <= 0:
+            if not _usable_rate(next_factor):
                 return None
             next_path = path + (leg,)
             if leg.to_currency == quote:
@@ -530,6 +530,8 @@ def _decision_cutoff(value: date | datetime | str | None) -> tuple[date | None, 
 
 
 def _usable_rate(value: object) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return False
     try:
         rate = float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):

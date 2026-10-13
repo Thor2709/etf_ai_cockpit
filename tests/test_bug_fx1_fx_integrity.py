@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -147,6 +148,30 @@ def test_subnormal_rate_is_rejected_before_cross_derivation_and_inverse() -> Non
     assert fx_cross_rate(snapshot, "USD", "EUR") is None
 
 
+@pytest.mark.parametrize("base,quote", [("USD", "EUR"), ("EUR", "USD")])
+def test_snapshot_accumulated_subnormal_rate_and_inverse_are_unavailable(base: str, quote: str) -> None:
+    snapshot = FxRateSnapshot(
+        TODAY, TODAY,
+        (FxRate("USD", "GBP", 1e-154, "fixture"), FxRate("GBP", "EUR", 1e-154, "fixture")),
+        "chk", 0, "ok", True, None,
+    )
+    assert fx_cross_rate(snapshot, base, quote) is None
+    supported = replace(snapshot, rates=tuple(replace(row, rate=1e-150) for row in snapshot.rates))
+    result = fx_cross_rate(supported, base, quote)
+    assert result is not None
+    assert result.rate == pytest.approx(1e-300 if base == "USD" else 1e300, rel=1e-12, abs=0.0)
+    assert result.execution_allowed is False
+
+
+@pytest.mark.parametrize("rate", [True, False, np.bool_(True), np.bool_(False)])
+def test_direct_snapshot_boolean_rates_are_unavailable(rate: object) -> None:
+    snapshot = FxRateSnapshot(
+        TODAY, TODAY, (FxRate("USD", "EUR", rate, "fixture"),), "chk", 0, "ok", True, None,
+    )
+    assert fx_cross_rate(snapshot, "USD", "EUR") is None
+    assert fx_cross_rate(snapshot, "EUR", "USD") is None
+
+
 @pytest.mark.parametrize("rate", [1e200, 1e-200, 1e154, 1e-154])
 @pytest.mark.parametrize("intermediate", [False, True])
 def test_accumulated_cross_rate_outside_supported_range_is_unavailable(rate: float, intermediate: bool) -> None:
@@ -195,6 +220,28 @@ def test_implicit_return_start_is_per_currency_and_identity_needs_no_store(tmp_p
             assert identity.output_return == pytest.approx(0.10)
             assert identity.execution_allowed is False
         assert derive_fx_cross(empty, "EUR", "EUR", "2024-01-10T00:00:00Z").available
+
+
+def test_implicit_return_start_keeps_conflict_before_consistent_quote(tmp_path: Path) -> None:
+    with FXObservationStore(tmp_path) as store:
+        store.append(_obs("usd-9-a", "USD", "EUR", 0.90, valid_at="2024-01-09T00:00:00Z", source="s1"))
+        store.append(_obs("usd-9-b", "USD", "EUR", 0.95, valid_at="2024-01-09T00:00:00Z", source="s2"))
+        store.append(_obs("usd-10", "USD", "EUR", 0.99, valid_at="2024-01-10T00:00:00Z"))
+        assert derive_fx_cross(store, "USD", "EUR", "2024-01-10T00:00:00Z").available
+        result = selected_currency_return(
+            0.10, base_currency="USD", output_currency="EUR", fx_store=store, valuation_at="2024-01-10T00:00:00Z"
+        )
+        assert result.status == "unavailable"
+        assert result.available is False
+        assert result.reason_code == "FX_CONFLICTED"
+        assert result.transaction_at == "2024-01-09T00:00:00Z"
+        assert result.valuation_at == "2024-01-10T00:00:00Z"
+        assert result.local_return == pytest.approx(0.10)
+        assert result.fx_return is None
+        assert result.output_return is None
+        assert result.transaction_rate is None
+        assert result.valuation_rate is None
+        assert result.execution_allowed is False
 
 
 def test_implicit_return_start_includes_intermediate_edge_dates_without_lookahead(tmp_path: Path) -> None:
