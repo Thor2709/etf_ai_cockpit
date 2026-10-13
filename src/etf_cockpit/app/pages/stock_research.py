@@ -100,7 +100,9 @@ def _fundamentals(_page: ft.Page, state: AppState, instrument_id: str, view: str
     capital_allocation = load_capital_allocation_analysis(
         statements,
         instrument_id=instrument_id,
-        market_inputs={},
+        market_inputs=market_inputs,
+        corporate_actions=context.get("corporate_actions", ()),
+        corporate_action_coverage=context.get("corporate_action_coverage"),
         decision_time=context.get("decision_time"),
     )
     valuation = _valuation_panel(
