@@ -344,6 +344,18 @@ def _load_market_series_projection(
     if basis != "raw" and not action_coverage:
         return {"status": "unavailable", "reason_code": "corporate_action_coverage_unavailable", "frame": pd.DataFrame(), "execution_allowed": False}
     derived = apply_total_return_adjustments(scoped.rename(columns={close_column: "close"}), actions)
+    if not derived.available and basis == "raw" and (output_currency or local_currency).upper() == local_currency.upper():
+        # An action conflict only blocks the adjusted bases; raw closes need no action evidence.
+        raw_frame = derived.frame.copy()
+        raw_frame["series_value"] = raw_frame["raw_close"]
+        return {
+            "status": "available",
+            "basis": basis,
+            "currency": local_currency.upper(),
+            "frame": raw_frame,
+            "provenance": "raw close; corporate-action evidence not applied",
+            "execution_allowed": False,
+        }
     if not derived.available:
         return {"status": derived.status, "reason_code": "corporate_action_discrepancy", "frame": derived.frame, "execution_allowed": False}
     frame = derived.frame.copy()
