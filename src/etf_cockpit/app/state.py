@@ -306,8 +306,16 @@ def _shared_snapshot():
     with _SHARED_SNAPSHOT_LOCK:
         key = _data_fingerprint()
         if _SHARED_SNAPSHOT.get("key") != key or _SHARED_SNAPSHOT.get("snapshot") is None:
-            _SHARED_SNAPSHOT["snapshot"] = build_snapshot()
-            _SHARED_SNAPSHOT["key"] = _data_fingerprint()
+            # Store the fingerprint read BEFORE the build: if inputs change while building, the stored key is stale,
+            # so the snapshot is never pinned under the newer fingerprint. Rebuild once; if inputs still moved, the
+            # snapshot is returned but stays "not current" and the next call rebuilds.
+            for _attempt in range(2):
+                _SHARED_SNAPSHOT["snapshot"] = build_snapshot()
+                _SHARED_SNAPSHOT["key"] = key
+                after = _data_fingerprint()
+                if after == key:
+                    break
+                key = after
         return _SHARED_SNAPSHOT["snapshot"]
 
 

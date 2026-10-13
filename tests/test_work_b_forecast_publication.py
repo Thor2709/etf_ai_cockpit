@@ -53,4 +53,3 @@ def test_forecast_runner_output_is_accepted_by_app_loader(monkeypatch, tmp_path)
     assert not loaded.empty
     assert (loaded.loc[loaded.model_name == "baseline", "status"] == "ok").any()
     assert set(loaded.loc[loaded.model_name != "baseline", "status"]) == {"unavailable"}
-

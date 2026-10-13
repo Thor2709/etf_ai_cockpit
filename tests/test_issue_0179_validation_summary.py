@@ -27,6 +27,20 @@ def _summary(tier: str) -> dict:
             "release_linux": "required" if package else "skipped",
         },
         "platform_junit": {"windows": 4, "linux": 4} if package else {},
+        "platform_shards": (
+            {
+                platform: {
+                    "head_sha": ["b" * 40], "shards": [1, 2, 3], "labels": ["1/3", "2/3", "3/3"],
+                    "collected": 4, "duplicates": 0, "tests": 4,
+                    "collection_nodeids": [f"tests/m.py::t{number}" for number in range(4)],
+                    "executed_keys": [["tests.m", f"t{number}"] for number in range(4)],
+                    "expected_modules": ["tests/m.py"], "report_errors": [],
+                }
+                for platform in ("windows", "linux")
+            }
+            if package
+            else {}
+        ),
         "artifacts": [
             {"path": "classifier.json", "sha256": "c" * 64, "present": True},
             *(
@@ -99,16 +113,27 @@ def test_terminal_collection_preserves_platform_artifact_directories(
         encoding="utf-8",
     )
     for platform in ("linux", "windows"):
-        junit = artifacts / f"release-gate-head-{platform}" / "junit-full.xml"
-        junit.parent.mkdir(parents=True)
-        junit.write_text(
-            '<testsuites><testsuite tests="3" /></testsuites>\n',
-            encoding="utf-8",
-        )
+        for shard in (1, 2, 3):
+            directory = artifacts / f"release-gate-{'b' * 40}-{platform}-s{shard}"
+            directory.mkdir(parents=True)
+            (directory / "junit-full.xml").write_text(
+                f'<testsuites><testsuite tests="1"><testcase classname="tests.m{shard}" name="t" /></testsuite></testsuites>',
+                encoding="utf-8",
+            )
+            evidence = {
+                "test_shard": f"{shard}/3", "collection_node_counts": {"full": 1},
+                "collection_nodeids": [f"tests/m{shard}.py::t"],
+            }
+            (directory / "full_tests.log").write_text(
+                validation_summary.EVIDENCE_PREFIX + json.dumps(evidence) + "\n", encoding="utf-8"
+            )
     preflight = artifacts / "validation-preflight-head" / "junit-affected.xml"
     preflight.parent.mkdir(parents=True)
     preflight.write_text('<testsuite tests="126" />\n', encoding="utf-8")
     monkeypatch.setattr(validation_summary, "_tree_identity", lambda *_args: "d" * 64)
+    monkeypatch.setattr(
+        validation_summary, "_head_test_modules", lambda *_args: [f"tests/m{shard}.py" for shard in (1, 2, 3)]
+    )
 
     report = validation_summary.collect_summary(
         tmp_path,
@@ -123,7 +148,7 @@ def test_terminal_collection_preserves_platform_artifact_directories(
         },
     )
 
-    assert report["platform_junit"] == {"windows": 3, "linux": 3}
+    assert report["platform_junit"] == {"windows": 3, "linux": 3}  # one per shard, deduped
     assert validate_summary(report) == []
 
 
@@ -198,6 +223,9 @@ def _collect_candidate(
     candidate: dict[str, object] | None = None,
 ) -> dict[str, object]:
     monkeypatch.setattr(validation_summary, "_tree_identity", lambda *_args: "e" * 64)
+    monkeypatch.setattr(
+        validation_summary, "_head_test_modules", lambda *_args: [f"tests/m{shard}.py" for shard in (1, 2, 3)]
+    )
     monkeypatch.setattr(
         validation_summary,
         "_committed_candidate_blob_sha256",
