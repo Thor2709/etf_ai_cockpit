@@ -287,14 +287,6 @@ class BitemporalStore:
         for row in rows:
             key = (str(row["entity_id"]), str(row["stable_id"]))
             if str(row["status"]) == "retracted":
-                value = json.loads(str(row["value_json"]))
-                current = selected.get(key)
-                if (
-                    current is not None
-                    and isinstance(value, dict)
-                    and value.get("retracts_observation_id") == str(current["observation_id"])
-                ):
-                    selected.pop(key, None)
                 continue
             # A later-available but lower revision of the same source never wins.
             revision_key = (*key, str(row["source_id"]))
@@ -302,7 +294,6 @@ class BitemporalStore:
                 continue
             highest[revision_key] = int(row["revision"])
             if str(row["observation_id"]) in retracted_ids:
-                selected.pop(key, None)
                 continue
             selected[key] = row
         # Effective validity applies after selection so an expired newer vintage

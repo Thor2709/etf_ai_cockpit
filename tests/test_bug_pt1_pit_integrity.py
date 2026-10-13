@@ -96,6 +96,15 @@ def test_backdated_retraction_is_honoured_and_value_never_resurfaces(tmp_path: P
         assert store.as_of("fundamentals", "2026-01-07T00:00:00Z").empty
 
 
+def test_retracting_one_source_never_removes_another_sources_live_value(tmp_path: Path) -> None:
+    with BitemporalStore(tmp_path) as store:
+        live = _observe(store, source_id="source:x", value={"v": "live"}, available_at="2026-01-05T00:00:00Z", published_at="2026-01-05T00:00:00Z", observed_at="2026-01-05T00:00:00Z")
+        retracted = _observe(store, source_id="source:y", value={"v": "bad"}, available_at="2026-01-10T00:00:00Z", published_at="2026-01-10T00:00:00Z", observed_at="2026-01-10T00:00:00Z")
+        store.record_retraction(retracted.observation_id, available_at="2026-01-12T00:00:00Z", run_id="run-r", reason="bad print")
+        frame = store.as_of("fundamentals", "2026-02-01T00:00:00Z")
+        assert frame["observation_id"].tolist() == [live.observation_id]
+
+
 def test_later_lower_revision_does_not_win_and_guard_is_scoped_to_entity_and_source(tmp_path: Path) -> None:
     with BitemporalStore(tmp_path) as store:
         _observe(store, revision=2, value={"v": "rev2"}, available_at="2026-01-10T00:00:00Z", published_at="2026-01-10T00:00:00Z", observed_at="2026-01-10T00:00:00Z")
@@ -229,6 +238,19 @@ def test_daily_candle_cutoff_uses_one_convention_for_naive_and_tz_aware_midnight
             for decision in ("2026-01-04", "2026-01-05")
         ]
     assert results["naive"] == results["tokyo"] == results["ny"] == [True, False]
+
+
+def test_negative_offset_midnight_available_at_is_a_real_instant_not_a_wall_date(tmp_path: Path) -> None:
+    store = LocalFeatureStore(tmp_path)
+    store.register_feature(FeatureDefinition("signal", "signal"))
+    features = pd.DataFrame(
+        {"etf_id": ["A"], "date": ["2026-01-01"], "available_at": ["2026-01-02T00:00:00-05:00"], "signal": [1.0]}
+    )
+    missing = [
+        store.materialise(features, [decision], feature_ids=["signal"]).loc[0, "missing_signal"]
+        for decision in ("2026-01-02T03:00:00Z", "2026-01-02T06:00:00Z")
+    ]
+    assert missing == [True, False]
 
 
 def test_intraday_decision_keys_and_feature_time_keep_their_own_dimensions(tmp_path: Path) -> None:

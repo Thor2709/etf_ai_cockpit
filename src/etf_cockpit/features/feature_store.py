@@ -176,7 +176,7 @@ class LocalFeatureStore:
         source = features.copy()
         source["__feature_time"] = _timestamps(source[date_column], normalize=False)
         if "available_at" in source.columns:
-            source["__available_at"] = _timestamps(source["available_at"], normalize=False)
+            source["__available_at"] = _available_timestamps(source["available_at"])
         else:
             source["__available_at"] = source["__feature_time"]
         entities = sorted(source[entity_column].dropna().astype(str).unique())
@@ -401,6 +401,29 @@ def _timestamps(values: Iterable[object], *, normalize: bool = True) -> pd.Serie
         parsed = pd.to_datetime(series, errors="coerce", utc=True)
         parsed = parsed.dt.tz_localize(None)
     return parsed.dt.normalize() if normalize else parsed
+
+
+def _available_timestamps(values: Iterable[object]) -> pd.Series:
+    """Availability is an instant: timezone-aware values convert strictly to naive UTC.
+
+    The local-midnight wall-date convention applies to date labels only, never
+    to ``available_at`` (a ``-05:00`` midnight is 05:00Z, not 00:00).
+    """
+
+    series = values if isinstance(values, pd.Series) else pd.Series(list(values))
+
+    def convert(value: object) -> pd.Timestamp:
+        try:
+            stamp = pd.Timestamp(value)
+        except (TypeError, ValueError):
+            return pd.NaT
+        if pd.isna(stamp):
+            return pd.NaT
+        if stamp.tzinfo is not None:
+            stamp = stamp.tz_convert("UTC").tz_localize(None)
+        return stamp
+
+    return pd.to_datetime(series.map(convert), errors="coerce")
 
 
 def _naive_utc_or_local_date(value: object) -> pd.Timestamp:
