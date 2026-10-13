@@ -237,6 +237,24 @@ def test_c2_n002_invested_capital_does_not_move_with_fx_without_a_contribution()
     assert values == pytest.approx([110.0, 110.0, 110.0])
 
 
+def test_c2_n002_fx_gap_day_without_flow_does_not_poison_later_invested_capital() -> None:
+    from datetime import date
+
+    from etf_cockpit.portfolio.performance_series import _convert_snapshots
+
+    dates = ["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08"]
+    snapshots = _frame(dates, [100.0, 100.0, 100.0, 150.0], capital=[100.0, 100.0, 100.0, 150.0])
+    rates = {
+        date(2026, 1, 5): (1.10, None, None),
+        date(2026, 1, 6): (None, "FX conversion is unavailable.", None),
+        date(2026, 1, 7): (1.30, None, None),
+        date(2026, 1, 8): (None, "FX conversion is unavailable.", None),
+    }
+    capital = _convert_snapshots(snapshots, rates)["invested_capital"].tolist()
+    assert capital[:3] == pytest.approx([110.0, 110.0, 110.0])
+    assert math.isnan(capital[3])  # a non-zero flow on a date without a rate stays unavailable
+
+
 def test_c2_n003_unavailable_nav_does_not_display_a_numeric_value() -> None:
     snapshots = _frame(["2026-01-05", "2026-01-06"], [100.0, 105.0])
     snapshots.loc[1, "valuation_status"] = "unavailable"

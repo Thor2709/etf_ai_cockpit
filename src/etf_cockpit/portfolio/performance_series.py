@@ -474,12 +474,18 @@ def _convert_snapshots(
     rate_values = pd.to_numeric(converted["_fx_rate"], errors="coerce").to_numpy(dtype=float)
     capital = [math.nan] * len(converted)
     for index in range(len(converted)):
-        if not math.isfinite(rate_values[index]) or not math.isfinite(source_capital[index]):
+        if not math.isfinite(source_capital[index]):
             continue
         if index == 0:
-            capital[index] = source_capital[index] * rate_values[index]
+            if math.isfinite(rate_values[index]):
+                capital[index] = source_capital[index] * rate_values[index]
         elif math.isfinite(capital[index - 1]) and math.isfinite(source_capital[index - 1]):
-            capital[index] = capital[index - 1] + (source_capital[index] - source_capital[index - 1]) * rate_values[index]
+            flow = source_capital[index] - source_capital[index - 1]
+            if flow == 0.0:
+                # No contribution: the converted basis is unchanged even without a rate.
+                capital[index] = capital[index - 1]
+            elif math.isfinite(rate_values[index]):
+                capital[index] = capital[index - 1] + flow * rate_values[index]
     converted["invested_capital"] = capital
     converted["period_return"] = math.nan
     for index in range(1, len(converted)):
