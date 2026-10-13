@@ -108,7 +108,7 @@ def test_kill_switch_cancels_open_paper_orders_and_blocks_paper_and_read_only_pa
     ledger = PaperLedger(tmp_path)
     ledger.open_account(initial_cash=1_000)
     order = ledger.accept_proposal(_proposal(source="open-before-kill"), execution_price=10)
-    at = datetime(2026, 9, 30, tzinfo=timezone.utc)
+    at = datetime.now(timezone.utc) + timedelta(minutes=1)  # events cannot predate the accepted order
     controls = PreTradeControls(tmp_path)
     controls.activate_kill_switch(who="operator-a", reason="Operational halt", paper_ledger=ledger, occurred_at=at)
 
@@ -250,7 +250,7 @@ def test_kill_switch_serializes_with_paper_acceptance_and_cancels_accepted_order
             who="operator-a",
             reason="Concurrent test halt",
             paper_ledger=ledger,
-            occurred_at=datetime(2026, 9, 30, tzinfo=timezone.utc),
+            occurred_at=datetime.now(timezone.utc) + timedelta(minutes=1),
         )
 
     monkeypatch.setattr(PreTradeControls, "evaluate_order", paused_evaluate)

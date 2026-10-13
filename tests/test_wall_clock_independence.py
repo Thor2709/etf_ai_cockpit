@@ -96,7 +96,12 @@ def test_partial_fill_buying_power_depends_on_the_as_of_not_the_wall_clock(tmp_p
         instrument_type="etf",
         occurred_at=datetime(2026, 9, 30, 10, tzinfo=timezone.utc),
     )
-    lifecycle.transition("order-1", OrderState.ACKNOWLEDGED, event_key="paper-ack")
+    lifecycle.transition(
+        "order-1",
+        OrderState.ACKNOWLEDGED,
+        event_key="paper-ack",
+        occurred_at=datetime(2026, 9, 30, 10, tzinfo=timezone.utc),
+    )
     lifecycle.record_fill(
         "order-1",
         fill_id="fill-1",

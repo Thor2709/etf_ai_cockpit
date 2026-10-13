@@ -131,12 +131,16 @@ class Ledger:
         currency: str,
         as_of: datetime,
         authority: str = "broker",
+        known_at: datetime | None = None,
     ) -> Decimal:
         """Read settled cash for one broker cash account using Decimal postings.
 
-        Entries without an explicit settlement date use their effective date;
-        this preserves opening cash while later settlement-dated trades stay out
-        of buying power until their configured date.
+        An entry counts only when it is effective, settled and recorded no later
+        than the cutoff; ``known_at`` defaults to ``as_of`` so a backdated entry
+        recorded after the cutoff stays out of the historical view. Entries with
+        no settlement date are unknown settlement (as in ledger replay) and are
+        never counted as settled cash. Timestamps are compared as UTC datetimes,
+        never as text.
         """
 
         _required_text(account_id, "account_id")
@@ -145,7 +149,11 @@ class Ledger:
         _validate_authority(authority)
         if not isinstance(as_of, datetime) or as_of.tzinfo is None:
             raise LedgerInvariantError("cash-balance as_of must be a timezone-aware datetime")
-        cutoff = as_of.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+        recorded_cutoff = as_of if known_at is None else known_at
+        if not isinstance(recorded_cutoff, datetime) or recorded_cutoff.tzinfo is None:
+            raise LedgerInvariantError("cash-balance known_at must be a timezone-aware datetime")
+        cutoff = as_of.astimezone(timezone.utc)
+        known_cutoff = recorded_cutoff.astimezone(timezone.utc)
         account = self.connection.execute(
             """
             SELECT account_role FROM ledger_accounts
@@ -157,7 +165,8 @@ class Ledger:
             raise LedgerInvariantError("cash balance requires an existing cash-role account")
         rows = self.connection.execute(
             """
-            SELECT posting.debit_amount, posting.credit_amount
+            SELECT posting.debit_amount, posting.credit_amount,
+                   entry.effective_at, entry.settlement_at, entry.recorded_at
             FROM ledger_postings AS posting
             JOIN ledger_entries AS entry
               ON entry.entry_id = posting.entry_id AND entry.authority = posting.authority
@@ -165,14 +174,24 @@ class Ledger:
               AND posting.authority = ?
               AND posting.currency = ?
               AND entry.status = 'posted'
-              AND COALESCE(entry.settlement_at, entry.effective_at) <= ?
             """,
-            (account_id, authority, currency, cutoff),
+            (account_id, authority, currency),
         ).fetchall()
-        try:
-            return sum((Decimal(row[0]) - Decimal(row[1]) for row in rows), Decimal("0"))
-        except InvalidOperation as exc:
-            raise LedgerInvariantError("cash account contains an invalid stored Decimal posting") from exc
+        total = Decimal("0")
+        for debit, credit, effective_at, settlement_at, recorded_at in rows:
+            if settlement_at is None:
+                continue
+            if (
+                _parse_instant(effective_at) > cutoff
+                or _parse_instant(settlement_at) > cutoff
+                or _parse_instant(recorded_at) > known_cutoff
+            ):
+                continue
+            try:
+                total += Decimal(debit) - Decimal(credit)
+            except InvalidOperation as exc:
+                raise LedgerInvariantError("cash account contains an invalid stored Decimal posting") from exc
+        return total
 
     def post(
         self,

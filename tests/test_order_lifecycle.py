@@ -111,7 +111,12 @@ def test_duplicate_idempotency_key_creates_one_order_intent(tmp_path: Path) -> N
 def test_partial_fill_keeps_exact_decimal_residual_reservation(tmp_path: Path) -> None:
     lifecycle = _lifecycle(tmp_path / "orders.sqlite3")
     _reserve(lifecycle, fee=Decimal("0.25"))
-    lifecycle.transition("order-1", OrderState.ACKNOWLEDGED, event_key="paper-ack")
+    lifecycle.transition(
+        "order-1",
+        OrderState.ACKNOWLEDGED,
+        event_key="paper-ack",
+        occurred_at=datetime(2026, 9, 30, 10, tzinfo=timezone.utc),
+    )
 
     _, reservation = lifecycle.record_fill(
         "order-1",
@@ -134,7 +139,12 @@ def test_partial_fill_keeps_exact_decimal_residual_reservation(tmp_path: Path) -
 def test_partial_fill_unsettled_debit_expires_on_settlement_date(tmp_path: Path) -> None:
     lifecycle = _lifecycle(tmp_path / "orders.sqlite3")
     _reserve(lifecycle, fee=Decimal("0.25"))
-    lifecycle.transition("order-1", OrderState.ACKNOWLEDGED, event_key="paper-ack")
+    lifecycle.transition(
+        "order-1",
+        OrderState.ACKNOWLEDGED,
+        event_key="paper-ack",
+        occurred_at=datetime(2026, 9, 30, 10, tzinfo=timezone.utc),
+    )
 
     lifecycle.record_fill(
         "order-1",
@@ -262,7 +272,7 @@ def test_ledger_cash_source_returns_settled_decimal_balance() -> None:
         """
         CREATE TABLE ledger_accounts(account_id TEXT, authority TEXT, account_role TEXT);
         CREATE TABLE ledger_entries(
-            entry_id TEXT, authority TEXT, effective_at TEXT, settlement_at TEXT, status TEXT
+            entry_id TEXT, authority TEXT, effective_at TEXT, settlement_at TEXT, recorded_at TEXT, status TEXT
         );
         CREATE TABLE ledger_postings(
             entry_id TEXT, authority TEXT, account_id TEXT, currency TEXT,
@@ -270,10 +280,10 @@ def test_ledger_cash_source_returns_settled_decimal_balance() -> None:
         );
         INSERT INTO ledger_accounts VALUES ('cash-eur', 'broker', 'cash');
         INSERT INTO ledger_entries VALUES (
-            'settled', 'broker', '2026-09-29T10:00:00Z', '2026-09-29T10:00:00Z', 'posted'
+            'settled', 'broker', '2026-09-29T10:00:00Z', '2026-09-29T10:00:00Z', '2026-09-29T10:00:00Z', 'posted'
         );
         INSERT INTO ledger_entries VALUES (
-            'unsettled', 'broker', '2026-09-30T10:00:00Z', '2026-10-01T10:00:00Z', 'posted'
+            'unsettled', 'broker', '2026-09-30T10:00:00Z', '2026-10-01T10:00:00Z', '2026-09-30T10:00:00Z', 'posted'
         );
         INSERT INTO ledger_postings VALUES ('settled', 'broker', 'cash-eur', 'EUR', '100.25', '0');
         INSERT INTO ledger_postings VALUES ('unsettled', 'broker', 'cash-eur', 'EUR', '50', '0');
