@@ -27,6 +27,14 @@ class StorageRevisionConflict(RuntimeError):
     """Raised when a stale writer attempts to replace newer local state."""
 
 
+class StorageTombstoneConflict(StorageRevisionConflict):
+    """Raised when an immutable put targets a soft-deleted record.
+
+    Conservative choice: an immutable record is never silently restored, and an
+    invisible (tombstoned) record is never acknowledged as a successful write.
+    """
+
+
 @dataclass(frozen=True)
 class StorageLayout:
     root: Path
@@ -1174,10 +1182,14 @@ class TransactionalStore:
         )
         now = _utc_now()
         previous = connection.execute(
-            "SELECT revision, created_at, payload_json, updated_at FROM transactional_records WHERE entity_type = ? AND entity_id = ?",
+            "SELECT revision, created_at, payload_json, updated_at, deleted_at FROM transactional_records WHERE entity_type = ? AND entity_id = ?",
             (entity_type, entity_id),
         ).fetchone()
         if previous and immutable:
+            if previous[4] is not None:
+                raise StorageTombstoneConflict(
+                    f"immutable record was soft-deleted and cannot be re-acknowledged: {entity_id}"
+                )
             if dict(json.loads(str(previous[2]))) != dict(payload):
                 raise StorageRevisionConflict(
                     f"immutable record already exists with different content: {entity_id}"
@@ -1239,10 +1251,14 @@ class TransactionalStore:
         with self.transaction() as connection:
             for entity_type, entity_id, payload, encoded in prepared:
                 previous = connection.execute(
-                    "SELECT revision, created_at, payload_json, updated_at FROM transactional_records WHERE entity_type = ? AND entity_id = ?",
+                    "SELECT revision, created_at, payload_json, updated_at, deleted_at FROM transactional_records WHERE entity_type = ? AND entity_id = ?",
                     (entity_type, entity_id),
                 ).fetchone()
                 if previous and immutable:
+                    if previous[4] is not None:
+                        raise StorageTombstoneConflict(
+                            f"immutable record was soft-deleted and cannot be re-acknowledged: {entity_id}"
+                        )
                     if dict(json.loads(str(previous[2]))) != payload:
                         raise StorageRevisionConflict(f"immutable record already exists with different content: {entity_id}")
                     stored.append(StoredRecord(entity_type, entity_id, payload, int(previous[0]), str(previous[1]), str(previous[3])))

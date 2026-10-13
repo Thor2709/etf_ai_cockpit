@@ -766,6 +766,13 @@ def save_universe(
     return result
 
 
+def _universe_source_digest(path: Path) -> str | None:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+    except FileNotFoundError:
+        return None
+
+
 def _save_universe(
     records: Iterable[UniverseRecord],
     expected_revision: str,
@@ -871,9 +878,16 @@ def _save_universe(
     revision = _payload_revision(payload)
     payload["revision"] = revision
     encoded = (json.dumps(payload, indent=2, default=str) + "\n").encode("utf-8")
-    from etf_cockpit.core.settings_bundle import _universe_settings_update, load_settings_bundle
+    from etf_cockpit.core.settings_bundle import SettingsError, _universe_settings_update, load_settings_bundle
 
-    settings_requests, settings_precondition = _universe_settings_update(root, encoded)
+    try:
+        settings_requests, settings_precondition = _universe_settings_update(root, encoded)
+    except SettingsError:
+        # The guarded settings read waits for any in-flight group commit; if that commit replaced the
+        # universe we validated against, the root cause is the stale universe revision.
+        if _universe_source_digest(path) != source_digest:
+            raise UniverseRevisionConflict("Universe source changed before guarded save") from None
+        raise
 
     def validate(path: Path) -> None:
         payload = json.loads(path.read_text(encoding="utf-8"))
