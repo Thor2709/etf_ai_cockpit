@@ -242,8 +242,8 @@ def test_ambiguous_input_and_ohlc_duplicate_fixtures_are_explicit() -> None:
 def test_source_conflict_projection_retains_material_decision_evidence() -> None:
     resolution = resolve_conflicts(
         (
-            MetricClaim("X", "revenue", 100, "vendor", SourceAuthority.VENDOR, "vendor"),
-            MetricClaim("X", "revenue", 120, "official", SourceAuthority.OFFICIAL, "official"),
+            MetricClaim("X", "revenue", 100, "vendor", SourceAuthority.VENDOR, "vendor", freshness_status="fresh"),
+            MetricClaim("X", "revenue", 120, "official", SourceAuthority.OFFICIAL, "official", freshness_status="fresh"),
         )
     )
     projected = project_conflicts(

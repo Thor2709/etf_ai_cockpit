@@ -21,7 +21,7 @@ from etf_cockpit.analysis.peer_cohorts import (
     PeerCohortError,
 )
 from etf_cockpit.data.classification import InstrumentContextV2
-from etf_cockpit.data.contracts import SourceAuthority
+from etf_cockpit.data.contracts import PRIMARY_SOURCE_AUTHORITIES, SourceAuthority
 
 
 INNOVATION_CONTRACT = "innovation-sector-adapter.v1"
@@ -96,7 +96,7 @@ _DEFINITIONS = {
     "cycle_phase": "issuer-described semiconductor demand or supply cycle phase",
 }
 _GENERIC_FALLBACKS = frozenset({"pe_ratio", "generic_pe", "leverage", "enterprise_value_to_ebitda", "fcf_yield"})
-_ALLOWED_AUTHORITIES = frozenset({SourceAuthority.OFFICIAL, SourceAuthority.ISSUER, SourceAuthority.MANUAL})
+_ALLOWED_AUTHORITIES = PRIMARY_SOURCE_AUTHORITIES | {SourceAuthority.MANUAL}
 _EVENT_TYPES = frozenset({
     "pipeline_stage", "trial_milestone", "regulatory_milestone", "patent_exclusivity",
     "product_concentration", "reimbursement_decision",

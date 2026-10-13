@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import json
 import sqlite3
 
 from etf_cockpit.data import macro_warehouse as macro_warehouse_module
-from etf_cockpit.data.bitemporal import BitemporalError, BitemporalStore
+from etf_cockpit.data.bitemporal import BitemporalError, BitemporalStore, _timestamp as _bitemporal_timestamp
 from etf_cockpit.data.local_storage import TransactionalStore
 from etf_cockpit.data.macro_warehouse import (
     BenchmarkMetadata,
@@ -715,21 +716,45 @@ def _direct_curve_row(**updates: object) -> MacroObservation:
 
 
 def _store_direct_curve_row(tmp_path, row: MacroObservation) -> None:
-    with BitemporalStore(tmp_path) as store:
-        store.record_observation(
-            dataset_id=row.dataset_id,
-            entity_id=row.series_id,
-            stable_id=row.stable_id,
-            value=row.ledger_value(),
-            source_id=row.source_id,
-            source_checksum=row.source_checksum,
-            revision=row.revision,
-            valid_from="2024-01-01T00:00:00+00:00",
-            published_at=row.published_at,
-            available_at=row.available_at,
-            observed_at=row.observed_at,
-            ingested_at=row.ingested_at,
-            run_id="malformed-direct-row",
+    """Persist a possibly malformed row directly.
+
+    ``record_observation`` now rejects publication/observation after
+    availability at write time (#957), so rows that are deliberately
+    chronologically impossible are inserted raw to exercise the fail-closed
+    readback.
+    """
+
+    def stamp(value: str) -> str:
+        return _bitemporal_timestamp(value, "timestamp")
+
+    payload = json.dumps(row.ledger_value(), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    observation_id = hashlib.sha256(f"{row.dataset_id}|{row.series_id}|{row.stable_id}|{row.source_id}|{row.revision}|{payload}".encode()).hexdigest()
+    with BitemporalStore(tmp_path) as store, store.store.transaction() as connection:
+        connection.execute(
+            """
+            INSERT INTO bitemporal_observations
+                (observation_id, dataset_id, entity_id, stable_id, run_id, value_json,
+                 valid_from, valid_to, published_at, available_at, observed_at,
+                 ingested_at, revised_at, revision, source_id, source_checksum,
+                 timezone_confidence, availability_confidence, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, NULL, ?, ?, ?, 'exact', 'exact', 'active')
+            """,
+            (
+                observation_id,
+                row.dataset_id,
+                row.series_id,
+                row.stable_id,
+                "malformed-direct-row",
+                payload,
+                stamp("2024-01-01T00:00:00+00:00"),
+                stamp(row.published_at),
+                stamp(row.available_at),
+                stamp(row.observed_at),
+                stamp(row.ingested_at),
+                row.revision,
+                row.source_id,
+                row.source_checksum.lower(),
+            ),
         )
 
 

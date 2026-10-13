@@ -25,25 +25,45 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | analytical_generations | sha256 | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
 | analytical_generations | stable_id_count | INTEGER | NOT NULL CHECK (stable_id_count >= 0) | etf_cockpit/data/local_storage.py |
 | analytical_generations | status | TEXT | NOT NULL CHECK (status IN ('publishing', 'published')) | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | <table constraint> | — | UNIQUE(dataset_id, entity_id, stable_id, source_id, revision) | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | <table constraint> | — | UNIQUE(dataset_id, stable_id, source_id, revision) | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | availability_confidence | TEXT | NOT NULL CHECK (availability_confidence IN ('exact', 'inferred')) | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | availability_confidence | TEXT | NOT NULL CHECK (availability_confidence IN ('exact', 'inferred')) | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | available_at | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | available_at | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | dataset_id | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | dataset_id | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | entity_id | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | entity_id | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | ingested_at | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | ingested_at | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | observation_id | TEXT | PRIMARY KEY | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | observation_id | TEXT | PRIMARY KEY | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | observed_at | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | observed_at | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | published_at | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | published_at | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | revised_at | TEXT | — | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | revised_at | TEXT | — | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | revision | INTEGER | NOT NULL CHECK (revision > 0) | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | revision | INTEGER | NOT NULL CHECK (revision > 0) | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | run_id | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | run_id | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | source_checksum | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | source_checksum | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | source_id | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | source_id | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | stable_id | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | stable_id | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | status | TEXT | NOT NULL CHECK (status IN ('active', 'retracted', 'superseded')) | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | status | TEXT | NOT NULL CHECK (status IN ('active', 'retracted', 'superseded')) | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | timezone_confidence | TEXT | NOT NULL CHECK (timezone_confidence IN ('exact', 'normalised', 'unknown')) | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | timezone_confidence | TEXT | NOT NULL CHECK (timezone_confidence IN ('exact', 'normalised', 'unknown')) | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | valid_from | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | valid_from | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | valid_to | TEXT | — | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | valid_to | TEXT | — | etf_cockpit/data/local_storage.py |
+| bitemporal_observations | value_json | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
 | bitemporal_observations | value_json | TEXT | NOT NULL | etf_cockpit/data/local_storage.py |
 | capture_log | capture_id | INTEGER | PRIMARY KEY AUTOINCREMENT | etf_cockpit/data/universe_membership.py |
 | capture_log | checksum | TEXT | NOT NULL | etf_cockpit/data/universe_membership.py |
@@ -337,6 +357,7 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/market_calendar_corrections.yaml | corrections, ledger_version, schema_version | ledger_version="2026-07-22"; schema_version=market-calendar-corrections.v1 |
 | configs/model_settings.yaml | ensemble, forecast_horizons_trading_days, models, promotion | — |
 | configs/mutation_thresholds_v1.yaml | critical_mutants, required_kill_rate, scope, version | version=1 |
+| configs/paper_bots_v1.yaml | baseline_score_version, benchmark, bots, decision_period, eligibility, initial_virtual_cash_eur, max_snapshot_age_hours, monthly_contribution_eur, schema_version | baseline_score_version=score-engine-v3.0.0; schema_version=paper_bots.v1 |
 | configs/performance_budgets.yaml | budgets, policy_version, regression_tolerance_pct, schema_version | policy_version="2026-07-17"; schema_version="performance-budgets.v1" |
 | configs/plugin_registry.yaml | allowlist, execution_allowed, schema_version | schema_version="plugin-registry.v1" |
 | configs/portfolio_forecast_v1.yaml | scenario_count, scenario_seed, schema_version, stress_correlation | schema_version=portfolio_forecast.v1 |

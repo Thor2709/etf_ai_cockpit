@@ -446,7 +446,9 @@ class _ObservationStore:
         if decision_time is None:
             observations = self._store.observations(self.dataset_id, entity_id=entity_id)
             return [dict(item.value) for item in observations]
-        frame = self._store.as_of(self.dataset_id, _utc(decision_time, "decision_time"), entity_id=entity_id)
+        # valid_from is an event/coverage time here (an announced action may take effect after the
+        # knowledge cutoff); every caller applies its own effective/coverage cutoff to the result.
+        frame = self._store.as_of(self.dataset_id, _utc(decision_time, "decision_time"), entity_id=entity_id, effective_validity=False)
         if frame.empty:
             return []
         return [dict(value) for value in frame["value"].tolist()]

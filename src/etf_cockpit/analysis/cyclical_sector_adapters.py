@@ -12,7 +12,7 @@ from typing import Mapping, Sequence
 
 from etf_cockpit.analysis.peer_cohorts import AdapterDefinition, AdapterRegistry, PeerCohortError
 from etf_cockpit.data.classification import InstrumentContextV2
-from etf_cockpit.data.contracts import SourceAuthority
+from etf_cockpit.data.contracts import PRIMARY_SOURCE_AUTHORITIES, SourceAuthority
 
 
 CYCLICAL_CONTRACT = "cyclical-sector-adapter.v1"
@@ -268,7 +268,7 @@ def build_cyclical_projection(
         inapplicable = not item.applicable
         unverified_normalisation = (
             item.metric == "normalised_margin"
-            and item.source_authority not in {SourceAuthority.OFFICIAL, SourceAuthority.ISSUER}
+            and item.source_authority not in PRIMARY_SOURCE_AUTHORITIES
         )
         available = not inapplicable and not fatal and not unverified_normalisation and item.value is not None and _finite(item.value)
         unavailable_reason = (
@@ -691,7 +691,7 @@ def _validate_metric(item: CyclicalMetricEvidence, model: str, decision: datetim
             or not item.reporting_standard.strip() or not item.jurisdiction.strip()
             or not item.source_id.strip() or as_of > known or known > decision):
         raise CyclicalAdapterError("cyclical metric lineage is invalid")
-    if item.metric in _OPERATIONAL and item.source_authority not in {SourceAuthority.OFFICIAL, SourceAuthority.ISSUER}:
+    if item.metric in _OPERATIONAL and item.source_authority not in PRIMARY_SOURCE_AUTHORITIES:
         raise CyclicalAdapterError("operational metric requires issuer or official evidence")
     if model in {"energy", "materials"} and item.metric in _COMMODITY_SENSITIVE and not (item.commodity_id or "").strip():
         raise CyclicalAdapterError("commodity-sensitive metric requires an explicit commodity mapping")
@@ -847,7 +847,7 @@ def _history(rows: Sequence[CycleHistoryEvidence], decision: datetime) -> tuple[
     for row in sorted(rows, key=lambda item: (item.cycle_id, item.start_at, item.source_id)):
         start, end, known = _time(row.start_at), _time(row.end_at), _time(row.known_at)
         if (row.execution_allowed or not row.cycle_id.strip() or row.cycle_id in seen or row.phase not in {"trough_to_peak", "peak_to_trough", "completed_cycle"}
-                or not row.source_id.strip() or row.source_authority not in {SourceAuthority.OFFICIAL, SourceAuthority.ISSUER}
+                or not row.source_id.strip() or row.source_authority not in PRIMARY_SOURCE_AUTHORITIES
                 or start >= end or end > known or known > decision):
             raise CyclicalAdapterError("cycle-history lineage is invalid")
         seen.add(row.cycle_id)
