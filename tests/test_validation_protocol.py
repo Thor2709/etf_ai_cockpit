@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import numpy as np
 import pytest
 
+from etf_cockpit.application.validation import evaluate_registered_trials
+from etf_cockpit.features.training_centre import LocalTrainingRegistry
 from etf_cockpit.validation.protocol import (
     ValidationSpec,
     build_walk_forward_splits,
@@ -22,15 +26,23 @@ def test_walk_forward_folds_purge_labels_and_embargo_future_rows() -> None:
     assert folds[-1].validation_indices[-1] < 80 - spec.final_test_size
 
 
-def test_validation_retains_discarded_trials_and_never_uses_final_test_for_selection() -> None:
+def test_validation_retains_discarded_trials_and_never_uses_final_test_for_selection(tmp_path) -> None:
+    registry = LocalTrainingRegistry(tmp_path)
+    experiment = registry.create_experiment("audited-validation")
+    run = registry.create_run(
+        str(experiment["experiment_id"]), dataset_hash="a" * 64, feature_hash="b" * 64,
+        code_hash="c" * 64, environment_hash="d" * 64,
+    )
     spec = ValidationSpec(n_splits=3, test_size=10, final_test_size=10, bootstrap_repetitions=30, seed=7)
     baseline = np.full(80, 0.10)
     challenger = np.full(80, 0.20)
     challenger[-10:] = 0.00
     baseline[-10:] = 0.50
-    report = evaluate_trials(
+    report = evaluate_registered_trials(
+        tmp_path, str(run["run_id"]),
         {"baseline": baseline, "challenger": challenger},
-        spec=spec,
+        spec=spec, frozen_candidate_id="challenger", predeclared_comparator_ids=("baseline",), holdout_id="final-score-regression",
+        date_labels=[date(2025, 1, 1) + timedelta(days=i) for i in range(80)],
         parameters={"baseline": {"kind": "naive"}, "challenger": {"kind": "candidate"}},
         regime_labels=["calm" if index % 2 else "stress" for index in range(80)],
         subgroup_labels=["A" if index % 3 else "B" for index in range(80)],

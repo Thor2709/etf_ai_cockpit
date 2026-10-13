@@ -276,4 +276,4 @@ def _fetch_reference_data(provider: YFinanceProvider, config, *, skip: bool) -> 
 
 
 if __name__ == "__main__":
-    raise SystemExit(run_cli(main))
+    raise SystemExit(run_cli(main, record_paper_bots=True))
