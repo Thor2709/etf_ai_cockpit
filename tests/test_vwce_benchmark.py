@@ -253,10 +253,20 @@ def test_registry_without_a_passing_contract_stays_unavailable() -> None:
     # An "available" record needs source hashes; the registry refuses to construct otherwise.
     with pytest.raises(BenchmarkReferenceError):
         replace(shipped.benchmarks[0], status="available", content_hash="")
-    bound = replace(shipped.benchmarks[0], status="available", source_hashes=(check.source_hash,), content_hash="")
+    unsigned = replace(shipped.benchmarks[0], status="available", source_hashes=(check.source_hash,), content_hash="")
+    # The registry tolerates an unsigned record; the reference gate must not.
+    unverified = vwce_reference_status(CanonicalBenchmarkRegistry(benchmarks=[unsigned]), check)
+    assert unverified["status"] == "unavailable" and str(unverified["reason"]).startswith("registry_record_unverified")
+    bound = replace(unsigned, content_hash=unsigned.digest())
     registry = CanonicalBenchmarkRegistry(benchmarks=[bound])
     assert vwce_reference_status(registry, check)["status"] == "available"  # positive control
-    other = replace(bound, source_hashes=("a" * 64,))
+    later = replace(unsigned, known_at="2025-04-01T00:00:00+00:00")
+    later = replace(later, content_hash=later.digest())
+    assert "known_at" in str(vwce_reference_status(CanonicalBenchmarkRegistry(benchmarks=[later]), check)["reason"])
+    usd = replace(unsigned, currency="USD")
+    usd = replace(usd, content_hash=usd.digest())
+    assert "currency" in str(vwce_reference_status(CanonicalBenchmarkRegistry(benchmarks=[usd]), check)["reason"])
+    other = replace(bound, source_hashes=("a" * 64,), content_hash="")
     assert vwce_reference_status(CanonicalBenchmarkRegistry(benchmarks=[other]), check)["reason"] == "series_hash_not_in_registry"
     failing = _check(_series(dividends=[0, 0, 0, 0.35, 0, 0, 0, 0, 0, 0]))
     status = vwce_reference_status(registry, failing)
@@ -312,6 +322,25 @@ def test_series_contract_fails_closed_on_identity_currency_and_time(override: di
     options = {"known_at": KNOWN_AT, **override}
     result = validate_vwce_reference_series(_series(), **options)  # type: ignore[arg-type]
     assert result.status == "unavailable" and reason in result.reasons and result.source_hash is None
+
+
+def test_partial_bar_series_is_not_known_and_shadow_valuation_stops_before_the_decision_day(tmp_path: Path) -> None:
+    frame = _series()  # last bar 2025-03-14
+    for known_at, status in (("2025-03-14T09:00:00+00:00", "unavailable"),  # in-progress bar
+                             ("2025-03-14T15:00:00+00:00", "unavailable"),  # 16:00 Berlin, before the close
+                             ("2025-03-14T17:00:00+00:00", "available"),    # after the Xetra close
+                             ("2025-03-15T00:00:00+00:00", "available")):
+        meta = replace(_metadata(frame), ingested_at=datetime.fromisoformat(known_at))
+        result = validate_vwce_reference_series(frame, known_at=known_at, provider_metadata=meta)
+        assert result.status == status
+        assert status == "available" or "observation_after_known_at" in result.reasons
+    shadow = _ledger(tmp_path, "shadow-vwce", POLICY)
+    _fund(shadow, frame, POLICY, FLOWS)
+    with pytest.raises(PaperLedgerError, match="decision cutoff"):
+        shadow.shadow_daily_snapshots(frame, series_check=_check(frame), through=date(2025, 3, 14),
+                                      decision_time=_at("2025-03-14", 20))
+    assert not shadow.shadow_daily_snapshots(frame, series_check=_check(frame), through=date(2025, 3, 14),
+                                             decision_time=_at("2025-03-21")).empty
 
 
 def test_series_contract_rejects_structural_defects() -> None:

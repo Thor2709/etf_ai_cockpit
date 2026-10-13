@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
 from collections import OrderedDict
 from copy import deepcopy
-from datetime import date
+from datetime import date, datetime, time
 import hashlib
 import json
 import math
@@ -15,6 +15,7 @@ import re
 import threading
 from types import MappingProxyType
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import numpy as np
 import pandas as pd
@@ -678,6 +679,7 @@ def context_from_snapshot(
 VWCE_LISTING_TICKER = "VWCE.DE"
 VWCE_QUOTE_CURRENCY = "EUR"
 VWCE_BENCHMARK_ID = "benchmark:ftse-all-world"
+XETRA_CLOSE = time(17, 35)  # local Xetra close incl. closing auction; a bar is final only after it
 # Documented defaults: a one-day move above 25% in either price column is a split/adjustment discontinuity, and
 # the adjusted/raw price ratio of an accumulating share class must stay constant to within one part in a million.
 DEFAULT_MAX_DAILY_MOVE = 0.25
@@ -816,7 +818,7 @@ def validate_vwce_reference_series(
         reasons.append("dates_not_sorted")
     first_date = dates.min().date().isoformat()
     last_date = dates.max().date().isoformat()
-    if known_stamp is not None and dates.max().date() > known_stamp.tz_convert("UTC").date():
+    if known_stamp is not None and not _last_close_known(dates.max().date(), known_stamp):
         reasons.append("observation_after_known_at")
     close = pd.to_numeric(frame["close"], errors="coerce")
     adjusted = pd.to_numeric(frame[adjusted_column], errors="coerce")
@@ -850,6 +852,24 @@ def validate_vwce_reference_series(
     return _series_check(reasons, computed, known_stamp, len(frame), first_date, last_date)
 
 
+def _last_close_known(last: date, known_at: pd.Timestamp) -> bool:
+    """True when the last bar was a final close at ``known_at`` (an in-progress same-day bar is not).
+
+    The bar date must be strictly before the ``known_at`` UTC date, unless ``known_at`` is later than the
+    Xetra close (17:35 Europe/Berlin, closing auction included). Without tz data only the strict rule applies.
+    """
+
+    known_utc = known_at.tz_convert("UTC")
+    if last < known_utc.date():
+        return True
+    try:
+        zone = ZoneInfo("Europe/Berlin")
+    except ZoneInfoNotFoundError:
+        return False
+    close = datetime.combine(last, XETRA_CLOSE, tzinfo=zone)
+    return last == known_utc.date() and known_utc.to_pydatetime() > close
+
+
 def _series_check(
     reasons: list[str],
     source_hash: str | None,
@@ -868,6 +888,25 @@ def _series_check(
         first_date,
         last_date,
     )
+
+
+def _vwce_record_failure(item: object, check: VwceReferenceSeriesCheck) -> str | None:
+    """Re-verify one registry record (content hash, identity, currency, known_at); ``None`` when it passes."""
+
+    try:
+        content_hash = getattr(item, "content_hash", "")
+        if not isinstance(content_hash, str) or not content_hash or content_hash != item.digest():  # type: ignore[attr-defined]
+            return "content_hash"
+        if getattr(item, "currency", None) != VWCE_QUOTE_CURRENCY:
+            return "currency"
+        if "VWCE" not in getattr(item, "constituents", ()):
+            return "identity"
+        record_known = pd.Timestamp(item.known_at)  # type: ignore[attr-defined]
+        if record_known.tzinfo is None or check.known_at is None or record_known > pd.Timestamp(check.known_at):
+            return "known_at"
+    except (BenchmarkReferenceError, TypeError, ValueError, AttributeError):
+        return "unverifiable"
+    return None
 
 
 def vwce_reference_status(
@@ -901,8 +940,12 @@ def vwce_reference_status(
     available = [item for item in records if item.status == "available" and item.source_hashes]
     if not available:
         return unavailable("registry_record_not_available")
-    if not any(check.source_hash in item.source_hashes for item in available):
+    bound = [item for item in available if check.source_hash in item.source_hashes]
+    if not bound:
         return unavailable("series_hash_not_in_registry")
+    failures = [_vwce_record_failure(item, check) for item in bound]
+    if all(failure is not None for failure in failures):
+        return unavailable("registry_record_unverified:" + str(failures[0]))
     return {
         "status": "available",
         "reason": None,

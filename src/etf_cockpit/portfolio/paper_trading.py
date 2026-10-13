@@ -1748,6 +1748,8 @@ class PaperLedger:
         closes = dict(zip(sessions.dt.date, prices["close"], strict=True))
         start = min(date.fromisoformat(str(flow["entry_session"])) for flow in flows)
         end = through if isinstance(through, date) else date.fromisoformat(str(through))
+        if end >= decision_time.astimezone(timezone.utc).date():
+            raise PaperLedgerError("Benchmark close is unavailable at the decision cutoff.")
         days = sorted(day for day in closes if start <= day <= end)
         if not days or days[-1] != end:
             raise PaperLedgerError("The requested end date is not a benchmark session.")
