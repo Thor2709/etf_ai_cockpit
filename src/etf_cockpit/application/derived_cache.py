@@ -355,7 +355,7 @@ def _feature_cache_binding(
         frame["etf_id"] = frame["etf_id"].astype(str).str.strip()
         frame["date"] = pd.to_datetime(frame["date"], errors="coerce", utc=True, format="mixed").map(pd.Timestamp.isoformat)
         frame["volume"] = pd.to_numeric(frame["volume"], errors="coerce").map(lambda value: None if pd.isna(value) else float(value))
-        frame = frame.sort_values(["etf_id", "date"], kind="stable")
+        frame = frame.sort_values(["etf_id", "date", "volume"], kind="stable", na_position="last")
         encoded = json.dumps(frame.to_dict(orient="records"), sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
         volume = hashlib.sha256(encoded).hexdigest()
     return {"feature_algorithm_version": FEATURE_ALGORITHM_VERSION, "volume_snapshot_checksum": volume}

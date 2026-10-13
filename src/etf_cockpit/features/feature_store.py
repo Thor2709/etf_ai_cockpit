@@ -31,7 +31,7 @@ TargetKind = Literal["forward_return", "excess_return", "drawdown", "tail", "eve
 
 # Outcome-bearing column names (targets, labels, future/forward values) can never feed an input,
 # whatever feature identifier they are registered under.
-_OUTCOME_COLUMN = re.compile(r"(^|[_.:-])(target|label|future|forward|outcome)([_.:-]|$)", re.IGNORECASE)
+_OUTCOME_COLUMN = re.compile(r"(^|[_.:-])(target|label|future|outcome|fwd|forward[_.:-](return|ret|excess|drawdown|label|target))([_.:-]|$)", re.IGNORECASE)
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9_.:-]{1,120}$")
 _ENTITY_COLUMNS = ("etf_id", "instrument_id", "entity_id")
 _ENTITY_TYPE = "feature.definition"
@@ -194,12 +194,11 @@ class LocalFeatureStore:
         else:
             source["__available_at"] = source["__feature_time"]
         tie_columns = sorted({item.source_column for item in definitions})
-        source["__tie_break"] = source[tie_columns].astype(str).agg("|".join, axis=1) if tie_columns else ""
         entities = sorted(source[entity_column].dropna().astype(str).unique())
         rows: list[dict[str, object]] = []
         definition_hash = self.definition_hash(definitions)
         for entity in entities:
-            entity_rows = source[source[entity_column].astype(str) == entity].sort_values(["__feature_time", "__available_at", "__tie_break"], kind="stable")
+            entity_rows = source[source[entity_column].astype(str) == entity].sort_values(["__feature_time", "__available_at", *tie_columns], kind="stable")
             for decision in decisions:
                 output: dict[str, object] = {entity_column: entity, "decision_time": decision.date().isoformat(), "inference_mode": mode}
                 selected_times: list[pd.Timestamp] = []
@@ -266,7 +265,7 @@ class LocalFeatureStore:
         benchmark = _prepare_benchmark(benchmark_prices, date_column, price_column) if benchmark_prices is not None else None
         rows: list[dict[str, object]] = []
         for entity, group in source.groupby(entity_column, sort=True):
-            group = group.sort_values("__date", kind="stable").dropna(subset=["__price"]).reset_index(drop=True)
+            group = group.sort_values(["__date", "__price"], kind="stable").dropna(subset=["__price"]).reset_index(drop=True)  # equal-date revisions resolve by price, not input order
             for decision in decisions:
                 current = group[group["__date"] <= decision].tail(1)
                 if current.empty:

@@ -216,7 +216,7 @@ def _row_at_decision(row: Mapping[str, Any], decision_time: object | None) -> Ma
     """Drop price-history rows dated after the decision so later prices never move a trend."""
 
     history = row.get("price_history")
-    if decision_time is None or not isinstance(history, pd.DataFrame) or not isinstance(history.index, pd.DatetimeIndex):
+    if decision_time is None or not isinstance(history, (pd.DataFrame, pd.Series)) or not isinstance(history.index, pd.DatetimeIndex):
         return row
     try:
         decision = pd.Timestamp(decision_time)

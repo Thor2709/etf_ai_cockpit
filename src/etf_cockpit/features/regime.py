@@ -20,9 +20,8 @@ from etf_cockpit.portfolio.benchmark_reference import validate_benchmark_referen
 from etf_cockpit.portfolio.benchmark_reference import clip_to_decision_window
 
 
-# Sessions a stale close may be carried forward in breadth/fit calculations, and the calendar
-# days the benchmark may lag the newest price in the panel before the regime is unavailable.
-DEFAULT_MAX_FORWARD_FILL = 5
+# Calendar days the benchmark may lag the newest price in the panel before the regime is unavailable.
+# Forward fill stays unbounded unless a caller passes ``max_forward_fill`` (the macro dashboard caps it at 5).
 MAX_BENCHMARK_STALENESS_DAYS = 5
 
 
@@ -66,7 +65,7 @@ def build_market_regime(
             "The benchmark close is stale relative to the price panel; regime scoring is unavailable.",
             benchmark_reference=reference,
         )
-    filled = pivot.ffill(limit=DEFAULT_MAX_FORWARD_FILL if max_forward_fill is None else max_forward_fill)
+    filled = pivot.ffill(limit=max_forward_fill)
     latest = filled.iloc[-1]
     sma200 = filled.rolling(200, min_periods=160).mean().iloc[-1]
     valid = latest.notna() & sma200.notna()
@@ -144,7 +143,7 @@ def build_portfolio_fit_lookup(
         return {}
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
-    pivot = frame.dropna(subset=["date", "adjusted_close"]).pivot(index="date", columns="etf_id", values="adjusted_close").sort_index().ffill(limit=DEFAULT_MAX_FORWARD_FILL)
+    pivot = frame.dropna(subset=["date", "adjusted_close"]).pivot(index="date", columns="etf_id", values="adjusted_close").sort_index().ffill()
     if pivot.shape[1] < 2:
         return {
             str(item): _unavailable_fit("not enough clean instruments", reference)

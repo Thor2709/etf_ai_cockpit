@@ -198,3 +198,68 @@ def test_undefined_correlation_is_unavailable_not_fit(bound_benchmark) -> None:
     lookup = build_portfolio_fit_lookup(_panel(0, constant="A"), benchmark_id="BENCH")
     assert lookup["A"]["score"] is None
     assert lookup["B"]["score"] is not None
+
+
+# --- correction pass 1 -----------------------------------------------------------------------
+def _breadth_panel() -> pd.DataFrame:
+    days = pd.bdate_range("2025-01-01", periods=260)
+    rows = []
+    for i, d in enumerate(days):
+        rows.append({"etf_id": "BENCH", "date": d, "adjusted_close": 100.0 + i * 0.3})
+        rows.append({"etf_id": "A", "date": d, "adjusted_close": 100.0 + i * 0.2})
+        if i < len(days) - 30:  # B stops 30 sessions before the end and was falling (below its SMA200)
+            rows.append({"etf_id": "B", "date": d, "adjusted_close": 300.0 - i * 0.5})
+    return pd.DataFrame(rows)
+
+
+def test_sma_breadth_forward_fill_is_unbounded_by_default_and_capped_when_requested(bound_benchmark) -> None:
+    default = build_market_regime(_breadth_panel(), benchmark_id="BENCH")
+    capped = build_market_regime(_breadth_panel(), benchmark_id="BENCH", max_forward_fill=5)
+    assert default["configured_pct_above_sma200"] == pytest.approx(2 / 3, abs=1e-3)  # stale B close still counted
+    assert capped["configured_pct_above_sma200"] == pytest.approx(1.0)  # B is beyond the 5-session cap
+
+
+def test_price_snapshot_with_conflicting_equal_timestamp_prices_has_no_binding() -> None:
+    from etf_cockpit.portfolio.benchmark_reference import adjusted_price_snapshot_binding
+
+    prices = pd.DataFrame({"date": ["2026-01-01"] * 2, "etf_id": ["A"] * 2, "adjusted_close": [1.0, 2.0]})
+    assert adjusted_price_snapshot_binding(prices, calculation_window=_WINDOW) is None
+    assert adjusted_price_snapshot_binding(prices.iloc[:1], calculation_window=_WINDOW) is not None
+
+
+def test_equal_timestamp_price_revisions_give_input_order_independent_targets(tmp_path) -> None:
+    store = LocalFeatureStore(tmp_path)
+    store.register_target(TargetDefinition("fwd1", 1))
+    base = pd.DataFrame(
+        {"etf_id": ["A"] * 4, "date": pd.to_datetime(["2026-01-01", "2026-01-01", "2026-01-02", "2026-01-02"]), "adjusted_close": [100.0, 101.0, 102.0, 103.0]}
+    )
+    forward = store.build_targets(base, ["2026-01-01"])
+    backward = store.build_targets(base.iloc[::-1].reset_index(drop=True), ["2026-01-01"])
+    assert forward.loc[0, "fwd1"] == pytest.approx(backward.loc[0, "fwd1"])
+
+
+def test_volume_cache_binding_is_independent_of_equal_timestamp_row_order() -> None:
+    base = pd.DataFrame({"date": ["2026-01-01"] * 2, "etf_id": ["A"] * 2, "adjusted_close": [1.0, 1.0], "volume": [10.0, 20.0]})
+    assert _feature_cache_binding(base, calculation_window=_WINDOW) == _feature_cache_binding(base.iloc[::-1], calculation_window=_WINDOW)
+
+
+def test_feature_catalogue_sample_shows_newest_rows_of_unordered_snapshot(tmp_path) -> None:
+    from etf_cockpit.application.ui_views.feature_catalogue import SAMPLE_ROWS, build_feature_catalogue_view
+
+    dates = pd.bdate_range("2026-01-01", periods=SAMPLE_ROWS + 5)
+    features = pd.DataFrame({"date": dates[::-1], "etf_id": "A", "return_1d_log": 0.0})  # newest first
+    view = build_feature_catalogue_view(tmp_path, features)
+    assert [row["date"] for row in view.sample_rows] == list(dates[-SAMPLE_ROWS:])
+
+
+def test_outcome_column_guard_rejects_outcomes_but_not_forward_looking_ratios() -> None:
+    assert FeatureDefinition("fpe", "forward_pe").source_column == "forward_pe"
+    for column in ("forward_return_5d", "future_target", "label", "fwd_ret"):
+        with pytest.raises(FeatureStoreError):
+            FeatureDefinition("x", column)
+
+
+def test_price_history_series_is_dropped_at_the_decision() -> None:
+    index = pd.bdate_range("2026-01-01", periods=10)
+    series = pd.Series(range(10), index=index)
+    assert _row_at_decision({"price_history": series}, index[5])["price_history"].index.max() == index[5]
