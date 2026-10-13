@@ -56,7 +56,8 @@ only walk-forward validation dates. Cross-sectional scores receive equal
 within-date weight; mixed subgroup labels are omitted rather than attributed
 to a date-level score. Paired moving-block bootstrap resamples candidate minus
 baseline, uses a centered-null one-sided test with the finite-resample +1
-correction, and caps block length at half the available dates (minimum one).
+correction. The effective block is `min(max(block_size, horizon), max(1, n // 2))`
+(covers overlapping forward labels, keeps two blocks) and is reported as `block_size`.
 Fewer than two paired dates are unavailable. Seeds/repetitions retain the spec.
 
 DSR follows Bailey and Lopez de Prado (2014), *The Deflated Sharpe Ratio*,

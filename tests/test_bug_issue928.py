@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from statistics import NormalDist
 
 import numpy as np
@@ -14,6 +15,7 @@ from etf_cockpit.validation.protocol import (
     ValidationSpec,
     _deflated_sharpe,
     _false_discovery_rate,
+    _paired_block_bootstrap,
     _pbo_probability,
     build_walk_forward_splits,
     evaluate_trials,
@@ -137,7 +139,7 @@ def test_only_frozen_candidate_and_predeclared_comparators_read_holdout(tmp_path
 
 def test_training_label_windows_do_not_overlap_sealed_holdout() -> None:
     spec = _spec(n_splits=3, test_size=10, final_test_size=10, horizon=3)
-    folds = build_walk_forward_splits(100, spec)
+    folds = build_walk_forward_splits(100, spec, strict_label_purge=True)
     holdout_start = 100 - spec.final_test_size
 
     assert all(max(fold.validation_indices) + spec.horizon < holdout_start for fold in folds)
@@ -159,7 +161,7 @@ def test_train_label_purge_excludes_the_first_validation_label_observation() -> 
     # Convention: the label of row t spans t+1..t+horizon, so training row t is
     # usable only if t + horizon < first validation row.
     spec = _spec(n_splits=3, test_size=10, final_test_size=10, horizon=3)
-    folds = build_walk_forward_splits(100, spec)
+    folds = build_walk_forward_splits(100, spec, strict_label_purge=True)
 
     assert all(max(fold.train_indices) + spec.horizon < min(fold.validation_indices) for fold in folds)
 
@@ -181,7 +183,52 @@ def test_minimum_split_rejects_fewer_than_two_post_purge_training_rows() -> None
     spec = _spec(n_splits=2, test_size=5, final_test_size=5, horizon=2, periods_per_year=None)
 
     with pytest.raises(ValueError, match="two post-purge training observations"):
-        build_walk_forward_splits(17, spec)
+        build_walk_forward_splits(17, spec, strict_label_purge=True)
+
+
+def test_paired_bootstrap_block_covers_the_label_horizon() -> None:
+    rng = np.random.default_rng(3)
+    noise = np.convolve(rng.normal(size=120), np.ones(8) / 8, mode="same")
+    short = _paired_block_bootstrap(noise, _spec(block_size=2, horizon=1, bootstrap_repetitions=400), paired_with="baseline")
+    long_horizon = _paired_block_bootstrap(noise, _spec(block_size=2, horizon=8, bootstrap_repetitions=400), paired_with="baseline")
+    capped = _paired_block_bootstrap(noise[:6], _spec(block_size=2, horizon=8), paired_with="baseline")
+
+    assert short["block_size"] == 2
+    assert long_horizon["block_size"] == 8  # effective block = max(block_size, horizon)
+    assert capped["block_size"] == 3  # but at least two blocks must still fit (n // 2)
+    assert (long_horizon["upper_95"] - long_horizon["lower_5"]) >= (short["upper_95"] - short["lower_5"])
+
+
+def test_periods_per_year_keeps_pre_change_spec_fingerprints() -> None:
+    legacy_payload = {
+        "n_splits": 5, "test_size": 20, "horizon": 1, "embargo": 0, "final_test_size": 20,
+        "expanding": True, "train_size": None, "bootstrap_repetitions": 200, "block_size": 5, "seed": 42,
+    }
+    expected = hashlib.sha256(
+        json.dumps(legacy_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+    assert ValidationSpec().fingerprint == expected
+    assert ValidationSpec(periods_per_year=12).fingerprint != expected
+
+
+def test_unavailable_metrics_carry_concrete_reasons(tmp_path) -> None:
+    scores = {"baseline": np.linspace(-0.02, 0.02, 80), "candidate": np.linspace(-0.01, 0.03, 80)}
+    _run(tmp_path, "unrecorded-run")
+    missing = _registered(tmp_path, scores, run_id="current-run", spec=_spec(periods_per_year=12))
+    reasons = missing.uncertainty["unavailable_reasons"]
+
+    assert set(reasons) == {"deflated_sharpe", "probability_of_backtest_overfitting", "false_discovery_rate"}
+    assert all("unrecorded-run" in text for text in reasons.values())
+    assert "unrecorded-run" in missing.uncertainty["trial_family_detail"]
+    other = tmp_path / "alignment"
+    _registered(other, scores, run_id="prior", spec=_spec(), date_labels=list(range(80)))
+    changed = _registered(other, scores, run_id="later", spec=_spec(), date_labels=list(range(1, 81)))
+    detail = changed.uncertainty["trial_family_detail"]
+    assert "run=prior" in detail and "alignment mismatch" in detail
+    assert "alignment mismatch" in changed.uncertainty["unavailable_reasons"]["false_discovery_rate"]
+    no_frequency = evaluate_trials(scores, spec=_spec())
+    assert "trial_family_unverified" in no_frequency.uncertainty["unavailable_reasons"]["deflated_sharpe"]
 
 
 def test_two_dimensional_trial_scores_are_rejected() -> None:
@@ -330,7 +377,8 @@ def test_issue928_8_single_trial_and_too_small_inference_guards(tmp_path) -> Non
 def test_non_inference_split_keeps_the_legacy_horizon_minus_one_contract() -> None:
     spec = _spec(n_splits=1, test_size=20, final_test_size=10, horizon=5)
     legacy = build_walk_forward_splits(100, spec, strict_label_purge=False)[0]
-    strict = build_walk_forward_splits(100, spec)[0]
+    strict = build_walk_forward_splits(100, spec, strict_label_purge=True)[0]
+    assert build_walk_forward_splits(100, spec)[0] == legacy  # strict purge is opt-in
 
     assert len(legacy.purged_indices) == spec.horizon - 1
     assert legacy.validation_indices[-1] == 100 - spec.final_test_size - 1

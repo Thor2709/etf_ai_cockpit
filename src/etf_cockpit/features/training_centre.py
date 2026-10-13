@@ -245,7 +245,7 @@ class LocalTrainingRegistry:
             raise ValueError("trial scores must have equal finite lengths")
         count = len(next(iter(arrays.values())))
         groups = _date_groups(options.get("date_labels"), count)
-        build_walk_forward_splits(len(groups), spec)
+        build_walk_forward_splits(len(groups), spec, strict_label_purge=True)
         evaluation_id = f"evaluation_{uuid4().hex}"
         with TransactionalStore(self.root) as store, store.transaction() as connection:
             stored_run = store.get(_ENTITY_RUN, run_id)
@@ -257,7 +257,7 @@ class LocalTrainingRegistry:
                 "observations": count,
                 "date_labels": [str(value) for value in options["date_labels"]] if options.get("date_labels") is not None else None,
             }
-            prior, reason, retained_count = self._validation_family(store, run, alignment)
+            prior, reason, retained_count, family_detail = self._validation_family(store, run, alignment)
             family_ids = sorted(arrays)
             for trial_id, values in arrays.items():
                 _identifier(trial_id, "trial_id")
@@ -294,7 +294,7 @@ class LocalTrainingRegistry:
             arrays, **options, prior_trial_scores=prior,
             external_trial_count=max(0, retained_count - len(prior)),
             holdout_use_recorded=audit is not None, holdout_reused=reused,
-            _family_verified=not reason, _family_reason=reason or "",
+            _family_verified=not reason, _family_reason=reason or "", _family_detail=family_detail,
             _evaluation_id=evaluation_id,
         )
 
@@ -308,6 +308,7 @@ class LocalTrainingRegistry:
                    if row.payload.get("run_id") in runs}
         submissions: dict[str, list[StoredRecord]] = {}
         reason = None
+        details: list[str] = []
         for row in records:
             key = str(row.payload.get("evaluation_id") or row.payload.get("report_id") or "")
             submissions.setdefault(key, []).append(row)
@@ -325,25 +326,39 @@ class LocalTrainingRegistry:
                     original = {item.payload.get("trial_id"): item.payload.get("return_series") for item in submissions[linked]}
                     if original != {item.payload.get("trial_id"): item.payload.get("return_series") for item in members}:
                         reason = "retained_report_conflicts_with_trial_ledger"
+                        details.append(f"evaluation={key} run={head.get('run_id')}: retained report differs from ledger")
                     continue
             retained_count += len(members)
             expected = head.get("family_trial_ids") if head.get("evaluation_id") else (report.payload.get("trial_ids") if report else None)
             if not expected or sorted(expected) != sorted(item.payload.get("trial_id", "") for item in members):
                 reason = "trial_family_manifest_incomplete"
+                details.append(f"evaluation={key} run={head.get('run_id')}: stored trials do not match the declared family")
             for item in members:
                 payload = item.payload
                 try:
                     values = np.asarray(payload.get("return_series", []), dtype=float)
                 except (ValueError, TypeError):
                     reason = "trial_family_return_series_unverifiable"
+                    details.append(f"trial={payload.get('trial_id')} run={payload.get('run_id')}: return series unreadable")
                     continue
                 if item.deleted_at or item.revision != 1:
                     reason = "trial_family_record_not_immutable"
+                    details.append(f"trial={payload.get('trial_id')} run={payload.get('run_id')}: record deleted or revised")
                 if (payload.get("alignment") != alignment or values.ndim != 1
                         or len(values) != alignment["observations"] or not np.isfinite(values).all()):
                     reason = "trial_family_alignment_unverifiable"
+                    stored = payload.get("alignment")
+                    mismatch = sorted(
+                        name for name in alignment
+                        if not isinstance(stored, dict) or stored.get(name) != alignment[name]
+                    ) or ["series"]
+                    details.append(
+                        f"trial={payload.get('trial_id')} run={payload.get('run_id')}: "
+                        f"dataset/date alignment mismatch on {','.join(mismatch)}"
+                    )
                 elif payload.get("family_trial_ids") != expected and head.get("evaluation_id"):
                     reason = "trial_family_manifest_conflict"
+                    details.append(f"trial={payload.get('trial_id')} run={payload.get('run_id')}: family manifest conflict")
                 else:
                     prior[item.entity_id] = values
         # Optimiser search trials (every status: completed, pruned, failed, rejected) are
@@ -354,13 +369,24 @@ class LocalTrainingRegistry:
             1 for row in store.list(_ENTITY_SEARCH_TRIAL, include_deleted=True)
             if row.payload.get("run_id") in runs or row.payload.get("run_id") == current_run["experiment_id"]
         )
-        if any(run_id != current_run["run_id"] and run_id not in covered_runs for run_id in runs):
+        missing_runs = sorted(
+            str(run_id) for run_id in runs if run_id != current_run["run_id"] and run_id not in covered_runs
+        )
+        if missing_runs:
             reason = "prior_run_trial_evidence_missing"
-        if any(row.deleted_at for row in runs.values()) or any(row.deleted_at or row.revision != 1 for row in reports.values()):
+            details.append(f"run(s) without stored trial evidence: {','.join(missing_runs)}")
+        unverifiable = sorted(
+            [str(key) for key, row in runs.items() if row.deleted_at]
+            + [str(key) for key, row in reports.items() if row.deleted_at or row.revision != 1]
+        )
+        if unverifiable:
             reason = "trial_family_history_unverifiable"
-        if any(report_id not in submissions for report_id in reports):
+            details.append(f"deleted or revised run/report record(s): {','.join(unverifiable)}")
+        missing_members = sorted(str(report_id) for report_id in reports if report_id not in submissions)
+        if missing_members:
             reason = "trial_family_report_members_missing"
-        return prior, reason, retained_count
+            details.append(f"report(s) without stored trials: {','.join(missing_members)}")
+        return prior, reason, retained_count, "; ".join(dict.fromkeys(details))
 
     def _append_holdout_use(self, store, connection, run, holdout_id, candidate_id, comparator_ids, **bindings):
         holdout_id = _identifier(holdout_id, "holdout_id")

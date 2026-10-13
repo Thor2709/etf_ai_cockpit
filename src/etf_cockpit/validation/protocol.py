@@ -55,7 +55,11 @@ class ValidationSpec:
 
     @property
     def fingerprint(self) -> str:
-        return _sha256(_canonical(asdict(self)))
+        payload = asdict(self)
+        # Backward compatible: specs that predate periods_per_year keep their fingerprint.
+        if payload.get("periods_per_year") is None:
+            payload.pop("periods_per_year", None)
+        return _sha256(_canonical(payload))
 
 
 @dataclass(frozen=True)
@@ -129,15 +133,15 @@ def build_walk_forward_splits(
     spec: ValidationSpec | None = None,
     *,
     reserve_final_test: bool = True,
-    strict_label_purge: bool = True,
+    strict_label_purge: bool = False,
 ) -> tuple[ValidationFold, ...]:
     """Return non-overlapping temporal folds with label purge and embargo.
 
-    Labels are assumed to span t+1..t+horizon. ``strict_label_purge`` (default,
-    used by inference) purges ``horizon`` rows before validation, keeps a
-    ``horizon`` gap before the final test and requires two training rows per
-    fold. ``strict_label_purge=False`` keeps the original ``horizon - 1`` purge
-    and unpadded final tail for non-inference callers (the tuning optimiser).
+    Labels are assumed to span t+1..t+horizon. The default keeps the original
+    ``horizon - 1`` purge and unpadded final tail. ``strict_label_purge=True``
+    (opt-in; used by inference in ``_evaluate_trials`` and the training-centre
+    pre-check) purges ``horizon`` rows before validation, keeps a ``horizon``
+    gap before the final test and requires two training rows per fold.
     """
 
     definition = spec or ValidationSpec()
@@ -220,6 +224,7 @@ def _evaluate_trials(
     external_trial_count: int = 0,
     _family_verified: bool = False,
     _family_reason: str = "durable_trial_family_missing",
+    _family_detail: str = "",
     _evaluation_id: str | None = None,
 ) -> ValidationReport:
     """Select on development folds and score only an audited frozen holdout family.
@@ -257,7 +262,9 @@ def _evaluate_trials(
         raise ValueError("current and prior trial identifiers must be distinct")
     reserve_final = not holdout_reused
     n_samples = len(next(iter(arrays.values())))
-    folds = build_walk_forward_splits(n_samples, definition, reserve_final_test=reserve_final)
+    folds = build_walk_forward_splits(
+        n_samples, definition, reserve_final_test=reserve_final, strict_label_purge=True,
+    )
     validation_indices = np.concatenate([np.asarray(fold.validation_indices, dtype=int) for fold in folds])
     if reserve_final:
         final_start = n_samples - definition.final_test_size
@@ -363,10 +370,20 @@ def _evaluate_trials(
         _deflated_sharpe(selected_validation, independent_count, definition.periods_per_year, trial_sharpes)
         if _family_verified else None
     )
+    family_text = _family_reason + (f" ({_family_detail})" if _family_detail else "")
+    unavailable: dict[str, str] = {}
     if deflated is None:
+        dsr_reason = (
+            f"trial_family_unverified: {family_text}" if not _family_verified
+            else "periods_per_year_required" if definition.periods_per_year is None
+            else "multiple_trials_with_finite_sharpe_and_positive_variance_required"
+        )
+        unavailable["deflated_sharpe"] = dsr_reason
         warnings.append("dsr_unavailable_requires_frequency_sample_and_multiple_trials")
-    pbo, pbo_reason = _pbo_probability(development_family) if _family_verified else (None, _family_reason)
+        warnings.append(f"dsr_unavailable:{dsr_reason}")
+    pbo, pbo_reason = _pbo_probability(development_family) if _family_verified else (None, family_text)
     if pbo is None:
+        unavailable["probability_of_backtest_overfitting"] = pbo_reason or "insufficient_evidence"
         warnings.append(f"pbo_unavailable:{pbo_reason or 'insufficient_evidence'}")
     p_values: list[float] = []
     if _family_verified and baseline_validation is not None and total_trial_count >= 2 and external_trial_count == 0:
@@ -387,12 +404,24 @@ def _evaluate_trials(
         p_values = []
     false_discovery = _false_discovery_rate(p_values) if p_values else None
     if false_discovery is None:
-        reason = "prior_trial_p_values_unavailable" if external_trial_count else "insufficient_paired_trials_or_dates"
+        if not _family_verified:
+            reason = f"trial_family_unverified: {family_text}"
+        elif external_trial_count:
+            reason = f"prior_trial_p_values_unavailable: {external_trial_count} ledger trial(s) lack paired series"
+        elif baseline_validation is None:
+            reason = f"baseline_trial_missing: {baseline_trial_id}"
+        elif total_trial_count < 2:
+            reason = "multiple_trials_required"
+        else:
+            reason = "insufficient_paired_trials_or_dates"
+        unavailable["false_discovery_rate"] = reason
         warnings.append(f"fdr_unavailable:{reason}")
     if not _family_verified:
         warnings.append(f"trial_family_unavailable:{_family_reason}")
     uncertainty["trial_family_status"] = "available" if _family_verified else "unavailable"
     uncertainty["trial_family_reason"] = None if _family_verified else _family_reason
+    uncertainty["trial_family_detail"] = None if _family_verified or not _family_detail else _family_detail
+    uncertainty["unavailable_reasons"] = unavailable
     uncertainty["evaluation_id"] = _evaluation_id
     uncertainty["effective_dates"] = int(len(validation_indices))
     uncertainty["total_trial_count"] = total_trial_count
@@ -498,8 +527,9 @@ def _paired_block_bootstrap(values: np.ndarray, spec: ValidationSpec, *, paired_
     if n < 2 or not np.isfinite(values).all():
         return {"status": "unavailable", "reason": "at_least_two_finite_paired_dates_required", "observations": n}
     rng = np.random.default_rng(spec.seed)
-    # At least two blocks must fit, including in a short inference window.
-    block = min(spec.block_size, max(1, n // 2))
+    # Blocks must cover the label horizon (overlapping forward returns) and at
+    # least two blocks must fit, including in a short inference window.
+    block = min(max(spec.block_size, spec.horizon), max(1, n // 2))
     draws = np.empty(spec.bootstrap_repetitions)
     for repetition in range(spec.bootstrap_repetitions):
         starts = rng.integers(0, n - block + 1, size=math.ceil(n / block))
