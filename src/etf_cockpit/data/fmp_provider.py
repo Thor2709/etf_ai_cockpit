@@ -14,11 +14,12 @@ from time import monotonic
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 import pandas as pd
 
 from etf_cockpit.core.config import ProviderSection
+from etf_cockpit.core.http_fetch import host_checked_urlopen as urlopen
 from etf_cockpit.core.types import DatasetMetadata
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority, redact_text
 from etf_cockpit.data.provenance import metadata_from_frame
@@ -160,12 +161,19 @@ class FmpProvider(DataProvider):
             how="inner",
             suffixes=("_vendor", "_official"),
         )
+        if joined.empty:
+            return self._result("unavailable", "Vendor and official data share no comparable rows.", dataset_type="verification")
         conflicts: list[Mapping[str, object]] = []
+        unknown: list[Mapping[str, object]] = []
         for _, row in joined.iterrows():
             for column in value_columns:
                 vendor_value = row.get(f"{column}_vendor")
                 official_value = row.get(f"{column}_official")
-                if pd.notna(vendor_value) and pd.notna(official_value) and vendor_value != official_value:
+                if pd.isna(vendor_value) or pd.isna(official_value):
+                    # A missing comparison value is unknown, never agreement.
+                    unknown.append({**{key: row[key] for key in key_columns}, "field": column})
+                    continue
+                if vendor_value != official_value:
                     conflicts.append({
                         **{key: row[key] for key in key_columns},
                         "field": column,
@@ -173,6 +181,12 @@ class FmpProvider(DataProvider):
                         "official_value": official_value,
                         "selected_authority": SourceAuthority.OFFICIAL.value,
                     })
+        if unknown:
+            return self._result(
+                "unavailable",
+                f"Official values retained; {len(unknown)} comparison(s) lack a vendor or official value and are unknown, not agreement.",
+                official, dataset_type="verification", conflicts=tuple(conflicts), unknown=tuple(unknown),
+            )
         return self._result(
             "ok", "Official values retained; vendor disagreements were recorded.",
             official, dataset_type="verification", conflicts=tuple(conflicts),
@@ -186,7 +200,14 @@ class FmpProvider(DataProvider):
             return self._result("unavailable", "FMP symbol is empty.")
         base_url = (self.section.base_url or FMP_BASE_URL).strip().rstrip("/") + "/"
         params = {"symbol": symbol, "from": start_date.isoformat(), "to": end_date.isoformat()}
-        cache_key = hashlib.sha256(json.dumps(params, sort_keys=True).encode()).hexdigest()
+        key_material = {
+            "params": params,
+            "base_url": base_url,
+            "endpoint": FMP_PRICE_ENDPOINT,
+            # A different key may carry a different plan/entitlement: never share cache entries.
+            "credential": hashlib.sha256(self.api_key.encode()).hexdigest()[:16],
+        }
+        cache_key = hashlib.sha256(json.dumps(key_material, sort_keys=True).encode()).hexdigest()
         cached = self._cache.get(cache_key)
         now = self._monotonic()
         if cached is not None and now - cached[0] <= self.cache_ttl_seconds:
@@ -208,7 +229,10 @@ class FmpProvider(DataProvider):
             if frame.empty:
                 return self._result("unavailable", "FMP returned no price rows for the requested range.")
             if "symbol" not in frame:
-                frame["symbol"] = symbol
+                return self._failure("FMP response lacks instrument identity; rows are not attributable to the request.", "missing identity")
+            returned = {str(value).strip().upper() for value in frame["symbol"].dropna().unique()}
+            if frame["symbol"].isna().any() or returned != {symbol.strip().upper()}:
+                return self._failure("FMP returned a different instrument than requested; rows rejected.", "identity mismatch")
             frame["known_at"] = _utc_now()
             frame["source_authority"] = SourceAuthority.VENDOR.value
             frame["score_eligible"] = False
@@ -219,7 +243,7 @@ class FmpProvider(DataProvider):
                 oldest = min(self._cache, key=lambda key: self._cache[key][0])
                 self._cache.pop(oldest, None)
             return self._result("ok", "Retrieved optional FMP vendor prices.", frame, known_at=known_at)
-        except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError) as exc:
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError, TypeError) as exc:
             return self._failure(f"FMP request unavailable ({type(exc).__name__}).", f"{type(exc).__name__}:{redact_text(exc)}")
 
     def _request(self, url: str) -> tuple[int, bytes]:
@@ -265,6 +289,7 @@ class FmpProvider(DataProvider):
         error_fingerprint: str | None = None,
         cache_hit: bool = False,
         conflicts: tuple[Mapping[str, object], ...] = (),
+        unknown: tuple[Mapping[str, object], ...] = (),
         known_at: str | None = None,
     ) -> ProviderResult:
         quota = {
@@ -280,6 +305,7 @@ class FmpProvider(DataProvider):
             "authority": SourceAuthority.VENDOR.value,
             "error_fingerprint": error_fingerprint,
             "conflicts": list(conflicts),
+            "unknown_comparisons": list(unknown),
             "known_at": known_at,
         }
         result_frame = data if data is not None else pd.DataFrame()

@@ -222,13 +222,14 @@ def _simple_look_through() -> object:
     )
 
 
-def _evidence_record(value: float, source: str) -> dict[str, object]:
+def _evidence_record(value: float, source: str, **extra: object) -> dict[str, object]:
     return {
         "value": value,
         "unit": "decimal_fraction",
         "effective_at": EFFECTIVE,
         "known_at": DECISION,
         "source": source,
+        **extra,
     }
 
 
@@ -278,7 +279,8 @@ def test_tracking_method_uses_td_without_adding_ter_and_records_fallback(tmp_pat
         "source_id": "liquidity:target",
         "estimated_cost_bps": 10.0,
     }
-    index_return = _evidence_record(0.12, "index-return:target")
+    # B012-N002: the index forecast horizon must equal the tracking-difference horizon (3 sessions here).
+    index_return = _evidence_record(0.12, "index-return:target", horizon_days=3)
     trading_cost = 10.0 / 10_000
     peers = _observations("expected_etf_return", (0.01, 0.02, 0.03, 0.04))
     groups = _comparison_groups(peers)
