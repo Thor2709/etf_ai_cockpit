@@ -34,6 +34,7 @@ def _summary(tier: str) -> dict:
                     "collected": 4, "duplicates": 0, "tests": 4,
                     "collection_nodeids": [f"tests/m.py::t{number}" for number in range(4)],
                     "executed_keys": [["tests.m", f"t{number}"] for number in range(4)],
+                    "expected_modules": ["tests/m.py"], "report_errors": [],
                 }
                 for platform in ("windows", "linux")
             }
@@ -130,6 +131,9 @@ def test_terminal_collection_preserves_platform_artifact_directories(
     preflight.parent.mkdir(parents=True)
     preflight.write_text('<testsuite tests="126" />\n', encoding="utf-8")
     monkeypatch.setattr(validation_summary, "_tree_identity", lambda *_args: "d" * 64)
+    monkeypatch.setattr(
+        validation_summary, "_head_test_modules", lambda *_args: [f"tests/m{shard}.py" for shard in (1, 2, 3)]
+    )
 
     report = validation_summary.collect_summary(
         tmp_path,
@@ -219,6 +223,9 @@ def _collect_candidate(
     candidate: dict[str, object] | None = None,
 ) -> dict[str, object]:
     monkeypatch.setattr(validation_summary, "_tree_identity", lambda *_args: "e" * 64)
+    monkeypatch.setattr(
+        validation_summary, "_head_test_modules", lambda *_args: [f"tests/m{shard}.py" for shard in (1, 2, 3)]
+    )
     monkeypatch.setattr(
         validation_summary,
         "_committed_candidate_blob_sha256",

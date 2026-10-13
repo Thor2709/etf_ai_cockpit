@@ -1,4 +1,14 @@
-"""Bughunt E21 (#936): validation evidence must not overstate what ran."""
+"""Bughunt E21 (#936): validation evidence must not overstate what ran.
+
+Per-ID outcome (base = 26b887ae, the commit before the TL1 train; this module run against the base
+scripts: 20 failed, 1 passed (the docs-only control); on the head: all pass):
+  E21-N001 skipped tests counted as executed ........ FIXED (skip allowlist, protected modules, xfail by JUnit type only)
+  E21-N002 merged + phase JUnit double-counted ...... FIXED (one canonical report per shard)
+  E21-N003 shard coverage not proven ................ FIXED (exact head, 1/3..3/3, duplicates, collection identities,
+                                                       exact-head tracked-module inventory, unreadable reports fail)
+  E21-N004 / E121-N004 --changed missed impacted tests FIXED (importer discovery, no-selection failure)
+  E121-N001..N003 / E021-N001..N003 selector gaps: conftest/ui_acceptance, large selection, seed key  FIXED
+"""
 
 from __future__ import annotations
 
@@ -38,6 +48,9 @@ def test_skipped_test_without_documented_reason_is_not_execution(tmp_path: Path)
     assert any("skipped without a documented reason: tests.test_y::test_b" in problem for problem in problems)
     assert run('<skipped type="pytest.skip" message="directory symlinks are unavailable on this platform" />') == []
     assert run('<skipped type="pytest.xfail" message="xfail: known gap" />') == []  # xfail counted separately
+    # an ordinary skip whose message merely starts with "xfail" is still a skip and needs a documented reason
+    spoofed = run('<skipped type="pytest.skip" message="xfail: flaky on CI" />')
+    assert any("skipped without a documented reason: tests.test_y::test_b" in problem for problem in spoofed)
 
 
 def test_protected_gate_tests_must_execute_even_with_an_allowed_reason(tmp_path: Path) -> None:
@@ -143,6 +156,9 @@ def _artifacts(
 
 def _collect(artifacts: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(validation_summary, "_tree_identity", lambda *_args: "d" * 64)
+    monkeypatch.setattr(  # the exact-head tracked test inventory (unsharded evidence), as the git tree would give it
+        validation_summary, "_head_test_modules", lambda *_args: ["tests/m1.py", "tests/m2.py", "tests/m3.py"]
+    )
     return validation_summary.collect_summary(
         tmp_path,
         artifacts,
@@ -205,6 +221,55 @@ def test_terminal_summary_requires_collection_identities_not_just_matching_total
 
     assert report["platform_junit"] == {"windows": 6, "linux": 6}
     assert any("collection" in error for error in validation_summary.validate_summary(report))
+
+
+def test_terminal_summary_requires_independent_unsharded_inventory_of_head_test_modules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Every shard omits tests/m4.py: logs and JUnit agree with each other, only the head tree shows the gap.
+    artifacts = _artifacts(tmp_path)
+    good = _collect(artifacts, tmp_path, monkeypatch)
+    assert validation_summary.validate_summary(good) == []  # control
+
+    monkeypatch.setattr(
+        validation_summary, "_head_test_modules", lambda *_args: ["tests/m1.py", "tests/m2.py", "tests/m3.py", "tests/m4.py"]
+    )
+    omitted = validation_summary.collect_summary(
+        tmp_path, artifacts, base=BASE, head=HEAD,
+        job_results={"classifier": "success", "preflight": "success", "supply_chain": "success", "release": "success"},
+    )
+    assert any("omit 1 test module(s)" in error and "tests/m4.py" in error for error in validation_summary.validate_summary(omitted))
+
+    # No readable git tree (tmp_path is not a repository): the inventory is absent, which fails closed.
+    monkeypatch.undo()
+    monkeypatch.setattr(validation_summary, "_tree_identity", lambda *_args: "d" * 64)
+    unavailable = validation_summary.collect_summary(
+        tmp_path, artifacts, base=BASE, head=HEAD,
+        job_results={"classifier": "success", "preflight": "success", "supply_chain": "success", "release": "success"},
+    )
+    assert any("inventory is absent" in error for error in validation_summary.validate_summary(unavailable))
+
+
+@pytest.mark.parametrize("damage", ["malformed", "missing"])
+def test_unreadable_or_missing_junit_of_an_empty_shard_fails_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, damage: str
+) -> None:
+    artifacts = _artifacts(tmp_path)
+    directory = artifacts / f"release-gate-{HEAD}-linux-s3"
+    log = directory / "full_tests.log"
+    log.write_text(  # shard 3 collected nothing, so its absent results would otherwise match its collection
+        EVIDENCE_PREFIX + json.dumps({"test_shard": "3/3", "collection_node_counts": {"full": 0}, "collection_nodeids": []}) + "\n",
+        encoding="utf-8",
+    )
+    for report in directory.glob("junit-*.xml"):
+        if damage == "missing":
+            report.unlink()
+        else:
+            report.write_text("<testsuites><oops", encoding="utf-8")
+
+    errors = validation_summary.validate_summary(_collect(artifacts, tmp_path, monkeypatch))
+
+    assert any("linux JUnit evidence is missing or unreadable" in error for error in errors)
 
 
 # --- E21-N004 / E021: --changed and the focused selector cover impacted tests ------------------

@@ -183,7 +183,11 @@ RELEASE_ARTIFACT_RE = re.compile(
     r"release-gate-(?P<sha>[^-]+)-(?P<platform>windows|linux)(?:-s(?P<shard>[0-9]+))?", re.IGNORECASE
 )
 EXPECTED_SHARD_COUNT = 3  # .github/workflows/release-gate.yml matrix.shard [1, 2, 3]
-SHARD_KEYS = {"collected", "collection_nodeids", "executed_keys", "duplicates", "head_sha", "labels", "shards", "tests"}
+SHARD_KEYS = {
+    "collected", "collection_nodeids", "executed_keys", "duplicates", "expected_modules", "head_sha", "labels",
+    "report_errors", "shards", "tests",
+}
+TEST_MODULE_RE = re.compile(r"(?:^|/)(?:test_[^/]*|[^/]*_test)\.py$")  # pytest's default python_files
 CANONICAL_JUNIT = "junit-full.xml"
 PHASE_JUNIT = ("junit-parallel.xml", "junit-serial.xml")
 EVIDENCE_LOG = "full_tests.log"
@@ -227,7 +231,24 @@ def _shard_evidence(directory: Path) -> dict[str, Any]:
     return {}
 
 
-def _collect_platform_junit(artifacts_root: Path, head: str) -> tuple[dict[str, int], dict[str, Any]]:
+def _head_test_modules(root: Path, head: str) -> list[str] | None:
+    """Every test module tracked under tests/ at the exact head: unsharded evidence independent of the shards.
+
+    None (fail closed) when the tree cannot be read; the shard logs alone cannot prove that a whole file
+    was not dropped from every shard.
+    """
+
+    try:
+        payload = subprocess.check_output(
+            ["git", "ls-tree", "-r", "--name-only", head, "--", "tests"], cwd=root, text=True
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    modules = sorted(line for line in payload.splitlines() if TEST_MODULE_RE.search(line))
+    return modules or None
+
+
+def _collect_platform_junit(artifacts_root: Path, head: str, root: Path | None = None) -> tuple[dict[str, int], dict[str, Any]]:
     """Per-platform unique test counts and shard coverage from the release-gate artifacts.
 
     Test totals count each (classname, name) once; ``platform_shards`` records, per platform, the head
@@ -240,10 +261,14 @@ def _collect_platform_junit(artifacts_root: Path, head: str) -> tuple[dict[str, 
         platform: {
             "head_sha": set(), "shards": [], "labels": [], "collected": 0,
             "collection_nodeids": [], "executed_keys": [], "duplicates": 0, "tests": 0,
+            "expected_modules": None, "report_errors": [],
         }
         for platform in platforms
     }
     seen: dict[str, set[tuple[str, str]]] = {platform: set() for platform in platforms}
+    expected_modules = _head_test_modules(root, head) if root is not None else None
+    for platform in platforms:
+        shards[platform]["expected_modules"] = expected_modules
     for directory in sorted(path for path in artifacts_root.iterdir() if path.is_dir()):
         match = RELEASE_ARTIFACT_RE.fullmatch(directory.name)
         if match is None:
@@ -267,10 +292,14 @@ def _collect_platform_junit(artifacts_root: Path, head: str) -> tuple[dict[str, 
             record["collection_nodeids"].extend(nodes)
         if record["collected"] is not None:
             record["collected"] = record["collected"] + collected if type(collected) is int and collected >= 0 else None
-        for report in _shard_reports(directory):
+        reports = _shard_reports(directory)
+        if not reports:
+            record["report_errors"].append(f"{directory.name}: no JUnit report")
+        for report in reports:
             try:
                 keys = _junit_keys(ET.parse(report).getroot())
-            except (ET.ParseError, ValueError):
+            except (OSError, ET.ParseError, ValueError):
+                record["report_errors"].append(f"{directory.name}/{report.name}: unreadable JUnit report")
                 continue
             for key in keys:
                 record["duplicates"] += key in platform_seen
@@ -284,6 +313,7 @@ def _collect_platform_junit(artifacts_root: Path, head: str) -> tuple[dict[str, 
         record["head_sha"] = sorted(record["head_sha"])
         record["shards"] = sorted(record["shards"])
         record["labels"] = sorted(record["labels"])
+        record["report_errors"] = sorted(record["report_errors"])
     return {platform: shards[platform]["tests"] for platform in platforms}, shards
 
 
@@ -304,6 +334,9 @@ def _shard_coverage_errors(report: dict[str, Any]) -> list[str]:
             errors.append(f"terminal summary {platform} shard evidence is not for the exact head SHA")
         if record["shards"] != expected_numbers or record["labels"] != expected_labels:
             errors.append(f"terminal summary {platform} shards are incomplete (expected 1/3 to 3/3)")
+        report_errors = record["report_errors"]
+        if not isinstance(report_errors, list) or report_errors:
+            errors.append(f"terminal summary {platform} JUnit evidence is missing or unreadable")
         if record["duplicates"] != 0:
             errors.append(f"terminal summary {platform} shards executed {record['duplicates']} duplicate test(s)")
         nodes = record["collection_nodeids"]
@@ -316,6 +349,19 @@ def _shard_coverage_errors(report: dict[str, Any]) -> list[str]:
         ):
             errors.append(f"terminal summary {platform} collection identities are missing or malformed")
             continue
+        expected_modules = record["expected_modules"]
+        if (
+            not isinstance(expected_modules, list) or not expected_modules
+            or any(not isinstance(module, str) for module in expected_modules)
+        ):
+            errors.append(f"terminal summary {platform} exact-head unsharded test inventory is absent")
+        else:
+            absent = sorted(set(expected_modules) - {node.split("::", 1)[0] for node in nodes})
+            if absent:
+                errors.append(
+                    f"terminal summary {platform} shards omit {len(absent)} test module(s) tracked at the head: "
+                    + ", ".join(absent[:3])
+                )
         collected_keys = [_junit_key(node) for node in nodes]
         executed_keys = [tuple(key) for key in keys]
         if len(set(collected_keys)) != len(collected_keys):
@@ -826,7 +872,7 @@ def collect_summary(
         for path in sorted(artifacts_root.rglob("*"))
         if path.is_file()
     ]
-    junit, shards = _collect_platform_junit(artifacts_root, head)
+    junit, shards = _collect_platform_junit(artifacts_root, head, root)
     groups = identity_groups()
     report = {
         "schema_version": SCHEMA_VERSION,

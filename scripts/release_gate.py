@@ -608,7 +608,7 @@ def _junit_outcome(case: ET.Element) -> tuple[str, str]:
     if skipped is None:
         return "passed", ""
     reason = skipped.get("message") or (skipped.text or "")
-    if skipped.get("type") == "pytest.xfail" or reason.startswith("xfail"):
+    if skipped.get("type") == "pytest.xfail":  # a skip whose message merely says "xfail" is an ordinary skip
         return "xfail", reason
     return "skipped", reason
 
