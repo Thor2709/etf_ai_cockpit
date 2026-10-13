@@ -61,6 +61,8 @@ class ForecastResult:
     # Uncalibrated logistic scores of the deterministic baseline: never a user-facing probability.
     heuristic_probability_positive: float | None = None
     heuristic_probability_beat_benchmark: float | None = None
+    # "calibrated" only after chronological out-of-sample probability admission; prob_* are None otherwise.
+    probability_calibration_status: str = "unavailable"
     forecast_drawdown_prob: float | None = None
     status: ModelStatus = "ok"
     error_message: str | None = None

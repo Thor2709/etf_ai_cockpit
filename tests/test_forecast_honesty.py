@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from etf_cockpit.application.forecast_service import (
+    _checkpoint_evidence,
+    _forecast_to_row,
+    _postprocess_forecast_benchmark_fields,
+    _shadow_forecast,
+)
+from etf_cockpit.core.types import ForecastResult
 from etf_cockpit.models.baseline_models import baseline_forecast
 from etf_cockpit.models.calibration import (
     TargetMismatchError,
@@ -25,7 +33,12 @@ from etf_cockpit.models.calibration import (
 from etf_cockpit.models.distribution_store import QUANTILE_FIELDS
 from etf_cockpit.models.ensemble import mixture_quantiles
 from etf_cockpit.models.forecast_scores import forecast_return_distributions
-from etf_cockpit.models.model_promotion import checkpoint_provenance
+from etf_cockpit.models.model_promotion import (
+    _matured_pairs,
+    checkpoint_provenance,
+    matured_probability_frame,
+    positive_probability_status,
+)
 
 
 def _vector(centre: float, step: float = 0.1) -> dict[str, float]:
@@ -133,10 +146,15 @@ def test_probability_admission_requires_chronological_out_of_sample_evidence() -
     rng = np.random.default_rng(7)
     dates = pd.bdate_range("2025-01-01", periods=60)
     probability = rng.uniform(0.05, 0.95, len(dates))
-    informative = pd.DataFrame({
+    noisy = pd.DataFrame({
         "forecast_date": dates, "probability": probability, "outcome": (rng.uniform(size=len(dates)) < probability).astype(int),
     })
-    assert probability_admission(informative)["status"] in {"calibrated", "unavailable"}
+    assert probability_admission(noisy)["status"] in {"calibrated", "unavailable"}
+    # Sharp, correct probabilities beat the earlier-fold base rate in every fold and stay reliable.
+    outcome = (np.arange(len(dates)) % 3 == 0).astype(int)
+    informative = pd.DataFrame({"forecast_date": dates, "probability": np.where(outcome == 1, 0.95, 0.05), "outcome": outcome})
+    admitted = probability_admission(informative)
+    assert admitted["status"] == "calibrated" and admitted["reason"] is None and len(admitted["folds"]) == 3
     constant = pd.DataFrame({"forecast_date": dates, "probability": 0.9, "outcome": (np.arange(len(dates)) % 2)})
     assert probability_admission(constant)["status"] == "unavailable"
     short = informative.head(6)
@@ -147,7 +165,7 @@ def test_probability_admission_requires_chronological_out_of_sample_evidence() -
 # 4. Target registry ----------------------------------------------------------------------------
 def test_target_mismatch_is_rejected() -> None:
     sixty = adjusted_log_return_target(60)
-    assert require_same_target(sixty.target_id, sixty.target_id) is sixty or require_same_target(sixty.target_id, sixty.target_id) == sixty
+    assert require_same_target(sixty.target_id, sixty.target_id) == sixty
     assert sixty.return_space == "log" and sixty.horizon_days == 60 and sixty.cost_policy
     with pytest.raises(TargetMismatchError):
         require_same_target(sixty.target_id, adjusted_log_return_target(20).target_id)
@@ -203,3 +221,89 @@ def test_checkpoint_provenance_never_reuses_another_cutoff() -> None:
         assert provenance.licence == "unknown" and provenance.model_sha is None
         assert provenance.leakage_flag(date(2030, 1, 1)) == "possibly_leaked"
         assert provenance.as_row()["pretraining_cutoff"] == "unknown"
+
+
+# 7. Admission wiring (correction pass 1) ---------------------------------------------------------
+def _producer_row(name: str = "timesfm", **overrides: object) -> ForecastResult:
+    values = dict(
+        run_id="r", model_name=name, model_version="v", etf_id="AAA", forecast_date=date(2026, 3, 2), horizon_days=60,
+        expected_return=0.02, expected_excess_return=None, forecast_vol=0.1, prob_positive_return=0.8, prob_beat_benchmark=0.7,
+    )
+    values.update(overrides)
+    return ForecastResult(**values)
+
+
+def test_producer_probabilities_stay_heuristic_unless_admitted() -> None:
+    benchmark = pd.Series([0.001] * 100)
+    for status in (None, {}, {"timesfm": "unavailable"}):
+        row = _postprocess_forecast_benchmark_fields([_producer_row()], benchmark, status)[0]
+        assert row.prob_positive_return is None and row.prob_beat_benchmark is None
+        assert row.heuristic_probability_positive == 0.8 and row.heuristic_probability_beat_benchmark is not None
+        assert row.probability_calibration_status == "unavailable"
+    # An admission of another model never admits this one.
+    other = _postprocess_forecast_benchmark_fields([_producer_row()], benchmark, {"toto": "calibrated"})[0]
+    assert other.prob_positive_return is None
+    admitted = _postprocess_forecast_benchmark_fields([_producer_row()], benchmark, {"timesfm": "calibrated"})[0]
+    assert admitted.prob_positive_return == 0.8 and admitted.probability_calibration_status == "calibrated"
+    assert admitted.heuristic_probability_positive is None
+    assert admitted.prob_beat_benchmark is None  # no matured benchmark-outcome admission exists
+
+
+def _matured_history(target_id: object = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    rng = np.random.default_rng(11)
+    index = pd.bdate_range("2025-01-01", periods=220)
+    prices = pd.DataFrame({"etf_id": "AAA", "date": index, "adjusted_close": 100 * np.exp(np.cumsum(rng.normal(0, 0.01, len(index))))})
+    series = prices.set_index("date")["adjusted_close"]
+    rows = []
+    for origin in index[:60]:
+        actual = float(np.log(series.iloc[series.index.get_loc(origin) + 5] / series.loc[origin]))
+        rows.append({
+            "model_name": "timesfm", "etf_id": "AAA", "forecast_date": origin, "horizon_days": 5, "status": "ok",
+            "expected_return": 0.0, "prob_positive_return": 0.95 if actual > 0 else 0.05, "model_version": "v", "run_id": "r",
+            "created_at": origin + pd.Timedelta(hours=9), "target_id": target_id,
+        })
+    return pd.DataFrame(rows), prices
+
+
+def test_matured_history_admits_only_calibrated_producers_and_honours_targets() -> None:
+    history, prices = _matured_history()
+    as_of = date(2025, 12, 31)
+    assert positive_probability_status(history, prices, "timesfm", as_of) == "calibrated"
+    assert positive_probability_status(history, prices, "toto", as_of) == "unavailable"
+    # Point in time: with prices only up to the first origins, nothing has matured.
+    assert positive_probability_status(history, prices, "timesfm", date(2025, 1, 6)) == "unavailable"
+    # A registered target of another horizon cannot count as probability evidence ...
+    mismatched, _ = _matured_history(adjusted_log_return_target(60).target_id)
+    assert matured_probability_frame(mismatched, prices, "timesfm", as_of).empty
+    assert len(matured_probability_frame(_matured_history(adjusted_log_return_target(5).target_id)[0], prices, "timesfm", as_of)) == 60
+    # ... nor a probability whose forecast was created after its origin day.
+    late = history.assign(created_at=history["forecast_date"] + pd.Timedelta(days=3))
+    assert positive_probability_status(late, prices, "timesfm", as_of) == "unavailable"
+
+
+def test_promotion_evidence_excludes_mismatched_registered_targets() -> None:
+    index = pd.bdate_range("2025-01-01", periods=100)
+    series = pd.Series(100 * np.exp(np.arange(100) * 0.001), index=index)
+    pairs = pd.DataFrame({
+        "etf_id": ["AAA"] * 3, "forecast_date": [index[0], index[1], index[2]],
+        "target_id": [adjusted_log_return_target(20).target_id, adjusted_log_return_target(60).target_id, None],
+    })
+    kept = _matured_pairs(pairs, {"AAA": series}, 20)
+    assert list(kept["forecast_date"]) == [index[0], index[2]]  # the 60d-target row is dropped, the legacy row kept
+
+
+# 8. Checkpoint evidence (correction pass 1) ------------------------------------------------------
+def test_checkpoint_evidence_records_declared_revision_and_config() -> None:
+    declared = {"toto": {"revision": "abc123", "backend": "toto2", "context_length": 2048, "model_path": "models/x", "device": "auto"}}
+    evidence = _checkpoint_evidence("toto", declared)
+    assert evidence["checkpoint_sha"] == "abc123"
+    assert json.loads(evidence["checkpoint_config"]) == {"backend": "toto2", "context_length": 2048}  # no paths/devices
+    # An absent source stays unknown and is never taken from another model's entry.
+    missing = _checkpoint_evidence("timesfm", declared)
+    assert missing["checkpoint_sha"] == "unknown" and json.loads(missing["checkpoint_config"]) == {}
+    # Without supplied settings the metadata comes from configs/model_settings.yaml.
+    shipped = _checkpoint_evidence("timesfm")
+    assert json.loads(shipped["checkpoint_config"])["hf_repo_id"] == "google/timesfm-2.5-200m-transformers"
+    row = _forecast_to_row(_shadow_forecast(_producer_row("toto")), None, declared)
+    assert row["checkpoint_sha"] == "abc123" and json.loads(row["checkpoint_config"])["backend"] == "toto2"
+    assert row["checkpoint_licence"] == "unknown" and row["cutoff_scope"] == "unknown"

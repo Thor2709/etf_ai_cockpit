@@ -21,8 +21,11 @@ from etf_cockpit.core.config import ModelPromotionSettings
 from etf_cockpit.core.values import finite_float_or_none
 from etf_cockpit.models.calibration import (
     calibration_grade,
+    PROBABILITY_UNAVAILABLE,
     evaluate_forecast_calibration,
+    probability_admission,
     realised_horizon_return,
+    target_matches_evaluation,
 )
 
 OPTIONAL_MODELS = ("timesfm", "timesfm3", "toto")
@@ -97,6 +100,44 @@ def checkpoint_provenance(
         cutoff_scope="partial" if cutoff is not None else "unknown",
         note=note,
     )
+
+
+def matured_probability_frame(
+    history: pd.DataFrame,
+    prices: pd.DataFrame,
+    model_name: str,
+    as_of: date,
+) -> pd.DataFrame:
+    """Matured (forecast_date, probability, outcome) rows of one model's ``prob_positive_return``.
+
+    Only provenance-verified forecasts made on or before ``as_of`` whose target session exists in the
+    prices known at ``as_of`` qualify; the outcome is 1 when the realised adjusted-close log return is
+    positive. Rows with a mismatched registered target or an out-of-range probability are dropped.
+    """
+
+    columns = ["forecast_date", "probability", "outcome"]
+    forecasts = _normalised_history(history, as_of)
+    own = forecasts.loc[forecasts["model_name"].eq(model_name.lower()) & forecasts["provenance_verified"]]
+    price_series = _price_series(prices, as_of)
+    rows: list[dict[str, object]] = []
+    for row in own.itertuples():
+        probability = finite_float_or_none(row.prob_positive_return)
+        series = price_series.get(row.etf_id)
+        if probability is None or not 0.0 <= probability <= 1.0 or series is None or len(series) < 5:
+            continue
+        if not target_matches_evaluation(row.target_id, int(row.horizon_days)):
+            continue
+        actual = realised_horizon_return(series, row.forecast_date, int(row.horizon_days))
+        if actual is not None:
+            rows.append({"forecast_date": row.forecast_date, "probability": probability, "outcome": int(actual > 0)})
+    return pd.DataFrame(rows, columns=columns)
+
+
+def positive_probability_status(history: pd.DataFrame, prices: pd.DataFrame, model_name: str, as_of: date) -> str:
+    """``calibrated`` only when the model's matured probabilities pass chronological admission, else ``unavailable``."""
+
+    admission = probability_admission(matured_probability_frame(history, prices, model_name, as_of))
+    return str(admission.get("status") or PROBABILITY_UNAVAILABLE)
 
 
 COUNTING = "counting"
@@ -299,8 +340,10 @@ def _matured_pairs(pairs: pd.DataFrame, price_series: dict[str, pd.Series], hori
 
     if pairs.empty:
         return pairs
+    # A registered target of another horizon or return space cannot count as evidence for this one.
     keep = [
-        realised_horizon_return(series, row.forecast_date, horizon) is not None
+        target_matches_evaluation(row.target_id, horizon)
+        and realised_horizon_return(series, row.forecast_date, horizon) is not None
         if (series := price_series.get(row.etf_id)) is not None and len(series) >= 5
         else False
         for row in pairs.itertuples()
@@ -359,7 +402,7 @@ def _pool(rows: pd.DataFrame) -> tuple[float | None, float | None, int]:
 
 def _normalised_history(history: pd.DataFrame, as_of: date) -> pd.DataFrame:
     columns = ["model_name", "etf_id", "forecast_date", "horizon_days", "expected_return"]
-    lineage = ["model_version", "created_at", "run_id", "q10_return", "q90_return"]
+    lineage = ["model_version", "created_at", "run_id", "q10_return", "q90_return", "target_id", "prob_positive_return"]
     empty = pd.DataFrame(columns=[*columns, "status", *lineage, "provenance_verified"])
     if history is None or history.empty or not {*columns, "status"}.issubset(history.columns):
         return empty

@@ -482,6 +482,8 @@ def forecast_return_distributions(
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
     if "calibration_status" not in frame:
         frame["calibration_status"] = "unavailable"
+    if "probability_calibration_status" not in frame:
+        frame["probability_calibration_status"] = "unavailable"
     if "target_id" not in frame:
         frame["target_id"] = None
     if "model_id" not in frame:
@@ -508,6 +510,7 @@ def forecast_return_distributions(
         canonical_coverages: list[float] = []
         canonical_components: list[dict[str, float]] = []
         probabilities: list[dict[str, float | None]] = []
+        probability_reasons: list[str] = []
         targets_by_model: dict[str, str | None] = {}
         validations_by_model: dict[str, dict[str, object]] = {}
         model_identities_valid_by_model: dict[str, bool] = {}
@@ -592,7 +595,12 @@ def forecast_return_distributions(
             positive = _bounded_probability(selected.get("prob_positive_return"))
             beat_cash = _bounded_probability(selected.get("prob_beat_cash"))
             beat_benchmark = _bounded_probability(selected.get("prob_beat_benchmark"))
-            if calibration_status == "good" and calibration_horizon == horizon_days and all(
+            # A probability is shown only after out-of-sample probability calibration (Brier, log loss and
+            # reliability by chronological fold) admitted it; the MASE/coverage grade alone never does.
+            probability_status = str(selected.get("probability_calibration_status") or "unavailable").strip().lower()
+            if probability_status != "calibrated":
+                probability_reasons.append(f"{model_name}: probability calibration status is {probability_status}")
+            if probability_status == "calibrated" and calibration_status == "good" and calibration_horizon == horizon_days and all(
                 value is not None for value in (positive, beat_cash, beat_benchmark)
             ):
                 probabilities.append({
@@ -637,6 +645,7 @@ def forecast_return_distributions(
             "source_dataset": "forecast_return_distribution",
             "targets_by_model": targets_by_model,
             "validation_by_model": validations_by_model,
+            "probability_reason": "; ".join(probability_reasons) if probability_reasons else None,
         }
         quantile_vector = None
         if len(canonical_quantiles) == len(selected_rows):

@@ -578,7 +578,7 @@ def evaluate_forecast_calibration(forecasts: pd.DataFrame, prices: pd.DataFrame)
             continue
         matured: list[dict[str, float]] = []
         for _, forecast in group.iterrows():
-            if not _target_matches_evaluation(forecast.get("target_id"), int(forecast["horizon_days"])):
+            if not target_matches_evaluation(forecast.get("target_id"), int(forecast["horizon_days"])):
                 continue
             actual = _actual_horizon_return(series, forecast["forecast_date"], int(forecast["horizon_days"]))
             if actual is None:
@@ -820,7 +820,7 @@ def require_same_target(forecast_target_id: object, evaluation_target_id: object
     return target
 
 
-def _target_matches_evaluation(target_id: object, horizon_days: int) -> bool:
+def target_matches_evaluation(target_id: object, horizon_days: int) -> bool:
     """Registered targets must be the log-return target of the evaluated horizon (the realised outcome
     is the adjusted-close log return); unregistered or absent identities are legacy and keep their rows."""
 
@@ -951,7 +951,8 @@ def _date_clustered_mean(values: pd.Series, dates: pd.Series) -> tuple[float | N
 
 
 def horizon_calibration_scores(frame: pd.DataFrame, *, minimum_dates: int = MIN_EFFECTIVE_DATES) -> pd.DataFrame:
-    """Per-horizon pinball, CRPS (twice the mean pinball over the available levels), Brier, coverage and
+    """Per-horizon pinball, approximate CRPS (twice the mean pinball over the available, unevenly spaced
+    levels 5/10/25/50/75/90/95; an approximation, not an exact CRPS), Brier, coverage and
     sharpness of matured forecasts, with date-clustered standard errors.
 
     ``frame`` needs ``forecast_date``, ``horizon_days``, ``actual`` (realised log return) and the
