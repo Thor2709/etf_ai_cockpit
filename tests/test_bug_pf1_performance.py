@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -14,7 +15,8 @@ from etf_cockpit.portfolio.attribution import (
     _currency_attribution,
     build_performance_attribution,
 )
-from etf_cockpit.portfolio.holdings import portfolio_value, portfolio_value_with_coverage
+from etf_cockpit.portfolio import holdings as holdings_module
+from etf_cockpit.portfolio.holdings import portfolio_value
 from etf_cockpit.portfolio.performance_series import build_portfolio_performance_series
 from etf_cockpit.portfolio.valuation import (
     SNAPSHOT_COLUMNS,
@@ -82,7 +84,7 @@ def _frame(dates: list[str], values: list[float], flows: list[float] | None = No
 )
 def test_d101_n001_missing_market_value_is_never_summed_as_zero(values, status, partial) -> None:
     holdings = pd.DataFrame({"market_value_eur": values})
-    coverage = portfolio_value_with_coverage(holdings)
+    coverage = holdings_module.portfolio_value_with_coverage(holdings)
     assert coverage["status"] == status
     assert coverage["partial_value"] == partial
     if status == "available":
@@ -98,14 +100,48 @@ def test_d101_n001_missing_market_value_is_never_summed_as_zero(values, status, 
 def test_d101_n003_civil_date_is_kept_before_utc_conversion() -> None:
     snapshots = build_daily_portfolio_snapshots(
         pd.DataFrame({"date": ["2026-01-06T00:00:00+11:00"], "instrument_id": ["AAA"], "quantity": [1.0]}),
-        pd.DataFrame({"date": ["2026-01-06T00:00:00Z"], "instrument_id": ["AAA"], "price": [100.0]}),
+        pd.DataFrame({"date": ["2026-01-05T13:00:00Z"], "instrument_id": ["AAA"], "price": [100.0]}),
         pd.DataFrame({"date": ["2026-01-06"], "cash_value": [0.0]}),
         pd.DataFrame({"date": pd.Series([], dtype=object), "event_type": [], "amount": []}),
         decision_time="2026-01-07",
+        calendar="XASX",
     )
     assert snapshots["date"].tolist() == [pd.Timestamp("2026-01-06")]
     assert snapshots.iloc[0]["valuation_status"] == "available"
     assert snapshots.iloc[0]["total_value"] == pytest.approx(100.0)
+
+
+@pytest.mark.parametrize(
+    ("holding_date", "price_date", "civil_day", "decision_time", "available_at"),
+    [
+        ("2026-01-05T23:30:00-05:00", "2026-01-06T04:30:00Z", "2026-01-05", "2026-07-08", None),
+        ("2026-07-06T23:30:00-04:00", "2026-07-07T03:30:00Z", "2026-07-06", "2026-07-08", None),
+        ("2026-01-06", "2026-01-06", "2026-01-06", "2026-07-08", None),
+        ("2026-01-05T23:30:00-05:00", "2026-01-06T04:30:00Z", "2026-01-05", "2026-01-06T04:00:00Z", None),
+        ("2026-01-05T23:30:00-05:00", "2026-01-06T04:30:00Z", "2026-01-05", "2026-01-06T04:00:00Z", "2026-01-06T03:00:00Z"),
+    ],
+)
+def test_exchange_timezone_joins_equivalent_instants_and_preserves_date_labels(
+    holding_date, price_date, civil_day, decision_time, available_at,
+) -> None:
+    availability = {} if available_at is None else {"available_at": [available_at]}
+    snapshots = build_daily_portfolio_snapshots(
+        pd.DataFrame({"date": [holding_date], "instrument_id": ["AAA"], "quantity": [1.0], **availability}),
+        pd.DataFrame({"date": [price_date], "instrument_id": ["AAA"], "price": [100.0], **availability}),
+        pd.DataFrame({"date": [civil_day], "cash_value": [0.0], **availability}),
+        pd.DataFrame(columns=["date", "event_type", "amount"]),
+        decision_time=decision_time,
+        calendar="XNYS",
+    )
+    assert snapshots["date"].tolist() == [pd.Timestamp(civil_day)]
+    if decision_time == "2026-01-06T04:00:00Z":
+        assert snapshots.iloc[0]["valuation_status"] == "unavailable"
+        assert pd.isna(snapshots.iloc[0]["total_value"])
+        assert "holdings_not_available_by_decision_time" in snapshots.iloc[0]["missing_reasons"]
+        assert "prices_not_available_by_decision_time" in snapshots.iloc[0]["missing_reasons"]
+    else:
+        assert snapshots.iloc[0]["valuation_status"] == "available"
+        assert snapshots.iloc[0]["total_value"] == pytest.approx(100.0)
 
 
 def test_d101_n004_exchange_calendar_replaces_generic_weekdays() -> None:
@@ -234,6 +270,40 @@ def test_d007_n001_eur_costs_are_converted_to_return_space() -> None:
     assert "cost_nav_denominator_unavailable" in unscaled["warnings"]
 
 
+@pytest.mark.parametrize(
+    ("chronology", "available"),
+    [
+        ({"date": "2026-01-05", "available_at": "2026-01-06T00:00:00Z"}, True),
+        ({"date": "2026-01-08", "available_at": "2026-01-08T23:59:59Z"}, False),
+        ({"date": "2026-01-02", "available_at": "2026-01-03T00:00:00Z"}, False),
+        ({"date": "2026-01-06", "available_at": "2026-01-07T00:00:00Z"}, False),
+        ({"date": "2026-01-05", "available_at": "2026-01-08T00:00:00Z"}, False),
+        ({"date": "2026-01-05"}, False),
+        ({"available_at": "2026-01-06T00:00:00Z"}, False),
+        ({"date": "invalid", "available_at": "2026-01-06T00:00:00Z"}, False),
+        ({"date": "2026-01-05", "as_of": "2026-01-06", "available_at": "2026-01-06T00:00:00Z"}, False),
+    ],
+)
+def test_allocation_nav_denominator_requires_opening_point_in_time_evidence(chronology, available) -> None:
+    context = SimpleNamespace(resolution=SimpleNamespace(declaration=SimpleNamespace(
+        start_date="2026-01-05", end_date="2026-01-07", decision_time="2026-01-07T23:59:59Z",
+    )))
+    allocation = _allocation().assign(market_value_eur=1_000.0, **chronology)
+    costs = pd.DataFrame({"date": ["2026-01-06"], "category": ["commission"], "amount": [5.0]})
+    report = build_performance_attribution(_prices(), allocation, costs=costs, reference_context=context)
+    diagnostics = report["diagnostics"]
+    if available:
+        assert diagnostics["cost_nav_denominator_status"] == "available"
+        assert diagnostics["cost_nav_denominator_reason"] is None
+        assert report["net_return_after_explicit_costs"] == pytest.approx(report["time_weighted_return"] - 0.005)
+    else:
+        assert diagnostics["cost_nav_denominator_status"] == "unavailable"
+        assert diagnostics["cost_nav_denominator_reason"]
+        assert diagnostics["cost_nav_denominator_eur"] is None
+        assert report["net_return_after_explicit_costs"] is None
+        assert "cost_nav_denominator_unavailable" in report["warnings"]
+
+
 def test_d107_n002_cost_signs_are_preserved() -> None:
     costs = pd.DataFrame({"category": ["commission", "rebate"], "amount": [10.0, -8.0]})
     report = build_performance_attribution(_prices(), _allocation(), costs=costs, nav_eur=1_000.0)
@@ -291,3 +361,67 @@ def test_d107_n003_same_date_price_conflicts_are_flagged_and_order_independent()
     assert forward["diagnostics"]["price_conflicts"] == ["AAA@2026-01-06"]
     assert forward["time_weighted_return"] == pytest.approx(reverse["time_weighted_return"])
     assert np.isfinite(forward["time_weighted_return"])
+
+
+@pytest.mark.parametrize(
+    "finding_id",
+    [
+        "D101-N001", "D101-N002", "D101-N003", "D101-N004",
+        "D105-N001", "D105-N002", "D105-N003",
+        "D007-N001", "D007-N002", "D007-N003",
+        "D107-N001", "D107-N002", "D107-N003",
+        "D05-C2-N001", "D05-C2-N002", "D05-C2-N003", "D05-C2-N004",
+    ],
+)
+def test_baseline_native_bug_guard(finding_id: str) -> None:
+    """Verify register claims through APIs already present at the exact train base.
+
+    Run this parametrized guard against both the base and corrected source tree;
+    newer coverage helpers and optional NAV/calendar kwargs are never required.
+    """
+    if finding_id == "D101-N001":
+        for values in ([100.0, math.nan], [math.nan, math.nan]):
+            assert portfolio_value(pd.DataFrame({"market_value_eur": values})) is None
+        return
+    if finding_id == "D101-N003":
+        snapshots = build_daily_portfolio_snapshots(
+            pd.DataFrame({"date": ["2026-01-05T23:30:00-05:00"], "instrument_id": ["AAA"], "quantity": [1.0]}),
+            pd.DataFrame({"date": ["2026-01-06T04:30:00Z"], "instrument_id": ["AAA"], "price": [100.0]}),
+            pd.DataFrame({"date": ["2026-01-05"], "cash_value": [0.0]}),
+            pd.DataFrame(columns=["date", "event_type", "amount"]),
+            decision_time="2026-01-07",
+        )
+        assert snapshots["date"].tolist() == [pd.Timestamp("2026-01-05")]
+        assert snapshots.iloc[0]["valuation_status"] == "available"
+        assert snapshots.iloc[0]["total_value"] == pytest.approx(100.0)
+        return
+    if finding_id == "D007-N001":
+        report = build_performance_attribution(
+            _prices(), _allocation(), costs=pd.DataFrame({"category": ["commission"], "amount": [5.0]}),
+        )
+        assert report["net_return_after_explicit_costs"] is None
+        return
+    if finding_id == "D107-N002":
+        report = build_performance_attribution(
+            _prices(), _allocation(), costs=pd.DataFrame({"category": ["commission", "rebate"], "amount": [10.0, -8.0]}),
+        )
+        assert report["diagnostics"]["explicit_cost_total"] == pytest.approx(2.0)
+        amounts = dict(zip(report["cost_attribution"]["category"], report["cost_attribution"]["amount"], strict=True))
+        assert amounts == {"commission": 10.0, "rebate": -8.0}
+        return
+    guards = {
+        "D101-N002": test_d101_n002_mwr_buckets_include_the_prior_close,
+        "D101-N004": test_d101_n004_exchange_calendar_replaces_generic_weekdays,
+        "D105-N001": test_d105_n001_first_day_external_flow_is_invested_capital,
+        "D105-N002": test_d105_n002_zero_prior_nav_restarts_invested_capital,
+        "D105-N003": test_d105_n003_short_period_xirr_finds_the_wide_root,
+        "D007-N002": test_d007_n002_factor_attribution_keeps_the_first_return_day,
+        "D007-N003": test_d007_n003_duplicate_currency_rows_do_not_multiply_contributions,
+        "D107-N001": test_d107_n001_partial_benchmark_overlap_is_not_available,
+        "D107-N003": test_d107_n003_same_date_price_conflicts_are_flagged_and_order_independent,
+        "D05-C2-N001": test_c2_n001_daily_twr_below_minus_100_percent_is_never_shown,
+        "D05-C2-N002": test_c2_n002_invested_capital_does_not_move_with_fx_without_a_contribution,
+        "D05-C2-N003": test_c2_n003_unavailable_nav_does_not_display_a_numeric_value,
+        "D05-C2-N004": test_c2_n004_xirr_tolerance_is_scale_invariant,
+    }
+    guards[finding_id]()

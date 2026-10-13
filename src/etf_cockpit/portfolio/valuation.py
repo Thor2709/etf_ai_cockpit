@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from datetime import date, datetime
 import math
-import warnings
 
 import exchange_calendars as xcals
 import numpy as np
@@ -81,6 +80,7 @@ def build_daily_portfolio_snapshots(
     events: pd.DataFrame | None,
     *,
     decision_time: date | datetime | pd.Timestamp | str | None,
+    calendar: str = DEFAULT_PERFORMANCE_CALENDAR,
 ) -> pd.DataFrame:
     """Value exact-date position and cash snapshots and classify ledger events.
 
@@ -92,10 +92,10 @@ def build_daily_portfolio_snapshots(
     no positions or events. ``None`` means unavailable evidence.
     """
     cutoff = _decision_cutoff(decision_time)
-    position_rows = _dated_frame(holdings, "holdings", {"instrument_id", "quantity"}, cutoff)
-    price_rows = _dated_frame(prices, "prices", {"instrument_id", "price"}, cutoff)
-    cash_rows = _dated_frame(cash_balances, "cash_balances", {"cash_value"}, cutoff)
-    event_rows = _dated_frame(events, "events", {"event_type", "amount"}, cutoff)
+    position_rows = _dated_frame(holdings, "holdings", {"instrument_id", "quantity"}, cutoff, calendar)
+    price_rows = _dated_frame(prices, "prices", {"instrument_id", "price"}, cutoff, calendar)
+    cash_rows = _dated_frame(cash_balances, "cash_balances", {"cash_value"}, cutoff, calendar)
+    event_rows = _dated_frame(events, "events", {"event_type", "amount"}, cutoff, calendar)
 
     dates = sorted(set(position_rows["_date"]) | set(price_rows["_date"]) | set(cash_rows["_date"]) | set(event_rows["_date"]))
     if not dates:
@@ -418,35 +418,30 @@ def _naive_day(value: date | datetime | pd.Timestamp) -> pd.Timestamp:
     return (stamp.tz_localize(None) if stamp.tzinfo is not None else stamp).normalize()
 
 
-def civil_dates(values: pd.Series) -> pd.Series:
-    """Normalise to the civil (wall-clock) date of each value in its own offset.
+def civil_dates(values: pd.Series, calendar: str = DEFAULT_PERFORMANCE_CALENDAR) -> pd.Series:
+    """Map timestamp observations to the declared exchange's civil date.
 
-    A timestamp such as ``2026-01-06 00:00+11:00`` is the 6th, not the 5th UTC date;
-    converting to UTC before taking the date would split a same-date join.
-    Unparseable values become ``NaT``.
+    Explicit date-only labels and naive local times retain their civil date;
+    timezone-aware instants are converted to the exchange timezone first.
+    Invalid observations become ``NaT``. An unknown calendar fails closed.
     """
-    parsed = None
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        try:
-            parsed = pd.to_datetime(values, errors="coerce")
-        except (ValueError, TypeError):
-            parsed = None
-    if parsed is not None and pd.api.types.is_datetime64_any_dtype(parsed):
-        if getattr(parsed.dt, "tz", None) is not None:
-            parsed = parsed.dt.tz_localize(None)
-        return parsed.dt.normalize()
+    try:
+        timezone = xcals.get_calendar(calendar).tz
+    except (ValueError, KeyError) as exc:
+        raise PortfolioValuationError("Exchange timezone is unavailable; valuation unavailable.") from exc
 
     def one(value: object) -> pd.Timestamp:
         try:
             stamp = pd.Timestamp(value)
+            if pd.isna(stamp):
+                return pd.NaT
+            if stamp.tzinfo is not None:
+                stamp = stamp.tz_convert(timezone).tz_localize(None)
+            return stamp.normalize()
         except (TypeError, ValueError, OverflowError):
             return pd.NaT
-        if pd.isna(stamp):
-            return pd.NaT
-        return stamp.tz_localize(None) if stamp.tzinfo is not None else stamp
 
-    return pd.to_datetime(values.map(one), errors="coerce").dt.normalize()
+    return pd.to_datetime(values.map(one), errors="coerce")
 
 
 def _decision_cutoff(decision_time: date | datetime | pd.Timestamp | str | None) -> pd.Timestamp:
@@ -475,6 +470,7 @@ def _dated_frame(
     name: str,
     required: set[str],
     cutoff: pd.Timestamp,
+    calendar: str = DEFAULT_PERFORMANCE_CALENDAR,
 ) -> pd.DataFrame:
     if frame is None:
         raise PortfolioValuationError(f"{name} evidence is unavailable; valuation unavailable.")
@@ -484,12 +480,16 @@ def _dated_frame(
     if not required_columns.issubset(frame.columns):
         raise PortfolioValuationError(f"{name} is missing required fields; valuation unavailable.")
     result = frame.copy()
-    parsed = civil_dates(result["date"])
+    parsed = civil_dates(result["date"], calendar)
     if parsed.isna().any():
         raise PortfolioValuationError(f"{name} contains an invalid observation date; valuation unavailable.")
     result["_date"] = parsed
     result["_excluded_after_cutoff"] = False
-    latest_date = cutoff.tz_convert(None).normalize()
+    # Explicit date labels retain the established UTC date-label cutoff;
+    # timestamp observations use the same exchange civil day as their join key.
+    aware_observations = result["date"].map(lambda value: pd.Timestamp(value).tzinfo is not None).astype(bool)
+    latest_date = pd.Series(cutoff.tz_convert(None).normalize(), index=result.index)
+    latest_date.loc[aware_observations] = civil_dates(pd.Series([cutoff]), calendar).iloc[0]
     if "available_at" in result.columns:
         available = pd.to_datetime(result["available_at"], errors="coerce", utc=True)
         if available.isna().any():
@@ -497,6 +497,11 @@ def _dated_frame(
         result["_excluded_after_cutoff"] = (available > cutoff).to_numpy()
     else:
         result["_excluded_after_cutoff"] = result["_date"].eq(latest_date).to_numpy()
+    # An availability claim cannot make a future observation knowable.
+    observation_after_cutoff = result["date"].map(
+        lambda value: pd.Timestamp(value).tzinfo is not None and pd.Timestamp(value) > cutoff
+    ).astype(bool)
+    result["_excluded_after_cutoff"] |= observation_after_cutoff
     return result.loc[result["_date"] <= latest_date].copy()
 
 

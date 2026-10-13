@@ -87,7 +87,7 @@ def build_performance_attribution(
     cost_attribution, cost_total, tax_total = _cost_attribution(bounded_costs)
     if bounded_costs is not None and not bounded_costs.empty and (cost_total is None or tax_total is None):
         cost_evidence_status = "invalid"
-    nav_denominator = _nav_denominator(nav_eur, allocation)
+    nav_denominator, nav_reason = _nav_denominator(nav_eur, allocation, reference_context)
     cost_return = _cost_in_return_space(cost_total, nav_denominator)
     benchmark = _benchmark_attribution(
         total_return,
@@ -176,6 +176,8 @@ def build_performance_attribution(
             "explicit_tax_total": tax_total,
             "explicit_cost_return": cost_return,
             "cost_nav_denominator_eur": nav_denominator,
+            "cost_nav_denominator_status": "available" if nav_denominator is not None else "unavailable",
+            "cost_nav_denominator_reason": nav_reason,
             "price_conflicts": list(returns.attrs.get("price_conflicts", [])),
             "cash_return_assumption": "0.0; supply a cash series for cash performance attribution",
         },
@@ -477,17 +479,61 @@ def _cost_attribution(costs: pd.DataFrame | None) -> tuple[pd.DataFrame, float |
     return result[columns], float(result["amount"].sum()), tax_total
 
 
-def _nav_denominator(nav_eur: float | None, allocation: pd.DataFrame | None) -> float | None:
+def _nav_denominator(
+    nav_eur: float | None,
+    allocation: pd.DataFrame | None,
+    reference_context: object | None = None,
+) -> tuple[float | None, str | None]:
+    """Use explicit NAV or verified opening allocation NAV, never a later snapshot.
+
+    Allocation NAV defaults conservatively to the canonical window's opening
+    date, with explicit availability by the decision cutoff and consistent
+    chronology aliases. Undated or stale allocation snapshots are unavailable.
+    """
     explicit = _finite(nav_eur)
     if explicit is not None:
-        return explicit if explicit > 0 else None
+        return (explicit, None) if explicit > 0 else (None, "NAV must be positive.")
     if allocation is None or "market_value_eur" not in allocation.columns or allocation.empty:
-        return None
+        return None, "Allocation NAV evidence is unavailable."
+    resolution = getattr(reference_context, "resolution", None)
+    declaration = getattr(resolution, "declaration", None)
+    if getattr(resolution, "blockers", ()):
+        return None, "Allocation NAV canonical reference is blocked."
+    try:
+        start = pd.Timestamp(declaration.start_date, tz="UTC")
+        end = pd.Timestamp(declaration.end_date, tz="UTC") + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+        decision = pd.Timestamp(declaration.decision_time)
+        if pd.isna(start) or pd.isna(end) or pd.isna(decision) or decision.tzinfo is None:
+            return None, "Allocation NAV canonical chronology is unverifiable."
+        decision = decision.tz_convert("UTC")
+        if start > end or decision < start:
+            return None, "Allocation NAV canonical chronology is invalid."
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return None, "Allocation NAV canonical chronology is unverifiable."
+    observation: pd.Timestamp | None = None
+    for _, row in allocation.iterrows():
+        effective, effective_valid = _cost_chronology(
+            row, ("effective_at", "date", "as_of", "as_of_date"), aliases_must_match=True,
+        )
+        available, available_valid = _cost_chronology(
+            row, ("known_at", "available_at", "retrieved_at", "imported_at", "published_at"), aliases_must_match=True,
+        )
+        if effective is None or available is None or not effective_valid or not available_valid:
+            return None, "Allocation NAV date or availability is unverifiable."
+        if effective > end or effective > decision or available > decision:
+            return None, "Allocation NAV is future or unavailable at the canonical cutoff."
+        if effective.normalize() != start.normalize():
+            return None, "Allocation NAV does not match the canonical opening date (stale or later snapshot)."
+        if observation is not None and effective != observation:
+            return None, "Allocation NAV combines conflicting snapshot times."
+        observation = effective
+        if available < effective:
+            return None, "Allocation NAV availability precedes its effective observation."
     values = pd.to_numeric(allocation["market_value_eur"], errors="coerce")
     if values.isna().any() or not np.isfinite(values.to_numpy(dtype=float)).all():
-        return None
+        return None, "Allocation NAV values are invalid."
     total = float(values.sum())
-    return total if total > 0 else None
+    return (total, None) if np.isfinite(total) and total > 0 else (None, "Allocation NAV must be finite and positive.")
 
 
 def _cost_in_return_space(cost_total: float | None, nav: float | None) -> float | None:
