@@ -13,6 +13,7 @@ Source order comes from ``configs/stock_fundamentals_v1.yaml``: filings first, t
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -30,10 +31,13 @@ from etf_cockpit.data import stock_sources as src
 
 CONFIG_NAME = "stock_fundamentals_v1.yaml"
 ANALYST_FIELDS = ("eps_current", "eps_90d_ago", "revisions_up_30d", "revisions_down_30d")
+# Additive identity and evidence-state columns (older stores read them as missing = unverified).
+IDENTITY_FIELDS = ("period_days", "reporting_standard", "consolidation_scope", "share_class")
+STATE_COLUMNS = (*IDENTITY_FIELDS, "value_status")  # value_status: JSON {field: state} for non-plain facts
 FIELD_CURRENCY_COLUMNS = tuple(f"{name}_currency" for name in PERIOD_FIELDS)
 PERIOD_COLUMNS = [
     "instrument_id", "period_end", "period_type", "fiscal_year", "currency", "source", "source_ref", "known_at",
-    *PERIOD_FIELDS, *FIELD_CURRENCY_COLUMNS, *ANALYST_FIELDS,
+    *PERIOD_FIELDS, *FIELD_CURRENCY_COLUMNS, *ANALYST_FIELDS, *STATE_COLUMNS,
 ]
 SNAPSHOT_COLUMNS = [
     "instrument_id", "known_at", "source", "status", "reason", "quote_currency", "financial_currency", "long_name",
@@ -162,7 +166,7 @@ def append_period_rows(existing: pd.DataFrame, instrument_id: str, rows: Iterabl
         record["instrument_id"] = instrument_id
         if previous is not None and all(
             _same(previous.get(name), record.get(name))
-            for name in (*PERIOD_FIELDS, *FIELD_CURRENCY_COLUMNS, *ANALYST_FIELDS, "currency")
+            for name in (*PERIOD_FIELDS, *FIELD_CURRENCY_COLUMNS, *ANALYST_FIELDS, *STATE_COLUMNS, "currency")
         ):
             continue
         added.append(record)
@@ -179,6 +183,50 @@ def append_period_rows(existing: pd.DataFrame, instrument_id: str, rows: Iterabl
 # ---------------------------------------------------------------------------------------------
 
 
+def _present(value: object) -> bool:
+    return value is not None and not pd.isna(value) and str(value) != ""
+
+
+def _row_status(row: Mapping[str, Any]) -> dict[str, str]:
+    """Per-field evidence states stored on a row (JSON); anything unreadable is treated as absent."""
+
+    raw = row.get("value_status")
+    if not isinstance(raw, str) or not raw:
+        return {}
+    try:
+        loaded = json.loads(raw)
+    except ValueError:
+        return {}
+    return {str(k): str(v) for k, v in loaded.items()} if isinstance(loaded, dict) else {}
+
+
+def period_merge_gate(anchor: Mapping[str, Any], row: Mapping[str, Any], *, snap_days: int = 4) -> tuple[bool, str | None]:
+    """May ``row`` be merged into the period of ``anchor``?  (P1-11)
+
+    The period end drift is only a candidate filter. A merge also needs a matching reporting
+    standard, consolidation/owner scope, share class and period duration; a differing end date
+    additionally needs both durations verified and the same currency. Unknown attributes never
+    allow a drifted end date.
+    """
+
+    drift = abs((anchor["_end"] - row["_end"]).days)
+    if drift > snap_days:
+        return False, "period ends are too far apart"
+    for name in ("reporting_standard", "consolidation_scope", "share_class"):
+        left, right = anchor.get(name), row.get(name)
+        if _present(left) and _present(right) and str(left) != str(right):
+            return False, f"{name} differs ({left} vs {right})"
+    left_days, right_days = anchor.get("period_days"), row.get("period_days")
+    if _present(left_days) and _present(right_days) and abs(float(left_days) - float(right_days)) > snap_days:
+        return False, f"period duration differs ({left_days} vs {right_days} days)"
+    if drift:
+        if not (_present(left_days) and _present(right_days)):
+            return False, "period ends differ and the period duration is not verified"
+        if str(anchor.get("currency") or "") != str(row.get("currency") or ""):
+            return False, "period ends differ and the currencies differ"
+    return True, None
+
+
 def _row_period(row: Mapping[str, Any], fields: Mapping[str, str]) -> Period | None:
     known = as_utc(row.get("known_at"))
     end = as_utc(row.get("period_end"))
@@ -193,6 +241,7 @@ def _row_period(row: Mapping[str, Any], fields: Mapping[str, str]) -> Period | N
         if field_known is not None:
             values[f"__known_at_{name}"] = str(field_known)
     return Period(
+        value_status=_row_status(row),
         period_end=end.date(),
         period_type=str(row.get("period_type")),
         known_at=known,
@@ -224,13 +273,17 @@ def periods_for(instrument_id: str, frame: pd.DataFrame, chain: Sequence[str], *
     rows = [row for row in rows if row["_end"] is not None and row["_known"] is not None]
     # cluster period ends of the same type (sources may differ by a day)
     clusters: list[dict[str, Any]] = []
-    for row in sorted(rows, key=lambda item: (str(item["period_type"]), item["_end"], item["_rank"])):
+    # the best-ranked source anchors a cluster, so a lower-ranked row can never displace it by an earlier end date
+    for row in sorted(rows, key=lambda item: (str(item["period_type"]), item["_rank"], item["_end"])):
         for cluster in clusters:
             if cluster["type"] == row["period_type"] and abs((cluster["end"] - row["_end"]).days) <= snap_days:
-                cluster["rows"].append(row)
+                allowed, _why = period_merge_gate(cluster["anchor"], row, snap_days=snap_days)
+                if allowed:
+                    cluster["rows"].append(row)
+                # a near-duplicate that fails the gate is neither merged nor offered as a competing period
                 break
         else:
-            clusters.append({"type": row["period_type"], "end": row["_end"], "rows": [row]})
+            clusters.append({"type": row["period_type"], "end": row["_end"], "rows": [row], "anchor": row})
     periods: list[Period] = []
     for cluster in clusters:
         by_source: dict[str, list[dict[str, Any]]] = {}
@@ -252,7 +305,14 @@ def periods_for(instrument_id: str, frame: pd.DataFrame, chain: Sequence[str], *
                         for version in sorted(known, key=lambda item: item["_known"], reverse=True):
                             if str(version.get("currency") or "") != str(latest.get("currency") or ""):
                                 continue
-                            if name in version and pd.notna(version.get(name)):
+                            version_status = _row_status(version)
+                            has_value = name in version and pd.notna(version.get(name))
+                            if version_status.get(name) == "conflicted" and not has_value:
+                                merged_source[f"_{name}_status"] = "conflicted"
+                                break
+                            if has_value:
+                                if name in version_status:
+                                    merged_source[f"_{name}_status"] = version_status[name]
                                 merged_source[name] = version[name]
                                 merged_source[f"_{name}_known_at"] = version["_known"].isoformat()
                                 currency_column = f"{name}_currency"
@@ -269,11 +329,19 @@ def periods_for(instrument_id: str, frame: pd.DataFrame, chain: Sequence[str], *
             primary = chosen[0]
             values: dict[str, Any] = {}
             field_sources: dict[str, str] = {}
+            field_status: dict[str, str] = {}
             for row in chosen:
                 if str(row.get("currency") or "") != str(primary.get("currency") or ""):
                     continue
                 for name in PERIOD_FIELDS:
+                    if field_status.get(name) == "conflicted" and name not in values:
+                        continue  # a conflicted fact is not filled in from a lower-ranked source
+                    if name not in values and row.get(f"_{name}_status") == "conflicted" and not (name in row and pd.notna(row.get(name))):
+                        field_status[name] = "conflicted"
+                        continue
                     if name not in values and name in row and pd.notna(row.get(name)):
+                        if row.get(f"_{name}_status"):
+                            field_status[name] = str(row[f"_{name}_status"])
                         values[name] = row[name]
                         field_sources[name] = str(row["source"])
                         values[f"_{name}_known_at"] = row.get(f"_{name}_known_at", row["_known"].isoformat())
@@ -294,11 +362,13 @@ def periods_for(instrument_id: str, frame: pd.DataFrame, chain: Sequence[str], *
                 tuple(sorted((k, float(v)) for k, v in values.items() if k in PERIOD_FIELDS)),
                 tuple(sorted((k, str(v)) for k, v in values.items() if k.startswith("_") and k.endswith("_currency"))),
                 str(primary.get("currency")),
+                tuple(sorted(field_status.items())),
             )
             if signature == last:
                 continue
             last = signature
             merged = {**primary, **values, "known_at": moment.isoformat(), "period_end": primary["period_end"]}
+            merged["value_status"] = json.dumps(field_status, sort_keys=True) if field_status else ""
             if blocked_parent_income:
                 merged.pop("net_income_parent", None)
                 merged.pop("net_income_parent_currency", None)
@@ -481,6 +551,8 @@ def refresh_stock_fundamentals(
                         periods, _analyst_added = append_period_rows(periods, target.instrument_id, [analyst_row])
             if result.status != "ok":
                 notes.append(f"{result.source}: {result.reason or result.status}")
+            elif result.statement_errors:  # partial statements are recorded, never swallowed
+                notes.append(f"{result.source}: {result.reason or 'partial statements'}")
             if result.snapshot:
                 row = {column: result.snapshot.get(column) for column in SNAPSHOT_COLUMNS}
                 row.update(instrument_id=target.instrument_id, known_at=result.snapshot.get("known_at") or stamp.isoformat(), source=result.source, status=result.status, reason=result.reason, cik=cik)

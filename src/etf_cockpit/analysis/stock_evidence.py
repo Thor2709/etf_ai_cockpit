@@ -32,6 +32,7 @@ class MarketInputs:
     shares_fallback: float | None = None
     shares_fallback_known_at: datetime | None = None
     unavailable_reason: str | None = None
+    market_cap_provider: float | None = None  # independent provider market cap (reporting currency), consistency check only
 
 
 @dataclass(frozen=True)
@@ -318,6 +319,10 @@ class _Builder:
         value = sm.market_cap(price, shares)
         if value is None:
             return None, "price or share count is not positive", {}
+        consistent, mismatch = sm.price_shares_consistency(price, shares, self.market.market_cap_provider, tolerance=float(self.valuation.get("share_count_tolerance", 0.25)))
+        if consistent is False:
+            self.notes.append(f"{mismatch}; market capitalization is unavailable.")
+            return None, str(mismatch), {}
         return value, None, {"basis": "spot", "as_of": self.market.price_date.isoformat() if self.market.price_date else as_of, "source": f"price x shares ({source})"}
 
     # ----- build -----------------------------------------------------------------------
@@ -382,9 +387,9 @@ class _Builder:
     def _fcf(self) -> tuple[Metric, sm.Window | None]:
         window = self.window("cfo", "capex")
         if window is None:
-            return _missing("fcf", self._no_window("cash from operations and capex", ("cfo", "capex")), "cash from operations - capex"), None
+            return _missing("fcf", self._no_window("cash from operations and capex", ("cfo", "capex")), f"cash from operations - capex ({sm.FCF_PROXY_LABEL})"), None
         value = sm.free_cash_flow(sm.window_sum(window, "cfo"), sm.window_sum(window, "capex"))
-        return _metric("fcf", value=value, status=sm.OK, formula="cash from operations - capex (PP&E and intangibles)", **self._ctx(window)), window
+        return _metric("fcf", value=value, status=sm.OK, formula=f"cash from operations - capex (PP&E and intangibles); {sm.FCF_PROXY_LABEL}, a screening proxy not owner earnings", **self._ctx(window)), window
 
     def roe_roic(self) -> None:
         window = self.window("net_income_parent")
@@ -428,6 +433,11 @@ class _Builder:
                for period in (*window.periods, close) if period is not None):
             self.metrics["roic"] = _missing("roic", "ownership scope mismatch: consolidated NOPAT and parent-only invested capital with non-controlling interests")
             return
+        for balance in (close, opening):
+            block = self._balance_block(balance)
+            if block is not None:
+                self.metrics["roic"] = _missing("roic", block)
+                return
         rate = sm.effective_tax_rate(sm.window_sum(window, "income_tax"), sm.window_sum(window, "pretax_income"))
         nopat = sm.nopat(sm.window_sum(window, "ebit"), rate)
 
@@ -449,6 +459,20 @@ class _Builder:
                 "as_of": None if close is None else close.period_end.isoformat(),
             },
         )
+
+    @staticmethod
+    def _balance_block(period: Period | None) -> str | None:
+        """Why a balance sheet cannot feed leverage or capital ratios (partial debt, accounting anomaly)."""
+
+        if period is None:
+            return None
+        if period.status_of("ib_debt") == "partial":
+            return "partial: interest-bearing debt parts are incomplete (a missing part is not 0); leverage is unavailable"
+        cash = period.values.get("cash_sti", period.values.get("cash"))
+        for check in sm.anomaly_guards(total_assets=period.values.get("total_assets"), cash=cash):
+            if check.blocks:
+                return f"accounting anomaly ({check.name}): {check.reason}; the matched ratios are blocked, not clamped"
+        return None
 
     @staticmethod
     def _period_currency_mismatch(period: Period, fields: Sequence[str], expected: str) -> bool:
@@ -474,6 +498,14 @@ class _Builder:
                 )
                 continue
             last, first = series[-1], series[-1 - years]
+            chain = series[-1 - years :]
+            if not sm.consecutive_fiscal_years([period.period_end for period in chain]):
+                self.metrics[key] = _missing(
+                    key,
+                    f"a fiscal year is missing between FY{first.period_end.year} and FY{last.period_end.year}; growth across a gap is not bridged",
+                    f"(end / start)^(1 / {years} years) - 1",
+                )
+                continue
             currencies = {
                 str(period.values.get(f"__currency_{name}") or period.currency)
                 for period in series[-1 - years :]
@@ -481,8 +513,9 @@ class _Builder:
             if "currency_mismatch" in currencies or len(currencies) != 1:
                 self.metrics[key] = _missing(key, "currency_mismatch across fiscal reporting periods", "(end / start)^(1 / years) - 1")
                 continue
-            span_years = round((last.period_end - first.period_end).days / 365.25)
-            base = sm.cagr(first.values[name], last.values[name], float(span_years or years), key=key, label=label)
+            # Consecutive fiscal years (checked above, 52/53-week years included): the exponent is the number
+            # of fiscal years between the endpoints. A transition year or a gap is unavailable, never rounded.
+            base = sm.cagr(first.values[name], last.values[name], float(len(chain) - 1), key=key, label=label)
             self.metrics[key] = _from(
                 key,
                 base,
@@ -494,7 +527,11 @@ class _Builder:
 
     def balance_metrics(self) -> None:
         latest = sm.latest_balance(self.known, ["ib_debt"])
-        if latest is None:
+        blocked = self._balance_block(latest)
+        if blocked is not None:
+            self.metrics["net_debt"] = _missing("net_debt", blocked, "debt + leases - cash and short-term investments")
+            latest = None
+        elif latest is None:
             mismatch = any(
                 str(period.values.get(f"__currency_{name}") or "") == "currency_mismatch"
                 for period in self.known for name in ("ib_debt", "cash_sti", "cash")
@@ -545,7 +582,9 @@ class _Builder:
                 formula=formula,
             )
         equity = sm.latest_balance(self.known, ["equity_parent", "ib_debt"])
-        if equity is None:
+        if equity is not None and self._balance_block(equity) is not None:
+            self.metrics["debt_to_equity"] = _missing("debt_to_equity", str(self._balance_block(equity)))
+        elif equity is None:
             mismatch = any(
                 str(period.values.get(f"__currency_{name}") or "") == "currency_mismatch"
                 for period in self.known for name in ("equity_parent", "ib_debt")

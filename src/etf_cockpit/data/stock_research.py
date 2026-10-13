@@ -59,6 +59,7 @@ _GROWTH_ALIASES: dict[str, tuple[str, ...]] = {
     "net_income": ("net_income", "net_profit"),
     "shares_outstanding": ("shares_outstanding",),
     "diluted_shares_outstanding": ("diluted_shares_outstanding", "diluted_shares"),
+    "weighted_average_shares": ("weighted_average_shares", "weighted_average_shares_basic", "weighted_shares"),
     "earnings_per_share": ("earnings_per_share", "eps", "basic_eps", "diluted_eps"),
     "organic_revenue": ("organic_revenue", "organic_sales"),
     "acquisition_revenue": ("acquisition_revenue", "inorganic_revenue", "acquired_revenue"),
@@ -904,10 +905,18 @@ def _period_rows(frame: pd.DataFrame) -> list[dict[str, object]]:
                     sources[logical] = raw_sources.get(alias, ())
                     formulas[logical] = f"reported {alias}"
                     break
-        if "earnings_per_share" not in values and {"net_income", "shares_outstanding"} <= values.keys() and values["shares_outstanding"] != 0:
-            values["earnings_per_share"] = values["net_income"] / values["shares_outstanding"]
-            sources["earnings_per_share"] = tuple(sorted(set(sources.get("net_income", ())) | set(sources.get("shares_outstanding", ()))))
-            formulas["earnings_per_share"] = "net_income / shares_outstanding"
+        if "earnings_per_share" not in values and "net_income" in values:
+            # EPS divides a period flow by the weighted-average share count of that period; the
+            # period-end count is only a labelled fallback when no weighted average is reported.
+            share_key = "weighted_average_shares" if values.get("weighted_average_shares") not in (None, 0) else "shares_outstanding"
+            if values.get(share_key) not in (None, 0):
+                values["earnings_per_share"] = values["net_income"] / values[share_key]
+                sources["earnings_per_share"] = tuple(sorted(set(sources.get("net_income", ())) | set(sources.get(share_key, ()))))
+                formulas["earnings_per_share"] = (
+                    "net_income / weighted_average_shares"
+                    if share_key == "weighted_average_shares"
+                    else "net_income / shares_outstanding"  # period-end count: the only fallback when no weighted average is reported
+                )
 
         first = rows.iloc[0]
         fiscal_year = str(first.get("fiscal_year", "") or "")
