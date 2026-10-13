@@ -264,7 +264,21 @@ class BitemporalStore:
         connection = _connection or self.store.connection
         return tuple(_observation(row) for row in connection.execute(query, tuple(params)))
 
-    def as_of(self, dataset_id: str, decision_time: str | datetime, *, entity_id: str | None = None) -> pd.DataFrame:
+    def as_of(
+        self,
+        dataset_id: str,
+        decision_time: str | datetime,
+        *,
+        entity_id: str | None = None,
+        effective_validity: bool = True,
+    ) -> pd.DataFrame:
+        """Select the vintage known at ``decision_time``.
+
+        ``effective_validity=False`` skips the valid_from/valid_to window for datasets whose
+        ``valid_from`` is an event time that may legitimately lie after the knowledge cutoff
+        (an announced, not-yet-effective corporate action); callers then apply their own cutoff.
+        """
+
         cutoff = _timestamp(decision_time, "decision_time")
         query = "SELECT * FROM bitemporal_observations WHERE dataset_id = ? AND available_at <= ? AND timezone_confidence != 'unknown'"
         params: tuple[object, ...] = (str(dataset_id), cutoff)
@@ -306,7 +320,7 @@ class BitemporalStore:
         records = [
             _observation(row)
             for row in selected.values()
-            if str(row["status"]) == "active" and _effective_at(row, cutoff)
+            if str(row["status"]) == "active" and (not effective_validity or _effective_at(row, cutoff))
         ]
         return pd.DataFrame([_observation_payload(item) for item in records])
 

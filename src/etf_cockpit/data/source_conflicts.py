@@ -29,9 +29,9 @@ class MetricPolicy:
     field_tolerances: Mapping[str, tuple[float, float]] | None = None
     minimum_confidence: float | None = None
     blocked_freshness_statuses: tuple[str, ...] = ("stale", "block", "quarantined", "conflicted")
-    # Opt-in: treat claims whose freshness is "unknown" as ineligible.  Off by
-    # default because existing callers build claims without freshness metadata.
-    require_known_freshness: bool = False
+    # Fail closed: a claim whose freshness is "unknown" is ineligible unless a
+    # caller explicitly opts out.
+    require_known_freshness: bool = True
 
     def __post_init__(self) -> None:
         if not self.policy_name.strip() or self.version < 1:
@@ -60,9 +60,8 @@ class MetricPolicy:
             "field_tolerances": {key: list(value) for key, value in sorted((self.field_tolerances or {}).items())},
             "minimum_confidence": self.minimum_confidence,
             "blocked_freshness_statuses": sorted({item.strip().lower() for item in self.blocked_freshness_statuses}),
+            "require_known_freshness": bool(self.require_known_freshness),
         }
-        if self.require_known_freshness:
-            payload["require_known_freshness"] = True
         return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
@@ -568,8 +567,14 @@ def _finite_non_negative(value: object) -> bool:
 def _finite_value(value: object) -> bool:
     """Numeric values must be finite; non-numeric values are not judged here."""
 
-    if isinstance(value, (bool, str, bytes)) or value is None:
+    if isinstance(value, (bool, bytes)) or value is None:
         return True
+    if isinstance(value, str):
+        # "NaN", "inf" and "-Infinity" are non-finite whatever their case or padding.
+        try:
+            return math.isfinite(float(value.strip()))
+        except (ValueError, OverflowError):
+            return True
     try:
         return math.isfinite(float(value))  # type: ignore[arg-type]
     except (TypeError, ValueError, OverflowError):

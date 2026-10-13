@@ -13,10 +13,10 @@ from typing import Any, cast
 
 import pandas as pd
 
-from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
+from etf_cockpit.core.atomic_io import atomic_write_bytes, backup_paths, parquet_payload, validate_parquet_file
 
 
-STORAGE_SCHEMA_VERSION = 7
+STORAGE_SCHEMA_VERSION = 8
 
 
 class StorageSchemaError(RuntimeError):
@@ -219,6 +219,7 @@ def _apply_migrations(connection: sqlite3.Connection) -> None:
         (5, "double_entry_ledger_v1", _migration_v5),
         (6, "ledger_authority_and_integrity_v2", _migration_v6),
         (7, "ledger_positions_and_settlement_v1", _migration_v7),
+        (8, "bitemporal_entity_scoped_uniqueness_v1", _migration_v8),
     )
     connection.execute(
         """
@@ -234,6 +235,9 @@ def _apply_migrations(connection: sqlite3.Connection) -> None:
     _validate_storage_schema(applied)
     if all(version in applied for version, _name, _migration in migrations):
         return
+
+    if applied and 8 not in applied:
+        _backup_before_rebuild(connection)
 
     # Only pending migrations take the write lock.  Re-read after acquiring it
     # because another constructor may have completed the same first-open work.
@@ -253,6 +257,18 @@ def _apply_migrations(connection: sqlite3.Connection) -> None:
     except Exception:
         connection.rollback()
         raise
+
+
+def _backup_before_rebuild(connection: sqlite3.Connection) -> None:
+    """Copy an existing store aside (existing schema-migration backup pattern) before a table rebuild."""
+
+    row = connection.execute("PRAGMA database_list").fetchone()
+    database = Path(str(row[2])) if row is not None and row[2] else None
+    if database is None or not database.is_file():
+        return
+    # Fold the WAL into the main file so the file copy is a complete image.
+    connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    backup_paths([database], database.parent.parent.parent / "backups" / "schema_migrations")
 
 
 def _validate_storage_schema(applied: set[int]) -> None:
@@ -380,6 +396,108 @@ def _migration_v3(connection: sqlite3.Connection) -> None:
             SELECT RAISE(ABORT, 'bitemporal observations are append-only');
         END
         """
+    )
+
+
+_BITEMPORAL_COLUMNS = (
+    "observation_id, dataset_id, entity_id, stable_id, run_id, value_json, valid_from, valid_to, "
+    "published_at, available_at, observed_at, ingested_at, revised_at, revision, source_id, "
+    "source_checksum, timezone_confidence, availability_confidence, status"
+)
+
+
+def _migration_v8(connection: sqlite3.Connection) -> None:
+    """Rebuild bitemporal_observations so the UNIQUE key is scoped by entity_id (A113-N001).
+
+    Every row is copied verbatim: no value is derived or defaulted.  Rows whose
+    entity_id is empty stay empty and are counted in the storage_operations
+    report.  The swap happens inside the caller's single transaction, and a
+    table that already carries the entity-scoped key is left untouched.
+    """
+
+    existing = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'bitemporal_observations'"
+    ).fetchone()
+    if existing is None:
+        return
+    compact = "".join(str(existing[0]).replace('"', "").split())
+    if "UNIQUE(dataset_id,entity_id,stable_id,source_id,revision)" in compact:
+        return
+    if "UNIQUE(dataset_id,stable_id,source_id,revision)" not in compact:
+        raise StorageSchemaError("bitemporal_observations has an unrecognised UNIQUE key; refusing to rebuild")
+    # Free the index/trigger names; they are recreated on the rebuilt table below.
+    connection.execute("DROP TABLE IF EXISTS bitemporal_observations_v7")
+    for trigger in ("bitemporal_observations_append_only_update", "bitemporal_observations_append_only_delete"):
+        connection.execute(f"DROP TRIGGER IF EXISTS {trigger}")
+    for index in ("bitemporal_observations_as_of", "bitemporal_observations_entity"):
+        connection.execute(f"DROP INDEX IF EXISTS {index}")
+    connection.execute("ALTER TABLE bitemporal_observations RENAME TO bitemporal_observations_v7")
+    connection.execute(
+        """
+        CREATE TABLE bitemporal_observations (
+            observation_id TEXT PRIMARY KEY,
+            dataset_id TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            stable_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            value_json TEXT NOT NULL,
+            valid_from TEXT NOT NULL,
+            valid_to TEXT,
+            published_at TEXT NOT NULL,
+            available_at TEXT NOT NULL,
+            observed_at TEXT NOT NULL,
+            ingested_at TEXT NOT NULL,
+            revised_at TEXT,
+            revision INTEGER NOT NULL CHECK (revision > 0),
+            source_id TEXT NOT NULL,
+            source_checksum TEXT NOT NULL,
+            timezone_confidence TEXT NOT NULL CHECK (timezone_confidence IN ('exact', 'normalised', 'unknown')),
+            availability_confidence TEXT NOT NULL CHECK (availability_confidence IN ('exact', 'inferred')),
+            status TEXT NOT NULL CHECK (status IN ('active', 'retracted', 'superseded')),
+            UNIQUE(dataset_id, entity_id, stable_id, source_id, revision)
+        )
+        """
+    )
+    before = int(connection.execute("SELECT COUNT(*) FROM bitemporal_observations_v7").fetchone()[0])
+    without_entity = int(
+        connection.execute(
+            "SELECT COUNT(*) FROM bitemporal_observations_v7 WHERE entity_id IS NULL OR TRIM(entity_id) = ''"
+        ).fetchone()[0]
+    )
+    connection.execute(
+        f"INSERT INTO bitemporal_observations({_BITEMPORAL_COLUMNS}) "
+        f"SELECT {_BITEMPORAL_COLUMNS} FROM bitemporal_observations_v7"
+    )
+    copied = int(connection.execute("SELECT COUNT(*) FROM bitemporal_observations").fetchone()[0])
+    if copied != before:
+        raise StorageSchemaError(f"bitemporal rebuild copied {copied} of {before} rows")
+    connection.execute("DROP TABLE bitemporal_observations_v7")
+    connection.execute(
+        "CREATE INDEX bitemporal_observations_as_of ON bitemporal_observations(dataset_id, stable_id, available_at, revision)"
+    )
+    connection.execute(
+        "CREATE INDEX bitemporal_observations_entity ON bitemporal_observations(dataset_id, entity_id, available_at)"
+    )
+    for suffix, event in (("update", "UPDATE"), ("delete", "DELETE")):
+        connection.execute(
+            f"""
+            CREATE TRIGGER bitemporal_observations_append_only_{suffix}
+            BEFORE {event} ON bitemporal_observations
+            BEGIN
+                SELECT RAISE(ABORT, 'bitemporal observations are append-only');
+            END
+            """
+        )
+    connection.execute(
+        "INSERT INTO storage_operations(operation, completed_at, detail_json) VALUES (?, ?, ?)",
+        (
+            "bitemporal_unique_key_rebuild",
+            _utc_now(),
+            json.dumps(
+                {"rows_copied": copied, "rows_without_entity_id": without_entity, "schema_version": 8},
+                sort_keys=True,
+            ),
+        ),
     )
 
 

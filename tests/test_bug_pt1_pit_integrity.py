@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+import sqlite3
 
 import pandas as pd
 import pytest
@@ -140,16 +141,50 @@ def test_observation_identity_includes_entity_id(tmp_path: Path) -> None:
     assert ids[0] != ids[1]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="A113-N001: the SQLite UNIQUE(dataset_id, stable_id, source_id, revision) constraint omits entity_id; "
-    "fixing it needs a table-rebuild migration (NEEDS_OPUS_DECISION). Strict xfail flips to a failure once fixed.",
-)
 def test_two_instruments_sharing_a_metric_id_both_persist(tmp_path: Path) -> None:
     with BitemporalStore(tmp_path) as store:
         _observe(store, entity_id="ETF-1", stable_id="metric:shared")
         _observe(store, entity_id="ETF-2", stable_id="metric:shared")
         assert {row.entity_id for row in store.observations("fundamentals")} == {"ETF-1", "ETF-2"}
+
+
+def test_v8_migration_rebuilds_unique_key_and_preserves_every_row(tmp_path: Path) -> None:
+    with BitemporalStore(tmp_path) as store:
+        _observe(store, entity_id="ETF-1", stable_id="metric:nav")
+        _observe(store, entity_id="ETF-1", stable_id="metric:nav", revision=2, value={"v": 2}, available_at="2026-01-03T00:00:00Z")
+        _observe(store, entity_id="ETF-2", stable_id="metric:other")
+        before = sorted(
+            tuple(row)
+            for row in store.store.connection.execute("SELECT * FROM bitemporal_observations").fetchall()
+        )
+        connection = store.store.connection
+        # Rewind to the v7 shape: old entity-less UNIQUE key, no v8 marker, no operation report.
+        ddl = connection.execute("SELECT sql FROM sqlite_master WHERE name = 'bitemporal_observations'").fetchone()[0]
+        old_ddl = ddl.replace("UNIQUE(dataset_id, entity_id, stable_id, source_id, revision)", "UNIQUE(dataset_id, stable_id, source_id, revision)")
+        assert old_ddl != ddl
+        connection.execute("ALTER TABLE bitemporal_observations RENAME TO bitemporal_observations_new")
+        connection.execute(old_ddl)
+        connection.execute("INSERT INTO bitemporal_observations SELECT * FROM bitemporal_observations_new")
+        connection.execute("DROP TABLE bitemporal_observations_new")
+        connection.execute("DELETE FROM schema_migrations WHERE version = 8")
+        connection.execute("DELETE FROM storage_operations")
+        connection.commit()
+    for _attempt in range(2):  # the second open proves the migration is idempotent
+        with BitemporalStore(tmp_path) as store:
+            connection = store.store.connection
+            after = sorted(tuple(row) for row in connection.execute("SELECT * FROM bitemporal_observations").fetchall())
+            assert after == before
+            assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 8
+            assert "UNIQUE(dataset_id, entity_id, stable_id, source_id, revision)" in connection.execute(
+                "SELECT sql FROM sqlite_master WHERE name = 'bitemporal_observations'"
+            ).fetchone()[0]
+            assert connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'bitemporal_observations'").fetchone()[0] == 2
+            reports = connection.execute("SELECT detail_json FROM storage_operations WHERE operation = 'bitemporal_unique_key_rebuild'").fetchall()
+            assert len(reports) == 1 and '"rows_copied": 3' in reports[0][0] and '"rows_without_entity_id": 0' in reports[0][0]
+    assert list((tmp_path / "backups" / "schema_migrations").glob("*/manifest.json"))
+    with BitemporalStore(tmp_path) as store:
+        with pytest.raises(sqlite3.DatabaseError, match="append-only"):
+            store.store.connection.execute("DELETE FROM bitemporal_observations")
 
 
 # A121-N001 / A121-N002 / A013-N005 / A07-C2-N003
@@ -160,6 +195,13 @@ def test_non_finite_metric_is_never_selected(bad: float) -> None:
     alone = resolve_conflicts([_claim(SourceAuthority.OFFICIAL, bad, "o1")])
     assert alone.selected == {}
     assert alone.state == "block"
+
+
+@pytest.mark.parametrize("bad", ("NaN", "nan", " inf ", "-Infinity", "+INF", "\tinfinity\n"))
+def test_non_finite_string_metric_is_never_selected(bad: str) -> None:
+    result = resolve_conflicts([_claim(SourceAuthority.OFFICIAL, bad, "o1"), _claim(SourceAuthority.VENDOR, "5", "v1")])
+    assert result.selected["revenue"].value == "5"
+    assert resolve_conflicts([_claim(SourceAuthority.OFFICIAL, bad, "o1")]).selected == {}
 
 
 @pytest.mark.parametrize("bad", (float("inf"), float("nan"), -1.0))
@@ -295,6 +337,11 @@ def test_future_as_of_claim_is_not_current_and_unknown_freshness_is_opt_in_block
     unknown = _claim(SourceAuthority.OFFICIAL, 1, "o1", freshness_status="unknown")
     strict = resolve_conflicts([unknown], policy=MetricPolicy("strict", 1, require_known_freshness=True))
     assert strict.selected == {}
+    # Fail closed by default: neither a default policy nor the policy-less legacy call accepts unknown freshness.
+    assert MetricPolicy("default", 1).require_known_freshness is True
+    assert resolve_conflicts([unknown], policy=MetricPolicy("default", 1)).selected == {}
+    assert resolve_conflicts([unknown]).selected == {}
+    assert MetricPolicy("a", 1).sha256 != MetricPolicy("a", 1, require_known_freshness=False).sha256
 
 
 def test_fingerprint_changes_when_only_the_vintage_as_of_changes() -> None:
@@ -329,3 +376,28 @@ def test_one_canonical_authority_whitelist_is_shared_by_all_selectors() -> None:
         assert module.PRIMARY_SOURCE_AUTHORITIES is PRIMARY_SOURCE_AUTHORITIES
     assert innovation_sector_adapters._ALLOWED_AUTHORITIES == PRIMARY_SOURCE_AUTHORITIES | {SourceAuthority.MANUAL}
     assert math.isfinite(1.0)
+
+
+def test_replay_rejects_evidence_dated_after_the_decision_date_and_requires_the_date() -> None:
+    later = EvidenceSource("prices", "p1", SourceAuthority.OFFICIAL, "2026-03-01", "fresh")
+    replay = ledger_entry_for_component("X", "momentum", 7.0, later, decision_date="2026-02-01")
+    assert replay.score_eligible is False and "after the decision date" in replay.reason
+    assert ledger_entry_for_component("X", "momentum", 7.0, later, decision_date="2026-03-01").score_eligible is True
+    with pytest.raises(TypeError):
+        ledger_entry_for_component("X", "momentum", 7.0, later)  # type: ignore[call-arg]
+    assert ledger_entry_for_component("X", "momentum", 7.0, later, decision_date=None).score_eligible is False  # type: ignore[arg-type]
+
+
+def test_trust_artifact_ledger_judges_evidence_at_the_run_as_of_date(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from etf_cockpit.data import trust_artifacts as trust
+
+    monkeypatch.setattr(trust, "EVIDENCE_LEDGER_PATH", tmp_path / "evidence_ledger.parquet")
+    component = SimpleNamespace(
+        key="momentum", score_10=7.0, status="OK", authority="high", source_id="yfinance:prices",
+        as_of_date="2026-03-01", freshness_status="fresh", explanation="x", why="y",
+    )
+    score = SimpleNamespace(display_id="X", latest_date="2026-03-01", components=[component])
+    replay = pd.read_parquet(trust.write_evidence_ledger([score], run_id="replay", created_at="2026-02-01T00:00:00Z"))
+    assert bool(replay.iloc[0]["score_eligible"]) is False and "after the decision date" in replay.iloc[0]["reason"]

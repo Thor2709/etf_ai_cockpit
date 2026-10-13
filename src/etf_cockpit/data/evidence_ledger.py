@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from typing import Any
 
 from etf_cockpit.core.values import finite_float_or_none
@@ -93,7 +93,7 @@ def ledger_entry_for_component(
     source: EvidenceSource | None = None,
     *,
     conflict_id: str | None = None,
-    decision_date: date | str | None = None,
+    decision_date: date | str | None,
 ) -> EvidenceLedgerEntry:
     """Build a ledger entry using either legacy or typed-call syntax.
 
@@ -102,8 +102,9 @@ def ledger_entry_for_component(
     reads ``key``/``score_10`` and keeps compatibility with duck-typed score
     components to avoid a dependency cycle.
 
-    ``decision_date`` is the date the evidence is judged at (default: today,
-    UTC); evidence dated after it is never fresh.
+    ``decision_date`` is required: the date the evidence is judged at (a replay
+    passes its own as-of date, never the wall clock); evidence dated after it
+    is never fresh, and a missing or invalid date makes the entry ineligible.
     """
 
     if isinstance(component_or_source, EvidenceSource) and not isinstance(instrument_or_component, str):
@@ -140,7 +141,7 @@ def _eligibility(
     value: object,
     source: EvidenceSource | None,
     conflict_id: str | None,
-    decision_date: date | str | None = None,
+    decision_date: date | str | None,
 ) -> tuple[bool, str]:
     if value is None or _number_or_none(value) is None:
         return False, "ineligible: score value is unavailable"
@@ -153,7 +154,10 @@ def _eligibility(
     as_of = _date_or_none(source.as_of_date)
     if as_of is None:
         return False, "ineligible: evidence as-of date is not a valid date"
-    if as_of > (_date_or_none(decision_date) if decision_date is not None else datetime.now(timezone.utc).date()):
+    decision = _date_or_none(decision_date) if decision_date is not None else None
+    if decision is None:
+        return False, "ineligible: decision date is missing or not a valid date"
+    if as_of > decision:
         return False, "ineligible: evidence as-of date is after the decision date"
     if conflict_id:
         return False, f"ineligible: material conflict {conflict_id} requires manual review"

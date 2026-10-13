@@ -6,12 +6,19 @@ import pandas as pd
 
 from etf_cockpit.data.source_conflicts import (
     AmbiguousMetricAvailabilityError,
-    MetricClaim,
+    MetricClaim as _MetricClaim,
     MetricPolicy,
     MetricReviewDecision,
     resolve_conflicts,
 )
 from etf_cockpit.data import trust_artifacts
+
+
+def MetricClaim(*args, **kwargs):  # noqa: N802 - mirrors the dataclass name
+    """Claims here carry known freshness unless a test sets it; unknown freshness is ineligible by default."""
+
+    kwargs.setdefault("freshness_status", "fresh")
+    return _MetricClaim(*args, **kwargs)
 
 
 def test_material_conflict_is_visible_and_not_silently_overwritten() -> None:
