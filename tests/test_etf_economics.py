@@ -117,11 +117,14 @@ def test_etf_quote_panel_flags_stale_off_hours_and_calculates_premium_discount()
         as_of=latest,
     )
 
-    assert report.quote_status == "available"
+    # B012-N001: a stale quote is flagged and never sets spread, premium/discount or quote availability.
+    assert report.quote_status == "unavailable"
     assert report.stale_quote is True
     assert report.off_hours_quote is True
     assert report.quote_freshness == "stale"
-    assert report.premium_discount_bps == 100.0
+    assert report.premium_discount_bps is None
+    assert report.quoted_spread_bps is None
+    assert report.spread_source != "quoted_bid_ask"
     assert report.underlying_liquidity_eur == 2_000_000.0
     assert report.primary_market_capacity_eur == 5_000_000.0
     assert report.primary_market_status == "available"
@@ -600,17 +603,10 @@ def test_total_return_row_revisions_select_latest_eligible_and_exclude_future() 
     assert report.tracking_difference == round(105 / 100 - 103 / 100, 10)
 
     conflicting = pd.concat([revised.frame, corrections.iloc[[0]].assign(total_return_index=106.0)], ignore_index=True)
-    conflict_report = calculate_etf_economics(
-        "VWCE",
-        _economics_records(),
-        fund_total_return=_replace_evidence(revised, conflicting),
-        benchmark_total_return=_total_return_series([100, 100.5, 101, 103], instrument_id="FTSE-ALL-WORLD"),
-        as_of="2026-01-06T18:00:00Z",
-        horizon_days=3,
-        closure_policy=_closure_policy(),
-    )
-    assert conflict_report.status == "unavailable"
-    assert "conflicting fund total-return revisions" in conflict_report.message
+    # Same-day, same-known_at rows with different closes are quarantined at derivation (DQ2 #955),
+    # so the conflicting evidence can no longer even be bound as total-return evidence.
+    with pytest.raises(EtfEconomicsError, match="available and reconciled"):
+        _replace_evidence(revised, conflicting)
 
     missing_known_at = revised.frame.copy()
     missing_known_at.loc[0, "known_at"] = pd.NA

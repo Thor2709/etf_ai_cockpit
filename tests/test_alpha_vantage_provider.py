@@ -100,8 +100,9 @@ def test_json_response_normalises_prices_and_redacts_key(tmp_path) -> None:
     assert result.data.loc[0, "source"] == "alphavantage"
     assert secret not in result.message
     assert secret not in str(provider.probe_capabilities()[0].to_dict())
-    assert seen and all(secret not in url for url in seen)
-    assert seen_headers[0]["X-Alpha-Vantage-Api-Key"] == secret
+    # #954 A103-N001: the vendor documents the key as the `apikey` query parameter (not a header).
+    assert seen and all(f"apikey={secret}" in url for url in seen)
+    assert all(secret not in str(headers) for headers in seen_headers)
 
 
 def test_http_error_and_429_are_non_blocking_without_canonical_mutation() -> None:

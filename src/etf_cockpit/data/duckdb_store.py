@@ -161,6 +161,7 @@ def load_features(
     settings_revision: str | None = None,
     reference_identity: dict[str, object] | None = None,
     price_binding: Mapping[str, object] | None = None,
+    extra_binding: Mapping[str, object] | None = None,
 ) -> pd.DataFrame:
     if isinstance(reference_identity, Mapping) and "analysis" in reference_identity and price_binding is None:
         return pd.DataFrame()
@@ -177,6 +178,7 @@ def load_features(
                 or settings_revision is not None
                 or reference_identity is not None
                 or price_binding is not None
+                or extra_binding is not None
             ):
                 return pd.DataFrame()
             payload_bytes = path.read_bytes()
@@ -187,7 +189,16 @@ def load_features(
             expected_settings = settings_revision or current_settings_revision()
             if universe_revision is not None and str(metadata.get("universe_revision") or "") != universe_revision:
                 return pd.DataFrame()
-            if (universe_revision is not None or settings_revision is not None) and str(metadata.get("settings_revision") or "") != expected_settings:
+            # Any identity-bound lookup must also match the settings revision, even when the
+            # caller supplied only a price/reference/extra binding.
+            bound_lookup = (
+                universe_revision is not None
+                or settings_revision is not None
+                or reference_identity is not None
+                or price_binding is not None
+                or extra_binding is not None
+            )
+            if bound_lookup and str(metadata.get("settings_revision") or "") != expected_settings:
                 return pd.DataFrame()
             if reference_identity is not None and (
                 not _reference_identity_matches(
@@ -199,6 +210,8 @@ def load_features(
             ):
                 return pd.DataFrame()
             if price_binding is not None and not _cache_binding_matches(metadata, price_binding):
+                return pd.DataFrame()
+            if extra_binding is not None and any(metadata.get(key) != value for key, value in extra_binding.items()):
                 return pd.DataFrame()
             if metadata.get("payload_sha256") is not None and metadata["payload_sha256"] != hashlib.sha256(payload_bytes).hexdigest():
                 return pd.DataFrame()

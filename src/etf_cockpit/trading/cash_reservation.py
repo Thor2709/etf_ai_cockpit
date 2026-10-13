@@ -24,6 +24,15 @@ class CashSource(Protocol):
         """Return the source balance without converting it to float."""
 
 
+def projected_fill_ids(cash_source: object, *, account_id: str, as_of: datetime) -> frozenset[str] | None:
+    """Return the fills the cash source's balance already contains, or None when it cannot say."""
+
+    reader = getattr(cash_source, "projected_fill_ids", None)
+    if not callable(reader):
+        return None
+    return frozenset(str(item) for item in reader(account_id=account_id, as_of=as_of))
+
+
 @dataclass(frozen=True)
 class CashReservation:
     order_id: str
@@ -182,20 +191,32 @@ class CashReservationService:
         ).fetchall()
         commitments = connection.execute(
             """
-            SELECT buy_commitment, sale_credit FROM unsettled_cash_commitments
+            SELECT buy_commitment, sale_credit, fill_id FROM unsettled_cash_commitments
             WHERE account_id = ? AND currency = ?
               AND (settlement_date IS NULL OR settlement_date > ?)
             """,
             (account_id, currency, date_cutoff),
         ).fetchall()
         reserved = sum((decimal_value(row[0], "reserved amount", non_negative=True) for row in reservations), Decimal("0"))
-        unsettled_buys = sum((decimal_value(row[0], "unsettled buy", non_negative=True) for row in commitments), Decimal("0"))
-        unsettled_sales = sum((decimal_value(row[1], "unsettled sale", non_negative=True) for row in commitments), Decimal("0"))
         # A paper projection books fills immediately, while a canonical ledger
         # balance is filtered to settled entries. Apply the unsettled side that
-        # the selected source does not already reflect.
-        includes_unsettled = bool(getattr(cash_source, "cash_includes_unsettled_trades", False))
-        unavailable_unsettled = unsettled_sales if includes_unsettled else unsettled_buys
+        # the selected source does not already reflect, fill by fill when the
+        # source reports which fills its balance contains: a projected sale
+        # credit and an unprojected buy debit can coexist after an interrupted
+        # projection, and one global flag would unlock the projected credit.
+        projected = projected_fill_ids(cash_source, account_id=account_id, as_of=as_of)
+        if projected is not None:
+            unavailable_unsettled = Decimal("0")
+            for row in commitments:
+                if str(row[2]) in projected:
+                    unavailable_unsettled += decimal_value(row[1], "unsettled sale", non_negative=True)
+                else:
+                    unavailable_unsettled += decimal_value(row[0], "unsettled buy", non_negative=True)
+        else:
+            unsettled_buys = sum((decimal_value(row[0], "unsettled buy", non_negative=True) for row in commitments), Decimal("0"))
+            unsettled_sales = sum((decimal_value(row[1], "unsettled sale", non_negative=True) for row in commitments), Decimal("0"))
+            includes_unsettled = bool(getattr(cash_source, "cash_includes_unsettled_trades", False))
+            unavailable_unsettled = unsettled_sales if includes_unsettled else unsettled_buys
         return balance - reserved - unavailable_unsettled
 
     def record_fill(

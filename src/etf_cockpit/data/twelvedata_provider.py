@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import date
 import json
 import os
+import threading
 import time
 from typing import Any
 
@@ -19,9 +20,10 @@ import pandas as pd
 import requests
 
 from etf_cockpit.core.config import ProviderSection
+from etf_cockpit.core.http_fetch import requests_get_checked, same_host_https
 from etf_cockpit.core.values import years_before
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority, redact_text
-from etf_cockpit.data.ohlcv_discrepancy import normalise_ohlcv
+from etf_cockpit.data.ohlcv_discrepancy import OhlcvNormalisationError, normalise_ohlcv
 from etf_cockpit.data.provenance import metadata_from_frame
 from etf_cockpit.data.providers import DataProvider, PriceProvider, ProviderResult
 
@@ -63,8 +65,14 @@ class RateLimiter:
         self._minute_calls: list[float] = []
         self._hour_calls: list[float] = []
         self._day_calls: list[float] = []
+        # check-then-record must be one atomic step, or concurrent callers overshoot the quota.
+        self._lock = threading.RLock()
 
     def check_limit(self) -> RateLimitState:
+        with self._lock:
+            return self._check_limit_locked()
+
+    def _check_limit_locked(self) -> RateLimitState:
         now = self._clock()
         self._prune(now)
 
@@ -104,16 +112,17 @@ class RateLimiter:
         return RateLimitState(allowed=True, status="ok", retry_after=0.0, non_blocking=True, message="OK")
 
     def acquire(self) -> RateLimitState:
-        state = self.check_limit()
-        if state.allowed:
-            now = self._clock()
-            if self.calls_per_minute is not None:
-                self._minute_calls.append(now)
-            if self.calls_per_hour is not None:
-                self._hour_calls.append(now)
-            if self.calls_per_day is not None:
-                self._day_calls.append(now)
-        return state
+        with self._lock:
+            state = self._check_limit_locked()
+            if state.allowed:
+                now = self._clock()
+                if self.calls_per_minute is not None:
+                    self._minute_calls.append(now)
+                if self.calls_per_hour is not None:
+                    self._hour_calls.append(now)
+                if self.calls_per_day is not None:
+                    self._day_calls.append(now)
+            return state
 
     def _prune(self, now: float) -> None:
         self._minute_calls = [t for t in self._minute_calls if now - t < 60.0]
@@ -121,9 +130,28 @@ class RateLimiter:
         self._day_calls = [t for t in self._day_calls if now - t < 86400.0]
 
     def reset(self) -> None:
-        self._minute_calls.clear()
-        self._hour_calls.clear()
-        self._day_calls.clear()
+        with self._lock:
+            self._minute_calls.clear()
+            self._hour_calls.clear()
+            self._day_calls.clear()
+
+
+def within_window(frame: pd.DataFrame, start: date | None, end: date | None) -> pd.DataFrame:
+    """Drop bars dated outside the requested inclusive [start, end] window."""
+    if frame.empty or "date" not in frame.columns or (start is None and end is None):
+        return frame
+    keep = pd.Series(True, index=frame.index)
+    if start is not None:
+        keep &= frame["date"].apply(lambda value: value is not None and value >= start)
+    if end is not None:
+        keep &= frame["date"].apply(lambda value: value is not None and value <= end)
+    return frame.loc[keep].reset_index(drop=True)
+
+
+def _identity_matches(meta: dict[str, Any], requested: str) -> bool:
+    """A returned meta symbol, when present, must equal the requested one (case-insensitive)."""
+    returned = str(meta.get("symbol") or "").strip()
+    return not returned or returned.casefold() == requested.strip().casefold()
 
 
 class TwelveDataProvider(DataProvider, PriceProvider):
@@ -158,6 +186,7 @@ class TwelveDataProvider(DataProvider, PriceProvider):
         self.transport = transport
         self.default_currency = default_currency
         self.last_limiter_state: RateLimitState | None = None
+        self.last_normalisation_errors: dict[str, str] = {}
 
     @property
     def is_configured(self) -> bool:
@@ -220,13 +249,23 @@ class TwelveDataProvider(DataProvider, PriceProvider):
                     return json.loads(resp), None
                 return None, "Unexpected transport return type."
 
-            response = requests.get(url, headers=headers, timeout=30)
+            response = requests_get_checked(requests.get, url, allowed=same_host_https(url), headers=headers, timeout=30)
             if response.status_code == 429:
                 return None, f"HTTP 429: {self._redact(response.text)}"
             response.raise_for_status()
             return response.json(), None
         except Exception as exc:
             return None, self._redact(f"{type(exc).__name__}: {exc}")
+
+    def _normalise(self, raw: pd.DataFrame, symbol: str, currency: str) -> pd.DataFrame:
+        """Normalise rows; conflicting or ambiguous data makes this instrument unavailable, never the run."""
+        try:
+            frame = normalise_ohlcv(raw, source=self.name, symbol=symbol, currency=currency)
+        except OhlcvNormalisationError as exc:
+            self.last_normalisation_errors[symbol] = self._redact(str(exc))
+            return pd.DataFrame()
+        self.last_normalisation_errors.pop(symbol, None)
+        return frame
 
     def fetch_daily_prices(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         """Fetch daily OHLCV from Twelve Data and normalise to canonical schema."""
@@ -262,10 +301,15 @@ class TwelveDataProvider(DataProvider, PriceProvider):
             return pd.DataFrame()
 
         meta = payload.get("meta", {})
+        if not isinstance(meta, dict):  # present but null/malformed: currency unverifiable
+            return pd.DataFrame()
+        if not _identity_matches(meta, clean_symbol):
+            return pd.DataFrame()
         currency = meta.get("currency") or self.default_currency
 
         raw_df = pd.DataFrame(values)
-        return normalise_ohlcv(raw_df, source=self.name, symbol=clean_symbol, currency=currency)
+        frame = self._normalise(raw_df, clean_symbol, currency)
+        return within_window(frame, start, end)
 
     def fetch_intraday_prices(
         self,
@@ -306,8 +350,13 @@ class TwelveDataProvider(DataProvider, PriceProvider):
             return pd.DataFrame()
 
         meta = payload.get("meta", {})
+        if not isinstance(meta, dict):  # present but null/malformed: currency unverifiable
+            return pd.DataFrame()
+        if not _identity_matches(meta, clean_symbol):
+            return pd.DataFrame()
         currency = meta.get("currency") or self.default_currency
-        return normalise_ohlcv(pd.DataFrame(values), source=self.name, symbol=clean_symbol, currency=currency)
+        frame = self._normalise(pd.DataFrame(values), clean_symbol, currency)
+        return within_window(frame, start, end)
 
     def fetch_prices(self, symbols: list[str], start_date: date, end_date: date) -> ProviderResult:
         """Bulk price fetch interface returning ProviderResult."""
@@ -332,9 +381,11 @@ class TwelveDataProvider(DataProvider, PriceProvider):
                 errors.append(f"{symbol}: rate limit reached (non-blocking)")
                 break
 
+            self.last_normalisation_errors.pop(symbol.strip(), None)
             df = self.fetch_daily_prices(symbol, start_date, end_date)
             if df.empty:
-                errors.append(f"{symbol}: no rows returned")
+                reason = self.last_normalisation_errors.get(symbol.strip())
+                errors.append(f"{symbol}: {reason}" if reason else f"{symbol}: no rows returned")
             else:
                 frames.append(df)
 

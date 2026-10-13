@@ -117,6 +117,9 @@ class ManualLocalFileProvider(DataProvider):
             return ProviderResult(self.name, dataset_type, "error", f"Could not read {path.name}: {exc}")
         if frame.empty:
             return ProviderResult(self.name, dataset_type, "error", f"{path.name} contains no rows.", frame)
+        date_errors = _unparseable_date_rows(frame, dataset_type)
+        if date_errors:
+            return ProviderResult(self.name, dataset_type, "error", f"{path.name} has unparseable dates: {date_errors}", frame)
         as_of_date = _infer_as_of_date(frame)
         currency = _infer_single_value(frame, "currency")
         metadata = metadata_from_frame(
@@ -182,6 +185,26 @@ def _read_local_table(path: Path) -> pd.DataFrame:
     if suffix in {".xlsx", ".xls"}:
         return pd.read_excel(path)
     raise ValueError(f"Unsupported file type {suffix}. Use CSV, XLSX, JSON or Parquet.")
+
+
+_DATED_DATASETS = {"prices", "fx", "holdings", "etf_holdings"}
+
+
+def _unparseable_date_rows(frame: pd.DataFrame, dataset_type: str) -> str:
+    """Row-level date errors of a manual file (row numbers count the header as row 1); empty when clean."""
+
+    if dataset_type not in _DATED_DATASETS:
+        return ""
+    problems: list[str] = []
+    for column in ("date", "as_of_date"):
+        if column not in frame.columns:
+            continue
+        bad = pd.to_datetime(frame[column], errors="coerce").isna()
+        if bad.any():
+            rows = [str(int(position) + 2) for position in bad.to_numpy().nonzero()[0]]
+            shown = ", ".join(rows[:10]) + (f" (+{len(rows) - 10} more)" if len(rows) > 10 else "")
+            problems.append(f"column {column} rows {shown}")
+    return "; ".join(problems)
 
 
 def _infer_as_of_date(frame: pd.DataFrame) -> date | None:

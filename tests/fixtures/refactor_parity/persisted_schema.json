@@ -1213,9 +1213,21 @@
    ],
    "run_id_pattern": "backtest__s<12hex>"
   },
-  "data/derived/run_manifests/features_2026-09-30__s2e451e324e57.json": {
+  "data/derived/run_manifests/features_2026-09-30_p50feb083c593__s2e451e324e57.json": {
    "kind": "json",
    "structure": {
+    "dataset_bindings": {
+     "dataset:prices": {
+      "calculation_window": {
+       "decision_time": "str",
+       "end_date": "str",
+       "start_date": "str"
+      },
+      "effective_cutoff": "str",
+      "price_snapshot_checksum": "str",
+      "price_snapshot_revision": "str"
+     }
+    },
     "dependencies": {
      "list_length": 3,
      "item": {
@@ -1260,7 +1272,7 @@
     ["dataset:universe", "dataset", "1.0.0"],
     ["schema:local-storage", "schema", "4.0.0"]
    ],
-   "run_id_pattern": "features_2026-09-30__s<12hex>"
+   "run_id_pattern": "features_2026-09-30_p<12hex>__s<12hex>"
   },
   "data/derived/run_manifests/forecast_20260930__s2e451e324e57.json": {
    "kind": "json",
@@ -2131,6 +2143,7 @@
      "start_date": "str"
     },
     "effective_cutoff": "str",
+    "feature_algorithm_version": "str",
     "payload_sha256": "str",
     "price_snapshot_checksum": "str",
     "price_snapshot_revision": "str",
@@ -2162,7 +2175,8 @@
     "reference_identity_hash": "str",
     "schema_version": 3,
     "settings_revision": "str",
-    "universe_revision": "str"
+    "universe_revision": "str",
+    "volume_snapshot_checksum": "str"
    }
   },
   "data/forecasts/forecast_results_yfinance_20260930.csv": {

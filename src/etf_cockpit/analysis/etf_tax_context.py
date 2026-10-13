@@ -196,16 +196,34 @@ def calculate_net_return_scenario(
     dividend_return_rate: float | None,
     assumptions: ETFContextAssumptions | None = None,
     decision_time: datetime | None = None,
+    *,
+    source_eligible_dividend_return_rate: float | None = None,
 ) -> NetReturnScenario:
-    """Apply only explicitly enabled source withholding; report all exclusions."""
+    """Apply only explicitly enabled source withholding; report all exclusions.
+
+    Withholding is charged on ``source_eligible_dividend_return_rate`` (the part of the
+    dividend return that is source-taxable), never on the whole dividend return. Unknown
+    eligibility fails closed: the withholding effect is excluded, not guessed.
+    """
     for name, value in (
         ("gross_return_rate", gross_return_rate),
         ("dividend_return_rate", dividend_return_rate),
+        ("source_eligible_dividend_return_rate", source_eligible_dividend_return_rate),
     ):
         if value is not None and (isinstance(value, bool) or not math.isfinite(value)):
             raise ValueError(f"{name} must be finite")
     if dividend_return_rate is not None and dividend_return_rate < 0:
         raise ValueError("dividend_return_rate cannot be negative")
+    if source_eligible_dividend_return_rate is not None:
+        if source_eligible_dividend_return_rate < 0:
+            raise ValueError("source_eligible_dividend_return_rate cannot be negative")
+        if (
+            dividend_return_rate is not None
+            and source_eligible_dividend_return_rate > dividend_return_rate
+        ):
+            raise ValueError(
+                "source_eligible_dividend_return_rate cannot exceed dividend_return_rate"
+            )
 
     included: tuple[TaxEffect, ...] = ()
     excluded: list[ExcludedTaxEffect] = []
@@ -242,11 +260,20 @@ def calculate_net_return_scenario(
                 ExcludedTaxEffect("Source withholding", "Dividend return input was not supplied.")
             )
             unavailable_reason = "Dividend return input was not supplied."
+        elif source_eligible_dividend_return_rate is None:
+            reason = "Source-eligible dividend income was not supplied."
+            excluded.append(ExcludedTaxEffect("Source withholding", reason))
+            unavailable_reason = reason
         else:
             label = assumptions.source_withholding_label or "Source dividend withholding"
-            drag = dividend_return_rate * assumptions.source_withholding_rate
+            drag = source_eligible_dividend_return_rate * assumptions.source_withholding_rate
             included = (
-                TaxEffect(label, assumptions.source_withholding_rate, dividend_return_rate, drag),
+                TaxEffect(
+                    label,
+                    assumptions.source_withholding_rate,
+                    source_eligible_dividend_return_rate,
+                    drag,
+                ),
             )
 
     residence_reason = (

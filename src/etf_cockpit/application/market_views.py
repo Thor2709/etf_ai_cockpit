@@ -274,6 +274,10 @@ def load_etf_structure_projection(
         }
 
 
+_RAW_FALLBACK_BLOCKERS = ("quarantined_action:", "unmatched_action_date:")
+_RAW_FALLBACK_WARNINGS = (*_RAW_FALLBACK_BLOCKERS, "collapsed_duplicate_candles:", "ignored_out_of_range_action:")
+
+
 def _load_market_series_projection(
     prices: object,
     instrument_id: str,
@@ -294,6 +298,8 @@ def _load_market_series_projection(
         CorporateActionCoverageStore,
         CorporateActionStore,
         FXObservationStore,
+        MarketAdjustmentError,
+        _currency,
         apply_total_return_adjustments,
         derive_fx_cross,
     )
@@ -343,7 +349,38 @@ def _load_market_series_projection(
         return {"status": "unavailable", "reason_code": "raw_price_evidence_unavailable", "frame": pd.DataFrame(), "execution_allowed": False}
     if basis != "raw" and not action_coverage:
         return {"status": "unavailable", "reason_code": "corporate_action_coverage_unavailable", "frame": pd.DataFrame(), "execution_allowed": False}
-    derived = apply_total_return_adjustments(scoped.rename(columns={close_column: "close"}), actions)
+    try:
+        price_currency = _currency(local_currency)
+    except MarketAdjustmentError:
+        price_currency = None
+    if price_currency is None and (local_currency or any(item.cash_amount > 0 for item in actions)):
+        # An invalid currency, or cash distributions on a price series of unknown currency, fail closed.
+        return {"status": "unavailable", "reason_code": "price_currency_unavailable", "frame": pd.DataFrame(), "execution_allowed": False}
+    derived = apply_total_return_adjustments(
+        scoped.rename(columns={close_column: "close"}),
+        actions,
+        price_currency=price_currency,
+    )
+    if (
+        not derived.available
+        and basis == "raw"
+        and (output_currency or local_currency).upper() == local_currency.upper()
+        and derived.warnings
+        and all(item.startswith(_RAW_FALLBACK_WARNINGS) for item in derived.warnings)
+        and any(item.startswith(_RAW_FALLBACK_BLOCKERS) for item in derived.warnings)
+    ):
+        # Only an action conflict blocks the adjusted bases; raw closes need no action evidence.
+        # Duplicate-candle conflicts and mixed/mismatched currency never reach this branch.
+        raw_frame = derived.frame.copy()
+        raw_frame["series_value"] = raw_frame["raw_close"]
+        return {
+            "status": "available",
+            "basis": basis,
+            "currency": local_currency.upper(),
+            "frame": raw_frame,
+            "provenance": "raw close; corporate-action evidence not applied",
+            "execution_allowed": False,
+        }
     if not derived.available:
         return {"status": derived.status, "reason_code": "corporate_action_discrepancy", "frame": derived.frame, "execution_allowed": False}
     frame = derived.frame.copy()
@@ -371,7 +408,8 @@ def _load_market_series_projection(
     if basis == "raw":
         frame["series_value"] = frame["raw_close"] * (frame["fx_rate"] if "fx_rate" in frame else 1.0)
     elif basis == "adjusted":
-        frame["series_value"] = frame["adjusted_close"] * (frame["fx_rate"] if "fx_rate" in frame else 1.0)
+        # "adjusted" is split-adjusted price (no cash distributions); "total_return" is its own index.
+        frame["series_value"] = frame["price_adjusted_close"] * (frame["fx_rate"] if "fx_rate" in frame else 1.0)
     else:
         frame["series_value"] = frame["output_total_return_index"] if "output_total_return_index" in frame else frame["total_return_index"]
     return {

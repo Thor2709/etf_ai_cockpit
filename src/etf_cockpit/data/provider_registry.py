@@ -155,7 +155,9 @@ class ProviderRegistry:
             policy = source_policies.get((item.provider_id, item.dataset_type)) or provider_policies.get(item.provider_id)
             return {
                 "source_tier": policy.source_tier.value if policy else "unclassified",
-                "optionality": "optional" if policy and policy.optional_provider else "mandatory-compatible",
+                # An unclassified source (no policy row, or the policy failed to load) is never
+                # presented as mandatory-compatible.
+                "optionality": "unclassified" if policy is None else "optional" if policy.optional_provider else "mandatory-compatible",
                 "cache_status": "see source policy",
             }
 
@@ -353,7 +355,10 @@ def _merge_capability(base: ProviderCapability, result: ProviderCapability) -> P
         base,
         dataset_type=redact_text(result.dataset_type or base.dataset_type),
         status=status,
-        authority=result.authority,
+        # The registry's authority for the provider wins over an adapter's self-declared one,
+        # and an adapter that reports itself unconfigured cannot be re-enabled by the merge.
+        authority=base.authority,
+        configured=base.configured and result.configured,
         entitlement=redact_text(result.entitlement),
         rate_limit_note=redact_text(result.rate_limit_note),
         last_success_at=result.last_success_at or (_utc_now() if status == "ok" else None),

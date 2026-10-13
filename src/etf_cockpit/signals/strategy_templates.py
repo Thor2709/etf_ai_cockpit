@@ -201,6 +201,7 @@ def compute_template_matches(snapshot: Iterable[Mapping[str, Any]] | pd.DataFram
         instrument_id = str(row.get("instrument_id", row.get("id", row.get("symbol", "")))).strip()
         if not instrument_id:
             continue
+        row = _row_at_decision(row, decision_time)
         for template in registry:
             if _template_matches(template.template_id, row, instrument_id):
                 matches.append(TemplateMatch(instrument_id, template.template_id, template.version, template.definition_hash, template.benchmark, _match_reason(template.template_id), template.context_only, (), False))
@@ -209,6 +210,30 @@ def compute_template_matches(snapshot: Iterable[Mapping[str, Any]] | pd.DataFram
 
 def match_templates(snapshot: Iterable[Mapping[str, Any]] | pd.DataFrame, templates: Iterable[StrategyTemplate] | None = None, *, decision_time: object | None = None) -> tuple[TemplateMatch, ...]:
     return compute_template_matches(snapshot, templates, decision_time=decision_time)
+
+
+def _row_at_decision(row: Mapping[str, Any], decision_time: object | None) -> Mapping[str, Any]:
+    """Drop price-history rows dated after the decision so later prices never move a trend."""
+
+    history = row.get("price_history")
+    if decision_time is None or not isinstance(history, (pd.DataFrame, pd.Series)) or not isinstance(history.index, pd.DatetimeIndex):
+        return row
+    try:
+        decision = pd.Timestamp(decision_time)
+    except (TypeError, ValueError, OverflowError):
+        return row
+    if pd.isna(decision):
+        return row
+    index = history.index
+    if index.tz is None and decision.tzinfo is not None:
+        decision = decision.tz_convert("UTC").tz_localize(None)
+    elif index.tz is not None and decision.tzinfo is None:
+        decision = decision.tz_localize(index.tz)
+    if decision.tzinfo is None and decision.normalize() == decision:
+        decision = decision + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)  # a date-only decision includes that session
+    clipped = dict(row)
+    clipped["price_history"] = history.loc[index <= decision]
+    return clipped
 
 
 def _evidence_available_at_decision(row: Mapping[str, Any], decision_time: object | None) -> bool:

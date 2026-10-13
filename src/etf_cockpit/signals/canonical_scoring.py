@@ -168,6 +168,21 @@ class CanonicalScore:
         }
 
 
+# Asset types that share a configured policy. A plain Certificate is scored like a stock (value and
+# quality weights); no other type may silently borrow the ETF policy.
+_POLICY_ALIASES: dict[str, str] = {"CERTIFICATE": "STOCK", "EQUITY": "STOCK"}
+
+
+_STOCK_LIKE_SIGNAL_TYPES = frozenset({"stock", "equity", "certificate", "equity_certificate", "equity certificate", "egenkapitalbevis"})
+
+
+def resolve_policy_asset_type(asset_type: object) -> str:
+    """Return the configured policy key for ``asset_type``; unknown types raise, never fall back to ETF."""
+
+    key = str(asset_type or "").strip().upper()
+    return _POLICY_ALIASES.get(key, key)
+
+
 @lru_cache(maxsize=32)
 def _parse_yaml_text(text: str) -> object:
     """Parse one exact policy text once; callers receive private copies."""
@@ -186,9 +201,12 @@ def load_score_policy(asset_type: str = "ETF", *, path: Path = FORMULA_PATH) -> 
         horizons = payload.get("horizons") or {}
         horizon = str(horizons.get("primary") or "").strip()
         policies = payload.get("asset_policies") or {}
-        selected = policies.get(str(asset_type).upper()) or policies.get("ETF")
-        if not formula_version or not horizon or not isinstance(selected, dict):
-            raise CanonicalScoreError("score_engine_v3.yaml is missing version, horizon or asset policy")
+        policy_key = resolve_policy_asset_type(asset_type)
+        selected = policies.get(policy_key) if policy_key else None
+        if not formula_version or not horizon:
+            raise CanonicalScoreError("score_engine_v3.yaml is missing version or horizon")
+        if not isinstance(selected, dict):
+            raise CanonicalScoreError(f"no score policy is configured for asset type: {str(asset_type).strip() or 'unknown'}")
         groups: dict[str, dict[str, float]] = {}
         for group in ("attractiveness", "expected_return", "risk_implementation"):
             values = selected.get(group)
@@ -204,7 +222,7 @@ def load_score_policy(asset_type: str = "ETF", *, path: Path = FORMULA_PATH) -> 
             groups[group] = group_weights
             if sum(groups[group].values()) <= 0:
                 raise CanonicalScoreError(f"score policy group has no positive weights: {group}")
-        return ScorePolicy(formula_version, hashlib.sha256(normalised_bytes).hexdigest(), horizon, str(asset_type).upper(), groups)
+        return ScorePolicy(formula_version, hashlib.sha256(normalised_bytes).hexdigest(), horizon, policy_key, groups)
     except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
         if isinstance(exc, CanonicalScoreError):
             raise
@@ -518,7 +536,12 @@ def _signal_asset_type(row: Mapping[str, object], config: object, instrument_id:
         lookup = getattr(universe, "by_id", None)
         identity = lookup().get(instrument_id) if callable(lookup) else None
         declared = getattr(identity, "instrument_type", None)
-    return "STOCK" if str(declared or "").strip().casefold() == "stock" else "ETF"
+    text = str(declared or "").strip()
+    if not text:
+        return "ETF"  # undeclared rows are the ETF universe; a declared unknown type raises in load_score_policy
+    if text.casefold() in _STOCK_LIKE_SIGNAL_TYPES:
+        return "STOCK"  # price-signal path only: certificates and ECs are stock-like, never ETF-weighted
+    return "ETF" if text.casefold() == "etf" else text
 
 
 def _signal_component(key: str, raw: object, role: str, source_id: str, freshness: str, explanation: str, *, authority: str = "vendor_unofficial", status: str = "ok") -> CanonicalComponent:

@@ -140,7 +140,8 @@ def test_p01_n003(tmp_path: Path) -> None:
     result = ManualLocalFileProvider().import_file(path, "prices")
     report = validate_prices(result.data, as_of_date=date(2024, 1, 12))
 
-    assert result.ok
+    # #951 (A101-N004): stricter contract - an unparseable manual date is a row error, never a loaded "ok" result.
+    assert not result.ok and result.status == "error" and "unparseable dates" in result.message
     assert "invalid_dates" in {issue.code for issue in report.issues}
 
 

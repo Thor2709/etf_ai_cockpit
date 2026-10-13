@@ -335,9 +335,9 @@ def test_deferred_and_auto_paper_decisions_are_append_only_outcomes(tmp_path: Pa
 
 def test_matured_outcome_compares_adjusted_price_benchmark_and_cash_and_incident_is_separate(tmp_path: Path) -> None:
     ledger = PaperLedger(tmp_path)
-    ledger.open_account(initial_cash=1_000)
-    order = ledger.accept_proposal(_proposal(source="mature"), execution_price=10, fee=2)
-    ledger.record_fill(str(order["order_id"]), quantity=10, price=10)
+    ledger.open_account(initial_cash=1_000, occurred_at=datetime(2026, 5, 1, tzinfo=timezone.utc))
+    order = ledger.accept_proposal(_proposal(source="mature"), execution_price=10, fee=2, occurred_at=datetime(2026, 5, 2, tzinfo=timezone.utc))
+    ledger.record_fill(str(order["order_id"]), quantity=10, price=10, occurred_at=datetime(2026, 6, 1, tzinfo=timezone.utc))
     as_of = datetime(2026, 7, 20, tzinfo=timezone.utc)
     outcome = ledger.mature_outcome(
         str(order["order_id"]),
@@ -424,13 +424,17 @@ def test_reject_after_defer_is_refused_without_writing_an_event(tmp_path: Path) 
 
 def test_outcome_restates_pre_split_fills_but_not_post_split_fills(tmp_path: Path) -> None:
     ledger = PaperLedger(tmp_path)
-    ledger.open_account(initial_cash=1_000)
-    order = ledger.accept_proposal(_proposal(source="split-mix"), execution_price=10)
-    ledger.record_fill(str(order["order_id"]), quantity=4, price=10)
-    ledger.apply_corporate_action("VWCE", split_ratio=2, source_authority="fixture", source_checksum="a" * 64)
-    ledger.record_fill(str(order["order_id"]), quantity=6, price=5)
+    ledger.open_account(initial_cash=1_000, occurred_at=datetime(2026, 5, 1, tzinfo=timezone.utc))
+    order = ledger.accept_proposal(_proposal(source="split-mix"), execution_price=10, occurred_at=datetime(2026, 5, 2, tzinfo=timezone.utc))
+    ledger.record_fill(str(order["order_id"]), quantity=4, price=10, occurred_at=datetime(2026, 6, 1, tzinfo=timezone.utc))
+    ledger.apply_corporate_action(
+        "VWCE", split_ratio=2, source_authority="fixture", source_checksum="a" * 64,
+        occurred_at=datetime(2026, 6, 2, tzinfo=timezone.utc),
+    )
+    ledger.record_fill(str(order["order_id"]), quantity=6, price=5, occurred_at=datetime(2026, 6, 3, tzinfo=timezone.utc))
     result = ledger.mature_outcome(
-        str(order["order_id"]), adjusted_close=6, benchmark_return=0, cash_return=0, source_authority="fixture", source_checksum="b" * 64
+        str(order["order_id"]), adjusted_close=6, benchmark_return=0, cash_return=0, source_authority="fixture", source_checksum="b" * 64,
+        occurred_at=datetime(2026, 7, 20, tzinfo=timezone.utc),
     )
     assert result["quantity"] == pytest.approx(14)
     assert result["entry_price"] == pytest.approx(5)
@@ -439,10 +443,10 @@ def test_outcome_restates_pre_split_fills_but_not_post_split_fills(tmp_path: Pat
 
 def test_outcome_with_converted_fills_requires_exit_fx_evidence(tmp_path: Path) -> None:
     ledger = PaperLedger(tmp_path)
-    ledger.open_account(initial_cash=1_000)
-    order = ledger.accept_proposal(_proposal(source="fx-outcome"), execution_price=10, fx_rate=0.5)
-    ledger.record_fill(str(order["order_id"]), quantity=10, price=10, fx_rate=0.5)
-    evidence = dict(benchmark_return=0, cash_return=0, source_authority="fixture", source_checksum="b" * 64)
+    ledger.open_account(initial_cash=1_000, occurred_at=datetime(2026, 5, 1, tzinfo=timezone.utc))
+    order = ledger.accept_proposal(_proposal(source="fx-outcome"), execution_price=10, fx_rate=0.5, occurred_at=datetime(2026, 5, 2, tzinfo=timezone.utc))
+    ledger.record_fill(str(order["order_id"]), quantity=10, price=10, fx_rate=0.5, occurred_at=datetime(2026, 6, 1, tzinfo=timezone.utc))
+    evidence = dict(benchmark_return=0, cash_return=0, source_authority="fixture", source_checksum="b" * 64, occurred_at=datetime(2026, 7, 20, tzinfo=timezone.utc))
     with pytest.raises(PaperLedgerError, match="exit_fx_rate"):
         ledger.mature_outcome(str(order["order_id"]), adjusted_close=10, **evidence)
     result = ledger.mature_outcome(str(order["order_id"]), adjusted_close=10, exit_fx_rate=0.5, **evidence)
