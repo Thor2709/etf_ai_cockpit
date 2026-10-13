@@ -22,6 +22,16 @@ def _clean_score(value: float | int | None) -> float | None:
     return float(max(-1.0, min(1.0, number)))
 
 
+def _cross_section_z(values: pd.Series) -> pd.Series:
+    """Robust z-score of a score input; a present value with no cross-sectional dispersion is neutral (0).
+
+    ``robust_zscore`` is unavailable for a constant series, but a present input among equal peers
+    (or a single instrument) is simply average. A missing input stays NaN.
+    """
+
+    return robust_zscore(values).fillna(0.0).where(values.notna())
+
+
 def component_scores(
     latest_features: pd.DataFrame,
     allocation: pd.DataFrame,
@@ -44,14 +54,14 @@ def component_scores(
         + 0.15 * frame["momentum_180d"]
     )
     frame["score_momentum"] = (
-        robust_zscore(frame["weighted_momentum"]).where(frame["weighted_momentum"].notna()) / 3
+        _cross_section_z(frame["weighted_momentum"]) / 3
     ).clip(-1, 1)
-    slope_z = robust_zscore(frame["trend_slope"]) / 3
+    slope_z = _cross_section_z(frame["trend_slope"]) / 3
     trend_inputs_available = frame[["trend_slope", "trend_100", "trend_200"]].notna().all(axis=1)
     binary_trend = (0.5 * frame["trend_100"] + 0.5 * frame["trend_200"]) * 2 - 1
     frame["score_trend"] = (0.70 * binary_trend + 0.30 * slope_z).where(trend_inputs_available).clip(-1, 1)
     annualised_volatility = frame["vol_60d_ann"].fillna(frame["ewma_vol_ann"])
-    vol_z = robust_zscore(annualised_volatility).where(annualised_volatility.notna()) / 3
+    vol_z = _cross_section_z(annualised_volatility) / 3
     drawdown = frame["drawdown_60d_max"]
     dd_penalty = drawdown.clip(-0.40, 0) / 0.40
     frame["score_risk"] = (-0.65 * vol_z + 0.35 * (1 + dd_penalty)).where(
@@ -62,7 +72,7 @@ def component_scores(
         axis=1,
     )
     frame["score_relative_strength"] = (
-        robust_zscore(frame["relative_strength_60d"]).where(frame["relative_strength_60d"].notna()) / 3
+        _cross_section_z(frame["relative_strength_60d"]) / 3
     ).clip(-1, 1)
     forecast_scores = forecast_scores or {}
     frame["score_toto"] = frame["etf_id"].map(forecast_scores.get("toto", {})).map(_clean_score).astype(float)

@@ -36,6 +36,7 @@ from etf_cockpit.application.derived_cache import (
     _calculation_window,
     _current_universe_revision,
     _price_binding_matches,
+    _feature_cache_binding,
     _price_snapshot_binding,
     _reference_identity_matches,
 )
@@ -85,8 +86,9 @@ class SignalService:
                 settings_revision=settings_revision,
                 reference_identity=reference_context.identity,
                 price_binding=price_binding,
+                extra_binding=_feature_cache_binding(universe_prices, calculation_window=calculation_window),
             )
-            if price_binding is not None
+            if price_binding is not None and calculation_window is not None
             else pd.DataFrame()
         )
         supplied_matches = (

@@ -2131,6 +2131,7 @@
      "start_date": "str"
     },
     "effective_cutoff": "str",
+    "feature_algorithm_version": "str",
     "payload_sha256": "str",
     "price_snapshot_checksum": "str",
     "price_snapshot_revision": "str",
@@ -2162,7 +2163,8 @@
     "reference_identity_hash": "str",
     "schema_version": 3,
     "settings_revision": "str",
-    "universe_revision": "str"
+    "universe_revision": "str",
+    "volume_snapshot_checksum": "str"
    }
   },
   "data/forecasts/forecast_results_yfinance_20260930.csv": {
