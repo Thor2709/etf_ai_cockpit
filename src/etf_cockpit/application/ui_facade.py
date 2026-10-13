@@ -229,6 +229,7 @@ from etf_cockpit.models.forecast_scores import (
     CANONICAL_DISTRIBUTION_HORIZONS_DAYS,  # noqa: F401
     PRIMARY_MODEL_HORIZON_DAYS,  # noqa: F401
 )  # noqa: F401
+from etf_cockpit.models.calibration import log_to_simple_return as log_to_simple_return
 from etf_cockpit.models.model_zoo import model_zoo_frame
 from etf_cockpit.models.coverage_audit import (
     build_coverage_audit,
@@ -527,6 +528,7 @@ __all__ = [
     "load_universe",
     "load_valuation_evidence",
     "load_valuation_market_inputs",
+    "log_to_simple_return",
     "MacroWarehouse",
     "MacroWarehouseError",
     "MANUAL_FILING_QUEUE_PATH",

@@ -108,7 +108,11 @@ def matured_probability_frame(
     model_name: str,
     as_of: date,
 ) -> pd.DataFrame:
-    """Matured (forecast_date, probability, outcome) rows of one model's ``prob_positive_return``.
+    """Matured (forecast_date, probability, outcome) rows of one model's P(up) forecasts.
+
+    The probability is ``prob_positive_return`` when present, else ``heuristic_probability_positive``:
+    unadmitted models store their value only in the heuristic column, and admission is what decides
+    whether it may ever become a user-facing probability.
 
     Only provenance-verified forecasts made on or before ``as_of`` whose target session exists in the
     prices known at ``as_of`` qualify; the outcome is 1 when the realised adjusted-close log return is
@@ -122,6 +126,8 @@ def matured_probability_frame(
     rows: list[dict[str, object]] = []
     for row in own.itertuples():
         probability = finite_float_or_none(row.prob_positive_return)
+        if probability is None:
+            probability = finite_float_or_none(row.heuristic_probability_positive)
         series = price_series.get(row.etf_id)
         if probability is None or not 0.0 <= probability <= 1.0 or series is None or len(series) < 5:
             continue
@@ -402,7 +408,7 @@ def _pool(rows: pd.DataFrame) -> tuple[float | None, float | None, int]:
 
 def _normalised_history(history: pd.DataFrame, as_of: date) -> pd.DataFrame:
     columns = ["model_name", "etf_id", "forecast_date", "horizon_days", "expected_return"]
-    lineage = ["model_version", "created_at", "run_id", "q10_return", "q90_return", "target_id", "prob_positive_return"]
+    lineage = ["model_version", "created_at", "run_id", "q10_return", "q90_return", "target_id", "prob_positive_return", "heuristic_probability_positive"]
     empty = pd.DataFrame(columns=[*columns, "status", *lineage, "provenance_verified"])
     if history is None or history.empty or not {*columns, "status"}.issubset(history.columns):
         return empty
@@ -413,7 +419,7 @@ def _normalised_history(history: pd.DataFrame, as_of: date) -> pd.DataFrame:
         frame[name] = frame[name].astype("string").str.strip().replace({"": pd.NA, "nan": pd.NA, "None": pd.NA})
     frame["forecast_date"] = pd.to_datetime(frame["forecast_date"], errors="coerce", utc=True, format="mixed").dt.tz_convert(None).dt.normalize()
     frame["created_at"] = pd.to_datetime(frame["created_at"], errors="coerce", utc=True, format="mixed").dt.tz_convert(None)
-    for name in ("horizon_days", "expected_return", "q10_return", "q90_return"):
+    for name in ("horizon_days", "expected_return", "q10_return", "q90_return", "prob_positive_return", "heuristic_probability_positive"):
         frame[name] = pd.to_numeric(frame[name], errors="coerce")
     # Date-only forecast artefacts use the end of the UTC origin day. A timestamp
     # after that boundary cannot establish a forecast made at the origin.

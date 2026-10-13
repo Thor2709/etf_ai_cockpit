@@ -11,6 +11,7 @@ import pytest
 
 from etf_cockpit.application.forecast_service import (
     _checkpoint_evidence,
+    _demote_unadmitted_probabilities,
     _forecast_to_row,
     _postprocess_forecast_benchmark_fields,
     _shadow_forecast,
@@ -307,3 +308,35 @@ def test_checkpoint_evidence_records_declared_revision_and_config() -> None:
     row = _forecast_to_row(_shadow_forecast(_producer_row("toto")), None, declared)
     assert row["checkpoint_sha"] == "abc123" and json.loads(row["checkpoint_config"])["backend"] == "toto2"
     assert row["checkpoint_licence"] == "unknown" and row["cutoff_scope"] == "unknown"
+
+
+def test_unadmitted_producer_history_can_earn_calibration_from_heuristic_column() -> None:
+    """Demoted rows carry P(up) only as ``heuristic_probability_positive``; admission must still see it."""
+
+    history, prices = _matured_history()
+    rows = []
+    for record in history.to_dict("records"):
+        forecast = _producer_row(
+            forecast_date=record["forecast_date"].date(), horizon_days=5, prob_positive_return=record["prob_positive_return"]
+        )
+        row = _forecast_to_row(_demote_unadmitted_probabilities(forecast, {}))
+        assert row["prob_positive_return"] is None and row["heuristic_probability_positive"] is not None
+        rows.append({**row, "status": "ok", "created_at": record["created_at"], "target_id": None})
+    demoted = pd.DataFrame(rows)
+    as_of = date(2025, 12, 31)
+    assert len(matured_probability_frame(demoted, prices, "timesfm", as_of)) == 60
+    assert positive_probability_status(demoted, prices, "timesfm", as_of) == "calibrated"
+    # A baseline row without any probability column never earns one.
+    assert positive_probability_status(demoted.assign(heuristic_probability_positive=None), prices, "timesfm", as_of) == "unavailable"
+
+
+def test_forecast_consumers_show_simple_return_of_log_forecasts() -> None:
+    from etf_cockpit.app.pages.etf_detail import _log_return_label
+    from etf_cockpit.app.pages.stock_page import _log_percent
+    from etf_cockpit.signals.simple_scores import _forecast_component
+
+    assert _log_return_label(0.10) == "+10.5%" and _log_return_label(float("nan")) == "N/A"
+    assert _log_percent(0.10) == "10.5%" and _log_percent(None) != "10.5%"
+    details = pd.DataFrame([{"model_name": "timesfm", "etf_id": "AAA", "horizon_days": 60, "expected_return": 0.10}])
+    component = _forecast_component("AAA", "timesfm", {"timesfm": {"AAA": 0.5}}, details, details)
+    assert "+10.5%" in component.why and "+10.0%" not in component.why

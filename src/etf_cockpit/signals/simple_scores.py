@@ -50,7 +50,7 @@ from etf_cockpit.features.cash_comparison import (
     validated_adjusted_price_frame,
 )
 from etf_cockpit.features.regime import build_benchmark_attribution_lookup, build_market_regime, build_portfolio_fit_lookup
-from etf_cockpit.models.calibration import calibration_lookup, evaluate_forecast_calibration, load_forecast_history
+from etf_cockpit.models.calibration import calibration_lookup, evaluate_forecast_calibration, load_forecast_history, log_to_simple_return
 from etf_cockpit.models.forecast_scores import (
     configured_forecast_request_identity,
     filter_forecasts_for_universe,
@@ -2310,7 +2310,7 @@ def _forecast_component(
         if selected is not None:
             why = (
                 f"Selected {int(selected['horizon_days'])} trading-day forecast expects "
-                f"{_fmt_pct(selected['expected_return'])}; this maps to {raw_to_score_10(raw)}/10."
+                f"{_fmt_pct(log_to_simple_return(selected['expected_return']))} (simple return, exp(y) - 1); this maps to {raw_to_score_10(raw)}/10."
             )
         return _component(model_name, raw, why, authority="low", role="model_confirmation")
 
