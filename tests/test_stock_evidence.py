@@ -58,9 +58,12 @@ def test_golden_metrics_for_a_fiscal_year_company() -> None:
     ni, rev = 100.0 * 1.1**3, 1000.0 * 1.1**3
     assert m["revenue"].value == pytest.approx(rev) and m["revenue"].basis == "FY"
     assert m["ebit_margin"].value == pytest.approx(200.0 / rev)
-    assert m["roe"].value == pytest.approx(ni / ((1100.0 + 1200.0) / 2))  # average of opening FY2024 and closing FY2025
+    assert m["roe"].value == pytest.approx(ni / 1200.0)  # closing parent equity at FY2025
     nopat = 200.0 * (1 - 45.0 / 180.0)
-    assert m["roic"].value == pytest.approx(nopat / (((1100 + 300 + 50 - 150) + (1200 + 300 + 50 - 150)) / 2))
+    assert m["roic"].status == sm.UNAVAILABLE
+    assert "ownership" in str(m["roic"].reason)
+    compatible = _evidence([_period(y, minority_interest=0.0) for y in (2022, 2023, 2024, 2025)])
+    assert compatible.metrics["roic"].value == pytest.approx(nopat / (1200 + 300 + 50 - 150))  # closing invested capital at FY2025
     assert m["fcf"].value == pytest.approx(150.0) and m["net_debt"].value == pytest.approx(200.0)
     assert m["market_cap"].value == pytest.approx(500.0)  # 50 x 10
     assert m["ev"].value == pytest.approx(730.0)  # 500 + 200 net debt + 30 minority
@@ -97,12 +100,15 @@ def test_price_in_another_currency_needs_an_fx_rate() -> None:
     assert pence.metrics["market_cap"].value == pytest.approx(50.0 * 1.2 * 10.0)
 
 
-def test_inconsistent_filing_share_count_falls_back_to_the_provider_count() -> None:
+def test_inconsistent_filing_share_count_needs_reconciliation_instead_of_provider_fallback() -> None:
     periods = [_period(y, shares_outstanding=0.01) for y in (2022, 2023, 2024, 2025)]  # e.g. class A count against a class B price
     market = _market(shares_fallback=10.0, shares_fallback_known_at=datetime(2026, 10, 8, tzinfo=UTC))
     ev = _evidence(periods, market)
-    assert ev.metrics["market_cap"].value == pytest.approx(500.0)
-    assert any("differs from the provider count" in note for note in ev.notes)
+    assert ev.metrics["market_cap"].status == sm.UNAVAILABLE
+    assert ev.metrics["market_cap"].value is None
+    assert "reconciliation" in str(ev.metrics["market_cap"].reason)
+    assert ev.metrics["pe"].status == sm.UNAVAILABLE
+    assert any("explicit share-class, ADR or split reconciliation is unavailable" in note for note in ev.notes)
 
 
 def test_peer_median_excludes_the_instrument_and_shows_the_count() -> None:
