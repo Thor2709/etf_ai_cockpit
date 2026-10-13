@@ -62,6 +62,16 @@ def validate_prices(
         )
 
     frame = prices.copy()
+    etf_ids = frame["etf_id"]
+    missing_id = etf_ids.isna() | (etf_ids.astype(str).str.strip() == "")
+    if missing_id.any():
+        # groupby would silently drop these rows: report them instead of losing them.
+        issues.append(
+            DataQualityIssue("ALL", "block", "missing_etf_id", f"{int(missing_id.sum())} price rows have a missing or empty instrument ID.")
+        )
+        frame = frame.loc[~missing_id].copy()
+        if frame.empty:
+            return DataQualityReport(as_of_date=as_of_date or date.today(), issues=issues)
     price_numeric_columns = ["open", "high", "low", "close", "adjusted_close", "volume"]
     for column in price_numeric_columns:
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
@@ -83,14 +93,64 @@ def validate_prices(
             return DataQualityReport(as_of_date=as_of_date or date.today(), issues=issues)
     frame["date"] = parsed_dates.dt.date
     effective_as_of = as_of_date or max(frame["date"])
+    future_rows = frame["date"] > effective_as_of
+    future_counts = frame.loc[future_rows].groupby("etf_id", sort=False).size()
+    for etf_id, count in future_counts.items():
+        issues.append(
+            DataQualityIssue(
+                str(etf_id),
+                "warning",
+                "future_dated_rows",
+                f"{int(count)} price rows are dated after the as-of date {effective_as_of} and are ignored for the decision.",
+            )
+        )
+    known_ids = list(dict.fromkeys(frame["etf_id"]))
+    known = frame.loc[~future_rows]
+    if known.empty:
+        issues.append(DataQualityIssue("ALL", "block", "no_prices_at_as_of", f"No price rows are dated on or before {effective_as_of}."))
+        return DataQualityReport(as_of_date=effective_as_of, issues=issues)
+    value_columns = price_numeric_columns
+    duplicate_mask = known.duplicated(["etf_id", "date"], keep=False)
+    if duplicate_mask.any():
+        for etf_id, group in known.loc[duplicate_mask].groupby("etf_id", sort=False):
+            conflicting = group.groupby("date")[value_columns].nunique(dropna=False).gt(1).any(axis=1)
+            if conflicting.any():
+                issues.append(
+                    DataQualityIssue(
+                        str(etf_id),
+                        "block",
+                        "conflicting_duplicate_rows",
+                        f"{int(conflicting.sum())} dates carry duplicate rows with different prices.",
+                    )
+                )
+            else:
+                issues.append(
+                    DataQualityIssue(
+                        str(etf_id),
+                        "warning",
+                        "duplicate_rows",
+                        f"{int(group.duplicated(['date']).sum())} equal duplicate rows were collapsed to one per date.",
+                    )
+                )
+        known = known.drop_duplicates(["etf_id", "date"], keep="first")
     if max_stale_business_days is not None:
         block_stale_business_days = max_stale_business_days
         warning_stale_business_days = min(warning_stale_business_days, max_stale_business_days)
-    latest_overall = max(frame["date"])
+    latest_overall = max(known["date"])
     overall_stale_days = _business_days_between(latest_overall, effective_as_of)
 
-    for etf_id, group in frame.groupby("etf_id", sort=False):
-        group = group.sort_values("date")
+    for etf_id in known_ids:
+        group = known[known["etf_id"] == etf_id].sort_values("date")
+        if group.empty:
+            issues.append(
+                DataQualityIssue(
+                    etf_id,
+                    "block",
+                    "insufficient_history",
+                    f"Only 0 rows available on or before {effective_as_of}; {min_history_days} required for main signal.",
+                )
+            )
+            continue
         latest = max(group["date"])
         stale_days = _business_days_between(latest, effective_as_of)
         if stale_days > block_stale_business_days:
@@ -126,6 +186,8 @@ def validate_prices(
         bad_ohlc = group[
             (group["open"] <= 0)
             | (group["close"] <= 0)
+            | (group["high"] <= 0)
+            | (group["low"] <= 0)
             | (group["high"] < group["low"])
             | (group["high"] < group[["open", "close"]].max(axis=1))
             | (group["low"] > group[["open", "close"]].min(axis=1))
@@ -157,6 +219,9 @@ def validate_prices(
         outliers = (returns - rolling_median).abs() > 8 * robust_sigma
         if outliers.fillna(False).any():
             issues.append(DataQualityIssue(etf_id, "warning", "return_outlier", "One-day return exceeds 8 robust sigma."))
+
+        if (group["volume"] < 0).any():
+            issues.append(DataQualityIssue(etf_id, "block", "negative_volume", f"{int((group['volume'] < 0).sum())} rows have negative volume."))
 
         if (group["volume"].fillna(0) == 0).any():
             issues.append(DataQualityIssue(etf_id, "warning", "zero_volume", "Volume is zero or missing for at least one row."))

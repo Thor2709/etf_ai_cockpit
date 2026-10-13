@@ -16,11 +16,12 @@ import json
 from typing import Any
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 import pandas as pd
 
 from etf_cockpit.core.config import ProviderSection
+from etf_cockpit.core.http_fetch import host_checked_urlopen as urlopen
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority, redact_text
 from etf_cockpit.data.providers import DataProvider, ProviderResult
 
@@ -35,6 +36,10 @@ _ENDPOINTS = {
     "etf_metadata": "/etf/profile",
     "etf_holdings": "/etf/holdings",
 }
+# Candle series start/end on trading days: an edge gap of up to a long weekend plus a
+# holiday (4 days) between the requested bound and the first/last observed candle is not
+# missing coverage.
+_EDGE_GAP_SECONDS = 4 * 86_400
 _REQUIRED_REQUEST_FIELDS = {
     "prices": frozenset({"symbol", "resolution", "from", "to"}),
     "fx": frozenset({"symbol", "resolution", "from", "to"}),
@@ -65,6 +70,7 @@ class _CapabilityEvidence:
     window_end: date | None = None
     reason: str = "Entitlement and historical coverage have not been proven."
     error_fingerprint: str | None = None
+    verified_at: str | None = None
 
 
 class FinnhubProvider(DataProvider):
@@ -152,7 +158,9 @@ class FinnhubProvider(DataProvider):
                 window_start, window_end = _probe_window(
                     dataset, params, coverage_start, coverage_end
                 )
+                _check_payload_identity(payload, params)
                 self._evidence[dataset] = _CapabilityEvidence(
+                    verified_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
                     entitled=True,
                     coverage_start=coverage_start,
                     coverage_end=coverage_end,
@@ -183,6 +191,11 @@ class FinnhubProvider(DataProvider):
         dataset = str(dataset_type).strip().lower()
         if dataset not in CAPABILITIES:
             return self._unavailable(dataset, "Capability is not supported by Finnhub.")
+        # Stored probe evidence expires with the configuration that produced it: a
+        # disabled adapter, revoked terms or a removed key revokes the entitlement.
+        guard_reason = self._probe_guard_reason()
+        if guard_reason:
+            return self._unavailable(dataset, f"Historical use rejected: entitlement revoked ({guard_reason})")
         evidence = self._evidence[dataset]
         if not evidence.entitled:
             return self._unavailable(dataset, f"Historical use rejected: {evidence.reason}")
@@ -286,7 +299,7 @@ class FinnhubProvider(DataProvider):
             configured=configured,
             entitlement=entitlement,
             rate_limit_note="experimental optional source; quota failures are non-blocking",
-            last_success_at=None,
+            last_success_at=evidence.verified_at if evidence.entitled else None,
             error_fingerprint=evidence.error_fingerprint,
             secret_present=bool(self.api_key),
             message=redact_text(message),
@@ -431,11 +444,12 @@ def _coverage(
             end_ts = int(params["to"])
         except (TypeError, ValueError, KeyError):
             return None, None
-        if observed[0] > start_ts or observed[-1] < end_ts:
+        if observed[0] - start_ts > _EDGE_GAP_SECONDS or end_ts - observed[-1] > _EDGE_GAP_SECONDS:
             return None, None
+        # Non-trading days at the window edges carry no candle but are covered.
         return (
-            datetime.fromtimestamp(observed[0], timezone.utc).date(),
-            datetime.fromtimestamp(observed[-1], timezone.utc).date(),
+            min(datetime.fromtimestamp(observed[0], timezone.utc).date(), datetime.fromtimestamp(start_ts, timezone.utc).date()),
+            max(datetime.fromtimestamp(observed[-1], timezone.utc).date(), datetime.fromtimestamp(end_ts, timezone.utc).date()),
         )
     if dataset == "etf_holdings":
         observed = payload.get("atDate")
@@ -454,6 +468,15 @@ def _coverage(
                 continue
             return observed, observed
     return None, None
+
+
+def _check_payload_identity(payload: Mapping[str, object], params: Mapping[str, object]) -> None:
+    """Reject a probe response that names a different instrument than the request."""
+    for field, key in (("symbol", "symbol"), ("isin", "isin")):
+        returned = payload.get(field)
+        requested = params.get(key)
+        if returned and requested and str(returned).strip().casefold() != str(requested).strip().casefold():
+            raise ValueError("Finnhub response identity does not match the request")
 
 
 def _response_parts(response: Any) -> tuple[int, object]:

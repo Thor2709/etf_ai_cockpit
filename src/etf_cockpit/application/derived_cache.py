@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from etf_cockpit.features.feature_pipeline import RELATIVE_STRENGTH_FALLBACK_ANCHOR
+from etf_cockpit.features.feature_pipeline import FEATURE_ALGORITHM_VERSION, RELATIVE_STRENGTH_FALLBACK_ANCHOR
 
 from collections.abc import (
     Callable,
@@ -41,6 +41,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
 from etf_cockpit.portfolio.benchmark_reference import (
     CanonicalReferenceContext,
     adjusted_price_snapshot_binding,
+    clip_to_decision_window,
 )
 
 
@@ -334,6 +335,30 @@ def _calculation_window(
         "end_date": requested_as_of.isoformat(),
         "decision_time": f"{requested_as_of.isoformat()}T23:59:59+00:00",
     }
+
+
+def _feature_cache_binding(
+    prices: pd.DataFrame,
+    *,
+    calculation_window: Mapping[str, str],
+) -> dict[str, object]:
+    """Extra identity of the feature cache: algorithm version and the volume column.
+
+    The adjusted-price checksum covers prices only, but the liquidity features also read the
+    volume, so a volume revision or a formula change must invalidate the cached features.
+    """
+
+    volume = "unavailable"
+    if {"date", "etf_id", "volume"}.issubset(prices.columns):
+        clipped = clip_to_decision_window(prices, **{key: str(calculation_window[key]) for key in ("start_date", "end_date", "decision_time")})
+        frame = clipped[["date", "etf_id", "volume"]].copy()
+        frame["etf_id"] = frame["etf_id"].astype(str).str.strip()
+        frame["date"] = pd.to_datetime(frame["date"], errors="coerce", utc=True, format="mixed").map(pd.Timestamp.isoformat)
+        frame["volume"] = pd.to_numeric(frame["volume"], errors="coerce").map(lambda value: None if pd.isna(value) else float(value))
+        frame = frame.sort_values(["etf_id", "date", "volume"], kind="stable", na_position="last")
+        encoded = json.dumps(frame.to_dict(orient="records"), sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        volume = hashlib.sha256(encoded).hexdigest()
+    return {"feature_algorithm_version": FEATURE_ALGORITHM_VERSION, "volume_snapshot_checksum": volume}
 
 
 def _price_snapshot_binding(

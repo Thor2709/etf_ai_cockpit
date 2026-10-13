@@ -18,6 +18,8 @@ from etf_cockpit.data.contracts import redact_text
 T = TypeVar("T")
 _SCHEMA_VERSION = 1
 _RUN_STATUSES = {"pending", "done", "failed", "unavailable"}
+# An "unavailable" answer (empty / no data) is a statement about one moment, not a permanent fact.
+DEFAULT_UNAVAILABLE_TTL_SECONDS = 3600.0
 
 
 class RetrievalCheckpointError(ValueError):
@@ -140,6 +142,7 @@ class BatchRetriever(Generic[T]):
         encode: Callable[[T], bytes] | None = None,
         decode: Callable[[bytes], T] | None = None,
         is_available: Callable[[T], bool] | None = None,
+        unavailable_ttl_seconds: float = DEFAULT_UNAVAILABLE_TTL_SECONDS,
     ) -> None:
         if not str(provider).strip():
             raise ValueError("provider must be non-empty")
@@ -149,6 +152,8 @@ class BatchRetriever(Generic[T]):
             raise ValueError("max_retries cannot be negative")
         if backoff_seconds < 0:
             raise ValueError("backoff_seconds cannot be negative")
+        if unavailable_ttl_seconds < 0:
+            raise ValueError("unavailable_ttl_seconds cannot be negative")
         if (encode is None) != (decode is None):
             raise ValueError("encode and decode must be supplied together")
         if (cache_dir is None) != (checkpoint_path is None):
@@ -167,6 +172,7 @@ class BatchRetriever(Generic[T]):
         self.encode = encode or _json_encode
         self.decode = decode or _json_decode
         self.is_available = is_available or (lambda value: value is not None)
+        self.unavailable_ttl_seconds = float(unavailable_ttl_seconds)
         self._memory_cache: dict[bytes, tuple[bytes, str]] = {}
         self._memory_manifest: dict[str, object] | None = None
 
@@ -195,6 +201,11 @@ class BatchRetriever(Generic[T]):
         cached_values: dict[str, tuple[T, str] | None] = {
             symbol: self._read_cache(self._cache_key(symbol, request)) for symbol in ordered_symbols
         }
+
+        # An expired "unavailable" entry is dropped so the symbol is fetched again.
+        for symbol, cached in list(cached_values.items()):
+            if cached is not None and not self.is_available(cached[0]) and self._expired(cached[1]):
+                cached_values[symbol] = None
 
         # Completed entries must still have a valid content-addressed cache object.
         # Invalid or missing content is converted to failed so it can be refetched.
@@ -245,12 +256,6 @@ class BatchRetriever(Generic[T]):
                         value = downloader(symbol)
                         payload = self.encode(value)
                         retrieved_at = self._retrieved_at()
-                        self._write_cache(self._cache_key(symbol, request), payload, retrieved_at)
-                        status = "done" if self.is_available(value) else "unavailable"
-                        record.update(status=status, error_fingerprint=None)
-                        self._write_manifest(manifest)
-                        values[symbol] = self._result(symbol, status, attempts, value, retrieved_at)
-                        break
                     except Exception as exc:
                         error = redact_text(f"{type(exc).__name__}: {exc}")
                         record.update(
@@ -260,6 +265,27 @@ class BatchRetriever(Generic[T]):
                         self._write_manifest(manifest)
                         if attempts_this_run < self.max_retries + 1:
                             self.sleep(self.backoff_seconds * (2 ** (attempts_this_run - 1)))
+                        continue
+                    # The download succeeded: a cache or checkpoint write failure is a local persistence
+                    # fault, classified separately and never retried as a provider failure.
+                    status = "done" if self.is_available(value) else "unavailable"
+                    try:
+                        self._write_cache(self._cache_key(symbol, request), payload, retrieved_at)
+                        record.update(status=status, error_fingerprint=None)
+                        self._write_manifest(manifest)
+                    except Exception as exc:
+                        error = redact_text(f"checkpoint_failure: {type(exc).__name__}: {exc}")
+                        record.update(status="failed", error_fingerprint=_error_fingerprint(error))
+                        values[symbol] = SymbolRetrieval(
+                            symbol=symbol,
+                            status="failed",
+                            attempts=attempts,
+                            error=error,
+                            error_fingerprint=_error_fingerprint(error),
+                        )
+                        break
+                    values[symbol] = self._result(symbol, status, attempts, value, retrieved_at)
+                    break
                 else:
                     record["status"] = "failed"
                 if symbol not in values:
@@ -438,6 +464,13 @@ class BatchRetriever(Generic[T]):
         self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(self.checkpoint_path, manifest)
 
+    def _expired(self, retrieved_at: str) -> bool:
+        try:
+            stamp = datetime.fromisoformat(retrieved_at.replace("Z", "+00:00"))
+        except ValueError:
+            return True
+        return self.clock() - stamp.timestamp() > self.unavailable_ttl_seconds
+
     def _retrieved_at(self) -> str:
         return datetime.fromtimestamp(self.clock(), timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -477,6 +510,7 @@ def _json_decode(payload: bytes) -> T:
 
 __all__ = [
     "BatchRetriever",
+    "DEFAULT_UNAVAILABLE_TTL_SECONDS",
     "ProviderRateLimiter",
     "RetrievalBatchResult",
     "RetrievalCheckpointError",
