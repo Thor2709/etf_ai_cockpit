@@ -110,6 +110,10 @@ def test_missing_solvency_is_insufficient_despite_top_momentum() -> None:
     assert gated.authority.research_decision_status == "insufficient_evidence"
     assert gated.authority.score_rankable is False and gated.authority.financial_safety_verified is False
     assert gated.as_dict()["authority"]["execution_allowed"] is False
+    # The discarded group's evidence is not counted: no coverage, confidence or contributions; rows stay visible.
+    assert gated.coverage == 0.0 and gated.evidence_confidence_10 is None
+    assert gated.contributions == ()
+    assert gated.components and all(row["score_counted"] is False and row["contribution_raw"] is None for row in gated.components)
 
     held = build_canonical_score(
         instrument_id="ACME",

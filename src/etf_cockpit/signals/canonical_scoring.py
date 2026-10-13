@@ -314,6 +314,7 @@ def build_canonical_score(
     explanations: list[str] = []
     total_configured = 0.0
     total_active = 0.0
+    discarded_keys: set[str] = set()
     for group, weights in selected_policy.groups.items():
         configured = sum(weights.values())
         active_weight = 0.0
@@ -349,8 +350,15 @@ def build_canonical_score(
         configured -= exempt_weight
         score = None if active_weight <= 0 else _score_10(weighted / active_weight)
         if group in insufficient:
-            # A failed critical gate: the remaining inputs are never averaged up into an attractive score.
+            # A failed critical gate: the remaining inputs are never averaged up into an attractive score, and the
+            # discarded group's evidence counts neither toward coverage/confidence nor as a contribution.
             score = None
+            active_weight = 0.0
+            group_contributions = []
+            for row in group_rows:
+                row["contribution_raw"] = None
+                row["score_counted"] = False
+            discarded_keys.update(str(row["key"]) for row in group_rows)
             warnings.append(f"{group}_insufficient_evidence:{','.join(insufficient[group])}")
         coverage = active_weight / configured if configured > 0 else 0.0
         if coverage < 1.0:
@@ -363,7 +371,7 @@ def build_canonical_score(
         all_component_rows.extend(group_rows)
         contributions.extend(group_contributions)
     overall_coverage = total_active / total_configured if total_configured else 0.0
-    confidence = _confidence_score(source_components, overall_coverage)
+    confidence = _confidence_score([c for c in source_components if c.key not in discarded_keys], overall_coverage)
     structure_identity = dict(structure_provenance or {})
     if structure_confidence_cap is not None:
         cap = _bounded_structure_cap(structure_confidence_cap)
