@@ -107,6 +107,7 @@ def matured_probability_frame(
     prices: pd.DataFrame,
     model_name: str,
     as_of: date,
+    *, model_version: str | None = None, target_id: str | None = None, horizon_days: int | None = None,
 ) -> pd.DataFrame:
     """Matured (forecast_date, probability, outcome) rows of one model's P(up) forecasts.
 
@@ -119,9 +120,20 @@ def matured_probability_frame(
     positive. Rows with a mismatched registered target or an out-of-range probability are dropped.
     """
 
-    columns = ["forecast_date", "probability", "outcome"]
-    forecasts = _normalised_history(history, as_of)
+    columns = ["forecast_date", "probability", "outcome", "actual", "horizon_days", "q10_return", "q50_return", "q90_return"]
+    if not model_version or horizon_days is None or not target_matches_evaluation(target_id, horizon_days):
+        return pd.DataFrame(columns=columns)
+    diagnostic_history = history.copy()
+    if "reason_unavailable" in diagnostic_history and "status" in diagnostic_history:
+        diagnostic_only = diagnostic_history["status"].eq("unavailable") & diagnostic_history["reason_unavailable"].eq(
+            "Insufficient finite per-horizon calibration metrics or effective dates."
+        )
+        # These rows remain unavailable in storage/publication; only matured diagnostics may
+        # establish future evidence after their original target and lineage are verified below.
+        diagnostic_history.loc[diagnostic_only, "status"] = "ok"
+    forecasts = _normalised_history(diagnostic_history, as_of)
     own = forecasts.loc[forecasts["model_name"].eq(model_name.lower()) & forecasts["provenance_verified"]]
+    own = own.loc[own["model_version"].eq(model_version) & own["target_id"].eq(target_id) & own["horizon_days"].eq(horizon_days)]
     price_series = _price_series(prices, as_of)
     rows: list[dict[str, object]] = []
     for row in own.itertuples():
@@ -135,14 +147,20 @@ def matured_probability_frame(
             continue
         actual = realised_horizon_return(series, row.forecast_date, int(row.horizon_days))
         if actual is not None:
-            rows.append({"forecast_date": row.forecast_date, "probability": probability, "outcome": int(actual > 0)})
+            rows.append({"forecast_date": row.forecast_date, "probability": probability, "outcome": int(actual > 0), "actual": actual, "horizon_days": row.horizon_days, "q10_return": row.q10_return, "q50_return": row.q50_return, "q90_return": row.q90_return})
     return pd.DataFrame(rows, columns=columns)
 
 
-def positive_probability_status(history: pd.DataFrame, prices: pd.DataFrame, model_name: str, as_of: date) -> str:
+def positive_probability_status(history: pd.DataFrame, prices: pd.DataFrame, model_name: str, as_of: date, **scope: object) -> str:
     """``calibrated`` only when the model's matured probabilities pass chronological admission, else ``unavailable``."""
 
-    admission = probability_admission(matured_probability_frame(history, prices, model_name, as_of))
+    from etf_cockpit.models.calibration import horizon_calibration_scores
+
+    evidence = matured_probability_frame(history, prices, model_name, as_of, **scope)
+    metrics = horizon_calibration_scores(evidence)
+    if metrics.empty or not metrics["status"].eq("ok").all():
+        return PROBABILITY_UNAVAILABLE
+    admission = probability_admission(evidence)
     return str(admission.get("status") or PROBABILITY_UNAVAILABLE)
 
 
@@ -408,7 +426,7 @@ def _pool(rows: pd.DataFrame) -> tuple[float | None, float | None, int]:
 
 def _normalised_history(history: pd.DataFrame, as_of: date) -> pd.DataFrame:
     columns = ["model_name", "etf_id", "forecast_date", "horizon_days", "expected_return"]
-    lineage = ["model_version", "created_at", "run_id", "q10_return", "q90_return", "target_id", "prob_positive_return", "heuristic_probability_positive"]
+    lineage = ["model_version", "created_at", "run_id", "q10_return", "q50_return", "q90_return", "target_id", "prob_positive_return", "heuristic_probability_positive"]
     empty = pd.DataFrame(columns=[*columns, "status", *lineage, "provenance_verified"])
     if history is None or history.empty or not {*columns, "status"}.issubset(history.columns):
         return empty

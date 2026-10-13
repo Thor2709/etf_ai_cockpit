@@ -31,7 +31,7 @@ from etf_cockpit.data.duckdb_store import load_prices
 from etf_cockpit.features.forecast_lab import build_forecast_lab_workspace as _build_forecast_lab_workspace
 from etf_cockpit.features.returns import daily_log_returns
 from etf_cockpit.models.baseline_models import baseline_forecast
-from etf_cockpit.models.calibration import load_forecast_history
+from etf_cockpit.models.calibration import load_forecast_history, target_matches_evaluation, horizon_calibration_scores
 from etf_cockpit.models.forecast_scores import configured_forecast_request_identity as configured_forecast_request_identity, forecast_request_identity
 from etf_cockpit.models.model_promotion import (
     OPTIONAL_MODELS,
@@ -43,6 +43,7 @@ from etf_cockpit.models.model_promotion import (
     ModelPromotion,
     evaluate_model_promotions,
     positive_probability_status,
+    matured_probability_frame,
     promotion_frame,
 )
 from etf_cockpit.portfolio.benchmark_reference_contract import CanonicalBenchmarkRegistry
@@ -174,6 +175,7 @@ class ForecastService:
             progress_callback("Checking cached Toto forecasts", 3, 4)
         with timed_step("forecasts", "model:toto", run_id=run_id):
             forecasts.extend(self._run_toto_forecasts(price_frame, etf_ids, horizons, as_of_date, run_id))
+        forecasts = self._evidence_gated_forecasts(forecasts, as_of_date, evidence_prices)
         forecasts = _postprocess_forecast_benchmark_fields(
             forecasts,
             benchmark_returns,
@@ -222,17 +224,32 @@ class ForecastService:
         as_of_date: date,
         prices: pd.DataFrame,
         history: pd.DataFrame | None = None,
-    ) -> dict[str, str]:
+    ) -> dict[tuple[str, str, str | None, int], str]:
         """Admission of each producer's P(up) on matured history known at ``as_of_date`` (never the current run)."""
 
-        models = sorted({
-            forecast.model_name for forecast in forecasts
-            if forecast.model_name != "baseline" and forecast.prob_positive_return is not None
-        })
-        if not models:
-            return {}
         stored = load_forecast_history() if history is None else history
-        return {model: positive_probability_status(stored, prices, model, as_of_date) for model in models}
+        return {
+            _probability_scope(forecast): positive_probability_status(
+                stored, prices, forecast.model_name, as_of_date,
+                model_version=forecast.model_version, target_id=forecast.target_id, horizon_days=forecast.horizon_days,
+            ) for forecast in forecasts
+        }
+
+    def _evidence_gated_forecasts(self, forecasts, as_of_date, prices, history=None):
+        stored = load_forecast_history() if history is None else history
+        output = []
+        for forecast in forecasts:
+            forecast = _identity_gated_forecast(forecast, self.config.models.models)
+            if forecast.status == "ok":
+                evidence = matured_probability_frame(
+                    stored, prices, forecast.model_name, as_of_date,
+                    model_version=forecast.model_version, target_id=forecast.target_id, horizon_days=forecast.horizon_days,
+                )
+                metrics = horizon_calibration_scores(evidence)
+                if metrics.empty or not metrics["status"].eq("ok").all():
+                    forecast = _unavailable_forecast(forecast, "Insufficient finite per-horizon calibration metrics or effective dates.")
+            output.append(forecast)
+        return output
 
     def evaluate_promotions(
         self,
@@ -360,6 +377,26 @@ class ForecastService:
                 )
 
 
+def _unavailable_forecast(forecast: ForecastResult, reason: str) -> ForecastResult:
+    return replace(forecast, status="unavailable", reason_unavailable=reason, error_message=reason,
+                   model_allowed_in_score=False, prob_positive_return=None, prob_beat_benchmark=None,
+                   probability_calibration_status="unavailable")
+
+
+def _identity_gated_forecast(forecast: ForecastResult, model_settings=None) -> ForecastResult:
+    if not target_matches_evaluation(forecast.target_id, forecast.horizon_days):
+        return _unavailable_forecast(forecast, "Missing, unregistered or mismatched target identity.")
+    if forecast.model_name in OPTIONAL_MODELS:
+        revision = str(_checkpoint_evidence(forecast.model_name, model_settings)["checkpoint_sha"])
+        if len(revision) != 40 or any(char not in "0123456789abcdefABCDEF" for char in revision):
+            return _unavailable_forecast(forecast, "Missing or unverifiable immutable checkpoint identity.")
+    return forecast
+
+
+def _probability_scope(forecast: ForecastResult) -> tuple[str, str, str | None, int]:
+    return (forecast.model_name, forecast.model_version, forecast.target_id, forecast.horizon_days)
+
+
 def _forecast_to_row(
     forecast: ForecastResult,
     promotions: Mapping[str, ModelPromotion] | None = None,
@@ -367,6 +404,7 @@ def _forecast_to_row(
 ) -> dict[str, object]:
     if forecast.model_name == "baseline":
         forecast = _apply_promotion(forecast, {}, False)
+    forecast = _identity_gated_forecast(forecast, model_settings)
     data = asdict(forecast)
     data["forecast_date"] = forecast.forecast_date.isoformat()
     promotion = _promotion_for_row(forecast, promotions or {})
@@ -661,7 +699,7 @@ def _timesfm_price_series(pivot: pd.DataFrame, etf_id: str, as_of_date: date) ->
 
 
 def _demote_unadmitted_probabilities(
-    forecast: ForecastResult, probability_status: Mapping[str, str] | None
+    forecast: ForecastResult, probability_status: Mapping[tuple[str, str, str | None, int], str] | None
 ) -> ForecastResult:
     """Keep a producer's P(up) as ``prob_positive_return`` only when its admission is ``calibrated``.
 
@@ -669,7 +707,7 @@ def _demote_unadmitted_probabilities(
     None. ``prob_beat_benchmark`` has no matured benchmark-outcome admission, so it is never calibrated here.
     """
 
-    admitted = (probability_status or {}).get(forecast.model_name) == "calibrated"
+    admitted = forecast.status == "ok" and target_matches_evaluation(forecast.target_id, forecast.horizon_days) and (probability_status or {}).get(_probability_scope(forecast)) == "calibrated"
     positive = forecast.prob_positive_return
     heuristic = forecast.heuristic_probability_positive
     if heuristic is None and positive is not None and math.isfinite(positive) and 0.0 <= positive <= 1.0:
@@ -690,7 +728,7 @@ def _demote_unadmitted_probabilities(
 def _postprocess_forecast_benchmark_fields(
     forecasts: list[ForecastResult],
     benchmark_returns: pd.Series | None,
-    probability_status: Mapping[str, str] | None = None,
+    probability_status: Mapping[tuple[str, str, str | None, int], str] | None = None,
 ) -> list[ForecastResult]:
     """Derive relative fields uniformly using horizon log-return sigma from every producer.
 

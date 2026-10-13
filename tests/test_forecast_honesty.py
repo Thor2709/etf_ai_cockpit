@@ -11,6 +11,9 @@ import pytest
 
 from etf_cockpit.application.forecast_service import (
     _checkpoint_evidence,
+    _identity_gated_forecast,
+    _probability_scope,
+    ForecastService,
     _demote_unadmitted_probabilities,
     _forecast_to_row,
     _postprocess_forecast_benchmark_fields,
@@ -90,7 +93,7 @@ def test_inverted_quantile_set_is_rejected() -> None:
 
     row = {
         "forecast_date": "2026-01-02", "model_name": "m", "etf_id": "X", "horizon_days": 60,
-        "expected_return": 0.0, "status": "ok", "model_allowed_in_score": True,
+        "expected_return": 0.0, "status": "ok", "model_allowed_in_score": True, "target_id": "adj_close_log_return_60d",
         **{field: value for field, value in inverted.items()},
     }
     distribution = forecast_return_distributions(pd.DataFrame([row]))["X"]
@@ -111,7 +114,7 @@ def test_distribution_uses_mixture_not_median_of_model_quantiles() -> None:
         rows.append({
             "forecast_date": "2026-01-02", "model_name": name, "etf_id": "X", "horizon_days": 60,
             "expected_return": centre, "q10_return": centre - 0.2, "q50_return": centre, "q90_return": centre + 0.2,
-            "status": "ok", "model_allowed_in_score": True,
+            "status": "ok", "model_allowed_in_score": True, "target_id": "adj_close_log_return_60d",
         })
     distribution = forecast_return_distributions(pd.DataFrame(rows))["X"]
     assert distribution["quantile_method"] == "weighted_mixture_cdf.v1"
@@ -135,7 +138,7 @@ def test_uncalibrated_probability_up_is_heuristic_or_unavailable() -> None:
     # An uncalibrated model row never yields a user-facing probability in the canonical distribution.
     uncalibrated = pd.DataFrame([{
         "forecast_date": "2026-01-02", "model_name": "m", "etf_id": "X", "horizon_days": 60, "expected_return": 0.0,
-        "q10_return": -0.1, "q50_return": 0.0, "q90_return": 0.1, "status": "ok", "model_allowed_in_score": True,
+        "q10_return": -0.1, "q50_return": 0.0, "q90_return": 0.1, "status": "ok", "model_allowed_in_score": True, "target_id": "adj_close_log_return_60d",
         "calibration_status": "not_evaluated", "calibration_horizon_days": 60, "prob_positive_return": 0.9,
         "prob_beat_cash": 0.9, "prob_beat_benchmark": 0.9,
     }])
@@ -179,7 +182,7 @@ def test_target_mismatch_is_rejected() -> None:
     prices = pd.DataFrame({"etf_id": "AAA", "date": index, "adjusted_close": 100 * np.exp(np.arange(120) * 0.001)})
     base = {
         "model_name": "m", "etf_id": "AAA", "forecast_date": "2025-01-02", "horizon_days": 20,
-        "expected_return": 0.02, "status": "ok", "model_allowed_in_score": True,
+        "expected_return": 0.02, "status": "ok", "model_allowed_in_score": True, "target_id": "adj_close_log_return_60d",
     }
     forecasts = pd.DataFrame([
         {**base, "target_id": adjusted_log_return_target(20).target_id},
@@ -231,6 +234,7 @@ def _producer_row(name: str = "timesfm", **overrides: object) -> ForecastResult:
         expected_return=0.02, expected_excess_return=None, forecast_vol=0.1, prob_positive_return=0.8, prob_beat_benchmark=0.7,
     )
     values.update(overrides)
+    values.setdefault("target_id", adjusted_log_return_target(values["horizon_days"]).target_id)
     return ForecastResult(**values)
 
 
@@ -244,13 +248,13 @@ def test_producer_probabilities_stay_heuristic_unless_admitted() -> None:
     # An admission of another model never admits this one.
     other = _postprocess_forecast_benchmark_fields([_producer_row()], benchmark, {"toto": "calibrated"})[0]
     assert other.prob_positive_return is None
-    admitted = _postprocess_forecast_benchmark_fields([_producer_row()], benchmark, {"timesfm": "calibrated"})[0]
+    admitted = _postprocess_forecast_benchmark_fields([_producer_row()], benchmark, {_probability_scope(_producer_row()): "calibrated"})[0]
     assert admitted.prob_positive_return == 0.8 and admitted.probability_calibration_status == "calibrated"
     assert admitted.heuristic_probability_positive is None
     assert admitted.prob_beat_benchmark is None  # no matured benchmark-outcome admission exists
 
 
-def _matured_history(target_id: object = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _matured_history(target_id: object = "adj_close_log_return_5d") -> tuple[pd.DataFrame, pd.DataFrame]:
     rng = np.random.default_rng(11)
     index = pd.bdate_range("2025-01-01", periods=220)
     prices = pd.DataFrame({"etf_id": "AAA", "date": index, "adjusted_close": 100 * np.exp(np.cumsum(rng.normal(0, 0.01, len(index))))})
@@ -262,6 +266,7 @@ def _matured_history(target_id: object = None) -> tuple[pd.DataFrame, pd.DataFra
             "model_name": "timesfm", "etf_id": "AAA", "forecast_date": origin, "horizon_days": 5, "status": "ok",
             "expected_return": 0.0, "prob_positive_return": 0.95 if actual > 0 else 0.05, "model_version": "v", "run_id": "r",
             "created_at": origin + pd.Timedelta(hours=9), "target_id": target_id,
+            "q10_return": -0.1, "q50_return": 0.0, "q90_return": 0.1,
         })
     return pd.DataFrame(rows), prices
 
@@ -269,17 +274,17 @@ def _matured_history(target_id: object = None) -> tuple[pd.DataFrame, pd.DataFra
 def test_matured_history_admits_only_calibrated_producers_and_honours_targets() -> None:
     history, prices = _matured_history()
     as_of = date(2025, 12, 31)
-    assert positive_probability_status(history, prices, "timesfm", as_of) == "calibrated"
-    assert positive_probability_status(history, prices, "toto", as_of) == "unavailable"
+    assert positive_probability_status(history, prices, "timesfm", as_of, model_version="v", target_id="adj_close_log_return_5d", horizon_days=5) == "calibrated"
+    assert positive_probability_status(history, prices, "toto", as_of, model_version="v", target_id="adj_close_log_return_5d", horizon_days=5) == "unavailable"
     # Point in time: with prices only up to the first origins, nothing has matured.
-    assert positive_probability_status(history, prices, "timesfm", date(2025, 1, 6)) == "unavailable"
+    assert positive_probability_status(history, prices, "timesfm", date(2025, 1, 6), model_version="v", target_id="adj_close_log_return_5d", horizon_days=5) == "unavailable"
     # A registered target of another horizon cannot count as probability evidence ...
     mismatched, _ = _matured_history(adjusted_log_return_target(60).target_id)
-    assert matured_probability_frame(mismatched, prices, "timesfm", as_of).empty
-    assert len(matured_probability_frame(_matured_history(adjusted_log_return_target(5).target_id)[0], prices, "timesfm", as_of)) == 60
+    assert matured_probability_frame(mismatched, prices, "timesfm", as_of, model_version="v", target_id="adj_close_log_return_5d", horizon_days=5).empty
+    assert len(matured_probability_frame(_matured_history(adjusted_log_return_target(5).target_id)[0], prices, "timesfm", as_of, model_version="v", target_id="adj_close_log_return_5d", horizon_days=5)) == 60
     # ... nor a probability whose forecast was created after its origin day.
     late = history.assign(created_at=history["forecast_date"] + pd.Timedelta(days=3))
-    assert positive_probability_status(late, prices, "timesfm", as_of) == "unavailable"
+    assert positive_probability_status(late, prices, "timesfm", as_of, model_version="v", target_id="adj_close_log_return_5d", horizon_days=5) == "unavailable"
 
 
 def test_promotion_evidence_excludes_mismatched_registered_targets() -> None:
@@ -290,7 +295,7 @@ def test_promotion_evidence_excludes_mismatched_registered_targets() -> None:
         "target_id": [adjusted_log_return_target(20).target_id, adjusted_log_return_target(60).target_id, None],
     })
     kept = _matured_pairs(pairs, {"AAA": series}, 20)
-    assert list(kept["forecast_date"]) == [index[0], index[2]]  # the 60d-target row is dropped, the legacy row kept
+    assert list(kept["forecast_date"]) == [index[0]]  # unidentified and mismatched rows cannot count
 
 
 # 8. Checkpoint evidence (correction pass 1) ------------------------------------------------------
@@ -321,13 +326,13 @@ def test_unadmitted_producer_history_can_earn_calibration_from_heuristic_column(
         )
         row = _forecast_to_row(_demote_unadmitted_probabilities(forecast, {}))
         assert row["prob_positive_return"] is None and row["heuristic_probability_positive"] is not None
-        rows.append({**row, "status": "ok", "created_at": record["created_at"], "target_id": None})
+        rows.append({**row, "status": "ok", "created_at": record["created_at"], "target_id": "adj_close_log_return_5d", "q10_return": -0.1, "q50_return": 0.0, "q90_return": 0.1})
     demoted = pd.DataFrame(rows)
     as_of = date(2025, 12, 31)
-    assert len(matured_probability_frame(demoted, prices, "timesfm", as_of)) == 60
-    assert positive_probability_status(demoted, prices, "timesfm", as_of) == "calibrated"
+    assert len(matured_probability_frame(demoted, prices, "timesfm", as_of, model_version="v", target_id="adj_close_log_return_5d", horizon_days=5)) == 60
+    assert positive_probability_status(demoted, prices, "timesfm", as_of, model_version="v", target_id="adj_close_log_return_5d", horizon_days=5) == "calibrated"
     # A baseline row without any probability column never earns one.
-    assert positive_probability_status(demoted.assign(heuristic_probability_positive=None), prices, "timesfm", as_of) == "unavailable"
+    assert positive_probability_status(demoted.assign(heuristic_probability_positive=None), prices, "timesfm", as_of, model_version="v", target_id="adj_close_log_return_5d", horizon_days=5) == "unavailable"
 
 
 def test_forecast_consumers_show_simple_return_of_log_forecasts() -> None:
@@ -340,3 +345,55 @@ def test_forecast_consumers_show_simple_return_of_log_forecasts() -> None:
     details = pd.DataFrame([{"model_name": "timesfm", "etf_id": "AAA", "horizon_days": 60, "expected_return": 0.10}])
     component = _forecast_component("AAA", "timesfm", {"timesfm": {"AAA": 0.5}}, details, details)
     assert "+10.5%" in component.why and "+10.0%" not in component.why
+
+
+@pytest.mark.parametrize("identity", [None, "unknown-target"])
+def test_unidentified_targets_fail_closed_at_publication_and_evidence(identity):
+    forecast = _producer_row(target_id=identity)
+    row = _forecast_to_row(forecast)
+    assert row["status"] == "unavailable" and not row["model_allowed_in_score"]
+    assert "target identity" in row["reason_unavailable"] and row["prob_positive_return"] is None
+    history, prices = _matured_history(identity)
+    assert matured_probability_frame(history, prices, "timesfm", date(2025, 12, 31), model_version="v", target_id=identity, horizon_days=5).empty
+
+
+@pytest.mark.parametrize("field,value", [("q10_return", 1.0), ("q05_return", float("nan")), ("q95_return", float("inf"))])
+def test_any_invalid_selected_member_disables_entire_mixture(field, value):
+    good = dict(etf_id="X", model_name="a", horizon_days=60, forecast_date="2026-01-02", expected_return=0.0, status="ok", model_allowed_in_score=True, target_id="adj_close_log_return_60d", **_vector(0.0))
+    bad = {**good, "model_name": "b", field: value}
+    result = forecast_return_distributions(pd.DataFrame([good, bad]))["X"]
+    assert result["canonical_status"] == "unavailable" and result["q50_return"] is None
+
+
+def test_probability_admission_cannot_transfer_version_target_or_horizon():
+    history, prices = _matured_history()
+    scope = dict(model_version="v", target_id="adj_close_log_return_5d", horizon_days=5)
+    assert positive_probability_status(history, prices, "timesfm", date(2025, 12, 31), **scope) == "calibrated"
+    for changed in ({"model_version": "v2"}, {"target_id": "unknown"}, {"horizon_days": 60, "target_id": "adj_close_log_return_60d"}):
+        assert positive_probability_status(history, prices, "timesfm", date(2025, 12, 31), **(scope | changed)) == "unavailable"
+    forecast = _producer_row()
+    assert _demote_unadmitted_probabilities(forecast, {("timesfm", "v", "adj_close_log_return_5d", 5): "calibrated"}).prob_positive_return is None
+
+
+def test_missing_horizon_metrics_disable_production_forecast_and_probability():
+    from types import SimpleNamespace
+    history, prices = _matured_history()
+    history = history.drop(columns=["q10_return", "q50_return", "q90_return"])
+    service = object.__new__(ForecastService)
+    service.config = SimpleNamespace(models=SimpleNamespace(models={}))
+    forecast = _producer_row("baseline", horizon_days=5)
+    result = service._evidence_gated_forecasts([forecast], date(2025, 12, 31), prices, history.assign(model_name="baseline"))[0]
+    assert result.status == "unavailable" and not result.model_allowed_in_score
+    assert "Insufficient" in result.reason_unavailable and result.prob_positive_return is None
+    assert positive_probability_status(history, prices, "timesfm", date(2025, 12, 31), model_version="v", target_id="adj_close_log_return_5d", horizon_days=5) == "unavailable"
+
+
+@pytest.mark.parametrize("revision", [None, "main", "abc123", "unknown"])
+def test_unverifiable_checkpoint_disables_optional_publication(revision):
+    forecast = _producer_row(model_allowed_in_score=True)
+    settings = {"timesfm": {"revision": revision}}
+    gated = _identity_gated_forecast(forecast, settings)
+    row = _forecast_to_row(forecast, model_settings=settings)
+    assert gated.status == row["status"] == "unavailable"
+    assert not row["model_allowed_in_score"] and row["prob_positive_return"] is None
+    assert "checkpoint identity" in row["reason_unavailable"]

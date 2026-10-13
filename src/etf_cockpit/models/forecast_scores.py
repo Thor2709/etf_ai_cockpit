@@ -22,6 +22,7 @@ from etf_cockpit.models.distribution_store import (
     complete_return_quantiles,
     normalise_quantiles,
 )
+from etf_cockpit.models.calibration import target_matches_evaluation
 from etf_cockpit.models.ensemble import MIXTURE_QUANTILE_METHOD, mixture_quantiles
 from etf_cockpit.models.uncertainty import unavailable_decomposition
 
@@ -350,7 +351,7 @@ def forecast_component_maps(forecasts: pd.DataFrame) -> dict[str, dict[str, floa
     frame["expected_return"] = pd.to_numeric(frame["expected_return"], errors="coerce")
     allowed = frame["model_allowed_in_score"].astype(str).str.lower().isin({"true", "1", "yes"})
     frame = frame[(frame["status"].astype(str).str.lower() == "ok") & allowed]
-    frame = frame.dropna(subset=["etf_id", "model_name", "horizon_days", "expected_return"])
+    frame = frame.dropna(subset=["etf_id", "model_name", "horizon_days"])
     if frame.empty:
         return output
 
@@ -455,6 +456,7 @@ def forecast_return_distributions(
             )
         return output
     horizon_days = canonical_horizon
+    supplied_quantile_columns = {field for field in QUANTILE_FIELDS if field in frame}
     numeric_columns = (
         "expected_return",
         "q05_return",
@@ -490,7 +492,7 @@ def forecast_return_distributions(
         frame["model_id"] = None
     allowed = frame["model_allowed_in_score"].astype(str).str.lower().isin({"true", "1", "yes"})
     frame = frame[(frame["status"].astype(str).str.lower() == "ok") & allowed]
-    frame = frame.dropna(subset=["etf_id", "model_name", "horizon_days", "expected_return"])
+    frame = frame.dropna(subset=["etf_id", "model_name", "horizon_days"])
     model_horizons_by_id = _declared_horizons_by_id(frame, "model_id", "model_horizon_days")
     target_horizons_by_id = _declared_horizons_by_id(frame, "target_id", "target_horizon_days")
     if frame.empty:
@@ -504,6 +506,7 @@ def forecast_return_distributions(
         return output
 
     for instrument_id, instrument_frame in frame.groupby(frame["etf_id"].astype(str), sort=True):
+        invalid_member_reason = None
         selected_rows: list[dict[str, float | int]] = []
         per_model_distributions: list[dict[str, object]] = []
         canonical_quantiles: list[dict[str, float]] = []
@@ -521,9 +524,13 @@ def forecast_return_distributions(
             selected = _latest_row(exact_horizon)
             if selected is None:
                 continue
+            if not target_matches_evaluation(selected.get("target_id"), horizon_days):
+                invalid_member_reason = "Selected ensemble member has missing, unregistered or mismatched target identity."
+                break
             expected = _finite_or_none(selected.get("expected_return"))
             if expected is None:
-                continue
+                invalid_member_reason = "Selected ensemble member has a non-finite expected return."
+                break
             q50 = _finite_or_none(selected.get("q50_return"))
             q50 = expected if q50 is None else q50
             q10 = _finite_or_none(selected.get("q10_return"))
@@ -534,8 +541,13 @@ def forecast_return_distributions(
             if q90 is None and volatility is not None and volatility >= 0:
                 q90 = q50 + 1.28 * volatility
             if q10 is None or q90 is None or not q10 <= q50 <= q90:
-                continue
+                invalid_member_reason = "Selected ensemble member has invalid or non-finite quantiles."
+                break
             native_quantiles = normalise_quantiles({field: selected.get(field) for field in QUANTILE_FIELDS})
+            supplied_invalid = any(_finite_or_none(selected.get(field)) is None for field in supplied_quantile_columns)
+            if supplied_invalid or (set(QUANTILE_FIELDS).issubset(supplied_quantile_columns) and native_quantiles is None):
+                invalid_member_reason = "Selected ensemble member has invalid or non-finite supplied quantiles."
+                break
             legacy_vector = native_quantiles or complete_return_quantiles(q10, q50, q90)
             if legacy_vector is None:
                 continue
@@ -614,6 +626,9 @@ def forecast_return_distributions(
                     "probability_beat_cash": None,
                     "probability_beat_benchmark": None,
                 })
+        if invalid_member_reason is not None:
+            output[instrument_id] = _unavailable_contract_distribution(invalid_member_reason, horizon_days=horizon_days, decision_time=decision_cutoff, point_in_time_bound=point_in_time_bound)
+            continue
         if not selected_rows:
             output[instrument_id] = _unavailable_contract_distribution(
                 "No successful forecast row exists at the exact requested horizon.",

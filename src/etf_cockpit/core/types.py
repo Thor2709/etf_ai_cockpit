@@ -85,6 +85,7 @@ class ForecastResult:
     calibration_horizon_days: int | None = None
     point_statistic: str | None = None
     distribution_status: str | None = None
+    target_id: str | None = None
 
 
 @dataclass(frozen=True)

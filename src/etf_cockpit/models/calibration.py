@@ -822,12 +822,12 @@ def require_same_target(forecast_target_id: object, evaluation_target_id: object
 
 def target_matches_evaluation(target_id: object, horizon_days: int) -> bool:
     """Registered targets must be the log-return target of the evaluated horizon (the realised outcome
-    is the adjusted-close log return); unregistered or absent identities are legacy and keep their rows."""
+    is the adjusted-close log return); missing or unregistered identities fail closed."""
 
     identity = _nonempty_text(target_id)
     target = TARGET_REGISTRY.get(identity) if identity is not None else None
     if target is None:
-        return True
+        return False
     return target.return_space == LOG_RETURN_SPACE and target.horizon_days == horizon_days
 
 
@@ -942,7 +942,7 @@ def _pinball(actual: np.ndarray, predicted: np.ndarray, level: float) -> np.ndar
 
 
 def _date_clustered_mean(values: pd.Series, dates: pd.Series) -> tuple[float | None, float | None]:
-    valid = values.notna()
+    valid = values.notna() & np.isfinite(values)
     if not valid.any():
         return None, None
     per_date = values[valid].groupby(dates[valid]).mean()
@@ -977,6 +977,11 @@ def horizon_calibration_scores(frame: pd.DataFrame, *, minimum_dates: int = MIN_
     levels = [(level / 100.0, field) for level, field in zip(QUANTILE_LEVELS, QUANTILE_FIELDS) if field in data]
     rows: list[dict[str, object]] = []
     for horizon, group in data.groupby(data["horizon_days"].astype(int), sort=True):
+        required = ["actual", "q10_return", "q50_return", "q90_return", "probability"]
+        complete = group.reindex(columns=required).apply(pd.to_numeric, errors="coerce")
+        valid = np.isfinite(complete).all(axis=1) & complete["probability"].between(0, 1)
+        valid &= complete["q10_return"].le(complete["q50_return"]) & complete["q50_return"].le(complete["q90_return"])
+        effective_dates = int(group.loc[valid, "forecast_date"].nunique())
         actual = group["actual"].to_numpy(dtype=float)
         losses = []
         for level, field in levels:
@@ -996,11 +1001,10 @@ def horizon_calibration_scores(frame: pd.DataFrame, *, minimum_dates: int = MIN_
             probability = pd.to_numeric(group["probability"], errors="coerce")
             probability = probability.where(probability.between(0, 1))
             brier, brier_se = _date_clustered_mean((probability - (group["actual"] > 0).astype(float)) ** 2, group["forecast_date"])
-        dates = int(group["forecast_date"].nunique())
         rows.append({
             "horizon_days": int(horizon),
             "forecasts": int(len(group)),
-            "effective_dates": dates,
+            "effective_dates": effective_dates,
             "pinball": pinball,
             "pinball_se": pinball_se,
             "crps": None if pinball is None else 2.0 * pinball,
@@ -1009,6 +1013,6 @@ def horizon_calibration_scores(frame: pd.DataFrame, *, minimum_dates: int = MIN_
             "coverage_80": coverage,
             "coverage_se": coverage_se,
             "sharpness_80": sharpness,
-            "status": "ok" if dates >= minimum_dates else "insufficient_effective_dates",
+            "status": ("ok" if effective_dates >= minimum_dates and all(_finite_number(value) is not None for value in (pinball, coverage, sharpness, brier)) else "insufficient_effective_dates"),
         })
     return pd.DataFrame(rows, columns=columns)

@@ -7,6 +7,7 @@ import pandas as pd
 
 from etf_cockpit.core.types import ForecastResult
 from etf_cockpit.features.returns import daily_log_returns
+from etf_cockpit.models.calibration import adjusted_log_return_target
 from etf_cockpit.models.distribution_store import (
     QUANTILE_METHOD_NORMAL,
     complete_return_quantiles,
@@ -51,6 +52,7 @@ def baseline_forecast(
                 etf_id=etf_id,
                 forecast_date=forecast_date,
                 horizon_days=horizon,
+                target_id=adjusted_log_return_target(horizon).target_id,
                 expected_return=expected,
                 expected_excess_return=expected_excess,
                 q10_return=q10,
