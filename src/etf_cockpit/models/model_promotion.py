@@ -32,6 +32,73 @@ BASELINE_MODEL = "baseline"
 # Every optional model also requires evidence after its first verified local run.
 PRETRAINING_CUTOFFS: dict[str, date] = {"timesfm3": date(2023, 11, 30)}
 PRETRAINING_SOURCES: dict[str, str] = {"timesfm3": "Partial: Wikipedia through Nov 2023; Google Trends through Dec 2022; other corpora have no verified cutoff"}
+
+
+@dataclass(frozen=True)
+class CheckpointProvenance:
+    """Identity, licence and leakage evidence of one model checkpoint. Nothing is inherited from another."""
+
+    model_name: str
+    model_sha: str | None
+    config: Mapping[str, object]
+    licence: str
+    pretraining_cutoff: date | None
+    cutoff_scope: str
+    note: str = ""
+
+    def as_row(self) -> dict[str, object]:
+        return {
+            "model_name": self.model_name,
+            "checkpoint_sha": self.model_sha or "unknown",
+            "checkpoint_config": dict(self.config),
+            "checkpoint_licence": self.licence,
+            "pretraining_cutoff": self.pretraining_cutoff.isoformat() if self.pretraining_cutoff else "unknown",
+            "cutoff_scope": self.cutoff_scope,
+            "checkpoint_note": self.note,
+        }
+
+    def leakage_flag(self, origin: date) -> str:
+        """``possibly_leaked`` unless this checkpoint's own cutoff is declared and the origin follows it.
+
+        Even then a published cutoff is partial evidence only, never proof of no leakage.
+        """
+
+        if self.pretraining_cutoff is None or origin <= self.pretraining_cutoff:
+            return "possibly_leaked"
+        return "after_declared_cutoff"
+
+
+# Declared licence facts only; an unrecorded fact is "unknown", never copied from another checkpoint.
+_CHECKPOINT_LICENCES: dict[str, tuple[str, str]] = {
+    "timesfm3": ("non-commercial", "Owner-approved for personal use only; not wired for commercial use."),
+}
+
+
+def checkpoint_provenance(
+    model_name: str,
+    *,
+    model_sha: str | None = None,
+    config: Mapping[str, object] | None = None,
+) -> CheckpointProvenance:
+    """Provenance of ``model_name``; the cutoff comes from ``PRETRAINING_CUTOFFS`` for that model alone.
+
+    ``model_sha`` is supplied by the caller from the checkpoint's recorded revision (weights are
+    never opened here); a blank value stays unknown.
+    """
+
+    licence, note = _CHECKPOINT_LICENCES.get(model_name, ("unknown", ""))
+    cutoff = PRETRAINING_CUTOFFS.get(model_name)
+    return CheckpointProvenance(
+        model_name=model_name,
+        model_sha=(model_sha.strip() or None) if isinstance(model_sha, str) else None,
+        config=dict(config or {}),
+        licence=licence,
+        pretraining_cutoff=cutoff,
+        cutoff_scope="partial" if cutoff is not None else "unknown",
+        note=note,
+    )
+
+
 COUNTING = "counting"
 NOT_PROVEN = "not_proven"
 PROMOTION_COLUMNS = [

@@ -35,6 +35,7 @@ from etf_cockpit.models.model_promotion import (
     OPTIONAL_MODELS,
     PRETRAINING_CUTOFFS,
     PRETRAINING_SOURCES,
+    checkpoint_provenance,
     COUNTING,
     NOT_PROVEN,
     ModelPromotion,
@@ -350,10 +351,18 @@ def _forecast_to_row(forecast: ForecastResult, promotions: Mapping[str, ModelPro
 
 
 
+def _checkpoint_evidence(model_name: str) -> dict[str, object]:
+    """Checkpoint licence/SHA and cutoff scope of this model alone (a cutoff is never shared)."""
+
+    row = checkpoint_provenance(model_name).as_row()
+    return {key: row[key] for key in ("checkpoint_sha", "checkpoint_licence", "cutoff_scope")}
+
+
 def _pretraining_evidence(model_name: str, forecast_date: date) -> dict[str, object]:
     cutoff = PRETRAINING_CUTOFFS.get(model_name)
     possibly_leaked = cutoff is None or forecast_date <= cutoff
     return {
+        **_checkpoint_evidence(model_name),
         "pretraining_cutoff": cutoff.isoformat() if cutoff is not None else "unknown",
         "pretraining_sources": PRETRAINING_SOURCES.get(model_name, "unknown"),
         "contamination_status": "possibly_leaked" if possibly_leaked else "after_declared_cutoff",
@@ -373,6 +382,7 @@ def _promotion_evidence(forecast: ForecastResult, promotion: ModelPromotion) -> 
     )
     declared = promotion.pretraining_cutoff != "unknown"
     return {
+        **_checkpoint_evidence(forecast.model_name),
         "pretraining_cutoff": promotion.pretraining_cutoff,
         "pretraining_sources": PRETRAINING_SOURCES.get(forecast.model_name, "unknown"),
         "contamination_status": (
@@ -595,14 +605,14 @@ def _postprocess_forecast_benchmark_fields(
 
     if benchmark_returns is None or benchmark_returns.empty:
         return [
-            replace(forecast, expected_excess_return=None, prob_beat_benchmark=None)
+            replace(forecast, expected_excess_return=None, prob_beat_benchmark=None, heuristic_probability_beat_benchmark=None)
             for forecast in forecasts
         ]
     benchmark_daily = float(benchmark_returns.tail(180).mean() * 0.35)
     output: list[ForecastResult] = []
     for forecast in forecasts:
         if forecast.expected_return is None or not math.isfinite(forecast.expected_return) or not math.isfinite(benchmark_daily):
-            output.append(replace(forecast, expected_excess_return=None, prob_beat_benchmark=None))
+            output.append(replace(forecast, expected_excess_return=None, prob_beat_benchmark=None, heuristic_probability_beat_benchmark=None))
             continue
         excess = float(forecast.expected_return - benchmark_daily * forecast.horizon_days)
         try:
@@ -615,6 +625,7 @@ def _postprocess_forecast_benchmark_fields(
                     forecast,
                     expected_excess_return=excess,
                     prob_beat_benchmark=None,
+                    heuristic_probability_beat_benchmark=None,
                     reason_unavailable=(
                         f"{forecast.reason_unavailable}; forecast_vol_unavailable_for_benchmark_probability"
                         if forecast.reason_unavailable
@@ -627,7 +638,9 @@ def _postprocess_forecast_benchmark_fields(
             replace(
                 forecast,
                 expected_excess_return=excess,
-                prob_beat_benchmark=(
+                # A logistic of excess/vol is a heuristic score, not a calibrated probability.
+                prob_beat_benchmark=None,
+                heuristic_probability_beat_benchmark=(
                     1 / (1 + math.exp(-excess / volatility)) if excess >= 0
                     else math.exp(excess / volatility) / (1 + math.exp(excess / volatility))
                 ),

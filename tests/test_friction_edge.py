@@ -129,7 +129,8 @@ def test_forecast_return_distribution_aggregates_allowed_model_quantiles() -> No
     distribution = forecast_return_distributions(forecasts)["VWCE"]
 
     assert distribution["status"] == "available"
-    assert distribution["q10_return"] == -0.02
-    assert distribution["q50_return"] == 0.06
-    assert distribution["q90_return"] == 0.14
+    # Mixture-CDF quantiles, not the median of the models' quantiles (-0.02 / 0.06 / 0.14).
+    assert distribution["q10_return"] == pytest.approx(-0.022845335734, abs=1e-9)
+    assert distribution["q50_return"] == pytest.approx(0.06, abs=1e-9)
+    assert distribution["q90_return"] == pytest.approx(0.142845335734, abs=1e-9)
     assert distribution["model_count"] == 2

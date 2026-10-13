@@ -58,6 +58,9 @@ class ForecastResult:
     forecast_vol: float | None = None
     prob_positive_return: float | None = None
     prob_beat_benchmark: float | None = None
+    # Uncalibrated logistic scores of the deterministic baseline: never a user-facing probability.
+    heuristic_probability_positive: float | None = None
+    heuristic_probability_beat_benchmark: float | None = None
     forecast_drawdown_prob: float | None = None
     status: ModelStatus = "ok"
     error_message: str | None = None

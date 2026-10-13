@@ -2171,10 +2171,12 @@ def test_optional_forecast_relative_fields_are_derived_uniformly_or_n_a() -> Non
     available = _postprocess_forecast_benchmark_fields([forecast], benchmark)[0]
     assert available.expected_return == 0.10
     assert available.expected_excess_return == pytest.approx(0.10 - 0.35 * benchmark.mean() * 10)
-    assert available.prob_beat_benchmark is not None
+    assert available.heuristic_probability_beat_benchmark is not None
+    assert available.prob_beat_benchmark is None
     unavailable = _postprocess_forecast_benchmark_fields([forecast], None)[0]
     assert unavailable.expected_return == 0.10
     assert unavailable.expected_excess_return is None
+    assert unavailable.heuristic_probability_beat_benchmark is None
     assert unavailable.prob_beat_benchmark is None
 
 

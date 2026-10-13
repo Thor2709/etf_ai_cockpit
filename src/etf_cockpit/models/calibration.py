@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from math import ceil, isfinite, log, sqrt
+from dataclasses import dataclass
+from math import ceil, expm1, isfinite, log, log1p, sqrt
 from numbers import Real
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from etf_cockpit.core.paths import DERIVED_DIR, FORECASTS_DIR
+from etf_cockpit.models.distribution_store import QUANTILE_FIELDS, QUANTILE_LEVELS
 
 
 CALIBRATION_COLUMNS = [
@@ -576,6 +578,8 @@ def evaluate_forecast_calibration(forecasts: pd.DataFrame, prices: pd.DataFrame)
             continue
         matured: list[dict[str, float]] = []
         for _, forecast in group.iterrows():
+            if not _target_matches_evaluation(forecast.get("target_id"), int(forecast["horizon_days"])):
+                continue
             actual = _actual_horizon_return(series, forecast["forecast_date"], int(forecast["horizon_days"]))
             if actual is None:
                 continue
@@ -739,3 +743,271 @@ def _finite_or_none(value: object) -> float | None:
     except Exception:
         return None
     return number if np.isfinite(number) else None
+
+
+# --- Forecast honesty: target registry, return space, probability admission, per-horizon scores ---
+
+LOG_RETURN_SPACE = "log"
+SIMPLE_RETURN_SPACE = "simple"
+MIN_EFFECTIVE_DATES = 5
+"""Default minimum number of distinct forecast dates before per-horizon scores are reported as ok
+(the promotion settings' ``minimum_forecast_origins`` default)."""
+
+
+class TargetMismatchError(ValueError):
+    """A model that predicts one target was evaluated or combined on another."""
+
+
+@dataclass(frozen=True)
+class ForecastTarget:
+    """What a forecast predicts; evaluation must use the same target."""
+
+    target_id: str
+    return_space: str
+    horizon_days: int
+    calendar: str
+    currency: str
+    dividend_treatment: str
+    fx_treatment: str
+    input_cutoff: str
+    benchmark_id: str | None
+    cost_policy: str
+
+
+def adjusted_log_return_target(
+    horizon_days: int,
+    *,
+    currency: str = "listing",
+    calendar: str = "instrument_sessions",
+    benchmark_id: str | None = None,
+) -> ForecastTarget:
+    """Registered horizon target: adjusted-close log return, dividends in the adjusted price, FX once."""
+
+    if isinstance(horizon_days, bool) or not isinstance(horizon_days, int) or horizon_days <= 0:
+        raise ValueError("horizon_days must be a positive integer")
+    return ForecastTarget(
+        target_id=f"adj_close_log_return_{horizon_days}d",
+        return_space=LOG_RETURN_SPACE,
+        horizon_days=horizon_days,
+        calendar=calendar,
+        currency=currency,
+        dividend_treatment="reinvested_in_adjusted_close",
+        fx_treatment="listing_currency_no_conversion" if currency == "listing" else "converted_once_at_horizon_end",
+        input_cutoff="forecast_date_close",
+        benchmark_id=benchmark_id,
+        cost_policy="gross_of_costs",
+    )
+
+
+TARGET_REGISTRY: dict[str, ForecastTarget] = {
+    target.target_id: target
+    for target in (adjusted_log_return_target(horizon) for horizon in (5, 20, 60, 120, 180, 504, 1260))
+}
+
+
+def require_same_target(forecast_target_id: object, evaluation_target_id: object) -> ForecastTarget:
+    """Return the registered target both sides name, or raise :class:`TargetMismatchError`."""
+
+    forecast_id = _nonempty_text(forecast_target_id)
+    evaluation_id = _nonempty_text(evaluation_target_id)
+    if forecast_id is None or evaluation_id is None:
+        raise TargetMismatchError("Both the forecast and the evaluation must name a target_id.")
+    if forecast_id != evaluation_id:
+        raise TargetMismatchError(f"Forecast target {forecast_id!r} cannot be evaluated on target {evaluation_id!r}.")
+    target = TARGET_REGISTRY.get(forecast_id)
+    if target is None:
+        raise TargetMismatchError(f"Target {forecast_id!r} is not in the target registry.")
+    return target
+
+
+def _target_matches_evaluation(target_id: object, horizon_days: int) -> bool:
+    """Registered targets must be the log-return target of the evaluated horizon (the realised outcome
+    is the adjusted-close log return); unregistered or absent identities are legacy and keep their rows."""
+
+    identity = _nonempty_text(target_id)
+    target = TARGET_REGISTRY.get(identity) if identity is not None else None
+    if target is None:
+        return True
+    return target.return_space == LOG_RETURN_SPACE and target.horizon_days == horizon_days
+
+
+def log_to_simple_return(log_return: object) -> float | None:
+    """``exp(y) - 1``; ``None`` for a non-finite input. Every percentage display and arithmetic comparison
+    of a model's log return goes through this one conversion."""
+
+    value = _finite_number(log_return)
+    return None if value is None or value > 700 else float(expm1(value))
+
+
+def simple_to_log_return(simple_return: object) -> float | None:
+    """``log(1 + r)``; ``None`` unless ``r`` is finite and above -100%."""
+
+    value = _finite_number(simple_return)
+    return None if value is None or value <= -1.0 else float(log1p(value))
+
+
+def format_log_return_percent(log_return: object, digits: int = 2) -> str:
+    """Display a log return as the simple-return percentage (0.10 -> ``"10.52%"``)."""
+
+    simple = log_to_simple_return(log_return)
+    return "unavailable" if simple is None else f"{simple * 100:.{digits}f}%"
+
+
+PROBABILITY_CALIBRATED = "calibrated"
+PROBABILITY_UNAVAILABLE = "unavailable"
+MIN_PROBABILITY_FOLDS = 3
+MAX_RELIABILITY_GAP = 0.10
+
+
+def probability_admission(
+    frame: pd.DataFrame,
+    *,
+    folds: int = MIN_PROBABILITY_FOLDS,
+    minimum_dates_per_fold: int = MIN_EFFECTIVE_DATES,
+) -> dict[str, object]:
+    """Admit a probability for display only after out-of-sample chronological calibration.
+
+    ``frame`` needs ``forecast_date``, ``probability`` (P(up)) and ``outcome`` (0/1) of matured
+    forecasts. Dates are split into ``folds`` contiguous chronological folds. Every fold after the
+    first must beat the base rate known before it (the frequency of earlier folds; the first fold is
+    only a warm-up) on Brier score, and every fold's reliability gap (weighted mean absolute bin gap)
+    must stay within ``MAX_RELIABILITY_GAP``. Anything else is ``unavailable`` with the reason.
+    """
+
+    def unavailable(reason: str, details: list[dict[str, object]] | None = None) -> dict[str, object]:
+        return {"status": PROBABILITY_UNAVAILABLE, "reason": reason, "folds": details or []}
+
+    if not {"forecast_date", "probability", "outcome"}.issubset(frame.columns):
+        return unavailable("forecast_date, probability and outcome columns are required")
+    data = frame[["forecast_date", "probability", "outcome"]].copy()
+    data["forecast_date"] = pd.to_datetime(data["forecast_date"], errors="coerce", utc=True).dt.normalize()
+    data["probability"] = pd.to_numeric(data["probability"], errors="coerce")
+    data["outcome"] = pd.to_numeric(data["outcome"], errors="coerce")
+    data = data.dropna()
+    data = data[data["probability"].between(0, 1) & data["outcome"].isin([0, 1])].sort_values("forecast_date")
+    dates = sorted(data["forecast_date"].unique())
+    if folds < 2 or len(dates) < folds * minimum_dates_per_fold:
+        return unavailable(f"at least {folds * minimum_dates_per_fold} distinct forecast dates are required")
+    details: list[dict[str, object]] = []
+    for index, fold_dates in enumerate(np.array_split(np.arange(len(dates)), folds)):
+        first, last = dates[int(fold_dates[0])], dates[int(fold_dates[-1])]
+        fold = data[(data["forecast_date"] >= first) & (data["forecast_date"] <= last)]
+        prior = data[data["forecast_date"] < first]
+        brier = float(((fold["probability"] - fold["outcome"]) ** 2).mean())
+        clipped = fold["probability"].clip(1e-6, 1 - 1e-6)
+        log_loss = float(-(fold["outcome"] * np.log(clipped) + (1 - fold["outcome"]) * np.log(1 - clipped)).mean())
+        bins = np.minimum((fold["probability"] * 5).astype(int), 4)
+        gap_sum = sum(
+            abs(float(group["probability"].mean()) - float(group["outcome"].mean())) * len(group)
+            for _, group in fold.groupby(bins)
+        )
+        base_rate = float(prior["outcome"].mean()) if not prior.empty else None
+        details.append({
+            "fold": index,
+            "forecasts": int(len(fold)),
+            "effective_dates": int(len(fold_dates)),
+            "brier": brier,
+            "base_rate_brier": None if base_rate is None else float(((base_rate - fold["outcome"]) ** 2).mean()),
+            "log_loss": log_loss,
+            "reliability_gap": float(gap_sum / len(fold)),
+        })
+    for detail in details:
+        base_brier = detail["base_rate_brier"]
+        if base_brier is not None and not float(detail["brier"]) < float(base_brier):
+            return unavailable(f"fold {detail['fold']} Brier does not beat the earlier-fold base rate", details)
+        if float(detail["reliability_gap"]) > MAX_RELIABILITY_GAP:
+            return unavailable(f"fold {detail['fold']} reliability gap exceeds {MAX_RELIABILITY_GAP}", details)
+    return {"status": PROBABILITY_CALIBRATED, "reason": None, "folds": details}
+
+
+def user_facing_probability(value: object, admission: Mapping[str, object] | None) -> float | None:
+    """The probability to show: only an admitted (calibrated) one; heuristics and unadmitted values are ``None``."""
+
+    if not isinstance(admission, Mapping) or admission.get("status") != PROBABILITY_CALIBRATED:
+        return None
+    probability = _finite_number(value)
+    return probability if probability is not None and 0.0 <= probability <= 1.0 else None
+
+
+def format_heuristic_probability(value: object) -> str:
+    """Label for a logistic score: always marked heuristic, never presented as a probability."""
+
+    score = _finite_number(value)
+    return "unavailable" if score is None or not 0.0 <= score <= 1.0 else f"heuristic score {score * 100:.0f}% (uncalibrated)"
+
+
+def _pinball(actual: np.ndarray, predicted: np.ndarray, level: float) -> np.ndarray:
+    error = actual - predicted
+    return np.maximum(level * error, (level - 1.0) * error)
+
+
+def _date_clustered_mean(values: pd.Series, dates: pd.Series) -> tuple[float | None, float | None]:
+    valid = values.notna()
+    if not valid.any():
+        return None, None
+    per_date = values[valid].groupby(dates[valid]).mean()
+    spread = float(per_date.std(ddof=1) / sqrt(len(per_date))) if len(per_date) >= 2 else None
+    return float(values[valid].mean()), spread
+
+
+def horizon_calibration_scores(frame: pd.DataFrame, *, minimum_dates: int = MIN_EFFECTIVE_DATES) -> pd.DataFrame:
+    """Per-horizon pinball, CRPS (twice the mean pinball over the available levels), Brier, coverage and
+    sharpness of matured forecasts, with date-clustered standard errors.
+
+    ``frame`` needs ``forecast_date``, ``horizon_days``, ``actual`` (realised log return) and the
+    ``qNN_return`` columns (a missing level is skipped); ``probability`` is optional (P(actual > 0),
+    scored with Brier). Forecasts of one origin date share the market move, so the effective sample
+    size is the number of distinct dates: the standard error is the spread of the per-date means over
+    the square root of the date count, and ``status`` is ``ok`` only with at least ``minimum_dates``
+    dates ("100 forecasts from 5 origins" is 5 effective dates).
+    """
+
+    columns = [
+        "horizon_days", "forecasts", "effective_dates", "pinball", "pinball_se", "crps", "brier", "brier_se",
+        "coverage_80", "coverage_se", "sharpness_80", "status",
+    ]
+    if not {"forecast_date", "horizon_days", "actual"}.issubset(frame.columns):
+        return pd.DataFrame(columns=columns)
+    data = frame.copy()
+    data["forecast_date"] = pd.to_datetime(data["forecast_date"], errors="coerce", utc=True).dt.normalize()
+    data["horizon_days"] = pd.to_numeric(data["horizon_days"], errors="coerce")
+    data["actual"] = pd.to_numeric(data["actual"], errors="coerce")
+    data = data.dropna(subset=["forecast_date", "horizon_days", "actual"])
+    levels = [(level / 100.0, field) for level, field in zip(QUANTILE_LEVELS, QUANTILE_FIELDS) if field in data]
+    rows: list[dict[str, object]] = []
+    for horizon, group in data.groupby(data["horizon_days"].astype(int), sort=True):
+        actual = group["actual"].to_numpy(dtype=float)
+        losses = []
+        for level, field in levels:
+            predicted = pd.to_numeric(group[field], errors="coerce").to_numpy(dtype=float)
+            losses.append(pd.Series(np.where(np.isnan(predicted), np.nan, _pinball(actual, predicted, level)), index=group.index))
+        pinball_series = pd.concat(losses, axis=1).mean(axis=1, skipna=True) if losses else pd.Series(np.nan, index=group.index)
+        pinball, pinball_se = _date_clustered_mean(pinball_series, group["forecast_date"])
+        nan_series = pd.Series(np.nan, index=group.index)
+        low = pd.to_numeric(group["q10_return"], errors="coerce") if "q10_return" in group else nan_series
+        high = pd.to_numeric(group["q90_return"], errors="coerce") if "q90_return" in group else nan_series
+        interval = low.notna() & high.notna()
+        covered = ((group["actual"] >= low) & (group["actual"] <= high)).astype(float).where(interval)
+        coverage, coverage_se = _date_clustered_mean(covered, group["forecast_date"])
+        sharpness, _ = _date_clustered_mean((high - low).where(interval), group["forecast_date"])
+        brier = brier_se = None
+        if "probability" in group:
+            probability = pd.to_numeric(group["probability"], errors="coerce")
+            probability = probability.where(probability.between(0, 1))
+            brier, brier_se = _date_clustered_mean((probability - (group["actual"] > 0).astype(float)) ** 2, group["forecast_date"])
+        dates = int(group["forecast_date"].nunique())
+        rows.append({
+            "horizon_days": int(horizon),
+            "forecasts": int(len(group)),
+            "effective_dates": dates,
+            "pinball": pinball,
+            "pinball_se": pinball_se,
+            "crps": None if pinball is None else 2.0 * pinball,
+            "brier": brier,
+            "brier_se": brier_se,
+            "coverage_80": coverage,
+            "coverage_se": coverage_se,
+            "sharpness_80": sharpness,
+            "status": "ok" if dates >= minimum_dates else "insufficient_effective_dates",
+        })
+    return pd.DataFrame(rows, columns=columns)

@@ -19,7 +19,10 @@ from etf_cockpit.models.distribution_store import (
     HORIZON_VALIDATION_STATUSES,
     QUANTILE_FIELDS,
     build_distribution_record,
+    complete_return_quantiles,
+    normalise_quantiles,
 )
+from etf_cockpit.models.ensemble import MIXTURE_QUANTILE_METHOD, mixture_quantiles
 from etf_cockpit.models.uncertainty import unavailable_decomposition
 
 PRIMARY_MODEL_HORIZON_DAYS = 60
@@ -529,7 +532,11 @@ def forecast_return_distributions(
                 q90 = q50 + 1.28 * volatility
             if q10 is None or q90 is None or not q10 <= q50 <= q90:
                 continue
-            selected_rows.append({"q10": q10, "q50": q50, "q90": q90, "horizon": int(selected["horizon_days"])})
+            native_quantiles = normalise_quantiles({field: selected.get(field) for field in QUANTILE_FIELDS})
+            legacy_vector = native_quantiles or complete_return_quantiles(q10, q50, q90)
+            if legacy_vector is None:
+                continue
+            selected_rows.append({"q10": q10, "q50": q50, "q90": q90, "horizon": int(selected["horizon_days"]), "vector": legacy_vector})
             model_distribution: dict[str, object] = {
                 "model_name": str(selected.get("model_name") or ""),
                 "model_id": _text_or_none(selected.get("model_id")),
@@ -607,24 +614,33 @@ def forecast_return_distributions(
                 point_in_time_bound=usable_forecast_dates_by_instrument.get(instrument_id, False) and decision_cutoff is not None,
             )
             continue
+        # The ensemble quantile is the quantile of the equal-weight mixture CDF of the models'
+        # distributions, never the median of the models' quantiles.
+        consensus = mixture_quantiles([row["vector"] for row in selected_rows])
+        if consensus is None:
+            output[instrument_id] = _unavailable_contract_distribution(
+                "The selected model quantile sets cannot form a valid mixture distribution.",
+                horizon_days=horizon_days,
+                decision_time=decision_cutoff,
+                point_in_time_bound=usable_forecast_dates_by_instrument.get(instrument_id, False) and decision_cutoff is not None,
+            )
+            continue
         distribution: dict[str, object] = {
-            "q10_return": round(float(np.median([row["q10"] for row in selected_rows])), 12),
-            "q50_return": round(float(np.median([row["q50"] for row in selected_rows])), 12),
-            "q90_return": round(float(np.median([row["q90"] for row in selected_rows])), 12),
+            "q10_return": round(consensus["q10_return"], 12),
+            "q50_return": round(consensus["q50_return"], 12),
+            "q90_return": round(consensus["q90_return"], 12),
             "horizon_days": int(horizon_days),
             "model_count": len(selected_rows),
             "status": "available",
-            "reason": "Median of allowed successful model return distributions at the selected horizon.",
+            "reason": "Equal-weight mixture-CDF quantiles of allowed successful model return distributions at the selected horizon.",
+            "quantile_method": MIXTURE_QUANTILE_METHOD,
             "source_dataset": "forecast_return_distribution",
             "targets_by_model": targets_by_model,
             "validation_by_model": validations_by_model,
         }
         quantile_vector = None
         if len(canonical_quantiles) == len(selected_rows):
-            quantile_vector = {
-                field: float(np.median([row[field] for row in canonical_quantiles]))
-                for field in QUANTILE_FIELDS
-            }
+            quantile_vector = mixture_quantiles(canonical_quantiles)
         components = None
         if return_components_by_instrument is not None:
             components = return_components_by_instrument.get(instrument_id)

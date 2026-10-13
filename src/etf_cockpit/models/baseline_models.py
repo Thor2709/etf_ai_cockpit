@@ -59,8 +59,10 @@ def baseline_forecast(
                 **derived_quantile_columns(complete_return_quantiles(q10, expected, q90), QUANTILE_METHOD_NORMAL),
                 coverage_ratio=coverage,
                 forecast_vol=horizon_vol,
-                prob_positive_return=float(1 / (1 + np.exp(-expected / max(horizon_vol, 1e-6)))),
-                prob_beat_benchmark=float(1 / (1 + np.exp(-expected_excess / max(horizon_vol, 1e-6)))),
+                # Logistic scores are heuristics: no out-of-sample calibration backs them, so the
+                # calibrated-probability fields stay unavailable (None).
+                heuristic_probability_positive=float(1 / (1 + np.exp(-expected / max(horizon_vol, 1e-6)))),
+                heuristic_probability_beat_benchmark=float(1 / (1 + np.exp(-expected_excess / max(horizon_vol, 1e-6)))),
                 status="ok",
             )
         )
