@@ -22,6 +22,8 @@ SEARCH_WIDTH_COMPACT = 220
 ROW_HEIGHT = 44
 MAX_RESULTS = 8
 _GLOSSARY: list[str] | None = None
+_PLACEHOLDER_IDENTIFIERS = frozenset({"needs_verification", "unknown", "n/a", "na", "null"})
+_INACTIVE_LIFECYCLES = frozenset({"merged", "delisted"})
 
 
 def _glossary_terms() -> list[str]:
@@ -37,8 +39,10 @@ def _glossary_terms() -> list[str]:
     return _GLOSSARY
 
 
-def search_universe(state: object) -> object:
+def search_universe(state: object, *, include_inactive: bool = False) -> object:
     """The searchable instruments: the configured universe, with the Yahoo symbol the score rows show.
+
+    Disabled, merged and delisted instruments are excluded unless ``include_inactive`` is set.
 
     The Yahoo symbol (``VWCE.DE``) comes from the provider symbol map, which only the score rows carry,
     so the score rows are merged in by id; a score failure falls back to the configured ids and names.
@@ -59,6 +63,11 @@ def search_universe(state: object) -> object:
         symbols = {}
     items = []
     for etf in getattr(universe, "etfs", ()) or ():
+        if not include_inactive and (
+            getattr(etf, "enabled", True) is False
+            or str(getattr(etf, "lifecycle", "") or "").strip().casefold() in _INACTIVE_LIFECYCLES
+        ):
+            continue
         yahoo, isin = symbols.get(str(etf.id), ("", ""))
         items.append(
             SimpleNamespace(
@@ -74,21 +83,45 @@ def search_universe(state: object) -> object:
 
 
 def _instrument_keys(item: object) -> list[str]:
+    # A placeholder ISIN (``needs_verification``) is shared by many instruments: never an identity key.
     return [
         value.casefold()
         for value in (str(getattr(item, attr, "") or "") for attr in ("id", "ticker", "provider_symbol", "yahoo_symbol", "isin"))
-        if value
+        if value and value.casefold() not in _PLACEHOLDER_IDENTIFIERS
     ]
 
 
-def exact_instrument_id(universe: object, query: str) -> str | None:
-    """The instrument whose id, Yahoo symbol or ISIN equals the query (``BA.L``, ``RABO.AS``), if any."""
+def exact_instrument_matches(universe: object, query: str) -> list[str]:
+    """Ids of every instrument whose id, ticker, Yahoo symbol or ISIN equals the query."""
 
     needle = str(query or "").strip().casefold()
-    for item in getattr(universe, "etfs", ()) or ():
-        if needle and needle in _instrument_keys(item):
-            return str(getattr(item, "id", "") or "")
-    return None
+    if not needle:
+        return []
+    return [
+        str(getattr(item, "id", "") or "")
+        for item in getattr(universe, "etfs", ()) or ()
+        if needle in _instrument_keys(item)
+    ]
+
+
+def exact_instrument_status(universe: object, query: str) -> str:
+    """``unique``, ``ambiguous`` (several hits or a placeholder identifier) or ``none``."""
+
+    if str(query or "").strip().casefold() in _PLACEHOLDER_IDENTIFIERS:
+        return "ambiguous"
+    matches = exact_instrument_matches(universe, query)
+    return "none" if not matches else "unique" if len(set(matches)) == 1 else "ambiguous"
+
+
+def exact_instrument_id(universe: object, query: str) -> str | None:
+    """The one instrument whose id, Yahoo symbol or ISIN equals the query (``BA.L``, ``RABO.AS``).
+
+    ``None`` when nothing matches or the match is ambiguous: the first of several is never chosen.
+    """
+
+    if exact_instrument_status(universe, query) != "unique":
+        return None
+    return exact_instrument_matches(universe, query)[0]
 
 
 def instrument_matches(universe: object, query: str, limit: int | None = None) -> list[tuple[str, str]]:
