@@ -41,6 +41,15 @@ REQUIRED_HOLDINGS_COLUMNS = (
     "authority",
     "score_eligible",
 )
+# Lower is better. Canonical (authority-first) source ranking shared by every holdings selector.
+HOLDINGS_AUTHORITY_RANKS = {
+    "official": 0, "issuer": 0, "issuer_document": 0, "vendor": 1, "public_page": 1, "yfinance": 2,
+}
+# Identifier columns are text: numeric parsing would drop the leading zeros of a CUSIP/SEDOL.
+_IDENTIFIER_TEXT_DTYPES = {
+    column: str
+    for column in ("isin", "ticker", "holding_id", "security_id", "identity_value", "cusip", "sedol", "figi")
+}
 _HOLDING_CANONICAL_COLUMNS = (
     "security", "weight", "isin", "ticker", "sector", "region", "country", "currency", "issuer", "company",
     "holding_id", "holding_id_namespace", "security_id", "security_id_namespace", "exchange", "venue",
@@ -75,6 +84,11 @@ def _authority_for_source(source: str) -> str:
     if value in {"yfinance", "yahoo", "vendor", "vendor_top_holdings"} or "yfinance" in value or "yahoo" in value:
         return "vendor"
     return "unknown"
+
+
+def holdings_authority_rank(authority: object) -> int:
+    """Return the canonical authority rank (0 best); unknown authorities rank last."""
+    return HOLDINGS_AUTHORITY_RANKS.get(str(authority or "").strip().lower(), 3)
 
 
 def _date_value(value: str | date | datetime) -> date | None:
@@ -262,9 +276,8 @@ def select_holdings_as_of(frame: pd.DataFrame, instrument_id: str, decision_time
     if "source_id" not in scoped and "source" in scoped:
         keys.insert(0, "source")
     acquisitions = [group for _, group in scoped.groupby(keys, sort=False, dropna=False)]
-    ranks = {"issuer": 0, "official": 0, "issuer_document": 0, "vendor": 1, "public_page": 1, "yfinance": 2}
     acquisitions.sort(key=lambda group: (
-        ranks.get(str(group.iloc[0].get("authority", "unknown")), 3),
+        holdings_authority_rank(group.iloc[0].get("authority", "unknown")),
         -group["as_of"].iloc[0].value,
         -group["known_at"].iloc[0].value,
         str(group.iloc[0].get("source_id", group.iloc[0].get("source", ""))),
@@ -616,12 +629,12 @@ def _read_holdings_import(path: Path, as_of: str | date | datetime | None) -> tu
     suffix = candidate.suffix.lower()
     if suffix == ".csv":
         try:
-            frame = pd.read_csv(candidate)
+            frame = pd.read_csv(candidate, dtype=_IDENTIFIER_TEXT_DTYPES)
         except Exception as exc:
             raise ValueError(f"Holdings CSV could not be read: {candidate}") from exc
     elif suffix in {".xlsx", ".xls"}:
         try:
-            frame = pd.read_excel(candidate)
+            frame = pd.read_excel(candidate, dtype=_IDENTIFIER_TEXT_DTYPES)
         except Exception as exc:
             raise ValueError(f"Holdings workbook could not be read: {candidate}") from exc
     else:

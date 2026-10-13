@@ -382,8 +382,8 @@ def _vehicle_scored_metrics(
     _add_fee_metric(evidence, definitions, economics, decision, context)
     _add_liquidity_metrics(evidence, definitions, liquidity, liquidity_known_at)
     _add_closure_metric(evidence, definitions, economics)
-    _add_look_through_vehicle_metrics(evidence, definitions, look_through)
-    _add_currency_metric(evidence, definitions, look_through, context)
+    _add_look_through_vehicle_metrics(evidence, definitions, look_through, decision)
+    _add_currency_metric(evidence, definitions, look_through, context, decision)
     _add_structural_stress_metrics(evidence, definitions, structural)
     _add_record_metrics(evidence, definitions, supplied)
     return [evidence[key] for key in sorted(evidence)]
@@ -700,13 +700,14 @@ def _add_look_through_vehicle_metrics(
     evidence: dict[str, ScoredMetric],
     definitions: Mapping[str, MetricDefinition],
     look_through: LookThroughSummary | Mapping[str, object] | None,
+    decision: datetime | None = None,
 ) -> None:
     if look_through is None:
         return
     lineage = _mapping(_member(look_through, "lineage"))
     effective = _timestamp(_member(look_through, "holdings_date"))
     known = _timestamp(lineage.get("known_at"))
-    if effective is None or known is None:
+    if not _holdings_evidence_usable(look_through, effective, known, decision):
         return
     concentration = _mapping(_member(look_through, "concentration"))
     provider_coverage = _fraction(_member(look_through, "provider_coverage"))
@@ -745,6 +746,7 @@ def _add_currency_metric(
     definitions: Mapping[str, MetricDefinition],
     look_through: LookThroughSummary | Mapping[str, object] | None,
     context: InstrumentContextV2,
+    decision: datetime | None = None,
 ) -> None:
     if look_through is None or "currency_mismatch" not in definitions:
         return
@@ -753,7 +755,7 @@ def _add_currency_metric(
     known = _timestamp(lineage.get("known_at"))
     exposures = _mapping(_member(look_through, "exposures"))
     currency_weights = _mapping(exposures.get("currency"))
-    if effective is None or known is None or not currency_weights:
+    if not _holdings_evidence_usable(look_through, effective, known, decision) or not currency_weights:
         return
     result = build_currency_context(context.trading_currency, currency_weights)
     weights = result.economic_currency_weights
@@ -1122,6 +1124,23 @@ def _is_equity_etf(context: InstrumentContextV2) -> bool:
     instrument_type = (context.instrument_type or "").casefold()
     asset_class = (context.asset_class or "").casefold()
     return "etf" in instrument_type and asset_class in {"equity", "equities"}
+
+
+def _holdings_evidence_usable(
+    look_through: LookThroughSummary | Mapping[str, object],
+    effective: datetime | None,
+    known: datetime | None,
+    decision: datetime | None,
+) -> bool:
+    """Holdings-derived vehicle metrics need fresh, usable holdings with as_of <= known_at <= decision."""
+    decision = decision or _timestamp(_member(look_through, "decision_time"))
+    return (
+        decision is not None
+        and effective is not None
+        and known is not None
+        and effective <= known <= decision
+        and _look_through_usable(look_through, decision)
+    )
 
 
 def _look_through_usable(

@@ -224,7 +224,9 @@ def test_class_ter_replaces_fund_ter_and_ambiguous_classes_are_unavailable(tmp_p
 
 
 def test_currency_mismatch_is_graded_and_hedge_aware() -> None:
+    # HL1 (#953): holdings-derived metrics need a usable (non-stale) summary dated within the decision.
     look_through = {
+        "status": "available", "freshness": "fresh", "decision_time": DECISION,
         "holdings_date": "2026-01-05", "lineage": {"known_at": DECISION},
         "exposures": {"currency": {"USD": 0.7, "EUR": 0.3}},
     }
