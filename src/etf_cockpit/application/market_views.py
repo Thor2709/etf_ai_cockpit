@@ -408,7 +408,8 @@ def _load_market_series_projection(
     if basis == "raw":
         frame["series_value"] = frame["raw_close"] * (frame["fx_rate"] if "fx_rate" in frame else 1.0)
     elif basis == "adjusted":
-        frame["series_value"] = frame["adjusted_close"] * (frame["fx_rate"] if "fx_rate" in frame else 1.0)
+        # "adjusted" is split-adjusted price (no cash distributions); "total_return" is its own index.
+        frame["series_value"] = frame["price_adjusted_close"] * (frame["fx_rate"] if "fx_rate" in frame else 1.0)
     else:
         frame["series_value"] = frame["output_total_return_index"] if "output_total_return_index" in frame else frame["total_return_index"]
     return {

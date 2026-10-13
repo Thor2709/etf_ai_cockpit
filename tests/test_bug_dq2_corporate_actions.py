@@ -202,7 +202,7 @@ def test_split_adjusted_price_return_excludes_dividend_and_total_return_includes
     dividend = _action("DIV-1", "dividend", amount=5.0)
     split = _action("SPLIT-1", "split", ratio=2.0, ex_date="2024-01-12", payable_at="2024-01-12")
     dates = ["2024-01-10", "2024-01-11", "2024-01-12"]
-    result = apply_total_return_adjustments(_prices(dates, [100.0, 95.0, 47.5]), (dividend, split))
+    result = apply_total_return_adjustments(_prices(dates, [100.0, 95.0, 47.5], currency="USD"), (dividend, split))
 
     assert result.status == "available"
     assert result.price_return == pytest.approx(-0.05)
@@ -386,7 +386,7 @@ def test_exact_total_loss_is_representable(tmp_path: Path) -> None:
 
 def test_total_loss_with_final_day_cash_distribution_is_not_zeroed() -> None:
     dividend = _action("DIV-LOSS", "dividend", amount=1.0)
-    result = apply_total_return_adjustments(_prices(["2024-01-10", "2024-01-11"], [100.0, 0.0]), (dividend,))
+    result = apply_total_return_adjustments(_prices(["2024-01-10", "2024-01-11"], [100.0, 0.0], currency="USD"), (dividend,))
     assert result.status == "available"
     adjusted = result.frame["adjusted_close"].tolist()
     assert adjusted == pytest.approx([100.0, 1.0])
@@ -510,3 +510,33 @@ def test_conflicting_provider_rows_make_only_that_instrument_unavailable() -> No
     result = provider.fetch_prices(["BAD", "GOOD"], date(2024, 1, 1), date(2024, 1, 31))
     assert result.data is not None and set(result.data["provider_symbol"]) == {"GOOD"}
     assert result.status == "unavailable" and "BAD: conflicting rows for the same timestamp" in result.message
+
+
+# --- correction pass 2 -----------------------------------------------------------------
+
+
+def test_cash_action_without_any_currency_evidence_is_rejected_on_direct_call() -> None:
+    dividend = _action("DIV-1", "dividend", amount=1.0)
+    dates = ["2024-01-10", "2024-01-11", "2024-01-12"]
+    unverified = apply_total_return_adjustments(_prices(dates, [100.0, 99.0, 99.0]), (dividend,))
+    assert unverified.status == "unavailable"
+    assert "action_currency_unverified:DIV-1" in unverified.warnings
+    assert unverified.frame["total_return_index"].isna().all()
+    assert unverified.price_return == pytest.approx(-0.01)
+
+    split_only = apply_total_return_adjustments(_prices(dates, [100.0, 50.0, 50.0]), (_action("S-1", "split", ratio=2.0),))
+    assert split_only.status == "available"
+
+
+def test_series_projection_adjusted_basis_is_price_only_and_total_return_differs(tmp_path: Path) -> None:
+    dividend = _action("DIV-1", "dividend", amount=5.0)
+    prices = _prices(SPLIT_DATES, [100.0, 100.0, 95.0, 95.0, 95.0, 95.0])
+    adjusted = _series_projection(tmp_path, prices, basis="adjusted", actions=(dividend,))
+    total = _series_projection(tmp_path, prices, basis="total_return", actions=(dividend,))
+
+    assert adjusted["status"] == "available" and adjusted["basis"] == "adjusted"
+    assert total["status"] == "available" and total["basis"] == "total_return"
+    # Price basis keeps the dividend drop; total return reinvests it.
+    assert adjusted["frame"]["series_value"].tolist() == pytest.approx([100.0, 100.0, 95.0, 95.0, 95.0, 95.0])
+    assert total["frame"]["series_value"].iloc[-1] == pytest.approx(100.0)
+    assert adjusted["frame"]["series_value"].iloc[-1] != pytest.approx(total["frame"]["series_value"].iloc[-1])

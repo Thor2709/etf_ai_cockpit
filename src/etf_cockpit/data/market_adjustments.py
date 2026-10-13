@@ -939,7 +939,11 @@ def apply_total_return_adjustments(
     if mixed_currency:
         warnings.append("mixed_price_currency")
     for action in (item for group in events.values() for item in group if item.cash_amount > 0):
-        if local_currency is not None and action.currency != local_currency:
+        if local_currency is None:
+            # Cash distributions on a price series of unknown currency cannot be reconciled: fail closed.
+            warnings.append(f"action_currency_unverified:{action.action_id}")
+            currency_problem = True
+        elif action.currency != local_currency:
             warnings.append(f"action_currency_mismatch:{action.action_id}:{action.currency}!={local_currency}")
             currency_problem = True
     if currency_problem:
