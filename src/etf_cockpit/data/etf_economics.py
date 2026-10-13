@@ -1366,6 +1366,59 @@ def _unavailable(instrument: str, message: str, *, missing: Iterable[str] = (), 
     return EtfEconomicsReport(instrument, "unavailable", message, missing_evidence=tuple(sorted(set(missing))), warnings=(message,), **values)
 
 
+# Exchange names used in the configured universe -> exchange_calendars codes (ISO 10383 MICs are accepted as-is).
+_EXCHANGE_CALENDAR_ALIASES = {
+    "XETRA": "XETR",
+    "XETR": "XETR",
+    "EURONEXT AMSTERDAM": "XAMS",
+    "EURONEXT PARIS": "XPAR",
+    "EURONEXT BRUSSELS": "XBRU",
+    "EURONEXT DUBLIN": "XDUB",
+    "EURONEXT LISBON": "XLIS",
+    "LSE": "XLON",
+    "LONDON STOCK EXCHANGE": "XLON",
+    "SIX": "XSWX",
+    "SIX SWISS EXCHANGE": "XSWX",
+    "OSLO BORS": "XOSL",
+    "NASDAQ": "XNAS",
+    "NYSE": "XNYS",
+}
+
+
+def resolve_session_calendar(exchange: object) -> str | None:
+    """Return the exchange_calendars code for a configured exchange, or None when it is not certified."""
+
+    text = str(exchange or "").strip().upper()
+    if not text:
+        return None
+    code = _EXCHANGE_CALENDAR_ALIASES.get(text, text)
+    try:
+        import exchange_calendars as xcals
+
+        return code if code in set(xcals.get_calendar_names(include_aliases=False)) else None
+    except Exception:
+        return None
+
+
+def _expected_sessions(start: pd.Timestamp, end: pd.Timestamp, session_calendar: str | None) -> pd.DatetimeIndex:
+    """Return the expected observation dates: exchange sessions when a calendar is named, else weekdays.
+
+    Weekday-only sampling cannot tell an exchange holiday from a missing observation; naming the
+    listing's calendar lets a holiday be absent without making tracking evidence unavailable.
+    """
+
+    if session_calendar is None:
+        return pd.bdate_range(start=start, end=end, tz="UTC")
+    import exchange_calendars as xcals
+
+    try:
+        calendar = xcals.get_calendar(session_calendar)
+        sessions = calendar.sessions_in_range(start.tz_localize(None).normalize(), end.tz_localize(None).normalize())
+    except Exception as exc:  # unknown calendar or a range outside the calendar's bounds
+        raise EtfEconomicsError(f"session calendar {session_calendar} cannot cover the tracking window") from exc
+    return pd.DatetimeIndex(sessions).tz_localize("UTC")
+
+
 def calculate_etf_economics(
     instrument_id: str,
     records: Iterable[EtfEconomicsObservation | Mapping[str, object]] = (),
@@ -1377,8 +1430,13 @@ def calculate_etf_economics(
     benchmark_id: str | None = None,
     currency: str | None = None,
     closure_policy: ClosureProxyPolicy | Mapping[str, object] | None = None,
+    session_calendar: str | None = None,
 ) -> EtfEconomicsReport:
-    """Build a point-in-time report; authoritative tracking requires typed evidence."""
+    """Build a point-in-time report; authoritative tracking requires typed evidence.
+
+    ``session_calendar`` names the listing's exchange_calendars code. With it, exchange holidays are
+    expected gaps; without it the window must be gap-free weekdays (a holiday then stays unavailable).
+    """
 
     instrument = _text(instrument_id) or "unknown"
     try:
@@ -1496,7 +1554,7 @@ def calculate_etf_economics(
         if len(selected_window) == expected_rows and not missing:
             start = pd.Timestamp(selected_window["date"].iloc[0])
             end = pd.Timestamp(selected_window["date"].iloc[-1])
-            expected_dates = pd.bdate_range(start=start, end=end, tz="UTC")
+            expected_dates = _expected_sessions(start, end, session_calendar)
             if len(expected_dates) != expected_rows or not selected_window["date"].equals(pd.Series(expected_dates, name="date")):
                 missing.add("business_daily_coverage")
             else:
@@ -1616,5 +1674,5 @@ __all__ = [
     "ClosureProxyPolicy", "TotalReturnEvidence", "CanonicalTotalReturnEvidence", "calculate_etf_economics", "load_etf_economics_records",
     "import_etf_economics_artifact", "load_etf_economics_import_manifest",
     "load_total_return_evidence", "load_closure_proxy_policy", "ETF_ECONOMICS_PATH", "ETF_FUND_TOTAL_RETURN_PATH",
-    "ETF_BENCHMARK_TOTAL_RETURN_PATH", "ETF_CLOSURE_POLICY_PATH",
+    "ETF_BENCHMARK_TOTAL_RETURN_PATH", "ETF_CLOSURE_POLICY_PATH", "resolve_session_calendar",
 ]

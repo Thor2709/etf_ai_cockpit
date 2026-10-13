@@ -64,7 +64,9 @@ def test_ec_uses_sparebank_scorecard_and_never_reaches_generic_etf_fallback(monk
     assert analysis.routing.applies
     assert analysis.scorecard.formula_version == "sparebank-scorecard-v1.2.0"
     assert original("STOCK").asset_type == "STOCK"
-    assert original("OTHER").groups == original("ETF").groups
+    # B021-N002: an unknown asset type no longer silently borrows the ETF policy.
+    with pytest.raises(CanonicalScoreError, match="no score policy"):
+        original("OTHER")
 
 
 def test_score_engine_hash_is_shared_and_sparebank_policy_is_separate() -> None:

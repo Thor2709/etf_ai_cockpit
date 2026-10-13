@@ -33,6 +33,8 @@ from etf_cockpit.analysis.decision.stock import (
 from etf_cockpit.core.atomic_io import atomic_write_json
 from etf_cockpit.core.paths import (
     CONFIG_DIR,
+    ETF_BENCHMARK_TOTAL_RETURN_PATH,
+    ETF_FUND_TOTAL_RETURN_PATH,
     LOG_DIR,
     ROOT,
     STATEMENT_FACTS_PATH,
@@ -41,6 +43,8 @@ from etf_cockpit.data.classification import read_instrument_context
 from etf_cockpit.data.etf_economics import (
     calculate_etf_economics,
     load_etf_economics_records,
+    load_total_return_evidence,
+    resolve_session_calendar,
 )
 from etf_cockpit.data.fundamentals import FUNDAMENTAL_CLEAN_PATH
 from etf_cockpit.data.fund_holdings import FUND_HOLDINGS_PATH
@@ -65,6 +69,8 @@ def run_decision_shadow(
     output_directory: Path = LOG_DIR,
     candidates: Sequence[Mapping[str, object]] | None = None,
     failures: Sequence[Mapping[str, str]] = (),
+    expected_index_returns: Mapping[str, Mapping[str, object]] | None = None,
+    structural_drags: Mapping[str, Mapping[str, object]] | None = None,
 ) -> Path:
     """Write one immutable-by-run versioned JSON companion to the v3 signal log.
 
@@ -91,6 +97,8 @@ def run_decision_shadow(
                 cutoff,
                 latest_features=latest_features,
                 liquidity_reports=liquidity_reports or {},
+                expected_index_returns=expected_index_returns,
+                structural_drags=structural_drags,
             )
         except Exception as exc:
             candidate_rows = ()
@@ -166,6 +174,8 @@ def _compose_universe(
     *,
     latest_features: pd.DataFrame | None,
     liquidity_reports: Mapping[str, object] | None = None,
+    expected_index_returns: Mapping[str, Mapping[str, object]] | None = None,
+    structural_drags: Mapping[str, Mapping[str, object]] | None = None,
 ) -> tuple[Mapping[str, object], ...]:
     """Compose all enabled instruments against one point-in-time peer snapshot.
 
@@ -194,6 +204,16 @@ def _compose_universe(
     liquidity_reports = liquidity_reports or {}
     signal_by_id = {str(_member(item, "etf_id", "")): item for item in signals}
     economics_records = load_etf_economics_records()
+    # Typed fund/benchmark total-return evidence (one persisted series per identity), keyed by identity.
+    fund_returns: dict[str, object] = {}
+    benchmark_returns: dict[str, object] = {}
+    for path, target in (
+        (ETF_FUND_TOTAL_RETURN_PATH, fund_returns),
+        (ETF_BENCHMARK_TOTAL_RETURN_PATH, benchmark_returns),
+    ):
+        evidence = load_total_return_evidence(path)
+        if evidence is not None:
+            target[evidence.instrument_id] = evidence
     prepared: list[dict[str, object]] = []
     failures: list[Mapping[str, object]] = []
     for identity in identities:
@@ -224,6 +244,11 @@ def _compose_universe(
                         liquidity_report=liquidity_reports.get(instrument),
                         liquidity_known_at=_time_text(decision),
                         latest_features=_latest_feature_row(latest_features, instrument),
+                        fund_total_return=fund_returns or None,
+                        benchmark_total_return=benchmark_returns or None,
+                        expected_index_return=(expected_index_returns or {}).get(instrument),
+                        structural_drag=(structural_drags or {}).get(instrument),
+                        session_calendar=resolve_session_calendar(_member(identity, "exchange")),
                     )
                 )
         except Exception as exc:
@@ -363,6 +388,12 @@ def _prepare_etf_candidate(
     liquidity_report: object | None = None,
     liquidity_known_at: str | None = None,
     latest_features: object | None = None,
+    fund_total_return: object | None = None,
+    benchmark_total_return: object | None = None,
+    expected_index_return: Mapping[str, object] | None = None,
+    structural_drag: Mapping[str, object] | None = None,
+    session_calendar: str | None = None,
+    tracking_horizon_days: int = 252,
 ) -> dict[str, object]:
     records = tuple(
         item
@@ -371,7 +402,15 @@ def _prepare_etf_candidate(
         and _time_is_at_or_before(_member(item, "as_of"), decision)
         and _time_is_at_or_before(_member(item, "known_at"), decision)
     )
-    economics = calculate_etf_economics(instrument, records, as_of=decision)
+    economics = calculate_etf_economics(
+        instrument,
+        records,
+        fund_total_return=fund_total_return,
+        benchmark_total_return=benchmark_total_return,
+        as_of=decision,
+        horizon_days=tracking_horizon_days,
+        session_calendar=session_calendar,
+    )
     look_through = _look_through(instrument, decision)
     feature_as_of = pd.to_datetime(
         _member(latest_features, "date", _member(latest_features, "as_of")),
@@ -418,6 +457,8 @@ def _prepare_etf_candidate(
         "liquidity_report": liquidity_report,
         "liquidity_known_at": liquidity_known_at,
         "latest_features": latest_features,
+        "expected_index_return": expected_index_return,
+        "structural_drag": structural_drag,
         "signal": signal,
         "vehicle_metrics": tuple(vehicle_metrics),
         "exposure_metrics": tuple(exposure_metrics),
@@ -442,6 +483,8 @@ def _compose_etf_candidate(
         look_through=prepared["look_through"],
         liquidity_report=prepared.get("liquidity_report"),
         liquidity_known_at=prepared.get("liquidity_known_at"),
+        expected_index_return=prepared.get("expected_index_return"),
+        structural_drag=prepared.get("structural_drag"),
         peer_observations=peer_observations,
         exposure_peer_observations=exposure_peer_observations,
         comparison_groups=comparison_groups,

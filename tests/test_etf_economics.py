@@ -117,11 +117,14 @@ def test_etf_quote_panel_flags_stale_off_hours_and_calculates_premium_discount()
         as_of=latest,
     )
 
-    assert report.quote_status == "available"
+    # B012-N001: a stale quote is flagged and never sets spread, premium/discount or quote availability.
+    assert report.quote_status == "unavailable"
     assert report.stale_quote is True
     assert report.off_hours_quote is True
     assert report.quote_freshness == "stale"
-    assert report.premium_discount_bps == 100.0
+    assert report.premium_discount_bps is None
+    assert report.quoted_spread_bps is None
+    assert report.spread_source != "quoted_bid_ask"
     assert report.underlying_liquidity_eur == 2_000_000.0
     assert report.primary_market_capacity_eur == 5_000_000.0
     assert report.primary_market_status == "available"
