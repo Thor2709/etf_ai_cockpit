@@ -187,7 +187,8 @@ class PaperPositionMarkRequest(ContractModel):
     as_of: datetime
     source_authority: str = Field(min_length=1, max_length=160)
     source_checksum: str = Field(min_length=64, max_length=64)
-    fx_rate: float = Field(default=1, gt=0)
+    # Omitted only for a base-currency position; the ledger requires it for any foreign position.
+    fx_rate: float | None = Field(default=None, gt=0)
     benchmark_return: float | None = None
 
 
@@ -200,7 +201,8 @@ class PaperCorporateActionRequest(ContractModel):
     as_of: datetime
     source_authority: str = Field(min_length=1, max_length=160)
     source_checksum: str = Field(min_length=64, max_length=64)
-    fx_rate: float = Field(default=1, gt=0)
+    # Omitted only for a base-currency position; the ledger requires it for any foreign position.
+    fx_rate: float | None = Field(default=None, gt=0)
 
 
 class PaperOutcomeMatureRequest(ContractModel):

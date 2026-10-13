@@ -186,6 +186,23 @@ class PaperLedger:
                 raise PaperLedgerIntegrityError("Paper cash projection is not an exact decimal.")
             return cash
 
+    def projected_fill_ids(self, *, account_id: str, as_of: datetime) -> frozenset[str]:
+        """Return the fills ``cash_balance`` at ``as_of`` contains, so unsettled cash is applied per fill."""
+
+        if account_id != self.account_id:
+            raise PaperLedgerError("Projected fills requested for a different paper account.")
+        if not isinstance(as_of, datetime) or as_of.tzinfo is None:
+            raise PaperLedgerError("A timezone-aware projection time is required.")
+        cutoff = as_of.astimezone(timezone.utc)
+        with self._lock:
+            return frozenset(
+                str(event["payload"].get("fill_id"))
+                for event in self._read_events()
+                if event.get("event_type") == "fill_recorded"
+                and isinstance(event.get("payload"), Mapping)
+                and _event_time(event) <= cutoff
+            )
+
     @property
     def cash_includes_unsettled_trades(self) -> bool:
         """Report whether every committed lifecycle fill is present in the cash projection."""
@@ -375,11 +392,17 @@ class PaperLedger:
             if not (config_dir / "universe.yaml").exists():
                 config_dir = CONFIG_DIR
             configured = load_config(config_dir).universe.by_id().get(instrument_id)
-        except Exception:
-            configured = None
-        if configured is not None and getattr(configured, "currency", None):
-            return str(configured.currency).strip().upper()
-        return str(state["base_currency"]).upper()
+        except Exception as exc:
+            raise PaperLedgerError(
+                "The instrument quote currency is unavailable: the universe configuration could not be loaded; "
+                "supply an explicit quote_currency."
+            ) from exc
+        if configured is None or not getattr(configured, "currency", None):
+            raise PaperLedgerError(
+                f"The quote currency of {instrument_id} cannot be resolved from the universe; "
+                "supply an explicit quote_currency or a proposal currency."
+            )
+        return str(configured.currency).strip().upper()
 
     @staticmethod
     def _resolve_fx(fx_rate: Decimal | None, currency: str, state: Mapping[str, object]) -> Decimal:
@@ -393,6 +416,18 @@ class PaperLedger:
                 f"An explicit fx_rate is required for {currency.upper()} quotes in a {base} paper account."
             )
         return Decimal("1")
+
+    @staticmethod
+    def _position_fx(
+        fx_rate: Decimal | None, instrument_id: str, state: Mapping[str, object]
+    ) -> Decimal:
+        """Return the explicit FX rate; the implicit 1 is allowed only for a base-currency (or absent) position."""
+
+        positions = state["positions"]
+        assert isinstance(positions, Mapping)
+        position = positions.get(instrument_id)
+        currency = str(position["currency"]) if isinstance(position, Mapping) and position.get("currency") else str(state["base_currency"])
+        return PaperLedger._resolve_fx(fx_rate, currency, state)
 
     @staticmethod
     def _require_within_target(
@@ -1030,23 +1065,26 @@ class PaperLedger:
         instrument_id: str,
         *,
         adjusted_close: float,
-        fx_rate: float = 1.0,
+        fx_rate: float | None = None,
         benchmark_return: float | None = None,
         source_authority: str = "local_manual_adjusted_close",
         source_checksum: str = "",
         occurred_at: datetime | None = None,
     ) -> PaperAccountSnapshot:
         price = _positive(adjusted_close, "adjusted_close")
-        fx = _positive(fx_rate, "fx_rate")
+        explicit_fx = None if fx_rate is None else _decimal_number(fx_rate, "fx_rate", positive=True)
         benchmark = None if benchmark_return is None else _number(benchmark_return, "benchmark_return")
         provenance = _provenance(source_authority, source_checksum)
         with self._lock, self._file_lock():
             events = self._read_events()
-            self._require_open(self._replay(events))
+            state = self._replay(events)
+            self._require_open(state)
+            mark_id = _clean_id(instrument_id, "instrument_id").upper()
+            fx = float(self._position_fx(explicit_fx, mark_id, state))
             self._append(
                 "position_marked",
                 {
-                    "instrument_id": _clean_id(instrument_id, "instrument_id").upper(),
+                    "instrument_id": mark_id,
                     "price": price,
                     "fx_rate": fx,
                     "price_basis": "adjusted_close",
@@ -1067,17 +1105,18 @@ class PaperLedger:
         cash_dividend_per_unit: float = 0.0,
         source_authority: str = "local_manual_corporate_action",
         source_checksum: str = "",
-        fx_rate: float = 1.0,
+        fx_rate: float | None = None,
         occurred_at: datetime | None = None,
     ) -> PaperAccountSnapshot:
         ratio = _positive(split_ratio, "split_ratio")
         dividend_decimal = _decimal_number(cash_dividend_per_unit, "cash_dividend_per_unit", non_negative=True)
-        dividend_fx_decimal = _decimal_number(fx_rate, "fx_rate", positive=True)
+        explicit_fx = None if fx_rate is None else _decimal_number(fx_rate, "fx_rate", positive=True)
         provenance = _provenance(source_authority, source_checksum)
         with self._lock, self._file_lock():
             events = self._read_events()
             state = self._replay(events)
             self._require_open(state)
+            dividend_fx_decimal = self._position_fx(explicit_fx, _clean_id(instrument_id, "instrument_id").upper(), state)
             action_key = _clean_id(action_id, "action_id") if action_id is not None else "action_" + _digest(
                 {
                     "instrument_id": instrument_id, "split_ratio": ratio,

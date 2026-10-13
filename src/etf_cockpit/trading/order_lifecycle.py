@@ -20,6 +20,7 @@ from etf_cockpit.trading.cash_reservation import (
     CashReservationService,
     CashSource,
     decimal_value,
+    projected_fill_ids,
 )
 
 
@@ -647,7 +648,11 @@ class OrderLifecycle:
                 cash_source=self.cash_source,
                 as_of=instant,
             )
-            if bool(getattr(self.cash_source, "cash_includes_unsettled_trades", False)):
+            # The fill being recorded is not yet in a per-fill source's balance, so its buy debit is
+            # already subtracted; a boolean source needs it applied explicitly.
+            if projected_fill_ids(
+                self.cash_source, account_id=str(row[2]), as_of=instant
+            ) is None and bool(getattr(self.cash_source, "cash_includes_unsettled_trades", False)):
                 available_after_fill -= max(Decimal("0"), -cash_delta)
             if available_after_fill < 0:
                 raise OrderLifecycleError(

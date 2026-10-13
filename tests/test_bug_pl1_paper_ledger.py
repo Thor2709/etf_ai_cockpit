@@ -8,7 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from etf_cockpit.application.contracts import PaperFillRequest, PaperProposalAcceptRequest
+from etf_cockpit.application.contracts import (
+    PaperCorporateActionRequest,
+    PaperFillRequest,
+    PaperPositionMarkRequest,
+    PaperProposalAcceptRequest,
+)
 from etf_cockpit.governance.product_scope import load_gate_policy
 from etf_cockpit.portfolio.paper_trading import (
     PaperLedger,
@@ -222,3 +227,86 @@ def test_stale_target_cannot_create_two_overshooting_proposals(tmp_path: Path) -
     ledger.accept_proposal(_proposal(source="first", extra_material=extra), execution_price=10, occurred_at=_day(1))
     with pytest.raises(PaperLedgerError, match="target"):
         ledger.accept_proposal(_proposal(source="second", extra_material=extra), execution_price=10, occurred_at=_day(1))
+
+
+# D018-N003
+def test_mixed_projection_does_not_unlock_unsettled_sale_credit(tmp_path: Path) -> None:
+    ledger = _ledger(tmp_path)
+    _buy(ledger, 10, 10, source="d018-buy", at=1)
+    sell = ledger.accept_proposal(_proposal(quantity_delta=-5, source="d018-sell"), execution_price=10, occurred_at=_day(10))
+    ledger.record_fill(str(sell["order_id"]), quantity=5, price=10, occurred_at=_day(10))  # projected, settles later
+    buy = ledger.accept_proposal(_proposal(quantity_delta=20, source="d018-buy2"), execution_price=10, occurred_at=_day(10))
+    second_sell = ledger.accept_proposal(_proposal(quantity_delta=-2, source="d018-sell2"), execution_price=10, occurred_at=_day(10))
+    ledger._record_lifecycle_fill(  # durable in the lifecycle, not projected into the paper ledger
+        buy, fill_id="d018_buy_unprojected", quantity=Decimal("3"), price=Decimal("10"), fee=Decimal("0"),
+        fx_rate=Decimal("1"), occurred_at=_day(10),
+    )
+    lifecycle = ledger._order_lifecycle()
+    assert ledger.cash_includes_unsettled_trades is False
+    # 950 cash - 170 reserved - 50 unsettled sale credit (in cash) - 30 unprojected buy debit (not in cash)
+    assert lifecycle.available_buying_power(account_id=ledger.account_id, currency="EUR", as_of=_day(10.5)) == Decimal("700")
+    ledger._record_lifecycle_fill(  # an unprojected sale credit is neither cash nor buying power
+        second_sell, fill_id="d018_sale_unprojected", quantity=Decimal("2"), price=Decimal("10"), fee=Decimal("0"),
+        fx_rate=Decimal("1"), occurred_at=_day(10),
+    )
+    assert _cash(ledger, _day(10.5)) == pytest.approx(950)
+    assert lifecycle.available_buying_power(account_id=ledger.account_id, currency="EUR", as_of=_day(10.5)) == Decimal("700")
+    assert lifecycle.available_buying_power(account_id=ledger.account_id, currency="EUR", as_of=_day(16)) == Decimal("780")
+
+
+# D024-N003 / D114-N003
+def test_quote_currency_fails_closed_when_universe_cannot_resolve_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from etf_cockpit.portfolio import paper_trading
+
+    ledger = _ledger(tmp_path)
+
+    def broken(_config_dir: object) -> object:
+        raise OSError("universe unreadable")
+
+    monkeypatch.setattr(paper_trading, "load_config", broken)
+    with pytest.raises(PaperLedgerError, match="quote currency is unavailable"):
+        ledger.accept_proposal(_proposal(source="cfg-fail"), execution_price=10, occurred_at=_day(1))
+
+    class _Universe:
+        @staticmethod
+        def by_id() -> dict[str, object]:
+            return {}
+
+    class _Config:
+        universe = _Universe()
+
+    monkeypatch.setattr(paper_trading, "load_config", lambda _config_dir: _Config())
+    with pytest.raises(PaperLedgerError, match="cannot be resolved"):
+        ledger.accept_proposal(_proposal(source="cfg-missing"), execution_price=10, occurred_at=_day(1))
+    order = ledger.accept_proposal(_proposal(source="cfg-missing"), execution_price=10, quote_currency="EUR", occurred_at=_day(1))
+    assert order["currency"] == "EUR"
+
+
+# D114-N003
+def test_mark_and_corporate_action_require_fx_for_foreign_positions(tmp_path: Path) -> None:
+    for model in (PaperPositionMarkRequest, PaperCorporateActionRequest):
+        assert model.model_fields["fx_rate"].default is None
+    ledger = _ledger(tmp_path)
+    order = ledger.accept_proposal(
+        _proposal(source="usd-mark"), execution_price=10, quote_currency="USD", fx_rate=0.9, occurred_at=_day(1)
+    )
+    ledger.record_fill(str(order["order_id"]), quantity=10, price=10, fx_rate=0.9, occurred_at=_day(2))
+    checksum = "c" * 64
+    with pytest.raises(PaperLedgerError, match="fx_rate"):
+        ledger.mark("VWCE", adjusted_close=11, source_authority="fixture", source_checksum=checksum, occurred_at=_day(3))
+    with pytest.raises(PaperLedgerError, match="fx_rate"):
+        ledger.apply_corporate_action(
+            "VWCE", split_ratio=1, cash_dividend_per_unit=1, source_authority="fixture", source_checksum=checksum,
+            occurred_at=_day(3),
+        )
+    snapshot = ledger.mark(
+        "VWCE", adjusted_close=11, fx_rate=0.9, source_authority="fixture", source_checksum=checksum, occurred_at=_day(3)
+    )
+    assert snapshot.positions[0].mark_fx_rate == pytest.approx(0.9)
+    ledger.apply_corporate_action(
+        "VWCE", split_ratio=1, cash_dividend_per_unit=1, fx_rate=0.9, source_authority="fixture", source_checksum=checksum,
+        occurred_at=_day(3),
+    )
+    base = _ledger(tmp_path / "base")
+    _buy(base, 10, 10, source="eur-mark", at=1)
+    assert base.mark("VWCE", adjusted_close=11, source_authority="fixture", source_checksum=checksum, occurred_at=_day(3))
