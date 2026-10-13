@@ -12,6 +12,7 @@ import pytest
 from etf_cockpit.analysis.decision import etf as decision_etf
 from etf_cockpit.analysis.decision import shadow_run
 from etf_cockpit.analysis.decision.etf import compose_etf_decision
+from etf_cockpit.analysis.etf_tax_context import ETFContextAssumptions, calculate_net_return_scenario
 from etf_cockpit.core.config import load_config
 from etf_cockpit.data.classification import ClassificationEvidence, resolve_instrument_context
 from etf_cockpit.data.contracts import SourceAuthority
@@ -30,7 +31,7 @@ from etf_cockpit.signals.canonical_scoring import (
 from etf_cockpit.signals.scoring import component_scores
 
 from test_decision_etf import DECISION, EFFECTIVE, _economics_report, _evidence_record
-from test_etf_economics import _corporate_action_coverage, _prices
+from test_etf_economics import _closure_policy, _corporate_action_coverage, _economics_records, _prices
 
 _DECISION_DT = datetime(2026, 1, 6, tzinfo=timezone.utc)
 
@@ -363,3 +364,109 @@ def test_sparse_promoted_forecast_leaves_other_etfs_scores_and_confidence_finite
         assert canonical.evidence_confidence_10 is not None and pd.notna(canonical.evidence_confidence_10)
         assert canonical.attractiveness_10 is not None and canonical.expected_return_10 is not None
     assert weights["toto"] > 0  # the global weight stays configured; per-instrument renormalisation handles sparsity
+
+
+# --- B014-N003 -----------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("eligible", "drag", "reason"),
+    [(0.01, 0.0015, None), (0.0, 0.0, None), (None, None, "Source-eligible dividend income was not supplied.")],
+)
+def test_withholding_applies_only_to_source_eligible_income(eligible, drag, reason) -> None:
+    assumptions = ETFContextAssumptions(tax_enabled=True, source_withholding_rate=0.15)
+    scenario = calculate_net_return_scenario(0.10, 0.02, assumptions, source_eligible_dividend_return_rate=eligible)
+    if reason is not None:  # unknown eligibility fails closed: never withheld on all dividends
+        assert scenario.net_return_rate is None and scenario.tax_drag_rate is None and scenario.included_tax_effects == ()
+        assert scenario.unavailable_reason == reason
+    else:
+        assert scenario.tax_drag_rate == pytest.approx(drag) and scenario.net_return_rate == pytest.approx(0.10 - drag)
+        assert scenario.included_tax_effects[0].dividend_return_rate == pytest.approx(eligible)
+    with pytest.raises(ValueError):
+        calculate_net_return_scenario(0.10, 0.02, assumptions, source_eligible_dividend_return_rate=0.03)
+
+
+# --- B114 (fund return record identity) ----------------------------------------------------------
+
+
+def test_same_date_return_rows_differing_only_in_nav_or_dividend_conflict() -> None:
+    dates = pd.bdate_range("2026-01-01", periods=4)
+    known = "2026-01-06T12:00:00Z"
+
+    def evidence(nav_last: float) -> TotalReturnEvidence:
+        raw = pd.DataFrame({
+            "date": [*dates, dates[-1]], "close": [100.0, 101.0, 102.0, 104.0, 104.0], "nav": [99.0, 100.0, 101.0, 103.0, nav_last],
+            "dividend": 0.0, "instrument_id": "VWCE", "currency": "EUR", "source_id": "t", "provenance": "unit-test", "known_at": known,
+        })
+        result = apply_total_return_adjustments(raw)
+        coverage = _corporate_action_coverage("VWCE", dates[-1], known)
+        return TotalReturnEvidence.from_adjustment_result(
+            result, instrument_id="VWCE", currency="EUR", known_at=known, as_of=str(dates[-1]), source_id="t",
+            provenance="unit-test", corporate_action_coverage=coverage,
+        )
+
+    benchmark = _series([str(d.date()) for d in dates], [100.0, 100.5, 101.0, 103.0], "IDX")
+    def report(fund: TotalReturnEvidence):
+        return calculate_etf_economics(
+            "VWCE", _economics_records(), fund_total_return=fund, benchmark_total_return=benchmark,
+            as_of="2026-01-06T18:00:00Z", horizon_days=3, closure_policy=_closure_policy(),
+        )
+    assert "conflicting fund total-return revisions" in report(evidence(104.0)).message  # NAV differs, TRI equal
+    assert "conflicting" not in report(evidence(103.0)).message  # an exact duplicate row is not a conflict
+
+
+# --- E102 (ETF subscore saturation, one final score per ETF) -------------------------------------
+
+
+def _etf_components(raw: dict[str, float]) -> list[CanonicalComponent]:
+    policy = load_score_policy("ETF")
+    return [
+        CanonicalComponent(key, raw.get(key, raw.get("*", 0.0)), group, "universe", f"src:{key}", "vendor_verified", "ok", "low", "ok", "evidence")
+        for group, weights in policy.groups.items()
+        for key in weights
+    ]
+
+
+def test_etf_subscores_stay_within_scale_and_do_not_saturate_early() -> None:
+    def build(**raw: float):
+        return build_canonical_score(instrument_id="X", asset_type="ETF", decision_time="2026-01-06", components=_etf_components(raw))
+
+    low, mid, high, beyond = (build(**{"*": value}) for value in (-5.0, 0.8, 0.9, 5.0))
+    for field in ("attractiveness_10", "expected_return_10", "risk_implementation_10"):
+        values = [getattr(score, field) for score in (low, mid, high, beyond)]
+        assert values == [0.0, 9.0, 9.5, 10.0]  # distinct below the cap; out-of-range input clamps, never exceeds 10
+    first_key = next(iter(load_score_policy("ETF").groups["attractiveness"]))
+    outlier = build(**{"*": -1.0, first_key: 50.0})  # one wild component cannot lift the subscore to 10
+    assert outlier.attractiveness_10 is not None and outlier.attractiveness_10 < 5.0
+
+
+def test_one_etf_has_one_final_score_and_consistent_views() -> None:
+    config = load_config()
+    row = pd.Series({
+        "etf_id": "AAA", "price_freshness": "ok", "score_momentum": 0.4, "score_trend": 0.3, "score_relative_strength": 0.2, "score_risk": 0.1,
+        "score_rebalance": 0.0, "cost_penalty": 0.01, "turnover_penalty": 0.0, "score_baseline_ml": 0.2,
+    })
+    first = canonical_score_from_signal_row(row, config, "2026-01-06")
+    assert first.as_dict() == canonical_score_from_signal_row(row, config, "2026-01-06").as_dict()
+    assert first.legacy_composite_10 == round((first.legacy_composite_raw + 1.0) * 5.0, 1)
+    assert first.decision_distribution["attractiveness"] == pytest.approx(first.attractiveness_10 / 10.0)
+    components = _etf_components({"*": 0.5})
+    conflicting = build_canonical_score(
+        instrument_id="AAA", asset_type="ETF", decision_time="2026-01-06",
+        components=[*components, CanonicalComponent(components[0].key, -1.0, components[0].score_role, "universe", "src:dup", "vendor_verified", "ok", "low", "ok", "dup")],
+    )
+    single = build_canonical_score(instrument_id="AAA", asset_type="ETF", decision_time="2026-01-06", components=components)
+    assert conflicting.attractiveness_10 == single.attractiveness_10  # a duplicate component never produces a second score
+    assert f"duplicate_component:{components[0].key}" in conflicting.warnings
+
+
+def test_etf_decision_has_one_slot_per_domain_with_bounded_scores(tmp_path: Path) -> None:
+    economics = _economics_report(tmp_path)
+    liquidity = {"as_of": EFFECTIVE, "source_id": "liq", "estimated_cost_bps": 10.0}
+    assessment = compose_etf_decision("target", _context(), DECISION, etf_economics=economics, liquidity_report=liquidity, liquidity_known_at=DECISION)
+    domains = [slot.domain for slot in assessment.domain_slots]
+    assert len(domains) == len(set(domains))
+    opportunities = [slot.opportunity for slot in assessment.opportunity_slots]
+    assert len(opportunities) == len(set(opportunities))
+    for score in (*(slot.displayed_score for slot in assessment.domain_slots), *(slot.score for slot in assessment.opportunity_slots)):
+        assert score is None or 0.0 <= score <= 100.0

@@ -56,7 +56,9 @@ def test_net_return_tax_drag_scenario() -> None:
         source_withholding_rate=0.15,
         source_withholding_label="US-Ireland treaty withholding on US-source dividends",
     )
-    scenario = calculate_net_return_scenario(0.10, 0.02, assumptions)
+    scenario = calculate_net_return_scenario(
+        0.10, 0.02, assumptions, source_eligible_dividend_return_rate=0.02
+    )
 
     assert scenario.net_return_rate == pytest.approx(0.097)
     assert scenario.tax_drag_rate == pytest.approx(0.003)

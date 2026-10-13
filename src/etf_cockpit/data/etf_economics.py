@@ -1182,6 +1182,15 @@ def load_closure_proxy_policy(
     return None
 
 
+# Engine-derived per-row columns (they depend on the neighbouring rows) and the row keys; every other
+# column is source value evidence and takes part in the same-date conflict check.
+_TOTAL_RETURN_DERIVED_COLUMNS = frozenset({
+    "date", "known_at", "raw_close", "price_return", "local_total_return", "quantity_factor",
+    "security_cash_flow", "investment_income", "security_principal", "external_flow", "action_ids",
+    "adjusted_close", "execution_allowed",
+})
+
+
 def _series_frame(evidence: object, label: str, expected_identity: str, cutoff: str | None) -> pd.DataFrame:
     if not isinstance(evidence, TotalReturnEvidence):
         raise EtfEconomicsError(f"{label} total-return evidence is untyped or unavailable")
@@ -1240,11 +1249,9 @@ def _series_frame(evidence: object, label: str, expected_identity: str, cutoff: 
             raise EtfEconomicsError(f"{label} total-return row known_at cannot precede observation date")
         if (known > pd.Timestamp(evidence.known_at)).any():
             raise EtfEconomicsError(f"{label} total-return row known_at exceeds the evidence envelope")
-        conflict_columns = [
-            column
-            for column in ("total_return_index", "instrument_id", "currency", "total_return_convention", "source_id", "provenance", "checksum")
-            if column in frame.columns
-        ]
+        # Every value column is part of the record identity (NAV, dividend, ...): two rows for the
+        # same date and known_at that disagree anywhere are a conflict, not a silent last-wins pick.
+        conflict_columns = [column for column in frame.columns if column not in _TOTAL_RETURN_DERIVED_COLUMNS]
         conflict_frame = frame.assign(_date=parsed_dates, _known_at=known)
         for (_, _), candidates in conflict_frame.groupby(["_date", "_known_at"], sort=False, dropna=False):
             if any(candidates[column].astype(str).nunique(dropna=False) > 1 for column in conflict_columns):
