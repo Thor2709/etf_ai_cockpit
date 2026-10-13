@@ -16,3 +16,79 @@ The local application facade exposes a read-only preview in Training Centre
 and Backtests. It proves the protocol from adjusted-price returns without
 training or promoting a model. Real trial scores, model registries and
 champion/challenger promotion remain separate issues.
+
+
+## Issue 928 inference and durable authority
+
+The application `evaluate_registered_trials(root, run_id, scores, ...)` binds
+validation to an existing local experiment run. `evaluate_trials` without a
+registry remains a development preview using the legacy split minimum and
+`horizon - 1` purge; registered evaluations retain strict label purge and two
+post-purge training observations. Caller-supplied history and holdout
+booleans grant no inference or holdout authority. Existing final-score callers
+must declare a frozen candidate, distinct comparators and a holdout ID through
+the registered application boundary. Their candidate and baseline final-score
+fields retain their meanings; undeclared alternatives receive no final score.
+
+Before inference, the registry atomically retains every submitted series in
+existing immutable `validation.trial` payloads, with an evaluation manifest,
+run/data identity, spec fingerprint and full observation alignment. All prior
+runs in that experiment, including rejected alternatives and repeated runs,
+join the family. A retained report referencing the submission is a view, not
+an extra trial. Missing run/member records, tombstones, mutable trial evidence,
+or incompatible data/spec/date alignment make family statistics unavailable
+with a reason and prevent promotion. Legacy reports without alignment evidence
+are unavailable; no storage schema migration or reconstruction is attempted.
+The complete retained count is used conservatively without a correlation
+reduction. Completeness is relative to the declared durable experiment; an
+unrecorded external experiment is never claimed to be verified.
+
+An append-only `validation.holdout_use` payload is committed in the same existing
+SQLite transaction before scoring. It binds run lineage, candidate/comparator
+identities and series fingerprints, holdout identity and evaluation ID. History,
+not flags, determines reuse. Calendar dates are canonicalized from the validated
+observation groups and fingerprinted independently of dataset hashes, row
+offsets, return values, candidate names and caller-declared holdout IDs. Reuse
+is checked across every experiment and dataset version; any overlapping consumed
+calendar date blocks sealed scoring. Consumption also remains dataset-wide, so
+renaming or resizing a holdout cannot restore independence. Calendar identity
+absent or supplied only as numeric offsets is unavailable. Missing, conflicting,
+deleted or revised historic date bindings also fail closed; legacy declarations
+cannot certify a new window. No persistence migration is required: these are
+bindings in the existing immutable audit payload. A crash after the
+commit consumes the holdout. Later evaluations include the formerly sealed
+tail in development folds, expose `development_reuse`, and have no final score.
+Unverified families cannot authorize a first holdout read. Direct audit
+registration only consumes authority; audit rows cannot be replayed as tokens.
+
+Inference groups complete date clusters in chronological order, then uses
+only walk-forward validation dates. Cross-sectional scores receive equal
+within-date weight; mixed subgroup labels are omitted rather than attributed
+to a date-level score. Paired moving-block bootstrap resamples candidate minus
+baseline, uses a centered-null one-sided test with the finite-resample +1
+correction. The effective block is `min(max(block_size, horizon), max(1, n // 2))`
+(covers overlapping forward labels, keeps two blocks) and is reported as `block_size`.
+Fewer than two paired dates are unavailable. Seeds/repetitions retain the spec.
+
+DSR follows Bailey and Lopez de Prado (2014), *The Deflated Sharpe Ratio*,
+equations (1), (3), (4): the expected maximum uses the across-trial sample
+variance of periodic Sharpes; the selected estimator variance uses periodic
+Sharpe, population standardized skew and Pearson kurtosis. The probability is
+frequency-invariant, but frequency must be explicitly declared. Fewer than
+three observations, fewer than two trials, or undefined trial Sharpes give
+unavailable. CSCV follows Bailey et al. (2017), *The Probability of Backtest
+Overfitting*: at most ten even chronological blocks, all complementary half
+splits, development mean-score selection, and out-of-sample midrank logits;
+non-positive logits count as overfitting. It requires at least four dates and
+two trials. FDR is the minimum Benjamini-Yekutieli (2001) step-up adjusted
+q-value over the complete non-baseline family, including retained alternatives;
+missing paired evidence never shrinks that family. Numeric regression oracles
+cover DSR's two-trial expected maximum, all six four-date CSCV splits, and BY's
+four-hypothesis harmonic correction.
+
+Promotion requires available DSR, PBO and FDR evidence as well as the existing
+paired stability and audited holdout comparisons. Unavailability retains the
+metric-specific reason and blocks promotion without substituting a value.
+Counted optimiser alternatives without aligned return series make CSCV/PBO
+unavailable: the complete family's winners and ranks cannot be established.
+The reason includes the external ledger count; alternatives remain counted.
