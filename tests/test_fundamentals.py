@@ -13,8 +13,17 @@ from etf_cockpit.data.fundamentals import (
     build_fundamental_evidence,
     load_fundamental_evidence,
     latest_fundamental_rows,
-    merge_fundamental_sources,
+    merge_fundamental_sources as _merge_fundamental_sources,
 )
+
+
+def merge_fundamental_sources(*sources, **kwargs):
+    """Sources here are fixtures with a known freshness unless a test sets one (unknown freshness is ineligible)."""
+
+    return _merge_fundamental_sources(
+        *({"freshness_status": "fresh", **source} if isinstance(source, dict) else source for source in sources),
+        **kwargs,
+    )
 
 
 def _complete_claims() -> dict[str, object]:
