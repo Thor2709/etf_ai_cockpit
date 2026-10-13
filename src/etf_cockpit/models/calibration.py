@@ -37,9 +37,11 @@ def conformal_quantile_adjustment(
 ) -> dict[str, object]:
     """Return the finite-sample split-conformal upper order statistic.
 
-    The rank is ``ceil((n + 1) * target_coverage)`` (one based), capped at
-    ``n``. The caller supplies only scores from predictions whose outcomes
-    matured strictly before its decision time.
+    The rank is ``ceil((n + 1) * target_coverage)`` (one based). A rank above
+    ``n`` has no finite-sample guarantee, so the result is unavailable instead
+    of silently capped (e.g. n=2/3 at 80% coverage). The caller supplies only
+    scores from predictions whose outcomes matured strictly before its
+    decision time.
     """
 
     minimum_value = _finite_number(minimum_matured_samples)
@@ -63,7 +65,17 @@ def conformal_quantile_adjustment(
             "adjustment": None,
             "sample_count": count,
         }
-    rank = min(count, ceil((count + 1) * coverage))
+    rank = ceil((count + 1) * coverage)
+    if rank > count:
+        return {
+            "status": "unavailable",
+            "reason": (
+                f"{count} matured calibration samples cannot support a finite-sample "
+                f"{coverage:.0%} conformal rank (rank {rank} exceeds the sample count)."
+            ),
+            "adjustment": None,
+            "sample_count": count,
+        }
     adjustment = float(np.partition(scores, rank - 1)[rank - 1])
     return {"status": "available", "reason": None, "adjustment": adjustment, "sample_count": count}
 
@@ -271,15 +283,13 @@ def calibrate_forecast_distribution(
     for key in conflicts:
         candidates.pop(key, None)
 
-    events: dict[tuple[object, ...], dict[int, dict[str, object]]] = {}
+    # Runs of the same ensemble on one instrument/horizon/target day are not
+    # independent: collapse them to one event per realised outcome, keeping the
+    # most conservative (largest-nonconformity, any-miss) observation.
+    events: dict[tuple[object, ...], dict[tuple[object, ...], dict[int, dict[str, object]]]] = {}
     for candidate in candidates.values():
-        event_key = (
-            candidate["forecast_date"],
-            candidate["run_id"],
-            candidate["target_day"],
-            candidate["outcome_identity"],
-        )
-        members = events.setdefault(event_key, {})
+        run_key = (candidate["forecast_date"], candidate["run_id"])
+        members = events.setdefault(candidate["outcome_identity"], {}).setdefault(run_key, {})
         member = int(candidate["model_member"])
         if member in members:
             # Multiple distinct predictions from one ensemble member make
@@ -291,18 +301,24 @@ def calibrate_forecast_distribution(
     scores: list[float] = []
     hits: list[float] = []
     expected_members = set(range(len(model_construction)))
-    for members in events.values():
-        if set(members) != expected_members or any(not member for member in members.values()):
-            continue
-        member_rows = list(members.values())
-        actual = float(member_rows[0]["actual"])
-        lower = float(np.median([float(member["lower"]) for member in member_rows]))
-        upper = float(np.median([float(member["upper"]) for member in member_rows]))
-        if lower > upper:
-            continue
-        # Interval nonconformity is zero inside the historical q10–q90 band.
-        scores.append(max(lower - actual, actual - upper, 0.0))
-        hits.append(float(lower <= actual <= upper))
+    for runs in events.values():
+        outcome_scores: list[float] = []
+        outcome_hits: list[float] = []
+        for members in runs.values():
+            if set(members) != expected_members or any(not member for member in members.values()):
+                continue
+            member_rows = list(members.values())
+            actual = float(member_rows[0]["actual"])
+            lower = float(np.median([float(member["lower"]) for member in member_rows]))
+            upper = float(np.median([float(member["upper"]) for member in member_rows]))
+            if lower > upper:
+                continue
+            # Interval nonconformity is zero inside the historical q10–q90 band.
+            outcome_scores.append(max(lower - actual, actual - upper, 0.0))
+            outcome_hits.append(float(lower <= actual <= upper))
+        if outcome_scores:
+            scores.append(max(outcome_scores))
+            hits.append(min(outcome_hits))
 
     metadata["sample_count"] = len(scores)
     coverage_interval = coverage_confidence_interval(hits)
@@ -322,17 +338,37 @@ def calibrate_forecast_distribution(
     acceptable_low = _CONFORMAL_NOMINAL_COVERAGE - tolerance
     acceptable_high = _CONFORMAL_NOMINAL_COVERAGE + tolerance
     poor_calibration = coverage_interval[1] < acceptable_low or coverage_interval[0] > acceptable_high
+    empirical = float(metadata["empirical_coverage"])
+    # An interval that merely overlaps the tolerance band does not establish
+    # calibration: the point estimate must not fall below it. Coverage above the
+    # band means conservative (wider than needed) intervals and stays usable.
+    within_tolerance = empirical >= acceptable_low
     metadata["poor_calibration"] = poor_calibration
-    metadata["status"] = "poor_calibration" if poor_calibration else "calibrated"
-    metadata["reason"] = (
-        "Matured interval coverage is outside the configured tolerance; confidence is reduced."
-        if poor_calibration
-        else "Matured interval coverage is within the configured tolerance."
-    )
     if poor_calibration:
-        output["probability_calibration_reason"] = "Probability evidence is unavailable because interval calibration is poor."
+        metadata["status"] = "poor_calibration"
+        metadata["reason"] = "Matured interval coverage is outside the configured tolerance; confidence is reduced."
+    elif within_tolerance:
+        metadata["status"] = "calibrated"
+        metadata["reason"] = (
+            "Matured interval coverage is within the configured tolerance."
+            if empirical <= acceptable_high
+            else "Matured interval coverage exceeds the configured tolerance (conservative intervals) and is not rejected."
+        )
     else:
-        probability_evidence = _matching_probability_evidence(output, model_construction, minimum, decision_day)
+        metadata["status"] = "inconclusive"
+        metadata["reason"] = (
+            "Matured interval coverage is outside the configured tolerance but the confidence interval "
+            "does not reject it; calibration is not established."
+        )
+    if metadata["status"] != "calibrated":
+        output["probability_calibration_reason"] = (
+            "Probability evidence is unavailable because interval calibration is "
+            + ("poor." if poor_calibration else "not established.")
+        )
+    else:
+        probability_evidence = _matching_probability_evidence(
+            output, model_construction, minimum, decision_day, instrument_id=str(instrument_id), horizon_days=int(horizon)
+        )
         if probability_evidence is not None:
             output.update(probability_evidence)
             output["probability_calibration_status"] = "available"
@@ -391,9 +427,21 @@ def _matching_probability_evidence(
     construction: list[dict[str, str | None]],
     minimum_samples: int,
     decision_day: pd.Timestamp,
+    *,
+    instrument_id: str,
+    horizon_days: int,
 ) -> dict[str, float] | None:
     evidence = distribution.get("probability_calibration_evidence")
     if not isinstance(evidence, Mapping) or evidence.get("status") != "calibrated":
+        return None
+    # Evidence is bound to one instrument and horizon; undeclared or different bindings are never reused.
+    evidence_horizon = _finite_number(evidence.get("horizon_days"))
+    if (
+        _nonempty_text(evidence.get("instrument_id")) != instrument_id
+        or evidence_horizon is None
+        or not evidence_horizon.is_integer()
+        or int(evidence_horizon) != horizon_days
+    ):
         return None
     count = _finite_number(evidence.get("sample_count"))
     evidence_time = _decision_cutoff(evidence.get("matured_through"))
