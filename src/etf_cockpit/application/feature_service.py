@@ -11,6 +11,7 @@ from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.core.versioning import (
     current_settings_identity,
     ensure_run_manifest,
+    price_bound_run_label,
     settings_bound_run_id,
 )
 from etf_cockpit.data.duckdb_store import (
@@ -97,8 +98,10 @@ class FeatureService:
         features.attrs["reference_identity"] = context.identity
         features.attrs["reference_identity_hash"] = _reference_identity_hash(context.identity)
         features.attrs["price_binding"] = dict(price_binding)
+        # One run identity: date + exact price snapshot + settings revision. A corrected price
+        # state gets a new immutable manifest instead of reusing the old one.
         run_id = settings_bound_run_id(
-            f"features_{effective_as_of.isoformat()}",
+            price_bound_run_label(f"features_{effective_as_of.isoformat()}", price_binding),
             settings_identity=settings_identity,
         )
         with publication_scope(publish_guard):
@@ -106,6 +109,7 @@ class FeatureService:
                 run_id,
                 ("schema:local-storage", "dataset:prices", "dataset:universe"),
                 settings_identity=settings_identity,
+                dataset_bindings={"dataset:prices": dict(price_binding)},
             )
         with publication_scope(publish_guard):
             write_features(

@@ -189,7 +189,16 @@ def load_features(
             expected_settings = settings_revision or current_settings_revision()
             if universe_revision is not None and str(metadata.get("universe_revision") or "") != universe_revision:
                 return pd.DataFrame()
-            if (universe_revision is not None or settings_revision is not None) and str(metadata.get("settings_revision") or "") != expected_settings:
+            # Any identity-bound lookup must also match the settings revision, even when the
+            # caller supplied only a price/reference/extra binding.
+            bound_lookup = (
+                universe_revision is not None
+                or settings_revision is not None
+                or reference_identity is not None
+                or price_binding is not None
+                or extra_binding is not None
+            )
+            if bound_lookup and str(metadata.get("settings_revision") or "") != expected_settings:
                 return pd.DataFrame()
             if reference_identity is not None and (
                 not _reference_identity_matches(
