@@ -134,8 +134,13 @@ def test_nested_scoreboard_failure_is_carried_into_the_action_result(monkeypatch
 
 def test_successful_trust_write_clears_previous_warning(monkeypatch, tmp_path) -> None:
     calls: list[object] = []
+    history_path = tmp_path / "score_history.parquet"
+    history_path.write_bytes(b"test history")
+    monkeypatch.setattr(scoreboard_publication, "_record_scoreboard_publication_binding", lambda *_args: {})
     state, scoreboard_path, _scores, log_path = _isolate_scoreboard_write(
-        monkeypatch, tmp_path, trust_writer=lambda *args, **_kwargs: calls.append(args)
+        monkeypatch,
+        tmp_path,
+        trust_writer=lambda *args, **_kwargs: calls.append(args) or {"score_history": history_path},
     )
     state.score_history_warning = "Score history was not persisted (stale)."
 
@@ -166,3 +171,23 @@ def test_score_history_panel_distinguishes_failed_persistence_from_first_run() -
     assert "Score history unavailable" in failed
     assert warning in failed
     assert "1 earlier stored point(s) do not include this run." in failed_with_rows
+
+
+def test_binding_failure_message_does_not_claim_history_was_not_persisted(monkeypatch, tmp_path) -> None:
+    history_path = tmp_path / "score_history.parquet"
+    history_path.write_bytes(b"test history")
+
+    def failing_binding(*_args):
+        raise RuntimeError("binding store unavailable")
+
+    monkeypatch.setattr(scoreboard_publication, "_record_scoreboard_publication_binding", failing_binding)
+    state, scoreboard_path, _scores, _log_path = _isolate_scoreboard_write(
+        monkeypatch, tmp_path, trust_writer=lambda *_args, **_kwargs: {"score_history": history_path}
+    )
+
+    assert state._write_current_scoreboard() == scoreboard_path
+
+    warning = state.score_history_warning or ""
+    assert "publication binding" in warning
+    assert "binding store unavailable" in warning
+    assert "Score history was not persisted" not in warning
