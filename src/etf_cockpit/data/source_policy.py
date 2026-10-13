@@ -73,6 +73,15 @@ class SourcePolicy:
         }
 
 
+def _strict_bool(value: object, field: str, key: str) -> bool:
+    """Accept a real boolean or the exact strings 'true'/'false'; anything else is unsafe."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.strip().lower() in {"true", "false"}:
+        return value.strip().lower() == "true"
+    raise SourcePolicyError(f"source policy field {field} must be a boolean: {key}")
+
+
 def load_source_policies(path: Path | None = None) -> tuple[SourcePolicy, ...]:
     source = Path(path or DEFAULT_SOURCE_POLICY_PATH)
     try:
@@ -97,8 +106,9 @@ def load_source_policies(path: Path | None = None) -> tuple[SourcePolicy, ...]:
         key = f"{provider_id}:{dataset_type}"
         if not provider_id or not dataset_type or key in seen or tier not in SOURCE_TIERS:
             raise SourcePolicyError(f"invalid or duplicate source policy row: {key}")
-        mandatory_allowed = bool(raw.get("mandatory_allowed", False))
-        network_required = bool(raw.get("network_required", False))
+        mandatory_allowed = _strict_bool(raw.get("mandatory_allowed", False), "mandatory_allowed", key)
+        network_required = _strict_bool(raw.get("network_required", False), "network_required", key)
+        optional_provider = _strict_bool(raw.get("optional_provider", True), "optional_provider", key)
         if mandatory_allowed and tier not in MANDATORY_SOURCE_TIERS:
             raise SourcePolicyError(f"mandatory workflows cannot use source tier: {tier}")
         if mandatory_allowed and network_required:
@@ -116,7 +126,7 @@ def load_source_policies(path: Path | None = None) -> tuple[SourcePolicy, ...]:
                 dataset_type=dataset_type,
                 source_tier=SourceTier(tier),
                 mandatory_allowed=mandatory_allowed,
-                optional_provider=bool(raw.get("optional_provider", True)),
+                optional_provider=optional_provider,
                 cache_path=cache_path,
                 licence=str(raw.get("licence", "unspecified")).strip() or "unspecified",
                 fair_use_note=str(raw.get("fair_use_note", "")).strip(),

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import date
 import json
 import os
+import threading
 import time
 from typing import Any
 
@@ -19,6 +20,7 @@ import pandas as pd
 import requests
 
 from etf_cockpit.core.config import ProviderSection
+from etf_cockpit.core.http_fetch import requests_get_checked, same_host_https
 from etf_cockpit.core.values import years_before
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority, redact_text
 from etf_cockpit.data.ohlcv_discrepancy import normalise_ohlcv
@@ -63,8 +65,14 @@ class RateLimiter:
         self._minute_calls: list[float] = []
         self._hour_calls: list[float] = []
         self._day_calls: list[float] = []
+        # check-then-record must be one atomic step, or concurrent callers overshoot the quota.
+        self._lock = threading.RLock()
 
     def check_limit(self) -> RateLimitState:
+        with self._lock:
+            return self._check_limit_locked()
+
+    def _check_limit_locked(self) -> RateLimitState:
         now = self._clock()
         self._prune(now)
 
@@ -104,16 +112,17 @@ class RateLimiter:
         return RateLimitState(allowed=True, status="ok", retry_after=0.0, non_blocking=True, message="OK")
 
     def acquire(self) -> RateLimitState:
-        state = self.check_limit()
-        if state.allowed:
-            now = self._clock()
-            if self.calls_per_minute is not None:
-                self._minute_calls.append(now)
-            if self.calls_per_hour is not None:
-                self._hour_calls.append(now)
-            if self.calls_per_day is not None:
-                self._day_calls.append(now)
-        return state
+        with self._lock:
+            state = self._check_limit_locked()
+            if state.allowed:
+                now = self._clock()
+                if self.calls_per_minute is not None:
+                    self._minute_calls.append(now)
+                if self.calls_per_hour is not None:
+                    self._hour_calls.append(now)
+                if self.calls_per_day is not None:
+                    self._day_calls.append(now)
+            return state
 
     def _prune(self, now: float) -> None:
         self._minute_calls = [t for t in self._minute_calls if now - t < 60.0]
@@ -121,9 +130,28 @@ class RateLimiter:
         self._day_calls = [t for t in self._day_calls if now - t < 86400.0]
 
     def reset(self) -> None:
-        self._minute_calls.clear()
-        self._hour_calls.clear()
-        self._day_calls.clear()
+        with self._lock:
+            self._minute_calls.clear()
+            self._hour_calls.clear()
+            self._day_calls.clear()
+
+
+def within_window(frame: pd.DataFrame, start: date | None, end: date | None) -> pd.DataFrame:
+    """Drop bars dated outside the requested inclusive [start, end] window."""
+    if frame.empty or "date" not in frame.columns or (start is None and end is None):
+        return frame
+    keep = pd.Series(True, index=frame.index)
+    if start is not None:
+        keep &= frame["date"].apply(lambda value: value is not None and value >= start)
+    if end is not None:
+        keep &= frame["date"].apply(lambda value: value is not None and value <= end)
+    return frame.loc[keep].reset_index(drop=True)
+
+
+def _identity_matches(meta: dict[str, Any], requested: str) -> bool:
+    """A returned meta symbol, when present, must equal the requested one (case-insensitive)."""
+    returned = str(meta.get("symbol") or "").strip()
+    return not returned or returned.casefold() == requested.strip().casefold()
 
 
 class TwelveDataProvider(DataProvider, PriceProvider):
@@ -220,7 +248,7 @@ class TwelveDataProvider(DataProvider, PriceProvider):
                     return json.loads(resp), None
                 return None, "Unexpected transport return type."
 
-            response = requests.get(url, headers=headers, timeout=30)
+            response = requests_get_checked(requests.get, url, allowed=same_host_https(url), headers=headers, timeout=30)
             if response.status_code == 429:
                 return None, f"HTTP 429: {self._redact(response.text)}"
             response.raise_for_status()
@@ -261,11 +289,15 @@ class TwelveDataProvider(DataProvider, PriceProvider):
         if not values or not isinstance(values, list):
             return pd.DataFrame()
 
-        meta = payload.get("meta", {})
+        meta = payload.get("meta")
+        meta = meta if isinstance(meta, dict) else {}
+        if not _identity_matches(meta, clean_symbol):
+            return pd.DataFrame()
         currency = meta.get("currency") or self.default_currency
 
         raw_df = pd.DataFrame(values)
-        return normalise_ohlcv(raw_df, source=self.name, symbol=clean_symbol, currency=currency)
+        frame = normalise_ohlcv(raw_df, source=self.name, symbol=clean_symbol, currency=currency)
+        return within_window(frame, start, end)
 
     def fetch_intraday_prices(
         self,
@@ -305,9 +337,13 @@ class TwelveDataProvider(DataProvider, PriceProvider):
         if not values or not isinstance(values, list):
             return pd.DataFrame()
 
-        meta = payload.get("meta", {})
+        meta = payload.get("meta")
+        meta = meta if isinstance(meta, dict) else {}
+        if not _identity_matches(meta, clean_symbol):
+            return pd.DataFrame()
         currency = meta.get("currency") or self.default_currency
-        return normalise_ohlcv(pd.DataFrame(values), source=self.name, symbol=clean_symbol, currency=currency)
+        frame = normalise_ohlcv(pd.DataFrame(values), source=self.name, symbol=clean_symbol, currency=currency)
+        return within_window(frame, start, end)
 
     def fetch_prices(self, symbols: list[str], start_date: date, end_date: date) -> ProviderResult:
         """Bulk price fetch interface returning ProviderResult."""
