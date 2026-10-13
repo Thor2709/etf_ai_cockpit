@@ -9,13 +9,15 @@ from dataclasses import (
 )
 from collections import Counter
 import importlib.util
+import json
 import math
 from datetime import date
 from pathlib import Path
 import pandas as pd
+import yaml
 
 from etf_cockpit.core.config import AppConfig
-from etf_cockpit.core.paths import FORECASTS_DIR
+from etf_cockpit.core.paths import CONFIG_DIR, FORECASTS_DIR
 from etf_cockpit.core.timing import timed_step
 from etf_cockpit.core.types import ForecastResult
 from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
@@ -29,16 +31,19 @@ from etf_cockpit.data.duckdb_store import load_prices
 from etf_cockpit.features.forecast_lab import build_forecast_lab_workspace as _build_forecast_lab_workspace
 from etf_cockpit.features.returns import daily_log_returns
 from etf_cockpit.models.baseline_models import baseline_forecast
-from etf_cockpit.models.calibration import load_forecast_history
+from etf_cockpit.models.calibration import adjusted_log_return_target, load_forecast_history, target_matches_evaluation, horizon_calibration_scores
 from etf_cockpit.models.forecast_scores import configured_forecast_request_identity as configured_forecast_request_identity, forecast_request_identity
 from etf_cockpit.models.model_promotion import (
     OPTIONAL_MODELS,
     PRETRAINING_CUTOFFS,
     PRETRAINING_SOURCES,
+    checkpoint_provenance,
     COUNTING,
     NOT_PROVEN,
     ModelPromotion,
     evaluate_model_promotions,
+    positive_probability_status,
+    matured_probability_frame,
     promotion_frame,
 )
 from etf_cockpit.portfolio.benchmark_reference_contract import CanonicalBenchmarkRegistry
@@ -162,15 +167,22 @@ class ForecastService:
         if progress_callback is not None:
             progress_callback("Checking cached TimesFM forecasts", 2, 4)
         with timed_step("forecasts", "model:timesfm", run_id=run_id):
-            forecasts.extend(self._run_timesfm_forecasts(pivot, etf_ids, horizons, as_of_date, run_id))
+            forecasts.extend(_stamp_adjusted_log_return_target(self._run_timesfm_forecasts(pivot, etf_ids, horizons, as_of_date, run_id)))
         if "timesfm3" in self.config.models.models:
             with timed_step("forecasts", "model:timesfm3", run_id=run_id):
-                forecasts.extend(self._run_timesfm_forecasts(pivot, etf_ids, horizons, as_of_date, run_id, model_name="timesfm3"))
+                forecasts.extend(_stamp_adjusted_log_return_target(
+                    self._run_timesfm_forecasts(pivot, etf_ids, horizons, as_of_date, run_id, model_name="timesfm3")
+                ))
         if progress_callback is not None:
             progress_callback("Checking cached Toto forecasts", 3, 4)
         with timed_step("forecasts", "model:toto", run_id=run_id):
-            forecasts.extend(self._run_toto_forecasts(price_frame, etf_ids, horizons, as_of_date, run_id))
-        forecasts = _postprocess_forecast_benchmark_fields(forecasts, benchmark_returns)
+            forecasts.extend(_stamp_adjusted_log_return_target(self._run_toto_forecasts(price_frame, etf_ids, horizons, as_of_date, run_id)))
+        forecasts = self._evidence_gated_forecasts(forecasts, as_of_date, evidence_prices)
+        forecasts = _postprocess_forecast_benchmark_fields(
+            forecasts,
+            benchmark_returns,
+            self._probability_statuses(forecasts, as_of_date, evidence_prices),
+        )
         if self.config.models.promotion.enabled:
             if promotions is None:
                 # Candidate runs pass the configured universe's prices so every run in a workflow shares one decision.
@@ -207,6 +219,46 @@ class ForecastService:
             promotions=promotions,
         )
         return forecasts
+
+    def _probability_statuses(
+        self,
+        forecasts: list[ForecastResult],
+        as_of_date: date,
+        prices: pd.DataFrame,
+        history: pd.DataFrame | None = None,
+    ) -> dict[tuple[str, str, str | None, int], str]:
+        """Admission of each producer's P(up) on matured history known at ``as_of_date`` (never the current run)."""
+
+        stored = load_forecast_history() if history is None else history
+        statuses: dict[tuple[str, str, str | None, int], str] = {}
+        for forecast in forecasts:
+            scope = _probability_scope(forecast)
+            if scope not in statuses:  # pooled evidence is per (model, version, target, horizon), not per ETF
+                statuses[scope] = positive_probability_status(
+                    stored, prices, forecast.model_name, as_of_date,
+                    model_version=forecast.model_version, target_id=forecast.target_id, horizon_days=forecast.horizon_days,
+                )
+        return statuses
+
+    def _evidence_gated_forecasts(self, forecasts, as_of_date, prices, history=None):
+        stored = load_forecast_history() if history is None else history
+        sufficient: dict[tuple[str, str, str | None, int], bool] = {}
+        output = []
+        for forecast in forecasts:
+            forecast = _identity_gated_forecast(forecast, self.config.models.models)
+            if forecast.status == "ok":
+                scope = _probability_scope(forecast)
+                if scope not in sufficient:
+                    evidence = matured_probability_frame(
+                        stored, prices, forecast.model_name, as_of_date,
+                        model_version=forecast.model_version, target_id=forecast.target_id, horizon_days=forecast.horizon_days,
+                    )
+                    metrics = horizon_calibration_scores(evidence)
+                    sufficient[scope] = not metrics.empty and bool(metrics["status"].eq("ok").all())
+                if not sufficient[scope]:
+                    forecast = _unavailable_forecast(forecast, "Insufficient finite per-horizon calibration metrics or effective dates.")
+            output.append(forecast)
+        return output
 
     def evaluate_promotions(
         self,
@@ -315,7 +367,7 @@ class ForecastService:
             output_horizons = {forecast.horizon_days for forecast in forecasts}
             if dict(cache_request_identity) != validated_identity or not output_horizons.issubset(requested_horizons):
                 raise ValueError("forecast cache request identity does not match forecast output")
-        payload = pd.DataFrame([_forecast_to_row(forecast, promotions) for forecast in forecasts]).to_csv(index=False).encode("utf-8")
+        payload = pd.DataFrame([_forecast_to_row(forecast, promotions, self.config.models.models) for forecast in forecasts]).to_csv(index=False).encode("utf-8")
 
         def validate(path: Path) -> None:
             _validate_csv(path)
@@ -334,26 +386,109 @@ class ForecastService:
                 )
 
 
-def _forecast_to_row(forecast: ForecastResult, promotions: Mapping[str, ModelPromotion] | None = None) -> dict[str, object]:
+def _unavailable_forecast(forecast: ForecastResult, reason: str) -> ForecastResult:
+    # The producer's P(up) stays stored as a heuristic (never a user-facing probability) so a diagnostic
+    # row can still mature into probability-calibration evidence.
+    positive = forecast.prob_positive_return
+    heuristic = forecast.heuristic_probability_positive
+    if heuristic is None and positive is not None and math.isfinite(positive) and 0.0 <= positive <= 1.0:
+        heuristic = positive
+    return replace(forecast, status="unavailable", reason_unavailable=reason, error_message=reason,
+                   model_allowed_in_score=False, prob_positive_return=None, prob_beat_benchmark=None,
+                   heuristic_probability_positive=heuristic, probability_calibration_status="unavailable")
+
+
+def _stamp_adjusted_log_return_target(forecasts: list[ForecastResult]) -> list[ForecastResult]:
+    """Adapter forecasts are adjusted-close log returns of their horizon; name that registered target."""
+
+    return [
+        forecast if forecast.target_id is not None
+        else replace(forecast, target_id=adjusted_log_return_target(forecast.horizon_days).target_id)
+        for forecast in forecasts
+    ]
+
+
+def _identity_gated_forecast(forecast: ForecastResult, model_settings=None) -> ForecastResult:
+    if forecast.status != "ok":
+        return forecast  # keep the producer's own, more specific unavailable reason
+    if not target_matches_evaluation(forecast.target_id, forecast.horizon_days):
+        return _unavailable_forecast(forecast, "Missing, unregistered or mismatched target identity.")
+    if forecast.model_name in OPTIONAL_MODELS:
+        revision = str(_checkpoint_evidence(forecast.model_name, model_settings)["checkpoint_sha"])
+        if len(revision) != 40 or any(char not in "0123456789abcdefABCDEF" for char in revision):
+            return _unavailable_forecast(forecast, "Missing or unverifiable immutable checkpoint identity.")
+    return forecast
+
+
+def _probability_scope(forecast: ForecastResult) -> tuple[str, str, str | None, int]:
+    return (forecast.model_name, forecast.model_version, forecast.target_id, forecast.horizon_days)
+
+
+def _forecast_to_row(
+    forecast: ForecastResult,
+    promotions: Mapping[str, ModelPromotion] | None = None,
+    model_settings: Mapping[str, object] | None = None,
+) -> dict[str, object]:
     if forecast.model_name == "baseline":
         forecast = _apply_promotion(forecast, {}, False)
+    forecast = _identity_gated_forecast(forecast, model_settings)
     data = asdict(forecast)
     data["forecast_date"] = forecast.forecast_date.isoformat()
     promotion = _promotion_for_row(forecast, promotions or {})
     if forecast.promotion_status in {COUNTING, NOT_PROVEN} and promotion is not None:
-        data.update(_promotion_evidence(forecast, promotion))
+        data.update(_promotion_evidence(forecast, promotion, model_settings))
     elif forecast.promotion_status == "shadow_only":
-        data.update(_pretraining_evidence(forecast.model_name, forecast.forecast_date))
+        data.update(_pretraining_evidence(forecast.model_name, forecast.forecast_date, model_settings))
         data["promotion_state"] = "shadow_only"
         data["execution_allowed"] = False
     return data
 
 
 
-def _pretraining_evidence(model_name: str, forecast_date: date) -> dict[str, object]:
+_CHECKPOINT_REVISION_KEYS = ("revision", "hf_revision", "model_sha", "checkpoint_sha")
+# Metadata that identifies the checkpoint; paths, devices and timeouts are runtime choices, not identity.
+_CHECKPOINT_CONFIG_KEYS = ("backend", "hf_repo_id", "model_size", "context_length", "use_quantiles", "decode_block_size")
+
+
+def _declared_model_settings() -> Mapping[str, object]:
+    """``models`` of configs/model_settings.yaml (metadata only; weights are never opened)."""
+
+    try:
+        loaded = yaml.safe_load((CONFIG_DIR / "model_settings.yaml").read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    models = loaded.get("models") if isinstance(loaded, Mapping) else None
+    return models if isinstance(models, Mapping) else {}
+
+
+def _checkpoint_evidence(model_name: str, model_settings: Mapping[str, object] | None = None) -> dict[str, object]:
+    """Checkpoint SHA, config, licence and cutoff scope of this model alone (a cutoff is never shared).
+
+    The revision and identifying config come from the model's entry in model_settings.yaml; an absent
+    source stays ``unknown`` (SHA) or empty (config), never copied from another checkpoint.
+    """
+
+    settings = model_settings if model_settings is not None else _declared_model_settings()
+    entry = settings.get(model_name)
+    entry = entry if isinstance(entry, Mapping) else {}
+    revision = next((str(entry[key]).strip() for key in _CHECKPOINT_REVISION_KEYS if str(entry.get(key) or "").strip()), None)
+    config = {key: entry[key] for key in _CHECKPOINT_CONFIG_KEYS if entry.get(key) is not None}
+    row = checkpoint_provenance(model_name, model_sha=revision, config=config).as_row()
+    return {
+        "checkpoint_sha": row["checkpoint_sha"],
+        "checkpoint_config": json.dumps(row["checkpoint_config"], sort_keys=True),
+        "checkpoint_licence": row["checkpoint_licence"],
+        "cutoff_scope": row["cutoff_scope"],
+    }
+
+
+def _pretraining_evidence(
+    model_name: str, forecast_date: date, model_settings: Mapping[str, object] | None = None
+) -> dict[str, object]:
     cutoff = PRETRAINING_CUTOFFS.get(model_name)
     possibly_leaked = cutoff is None or forecast_date <= cutoff
     return {
+        **_checkpoint_evidence(model_name, model_settings),
         "pretraining_cutoff": cutoff.isoformat() if cutoff is not None else "unknown",
         "pretraining_sources": PRETRAINING_SOURCES.get(model_name, "unknown"),
         "contamination_status": "possibly_leaked" if possibly_leaked else "after_declared_cutoff",
@@ -362,7 +497,9 @@ def _pretraining_evidence(model_name: str, forecast_date: date) -> dict[str, obj
     }
 
 
-def _promotion_evidence(forecast: ForecastResult, promotion: ModelPromotion) -> dict[str, object]:
+def _promotion_evidence(
+    forecast: ForecastResult, promotion: ModelPromotion, model_settings: Mapping[str, object] | None = None
+) -> dict[str, object]:
     """Leakage flags: every optional origin must follow its first verified local run and known cutoff."""
 
     window_open = (
@@ -373,6 +510,7 @@ def _promotion_evidence(forecast: ForecastResult, promotion: ModelPromotion) -> 
     )
     declared = promotion.pretraining_cutoff != "unknown"
     return {
+        **_checkpoint_evidence(forecast.model_name, model_settings),
         "pretraining_cutoff": promotion.pretraining_cutoff,
         "pretraining_sources": PRETRAINING_SOURCES.get(forecast.model_name, "unknown"),
         "contamination_status": (
@@ -587,22 +725,54 @@ def _timesfm_price_series(pivot: pd.DataFrame, etf_id: str, as_of_date: date) ->
     return series.dropna()
 
 
+def _demote_unadmitted_probabilities(
+    forecast: ForecastResult, probability_status: Mapping[tuple[str, str, str | None, int], str] | None
+) -> ForecastResult:
+    """Keep a producer's P(up) as ``prob_positive_return`` only when its admission is ``calibrated``.
+
+    Otherwise the value becomes a heuristic score (never a user-facing probability) and ``prob_*`` is
+    None. ``prob_beat_benchmark`` has no matured benchmark-outcome admission, so it is never calibrated here.
+    """
+
+    admitted = forecast.status == "ok" and target_matches_evaluation(forecast.target_id, forecast.horizon_days) and (probability_status or {}).get(_probability_scope(forecast)) == "calibrated"
+    positive = forecast.prob_positive_return
+    heuristic = forecast.heuristic_probability_positive
+    if heuristic is None and positive is not None and math.isfinite(positive) and 0.0 <= positive <= 1.0:
+        heuristic = positive
+    beat = forecast.heuristic_probability_beat_benchmark
+    if beat is None and forecast.prob_beat_benchmark is not None and math.isfinite(forecast.prob_beat_benchmark):
+        beat = forecast.prob_beat_benchmark
+    return replace(
+        forecast,
+        prob_positive_return=positive if admitted else None,
+        prob_beat_benchmark=None,
+        heuristic_probability_positive=None if admitted else heuristic,
+        heuristic_probability_beat_benchmark=beat,
+        probability_calibration_status="calibrated" if admitted else "unavailable",
+    )
+
+
 def _postprocess_forecast_benchmark_fields(
     forecasts: list[ForecastResult],
     benchmark_returns: pd.Series | None,
+    probability_status: Mapping[tuple[str, str, str | None, int], str] | None = None,
 ) -> list[ForecastResult]:
-    """Derive relative fields uniformly using horizon log-return sigma from every producer."""
+    """Derive relative fields uniformly using horizon log-return sigma from every producer.
 
+    Probabilities from any producer stay heuristic unless ``probability_status`` admits the model.
+    """
+
+    forecasts = [_demote_unadmitted_probabilities(forecast, probability_status) for forecast in forecasts]
     if benchmark_returns is None or benchmark_returns.empty:
         return [
-            replace(forecast, expected_excess_return=None, prob_beat_benchmark=None)
+            replace(forecast, expected_excess_return=None, prob_beat_benchmark=None, heuristic_probability_beat_benchmark=None)
             for forecast in forecasts
         ]
     benchmark_daily = float(benchmark_returns.tail(180).mean() * 0.35)
     output: list[ForecastResult] = []
     for forecast in forecasts:
         if forecast.expected_return is None or not math.isfinite(forecast.expected_return) or not math.isfinite(benchmark_daily):
-            output.append(replace(forecast, expected_excess_return=None, prob_beat_benchmark=None))
+            output.append(replace(forecast, expected_excess_return=None, prob_beat_benchmark=None, heuristic_probability_beat_benchmark=None))
             continue
         excess = float(forecast.expected_return - benchmark_daily * forecast.horizon_days)
         try:
@@ -615,6 +785,7 @@ def _postprocess_forecast_benchmark_fields(
                     forecast,
                     expected_excess_return=excess,
                     prob_beat_benchmark=None,
+                    heuristic_probability_beat_benchmark=None,
                     reason_unavailable=(
                         f"{forecast.reason_unavailable}; forecast_vol_unavailable_for_benchmark_probability"
                         if forecast.reason_unavailable
@@ -627,7 +798,9 @@ def _postprocess_forecast_benchmark_fields(
             replace(
                 forecast,
                 expected_excess_return=excess,
-                prob_beat_benchmark=(
+                # A logistic of excess/vol is a heuristic score, not a calibrated probability.
+                prob_beat_benchmark=None,
+                heuristic_probability_beat_benchmark=(
                     1 / (1 + math.exp(-excess / volatility)) if excess >= 0
                     else math.exp(excess / volatility) / (1 + math.exp(excess / volatility))
                 ),

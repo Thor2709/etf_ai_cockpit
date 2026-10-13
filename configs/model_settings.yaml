@@ -1,3 +1,8 @@
+# Provenance (metadata only, #943): each checkpoint is judged on its own record (SHA, config, licence,
+# cutoff). TimesFM 3.0 is non-commercial (owner-approved for personal use) and its 2023-11-30 cutoff is partial
+# leakage evidence; that cutoff is never reused for TimesFM 2.5 or Toto 2.0 (unpublished, treated as unknown).
+# Forecast values are adjusted-close LOG returns; show percentages via exp(y) - 1. Logistic p-up / p-beat
+# scores are heuristic_probability_* and not shown as probabilities without out-of-sample calibration.
 # Owner opt-in: shadow_optional_models: true runs the optional models (TimesFM 2.5/3.0,
 # Toto 2.0) in every forecast run of the refresh workflow. Whether their forecasts count in
 # scores is decided automatically by the `promotion` block below, never by this flag.

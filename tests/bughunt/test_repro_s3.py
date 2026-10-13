@@ -42,13 +42,13 @@ def test_s3_01_valid_score_evidence_passes_authority():
 
 def test_s3_02_log_forecast_units_are_respected():
     p = pd.DataFrame({
-        "etf_id": ["X"] * 5,
-        "date": pd.date_range("2026-01-01", periods=5),
-        "adjusted_close": [100, 110, 110, 110, 110],
+        "etf_id": ["X"] * 8,
+        "date": pd.date_range("2026-01-01", periods=8),
+        "adjusted_close": [100, 100, 100, 100, 100, 110, 110, 110],
     })
     f = pd.DataFrame([dict(
-        etf_id="X", model_name="baseline", forecast_date="2026-01-01", horizon_days=1,
-        expected_return=math.log(1.1), q10_return=math.log(1.099), q90_return=math.log(1.101),
+        etf_id="X", model_name="baseline", forecast_date="2026-01-01", horizon_days=5,
+        target_id="adj_close_log_return_5d", expected_return=math.log(1.1), q10_return=math.log(1.099), q90_return=math.log(1.101),
         status="ok", model_allowed_in_score=True,
     )])
     c = evaluate_forecast_calibration(f, p).iloc[0]
