@@ -19,12 +19,13 @@ import shutil
 import stat
 import tarfile
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 import urllib.error
 import urllib.request
 import zipfile
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes, sha256_file as _sha256_file
+from etf_cockpit.core.http_fetch import REDIRECT_STATUSES, NoRedirect
 
 
 BULK_CACHE_SCHEMA_VERSION = "bulk-cache.v1"
@@ -102,6 +103,7 @@ class GenerationRecord:
     relative_path: str
     status: str
     validated_at: str
+    payload_sha256: str = ""
 
 
 def _utc_now() -> str:
@@ -145,10 +147,23 @@ def _http_fetch(request: DownloadRequest, offset: int) -> DownloadResponse:
     headers = {"Accept": "application/octet-stream"}
     if offset:
         headers["Range"] = f"bytes={offset}-"
-    try:
-        response = urllib.request.urlopen(urllib.request.Request(request.url, headers=headers), timeout=request.timeout_seconds)
-    except (OSError, urllib.error.URLError, urllib.error.HTTPError) as exc:
-        raise BulkCacheError(f"bulk download failed for {request.source_id}: {type(exc).__name__}") from exc
+    opener = urllib.request.build_opener(NoRedirect())
+    url = request.url
+    response = None
+    for _ in range(4):
+        try:
+            response = opener.open(urllib.request.Request(url, headers=headers), timeout=request.timeout_seconds)
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code not in REDIRECT_STATUSES:
+                raise BulkCacheError(f"bulk download failed for {request.source_id}: {type(exc).__name__}") from exc
+            # A redirect must stay on the allow-listed HTTPS hosts; the target is checked before it is contacted.
+            url = urljoin(url, exc.headers.get("Location", ""))
+            _validate_url(url, request.allowlisted_hosts)
+        except (OSError, urllib.error.URLError) as exc:
+            raise BulkCacheError(f"bulk download failed for {request.source_id}: {type(exc).__name__}") from exc
+    if response is None:
+        raise BulkCacheError(f"bulk download failed for {request.source_id}: too many redirects")
 
     def body() -> Iterator[bytes]:
         try:
@@ -190,6 +205,9 @@ class ContentAddressedCache:
 
     def _part_path(self, source_id: str) -> Path:
         return self.staging / "downloads" / f"{_safe_name(source_id, 'source_id')}.part"
+
+    def _validator_path(self, source_id: str) -> Path:
+        return self._part_path(source_id).with_suffix(".validator.json")
 
     def _manifest_path(self, source_id: str) -> Path:
         return self.manifests / f"{_safe_name(source_id, 'source_id')}.json"
@@ -260,8 +278,17 @@ class ContentAddressedCache:
         part = self._part_path(request.source_id)
         part.parent.mkdir(parents=True, exist_ok=True)
         offset = part.stat().st_size if part.is_file() else 0
-        response = (fetcher or _http_fetch)(request, offset)
+        fetch = fetcher or _http_fetch
+        response = fetch(request, offset)
         resumed = offset > 0 and response.status_code == 206
+        if resumed and not self._validator_unchanged(request.source_id, response):
+            # The remote object changed (or cannot be shown unchanged) since the part was
+            # started: appending would splice two versions. Restart from byte zero.
+            part.unlink(missing_ok=True)
+            self._validator_path(request.source_id).unlink(missing_ok=True)
+            offset = 0
+            response = fetch(request, 0)
+            resumed = False
         if offset and not resumed:
             part.unlink(missing_ok=True)
             offset = 0
@@ -272,6 +299,28 @@ class ContentAddressedCache:
             if response.content_type.lower() != expected_type:
                 raise BulkCacheError(f"unexpected content type for {request.source_id}: {response.content_type}")
         return self._consume(request, response, offset=offset, resumed=resumed)
+
+    def _validator_unchanged(self, source_id: str, response: DownloadResponse) -> bool:
+        """True when the 206 response carries the same ETag/Last-Modified the part was started with.
+
+        When neither side has any validator there is nothing to compare; the final size and
+        checksum checks then remain the only guard (the existing behaviour).
+        """
+        try:
+            saved = json.loads(self._validator_path(source_id).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            saved = {}
+        if not isinstance(saved, dict):
+            saved = {}
+        saved_etag, saved_modified = saved.get("etag"), saved.get("last_modified")
+        if saved_etag is None and saved_modified is None and response.etag is None and response.last_modified is None:
+            return True
+        if saved_etag is not None and saved_etag != response.etag:
+            return False
+        if saved_modified is not None and saved_modified != response.last_modified:
+            return False
+        # A validator that appears only now cannot prove the earlier bytes belong to it.
+        return not ((saved_etag is None and response.etag is not None) or (saved_modified is None and response.last_modified is not None))
 
     def _consume(
         self,
@@ -285,6 +334,12 @@ class ContentAddressedCache:
         part.parent.mkdir(parents=True, exist_ok=True)
         mode = "ab" if offset else "wb"
         written = offset
+        if not offset:
+            atomic_write_bytes(
+                self._validator_path(request.source_id),
+                _json_bytes({"etag": response.etag, "last_modified": response.last_modified}),
+                lambda _path: None,
+            )
         try:
             with part.open(mode) as handle:
                 for chunk in response.body:
@@ -325,6 +380,7 @@ class ContentAddressedCache:
             part.unlink(missing_ok=True)
         else:
             part.replace(object_path)
+        self._validator_path(request.source_id).unlink(missing_ok=True)
         previous = self._read_manifest(request.source_id)
         previous_digest = str(previous.get("content_sha256")) if previous else None
         version = int(previous.get("version", 0)) + 1 if previous else 1
@@ -379,17 +435,24 @@ class ContentAddressedCache:
         atomic_write_bytes(path, payload, lambda _path: None)
         if metadata:
             atomic_write_bytes(path.with_suffix(".json"), _json_bytes(dict(metadata)), lambda _path: None)
-        return GenerationRecord(dataset_id, generation_id, source_digest, str(path.relative_to(self.root)).replace("\\", "/"), "staged", _utc_now())
+        return GenerationRecord(dataset_id, generation_id, source_digest, str(path.relative_to(self.root)).replace("\\", "/"), "staged", _utc_now(), hashlib.sha256(payload).hexdigest())
 
     def promote_generation(self, record: GenerationRecord) -> GenerationRecord:
         staged = (self.root / record.relative_path).resolve()
         if not staged.is_file() or not staged.is_relative_to(self.staging):
             raise BulkCacheError("only an existing staged generation may be promoted")
+        # The bytes hashed at staging must still be the bytes being promoted.
+        expected = record.payload_sha256 or ""
+        if not expected and record.generation_id.startswith("gen_"):
+            expected = record.generation_id[4:]
+        actual = _sha256_file(staged)
+        if not expected or not actual.startswith(expected) or (record.payload_sha256 and actual != record.payload_sha256):
+            raise BulkCacheError("staged generation bytes changed after staging; promotion refused")
         dataset = _safe_name(record.dataset_id, "dataset_id")
         destination = self.generations / dataset / f"{record.generation_id}.bin"
         destination.parent.mkdir(parents=True, exist_ok=True)
         staged.replace(destination)
-        promoted = GenerationRecord(record.dataset_id, record.generation_id, record.source_sha256, str(destination.relative_to(self.root)).replace("\\", "/"), "promoted", _utc_now())
+        promoted = GenerationRecord(record.dataset_id, record.generation_id, record.source_sha256, str(destination.relative_to(self.root)).replace("\\", "/"), "promoted", _utc_now(), actual)
         atomic_write_bytes(destination.with_suffix(".json"), _json_bytes(promoted.__dict__), lambda _path: None)
         return promoted
 
@@ -401,6 +464,11 @@ class ContentAddressedCache:
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
                 if isinstance(payload, dict) and payload.get("schema_version") == BULK_CACHE_SCHEMA_VERSION:
+                    # A manifest is healthy only while the object it names exists with the recorded size.
+                    object_file = (self.root / str(payload.get("object_path", ""))).resolve()
+                    if not object_file.is_relative_to(self.root) or not object_file.is_file() or object_file.stat().st_size != payload.get("size_bytes"):
+                        failures.append(f"{path.name}: object missing or size mismatch")
+                        continue
                     rows.append(payload)
             except (OSError, json.JSONDecodeError):
                 failures.append(path.name)
