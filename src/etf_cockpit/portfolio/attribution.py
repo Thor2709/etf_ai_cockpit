@@ -35,8 +35,14 @@ def build_performance_attribution(
     costs: pd.DataFrame | None = None,
     decisions: pd.DataFrame | None = None,
     reference_context: object | None = None,
+    nav_eur: float | None = None,
 ) -> dict[str, object]:
     """Build gross/net, factor, currency and decision attribution evidence.
+
+    ``nav_eur`` (or the sum of an allocation ``market_value_eur`` column) is the
+    denominator that converts absolute EUR costs into return space; without it
+    non-zero costs leave the net return unavailable. Cost signs are preserved,
+    so a rebate stays negative.
 
     ``allocation`` is a dated snapshot only when it has no date column; the
     returned report says so through its coverage fields.  Price observations
@@ -81,6 +87,8 @@ def build_performance_attribution(
     cost_attribution, cost_total, tax_total = _cost_attribution(bounded_costs)
     if bounded_costs is not None and not bounded_costs.empty and (cost_total is None or tax_total is None):
         cost_evidence_status = "invalid"
+    nav_denominator, nav_reason = _nav_denominator(nav_eur, allocation, reference_context)
+    cost_return = _cost_in_return_space(cost_total, nav_denominator)
     benchmark = _benchmark_attribution(
         total_return,
         _canonical_benchmark_returns(returns, reference_context),
@@ -119,9 +127,13 @@ def build_performance_attribution(
         warnings.append("canonical_benchmark_cash_resolution_unavailable")
     net_return = (
         None
-        if total_return is None or cost_evidence_status == "invalid" or cost_total is None or tax_total is None
-        else float(total_return - cost_total)
+        if total_return is None or cost_evidence_status == "invalid" or cost_total is None or tax_total is None or cost_return is None
+        else float(total_return - cost_return)
     )
+    if cost_total is not None and cost_total != 0.0 and cost_return is None and cost_evidence_status != "invalid":
+        warnings.append("cost_nav_denominator_unavailable")
+    if returns.attrs.get("price_conflicts"):
+        warnings.append("same_date_price_conflict_excluded")
 
     return {
         "status": "available" if not warnings else "partial",
@@ -162,6 +174,11 @@ def build_performance_attribution(
             "factor_residual": _factor_residual(total_return, factor_attribution),
             "explicit_cost_total": cost_total,
             "explicit_tax_total": tax_total,
+            "explicit_cost_return": cost_return,
+            "cost_nav_denominator_eur": nav_denominator,
+            "cost_nav_denominator_status": "available" if nav_denominator is not None else "unavailable",
+            "cost_nav_denominator_reason": nav_reason,
+            "price_conflicts": list(returns.attrs.get("price_conflicts", [])),
             "cash_return_assumption": "0.0; supply a cash series for cash performance attribution",
         },
         "warnings": warnings,
@@ -317,8 +334,18 @@ def _return_matrix(prices: pd.DataFrame | None) -> pd.DataFrame:
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
     frame = frame.dropna(subset=["date", "adjusted_close"])
     frame = frame[(frame["etf_id"] != "") & frame["adjusted_close"].gt(0)]
-    pivot = frame.pivot_table(index="date", columns="etf_id", values="adjusted_close", aggfunc="last").sort_index()
-    return pivot.pct_change(fill_method=None).replace([np.inf, -np.inf], np.nan).iloc[1:]
+    # Identical duplicates collapse; different same-date values are a conflict and
+    # the cell is excluded (not resolved by row order).
+    spread = frame.groupby(["date", "etf_id"])["adjusted_close"].agg(["min", "max"])
+    conflicted = spread.loc[spread["max"] != spread["min"]].index
+    pivot = frame.groupby(["date", "etf_id"])["adjusted_close"].last().unstack("etf_id").sort_index()
+    conflicts: list[str] = []
+    for observed_date, instrument in conflicted:
+        pivot.loc[observed_date, instrument] = np.nan
+        conflicts.append(f"{instrument}@{pd.Timestamp(observed_date).date().isoformat()}")
+    result = pivot.pct_change(fill_method=None).replace([np.inf, -np.inf], np.nan).iloc[1:]
+    result.attrs["price_conflicts"] = conflicts
+    return result
 
 
 def _weights(allocation: pd.DataFrame | None) -> pd.Series:
@@ -395,7 +422,8 @@ def _factor_attribution(daily: pd.DataFrame, wealth: pd.Series, factor_returns: 
     factor_frame = factor_frame.dropna(subset=["date", "factor_return"])
     for factor in factors:
         series = factor_frame.loc[factor_frame["factor"].eq(factor)].set_index("date")["factor_return"]
-        joined = pd.concat([series, daily["wealth"].shift(1)], axis=1, join="inner").dropna()
+        # Wealth entering the first return day is the unit starting wealth, not missing.
+        joined = pd.concat([series, daily["wealth"].shift(1).fillna(1.0)], axis=1, join="inner").dropna()
         exposure_value = float(portfolio_exposure[factor])
         contribution = float((joined.iloc[:, 0] * joined.iloc[:, 1] * exposure_value).sum()) if not joined.empty else 0.0
         factor_rows.append({"factor": factor, "contribution": contribution, "share": None, "observations": int(len(joined)), "status": "available" if len(joined) >= 3 and exposure_covered else "partial"})
@@ -413,8 +441,14 @@ def _currency_attribution(asset_summary: pd.DataFrame, allocation: pd.DataFrame 
     mapping = allocation[["etf_id", "currency"]].copy()
     mapping["etf_id"] = mapping["etf_id"].astype(str).str.strip()
     mapping["currency"] = mapping["currency"].fillna("").astype(str).str.strip()
+    # One classification per instrument: duplicate rows must not multiply contributions,
+    # and conflicting classifications are unavailable rather than guessed.
+    distinct = mapping.loc[mapping["currency"].ne("")].groupby("etf_id")["currency"].nunique()
+    conflicting = set(distinct[distinct > 1].index)
+    mapping = mapping.drop_duplicates(subset=["etf_id", "currency"])
+    mapping = mapping.loc[~mapping["etf_id"].isin(conflicting)].drop_duplicates(subset=["etf_id"], keep="first")
     joined = asset_summary.merge(mapping, left_on="instrument_id", right_on="etf_id", how="left")
-    joined["currency"] = joined["currency"].where(joined["currency"].ne(""), "unavailable")
+    joined["currency"] = joined["currency"].fillna("").where(joined["currency"].fillna("").ne(""), "unavailable")
     result = joined.groupby("currency", sort=True, as_index=False)["contribution"].sum()
     total = float(result["contribution"].sum()) if not result.empty else 0.0
     result["share"] = result["contribution"] / total if total else np.nan
@@ -438,11 +472,80 @@ def _cost_attribution(costs: pd.DataFrame | None) -> tuple[pd.DataFrame, float |
     numeric_amounts = pd.to_numeric(raw_amounts, errors="coerce")
     if numeric_amounts.isna().any() or not np.isfinite(numeric_amounts).all():
         return pd.DataFrame(columns=columns), None, None
-    frame["amount"] = numeric_amounts.abs()
+    frame["amount"] = numeric_amounts  # signed: commissions positive, rebates negative
     result = frame.groupby("category", sort=True, as_index=False)["amount"].sum()
     result["status"] = "explicit"
     tax_total = float(result.loc[result["category"].str.casefold().str.contains("tax"), "amount"].sum())
     return result[columns], float(result["amount"].sum()), tax_total
+
+
+def _nav_denominator(
+    nav_eur: float | None,
+    allocation: pd.DataFrame | None,
+    reference_context: object | None = None,
+) -> tuple[float | None, str | None]:
+    """Use explicit NAV or verified opening allocation NAV, never a later snapshot.
+
+    Allocation NAV defaults conservatively to the canonical window's opening
+    date, with explicit availability by the decision cutoff and consistent
+    chronology aliases. Undated or stale allocation snapshots are unavailable.
+    """
+    explicit = _finite(nav_eur)
+    if explicit is not None:
+        return (explicit, None) if explicit > 0 else (None, "NAV must be positive.")
+    if allocation is None or "market_value_eur" not in allocation.columns or allocation.empty:
+        return None, "Allocation NAV evidence is unavailable."
+    resolution = getattr(reference_context, "resolution", None)
+    declaration = getattr(resolution, "declaration", None)
+    if getattr(resolution, "blockers", ()):
+        return None, "Allocation NAV canonical reference is blocked."
+    try:
+        start = pd.Timestamp(declaration.start_date, tz="UTC")
+        end = pd.Timestamp(declaration.end_date, tz="UTC") + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+        decision = pd.Timestamp(declaration.decision_time)
+        if pd.isna(start) or pd.isna(end) or pd.isna(decision) or decision.tzinfo is None:
+            return None, "Allocation NAV canonical chronology is unverifiable."
+        decision = decision.tz_convert("UTC")
+        if start > end or decision < start:
+            return None, "Allocation NAV canonical chronology is invalid."
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return None, "Allocation NAV canonical chronology is unverifiable."
+    observation: pd.Timestamp | None = None
+    for _, row in allocation.iterrows():
+        effective, effective_valid = _cost_chronology(
+            row, ("effective_at", "date", "as_of", "as_of_date"), aliases_must_match=True,
+        )
+        available, available_valid = _cost_chronology(
+            row, ("known_at", "available_at", "retrieved_at", "imported_at", "published_at"), aliases_must_match=True,
+        )
+        if effective is None or available is None or not effective_valid or not available_valid:
+            return None, "Allocation NAV date or availability is unverifiable."
+        if effective > end or effective > decision or available > decision:
+            return None, "Allocation NAV is future or unavailable at the canonical cutoff."
+        if effective.normalize() != start.normalize():
+            return None, "Allocation NAV does not match the canonical opening date (stale or later snapshot)."
+        if observation is not None and effective != observation:
+            return None, "Allocation NAV combines conflicting snapshot times."
+        observation = effective
+        if available < effective:
+            return None, "Allocation NAV availability precedes its effective observation."
+    values = pd.to_numeric(allocation["market_value_eur"], errors="coerce")
+    if values.isna().any() or not np.isfinite(values.to_numpy(dtype=float)).all():
+        return None, "Allocation NAV values are invalid."
+    total = float(values.sum())
+    return (total, None) if np.isfinite(total) and total > 0 else (None, "Allocation NAV must be finite and positive.")
+
+
+def _cost_in_return_space(cost_total: float | None, nav: float | None) -> float | None:
+    """Convert absolute EUR costs to a fractional return using the NAV denominator."""
+
+    if cost_total is None:
+        return None
+    if cost_total == 0.0:
+        return 0.0
+    if nav is None:
+        return None
+    return float(cost_total / nav)
 
 
 def _costs_in_declared_window(
@@ -622,6 +725,7 @@ def _benchmark_attribution(
                 }
             )
             continue
+        complete = bool(portfolio.index.isin(joined.index).all())
         portfolio_window_return = float((1.0 + joined["portfolio_return"]).prod() - 1.0)
         benchmark_return = float((1.0 + joined["benchmark_return"]).prod() - 1.0)
         result_rows.append(
@@ -630,7 +734,8 @@ def _benchmark_attribution(
                 "return": benchmark_return,
                 "active_return": float(portfolio_window_return - benchmark_return),
                 "observations": int(len(joined)),
-                "status": "available",
+                # Incomplete overlap with the declared period is partial, never available.
+                "status": "available" if complete else "partial",
             }
         )
     return pd.DataFrame(result_rows, columns=columns)
@@ -668,13 +773,16 @@ def _xirr(cashflows: list[tuple[pd.Timestamp, float]]) -> float | None:
     def npv(rate: float) -> float:
         return sum(value / (1.0 + rate) ** ((date - origin).days / 365.25) for date, value in cashflows)
 
+    tolerance = 1e-13 * max(sum(abs(value) for _, value in cashflows), 1e-300)
     low, high = -0.9999, 10.0
+    while npv(low) * npv(high) > 0 and high < 1_000_000.0:
+        high = min(high * 2.0, 1_000_000.0)
     if npv(low) * npv(high) > 0:
         return None
     for _ in range(100):
         middle = (low + high) / 2.0
         value = npv(middle)
-        if abs(value) < 1e-10:
+        if abs(value) < tolerance:
             return float(middle)
         if npv(low) * value <= 0:
             high = middle

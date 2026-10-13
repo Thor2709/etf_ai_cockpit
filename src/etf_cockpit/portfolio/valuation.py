@@ -10,10 +10,14 @@ from __future__ import annotations
 from datetime import date, datetime
 import math
 
+import exchange_calendars as xcals
 import numpy as np
 import pandas as pd
 
 VALUATION_MODEL_VERSION = "portfolio-valuation.v1"
+# Documented default: the sessions a period must cover come from this exchange
+# calendar (NYSE), not from generic weekdays. Pass ``calendar`` to override.
+DEFAULT_PERFORMANCE_CALENDAR = "XNYS"
 SNAPSHOT_COLUMNS = (
     "date",
     "cash_value",
@@ -76,6 +80,7 @@ def build_daily_portfolio_snapshots(
     events: pd.DataFrame | None,
     *,
     decision_time: date | datetime | pd.Timestamp | str | None,
+    calendar: str = DEFAULT_PERFORMANCE_CALENDAR,
 ) -> pd.DataFrame:
     """Value exact-date position and cash snapshots and classify ledger events.
 
@@ -87,10 +92,10 @@ def build_daily_portfolio_snapshots(
     no positions or events. ``None`` means unavailable evidence.
     """
     cutoff = _decision_cutoff(decision_time)
-    position_rows = _dated_frame(holdings, "holdings", {"instrument_id", "quantity"}, cutoff)
-    price_rows = _dated_frame(prices, "prices", {"instrument_id", "price"}, cutoff)
-    cash_rows = _dated_frame(cash_balances, "cash_balances", {"cash_value"}, cutoff)
-    event_rows = _dated_frame(events, "events", {"event_type", "amount"}, cutoff)
+    position_rows = _dated_frame(holdings, "holdings", {"instrument_id", "quantity"}, cutoff, calendar)
+    price_rows = _dated_frame(prices, "prices", {"instrument_id", "price"}, cutoff, calendar)
+    cash_rows = _dated_frame(cash_balances, "cash_balances", {"cash_value"}, cutoff, calendar)
+    event_rows = _dated_frame(events, "events", {"event_type", "amount"}, cutoff, calendar)
 
     dates = sorted(set(position_rows["_date"]) | set(price_rows["_date"]) | set(cash_rows["_date"]) | set(event_rows["_date"]))
     if not dates:
@@ -218,20 +223,33 @@ def build_daily_portfolio_snapshots(
         if not current_complete:
             continue
         if index == 0:
-            initial_capital = float(current["total_value"] - current["external_flow"])
+            # Opening capital is the pre-flow value; the day's own external flow
+            # is part of invested capital, so the first day carries its total value.
+            initial_capital = float((current["total_value"] - current["external_flow"]) + current["external_flow"])
             if math.isfinite(initial_capital):
                 snapshots.at[index, "invested_capital"] = initial_capital
             continue
         previous = snapshots.iloc[index - 1]
         previous_complete = previous["valuation_status"] == "available" and previous["flow_status"] == "available"
-        if not previous_complete or float(previous["total_value"]) == 0.0:
+        if not previous_complete:
+            continue
+        prior_capital = previous["invested_capital"]
+        if float(previous["total_value"]) == 0.0:
+            # A zero prior NAV leaves the return undefined but must not poison
+            # invested capital: P&L is well defined and the capital series restarts.
+            zero_nav_pnl = float(current["total_value"] - current["external_flow"])
+            if math.isfinite(zero_nav_pnl):
+                snapshots.at[index, "investment_pnl"] = zero_nav_pnl
+            restart = float(prior_capital + current["external_flow"]) if pd.notna(prior_capital) else float(current["external_flow"])
+            if math.isfinite(restart) and (pd.notna(prior_capital) or restart >= 0.0):
+                snapshots.at[index, "invested_capital"] = restart
             continue
         daily_pnl = float(current["total_value"] - previous["total_value"] - current["external_flow"])
         daily_return = float((current["total_value"] - current["external_flow"]) / previous["total_value"] - 1.0)
-        if math.isfinite(daily_pnl) and math.isfinite(daily_return):
+        if math.isfinite(daily_pnl):
             snapshots.at[index, "investment_pnl"] = daily_pnl
+        if math.isfinite(daily_return) and daily_return >= -1.0:
             snapshots.at[index, "period_return"] = daily_return
-        prior_capital = previous["invested_capital"]
         if pd.notna(prior_capital):
             next_capital = float(prior_capital + current["external_flow"])
             if math.isfinite(next_capital):
@@ -244,11 +262,13 @@ def link_time_weighted_return(
     *,
     start: date | datetime | pd.Timestamp | str | None = None,
     end: date | datetime | pd.Timestamp | str | None = None,
+    calendar: str = DEFAULT_PERFORMANCE_CALENDAR,
 ) -> dict[str, object]:
     """Geometrically link daily end-of-day-flow-adjusted returns.
 
-    Weekday dates in the selected period must all have valuations; gaps make TWR
-    unavailable rather than treating a multi-day return as one daily return.
+    Exchange sessions (``calendar``) in the selected period must all have
+    valuations; gaps make TWR unavailable rather than treating a multi-day
+    return as one daily return.
     """
     selected, reason = _select_period(snapshots, start, end)
     if selected is None:
@@ -256,7 +276,7 @@ def link_time_weighted_return(
     if len(selected) < 2:
         return _unavailable_result("At least two valid daily snapshots are required.")
     observed_dates = pd.DatetimeIndex(selected["date"])
-    required_dates = pd.bdate_range(observed_dates[0], observed_dates[-1])
+    required_dates = expected_session_dates(observed_dates[0], observed_dates[-1], calendar)
     missing_dates = required_dates.difference(observed_dates)
     if not missing_dates.empty:
         missing_dates_text = ", ".join(missing_dates.strftime("%Y-%m-%d"))
@@ -369,6 +389,61 @@ def summarise_portfolio_valuation_history(snapshots: pd.DataFrame) -> dict[str, 
     }
 
 
+def expected_session_dates(
+    start: date | datetime | pd.Timestamp,
+    end: date | datetime | pd.Timestamp,
+    calendar: str = DEFAULT_PERFORMANCE_CALENDAR,
+) -> pd.DatetimeIndex:
+    """Return the exchange sessions in ``[start, end]`` as tz-naive midnight dates.
+
+    Outside the calendar's supported range the generic weekday set is used, which
+    can only require more dates (fail closed), never fewer.
+    """
+    first = _naive_day(start)
+    last = _naive_day(end)
+    if first > last:
+        return pd.DatetimeIndex([])
+    try:
+        exchange = xcals.get_calendar(calendar)
+        if first < exchange.first_session.tz_localize(None) or last > exchange.last_session.tz_localize(None):
+            return pd.bdate_range(first, last)
+        sessions = pd.DatetimeIndex(exchange.sessions_in_range(first, last))
+        return sessions.tz_localize(None) if sessions.tz is not None else sessions
+    except (ValueError, KeyError):
+        return pd.bdate_range(first, last)
+
+
+def _naive_day(value: date | datetime | pd.Timestamp) -> pd.Timestamp:
+    stamp = pd.Timestamp(value)
+    return (stamp.tz_localize(None) if stamp.tzinfo is not None else stamp).normalize()
+
+
+def civil_dates(values: pd.Series, calendar: str = DEFAULT_PERFORMANCE_CALENDAR) -> pd.Series:
+    """Map timestamp observations to the declared exchange's civil date.
+
+    Explicit date-only labels and naive local times retain their civil date;
+    timezone-aware instants are converted to the exchange timezone first.
+    Invalid observations become ``NaT``. An unknown calendar fails closed.
+    """
+    try:
+        timezone = xcals.get_calendar(calendar).tz
+    except (ValueError, KeyError) as exc:
+        raise PortfolioValuationError("Exchange timezone is unavailable; valuation unavailable.") from exc
+
+    def one(value: object) -> pd.Timestamp:
+        try:
+            stamp = pd.Timestamp(value)
+            if pd.isna(stamp):
+                return pd.NaT
+            if stamp.tzinfo is not None:
+                stamp = stamp.tz_convert(timezone).tz_localize(None)
+            return stamp.normalize()
+        except (TypeError, ValueError, OverflowError):
+            return pd.NaT
+
+    return pd.to_datetime(values.map(one), errors="coerce")
+
+
 def _decision_cutoff(decision_time: date | datetime | pd.Timestamp | str | None) -> pd.Timestamp:
     if decision_time is None:
         raise PortfolioValuationError("Decision time is unavailable; point-in-time valuation cannot be established.")
@@ -395,6 +470,7 @@ def _dated_frame(
     name: str,
     required: set[str],
     cutoff: pd.Timestamp,
+    calendar: str = DEFAULT_PERFORMANCE_CALENDAR,
 ) -> pd.DataFrame:
     if frame is None:
         raise PortfolioValuationError(f"{name} evidence is unavailable; valuation unavailable.")
@@ -404,12 +480,16 @@ def _dated_frame(
     if not required_columns.issubset(frame.columns):
         raise PortfolioValuationError(f"{name} is missing required fields; valuation unavailable.")
     result = frame.copy()
-    parsed = pd.to_datetime(result["date"], errors="coerce", utc=True)
+    parsed = civil_dates(result["date"], calendar)
     if parsed.isna().any():
         raise PortfolioValuationError(f"{name} contains an invalid observation date; valuation unavailable.")
-    result["_date"] = parsed.dt.tz_convert(None).dt.normalize()
+    result["_date"] = parsed
     result["_excluded_after_cutoff"] = False
-    latest_date = cutoff.tz_convert(None).normalize()
+    # Explicit date labels retain the established UTC date-label cutoff;
+    # timestamp observations use the same exchange civil day as their join key.
+    aware_observations = result["date"].map(lambda value: pd.Timestamp(value).tzinfo is not None).astype(bool)
+    latest_date = pd.Series(cutoff.tz_convert(None).normalize(), index=result.index)
+    latest_date.loc[aware_observations] = civil_dates(pd.Series([cutoff]), calendar).iloc[0]
     if "available_at" in result.columns:
         available = pd.to_datetime(result["available_at"], errors="coerce", utc=True)
         if available.isna().any():
@@ -417,6 +497,11 @@ def _dated_frame(
         result["_excluded_after_cutoff"] = (available > cutoff).to_numpy()
     else:
         result["_excluded_after_cutoff"] = result["_date"].eq(latest_date).to_numpy()
+    # An availability claim cannot make a future observation knowable.
+    observation_after_cutoff = result["date"].map(
+        lambda value: pd.Timestamp(value).tzinfo is not None and pd.Timestamp(value) > cutoff
+    ).astype(bool)
+    result["_excluded_after_cutoff"] |= observation_after_cutoff
     return result.loc[result["_date"] <= latest_date].copy()
 
 
@@ -467,10 +552,10 @@ def _select_period(
     if snapshots.columns.duplicated().any() or not set(SNAPSHOT_COLUMNS).issubset(snapshots.columns):
         return None, "Daily valuation snapshot schema is invalid."
     selected = snapshots.copy()
-    dates = pd.to_datetime(selected["date"], errors="coerce", utc=True)
+    dates = civil_dates(selected["date"])
     if dates.isna().any():
         return None, "Daily valuation dates are invalid."
-    selected["date"] = dates.dt.tz_convert(None).dt.normalize()
+    selected["date"] = dates
     if selected["date"].duplicated().any():
         return None, "Duplicate daily valuation dates prevent precise performance."
     selected = selected.sort_values("date").reset_index(drop=True)
@@ -490,10 +575,10 @@ def _select_period(
 
 
 def _period_date(value: date | datetime | pd.Timestamp | str) -> pd.Timestamp | None:
-    parsed = pd.to_datetime(value, errors="coerce", utc=True)
+    parsed = civil_dates(pd.Series([value], dtype=object)).iloc[0]
     if pd.isna(parsed):
         return None
-    return pd.Timestamp(parsed).tz_convert(None).normalize()
+    return pd.Timestamp(parsed)
 
 
 def _complete(snapshots: pd.DataFrame) -> bool:
@@ -516,6 +601,9 @@ def _xirr(cashflows: list[tuple[pd.Timestamp, float]], elapsed_days: int) -> flo
         except OverflowError:
             return math.inf
 
+    # Tolerance scales with the cash-flow magnitude so tiny portfolios are not
+    # accepted at the first midpoint merely because their absolute NPV is small.
+    tolerance = 1e-13 * max(sum(abs(amount) for amount, _ in dated), 1e-300)
     lower = -0.999999
     f_lower = npv(lower)
     upper = 1.0
@@ -528,7 +616,7 @@ def _xirr(cashflows: list[tuple[pd.Timestamp, float]], elapsed_days: int) -> flo
     for _ in range(200):
         middle = (lower + upper) / 2.0
         f_middle = npv(middle)
-        if abs(f_middle) <= 1e-10 or upper - lower <= 1e-12:
+        if abs(f_middle) <= tolerance or upper - lower <= 1e-12:
             return middle
         if math.copysign(1.0, f_middle) == math.copysign(1.0, f_lower):
             lower, f_lower = middle, f_middle

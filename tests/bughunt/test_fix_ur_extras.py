@@ -41,10 +41,12 @@ def test_explicit_tax_is_deducted_only_once_from_net_return() -> None:
             ]
         ),
         reference_context=_reference_context(),
+        nav_eur=100.0,
     )
 
     assert report["time_weighted_return"] == pytest.approx(0.1)
-    assert report["net_return_after_explicit_costs"] == pytest.approx(-4.9)
+    # EUR 5 of costs on a EUR 100 NAV is 5% in return space (issue #967 D007-N001).
+    assert report["net_return_after_explicit_costs"] == pytest.approx(0.05)
 
 
 def test_liquidity_reverse_stress_probes_positive_shocks() -> None:
@@ -73,9 +75,10 @@ def test_partially_excluded_cost_rows_are_reported_as_excluded() -> None:
             ]
         ),
         reference_context=_reference_context(),
+        nav_eur=100.0,
     )
 
     assert report["status"] == "partial"
     assert "explicit_costs_outside_canonical_window_excluded" in report["warnings"]
-    assert report["net_return_after_explicit_costs"] == pytest.approx(-2.9)
+    assert report["net_return_after_explicit_costs"] == pytest.approx(0.07)
     assert set(report["cost_attribution"]["category"]) == {"commission"}
