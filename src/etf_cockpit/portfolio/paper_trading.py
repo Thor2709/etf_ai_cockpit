@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -35,6 +35,7 @@ from etf_cockpit.trading.pre_trade_controls import PreTradeControlError, PreTrad
 PAPER_SCHEMA_VERSION = "paper_ledger.v1"
 EXECUTION_ALLOWED = False
 NETWORK_ACCESS_ALLOWED = False
+MIN_QUANTITY = Decimal("0.00000001")
 
 
 class PaperLedgerError(ValueError):
@@ -168,8 +169,7 @@ class PaperLedger:
         if not isinstance(as_of, datetime) or as_of.tzinfo is None:
             raise PaperLedgerError("A timezone-aware cash-balance time is required.")
         with self._lock:
-            events = self._read_events()
-            state = self._replay(events)
+            state = self._replay(self._events_through(as_of))
             self._require_open(state)
             if str(state["base_currency"]).upper() != currency.upper():
                 raise PaperLedgerError("Paper cash is available only in the account base currency.")
@@ -177,6 +177,34 @@ class PaperLedger:
             if not isinstance(cash, Decimal):
                 raise PaperLedgerIntegrityError("Paper cash projection is not an exact decimal.")
             return cash
+
+    def projected_fill_ids(self, *, account_id: str, as_of: datetime) -> frozenset[str]:
+        """Return the fills ``cash_balance`` at ``as_of`` contains, so unsettled cash is applied per fill."""
+
+        if account_id != self.account_id:
+            raise PaperLedgerError("Projected fills requested for a different paper account.")
+        if not isinstance(as_of, datetime) or as_of.tzinfo is None:
+            raise PaperLedgerError("A timezone-aware projection time is required.")
+        with self._lock:
+            return frozenset(
+                str(event["payload"].get("fill_id"))
+                for event in self._events_through(as_of)
+                if event.get("event_type") == "fill_recorded" and isinstance(event.get("payload"), Mapping)
+            )
+
+    def _events_through(self, as_of: datetime) -> list[dict[str, object]]:
+        """Return the log prefix up to the first event dated after ``as_of`` (shared by cash and fill projections).
+
+        The ledger does not enforce monotonic ``occurred_at``, so both projections must cut the same prefix.
+        """
+
+        cutoff = as_of.astimezone(timezone.utc)
+        events: list[dict[str, object]] = []
+        for event in self._read_events():
+            if _event_time(event) > cutoff:
+                break
+            events.append(event)
+        return events
 
     @property
     def cash_includes_unsettled_trades(self) -> bool:
@@ -202,33 +230,40 @@ class PaperLedger:
         *,
         execution_price: float,
         fee: float = 0.0,
-        fx_rate: float = 1.0,
+        fx_rate: float | None = None,
         decision_mode: Literal["manual_accept", "auto_paper"] = "manual_accept",
         occurred_at: datetime | None = None,
         control_binding: object | None = None,
+        quote_currency: str | None = None,
     ) -> dict[str, object]:
         """Accept one policy-approved proposal as a simulated open order.
 
         ``auto_paper`` is an explicit paper-only decision label.  It changes
         attribution, not authority: both modes remain local simulations and
         retain ``execution_allowed=false``.
+
+        ``fx_rate`` may be omitted only when the quote currency is the account base currency; a foreign
+        quote currency requires an explicit rate. The quote currency is ``quote_currency``, else the
+        proposal's ``currency``, else the configured instrument currency, else the account base currency.
         """
 
-        self._validate_proposal(proposal)
+        # Expiry is checked after the read-only idempotent lookup so a retry of an accepted order still returns it.
+        self._validate_proposal(proposal, check_expiry=False)
         if decision_mode not in {"manual_accept", "auto_paper"}:
             raise PaperLedgerError("Unsupported paper decision mode.")
         price_decimal = _decimal_number(execution_price, "execution_price", positive=True)
         fee_decimal = _decimal_number(fee, "fee", non_negative=True)
-        fx_decimal = _decimal_number(fx_rate, "fx_rate", positive=True)
+        explicit_fx = None if fx_rate is None else _decimal_number(fx_rate, "fx_rate", positive=True)
         price = float(price_decimal)
         fee_value = float(fee_decimal)
-        fx = float(fx_decimal)
         proposal_id = _clean_id(proposal.get("proposal_id"), "proposal_id")
         quantity_decimal = _decimal_number(proposal.get("quantity_delta"), "quantity_delta")
         quantity_delta = float(quantity_decimal)
         quantity = abs(quantity_delta)
         if quantity <= 0:
             raise PaperLedgerError("A zero-quantity proposal cannot be accepted.")
+        if abs(quantity_decimal) < MIN_QUANTITY:
+            raise PaperLedgerError("The proposal quantity is below the paper ledger precision of 1e-8.")
         instrument_id = _clean_id(proposal.get("instrument_id"), "instrument_id").upper()
         order_id = "order_" + _digest(
             {"account_id": self.account_id, "proposal_id": proposal_id, "quantity": quantity}
@@ -243,6 +278,9 @@ class PaperLedger:
                 raise PaperLedgerError("A rejected proposal cannot be accepted later.")
             if proposal_id in state["deferred"]:
                 raise PaperLedgerError("A deferred proposal cannot be accepted later.")
+            currency = self._quote_currency(proposal, instrument_id, quote_currency, state)
+            fx_decimal = self._resolve_fx(explicit_fx, currency, state)
+            fx = float(fx_decimal)
             existing = state["orders"].get(order_id)
             if existing is not None:
                 if any(
@@ -263,10 +301,11 @@ class PaperLedger:
                             occurred_at=occurred_at,
                         )
                 return dict(existing)
+            self._require_unexpired(proposal)
+            self._require_within_target(proposal, state, instrument_id, quantity_delta)
             if quantity_delta < 0 and state["positions"].get(instrument_id, {}).get("quantity", 0.0) + 1e-8 < quantity:
                 raise PaperLedgerError("A paper sell cannot exceed the current simulated position.")
             venue, instrument_type = self._order_market_terms(proposal, instrument_id)
-            currency = _clean_id(proposal.get("currency", state["base_currency"]), "currency").upper()
             lifecycle_key = f"paper:{self.account_id}:{proposal_id}"
             try:
                 control_decision = self._evaluate_pre_trade_controls(
@@ -340,21 +379,106 @@ class PaperLedger:
             )
             return order
 
+    def _quote_currency(
+        self,
+        proposal: Mapping[str, object],
+        instrument_id: str,
+        explicit: str | None,
+        state: Mapping[str, object],
+    ) -> str:
+        if explicit is not None:
+            return _clean_id(explicit, "quote_currency").upper()
+        if proposal.get("currency") is not None:
+            return _clean_id(proposal.get("currency"), "currency").upper()
+        try:
+            config_dir = self.root / "configs"
+            if not (config_dir / "universe.yaml").exists():
+                config_dir = CONFIG_DIR
+            configured = load_config(config_dir).universe.by_id().get(instrument_id)
+        except Exception as exc:
+            raise PaperLedgerError(
+                "The instrument quote currency is unavailable: the universe configuration could not be loaded; "
+                "supply an explicit quote_currency."
+            ) from exc
+        if configured is None or not getattr(configured, "currency", None):
+            raise PaperLedgerError(
+                f"The quote currency of {instrument_id} cannot be resolved from the universe; "
+                "supply an explicit quote_currency or a proposal currency."
+            )
+        return str(configured.currency).strip().upper()
+
+    @staticmethod
+    def _resolve_fx(fx_rate: Decimal | None, currency: str, state: Mapping[str, object]) -> Decimal:
+        """Return the explicit FX rate; the implicit 1 is allowed only for the account base currency."""
+
+        if fx_rate is not None:
+            return fx_rate
+        base = str(state["base_currency"]).upper()
+        if currency.upper() != base:
+            raise PaperLedgerError(
+                f"An explicit fx_rate is required for {currency.upper()} quotes in a {base} paper account."
+            )
+        return Decimal("1")
+
+    @staticmethod
+    def _position_fx(
+        fx_rate: Decimal | None, instrument_id: str, state: Mapping[str, object]
+    ) -> Decimal:
+        """Return the explicit FX rate; the implicit 1 is allowed only for a base-currency (or absent) position."""
+
+        positions = state["positions"]
+        assert isinstance(positions, Mapping)
+        position = positions.get(instrument_id)
+        currency = str(position["currency"]) if isinstance(position, Mapping) and position.get("currency") else str(state["base_currency"])
+        return PaperLedger._resolve_fx(fx_rate, currency, state)
+
+    @staticmethod
+    def _require_within_target(
+        proposal: Mapping[str, object],
+        state: Mapping[str, object],
+        instrument_id: str,
+        quantity_delta: float,
+    ) -> None:
+        """Refuse a policy proposal whose delta would overshoot its target given the ledger position and open orders."""
+
+        material = proposal.get("input_material")
+        if not isinstance(material, Mapping) or "current_quantity" not in material or "target_quantity" not in material:
+            return
+        try:
+            target = float(material["target_quantity"])
+        except (TypeError, ValueError):
+            return
+        position = state["positions"].get(instrument_id, {}).get("quantity", 0.0)
+        pending = sum(
+            (1.0 if order.get("side") == "buy" else -1.0) * float(order.get("remaining_quantity", 0.0))
+            for order in state["orders"].values()
+            if str(order.get("instrument_id")) == instrument_id and order.get("status") in {"accepted", "partially_filled"}
+        )
+        projected = float(position) + pending + quantity_delta
+        if (quantity_delta > 0 and projected > target + 1e-8) or (quantity_delta < 0 and projected < target - 1e-8):
+            raise PaperLedgerError(
+                "The proposal target is stale: the ledger position plus open orders plus this delta would overshoot the target."
+            )
+
     def evaluate_pre_trade_controls(
         self,
         proposal: Mapping[str, object],
         *,
         execution_price: object,
         fee: object = 0,
-        fx_rate: object = 1,
+        fx_rate: object | None = None,
         occurred_at: datetime | None = None,
+        quote_currency: str | None = None,
     ):
-        """Return the independent paper-ledger control result for a sealed canary binding."""
+        """Return the independent paper-ledger control result for a sealed canary binding.
+
+        ``fx_rate`` may be omitted only when the quote currency is the account base currency.
+        """
 
         self._validate_proposal(proposal)
         price = _decimal_number(execution_price, "execution_price", positive=True)
         _decimal_number(fee, "fee", non_negative=True)
-        fx = _decimal_number(fx_rate, "fx_rate", positive=True)
+        explicit_fx = None if fx_rate is None else _decimal_number(fx_rate, "fx_rate", positive=True)
         quantity = _decimal_number(proposal.get("quantity_delta"), "quantity_delta")
         with self._lock, self._file_lock():
             self._recover_interrupted_fills()
@@ -362,6 +486,12 @@ class PaperLedger:
             state = self._replay(events)
             self._require_open(state)
             self._require_order_pipeline_open()
+            if explicit_fx is None:
+                instrument_id = _clean_id(proposal.get("instrument_id"), "instrument_id").upper()
+                currency = self._quote_currency(proposal, instrument_id, quote_currency, state)
+                fx = self._resolve_fx(None, currency, state)
+            else:
+                fx = explicit_fx
             return self._evaluate_pre_trade_controls(
                 proposal,
                 state=state,
@@ -529,8 +659,9 @@ class PaperLedger:
         *,
         execution_price: float,
         fee: float = 0.0,
-        fx_rate: float = 1.0,
+        fx_rate: float | None = None,
         occurred_at: datetime | None = None,
+        quote_currency: str | None = None,
     ) -> dict[str, object]:
         """Record an explicitly selected automatic paper decision.
 
@@ -545,6 +676,7 @@ class PaperLedger:
             fx_rate=fx_rate,
             decision_mode="auto_paper",
             occurred_at=occurred_at,
+            quote_currency=quote_currency,
         )
 
     def record_fill(
@@ -555,13 +687,15 @@ class PaperLedger:
         quantity: float,
         price: float,
         fee: float | None = None,
-        fx_rate: float = 1.0,
+        fx_rate: float | None = None,
         occurred_at: datetime | None = None,
     ) -> dict[str, object]:
         fill_quantity_decimal = _decimal_number(quantity, "quantity", positive=True)
+        if fill_quantity_decimal < MIN_QUANTITY:
+            raise PaperLedgerError("The fill quantity is below the paper ledger precision of 1e-8.")
         fill_price_decimal = _decimal_number(price, "price", positive=True)
         fill_fee_decimal = None if fee is None else _decimal_number(fee, "fee", non_negative=True)
-        fill_fx_decimal = _decimal_number(fx_rate, "fx_rate", positive=True)
+        explicit_fx = None if fx_rate is None else _decimal_number(fx_rate, "fx_rate", positive=True)
         fill_quantity = float(fill_quantity_decimal)
         fill_fee = None if fill_fee_decimal is None else float(fill_fee_decimal)
         with self._lock, self._file_lock():
@@ -573,6 +707,7 @@ class PaperLedger:
             order = state["orders"].get(_clean_id(order_id, "order_id"))
             if order is None:
                 raise PaperLedgerError("The paper order does not exist.")
+            fill_fx_decimal = self._resolve_fx(explicit_fx, str(order.get("currency", state["base_currency"])), state)
             supplied_fee = fill_fee
             if fill_id is None and fill_fee is None:
                 fill_fee_decimal = (
@@ -660,6 +795,9 @@ class PaperLedger:
     def _cancel_order_locked(
         self, order_id: str, *, reason: str, occurred_at: datetime | None = None
     ) -> dict[str, object]:
+        # A durable lifecycle fill not yet projected must enter the ledger before the cancellation,
+        # otherwise a later recovery would replay a fill against an already-cancelled order.
+        self._recover_interrupted_fills()
         events = self._read_events()
         state = self._replay(events)
         self._require_open(state)
@@ -748,6 +886,16 @@ class PaperLedger:
             ]
             if not order_fills:
                 raise PaperLedgerError("A paper outcome requires at least one recorded fill.")
+            last_fill_at: datetime | None = None
+            for event in events:
+                event_payload = event.get("payload")
+                if (
+                    event.get("event_type") == "fill_recorded"
+                    and isinstance(event_payload, Mapping)
+                    and event_payload.get("order_id") == order.get("order_id")
+                ):
+                    fill_time = _event_time(event)
+                    last_fill_at = fill_time if last_fill_at is None else max(last_fill_at, fill_time)
             if exit_fx is None and any(_decimal_number(item.get("fx_rate", 1.0), "fx_rate") != 1 for item in order_fills):
                 raise PaperLedgerError("Exit FX evidence (exit_fx_rate) is required to mature an outcome with converted fills.")
             # Restate each fill for the splits recorded after it so entry and exit share the adjusted-price basis.
@@ -797,6 +945,16 @@ class PaperLedger:
                 ):
                     raise PaperLedgerError("The paper outcome was already matured with different evidence.")
                 return dict(existing)
+            if order.get("status") != "filled":
+                raise PaperLedgerError(
+                    "A paper outcome requires a fully filled order; later fills would make it stale."
+                )
+            assert last_fill_at is not None
+            matured_at = datetime.fromisoformat(_timestamp(occurred_at))
+            if matured_at < last_fill_at + timedelta(days=horizon_days):
+                raise PaperLedgerError(
+                    f"The {horizon_days}-day horizon has not elapsed since the last fill at {last_fill_at.isoformat()}."
+                )
             outcome = {
                 "outcome_id": outcome_id,
                 "reference_id": reference,
@@ -920,23 +1078,26 @@ class PaperLedger:
         instrument_id: str,
         *,
         adjusted_close: float,
-        fx_rate: float = 1.0,
+        fx_rate: float | None = None,
         benchmark_return: float | None = None,
         source_authority: str = "local_manual_adjusted_close",
         source_checksum: str = "",
         occurred_at: datetime | None = None,
     ) -> PaperAccountSnapshot:
         price = _positive(adjusted_close, "adjusted_close")
-        fx = _positive(fx_rate, "fx_rate")
+        explicit_fx = None if fx_rate is None else _decimal_number(fx_rate, "fx_rate", positive=True)
         benchmark = None if benchmark_return is None else _number(benchmark_return, "benchmark_return")
         provenance = _provenance(source_authority, source_checksum)
         with self._lock, self._file_lock():
             events = self._read_events()
-            self._require_open(self._replay(events))
+            state = self._replay(events)
+            self._require_open(state)
+            mark_id = _clean_id(instrument_id, "instrument_id").upper()
+            fx = float(self._position_fx(explicit_fx, mark_id, state))
             self._append(
                 "position_marked",
                 {
-                    "instrument_id": _clean_id(instrument_id, "instrument_id").upper(),
+                    "instrument_id": mark_id,
                     "price": price,
                     "fx_rate": fx,
                     "price_basis": "adjusted_close",
@@ -957,17 +1118,18 @@ class PaperLedger:
         cash_dividend_per_unit: float = 0.0,
         source_authority: str = "local_manual_corporate_action",
         source_checksum: str = "",
-        fx_rate: float = 1.0,
+        fx_rate: float | None = None,
         occurred_at: datetime | None = None,
     ) -> PaperAccountSnapshot:
         ratio = _positive(split_ratio, "split_ratio")
         dividend_decimal = _decimal_number(cash_dividend_per_unit, "cash_dividend_per_unit", non_negative=True)
-        dividend_fx_decimal = _decimal_number(fx_rate, "fx_rate", positive=True)
+        explicit_fx = None if fx_rate is None else _decimal_number(fx_rate, "fx_rate", positive=True)
         provenance = _provenance(source_authority, source_checksum)
         with self._lock, self._file_lock():
             events = self._read_events()
             state = self._replay(events)
             self._require_open(state)
+            dividend_fx_decimal = self._position_fx(explicit_fx, _clean_id(instrument_id, "instrument_id").upper(), state)
             action_key = _clean_id(action_id, "action_id") if action_id is not None else "action_" + _digest(
                 {
                     "instrument_id": instrument_id, "split_ratio": ratio,
@@ -1268,6 +1430,7 @@ class PaperLedger:
             handle.write(json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
+        self._write_anchor(event)
 
     def _order_lifecycle(self) -> OrderLifecycle:
         if self._lifecycle is None:
@@ -1402,7 +1565,69 @@ class PaperLedger:
                 finally:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
+    @property
+    def _anchor_path(self) -> Path:
+        return self.path.with_name("ledger.head.json")
+
+    def _write_anchor(self, event: Mapping[str, object]) -> None:
+        """Durably record the log head (last sequence + hash) so a deleted final event is detectable."""
+
+        record: dict[str, object] = {
+            "schema_version": PAPER_SCHEMA_VERSION,
+            "account_id": self.account_id,
+            "sequence": event["sequence"],
+            "event_hash": event["event_hash"],
+        }
+        record["anchor_hash"] = _digest(record)
+        temporary = self._anchor_path.with_suffix(".tmp")
+        with temporary.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, self._anchor_path)
+
+    def _verify_anchor(self, events: list[dict[str, object]]) -> None:
+        """Fail closed when the log is shorter than, or diverges from, its recorded head.
+
+        A ledger written before anchors existed has no head file and stays readable; the first append creates it.
+        The anchor may trail the log by exactly one event (a crash between the append and the anchor update).
+        """
+
+        if not self._anchor_path.exists():
+            return
+        try:
+            record = json.loads(self._anchor_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise PaperLedgerIntegrityError("The paper ledger head anchor is unreadable.") from exc
+        if not isinstance(record, dict):
+            raise PaperLedgerIntegrityError("The paper ledger head anchor is malformed.")
+        body = {key: value for key, value in record.items() if key != "anchor_hash"}
+        sequence = record.get("sequence")
+        head_hash = record.get("event_hash")
+        if (
+            record.get("anchor_hash") != _digest(body)
+            or record.get("account_id") != self.account_id
+            or not isinstance(sequence, int)
+            or isinstance(sequence, bool)
+            or sequence < 1
+            or not isinstance(head_hash, str)
+        ):
+            raise PaperLedgerIntegrityError("The paper ledger head anchor is invalid.")
+        count = len(events)
+        if count == sequence and events[-1]["event_hash"] == head_hash:
+            return
+        if count == sequence + 1 and events[sequence - 1]["event_hash"] == head_hash:
+            return
+        raise PaperLedgerIntegrityError(
+            "The paper ledger does not match its head anchor; events were removed or replaced."
+        )
+
     def _read_events(self) -> list[dict[str, object]]:
+        events = self._read_chain()
+        self._verify_anchor(events)
+        return events
+
+    def _read_chain(self) -> list[dict[str, object]]:
         if not self.path.exists():
             return []
         try:
@@ -1456,6 +1681,8 @@ class PaperLedger:
             "operational_errors": [],
             "positions": {},
             "trade_pnls": [],
+            "order_pnls": {},
+            "timeline": {},
             "benchmark_return": None,
         }
         for event in events:
@@ -1511,7 +1738,7 @@ class PaperLedger:
                 _validate_frozen_evidence(payload.get("proposal_evidence_hashes"))
                 deferred[proposal_id] = dict(payload)
             elif kind == "fill_recorded":
-                self._apply_fill(state, payload)
+                self._apply_fill(state, payload, occurred_at=_event_time(event))
             elif kind == "outcome_matured":
                 outcomes = state["outcomes"]
                 assert isinstance(outcomes, dict)
@@ -1563,14 +1790,25 @@ class PaperLedger:
                 if not action_id or action_id in actions:
                     raise PaperLedgerIntegrityError("A corporate action is missing a unique action ID.")
                 actions[action_id] = dict(payload)
-                self._apply_corporate_action(state, payload)
+                self._apply_corporate_action(state, payload, occurred_at=_event_time(event))
             else:
                 raise PaperLedgerIntegrityError(f"Unsupported paper event type: {kind}")
             _update_equity_peak(state)
+        # A closed trade is one completed sell order (all of its fills together), never one fill.
+        order_pnls = state["order_pnls"]
+        assert isinstance(order_pnls, dict) and isinstance(state["orders"], dict)
+        state["trade_pnls"] = [
+            pnl
+            for order_id, pnl in order_pnls.items()
+            if state["orders"][order_id]["status"] == "filled"
+            or (state["orders"][order_id]["status"] == "cancelled" and float(state["orders"][order_id]["filled_quantity"]) > 0)
+        ]
         return state
 
     @staticmethod
-    def _apply_fill(state: dict[str, object], payload: Mapping[str, object]) -> None:
+    def _apply_fill(
+        state: dict[str, object], payload: Mapping[str, object], *, occurred_at: datetime | None = None
+    ) -> None:
         orders = state["orders"]
         positions = state["positions"]
         assert isinstance(orders, dict) and isinstance(positions, dict)
@@ -1602,15 +1840,24 @@ class PaperLedger:
             realised = value - fee - quantity * float(position["average_cost"])
             position["quantity"] = float(position["quantity"]) - quantity
             position["realised_pnl"] = float(position.get("realised_pnl", 0.0)) + realised
-            trade_pnls = state["trade_pnls"]
-            assert isinstance(trade_pnls, list)
-            trade_pnls.append(realised)
+            order_pnls = state["order_pnls"]
+            assert isinstance(order_pnls, dict)
+            order_pnls[str(order["order_id"])] = float(order_pnls.get(str(order["order_id"]), 0.0)) + realised
             if position["quantity"] <= 1e-8:
                 position["quantity"] = 0.0
                 position["average_cost"] = 0.0
+                # A flat holding has no valid mark: a later re-purchase must not inherit it.
+                position.pop("mark_price", None)
+                position.pop("mark_fx_rate", None)
         order["filled_quantity"] = float(order["filled_quantity"]) + quantity
         order["remaining_quantity"] = float(order["remaining_quantity"]) - quantity
         order["status"] = "filled" if order["remaining_quantity"] <= 1e-8 else "partially_filled"
+        if occurred_at is not None:
+            timeline = state["timeline"]
+            assert isinstance(timeline, dict)
+            timeline.setdefault(instrument_id, []).append(
+                (occurred_at, "fill", quantity if order["side"] == "buy" else -quantity)
+            )
         fills = state["fills"]
         assert isinstance(fills, list)
         if any(str(item.get("fill_id")) == str(payload.get("fill_id")) for item in fills if isinstance(item, Mapping)):
@@ -1618,20 +1865,37 @@ class PaperLedger:
         fills.append(dict(payload))
 
     @staticmethod
-    def _apply_corporate_action(state: dict[str, object], payload: Mapping[str, object]) -> None:
+    def _apply_corporate_action(
+        state: dict[str, object], payload: Mapping[str, object], *, occurred_at: datetime | None = None
+    ) -> None:
         positions = state["positions"]
         assert isinstance(positions, dict)
-        position = positions.get(str(payload["instrument_id"]))
+        instrument_id = str(payload["instrument_id"])
+        position = positions.get(instrument_id)
         if position is None:
             return
         ratio = float(payload["split_ratio"])
         dividend = _decimal_number(payload["cash_dividend_per_unit"], "cash_dividend_per_unit", non_negative=True)
+        timeline = state["timeline"]
+        assert isinstance(timeline, dict)
+        history = timeline.setdefault(instrument_id, [])
+        if occurred_at is None:
+            entitled = float(position["quantity"])
+        else:
+            # Entitlement is the share count held at the ex-date (the event time), not the count held when
+            # the action happens to be recorded.
+            entitled = 0.0
+            for moment, kind, amount in history:
+                if moment <= occurred_at:
+                    entitled = entitled * amount if kind == "split" else entitled + amount
+            entitled = max(entitled, 0.0)
+            history.append((occurred_at, "split", ratio))
         position["quantity"] = float(position["quantity"]) * ratio
         position["average_cost"] = float(position["average_cost"]) / ratio
         if position.get("mark_price") is not None:
             position["mark_price"] = float(position["mark_price"]) / ratio
         state["cash"] = state["cash"] + (
-            Decimal(str(float(position["quantity"]) / ratio))
+            Decimal(str(entitled))
             * dividend
             * _decimal_number(payload.get("fx_rate", 1.0), "fx_rate", positive=True)
         )
@@ -1684,7 +1948,7 @@ class PaperLedger:
             ],
         }
 
-    def _validate_proposal(self, proposal: Mapping[str, object]) -> None:
+    def _validate_proposal(self, proposal: Mapping[str, object], *, check_expiry: bool = True) -> None:
         self._validate_proposal_identity(proposal)
         if proposal.get("execution_allowed") is not False:
             raise PaperLedgerError("Paper activity requires execution_allowed=false.")
@@ -1698,14 +1962,21 @@ class PaperLedger:
         gate_ids = {str(item.get("gate_id")) for item in gates if isinstance(item, Mapping)} if isinstance(gates, list) else set()
         if not isinstance(gates, list) or not gates or set(REQUIRED_GATES) - gate_ids or any(not isinstance(item, Mapping) or item.get("passed") is not True for item in gates):
             raise PaperLedgerError("Every proposal gate must pass before paper acceptance.")
+        if check_expiry:
+            self._require_unexpired(proposal)
+
+    @staticmethod
+    def _require_unexpired(proposal: Mapping[str, object]) -> None:
         expires_at = proposal.get("expires_at")
         if not isinstance(expires_at, str):
             raise PaperLedgerError("Proposal expiry is missing.")
         try:
-            if datetime.fromisoformat(expires_at) <= datetime.now(timezone.utc):
-                raise PaperLedgerError("The proposal has expired.")
+            expiry = datetime.fromisoformat(expires_at)
+            expired = expiry <= datetime.now(timezone.utc)
         except ValueError as exc:
             raise PaperLedgerError("Proposal expiry is malformed.") from exc
+        if expired:
+            raise PaperLedgerError("The proposal has expired.")
 
     @staticmethod
     def _validate_proposal_identity(proposal: Mapping[str, object]) -> None:
@@ -1895,6 +2166,14 @@ def _non_negative(value: object, label: str) -> float:
     if number < 0:
         raise PaperLedgerError(f"{label} must not be negative.")
     return number
+
+
+def _event_time(event: Mapping[str, object]) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(str(event["occurred_at"]))
+    except (KeyError, ValueError) as exc:
+        raise PaperLedgerIntegrityError("A paper ledger event has no valid timestamp.") from exc
+    return (parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
 
 
 def _timestamp(value: datetime | None) -> str:

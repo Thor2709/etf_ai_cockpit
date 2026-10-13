@@ -194,7 +194,7 @@ def test_emergency_shutdown_blocks_and_rollback_restores_previous_stage(tmp_path
 def test_accepted_paper_order_records_verified_proposal_and_control_hashes(tmp_path: Path) -> None:
     proposal = _proposal()
     sealed_proposal, sealed_controls = _sealed_order_evidence(proposal)
-    PaperLedger(tmp_path).open_account(initial_cash=1_000)
+    PaperLedger(tmp_path).open_account(initial_cash=1_000, occurred_at=datetime(2026, 9, 1, tzinfo=timezone.utc))
     controller = CanaryController(
         tmp_path,
         config=CanaryConfig(enabled=True, stage_flags={"paper": True}),

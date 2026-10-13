@@ -38,12 +38,16 @@ def test_s1_01_reject_after_defer(tmp_path: Path) -> None:
 
 def test_s1_05_split_neutral_outcome(tmp_path: Path) -> None:
     ledger = PaperLedger(tmp_path)
-    ledger.open_account(initial_cash=1000)
-    order = ledger.accept_proposal(_proposal(), execution_price=10)
-    ledger.record_fill(str(order["order_id"]), quantity=10, price=10)
-    ledger.apply_corporate_action("VWCE", split_ratio=2, cash_dividend_per_unit=0, source_authority="fixture", source_checksum="a" * 64)
+    ledger.open_account(initial_cash=1000, occurred_at=datetime(2026, 5, 1, tzinfo=timezone.utc))
+    order = ledger.accept_proposal(_proposal(), execution_price=10, occurred_at=datetime(2026, 5, 2, tzinfo=timezone.utc))
+    ledger.record_fill(str(order["order_id"]), quantity=10, price=10, occurred_at=datetime(2026, 6, 1, tzinfo=timezone.utc))
+    ledger.apply_corporate_action(
+        "VWCE", split_ratio=2, cash_dividend_per_unit=0, source_authority="fixture", source_checksum="a" * 64,
+        occurred_at=datetime(2026, 6, 2, tzinfo=timezone.utc),
+    )
     result = ledger.mature_outcome(
-        str(order["order_id"]), adjusted_close=5, benchmark_return=0, cash_return=0, source_authority="fixture", source_checksum="b" * 64
+        str(order["order_id"]), adjusted_close=5, benchmark_return=0, cash_return=0, source_authority="fixture", source_checksum="b" * 64,
+        occurred_at=datetime(2026, 7, 20, tzinfo=timezone.utc),
     )
     assert result["gross_return"] == pytest.approx(0)
 
