@@ -74,6 +74,20 @@ class Component:
     def missing(self) -> tuple[SubScore, ...]:
         return tuple(item for item in self.inputs if item.score is None)
 
+    @property
+    def input_count(self) -> int:
+        return len(self.inputs)
+
+    @property
+    def used_count(self) -> int:
+        return len(self.used)
+
+    @property
+    def status(self) -> str:
+        if self.freshness == "stale":
+            return "stale"
+        return "available" if self.score_10 is not None else "unavailable"
+
 
 @dataclass(frozen=True)
 class PeerStat:
@@ -196,6 +210,7 @@ class _Builder:
         self.notes: list[str] = []
         self.peer_stats: dict[str, PeerStat] = {}
         self.history_points = 0
+        self.share_count_reason: str | None = None
 
     # ----- windows ---------------------------------------------------------------------
 
@@ -231,6 +246,12 @@ class _Builder:
             return "currency_mismatch between reported fields"
         missing = [name for name in fields if not any(p.has(name) for p in self.known)]
         if missing:
+            if "capex" in fields and any(period.has("capex_extra") for period in self.known):
+                return "capex total is partial: intangible capex is reported but PP&E capex is unavailable"
+            if "net_income_parent" in fields and any(
+                period.values.get("minority_interest", 0.0) > 0 for period in self.known
+            ):
+                return "parent-attributable net income is unavailable; non-controlling interests are reported and consolidated income cannot be used"
             return "not reported by the source: " + ", ".join(name.replace("_", " ") for name in missing)
         quarters = sum(1 for p in self.known if p.period_type == "Q" and p.has(*fields))
         years = sum(1 for p in self.known if p.period_type == "FY" and p.has(*fields))
@@ -276,11 +297,12 @@ class _Builder:
             filed = balance.values["shares_outstanding"]
             tolerance = float(self.valuation.get("share_count_tolerance", 0.25))
             if provider_ok and market.shares_fallback and not (1 / (1 + tolerance) <= filed / market.shares_fallback <= 1 + tolerance):
-                self.notes.append(
-                    f"Share count in the {balance.period_end.isoformat()} statements ({filed:,.0f}) differs from the provider count "
-                    f"({market.shares_fallback:,.0f}) by more than {tolerance:.0%} (share classes or a later split); the provider count is used."
+                self.share_count_reason = (
+                    f"filed shares ({filed:,.0f}) and the provider snapshot ({market.shares_fallback:,.0f}) "
+                    f"differ by more than {tolerance:.0%}; explicit share-class, ADR or split reconciliation is unavailable"
                 )
-                return market.shares_fallback, "yfinance:snapshot", market.shares_fallback_known_at.date().isoformat()  # type: ignore[union-attr]
+                self.notes.append(self.share_count_reason + "; market capitalization is unavailable.")
+                return None, None, None
             return filed, balance.source_of("shares_outstanding"), balance.period_end.isoformat()
         if provider_ok:
             return market.shares_fallback, "yfinance:snapshot", market.shares_fallback_known_at.date().isoformat()  # type: ignore[union-attr]
@@ -292,7 +314,7 @@ class _Builder:
             return None, reason, {}
         shares, source, as_of = self.shares()
         if shares is None:
-            return None, "no share count from a filing known at the decision time", {}
+            return None, self.share_count_reason or "no share count from a source known at the decision time", {}
         value = sm.market_cap(price, shares)
         if value is None:
             return None, "price or share count is not positive", {}
@@ -349,7 +371,7 @@ class _Builder:
         ):
             window = self.window(item)
             if window is None:
-                self.metrics[key] = _missing(key, self._no_window(label))
+                self.metrics[key] = _missing(key, self._no_window(label, (item,)))
                 continue
             self.metrics[key] = _metric(key, value=sm.window_sum(window, item), status=sm.OK, formula=f"{label}, {window.basis} window", **self._ctx(window))
         self.metrics["fcf"], fcf_window = self._fcf()
@@ -381,7 +403,14 @@ class _Builder:
                 or self._period_currency_mismatch(opening, ("equity_parent",), window.currency)
             ):
                 base = _missing("roe", "currency_mismatch between income and equity")
-            self.metrics["roe"] = _from("roe", base, **self._ctx(window))
+            self.metrics["roe"] = _from(
+                "roe",
+                base,
+                **{
+                    **self._ctx(window),
+                    "as_of": None if close is None else close.period_end.isoformat(),
+                },
+            )
         window = self.window("ebit", "income_tax", "pretax_income")
         if window is None:
             self.metrics["roic"] = _missing("roic", self._no_window("EBIT, income tax and pretax income", ("ebit", "income_tax", "pretax_income")))
@@ -394,6 +423,10 @@ class _Builder:
             or self._period_currency_mismatch(opening, names + ["lease_liabilities"], window.currency)
         ):
             self.metrics["roic"] = _missing("roic", "currency_mismatch between NOPAT and invested capital")
+            return
+        if any((period.values.get("minority_interest") or 0.0) != 0.0
+               for period in (*window.periods, close) if period is not None):
+            self.metrics["roic"] = _missing("roic", "ownership scope mismatch: consolidated NOPAT and parent-only invested capital with non-controlling interests")
             return
         rate = sm.effective_tax_rate(sm.window_sum(window, "income_tax"), sm.window_sum(window, "pretax_income"))
         nopat = sm.nopat(sm.window_sum(window, "ebit"), rate)
@@ -408,7 +441,14 @@ class _Builder:
                 period.values.get("cash_sti"),
             )
 
-        self.metrics["roic"] = _from("roic", sm.roic(nopat, capital(opening), capital(close)), **self._ctx(window))
+        self.metrics["roic"] = _from(
+            "roic",
+            sm.roic(nopat, capital(opening), capital(close)),
+            **{
+                **self._ctx(window),
+                "as_of": None if close is None else close.period_end.isoformat(),
+            },
+        )
 
     @staticmethod
     def _period_currency_mismatch(period: Period, fields: Sequence[str], expected: str) -> bool:
@@ -453,18 +493,26 @@ class _Builder:
             )
 
     def balance_metrics(self) -> None:
-        latest = sm.latest_balance(self.known, ["ib_debt", "cash_sti"])
+        latest = sm.latest_balance(self.known, ["ib_debt"])
         if latest is None:
             mismatch = any(
                 str(period.values.get(f"__currency_{name}") or "") == "currency_mismatch"
-                for period in self.known for name in ("ib_debt", "cash_sti")
+                for period in self.known for name in ("ib_debt", "cash_sti", "cash")
             )
-            reason = "currency_mismatch between reported debt and cash" if mismatch else "no balance sheet with interest-bearing debt and cash is known at the decision time"
+            reason = "currency_mismatch between reported debt and cash" if mismatch else "no balance sheet with interest-bearing debt is known at the decision time"
             self.metrics["net_debt"] = _missing("net_debt", reason, "debt + leases - cash and short-term investments")
         else:
-            balance_fields = ["ib_debt", "cash_sti"]
+            cash_field = "cash_sti" if latest.values.get("cash_sti") is not None else "cash"
+            cash_value = latest.values.get(cash_field)
+            balance_fields = ["ib_debt", cash_field]
             balance_currency = self._period_currency(latest, balance_fields)
-            if balance_currency is None:
+            if str(latest.values.get("__currency_cash_sti") or "") == "currency_mismatch":
+                self.metrics["net_debt"] = _missing("net_debt", "currency_mismatch between cash and short-term investments")
+                latest = None
+            elif cash_value is None:
+                self.metrics["net_debt"] = _missing("net_debt", "cash and short-term investments are unavailable on the latest debt balance", "debt + leases - cash and short-term investments")
+                latest = None
+            elif balance_currency is None:
                 self.metrics["net_debt"] = _missing("net_debt", "currency_mismatch between debt, leases and cash", "debt + leases - cash and short-term investments")
                 latest = None
         if latest is not None:
@@ -475,17 +523,26 @@ class _Builder:
                 latest = None
         if latest is not None:
             lease = latest.values.get("lease_liabilities")
-            value = sm.net_debt(latest.values.get("ib_debt"), lease, latest.values.get("cash_sti"))
+            cash_field = "cash_sti" if latest.values.get("cash_sti") is not None else "cash"
+            cash_value = latest.values.get(cash_field)
+            value = sm.net_debt(latest.values.get("ib_debt"), lease, cash_value)
             note = "" if lease is not None else " (leases not reported separately)"
+            partial = cash_field == "cash"
+            formula = "interest-bearing debt + lease liabilities - cash and short-term investments" + note
+            reason = None
+            if partial:
+                formula = "interest-bearing debt + lease liabilities - reported cash only; liquidity lower bound and net debt upper bound because short-term investments are unknown" + note
+                reason = "short-term investments are unknown; reported cash is a lower bound for liquidity"
             self.metrics["net_debt"] = _metric(
                 "net_debt",
                 value=value,
                 status=sm.OK,
+                reason=reason,
                 basis="latest balance",
                 as_of=latest.period_end.isoformat(),
                 currency=balance_currency,
                 source=latest.source,
-                formula="interest-bearing debt + lease liabilities - cash and short-term investments" + note,
+                formula=formula,
             )
         equity = sm.latest_balance(self.known, ["equity_parent", "ib_debt"])
         if equity is None:
@@ -746,11 +803,32 @@ class _Builder:
         loss = float(self.scoring.get("loss_subscore", 0.0))
         if metric is None:
             return SubScore(key, label, None, "—", None, "not calculated")
+        freshness_reason = self._metric_freshness_reason(metric)
+        if freshness_reason is not None:
+            display = fmt(metric.value) if metric.value is not None else "—"
+            return SubScore(key, label, metric.value, display, None, freshness_reason)
         if metric.available:
             return self._sub(group, key, label, metric.value, fmt(metric.value))
         if metric.status == sm.NOT_MEANINGFUL and "loss" in str(metric.reason):
             return SubScore(key, label, None, "loss", loss, f"{metric.reason}; scored {loss:g} (a known loss, not missing data)")
         return SubScore(key, label, None, "—", None, metric.reason or "unavailable")
+
+    def _metric_freshness_reason(self, metric: Metric) -> str | None:
+        if metric.status == sm.UNAVAILABLE:
+            return None
+        if metric.as_of is None:
+            return "metric date is unavailable; not eligible for scoring"
+        try:
+            period_end = date.fromisoformat(str(metric.as_of)[:10])
+        except ValueError:
+            return "metric date is unverifiable; not eligible for scoring"
+        # Publication proves availability, never renews the age of fiscal evidence.
+        age = (self.decision_time.date() - period_end).days
+        if age < 0:
+            return "metric is dated after the decision time; not eligible for scoring"
+        if age > self.stale_days:
+            return f"stale report ({age} days); display only, excluded from scoring"
+        return None
 
     def components(self) -> dict[str, Component]:
         return {
@@ -762,6 +840,18 @@ class _Builder:
     def _assemble(self, key: str, label: str, subs: list[SubScore], group: str, source_id: str, as_of: str | None, freshness: str) -> Component:
         cfg = self.scoring.get(group, {}) or {}
         min_inputs = int(cfg.get("min_inputs", 2)) if isinstance(cfg, Mapping) else 2
+        if freshness == "stale":
+            subs = [
+                SubScore(
+                    item.key,
+                    item.label,
+                    item.value,
+                    item.display,
+                    None,
+                    f"stale report; display only, excluded from scoring ({item.reason or 'input was score-eligible'})",
+                )
+                for item in subs
+            ]
         used = [s for s in subs if s.score is not None]
         weights = {s.key: float((cfg.get(s.key, {}) or {}).get("weight", 1.0)) for s in subs} if isinstance(cfg, Mapping) else {}
         total_weight = sum(weights.get(s.key, 1.0) for s in used)
@@ -769,9 +859,9 @@ class _Builder:
         if len(used) >= min_inputs and total_weight > 0:
             score = round(sum(float(s.score) * weights.get(s.key, 1.0) for s in used) / total_weight, 2)  # type: ignore[arg-type]
         why = self._why(label, score, subs, min_inputs)
-        if freshness == "stale" and score is not None:
-            why = f"Stale: the newest reporting period ends more than {self.stale_days} days before the decision, so this is shown but not scored. {why}"
-        return Component(key, label, score, tuple(subs), source_id, as_of, freshness if score is not None else "unavailable", why)
+        if freshness == "stale":
+            why = f"Stale: the newest reporting evidence is older than {self.stale_days} days, so it is shown but not scored. {why}"
+        return Component(key, label, score, tuple(subs), source_id, as_of, freshness, why)
 
     def _why(self, label: str, score: float | None, subs: list[SubScore], min_inputs: int) -> str:
         used = [s for s in subs if s.score is not None]
@@ -792,8 +882,12 @@ class _Builder:
             return None, "unavailable"
         newest = max(self.known, key=lambda p: p.known_at)
         as_of = newest.known_at.date().isoformat()
-        latest_end = max(p.period_end for p in self.known)
-        age = (self.decision_time.date() - latest_end).days
+        freshness_dates = [
+            p.period_end
+            for p in self.known
+        ]
+        latest_report_date = max(freshness_dates)
+        age = (self.decision_time.date() - latest_report_date).days
         return as_of, "ok" if age <= self.stale_days else "stale"
 
     def _dataset(self) -> str:
