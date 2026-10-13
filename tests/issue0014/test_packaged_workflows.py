@@ -21,11 +21,11 @@ _PACKAGING_SUBPROCESS_TIMEOUT_SECONDS = 300
 
 
 def test_real_sdist_runs_packaged_offline_smoke_from_artifact_root(tmp_path: Path) -> None:
-    if importlib.util.find_spec("setuptools") is None:
-        pytest.skip(
-            "configured sdist backend is absent from preflight; the mandatory package gate "
-            "installs release tooling and executes the same package command"
-        )
+    assert importlib.util.find_spec("setuptools") is not None, (
+        "The real sdist smoke test requires the configured setuptools build backend; "
+        "install the pyproject.toml build-system requirements before running it. "
+        "Missing release tooling is not an allowed platform-capability skip."
+    )
     package_source = copy_repository_runtime(tmp_path / "package-source", packaging=True)
     artifact_root = package_source / "build" / "python-dist"
     artifact_root.mkdir(parents=True)
