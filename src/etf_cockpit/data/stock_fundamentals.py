@@ -189,6 +189,9 @@ def _row_period(row: Mapping[str, Any], fields: Mapping[str, str]) -> Period | N
         field_currency = row.get(f"_{name}_currency", row.get(f"{name}_currency"))
         if field_currency is not None and not pd.isna(field_currency):
             values[f"__currency_{name}"] = str(field_currency)
+        field_known = row.get(f"_{name}_known_at")
+        if field_known is not None:
+            values[f"__known_at_{name}"] = str(field_known)
     return Period(
         period_end=end.date(),
         period_type=str(row.get("period_type")),
@@ -240,7 +243,27 @@ def periods_for(instrument_id: str, frame: pd.DataFrame, chain: Sequence[str], *
             for source in sorted(by_source, key=lambda name: rank.get(name, len(rank))):
                 known = [row for row in by_source[source] if row["_known"] <= moment]
                 if known:
-                    chosen.append(max(known, key=lambda item: item["_known"]))
+                    latest = max(known, key=lambda item: item["_known"])
+                    merged_source = dict(latest)
+                    # A sparse later statement row is not evidence that an earlier field was
+                    # retracted. Carry each field forward from its newest known non-missing
+                    # version for this source and period.
+                    for name in PERIOD_FIELDS:
+                        for version in sorted(known, key=lambda item: item["_known"], reverse=True):
+                            if str(version.get("currency") or "") != str(latest.get("currency") or ""):
+                                continue
+                            if name in version and pd.notna(version.get(name)):
+                                merged_source[name] = version[name]
+                                merged_source[f"_{name}_known_at"] = version["_known"].isoformat()
+                                currency_column = f"{name}_currency"
+                                if currency_column in version and pd.notna(version.get(currency_column)):
+                                    merged_source[currency_column] = version[currency_column]
+                                break
+                            currency_column = f"{name}_currency"
+                            if str(version.get(currency_column) or "") == "currency_mismatch":
+                                merged_source[currency_column] = "currency_mismatch"
+                                break
+                    chosen.append(merged_source)
             if not chosen:
                 continue
             primary = chosen[0]
@@ -253,11 +276,20 @@ def periods_for(instrument_id: str, frame: pd.DataFrame, chain: Sequence[str], *
                     if name not in values and name in row and pd.notna(row.get(name)):
                         values[name] = row[name]
                         field_sources[name] = str(row["source"])
+                        values[f"_{name}_known_at"] = row.get(f"_{name}_known_at", row["_known"].isoformat())
                         field_currency = row.get(f"{name}_currency")
                         if field_currency is not None and not pd.isna(field_currency):
                             values[f"_{name}_currency"] = str(field_currency)
                     elif f"__currency_{name}" not in values and str(row.get(f"{name}_currency") or "") == "currency_mismatch":
                         values[f"_{name}_currency"] = "currency_mismatch"
+            # Positive NCI invalidates unverified parent-income attribution across the
+            # complete merged view: neither sparse carry-forward nor a fallback source
+            # may restore income removed by a newer filing's ownership-scope guard.
+            blocked_parent_income = (values.get("minority_interest") or 0.0) > 0.0
+            if blocked_parent_income:
+                for name in ("net_income_parent", "_net_income_parent_currency", "_net_income_parent_known_at"):
+                    values.pop(name, None)
+                field_sources.pop("net_income_parent", None)
             signature = (
                 tuple(sorted((k, float(v)) for k, v in values.items() if k in PERIOD_FIELDS)),
                 tuple(sorted((k, str(v)) for k, v in values.items() if k.startswith("_") and k.endswith("_currency"))),
@@ -267,6 +299,11 @@ def periods_for(instrument_id: str, frame: pd.DataFrame, chain: Sequence[str], *
                 continue
             last = signature
             merged = {**primary, **values, "known_at": moment.isoformat(), "period_end": primary["period_end"]}
+            if blocked_parent_income:
+                merged.pop("net_income_parent", None)
+                merged.pop("net_income_parent_currency", None)
+                merged.pop("_net_income_parent_currency", None)
+                merged.pop("_net_income_parent_known_at", None)
             period = _row_period(merged, field_sources)
             if period is not None:
                 periods.append(period)

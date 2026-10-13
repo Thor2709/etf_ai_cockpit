@@ -23,7 +23,7 @@ import yaml
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes
 from etf_cockpit.core.paths import CONFIG_DIR, ROOT
-from etf_cockpit.data.catalogue import DataCatalogue, DatasetDefinition, DatasetSnapshot
+from etf_cockpit.data.catalogue import DataCatalogue, DataCatalogueError, DatasetDefinition, DatasetSnapshot
 
 
 _CONFIG_PATH = CONFIG_DIR / "universe_membership_v1.yaml"
@@ -86,6 +86,14 @@ class LicensedImportStatus:
     imported_rows: int
     skipped_self_captured_rows: int
     checksum: str
+
+
+@dataclass(frozen=True)
+class LineageRepairStatus:
+    """Outcome of reconciling committed captures with published catalogue lineage."""
+
+    repaired: tuple[str, ...] = ()
+    unavailable: tuple[str, ...] = ()
 
 
 _LAST_CONFIGURED_STATUS = CaptureStatus("not_attempted", "configured")
@@ -387,8 +395,7 @@ def import_licensed_history(
     checksum = hashlib.sha256(payload).hexdigest()
     active_root = Path(root or ROOT)
     raw_path = _store_raw_payload(payload, checksum, active_root)
-    catalogue = _ensure_catalogue(active_root)
-    raw_snapshot = _register_raw_snapshot(catalogue, checksum, len(prepared))
+    _repair_before_write(active_root)
     connection = _connect(active_root / _DB_RELATIVE_PATH, create=True)
     processed_rows: list[dict[str, object]] = []
     imported_count = 0
@@ -439,22 +446,27 @@ def import_licensed_history(
             processed_rows.append({**row, "source": "licensed", "source_id": clean_source, "licence_ref": clean_licence})
             imported_count += 1
         imported_at = _utc_timestamp(datetime.now(timezone.utc), "imported_at")
-        _register_processed_snapshot(
-            catalogue,
-            processed_rows or [{"source": "licensed", "skipped_self_captured_rows": skipped_count}],
-            raw_snapshot.snapshot_id,
-            imported_at,
-            scope="licensed_history",
-            source=clean_source,
-            checksum=checksum,
-            raw_path=raw_path,
-        )
         connection.commit()
     except BaseException:
         connection.rollback()
         raise
     finally:
         connection.close()
+    # Lineage is published only once the capture rows are durable, so the catalogue
+    # never describes an import that was rolled back.
+    try:
+        _publish_lineage(
+            active_root,
+            raw_row_count=len(prepared),
+            rows=processed_rows or [{"source": "licensed", "skipped_self_captured_rows": skipped_count}],
+            captured_at=imported_at,
+            scope="licensed_history",
+            source=clean_source,
+            checksum=checksum,
+            raw_path=raw_path,
+        )
+    except (DataCatalogueError, OSError, TimeoutError) as exc:
+        _LOG.warning("licensed import %s committed but catalogue lineage is unavailable: %s", checksum, exc)
     return LicensedImportStatus("recorded", imported_count, skipped_count, checksum)
 
 
@@ -486,6 +498,7 @@ def _record_capture(
     digest = hashlib.sha256(payload).hexdigest()
     active_root = Path(root).resolve()
     database_path = active_root / _DB_RELATIVE_PATH
+    _repair_before_write(active_root)
     connection = _connect(database_path, create=True)
     try:
         connection.execute("BEGIN IMMEDIATE")
@@ -511,10 +524,6 @@ def _record_capture(
             if row["valid_to"] is None
         }
         raw_path = _store_raw_payload(payload, digest, active_root)
-        catalogue = _ensure_catalogue(active_root)
-        raw_snapshot = _register_raw_snapshot(
-            catalogue, digest, int(raw_row_count if raw_row_count is not None else len(materialised))
-        )
         cursor = connection.execute(
             "INSERT INTO capture_log(snapshot_date, scope, source, source_id, checksum, complete, known_at, row_count, "
             "raw_path, source_kind, licence_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'self', NULL)",
@@ -579,22 +588,28 @@ def _record_capture(
             "raw_path": raw_path,
             "interval_revisions": changed_rows,
         }
-        _register_processed_snapshot(
-            catalogue,
-            [processed_row],
-            raw_snapshot.snapshot_id,
-            timestamp,
-            scope=scope,
-            source=source,
-            checksum=digest,
-            raw_path=raw_path,
-        )
         connection.commit()
     except BaseException:
         connection.rollback()
         raise
     finally:
         connection.close()
+    # Lineage is published only once the capture rows are durable, so the catalogue
+    # never describes a capture that was rolled back.
+    try:
+        _publish_lineage(
+            active_root,
+            raw_row_count=int(raw_row_count if raw_row_count is not None else len(materialised)),
+            rows=[processed_row],
+            captured_at=timestamp,
+            scope=scope,
+            source=source,
+            checksum=digest,
+            raw_path=raw_path,
+        )
+    except (DataCatalogueError, OSError, TimeoutError) as exc:
+        _LOG.warning("membership capture %s committed but catalogue lineage is unavailable: %s", digest, exc)
+        return CaptureStatus("recorded", scope, digest, reason="catalogue_lineage_unavailable")
     return CaptureStatus("recorded", scope, digest)
 
 
@@ -912,6 +927,118 @@ def _ensure_catalogue(root: Path) -> DataCatalogue:
     return catalogue
 
 
+def _publish_lineage(
+    root: Path,
+    *,
+    raw_row_count: int,
+    rows: list[Mapping[str, object]],
+    captured_at: str,
+    scope: str,
+    source: str,
+    checksum: str,
+    raw_path: str,
+    catalogue: DataCatalogue | None = None,
+) -> None:
+    catalogue = catalogue or _ensure_catalogue(root)
+    raw_snapshot = _register_raw_snapshot(catalogue, checksum, raw_row_count)
+    _register_processed_snapshot(
+        catalogue,
+        rows,
+        raw_snapshot.snapshot_id,
+        captured_at,
+        scope=scope,
+        source=source,
+        checksum=checksum,
+        raw_path=raw_path,
+    )
+
+
+def repair_catalogue_lineage(root: Path | None = None) -> LineageRepairStatus:
+    """Publish lineage for committed self captures that crashed before publishing it.
+
+    A capture is matched only by its stored raw file path and checksum: the
+    content-addressed raw payload must exist at that path and hash to the stored
+    checksum, and the stored interval revisions are replayed in insertion order.
+    Registration is idempotent, so captures that already have lineage are no-ops.
+    A capture that cannot be matched unambiguously is reported in ``unavailable``
+    (``catalogue_lineage_unavailable``) and is never guessed. Licensed imports are
+    not repaired because their processed rows are not fully recoverable.
+    """
+
+    active_root = Path(root or ROOT).resolve()
+    database_path = active_root / _DB_RELATIVE_PATH
+    if not database_path.is_file():
+        return LineageRepairStatus()
+    connection = _connect(database_path, create=False)
+    try:
+        captures = [
+            dict(row)
+            for row in connection.execute(
+                "SELECT " + ", ".join(_CAPTURE_COLUMNS) + " FROM capture_log WHERE source_kind='self' ORDER BY capture_id"
+            ).fetchall()
+        ]
+        revisions: dict[int, list[dict[str, object]]] = {}
+        for row in connection.execute(
+            "SELECT " + ", ".join((*_INTERVAL_COLUMNS, "interval_id", "capture_id"))
+            + " FROM interval_revisions WHERE source_kind='self' ORDER BY revision_id"
+        ).fetchall():
+            record = dict(row)
+            revisions.setdefault(int(record["capture_id"]), []).append(record)
+    finally:
+        connection.close()
+    if not captures:
+        return LineageRepairStatus()
+    catalogue = _ensure_catalogue(active_root)
+    repaired: list[str] = []
+    unavailable: list[str] = []
+    for capture in captures:
+        checksum = str(capture["checksum"])
+        expected_path = (_RAW_RELATIVE_PATH / f"{checksum}.payload.gz").as_posix()
+        label = f"{capture['scope']}:{checksum}"
+        try:
+            if str(capture["raw_path"]) != expected_path:
+                raise MembershipCaptureError("stored raw path does not match the content-addressed path")
+            load_raw_payload(checksum, root=active_root)
+            raw_row_count = int(capture["row_count"])
+            processed_row = {
+                "snapshot_date": capture["snapshot_date"],
+                "scope": capture["scope"],
+                "source": capture["source"],
+                "source_id": capture["source_id"],
+                "checksum": checksum,
+                "complete": bool(capture["complete"]),
+                "known_at": capture["known_at"],
+                "row_count": raw_row_count,
+                "raw_path": capture["raw_path"],
+                "interval_revisions": revisions.get(int(capture["capture_id"]), []),
+            }
+            before = len(catalogue.snapshots)
+            _publish_lineage(
+                active_root,
+                raw_row_count=raw_row_count,
+                rows=[processed_row],
+                captured_at=str(capture["known_at"]),
+                scope=str(capture["scope"]),
+                source=str(capture["source"]),
+                checksum=checksum,
+                raw_path=expected_path,
+                catalogue=catalogue,
+            )
+            if len(catalogue.snapshots) != before:
+                repaired.append(label)
+        except (MembershipCaptureError, DataCatalogueError, OSError, TimeoutError) as exc:
+            _LOG.warning("catalogue_lineage_unavailable for capture %s: %s", label, exc)
+            unavailable.append(label)
+    return LineageRepairStatus(tuple(repaired), tuple(unavailable))
+
+
+def _repair_before_write(root: Path) -> None:
+    try:
+        repair_catalogue_lineage(root)
+    except (MembershipCaptureError, DataCatalogueError, OSError, TimeoutError, sqlite3.Error) as exc:
+        _LOG.warning("catalogue lineage repair skipped: %s", exc)
+
+
 def _register_raw_snapshot(catalogue: DataCatalogue, checksum: str, row_count: int) -> DatasetSnapshot:
     definition = next(item for item in catalogue.datasets if item.dataset_id == _RAW_DATASET_ID)
     snapshot_id = f"{_RAW_DATASET_ID}:{checksum[:24]}:{definition.schema_sha256[:16]}"
@@ -960,6 +1087,7 @@ __all__ = [
     "CaptureStatus",
     "LicensedImportStatus",
     "MembershipCaptureError",
+    "LineageRepairStatus",
     "capture_log",
     "closure_events",
     "get_configured_capture_status",
@@ -969,4 +1097,5 @@ __all__ = [
     "membership_intervals",
     "record_configured_capture",
     "record_listing_capture",
+    "repair_catalogue_lineage",
 ]

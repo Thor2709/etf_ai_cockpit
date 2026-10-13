@@ -5,8 +5,8 @@ pages and Stock Research all call these. Definitions (owner coordinator addendum
 
 * TTM = sum of the last 4 reported quarters, each counted only once its ``known_at`` is on or
   before the decision time; with fewer than 4 quarters the last fiscal year is used and labelled FY.
-* ROE = net income attributable to parent (window) / average parent equity ((opening + closing) / 2).
-* ROIC = NOPAT / average (equity + interest-bearing debt + leases - cash);
+* ROE = net income attributable to parent (window) / closing parent equity.
+* ROIC = NOPAT / closing (equity + interest-bearing debt + leases - cash);
   NOPAT = EBIT x (1 - effective tax rate), the rate clamped to 0..40 %.
 * Margins (gross, EBIT, net) = item / revenue over the same window.
 * FCF = cash from operations - capex (PP&E and intangibles). FCF yield = FCF / market cap.
@@ -40,6 +40,7 @@ FLOW_FIELDS = (
     "net_income_parent",
     "cfo",
     "capex",
+    "capex_extra",
     "dividends_paid",
 )
 BALANCE_FIELDS = (
@@ -48,6 +49,7 @@ BALANCE_FIELDS = (
     "ib_debt",
     "lease_liabilities",
     "cash_sti",
+    "cash",
     "total_assets",
     "shares_outstanding",
 )
@@ -287,13 +289,12 @@ def to_currency(
 
 
 def roe(net_income_parent: float | None, equity_open: float | None, equity_close: float | None) -> Metric:
-    key, label, formula = "roe", "Return on equity", "net income to parent / average parent equity ((opening + closing) / 2)"
-    if net_income_parent is None or equity_open is None or equity_close is None:
-        return _unavailable(key, label, "needs net income and opening and closing parent equity", formula=formula)
-    if equity_open <= 0 or equity_close <= 0:
-        return _not_meaningful(key, label, "parent equity was zero or negative at the start or end of the window", formula=formula)
-    average = (equity_open + equity_close) / 2.0
-    return Metric(key, label, net_income_parent / average, "ratio", OK, formula=formula)
+    key, label, formula = "roe", "Return on equity", "net_income / equity"
+    if net_income_parent is None or equity_close is None:
+        return _unavailable(key, label, "needs net income to parent and closing parent equity", formula=formula)
+    if equity_close <= 0:
+        return _not_meaningful(key, label, "closing parent equity was zero or negative", formula=formula)
+    return Metric(key, label, net_income_parent / equity_close, "ratio", OK, formula=formula)
 
 
 def effective_tax_rate(income_tax: float | None, pretax_income: float | None) -> float | None:
@@ -322,13 +323,12 @@ def invested_capital(equity: float | None, ib_debt: float | None, lease: float |
 
 def roic(nopat_value: float | None, capital_open: float | None, capital_close: float | None) -> Metric:
     key, label = "roic", "Return on invested capital"
-    formula = "NOPAT / average (equity + debt + leases - cash); NOPAT = EBIT x (1 - tax rate 0..40 %)"
-    if nopat_value is None or capital_open is None or capital_close is None:
-        return _unavailable(key, label, "needs EBIT, tax, and opening and closing invested capital", formula=formula)
-    average = (capital_open + capital_close) / 2.0
-    if average <= 0:
-        return _not_meaningful(key, label, "average invested capital is zero or negative", formula=formula)
-    return Metric(key, label, nopat_value / average, "ratio", OK, formula=formula)
+    formula = "NOPAT / invested_capital"
+    if nopat_value is None or capital_close is None:
+        return _unavailable(key, label, "needs NOPAT and closing invested capital", formula=formula)
+    if capital_close <= 0:
+        return _not_meaningful(key, label, "closing invested capital is zero or negative", formula=formula)
+    return Metric(key, label, nopat_value / capital_close, "ratio", OK, formula=formula)
 
 
 def margin(key: str, label: str, item: float | None, revenue: float | None) -> Metric:
