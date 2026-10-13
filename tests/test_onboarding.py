@@ -24,7 +24,6 @@ from etf_cockpit.application.onboarding_profile import (
     ProviderQuotaExceeded,
     validate_onboarding,
 )
-from etf_cockpit.core.settings_bundle import SettingsError
 import flet as ft
 import etf_cockpit.app.pages.onboarding as onboarding_module
 import etf_cockpit.application.onboarding_profile as onboarding_profile
@@ -306,9 +305,7 @@ def test_onboarding_group_conflicts_with_canonical_save_after_precondition(tmp_p
     assert canonical_done.wait(timeout=5)
     assert blocked_observed == [True]
     assert len(canonical_errors) == 1
-    # The canonical save's settings read is now serialised behind the onboarding commit (#934), so it
-    # fails closed either on the universe conflict or on the (pre-existing) stale settings revision.
-    assert isinstance(canonical_errors[0], (UniverseRevisionConflict, SettingsError))
+    assert isinstance(canonical_errors[0], UniverseRevisionConflict)
     assert "CANONICAL" not in {record.instrument_id for record in load_universe(tmp_path).records}
 
 
