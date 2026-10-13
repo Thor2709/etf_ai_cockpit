@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from io import BytesIO
+import dataclasses
+import json
 import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -12,7 +14,6 @@ from etf_cockpit.core.atomic_io import (
     AtomicWriteRequest,
     atomic_write_bytes,
     atomic_write_group,
-    atomic_write_json,
 )
 from etf_cockpit.core.paths import CLEAN_DIR, RAW_DIR, SNAPSHOTS_DIR
 from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
@@ -56,7 +57,9 @@ def commit_price_import(
         raise ValueError("Cannot commit a provider result that did not load data.")
 
     frame = result.data.copy()
-    checksum = result.metadata.checksum if result.metadata else sha256_dataframe(frame)
+    # The checksum always describes the frame that is persisted, never a pre-filter snapshot of it.
+    checksum = sha256_dataframe(frame)
+    metadata = dataclasses.replace(result.metadata, checksum=checksum) if result.metadata else None
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     raw_dir.mkdir(parents=True, exist_ok=True)
     clean_path.parent.mkdir(parents=True, exist_ok=True)
@@ -65,11 +68,9 @@ def commit_price_import(
 
     raw_path = _store_raw_import(result, frame, raw_dir, timestamp, checksum)
     previous_snapshot_path = _snapshot_existing_clean(compatibility_path, snapshots_dir, timestamp)
-    _write_price_stores_atomically(frame, (compatibility_path, clean_path))
 
     metadata_path = snapshots_dir / f"{timestamp}_{checksum[:12]}_prices_metadata.json"
-    atomic_write_json(
-        metadata_path,
+    metadata_payload = json.dumps(
         {
             "dataset_type": result.dataset_type,
             "provider_name": result.provider_name,
@@ -80,8 +81,16 @@ def commit_price_import(
             "clean_path": str(clean_path),
             "compatibility_path": str(compatibility_path),
             "previous_snapshot_path": str(previous_snapshot_path) if previous_snapshot_path else None,
-            "metadata": _metadata_to_json(result.metadata),
+            "metadata": _metadata_to_json(metadata),
         },
+        indent=2,
+        sort_keys=True,
+    ).encode("utf-8")
+    # Metadata and prices are one atomic group: prices are never visible without their metadata.
+    _write_price_stores_atomically(
+        frame,
+        (compatibility_path, clean_path),
+        extra=(AtomicWriteRequest(metadata_path, metadata_payload, _json_validator),),
     )
     return PriceImportCommit(
         raw_path=raw_path,
@@ -118,11 +127,8 @@ def rollback_latest_price_import(
             current_snapshot_path = snapshots_dir / f"{timestamp}_rollback_replaced_{compatibility_path.name}"
             shutil.copy2(compatibility_path, current_snapshot_path)
 
-        _write_price_stores_atomically(frame, (compatibility_path, clean_path))
-
         metadata_path = snapshots_dir / f"{timestamp}_{checksum[:12]}_prices_rollback.json"
-        atomic_write_json(
-            metadata_path,
+        metadata_payload = json.dumps(
             {
                 "dataset_type": "prices",
                 "operation": "rollback_latest_price_import",
@@ -133,6 +139,13 @@ def rollback_latest_price_import(
                 "clean_path": str(clean_path),
                 "compatibility_path": str(compatibility_path),
             },
+            indent=2,
+            sort_keys=True,
+        ).encode("utf-8")
+        _write_price_stores_atomically(
+            frame,
+            (compatibility_path, clean_path),
+            extra=(AtomicWriteRequest(metadata_path, metadata_payload, _json_validator),),
         )
     return PriceImportRollback(
         restored_snapshot_path=restored_snapshot_path,
@@ -181,11 +194,22 @@ def _parquet_validator(expected_rows: int):
     return validate
 
 
-def _write_price_stores_atomically(frame: pd.DataFrame, destinations: tuple[Path, ...]) -> None:
+def _json_validator(path: Path) -> None:
+    json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_price_stores_atomically(
+    frame: pd.DataFrame,
+    destinations: tuple[Path, ...],
+    *,
+    extra: tuple[AtomicWriteRequest, ...] = (),
+) -> None:
     payload = _parquet_bytes(frame)
     atomic_write_group(
-        AtomicWriteRequest(destination, payload, _parquet_validator(len(frame)))
-        for destination in destinations
+        (
+            *(AtomicWriteRequest(destination, payload, _parquet_validator(len(frame))) for destination in destinations),
+            *extra,
+        )
     )
 
 
