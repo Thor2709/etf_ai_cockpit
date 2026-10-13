@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 import json
 from pathlib import Path
+import shutil
 
 import pandas as pd
 import pytest
@@ -165,6 +166,8 @@ def test_marketability_uses_only_as_of_price_and_candidate_report_data(tmp_path:
     assert result["market_data_as_of"] == "2025-01-03"
 
 
-def test_settings_bundle_loads_after_scorecard_config_change() -> None:
-    bundle = load_settings_bundle(Path.cwd())
+def test_settings_bundle_loads_after_scorecard_config_change(tmp_path: Path) -> None:
+    # Guarded bundle reads take the atomic-group guard file, so load a copy, not the real checkout (#934).
+    shutil.copytree(Path.cwd() / "configs", tmp_path / "configs", ignore=shutil.ignore_patterns(".atomic*"))
+    bundle = load_settings_bundle(tmp_path)
     assert bundle.revision

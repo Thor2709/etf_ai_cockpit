@@ -18,7 +18,7 @@ from typing import Callable, Mapping
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group
+from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, read_atomic_group
 from etf_cockpit.core.config import CostConfig, ModelSettings, PortfolioTargets, RiskLimits
 
 
@@ -181,6 +181,10 @@ class SettingsSaveResult(BaseModel):
     snapshot_path: str
     creates_new_run: bool
     execution_allowed: bool = False
+    # ``committed``: this save's immutable snapshot is durably on disk.
+    # ``superseded``: a newer settings revision exists by the time the save returned.
+    committed: bool = False
+    superseded: bool = False
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -257,72 +261,149 @@ def _parse_yaml_text(text: str) -> object:
     return yaml.safe_load(text)
 
 
-def _read_yaml(path: Path) -> dict[str, object]:
-    if not path.is_file():
+_CONFIG_BLOB_NAMES = (
+    "settings.yaml",
+    "data_providers.yaml",
+    "portfolio_targets.yaml",
+    "risk_limits.yaml",
+    "costs.yaml",
+    "model_settings.yaml",
+    "universe_store.json",
+    "universe.yaml",
+    "onboarding.json",
+)
+_GROUP_READ_ATTEMPTS = 4
+
+# Raw bytes of the configuration files read as one generation (``None`` = absent).
+_Blobs = Mapping[Path, "bytes | None"]
+
+
+def _blob(path: Path, blobs: _Blobs | None) -> bytes | None:
+    """Return the bytes of ``path`` from the pre-read generation, or read it once."""
+
+    if blobs is not None and path in blobs:
+        return blobs[path]
+    try:
+        return path.read_bytes() if path.is_file() else None
+    except FileNotFoundError:
+        return None
+
+
+def _config_blobs(root: Path, *, guarded: bool = True) -> dict[Path, bytes | None]:
+    """Read every settings input file as ONE coherent generation.
+
+    ``guarded`` reads through ``read_atomic_group`` so a concurrent
+    ``atomic_write_group`` commit is either fully visible or not at all.  The
+    unguarded form is only for callers that already hold the group guards (the
+    save precondition); re-acquiring them there would deadlock.
+    """
+
+    config_dir = root / "configs"
+    paths = tuple(config_dir / name for name in _CONFIG_BLOB_NAMES)
+    if not guarded:
+        return {path: _blob(path, None) for path in paths}
+    for _ in range(_GROUP_READ_ATTEMPTS):
+        present = tuple(path for path in paths if path.is_file())
+        try:
+            payloads = read_atomic_group(present)
+        except FileNotFoundError:
+            continue
+        except (OSError, TimeoutError) as exc:
+            raise SettingsError("SETTINGS_PERSISTENCE_FAILED", f"cannot read settings group: {exc}") from exc
+        blobs: dict[Path, bytes | None] = {path: None for path in paths}
+        blobs.update(zip(present, payloads, strict=True))
+        # A file that appeared while the group was being read belongs to a newer
+        # generation: retry rather than pair it with the older files.
+        if not any(path.is_file() for path in paths if blobs[path] is None):
+            return blobs
+    raise SettingsError("SETTINGS_PERSISTENCE_FAILED", "settings files kept changing during read; retry")
+
+
+def _text(raw: bytes, path: Path) -> str:
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise SettingsError("SETTINGS_SCHEMA_INVALID", f"cannot read {path}: {exc}") from exc
+
+
+def _yaml_object(raw: bytes | None, path: Path) -> dict[str, object]:
+    if raw is None:
         return {}
     try:
         # Parsed once per distinct file text; every caller gets a private copy.
-        payload = deepcopy(_parse_yaml_text(path.read_text(encoding="utf-8"))) or {}
-    except (OSError, yaml.YAMLError) as exc:
+        payload = deepcopy(_parse_yaml_text(_text(raw, path))) or {}
+    except yaml.YAMLError as exc:
         raise SettingsError("SETTINGS_SCHEMA_INVALID", f"cannot read {path}: {exc}") from exc
     if not isinstance(payload, dict):
         raise SettingsError("SETTINGS_SCHEMA_INVALID", f"{path} must contain an object")
     return {str(key): item for key, item in payload.items()}
 
 
-def _read_json(path: Path) -> dict[str, object]:
-    if not path.is_file():
+def _json_object(raw: bytes | None, path: Path) -> dict[str, object]:
+    if raw is None:
         return {}
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        payload = json.loads(_text(raw, path))
+    except json.JSONDecodeError as exc:
         raise SettingsError("SETTINGS_SCHEMA_INVALID", f"cannot read {path}: {exc}") from exc
     if not isinstance(payload, dict):
         raise SettingsError("SETTINGS_SCHEMA_INVALID", f"{path} must contain an object")
     return payload
 
 
-def _portable_text_revision(path: Path) -> str:
+def _read_yaml(path: Path, blobs: _Blobs | None = None) -> dict[str, object]:
+    return _yaml_object(_blob(path, blobs), path)
+
+
+def _read_json(path: Path, blobs: _Blobs | None = None) -> dict[str, object]:
+    return _json_object(_blob(path, blobs), path)
+
+
+def _portable_bytes_revision(raw: bytes, path: Path) -> str:
     """Hash companion text without platform checkout line-ending drift."""
 
-    text = path.read_text(encoding="utf-8")
+    text = _text(raw, path)
     normalised = text.replace("\r\n", "\n").replace("\r", "\n")
     return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
 
 
-def _universe_summary(root: Path) -> dict[str, object]:
+def _universe_summary(root: Path, blobs: _Blobs | None = None) -> dict[str, object]:
+    """Instrument IDs and digest, both derived from the same bytes (one read)."""
+
     config_dir = root / "configs"
-    store = _read_json(config_dir / "universe_store.json")
+    source = config_dir / "universe_store.json"
+    source_bytes = _blob(source, blobs)
+    store = _json_object(source_bytes, source)
     if store:
         records = store.get("records") if isinstance(store.get("records"), list) else []
-        source = config_dir / "universe_store.json"
     else:
-        raw = _read_yaml(config_dir / "universe.yaml")
-        records = raw.get("etfs") if isinstance(raw.get("etfs"), list) else []
         source = config_dir / "universe.yaml"
+        source_bytes = _blob(source, blobs)
+        raw = _yaml_object(source_bytes, source)
+        records = raw.get("etfs") if isinstance(raw.get("etfs"), list) else []
     ids = sorted(
         str(row.get("instrument_id") or row.get("id"))
         for row in records
         if isinstance(row, dict) and (row.get("instrument_id") or row.get("id"))
     )
-    digest = _portable_text_revision(source) if source.is_file() else "unavailable"
+    digest = _portable_bytes_revision(source_bytes, source) if source_bytes is not None else "unavailable"
     return {"source": source.relative_to(root).as_posix(), "revision": digest, "instrument_ids": ids, "count": len(ids)}
 
 
-def _base_bundle(root: Path, controls: SettingsControls) -> SettingsBundle:
+def _base_bundle(root: Path, controls: SettingsControls, blobs: _Blobs | None = None) -> SettingsBundle:
     config_dir = root / "configs"
-    raw_providers = _read_yaml(config_dir / "data_providers.yaml")
+    raw_providers = _read_yaml(config_dir / "data_providers.yaml", blobs)
     secret_path = _find_populated_secret_path(raw_providers)
     if secret_path is not None:
         raise SettingsError("SETTINGS_SECRET_FIELD_FORBIDDEN", f"populated secret field is forbidden: {secret_path}")
     providers = _strip_secret_fields(raw_providers)
     value = SettingsBundle(
         controls=controls,
-        universe=_universe_summary(root),
-        targets=_read_yaml(config_dir / "portfolio_targets.yaml"),
-        risks=_read_yaml(config_dir / "risk_limits.yaml"),
-        costs=_read_yaml(config_dir / "costs.yaml"),
-        models=_read_yaml(config_dir / "model_settings.yaml"),
+        universe=_universe_summary(root, blobs),
+        targets=_read_yaml(config_dir / "portfolio_targets.yaml", blobs),
+        risks=_read_yaml(config_dir / "risk_limits.yaml", blobs),
+        costs=_read_yaml(config_dir / "costs.yaml", blobs),
+        models=_read_yaml(config_dir / "model_settings.yaml", blobs),
         providers=providers if isinstance(providers, dict) else {},
     )
     return value.model_copy(update={"revision": _revision_for(value)})
@@ -330,7 +411,11 @@ def _base_bundle(root: Path, controls: SettingsControls) -> SettingsBundle:
 
 def migrate_legacy_settings(root: Path) -> tuple[SettingsBundle, tuple[SettingsMigrationIssue, ...]]:
     root = Path(root).resolve()
-    profile = _read_json(root / "configs" / "onboarding.json").get("profile", {})
+    return _migrate_legacy(root, _config_blobs(root))
+
+
+def _migrate_legacy(root: Path, blobs: _Blobs) -> tuple[SettingsBundle, tuple[SettingsMigrationIssue, ...]]:
+    profile = _read_json(root / "configs" / "onboarding.json", blobs).get("profile", {})
     if not isinstance(profile, dict):
         profile = {}
     issues: list[SettingsMigrationIssue] = []
@@ -390,7 +475,7 @@ def migrate_legacy_settings(root: Path) -> tuple[SettingsBundle, tuple[SettingsM
         rss_sources=tuple(str(item) for item in profile.get("rss_sources", ()) if str(item).strip()) if isinstance(profile.get("rss_sources", ()), list) else (),
         macro_provider=macro_provider,
     )
-    return _base_bundle(root, controls), tuple(issues)
+    return _base_bundle(root, controls, blobs), tuple(issues)
 
 
 def load_settings_bundle(root: Path) -> SettingsBundle:
@@ -401,12 +486,23 @@ def load_settings_bundle_with_issues(root: Path) -> tuple[SettingsBundle, tuple[
     """Load effective settings and retain any read-only legacy diagnostics."""
 
     root = Path(root).resolve()
+    return _load_with_issues(root, _config_blobs(root))
+
+
+def _load_unguarded(root: Path) -> SettingsBundle:
+    """Load for a caller that already holds the atomic group guards (save preconditions)."""
+
+    root = Path(root).resolve()
+    return _load_with_issues(root, _config_blobs(root, guarded=False))[0]
+
+
+def _load_with_issues(root: Path, blobs: _Blobs) -> tuple[SettingsBundle, tuple[SettingsMigrationIssue, ...]]:
     path = root / "configs" / "settings.yaml"
-    if not path.is_file():
-        bundle, issues = migrate_legacy_settings(root)
+    if blobs.get(path) is None:
+        bundle, issues = _migrate_legacy(root, blobs)
         _validate_bundle(bundle)
         return bundle, issues
-    raw = _read_yaml(path)
+    raw = _read_yaml(path, blobs)
     secret_path = _find_secret_path(raw)
     if secret_path is not None:
         raise SettingsError("SETTINGS_SECRET_FIELD_FORBIDDEN", f"secret field is forbidden: {secret_path}")
@@ -420,11 +516,11 @@ def load_settings_bundle_with_issues(root: Path) -> tuple[SettingsBundle, tuple[
     # A shipped version-zero default is not allowed to erase an older user's
     # onboarding choices.  Project the legacy values in memory and require the
     # ordinary preview/save path to persist version one; startup never writes.
-    if settings_version == 0 and (root / "configs" / "onboarding.json").is_file():
-        bundle, issues = migrate_legacy_settings(root)
+    if settings_version == 0 and blobs.get(root / "configs" / "onboarding.json") is not None:
+        bundle, issues = _migrate_legacy(root, blobs)
         _validate_bundle(bundle)
         return bundle, issues
-    base = _base_bundle(root, controls).model_copy(update={"settings_version": settings_version, "revision": ""})
+    base = _base_bundle(root, controls, blobs).model_copy(update={"settings_version": settings_version, "revision": ""})
     expected = _revision_for(base)
     supplied = str(raw.get("revision") or "")
     issues: tuple[SettingsMigrationIssue, ...] = ()
@@ -612,7 +708,7 @@ def _universe_settings_update(
     )
 
     def precondition() -> None:
-        actual = load_settings_bundle(root)
+        actual = _load_unguarded(root)
         if actual.revision != current.revision:
             raise SettingsError("SETTINGS_REVISION_CONFLICT", "settings changed before the universe commit")
         if snapshot.exists():
@@ -640,7 +736,7 @@ def save_settings(
 
     config_dir = root / "configs"
     snapshot = root / "data" / "derived" / "settings_versions" / f"{proposed.settings_version}-{proposed.revision[:16]}.json"
-    payload = proposed.model_dump(mode="json")
+    snapshot_bytes = _canonical_bytes(proposed.model_dump(mode="json"))
     settings_document = {
         "schema_version": proposed.schema_version,
         "semantic_version": proposed.semantic_version,
@@ -656,11 +752,11 @@ def save_settings(
         AtomicWriteRequest(config_dir / "costs.yaml", _yaml_bytes(proposed.costs), _validate_yaml),
         AtomicWriteRequest(config_dir / "model_settings.yaml", _yaml_bytes(proposed.models), _validate_yaml),
         AtomicWriteRequest(config_dir / "data_providers.yaml", _yaml_bytes(proposed.providers), _validate_yaml),
-        AtomicWriteRequest(snapshot, _canonical_bytes(payload), _validate_json),
+        AtomicWriteRequest(snapshot, snapshot_bytes, _validate_json),
     )
 
     def precondition() -> None:
-        actual = load_settings_bundle(root)
+        actual = _load_unguarded(root)
         if actual.revision != expected_revision:
             raise SettingsError("SETTINGS_REVISION_CONFLICT", "settings changed before the atomic commit")
         if snapshot.exists():
@@ -672,15 +768,27 @@ def save_settings(
         raise
     except Exception as exc:
         raise SettingsError("SETTINGS_PERSISTENCE_FAILED", str(exc)) from exc
-    reloaded = load_settings_bundle(root)
-    if reloaded.revision != proposed.revision or reloaded.settings_version != proposed.settings_version:
-        raise SettingsError("SETTINGS_PERSISTENCE_FAILED", "settings readback does not match the committed snapshot")
+    # Verify the immutable snapshot THIS save wrote (by its own revision id); the
+    # current revision may legitimately already belong to a later valid save.
+    try:
+        (written,) = read_atomic_group((snapshot,))
+    except (OSError, TimeoutError) as exc:
+        raise SettingsError("SETTINGS_PERSISTENCE_FAILED", f"committed settings snapshot unreadable: {exc}") from exc
+    if written != snapshot_bytes:
+        raise SettingsError("SETTINGS_PERSISTENCE_FAILED", "settings snapshot does not match the committed save")
+    try:
+        superseded = load_settings_bundle(root).revision != proposed.revision
+    except SettingsError:
+        # The commit is verified; an unreadable latest state is not evidence against it.
+        superseded = False
     return SettingsSaveResult(
         saved=True,
         revision=proposed.revision,
         settings_version=proposed.settings_version,
         snapshot_path=snapshot.relative_to(root).as_posix(),
         creates_new_run=True,
+        committed=True,
+        superseded=superseded,
     )
 
 
