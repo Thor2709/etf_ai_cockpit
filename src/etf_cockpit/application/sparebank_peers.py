@@ -13,14 +13,17 @@ from datetime import datetime, timezone
 import json
 import math
 from pathlib import Path
+import threading
 
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import atomic_write_json
+from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.core.ui_preferences import SPAREBANK_PEERS, load_preferences, save_preference
 
 SCHEMA_VERSION = "sparebank_peers.v1"
+_UPSERT_LOCK = threading.Lock()
 # scorecard input ids copied into the peer row (the scorecard stays the one place that computes them)
 _INPUT_FIELDS = {
     "cost_income_pct": "cost_income_pct",
@@ -122,14 +125,15 @@ def record_peer_row(root: Path | None, row: Mapping[str, object]) -> None:
     """Upsert one bank's row (atomic file replace)."""
 
     path = _path(root)
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        payload = {}
-    rows = payload.get("rows") if isinstance(payload, dict) and isinstance(payload.get("rows"), dict) else {}
-    rows[str(row["instrument_id"])] = dict(row)
     path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(path, {"schema_version": SCHEMA_VERSION, "rows": rows, "execution_allowed": False})
+    with _UPSERT_LOCK, persistent_file_guard(path.with_name(path.name + ".guard")):  # read-modify-write: concurrent upserts must not lose rows
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            payload = {}
+        rows = payload.get("rows") if isinstance(payload, dict) and isinstance(payload.get("rows"), dict) else {}
+        rows[str(row["instrument_id"])] = dict(row)
+        atomic_write_json(path, {"schema_version": SCHEMA_VERSION, "rows": rows, "execution_allowed": False})
 
 
 def load_peer_rows(

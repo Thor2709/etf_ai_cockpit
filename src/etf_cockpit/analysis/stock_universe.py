@@ -163,8 +163,8 @@ def market_inputs(
     closes = known.set_index("date")["close"].dropna()
     # the month-end reading is dated by the last stored price, not the calendar label, so filings known between the two never leak in
     month_ends = closes.groupby(closes.index.to_period("M")).tail(1)
-    if not month_ends.empty and month_ends.index[-1] < month_ends.index[-1] + pd.offsets.MonthEnd(0):
-        month_ends = month_ends.iloc[:-1]  # the running month is not a completed month-end reading
+    running_month = pd.Period(decision_time.date(), "M")
+    month_ends = month_ends[month_ends.index.to_period("M") < running_month]  # the decision month is still running, every earlier month is complete
     series = tuple((index.date(), float(value)) for index, value in month_ends.items())
     shares = sm._finite((snapshot or {}).get("shares_outstanding"))
     snap_time = sm.as_utc((snapshot or {}).get("known_at"))
@@ -208,8 +208,9 @@ def _profile(record: StockRecord, snapshot: Mapping[str, Any] | None, fx: pd.Dat
     minor = (config.get("reporting", {}) or {}).get("minor_currency_units", {}) or {}
     cap = sm._finite((snapshot or {}).get("market_cap_provider"))
     cap_eur = None
-    if cap is not None:
-        quote_major, _ = sm.minor_unit(str((snapshot or {}).get("quote_currency") or record.currency), minor)
+    quote = str((snapshot or {}).get("quote_currency") or "").strip()  # never the instrument's listing currency: the cap's own currency is unknown otherwise
+    if cap is not None and quote:
+        quote_major, _ = sm.minor_unit(quote, minor)
         if quote_major == "EUR":
             cap_eur = cap / 1e9
         else:

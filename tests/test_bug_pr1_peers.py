@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
@@ -177,6 +178,28 @@ def test_concurrent_peer_upserts_keep_both_entries(tmp_path) -> None:
     assert picks.load_user_peers(tmp_path) == {i: [f"P{i}"] for i in ids}
 
 
+def test_concurrent_sparebank_peer_rows_keep_every_bank(tmp_path) -> None:
+    from etf_cockpit.application import sparebank_peers as sp
+
+    ids = [f"B{i}" for i in range(12)]
+    errors: list[BaseException] = []
+
+    def upsert(instrument_id: str) -> None:
+        try:
+            sp.record_peer_row(tmp_path, {"instrument_id": instrument_id, "name": instrument_id})
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=upsert, args=(i,)) for i in ids]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert not errors
+    stored = json.loads(sp._path(tmp_path).read_text(encoding="utf-8"))["rows"]
+    assert sorted(stored) == sorted(ids)
+
+
 # ----- B103-N001 / B103-N002 / E103-N004 / E103-N005 / B110 ---------------------------------------------------------
 
 
@@ -209,6 +232,16 @@ def test_peer_size_uses_the_fx_vintage_of_the_capitalisation_date() -> None:
 
 def test_market_cap_without_a_currency_is_not_sized() -> None:
     assert _profile_with_fx({"market_cap_provider": 10e9, "known_at": "2026-01-10"}, currency="").market_cap_eur_bn is None
+
+
+def test_market_cap_in_the_listing_currency_without_a_quote_currency_is_not_sized() -> None:
+    assert _profile_with_fx({"market_cap_provider": 10e9, "known_at": "2026-01-10"}, currency="GBP").market_cap_eur_bn is None
+
+
+def test_completed_month_is_kept_when_the_last_price_is_before_the_calendar_month_end() -> None:
+    frame = pd.DataFrame({"date": pd.to_datetime(["2026-01-29", "2026-02-27"]), "close": [10.0, 12.0], "currency": ["EUR"] * 2})
+    market = su.market_inputs(frame, None, "EUR", datetime(2026, 3, 3, tzinfo=UTC), pd.DataFrame(columns=store.FX_COLUMNS), CONFIG)
+    assert market.price_series == ((date(2026, 1, 29), 10.0), (date(2026, 2, 27), 12.0))
 
 
 def test_unparseable_lifecycle_cutoff_fails_closed(tmp_path) -> None:
