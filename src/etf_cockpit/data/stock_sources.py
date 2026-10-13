@@ -284,6 +284,18 @@ def _unit_values(concept: Mapping[str, Any], *, shares: bool) -> tuple[str, list
     return "", []
 
 
+def _valid_filed(value: Any) -> str | None:
+    """A filing date only when it is a real ISO calendar date string; malformed values never win a period."""
+
+    if not isinstance(value, str):
+        return None
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return None
+    return value
+
+
 def _days(start: str, end: str) -> int:
     return (date.fromisoformat(end) - date.fromisoformat(start)).days
 
@@ -313,14 +325,17 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
             unit, entries = _unit_values(concept, shares=False)
             local: dict[tuple[str, str], tuple[float, str, str]] = {}
             for entry in entries:
-                start, end, filed, value = entry.get("start"), entry.get("end"), entry.get("filed"), _number(entry.get("val"))
+                start, end, filed, value = entry.get("start"), entry.get("end"), _valid_filed(entry.get("filed")), _number(entry.get("val"))
                 if not (start and end and filed) or value is None:
                     continue
                 key = (start, end)
                 if key not in local or filed < local[key][1]:
                     local[key] = (value, filed, unit)
             for key, item in local.items():
-                if key not in merged:
+                # As originally reported: the earliest-filed concept wins a period; a later-filed
+                # lower-priority concept never suppresses it and the configured concept order
+                # only breaks a same-filing tie.
+                if key not in merged or item[1] < merged[key][1]:
                     merged[key] = item
                     selected_flow_concepts[(name, *key)] = concept_name
             currency = currency or unit
@@ -336,14 +351,21 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                 continue
             unit, entries = _unit_values(concept, shares=shares)
             local: dict[str, tuple[float, str, str]] = {}
+            ambiguous: set[str] = set()
             for entry in entries:
-                end, filed, value = entry.get("end"), entry.get("filed"), _number(entry.get("val"))
+                end, filed, value = entry.get("end"), _valid_filed(entry.get("filed")), _number(entry.get("val"))
                 if not (end and filed) or value is None:
                     continue
                 if end not in local or filed < local[end][1]:
                     local[end] = (value, filed, unit)
+                    ambiguous.discard(end)
+                elif filed == local[end][1] and value != local[end][0]:
+                    # same period, same filing, different values (e.g. several share classes):
+                    # insertion order must not decide, so the period is unavailable
+                    ambiguous.add(end)
             for end, item in local.items():
-                merged.setdefault(end, item)
+                if end not in ambiguous:
+                    merged.setdefault(end, item)
             if not shares:
                 currency = currency or unit
         return merged

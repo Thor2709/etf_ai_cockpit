@@ -78,6 +78,13 @@ _IFRS_MAPPING = {
     "TreasuryShares": "treasury_shares",
 }
 _IFRS_PREFIXES = frozenset({"ifrs-full", "ifrs"})
+_IFRS_FULL_NAMESPACE = re.compile(r"https?://xbrl\.ifrs\.org/taxonomy/(?:\d{4}-\d{2}-\d{2}/)?ifrs-full/?")
+
+
+def is_ifrs_full_namespace(namespace: str | None) -> bool:
+    """Exact IFRS full-taxonomy namespace; an extension that merely contains "ifrs" is not IFRS."""
+
+    return bool(namespace) and _IFRS_FULL_NAMESPACE.fullmatch(str(namespace).strip()) is not None
 
 
 def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
@@ -190,7 +197,7 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
         seen.add(duplicate_key)
         namespace = namespace_map.get(prefix or "") or _namespace_for_prefix(prefix)
         mapping = map_ifrs_fact(raw_name, namespace)
-        is_extension = bool(prefix and prefix.lower() not in _IFRS_PREFIXES)
+        is_extension = bool(prefix and (prefix.lower() not in _IFRS_PREFIXES or (namespace is not None and not is_ifrs_full_namespace(namespace))))
         if numeric_problem is not None:
             mapping_status = "unsupported_numeric"
             warnings.append(ParseWarning("unsupported_numeric_fact", f"Inline XBRL numeric fact retained for review without canonical mapping ({numeric_problem}): {raw_name}", "warning", xhtml_name))
@@ -199,6 +206,9 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
             if raw_name not in warned_extensions:
                 warnings.append(ParseWarning("unmapped_extension", f"Extension fact retained without canonical mapping: {raw_name}", "warning", xhtml_name))
                 warned_extensions.add(raw_name)
+        elif local_name == "nonNumeric":
+            # Text/narrative facts are retained but never numeric nor mapped to a canonical metric.
+            mapping_status = "non_numeric"
         else:
             mapping_status = "mapped" if mapping else "unmapped"
         facts.append(
@@ -309,7 +319,7 @@ def map_ifrs_fact(concept: str, namespace: str | None = None) -> str | None:
     local, prefix = _split_qname(str(concept))
     if prefix and prefix.lower() not in _IFRS_PREFIXES:
         return None
-    if namespace and "ifrs" not in namespace.lower():
+    if namespace and not is_ifrs_full_namespace(namespace):
         return None
     return _IFRS_MAPPING.get(local)
 
