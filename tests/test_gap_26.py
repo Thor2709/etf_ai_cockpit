@@ -12,10 +12,10 @@ from etf_cockpit.features.overlap import calculate_direct_overlap
 def _direct_holdings() -> pd.DataFrame:
     return pd.DataFrame(
         [
-            {"instrument_id": "ETF-A", "security": "Alpha plc", "isin": "GB0002634946", "weight": 0.60, "as_of": "2026-07-01", "source_id": "a1", "authority": "issuer", "completeness": "full", "sector": "Technology"},
-            {"instrument_id": "ETF-A", "security": "Beta SA", "isin": "FR0000120271", "weight": 0.40, "as_of": "2026-07-01", "source_id": "a1", "authority": "issuer", "completeness": "full", "sector": "Financials"},
-            {"instrument_id": "ETF-B", "security": "Alpha renamed", "isin": "GB0002634946", "weight": 0.25, "as_of": "2026-07-02", "source_id": "b1", "authority": "issuer", "completeness": "full", "sector": "Technology"},
-            {"instrument_id": "ETF-B", "security": "Gamma AG", "isin": "DE0007164600", "weight": 0.75, "as_of": "2026-07-02", "source_id": "b1", "authority": "issuer", "completeness": "full", "sector": "Industrials"},
+            {"instrument_id": "ETF-A", "security": "Alpha plc", "isin": "GB0002634946", "weight": 0.60, "as_of": "2026-07-01", "known_at": "2026-07-02T00:00:00Z", "source_id": "a1", "authority": "issuer", "completeness": "full", "sector": "Technology"},
+            {"instrument_id": "ETF-A", "security": "Beta SA", "isin": "FR0000120271", "weight": 0.40, "as_of": "2026-07-01", "known_at": "2026-07-02T00:00:00Z", "source_id": "a1", "authority": "issuer", "completeness": "full", "sector": "Financials"},
+            {"instrument_id": "ETF-B", "security": "Alpha renamed", "isin": "GB0002634946", "weight": 0.25, "as_of": "2026-07-02", "known_at": "2026-07-03T00:00:00Z", "source_id": "b1", "authority": "issuer", "completeness": "full", "sector": "Technology"},
+            {"instrument_id": "ETF-B", "security": "Gamma AG", "isin": "DE0007164600", "weight": 0.75, "as_of": "2026-07-02", "known_at": "2026-07-03T00:00:00Z", "source_id": "b1", "authority": "issuer", "completeness": "full", "sector": "Industrials"},
         ]
     )
 
@@ -52,10 +52,10 @@ def test_partial_identity_coverage_stays_a_dated_lower_bound() -> None:
 def test_nested_depth_limit_conserves_unexpanded_fund_weight_as_unknown() -> None:
     rows = pd.DataFrame(
         [
-            {"instrument_id": "ROOT", "security": "Alpha", "isin": "GB0002634946", "weight": 0.3, "as_of": "2026-07-01", "source_id": "root", "authority": "issuer", "completeness": "full", "exposure_type": "security", "sector": "Technology"},
-            {"instrument_id": "ROOT", "security": "Nested ETF", "identity_type": "fund", "identity_namespace": "canonical", "identity_value": "NESTED", "nested_instrument_id": "NESTED", "weight": 0.5, "as_of": "2026-07-01", "source_id": "root", "authority": "issuer", "completeness": "full", "exposure_type": "fund"},
-            {"instrument_id": "ROOT", "security": "Cash", "weight": 0.1, "as_of": "2026-07-01", "source_id": "root", "authority": "issuer", "completeness": "full", "exposure_type": "cash", "currency": "EUR"},
-            {"instrument_id": "ROOT", "security": "Future", "identity_type": "derivative", "identity_namespace": "issuer", "identity_value": "future-1", "weight": 0.1, "as_of": "2026-07-01", "source_id": "root", "authority": "issuer", "completeness": "full", "exposure_type": "derivative"},
+            {"instrument_id": "ROOT", "security": "Alpha", "isin": "GB0002634946", "weight": 0.3, "as_of": "2026-07-01", "known_at": "2026-07-02T00:00:00Z", "source_id": "root", "authority": "issuer", "completeness": "full", "exposure_type": "security", "sector": "Technology"},
+            {"instrument_id": "ROOT", "security": "Nested ETF", "identity_type": "fund", "identity_namespace": "canonical", "identity_value": "NESTED", "nested_instrument_id": "NESTED", "weight": 0.5, "as_of": "2026-07-01", "known_at": "2026-07-02T00:00:00Z", "source_id": "root", "authority": "issuer", "completeness": "full", "exposure_type": "fund"},
+            {"instrument_id": "ROOT", "security": "Cash", "weight": 0.1, "as_of": "2026-07-01", "known_at": "2026-07-02T00:00:00Z", "source_id": "root", "authority": "issuer", "completeness": "full", "exposure_type": "cash", "currency": "EUR"},
+            {"instrument_id": "ROOT", "security": "Future", "identity_type": "derivative", "identity_namespace": "issuer", "identity_value": "future-1", "weight": 0.1, "as_of": "2026-07-01", "known_at": "2026-07-02T00:00:00Z", "source_id": "root", "authority": "issuer", "completeness": "full", "exposure_type": "derivative"},
         ]
     )
 

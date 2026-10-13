@@ -19,6 +19,11 @@ from etf_cockpit.core.pandas_values import clean_text_or_empty as _text
 _ISIN = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
 _TOLERANCE = 1e-9
 _STALE_AFTER = timedelta(days=90)
+# Higher is better; official SEC and issuer evidence outrank vendor convenience data.
+_AUTHORITY_RANKS = {
+    "official": 2, "issuer": 2, "issuer_document": 2, "vendor": 1, "public_page": 1,
+    "manual_unverified": 0, "unknown": 0,
+}
 
 
 @dataclass(frozen=True)
@@ -215,12 +220,17 @@ def _select_snapshot(
     dates = pd.to_datetime(rows[date_column], errors="coerce", utc=True)
     cutoff = known_at or datetime.combine(today, time.max, tzinfo=timezone.utc)
     known_column = next((name for name in ("known_at", "available_at") if name in rows.columns), None)
-    availability = (
-        pd.to_datetime(rows[known_column], errors="coerce", utc=True)
-        if known_column
-        else dates
+    if known_column is None:
+        return _missing(instrument_id, "Holdings known-at time is unavailable.")
+    availability = pd.to_datetime(rows[known_column], errors="coerce", utc=True)
+    # as_of <= known_at <= decision time; a holding known before its own as-of date is invalid.
+    valid = (
+        dates.notna()
+        & availability.notna()
+        & dates.dt.date.le(today)
+        & availability.le(cutoff)
+        & availability.ge(dates)
     )
-    valid = dates.notna() & availability.notna() & dates.dt.date.le(today) & availability.le(cutoff)
     rows = rows.loc[valid].copy()
     dates = dates.loc[valid]
     availability = availability.loc[valid]
@@ -261,7 +271,7 @@ def _choose_source_group(
     ranked: list[tuple[int, str, pd.DataFrame]] = []
     for source_id, rows in groups:
         authority = _single_text(rows, "authority")
-        rank = {"issuer": 2, "vendor": 1, "manual_unverified": 0, "unknown": 0}.get(authority or "unknown", 0)
+        rank = _AUTHORITY_RANKS.get(authority or "unknown", 0)
         ranked.append((rank, source_id, rows))
     best_rank = max(item[0] for item in ranked)
     best = [item for item in ranked if item[0] == best_rank]
@@ -331,7 +341,7 @@ def _normalise_snapshot(
         "fresh" if today - date.fromisoformat(as_of) <= _STALE_AFTER else "stale"
     )
     authority = _single_text(rows, "authority")
-    provenance_complete = bool(source_id.strip()) and authority in {"issuer", "vendor", "manual_unverified"}
+    provenance_complete = bool(source_id.strip()) and authority in {"official", "issuer", "vendor", "manual_unverified"}
     if not provenance_complete:
         warnings.append("Snapshot provenance is incomplete; current/full overlap is unavailable.")
     full = completeness == "full" and resolved_weight >= 0.99 - _TOLERANCE and provenance_complete

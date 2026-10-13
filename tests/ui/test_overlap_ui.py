@@ -15,9 +15,9 @@ from etf_cockpit.features.overlap import calculate_direct_overlap
 def _holdings() -> pd.DataFrame:
     return pd.DataFrame(
         [
-            {"instrument_id": "VWCE", "security": "Alpha", "isin": "GB0002634946", "weight": 0.6, "as_of": "2026-07-10", "as_of_date": "2026-07-10", "source_id": "vwce-1", "authority": "issuer", "completeness": "full", "freshness": "fresh", "score_eligible": True, "sector": "Technology", "country": "GB", "currency": "GBP"},
-            {"instrument_id": "VWCE", "security": "Beta", "isin": "FR0000120271", "weight": 0.4, "as_of": "2026-07-10", "as_of_date": "2026-07-10", "source_id": "vwce-1", "authority": "issuer", "completeness": "full", "freshness": "fresh", "score_eligible": True, "sector": "Financials", "country": "FR", "currency": "EUR"},
-            {"instrument_id": "LYP6", "security": "Alpha renamed", "isin": "GB0002634946", "weight": 0.25, "as_of": "2026-07-11", "as_of_date": "2026-07-11", "source_id": "lyp6-1", "authority": "issuer", "completeness": "partial", "freshness": "fresh", "score_eligible": False, "sector": "Technology", "country": "GB", "currency": "GBP"},
+            {"instrument_id": "VWCE", "security": "Alpha", "isin": "GB0002634946", "weight": 0.6, "as_of": "2026-07-10", "known_at": "2026-07-11T00:00:00Z", "as_of_date": "2026-07-10", "source_id": "vwce-1", "authority": "issuer", "completeness": "full", "freshness": "fresh", "score_eligible": True, "sector": "Technology", "country": "GB", "currency": "GBP"},
+            {"instrument_id": "VWCE", "security": "Beta", "isin": "FR0000120271", "weight": 0.4, "as_of": "2026-07-10", "known_at": "2026-07-11T00:00:00Z", "as_of_date": "2026-07-10", "source_id": "vwce-1", "authority": "issuer", "completeness": "full", "freshness": "fresh", "score_eligible": True, "sector": "Financials", "country": "FR", "currency": "EUR"},
+            {"instrument_id": "LYP6", "security": "Alpha renamed", "isin": "GB0002634946", "weight": 0.25, "as_of": "2026-07-11", "known_at": "2026-07-12T00:00:00Z", "as_of_date": "2026-07-11", "source_id": "lyp6-1", "authority": "issuer", "completeness": "partial", "freshness": "fresh", "score_eligible": False, "sector": "Technology", "country": "GB", "currency": "GBP"},
         ]
     )
 
