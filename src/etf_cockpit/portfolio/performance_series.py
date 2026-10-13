@@ -22,6 +22,8 @@ from etf_cockpit.data.fx_data import build_fx_rate_snapshot, fx_cross_rate
 from etf_cockpit.portfolio.valuation import (
     SNAPSHOT_COLUMNS,
     calculate_money_weighted_return,
+    civil_dates,
+    expected_session_dates,
     link_time_weighted_return,
 )
 
@@ -196,10 +198,13 @@ def build_portfolio_performance_series(
             selected["date"].ge(pd.Timestamp(period_start)) & selected["date"].le(pd.Timestamp(period_end))
         ]
         converted_period = converted.loc[period_rows.index]
-        if (
-            not period_rows.empty
-            and selected_aggregation in {"week", "month", "quarter", "year"}
-            and selected_metric in {"twr_index", "twr_return", "investment_pnl", "fx"}
+        if not period_rows.empty and (
+            (
+                selected_aggregation in {"week", "month", "quarter", "year"}
+                and selected_metric in {"twr_index", "twr_return", "investment_pnl", "fx", "mwr_return"}
+            )
+            # The prior close is MWR's opening value for every bucket, daily included.
+            or selected_metric == "mwr_return"
         ):
             previous_rows = selected.loc[selected["date"].lt(period_rows.iloc[0]["date"])].tail(1)
             if not previous_rows.empty:
@@ -219,7 +224,7 @@ def build_portfolio_performance_series(
             if selected_metric in {"twr_index", "drawdown"}
             else period_rows
         )
-        if previous_source is not None and selected_metric in {"twr_return", "investment_pnl", "fx"}:
+        if previous_source is not None and selected_metric in {"twr_return", "investment_pnl", "fx", "mwr_return"}:
             lineage_rows = pd.concat([previous_source, lineage_rows])
         source_identity = _source_identity(lineage_rows, rates)
         partial_reasons = _quality_reasons(period_rows, period_start, period_end, range_start, range_end)
@@ -340,10 +345,10 @@ def performance_series_to_csv(series: PerformanceSeries) -> str:
 
 def _normalise_snapshots(snapshots: pd.DataFrame) -> tuple[pd.DataFrame | None, str | None]:
     result = snapshots.loc[:, list(SNAPSHOT_COLUMNS)].copy()
-    dates = pd.to_datetime(result["date"], errors="coerce", utc=True)
+    dates = civil_dates(result["date"])
     if dates.isna().any():
         return None, "Saved valuation dates are invalid."
-    result["date"] = dates.dt.tz_convert(None).dt.normalize()
+    result["date"] = dates
     if result["date"].duplicated().any():
         return None, "Duplicate saved valuation dates prevent precise performance."
     return result.sort_values("date", kind="stable").reset_index(drop=True), None
@@ -382,10 +387,10 @@ def _resolve_range(
 def _parse_date(value: date | str | None) -> date | None:
     if value is None:
         return None
-    parsed = pd.to_datetime(value, errors="coerce", utc=True)
+    parsed = civil_dates(pd.Series([value], dtype=object)).iloc[0]
     if pd.isna(parsed):
         return None
-    return pd.Timestamp(parsed).tz_convert(None).date()
+    return pd.Timestamp(parsed).date()
 
 
 def _periods(
@@ -396,10 +401,11 @@ def _periods(
 ) -> list[tuple[date, date]]:
     if aggregation == "day":
         present = {value.date() for value in dates}
+        sessions = {value.date() for value in expected_session_dates(start, end)}
         return [
             (value.date(), value.date())
             for value in pd.date_range(start, end, freq="D")
-            if value.weekday() < 5 or value.date() in present
+            if value.date() in sessions or value.date() in present
         ]
     frequency = _FREQUENCIES[aggregation]
     buckets = pd.period_range(pd.Timestamp(start), pd.Timestamp(end), freq=frequency)
@@ -461,6 +467,20 @@ def _convert_snapshots(
         "investment_pnl",
     ):
         converted[column] = pd.to_numeric(converted[column], errors="coerce") * converted["_fx_rate"]
+    # Invested capital is a cost basis: each external contribution is translated at
+    # its own date's rate, so the history does not move with FX when nothing was
+    # contributed. The first row in the frame is translated at its own rate.
+    source_capital = pd.to_numeric(snapshots["invested_capital"], errors="coerce").to_numpy(dtype=float)
+    rate_values = pd.to_numeric(converted["_fx_rate"], errors="coerce").to_numpy(dtype=float)
+    capital = [math.nan] * len(converted)
+    for index in range(len(converted)):
+        if not math.isfinite(rate_values[index]) or not math.isfinite(source_capital[index]):
+            continue
+        if index == 0:
+            capital[index] = source_capital[index] * rate_values[index]
+        elif math.isfinite(capital[index - 1]) and math.isfinite(source_capital[index - 1]):
+            capital[index] = capital[index - 1] + (source_capital[index] - source_capital[index - 1]) * rate_values[index]
+    converted["invested_capital"] = capital
     converted["period_return"] = math.nan
     for index in range(1, len(converted)):
         current = converted.iloc[index]
@@ -492,9 +512,15 @@ def _metric_value(
     last = converted_period.iloc[-1]
     if metric in {"portfolio_value", "net_invested_capital", "cash_value"}:
         field = {"portfolio_value": "total_value", "net_invested_capital": "invested_capital", "cash_value": "cash_value"}[metric]
+        last_source = period_rows.iloc[-1]
+        required_status = ("valuation_status", "flow_status") if metric == "net_invested_capital" else ("valuation_status",)
+        if any(str(last_source[column]) != "available" for column in required_status):
+            return None, f"The saved valuation at the period end is unavailable; {field} is not shown."
         return _finite(last[field]), None if _finite(last[field]) is not None else f"Saved {field} is unavailable for the period end."
     if metric == "twr_return" and aggregation == "day":
         daily_return = _finite(converted_period.iloc[-1]["period_return"])
+        if daily_return is not None and daily_return < -1.0:
+            return None, "The saved daily flow-adjusted return is below -100% and invalid."
         return (daily_return, None) if daily_return is not None else (None, "The saved daily flow-adjusted return is unavailable.")
     if metric == "twr_return":
         result = _canonical_twr(converted_period)
@@ -618,7 +644,7 @@ def _complete_period(rows: pd.DataFrame) -> bool:
     if len(rows) < 2 or not rows["valuation_status"].eq("available").all() or not rows["flow_status"].eq("available").all():
         return False
     observed = pd.DatetimeIndex(rows["date"])
-    return pd.bdate_range(observed[0], observed[-1]).difference(observed).empty
+    return expected_session_dates(observed[0], observed[-1]).difference(observed).empty
 
 
 def _quality_reasons(
@@ -628,11 +654,11 @@ def _quality_reasons(
     range_start: date,
     range_end: date,
 ) -> list[str]:
-    """Use the canonical return contract's weekday coverage rule; never fill gaps."""
+    """Use the canonical return contract's exchange-session coverage rule; never fill gaps."""
     reasons: list[str] = []
     expected_start = max(period_start, range_start)
     expected_end = min(period_end, range_end)
-    expected = pd.bdate_range(expected_start, expected_end)
+    expected = expected_session_dates(expected_start, expected_end)
     observed = pd.DatetimeIndex(rows["date"]) if not rows.empty else pd.DatetimeIndex([])
     missing = expected.difference(observed)
     if not missing.empty:
