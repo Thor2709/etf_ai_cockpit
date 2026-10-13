@@ -237,6 +237,21 @@ def test_supersession_is_an_append_only_marker(tmp_path: Path) -> None:
         assert store.as_of("fundamentals", "2026-01-04T00:00:00Z").empty
 
 
+def test_superseding_one_source_never_hides_another_sources_live_row(tmp_path: Path) -> None:
+    with BitemporalStore(tmp_path) as store:
+        _record(store, revision=1, available_at="2026-01-03T10:00:00Z", value="y1", source_id="source:y")
+        x1 = _record(store, revision=1, available_at="2026-01-05T10:00:00Z", value="x1", source_id="source:x")
+        store.record_supersession(
+            x1.observation_id,
+            available_at="2026-01-10T10:00:00Z",
+            run_id="run-supersession",
+            replacement_observation_id="replacement-id",
+            reason="x amended",
+        )
+        frame = store.as_of("fundamentals", "2026-01-12T10:00:00Z")
+        assert list(frame["value"]) == [{"value": "y1"}]
+
+
 def test_ambiguous_availability_and_naive_timestamps_fail_closed(tmp_path: Path) -> None:
     with BitemporalStore(tmp_path) as store:
         with pytest.raises(AmbiguousAvailabilityError):

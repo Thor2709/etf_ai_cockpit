@@ -314,6 +314,9 @@ class BitemporalStore:
                 per_source.pop(revision_key, None)
                 continue
             per_source[revision_key] = row
+        # A superseded marker ends only its own source; it must not compete with
+        # (and hide) another source's live row in the cross-source pick.
+        per_source = {key: row for key, row in per_source.items() if str(row["status"]) == "active"}
         selected: dict[tuple[str, str], Any] = {}
         for (entity, stable, _source), row in per_source.items():
             key = (entity, stable)
