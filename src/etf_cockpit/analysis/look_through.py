@@ -513,6 +513,7 @@ _AGGREGATION_CONVENTIONS = (
 _NEWER_SKIPPED = (
     "Newer holdings snapshots not yet known by the decision time or not matching the requested source were skipped."
 )
+_SEVERAL_SHARE_CLASSES = "Holdings carry several share classes and none was requested; a parent cannot be formed."
 _NO_KNOWN_AT = "Holdings known-at time is unavailable; point-in-time availability cannot be established."
 
 
@@ -556,6 +557,10 @@ def _select_holdings(
     frame = _scope_to_parent(holdings, instrument_id, share_class_id)
     if frame.empty:
         return frame, None, source, None, None
+    if not share_class_id and "share_class_id" in frame.columns:
+        classes = {value for value in frame["share_class_id"].map(_clean_text) if value}
+        if len(classes) > 1:
+            return frame.iloc[0:0], None, source, _SEVERAL_SHARE_CLASSES, None
     date_column = next((name for name in ("as_of", "as_of_date") if name in frame.columns), None)
     if date_column is None:
         return frame.iloc[0:0], None, source, "The holdings snapshot has no as-of date.", None

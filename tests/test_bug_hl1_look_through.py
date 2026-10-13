@@ -437,3 +437,17 @@ def test_d104_direct_and_look_through_rows_are_not_double_counted() -> None:
     security = next(item for item in cube.dimensions if item.dimension == "security")
     apple = next(segment for segment in security.segments if segment.bucket == f"isin:{APPLE}")
     assert apple.percentage == pytest.approx(100.0)
+
+
+def test_a111_n001_several_share_classes_fail_closed_unless_one_is_requested() -> None:
+    rows = [
+        _holding("Apple", APPLE, 0.5, "apple", share_class_id="CLASS-A"),
+        _holding("Microsoft", MICROSOFT, 0.5, "microsoft", share_class_id="CLASS-B"),
+    ]
+    ambiguous = _run(rows)
+    assert ambiguous.status == "unavailable"
+    assert not ambiguous.exposures["issuer"]
+    assert any("share class" in warning for warning in ambiguous.limitations)
+    scoped = _run(rows, share_class_id="CLASS-A")
+    assert scoped.reported_total_weight == pytest.approx(0.5)
+    assert set(scoped.exposures["issuer"]) == {"apple"}

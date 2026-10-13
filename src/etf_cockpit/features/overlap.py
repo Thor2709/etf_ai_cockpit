@@ -220,11 +220,9 @@ def _select_snapshot(
     dates = pd.to_datetime(rows[date_column], errors="coerce", utc=True)
     cutoff = known_at or datetime.combine(today, time.max, tzinfo=timezone.utc)
     known_column = next((name for name in ("known_at", "available_at") if name in rows.columns), None)
-    availability = (
-        pd.to_datetime(rows[known_column], errors="coerce", utc=True)
-        if known_column
-        else dates
-    )
+    if known_column is None:
+        return _missing(instrument_id, "Holdings known-at time is unavailable.")
+    availability = pd.to_datetime(rows[known_column], errors="coerce", utc=True)
     # as_of <= known_at <= decision time; a holding known before its own as-of date is invalid.
     valid = (
         dates.notna()
