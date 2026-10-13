@@ -16,6 +16,7 @@ def _summary(tier: str) -> dict:
         "schema_version": "validation-summary.v1",
         "base_sha": "a" * 40,
         "head_sha": "b" * 40,
+        "tested_sha": "b" * 40,
         "tier": tier,
         "package_gate_required": package,
         "reason": ["protected-control"] if package else ["exact-evidence"],
@@ -73,6 +74,32 @@ def _summary(tier: str) -> dict:
 def test_e_and_h_terminal_summary_fixtures() -> None:
     assert validate_summary(_summary("E")) == []
     assert validate_summary(_summary("H")) == []
+
+
+def _with_shard_sha(report: dict, sha: str) -> dict:
+    for record in report["platform_shards"].values():
+        record["head_sha"] = [sha]
+    return report
+
+
+def test_shard_evidence_is_anchored_to_the_tested_merge_sha() -> None:
+    merge = "9" * 40
+    pull_request = _with_shard_sha(_summary("H"), merge)  # pull_request: github.sha is the merge commit
+    pull_request["tested_sha"] = merge
+    assert pull_request["head_sha"] != pull_request["tested_sha"]
+    assert validate_summary(pull_request) == []
+
+    mismatched = _with_shard_sha(copy.deepcopy(pull_request), "8" * 40)
+    assert any("exact tested SHA" in error for error in validate_summary(mismatched))
+    head_only = _with_shard_sha(copy.deepcopy(pull_request), pull_request["head_sha"])  # PR head is not what ran
+    assert any("exact tested SHA" in error for error in validate_summary(head_only))
+    unanchored = copy.deepcopy(pull_request)
+    unanchored.pop("tested_sha")
+    assert "terminal summary tested_sha is invalid" in validate_summary(unanchored)
+
+    push = _summary("H")  # push: tested_sha == head_sha
+    assert push["tested_sha"] == push["head_sha"]
+    assert validate_summary(push) == []
 
 
 def test_terminal_summary_rejects_missing_and_forged_artifacts() -> None:
