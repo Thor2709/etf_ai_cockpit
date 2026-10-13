@@ -12,6 +12,8 @@ from pathlib import Path
 import sqlite3
 from typing import Mapping
 
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from etf_cockpit.data.local_storage import connect_local_database
 from etf_cockpit.core.config import SettlementConfig, load_settlement_config
 from etf_cockpit.trading.cash_reservation import (
@@ -20,7 +22,6 @@ from etf_cockpit.trading.cash_reservation import (
     CashReservationService,
     CashSource,
     decimal_value,
-    projected_fill_ids,
 )
 
 
@@ -98,6 +99,24 @@ ALLOWED_TRANSITIONS: Mapping[OrderState, frozenset[OrderState]] = {
     OrderState.REJECTED: frozenset(),
 }
 
+# Fill states are reachable only through record_fill / reconcile, which carry the cash accounting.
+FILL_STATES = frozenset({OrderState.PARTIALLY_FILLED, OrderState.FILLED})
+ACCOUNTING_EVENT_TYPES = frozenset({"fill", "reconciled"})
+
+# Exchange-local time zones for known venues. Unmapped or unavailable zones fail closed.
+DEFAULT_VENUE_TIMEZONES: Mapping[str, str] = {
+    "xetra": "Europe/Berlin",
+    "euronext": "Europe/Paris",
+    "euronext paris": "Europe/Paris",
+    "borsa italiana": "Europe/Rome",
+    "oslo børs": "Europe/Oslo",
+    "ose": "Europe/Oslo",
+    "lse": "Europe/London",
+    "us": "America/New_York",
+    "nyse": "America/New_York",
+    "nasdaq": "America/New_York",
+}
+
 RECONCILIATION_ALLOWED_TARGETS = frozenset(
     {
         OrderState.ACKNOWLEDGED,
@@ -149,7 +168,12 @@ class OrderLifecycle:
         cash_source: CashSource,
         *,
         settlement: SettlementConfig | None = None,
+        venue_timezones: Mapping[str, str] | None = None,
     ) -> None:
+        self.venue_timezones = {
+            name.strip().casefold(): zone
+            for name, zone in (DEFAULT_VENUE_TIMEZONES if venue_timezones is None else venue_timezones).items()
+        }
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.cash_source = cash_source
@@ -247,8 +271,7 @@ class OrderLifecycle:
         instant = self._timestamp(occurred_at)
         clean_venue = self._optional_text(venue)
         clean_type = self._optional_text(instrument_type)
-        settle_on = self.settlement.settlement_date(clean_venue, clean_type, instant.date())
-        warning = None if settle_on is not None else "No settlement rule is available; unsettled sale proceeds remain locked until reconciled."
+        settle_on, warning = self._settlement_at(clean_venue, clean_type, instant)
 
         connection = self._connect()
         try:
@@ -373,6 +396,10 @@ class OrderLifecycle:
         instant = self._timestamp(occurred_at)
         event_payload = dict(payload or {})
         event_payload.setdefault("execution_allowed", False)
+        if target in FILL_STATES or (event_type or "").strip().lower() in ACCOUNTING_EVENT_TYPES:
+            raise OrderTransitionError(
+                "Fill states and fill events are recorded only by record_fill or reconcile, which carry the cash accounting."
+            )
         if target is OrderState.UNKNOWN:
             reason = event_payload.get("reason")
             return self.mark_unknown(
@@ -495,12 +522,37 @@ class OrderLifecycle:
             connection.execute("BEGIN IMMEDIATE")
             row = self._order_row(connection, order_id)
             current = OrderState(row[9])
+            existing = self._existing_event(connection, order_id, key)
+            if existing is not None:
+                self._validate_reconcile_retry(
+                    existing,
+                    target=target,
+                    reason=detail,
+                    remaining_quantity=remaining_quantity,
+                    fill_id=fill_id,
+                    fill_quantity=fill_quantity,
+                    fill_price=fill_price,
+                    fill_fee=fill_fee,
+                    fill_fx_rate=fill_fx_rate,
+                    fill_cash_change=fill_cash_change,
+                )
+                connection.commit()
+                return existing
             if current is not OrderState.RECONCILIATION_REQUIRED:
                 raise OrderTransitionError("Only a reconciliation-required order can be reconciled.")
             if target not in RECONCILIATION_ALLOWED_TARGETS:
                 raise OrderTransitionError(f"Cannot reconcile an order to {target.value}.")
             event_payload: dict[str, object] = {"reason": detail, "execution_allowed": False}
-            if target in {OrderState.PARTIALLY_FILLED, OrderState.FILLED}:
+            committed_fill = Decimal(str(row[6])) < Decimal(str(row[5]))
+            if target is OrderState.REJECTED and committed_fill:
+                target = OrderState.PARTIALLY_FILLED if Decimal(str(row[6])) > 0 else OrderState.FILLED
+                event_payload.update({
+                    "requested_state": OrderState.REJECTED.value,
+                    "filled_quantity": str(Decimal(str(row[5])) - Decimal(str(row[6]))),
+                    "remaining_quantity": str(row[6]),
+                    "partial_fill_committed": True,
+                })
+            elif target in FILL_STATES:
                 prior_remaining = decimal_value(row[6], "remaining_quantity", positive=True)
                 if target is OrderState.PARTIALLY_FILLED:
                     if remaining_quantity is None:
@@ -508,6 +560,8 @@ class OrderLifecycle:
                     remaining = decimal_value(remaining_quantity, "remaining_quantity", non_negative=True)
                     if remaining >= prior_remaining:
                         raise OrderLifecycleError("A partially filled reconciliation must reduce the remaining quantity.")
+                    if remaining == 0:
+                        target = OrderState.FILLED
                 else:
                     remaining = Decimal("0")
                 expected_fill_quantity = prior_remaining - remaining
@@ -526,7 +580,7 @@ class OrderLifecycle:
                 expected_cash_change = -(gross + fee) if side == "buy" else gross - fee
                 if cash_change != expected_cash_change:
                     raise OrderLifecycleError("Reconciled cash evidence does not match the fill terms.")
-                settlement = self.settlement.settlement_date(row[10], row[11], instant.date())
+                settlement, warning = self._settlement_at(row[10], row[11], instant)
                 self.reservations.record_fill(
                     connection,
                     order_id=order_id,
@@ -538,6 +592,13 @@ class OrderLifecycle:
                     currency=str(row[3]),
                     settlement_date=settlement,
                 )
+                self._require_post_fill_buying_power(
+                    connection,
+                    row=row,
+                    fill_id=identifier,
+                    instant=instant,
+                )
+                self._refresh_settlement(connection, order_id, settlement, warning)
                 connection.execute(
                     "UPDATE order_intents SET remaining_quantity = ? WHERE order_id = ?",
                     (str(remaining), order_id),
@@ -553,6 +614,12 @@ class OrderLifecycle:
                 })
             elif target in {OrderState.CANCELLED, OrderState.REJECTED}:
                 self.reservations.release(connection, order_id)
+                if committed_fill:
+                    event_payload.update({
+                        "filled_quantity": str(Decimal(str(row[5])) - Decimal(str(row[6]))),
+                        "remaining_quantity": str(row[6]),
+                        "partial_fill_committed": True,
+                    })
             event = self._append_event(
                 connection,
                 order_id=order_id,
@@ -627,9 +694,7 @@ class OrderLifecycle:
                 cash_delta = -cash_delta
             else:
                 cash_delta = filled * fill_price * multiplier - fill_fee
-            settlement = self.settlement.settlement_date(
-                row[10], row[11], instant.date()
-            )
+            settlement, warning = self._settlement_at(row[10], row[11], instant)
             self.reservations.record_fill(
                 connection,
                 order_id=order_id,
@@ -641,23 +706,13 @@ class OrderLifecycle:
                 currency=str(row[3]),
                 settlement_date=settlement,
             )
-            available_after_fill = self.reservations.available_buying_power(
+            self._require_post_fill_buying_power(
                 connection,
-                account_id=str(row[2]),
-                currency=str(row[3]),
-                cash_source=self.cash_source,
-                as_of=instant,
+                row=row,
+                fill_id=identifier,
+                instant=instant,
             )
-            # The fill being recorded is not yet in a per-fill source's balance, so its buy debit is
-            # already subtracted; a boolean source needs it applied explicitly.
-            if projected_fill_ids(
-                self.cash_source, account_id=str(row[2]), as_of=instant
-            ) is None and bool(getattr(self.cash_source, "cash_includes_unsettled_trades", False)):
-                available_after_fill -= max(Decimal("0"), -cash_delta)
-            if available_after_fill < 0:
-                raise OrderLifecycleError(
-                    "The fill would consume cash reserved for another open order."
-                )
+            self._refresh_settlement(connection, order_id, settlement, warning)
             self._append_event(
                 connection,
                 order_id=order_id,
@@ -754,6 +809,106 @@ class OrderLifecycle:
         finally:
             connection.close()
 
+    def _require_post_fill_buying_power(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        row: tuple[object, ...],
+        fill_id: str,
+        instant: datetime,
+    ) -> None:
+        """Fail the fill when it would consume cash reserved for another order or exceed the cash source."""
+
+        available_after_fill = self.reservations.available_buying_power(
+            connection,
+            account_id=str(row[2]),
+            currency=str(row[3]),
+            cash_source=self.cash_source,
+            as_of=instant,
+            in_flight_fill_ids=frozenset({fill_id}),
+        )
+        if available_after_fill < 0:
+            raise OrderLifecycleError(
+                "The fill would consume cash reserved for another open order."
+            )
+
+    def _refresh_settlement(
+        self, connection: sqlite3.Connection, order_id: str, settlement: date | None, warning: str | None,
+    ) -> None:
+        """Keep the intent's settlement date equal to the one the latest fill commitment uses."""
+
+        connection.execute(
+            "UPDATE order_intents SET settlement_date = ?, settlement_warning = ? WHERE order_id = ?",
+            (None if settlement is None else settlement.isoformat(), warning, order_id),
+        )
+
+    def _settlement_at(self, venue: object, instrument_type: object, instant: datetime) -> tuple[date | None, str | None]:
+        trade_date = self._trade_date(venue, instant)
+        if trade_date is None:
+            return None, f"Settlement unavailable: verified exchange time zone for venue {venue!r} is unavailable."
+        settlement = self.settlement.settlement_date(venue, instrument_type, trade_date)
+        warning = None if settlement is not None else (
+            "No settlement rule is available; unsettled sale proceeds remain locked until reconciled."
+        )
+        return settlement, warning
+
+    def _trade_date(self, venue: object, instant: datetime) -> date | None:
+        """Return an exchange-local date only when the configured time zone can be verified."""
+
+        zone_name = self.venue_timezones.get(str(venue).strip().casefold()) if venue else None
+        if zone_name is None:
+            return None
+        try:
+            return instant.astimezone(ZoneInfo(zone_name)).date()
+        except (ZoneInfoNotFoundError, ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _validate_reconcile_retry(
+        existing: OrderLifecycleEvent,
+        *,
+        target: OrderState,
+        reason: str,
+        remaining_quantity: object | None,
+        fill_id: str | None,
+        fill_quantity: object | None,
+        fill_price: object | None,
+        fill_fee: object | None,
+        fill_fx_rate: object | None,
+        fill_cash_change: object | None,
+    ) -> None:
+        """Accept an exact retry of a committed reconciliation; any difference is an idempotency conflict."""
+
+        payload = existing.payload
+        same = existing.event_type == "reconciled" and payload.get("reason") == reason
+        if same and payload.get("requested_state") == OrderState.REJECTED.value:
+            same = target is OrderState.REJECTED and existing.state in FILL_STATES
+        elif same and target in FILL_STATES:
+            expected = {
+                "fill_id": fill_id,
+                "fill_quantity": fill_quantity,
+                "fill_price": fill_price,
+                "fill_fee": fill_fee,
+                "fill_fx_rate": fill_fx_rate,
+                "fill_cash_change": fill_cash_change,
+            }
+            for name, value in expected.items():
+                if value is None or name not in payload:
+                    same = False
+                elif name == "fill_id":
+                    same = same and str(payload[name]) == str(value).strip()
+                else:
+                    same = same and decimal_value(payload[name], name) == decimal_value(value, name)
+            if target is OrderState.PARTIALLY_FILLED and remaining_quantity is not None:
+                same = same and decimal_value(payload.get("remaining_quantity"), "remaining_quantity") == decimal_value(
+                    remaining_quantity, "remaining_quantity"
+                )
+            same = same and existing.state in {target, OrderState.FILLED}
+        else:
+            same = same and existing.state is target
+        if not same:
+            raise IdempotencyConflict("An event idempotency key was reused with different event data.")
+
     def _transition_in_transaction(
         self,
         connection: sqlite3.Connection,
@@ -802,6 +957,7 @@ class OrderLifecycle:
         occurred_at: datetime,
     ) -> OrderLifecycleEvent:
         event_id = hashlib.sha256(f"{order_id}\0{event_key}".encode("utf-8")).hexdigest()
+        self._require_monotonic(connection, order_id, occurred_at)
         body = dict(payload)
         body["execution_allowed"] = False
         payload_json = json.dumps(body, sort_keys=True, separators=(",", ":"), default=str)
@@ -814,6 +970,26 @@ class OrderLifecycle:
             (event_id, order_id, prior_state.value, state.value, event_type, occurred_at.isoformat(), payload_json),
         )
         return OrderLifecycleEvent(event_id, order_id, prior_state, state, event_type, occurred_at, body)
+
+    @staticmethod
+    def _require_monotonic(connection: sqlite3.Connection, order_id: str, occurred_at: datetime) -> None:
+        """Order events must not predate the order or its previous event."""
+
+        floor_rows = connection.execute(
+            """
+            SELECT created_at FROM order_intents WHERE order_id = ?
+            UNION ALL
+            SELECT occurred_at FROM (
+                SELECT occurred_at FROM order_lifecycle_events WHERE order_id = ? ORDER BY sequence DESC LIMIT 1
+            )
+            """,
+            (order_id, order_id),
+        ).fetchall()
+        for (stored,) in floor_rows:
+            if datetime.fromisoformat(str(stored)) > occurred_at:
+                raise OrderLifecycleError(
+                    "An order event cannot be dated before the order's creation or its previous event."
+                )
 
     def _existing_event(self, connection: sqlite3.Connection, order_id: str, event_key: str) -> OrderLifecycleEvent | None:
         event_id = hashlib.sha256(f"{order_id}\0{event_key}".encode("utf-8")).hexdigest()

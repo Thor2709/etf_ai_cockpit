@@ -1,10 +1,11 @@
 {
- "notes": "Every file the pinned pipeline persists under data/ (excluding atomic-write guards and the tracked .schema_versions): CSV -> header columns + row count; parquet -> arrow schema + row count; JSON -> key structure (types, list lengths) with the values of schema/version/contract/execution_allowed keys; run manifests -> (artifact_id, kind, version) dependency tuples and run-id pattern; plus the forecast CSV frame digest and the per-model/status counts (baseline ok; TimesFM and Toto unavailable because no weights exist). Excluded fields are listed under excluded_fields (digests masked, timestamps, absolute paths). The score run manifest file name embeds a clock-derived stamp and is normalised to score_<stamp>_<8hex>.json. Defaults chosen: structure-level (not value-level) comparison for JSON sidecars and manifests.",
+ "notes": "Every file the pinned pipeline persists under data/ (excluding atomic-write guards and the tracked .schema_versions): CSV -> header columns + row count; parquet -> arrow schema + row count; JSON -> key structure (types, list lengths) with the values of schema/version/contract/execution_allowed keys; run manifests -> (artifact_id, kind, version) dependency tuples and run-id pattern; plus the forecast CSV frame digest and the per-model/status counts (baseline ok; TimesFM and Toto unavailable because no weights exist). Excluded fields are listed under excluded_fields (digests masked, timestamps, absolute paths). The score run manifest file name embeds a clock-derived stamp and is normalised to score_<stamp>_<8hex>.json. The price digest in feature manifest filenames is normalised to _p<12hex>; dates and settings hashes are kept. Defaults chosen: structure-level (not value-level) comparison for JSON sidecars and manifests.",
  "excluded_fields": {
   "digests": "every 64-hex sha256 value (payload_sha256, *_checksum, *_hash, content_hash, signatures) is masked: float text feeding them is not bit-stable across platforms",
   "timestamps": "ingested_at / created_at / signal_timestamp values and any run id derived from the clock",
   "paths": "absolute paths (isolated root differs per run)",
-  "hashes_in_run_id": "the __s<12 hex> settings suffix of run ids is kept: it is derived from committed config only"
+  "hashes_in_run_id": "the __s<12 hex> settings suffix of run ids is kept: it is derived from committed config only",
+  "feature_price_digest": "the _p<12 hex> price-binding digest in feature manifest filenames is masked: price float text is not bit-stable across platforms; dates and settings suffixes are kept"
  },
  "files": {
   "data/backtests/backtest_metadata.json": {
@@ -1213,7 +1214,7 @@
    ],
    "run_id_pattern": "backtest__s<12hex>"
   },
-  "data/derived/run_manifests/features_2026-09-30_p50feb083c593__s2e451e324e57.json": {
+  "data/derived/run_manifests/features_2026-09-30_p<12hex>__s2e451e324e57.json": {
    "kind": "json",
    "structure": {
     "dataset_bindings": {

@@ -64,5 +64,5 @@ def test_s2_07_unheld_instruments_do_not_dilute_factor_exposure() -> None:
     factor_returns = pd.DataFrame({"date": dates, "factor": "momentum", "factor_return": 0.01})
     exposures = pd.DataFrame({"momentum": [2.0, -2.0]}, index=["A", "B"])
     result = _factor_attribution(daily, daily["wealth"], factor_returns, exposures, pd.Series({"A": 1.0}))
-    # Held A only: exposure 2.0 x 0.01 x wealth 1.0 over the 3 days with a prior wealth observation.
-    assert np.isclose(float(result.loc[0, "contribution"]), 3 * 0.01 * 2.0)
+    # Held A only: exposure 2.0 x 0.01 x unit starting wealth 1.0 over all 4 days (issue #967 D007-N002 keeps day one).
+    assert np.isclose(float(result.loc[0, "contribution"]), 4 * 0.01 * 2.0)
