@@ -24,7 +24,7 @@ from etf_cockpit.models.calibration import (
 )
 from etf_cockpit.application.snapshot_builder import CockpitSnapshot
 from etf_cockpit.signals.simple_scores import (
-    build_simple_instrument_scores,
+    build_simple_instrument_scores as build_simple_instrument_scores,
     load_latest_candidate_report,
     simple_scoreboard_frame,
     write_simple_scoreboard,
@@ -32,6 +32,10 @@ from etf_cockpit.signals.simple_scores import (
 
 
 SCOREBOARD_PUBLICATION_BINDING_ENTITY_TYPE = "scoreboard_publication_binding"
+
+
+class ScoreboardPublicationBindingError(RuntimeError):
+    """The scoreboard was published but its exact score-history binding was not recorded."""
 
 
 def _signal_classification_is_current(signal: object, *, root: Path) -> bool:
@@ -99,9 +103,12 @@ def _write_current_scoreboard(session: ScoreboardSession) -> Path:
                 prices=session.snapshot.prices,
             )
             history_path = paths.get("score_history") if isinstance(paths, dict) else None
-            if not isinstance(history_path, Path) or not history_path.is_file():
-                raise RuntimeError("Score history publication path is unavailable.")
-            _record_scoreboard_publication_binding(path, history_path, scoreboard_frame)
+            try:
+                if not isinstance(history_path, Path) or not history_path.is_file():
+                    raise RuntimeError("Score history publication path is unavailable.")
+                _record_scoreboard_publication_binding(path, history_path, scoreboard_frame)
+            except Exception as binding_exc:
+                raise ScoreboardPublicationBindingError(str(binding_exc)) from binding_exc
     except Exception as exc:
         # The scoreboard itself is published; trust artifacts or their exact
         # publication binding are missing. Keep that absence explicit.

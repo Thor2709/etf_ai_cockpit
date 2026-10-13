@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 import importlib
 import json
@@ -14,7 +14,6 @@ import pytest
 from etf_cockpit.data.local_storage import TransactionalStore
 from etf_cockpit.application import scoreboard_publication
 from etf_cockpit.portfolio import paper_bots
-from etf_cockpit.signals import simple_scores
 
 
 def _time(value: datetime) -> str:
@@ -105,6 +104,7 @@ def _run_fixture(
     cutoff: datetime,
     *,
     config_path: Path | None = None,
+    binding_rows: list[dict[str, object]] | None = None,
 ):
     derived = tmp_path / "data" / "derived"
     derived.mkdir(parents=True, exist_ok=True)
@@ -113,7 +113,7 @@ def _run_fixture(
     scoreboard_path.write_bytes(scoreboard_bytes)
     digest = hashlib.sha256(scoreboard_bytes).hexdigest()
     by_run: dict[tuple[str, str, str], dict[str, object]] = {}
-    for row in history:
+    for row in history if binding_rows is None else binding_rows:
         run_id = str(row["run_id"])
         snapshot_hash = str(row["snapshot_hash"])
         completed_at = str(row["run_completed_at"])
@@ -137,7 +137,7 @@ def _run_fixture(
             )
 
     monkeypatch.setattr(paper_bots, "_load_published_score_history", lambda root: pd.DataFrame(history))
-    monkeypatch.setattr(simple_scores, "project_classification_score_frame", lambda frame, *, root: frame)
+    monkeypatch.setattr(paper_bots, "project_classification_score_frame", lambda frame, *, root: frame)
     return paper_bots.run_paper_bots(
         cutoff,
         root=tmp_path,
@@ -281,7 +281,7 @@ def test_changed_scoreboard_bytes_cannot_reuse_an_older_publication_binding(monk
         changed.to_parquet(index=False)
     )
 
-    result = paper_bots.run_paper_bots(now, root=tmp_path)
+    result = paper_bots.run_paper_bots(now, root=tmp_path, config_path=paper_bots.PAPER_BOTS_CONFIG_PATH)
 
     assert result.status == "unavailable"
     assert all(record["status"] == "unavailable" for record in result.records)
@@ -488,7 +488,7 @@ def test_failed_gate_never_enters_a_top_n_or_candidate_sleeve(monkeypatch, tmp_p
     assert "AAA" not in top_n["targets"]
     assert "BAD" not in top_n["targets"]
     assert top_n["targets"] == {"BBB": 1.0}
-    assert core_sleeve["targets"] == {"VWCE": 0.8, "cash_weight": 0.2}
+    assert core_sleeve["targets"] == {"VWCE": 0.8, "BBB": 0.2}
     assert all(
         skipped["reason"] in {"research_promotion_not_allowed", "candidate_buy_not_present"}
         for record in (top_n, core_sleeve)
@@ -568,41 +568,171 @@ def test_stale_published_snapshot_is_unavailable(monkeypatch, tmp_path: Path) ->
     assert all("stale" in str(record["reason"]).casefold() for record in result.records)
 
 
+def _application_root(tmp_path: Path) -> Path:
+    root = tmp_path / "application-root"
+    (root / "configs").mkdir(parents=True)
+    (root / "configs" / "universe.yaml").write_text("{}", encoding="utf-8")
+    (root / "data").mkdir()
+    return root
+
+
 def test_pipeline_cli_runs_the_recorder_only_after_success(monkeypatch, tmp_path: Path) -> None:
     scripts = Path(__file__).resolve().parents[1] / "scripts"
     monkeypatch.syspath_prepend(str(scripts))
-    monkeypatch.delenv("ETF_COCKPIT_ROOT", raising=False)
+    root = _application_root(tmp_path)
+    monkeypatch.setenv("ETF_COCKPIT_ROOT", str(root))
     cli = importlib.import_module("run_pipeline_cli")
     calls: list[tuple[datetime, Path | None]] = []
     monkeypatch.setattr(
         paper_bots,
         "run_paper_bots",
         lambda as_of, **kwargs: calls.append((as_of, kwargs.get("root")))
-        or SimpleNamespace(status="available", reason=None),
+        or SimpleNamespace(status="available", reason=None, warnings=("older run skipped",)),
     )
 
-    assert cli.run_cli(lambda: 1) == 1
+    assert cli.run_cli(lambda: 1, record_paper_bots=True) == 1
     assert calls == []
-    assert cli.run_cli(lambda: 0) == 0
+    assert cli.run_cli(lambda: 0, record_paper_bots=True) == 0
     assert len(calls) == 1
     assert calls[0][0].tzinfo is not None
-    assert calls[0][1] is None
-
-    explicit_root = tmp_path / "application-root"
-    (explicit_root / "configs").mkdir(parents=True)
-    (explicit_root / "configs" / "universe.yaml").write_text("{}", encoding="utf-8")
-    (explicit_root / "data").mkdir()
-    monkeypatch.setenv("ETF_COCKPIT_ROOT", str(explicit_root))
-    assert cli.run_cli(lambda: 0) == 0
-    assert calls[1][1] == explicit_root.resolve()
+    assert calls[0][1] == root.resolve()
 
 
-def test_pipeline_cli_swallows_recorder_import_failure_after_success(monkeypatch, capsys) -> None:
+def test_other_run_cli_scripts_never_run_the_recorder(monkeypatch, tmp_path: Path) -> None:
     scripts = Path(__file__).resolve().parents[1] / "scripts"
     monkeypatch.syspath_prepend(str(scripts))
-    monkeypatch.delenv("ETF_COCKPIT_ROOT", raising=False)
+    monkeypatch.setenv("ETF_COCKPIT_ROOT", str(_application_root(tmp_path)))
+    cli = importlib.import_module("run_pipeline_cli")
+    calls: list[object] = []
+    monkeypatch.setattr(paper_bots, "run_paper_bots", lambda *args, **kwargs: calls.append(args))
+
+    assert cli.run_cli(lambda: 0) == 0
+    assert calls == []
+    for name in ("run_signals", "run_forecasts", "run_backtest", "run_yfinance_candidate_forecasts"):
+        text = (scripts / f"{name}.py").read_text(encoding="utf-8")
+        assert "record_paper_bots" not in text
+    assert "record_paper_bots=True" in (scripts / "run_yfinance_analysis.py").read_text(encoding="utf-8")
+
+
+def test_pipeline_cli_swallows_recorder_import_failure_after_success(monkeypatch, capsys, tmp_path: Path) -> None:
+    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    monkeypatch.setenv("ETF_COCKPIT_ROOT", str(_application_root(tmp_path)))
     cli = importlib.import_module("run_pipeline_cli")
     monkeypatch.setitem(sys.modules, "etf_cockpit.portfolio.paper_bots", None)
 
-    assert cli.run_cli(lambda: 0) == 0
+    assert cli.run_cli(lambda: 0, record_paper_bots=True) == 0
     assert "Paper bots unavailable: ModuleNotFoundError." in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda rows: [dict(row, run_completed_at="2026-01-01T00:00:00") for row in rows],
+        lambda rows: [dict(row, run_completed_at=None) for row in rows],
+        lambda rows: [dict(row, formula_checksum=None) for row in rows],
+        lambda rows: [dict(row, gate_policy_checksum=None) for row in rows],
+        lambda rows: rows + rows[:1],
+        lambda rows: [dict(row, run_id=None) for row in rows],
+    ],
+    ids=["naive-time", "null-time", "null-checksum", "null-lineage", "duplicate-instrument", "no-run-id"],
+)
+def test_dirty_older_run_does_not_block_the_clean_bound_run(monkeypatch, tmp_path: Path, mutate) -> None:
+    now = datetime.now(timezone.utc)
+    bound_time = now - timedelta(minutes=5)
+    old_rows = mutate(_rows(bound_time - timedelta(days=40), run_id="old-run", snapshot="b"))
+    bound_rows = _rows(bound_time, run_id="bound-run", snapshot="a")
+    board = _scoreboard(bound_rows, bound_time)
+
+    result = _run_fixture(monkeypatch, tmp_path, old_rows + bound_rows, board, now, binding_rows=bound_rows)
+
+    assert result.status == "available"
+    assert result.appended == 3
+    assert all(record["status"] == "available" for record in result.records)
+    assert result.snapshot_hash == "a" * 64
+    assert result.warnings
+
+
+def test_dirty_bound_run_is_unavailable_with_a_reason(monkeypatch, tmp_path: Path) -> None:
+    now = datetime.now(timezone.utc)
+    bound_time = now - timedelta(minutes=5)
+    old_rows = _rows(bound_time - timedelta(days=40), run_id="old-run", snapshot="b")
+    bound_rows = _rows(bound_time, run_id="bound-run", snapshot="a")
+    board = _scoreboard(bound_rows, bound_time)
+    dirty_history = old_rows + [dict(row, run_completed_at=None) for row in bound_rows]
+
+    result = _run_fixture(monkeypatch, tmp_path, dirty_history, board, now, binding_rows=bound_rows)
+
+    assert result.status == "unavailable"
+    assert "bound-run" in str(result.reason)
+    assert "known_at" in str(result.reason)
+    assert all(record["status"] == "unavailable" for record in result.records)
+
+
+def test_real_score_history_read_path_uses_the_configured_location(monkeypatch, tmp_path: Path) -> None:
+    now = datetime.now(timezone.utc)
+    known_at = now - timedelta(minutes=5)
+    rows = _rows(known_at)
+    board = _scoreboard(rows, known_at)
+    derived = tmp_path / "data" / "derived"
+    derived.mkdir(parents=True)
+    history_path = tmp_path / paper_bots.SCORE_HISTORY_PATH.resolve().relative_to(paper_bots.ROOT.resolve())
+    history_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_parquet(history_path, index=False)
+    board_bytes = board.to_parquet(index=False)
+    (derived / "scoreboard.parquet").write_bytes(board_bytes)
+    payload = {
+        "schema_version": "scoreboard_publication_binding.v1",
+        "run_id": "score-run",
+        "score_snapshot_hash": "a" * 64,
+        "score_completed_at": _time(known_at),
+        "known_at": _time(known_at),
+        "scoreboard_sha256": hashlib.sha256(board_bytes).hexdigest(),
+        "execution_allowed": False,
+    }
+    with TransactionalStore(tmp_path) as store:
+        store.put_many([(paper_bots.PUBLICATION_BINDING_ENTITY_TYPE, "binding-1", payload)], immutable=True)
+    monkeypatch.setattr(paper_bots, "project_classification_score_frame", lambda frame, *, root: frame)
+
+    result = paper_bots.run_paper_bots(now, root=tmp_path, config_path=paper_bots.PAPER_BOTS_CONFIG_PATH)
+
+    assert result.status == "available"
+    assert result.snapshot_hash == "a" * 64
+
+
+@pytest.mark.parametrize("value", ["2026-10-13", date(2026, 10, 13)])
+def test_date_only_as_of_is_rejected_with_a_clear_message(tmp_path: Path, value) -> None:
+    result = paper_bots.run_paper_bots(value, root=tmp_path, config_path=paper_bots.PAPER_BOTS_CONFIG_PATH)
+
+    assert result.status == "unavailable"
+    assert result.appended == 0
+    assert "date-only" in str(result.reason)
+
+
+def test_add_candidate_action_maps_to_the_candidate_buy_sleeve(monkeypatch, tmp_path: Path) -> None:
+    now = datetime.now(timezone.utc)
+    known_at = now - timedelta(minutes=5)
+    rows = _rows(known_at)
+    board = _scoreboard(rows, known_at)
+
+    result = _run_fixture(monkeypatch, tmp_path, rows, board, now)
+
+    sleeve = next(record for record in result.records if record["bot_family"] == "B2")
+    assert sleeve["status"] == "available"
+    assert sleeve["targets"] == pytest.approx({"VWCE": 0.8, "AAA": 0.1, "BBB": 0.1})
+    assert "cash_weight" not in sleeve["targets"]
+
+
+def test_top_n_with_fewer_eligible_is_equal_weight_with_a_recorded_reason(monkeypatch, tmp_path: Path) -> None:
+    now = datetime.now(timezone.utc)
+    known_at = now - timedelta(minutes=5)
+    rows = _rows(known_at)
+    board = _scoreboard(rows, known_at)
+
+    result = _run_fixture(monkeypatch, tmp_path, rows, board, now)
+
+    top_n = next(record for record in result.records if record["bot_family"] == "B1")
+    assert top_n["targets"] == pytest.approx({"AAA": 0.5, "BBB": 0.5})
+    assert "fewer_than_top_n_eligible" in str(top_n["reason"])
+    benchmark = next(record for record in result.records if record["bot_family"] == "B0")
+    assert benchmark["reason"] is None

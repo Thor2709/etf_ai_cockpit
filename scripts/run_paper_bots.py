@@ -18,13 +18,15 @@ from etf_cockpit.portfolio.paper_bots import run_paper_bots  # noqa: E402
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Record this month's published paper bot decisions.")
-    parser.add_argument("--as-of", help="Timezone-aware ISO-8601 cutoff; defaults to current UTC time.")
+    parser.add_argument("--as-of", help="Timezone-aware ISO-8601 date and time (a date alone is rejected); defaults to current UTC time.")
     args = parser.parse_args(argv)
     as_of = args.as_of or datetime.now(timezone.utc)
     result = run_paper_bots(as_of)
     print(f"Paper bots {result.status}: as_of={result.as_of or 'unavailable'} appended={result.appended}")
     if result.reason:
         print(result.reason)
+    for warning in result.warnings:
+        print(f"Warning: {warning}")
     for record in result.records:
         print(
             f"{record.get('bot_family', 'unknown')} {record.get('bot_id', 'unavailable')}: "

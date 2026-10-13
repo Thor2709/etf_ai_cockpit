@@ -7,12 +7,13 @@ score-history publication. It never creates proposals, orders, fills or marks.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import hashlib
+from io import BytesIO
 import json
 import math
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Collection, Mapping
 
 import pandas as pd
 import yaml
@@ -23,9 +24,12 @@ from etf_cockpit.data.local_storage import (
     StorageSchemaError,
     TransactionalStore,
 )
-from etf_cockpit.signals.simple_scores import load_simple_scoreboard
+from etf_cockpit.data.score_history import project_classification_score_frame
+from etf_cockpit.data.trust_artifacts import SCORE_HISTORY_PATH
 
 
+# DEFAULTS: the history location is the configured trust-artifact path, relocated under the recorder root.
+_SCORE_HISTORY_RELATIVE_PATH = SCORE_HISTORY_PATH.resolve().relative_to(ROOT.resolve())
 PAPER_BOTS_CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "paper_bots_v1.yaml"
 DECISION_ENTITY_TYPE = "paper_bot_decision"
 MONTH_SLOT_ENTITY_TYPE = "paper_bot_month_slot"
@@ -35,6 +39,11 @@ EXECUTION_ALLOWED = False
 NETWORK_ACCESS_ALLOWED = False
 _UNAVAILABLE_TEXT = {"", "none", "null", "nan", "unavailable", "unknown"}
 _ACCEPTED_FRESHNESS = {"ok", "fresh"}
+# DEFAULTS: the scoreboard legacy action "add_candidate" is the sleeve action CANDIDATE_BUY.
+_LEGACY_ACTION_TO_SLEEVE_ACTION = {"add_candidate": "CANDIDATE_BUY"}
+_MAX_REPORTED_WARNINGS = 10
+# DEFAULTS: a date-only as_of is rejected; no implicit time of day is assumed.
+_DATE_ONLY_MESSAGE = "as_of must be a timezone-aware date and time; a date-only value is not accepted"
 
 
 @dataclass(frozen=True)
@@ -45,6 +54,7 @@ class PaperBotRunResult:
     records: tuple[dict[str, Any], ...]
     reason: str | None = None
     appended: int = 0
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -97,6 +107,27 @@ def run_paper_bots(
 
     config_hash = hashlib.sha256(config_bytes).hexdigest()
     month = cutoff.strftime("%Y-%m")
+
+    scoreboard_path = project_root / "data" / "derived" / "scoreboard.parquet"
+    scoreboard_digest = None
+    try:
+        scoreboard_bytes = scoreboard_path.read_bytes()
+        scoreboard_digest = hashlib.sha256(scoreboard_bytes).hexdigest()
+        scoreboard = project_classification_score_frame(
+            pd.read_parquet(BytesIO(scoreboard_bytes)), root=project_root
+        )
+        if not isinstance(scoreboard, pd.DataFrame):
+            scoreboard = pd.DataFrame()
+    except Exception:
+        scoreboard = pd.DataFrame()
+
+    try:
+        with TransactionalStore(project_root, read_only=True) as binding_store:
+            bindings = tuple(record.payload for record in binding_store.list(PUBLICATION_BINDING_ENTITY_TYPE))
+    except Exception:
+        bindings = ()
+    publications = _bound_publications(bindings, scoreboard_digest, cutoff)
+
     try:
         history = _load_published_score_history(project_root)
     except Exception as exc:
@@ -110,31 +141,15 @@ def run_paper_bots(
         )
 
     try:
-        groups, group_error = _published_groups(history, cutoff)
-    except (TypeError, ValueError, KeyError) as exc:
-        groups, group_error = (), f"Published score history is unverifiable: {type(exc).__name__}."
-    if group_error:
-        return _persist_unavailable(project_root, cutoff, month, config, config_hash, group_error)
-
-    scoreboard_path = project_root / "data" / "derived" / "scoreboard.parquet"
-    scoreboard_digest = None
-    try:
-        scoreboard_bytes = scoreboard_path.read_bytes()
-        scoreboard_digest = hashlib.sha256(scoreboard_bytes).hexdigest()
-        scoreboard = load_simple_scoreboard(
-            scoreboard_path, root=project_root, scoreboard_bytes=scoreboard_bytes
+        groups, group_error, warnings = _published_groups(
+            history, cutoff, {run_id for run_id, _snapshot_hash in publications}
         )
-        if not isinstance(scoreboard, pd.DataFrame):
-            scoreboard = pd.DataFrame()
-    except Exception:
-        scoreboard = pd.DataFrame()
+    except (TypeError, ValueError, KeyError) as exc:
+        groups, group_error, warnings = (), f"Published score history is unverifiable: {type(exc).__name__}.", ()
+    if group_error:
+        return _persist_unavailable(project_root, cutoff, month, config, config_hash, group_error, warnings)
 
-    try:
-        with TransactionalStore(project_root, read_only=True) as binding_store:
-            bindings = tuple(record.payload for record in binding_store.list(PUBLICATION_BINDING_ENTITY_TYPE))
-    except Exception:
-        bindings = ()
-    groups = _bind_publication_groups(groups, bindings, scoreboard_digest, cutoff)
+    groups = _bind_publication_groups(groups, publications)
     current_month_groups = [group for group in groups if group.known_at.strftime("%Y-%m") == month]
     if not current_month_groups:
         return _persist_unavailable(
@@ -144,6 +159,7 @@ def run_paper_bots(
             config,
             config_hash,
             "No scoreboard publication with matching immutable bytes is known in the current UTC month.",
+            warnings,
         )
 
     try:
@@ -385,7 +401,9 @@ def run_paper_bots(
                 if status == "partial"
                 else "No bot decision could be recorded from a verified published snapshot."
             )
-            return PaperBotRunResult(status, _time_text(cutoff), result_snapshot, tuple(results), reason, appended)
+            return PaperBotRunResult(
+                status, _time_text(cutoff), result_snapshot, tuple(results), reason, appended, warnings
+            )
     except (OSError, ValueError, KeyError, StorageSchemaError, StorageRevisionConflict) as exc:
         return PaperBotRunResult(
             "unavailable",
@@ -393,6 +411,7 @@ def run_paper_bots(
             None,
             (),
             f"Paper bot recorder unavailable: {type(exc).__name__}.",
+            warnings=warnings,
         )
 
 
@@ -452,21 +471,22 @@ def _load_config(path: Path) -> tuple[bytes, dict[str, Any]]:
 def _load_published_score_history(root: Path) -> pd.DataFrame:
     """Read the persisted publication without projecting later classifications onto it."""
 
-    path = root / "data" / "derived" / "score_history.parquet"
+    path = root / _SCORE_HISTORY_RELATIVE_PATH
     if not path.is_file():
         return pd.DataFrame()
     return pd.read_parquet(path)
 
 
-def _bind_publication_groups(
-    groups: tuple[_PublishedGroup, ...],
+def _bound_publications(
     bindings: tuple[Mapping[str, Any], ...],
     scoreboard_digest: str | None,
     cutoff: datetime,
-) -> tuple[_PublishedGroup, ...]:
-    if scoreboard_digest is None:
-        return ()
+) -> dict[tuple[str, str], list[tuple[datetime, datetime]]]:
+    """Index the immutable bindings that name the current scoreboard bytes."""
+
     by_publication: dict[tuple[str, str], list[tuple[datetime, datetime]]] = {}
+    if scoreboard_digest is None:
+        return by_publication
     for binding in bindings:
         if (
             binding.get("schema_version") != "scoreboard_publication_binding.v1"
@@ -488,7 +508,13 @@ def _bind_publication_groups(
         ):
             continue
         by_publication.setdefault((run_id, snapshot_hash), []).append((published_at, score_completed_at))
+    return by_publication
 
+
+def _bind_publication_groups(
+    groups: tuple[_PublishedGroup, ...],
+    by_publication: Mapping[tuple[str, str], list[tuple[datetime, datetime]]],
+) -> tuple[_PublishedGroup, ...]:
     verified: list[_PublishedGroup] = []
     for group in groups:
         publication_times = [
@@ -502,68 +528,104 @@ def _bind_publication_groups(
     return tuple(sorted(verified, key=lambda item: (item.known_at, item.run_id, item.score_version, item.lineage_hash)))
 
 
-def _published_groups(history: pd.DataFrame, cutoff: datetime) -> tuple[tuple[_PublishedGroup, ...], str | None]:
-    if not isinstance(history, pd.DataFrame) or history.empty:
-        return (), None
+def _published_groups(
+    history: pd.DataFrame,
+    cutoff: datetime,
+    bound_run_ids: Collection[str],
+) -> tuple[tuple[_PublishedGroup, ...], str | None, tuple[str, ...]]:
+    """Validate the score-history runs bound to the current scoreboard.
+
+    A bound run that cannot be verified fails closed. Anomalies in any other run
+    are reported as warnings and that run is skipped.
+    """
+
+    if not isinstance(history, pd.DataFrame) or history.empty or not bound_run_ids:
+        return (), None, ()
     required = {"run_id", "run_completed_at", "snapshot_hash", "instrument_id", "formula_version", "formula_checksum"}
     if not required.issubset(set(history.columns)):
-        return (), "Published score history is missing required snapshot lineage fields."
+        return (), "Published score history is missing required snapshot lineage fields.", ()
 
-    rows = history.to_dict(orient="records")
+    warnings: list[str] = []
     grouped: dict[str, list[dict[str, Any]]] = {}
-    for raw in rows:
+    unidentified = 0
+    for raw in history.to_dict(orient="records"):
         run_id = _real_text(raw.get("run_id"))
         if run_id is None:
-            return (), "Published score history contains a row with no run identity."
-        known_at = _parse_timestamp(raw.get("run_completed_at"))
-        if known_at is None:
-            return (), "Published score history contains a row with unverifiable known_at."
-        if known_at > cutoff:
+            unidentified += 1
             continue
-        prepared = dict(raw)
-        prepared["_known_at"] = known_at
-        grouped.setdefault(run_id, []).append(prepared)
+        grouped.setdefault(run_id, []).append(raw)
+    if unidentified:
+        warnings.append(f"Skipped {unidentified} score-history rows with no run identity.")
 
     output: list[_PublishedGroup] = []
     for run_id, run_rows in grouped.items():
-        instrument_ids = [_real_text(row.get("instrument_id")) for row in run_rows]
-        if None in instrument_ids or len(set(instrument_ids)) != len(instrument_ids):
-            return (), f"Published score run {run_id} has missing or duplicate instrument identities."
-        known_times = {row["_known_at"] for row in run_rows}
-        hashes = {_real_text(row.get("snapshot_hash")) for row in run_rows}
-        if len(known_times) != 1 or len(hashes) != 1 or None in hashes:
-            return (), f"Published score run {run_id} has conflicting time or snapshot hash."
-        snapshot_hash = next(iter(hashes))
-        if not _is_sha256(snapshot_hash):
-            return (), f"Published score run {run_id} has an invalid snapshot hash."
-        by_version: dict[str, list[dict[str, Any]]] = {}
-        for row in run_rows:
-            version = _real_text(row.get("formula_version"))
-            checksum = _real_text(row.get("formula_checksum"))
-            if version is None or checksum is None or not _is_sha256(checksum):
-                return (), f"Published score run {run_id} has unverifiable formula lineage."
-            by_version.setdefault(version, []).append(row)
-        if len(by_version) != 1:
-            return (), f"Published score run {run_id} has conflicting formula versions."
-        for version, version_rows in by_version.items():
-            lineage_material = _lineage_material(version_rows)
-            if lineage_material is None:
-                return (), f"Published score run {run_id} has incomplete lineage evidence."
-            lineage_hash = _sha256_json(lineage_material)
-            output.append(
-                _PublishedGroup(
-                    run_id=run_id,
-                    known_at=next(iter(known_times)),
-                    score_completed_at=next(iter(known_times)),
-                    snapshot_hash=snapshot_hash,
-                    score_version=version,
-                    lineage_hash=lineage_hash,
-                    lineage_material=lineage_material,
-                    rows=tuple(version_rows),
-                )
-            )
+        group, error = _validate_run(run_id, run_rows, cutoff)
+        if run_id not in bound_run_ids:
+            if error:
+                warnings.append(f"Skipped unbound score-history run {run_id}: {error}")
+            continue
+        if error:
+            return (), error, tuple(warnings)
+        if group is not None:
+            output.append(group)
     output.sort(key=lambda item: (item.known_at, item.run_id, item.score_version, item.lineage_hash))
-    return tuple(output), None
+    if len(warnings) > _MAX_REPORTED_WARNINGS:
+        omitted = len(warnings) - _MAX_REPORTED_WARNINGS
+        warnings = [*warnings[:_MAX_REPORTED_WARNINGS], f"{omitted} further score-history warnings omitted."]
+    return tuple(output), None, tuple(warnings)
+
+
+def _validate_run(
+    run_id: str, run_rows: list[dict[str, Any]], cutoff: datetime
+) -> tuple[_PublishedGroup | None, str | None]:
+    """Return (group, None), (None, None) when the run is later than the cutoff, or (None, error)."""
+
+    prepared: list[dict[str, Any]] = []
+    for raw in run_rows:
+        known_at = _parse_timestamp(raw.get("run_completed_at"))
+        if known_at is None:
+            return None, f"Published score run {run_id} has a row with unverifiable known_at."
+        row = dict(raw)
+        row["_known_at"] = known_at
+        prepared.append(row)
+    instrument_ids = [_real_text(row.get("instrument_id")) for row in prepared]
+    if None in instrument_ids or len(set(instrument_ids)) != len(instrument_ids):
+        return None, f"Published score run {run_id} has missing or duplicate instrument identities."
+    known_times = {row["_known_at"] for row in prepared}
+    hashes = {_real_text(row.get("snapshot_hash")) for row in prepared}
+    if len(known_times) != 1 or len(hashes) != 1 or None in hashes:
+        return None, f"Published score run {run_id} has conflicting time or snapshot hash."
+    known_at = next(iter(known_times))
+    if known_at > cutoff:
+        return None, None
+    snapshot_hash = next(iter(hashes))
+    if not _is_sha256(snapshot_hash):
+        return None, f"Published score run {run_id} has an invalid snapshot hash."
+    versions: set[str] = set()
+    for row in prepared:
+        version = _real_text(row.get("formula_version"))
+        checksum = _real_text(row.get("formula_checksum"))
+        if version is None or checksum is None or not _is_sha256(checksum):
+            return None, f"Published score run {run_id} has unverifiable formula lineage."
+        versions.add(version)
+    if len(versions) != 1:
+        return None, f"Published score run {run_id} has conflicting formula versions."
+    lineage_material = _lineage_material(prepared)
+    if lineage_material is None:
+        return None, f"Published score run {run_id} has incomplete lineage evidence."
+    return (
+        _PublishedGroup(
+            run_id=run_id,
+            known_at=known_at,
+            score_completed_at=known_at,
+            snapshot_hash=snapshot_hash,
+            score_version=next(iter(versions)),
+            lineage_hash=_sha256_json(lineage_material),
+            lineage_material=lineage_material,
+            rows=tuple(prepared),
+        ),
+        None,
+    )
 
 
 def _lineage_material(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -689,6 +751,7 @@ def _build_decision(
         return unavailable("VWCE.DE benchmark price is not quoted in EUR.")
 
     skipped: list[dict[str, str]] = []
+    allocation_reason: str | None = None
     targets: dict[str, float] = {}
     selected_ids: list[str] = []
     strategy = str(spec.get("strategy"))
@@ -724,7 +787,7 @@ def _build_decision(
             rank = _positive_int(history_row.get("rank"))
             if rank is None:
                 return unavailable(f"Instrument {instrument_id} canonical rank is unverifiable.")
-            if strategy == "core_sleeve" and _real_text(board_row.get("legacy_action")) is None:
+            if strategy == "core_sleeve" and _sleeve_action(board_row) is None:
                 return unavailable(f"Instrument {instrument_id} action is unverifiable for the candidate sleeve.")
             eligible.append((rank, instrument_id, history_row, board_row))
 
@@ -738,7 +801,7 @@ def _build_decision(
         elif strategy == "core_sleeve":
             chosen = [
                 item for item in eligible
-                if str(item[3].get("legacy_action") or "").strip() == str(spec["sleeve_action"])
+                if _sleeve_action(item[3]) == str(spec["sleeve_action"])
             ][: int(spec["sleeve_top_n"])]
             chosen_ids = {item[1] for item in chosen}
             for item in eligible:
@@ -746,7 +809,7 @@ def _build_decision(
                     continue
                 reason = (
                     "rank_below_sleeve_top_n"
-                    if str(item[3].get("legacy_action") or "").strip() == str(spec["sleeve_action"])
+                    if _sleeve_action(item[3]) == str(spec["sleeve_action"])
                     else "candidate_buy_not_present"
                 )
                 skipped.append({"instrument_id": item[1], "reason": reason})
@@ -758,6 +821,7 @@ def _build_decision(
                     targets[item[1]] = targets.get(item[1], 0.0) + per_instrument
                 selected_ids = [str(benchmark_spec["instrument_id"]), *(item[1] for item in chosen)]
             else:
+                # DEFAULTS: an empty candidate sleeve is held as cash_weight (never reweighted into VWCE).
                 targets["cash_weight"] = float(spec["sleeve_weight"])
                 selected_ids = [str(benchmark_spec["instrument_id"])]
         else:
@@ -768,6 +832,12 @@ def _build_decision(
                 per_instrument = 1.0 / len(chosen)
                 targets = {item[1]: per_instrument for item in chosen}
                 selected_ids = [item[1] for item in chosen]
+                if len(chosen) < int(spec["top_n"]):
+                    # DEFAULTS: fewer eligible than top_n means equal weight among the eligible.
+                    allocation_reason = (
+                        f"fewer_than_top_n_eligible: {len(chosen)} of {int(spec['top_n'])}; "
+                        "equal weight among the eligible instruments"
+                    )
             else:
                 targets = {"cash_weight": 1.0}
             for item in eligible[len(chosen):]:
@@ -795,7 +865,7 @@ def _build_decision(
         "bot_name": str(spec["name"]),
         "strategy": strategy,
         "status": "available",
-        "reason": None,
+        "reason": allocation_reason,
         "spec_hash": _sha256_json({"config_hash": config_hash, "spec": dict(spec)}),
         "config_hash": config_hash,
         "score_lineage_version": group.lineage_version if strategy != "benchmark" else "not_applicable:benchmark_independent",
@@ -817,6 +887,13 @@ def _build_decision(
         "execution_allowed": False,
     }
     return record, None
+
+
+def _sleeve_action(board_row: Mapping[str, Any]) -> str | None:
+    action = _real_text(board_row.get("legacy_action"))
+    if action is None:
+        return None
+    return _LEGACY_ACTION_TO_SLEEVE_ACTION.get(action.casefold(), action)
 
 
 def _price_evidence(
@@ -863,6 +940,7 @@ def _persist_unavailable(
     config: Mapping[str, Any],
     config_hash: str,
     reason: str,
+    warnings: tuple[str, ...] = (),
 ) -> PaperBotRunResult:
     records: list[dict[str, Any]] = []
     try:
@@ -874,8 +952,10 @@ def _persist_unavailable(
                 _append_unavailable(store, record)
                 records.append(record)
     except (OSError, ValueError, StorageSchemaError, StorageRevisionConflict):
-        return PaperBotRunResult("unavailable", _time_text(cutoff), None, (), reason)
-    return PaperBotRunResult("unavailable", _time_text(cutoff), None, tuple(records), reason, len(records))
+        return PaperBotRunResult("unavailable", _time_text(cutoff), None, (), reason, warnings=warnings)
+    return PaperBotRunResult(
+        "unavailable", _time_text(cutoff), None, tuple(records), reason, len(records), warnings
+    )
 
 
 def _unavailable_record(
@@ -963,16 +1043,14 @@ def _as_of_timestamp(value: datetime | date | str) -> datetime:
     if isinstance(value, datetime):
         parsed = value
     elif isinstance(value, date):
-        parsed = datetime.combine(value, time.max, tzinfo=timezone.utc)
+        raise ValueError(_DATE_ONLY_MESSAGE)
     else:
         raw = str(value).strip()
         if not raw:
             raise ValueError("as_of is empty")
         if len(raw) == 10:
-            parsed_date = date.fromisoformat(raw)
-            parsed = datetime.combine(parsed_date, time.max, tzinfo=timezone.utc)
-        else:
-            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            raise ValueError(_DATE_ONLY_MESSAGE)
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
         raise ValueError("as_of must include a timezone")
     return parsed.astimezone(timezone.utc)

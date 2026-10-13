@@ -171,3 +171,23 @@ def test_score_history_panel_distinguishes_failed_persistence_from_first_run() -
     assert "Score history unavailable" in failed
     assert warning in failed
     assert "1 earlier stored point(s) do not include this run." in failed_with_rows
+
+
+def test_binding_failure_message_does_not_claim_history_was_not_persisted(monkeypatch, tmp_path) -> None:
+    history_path = tmp_path / "score_history.parquet"
+    history_path.write_bytes(b"test history")
+
+    def failing_binding(*_args):
+        raise RuntimeError("binding store unavailable")
+
+    monkeypatch.setattr(scoreboard_publication, "_record_scoreboard_publication_binding", failing_binding)
+    state, scoreboard_path, _scores, _log_path = _isolate_scoreboard_write(
+        monkeypatch, tmp_path, trust_writer=lambda *_args, **_kwargs: {"score_history": history_path}
+    )
+
+    assert state._write_current_scoreboard() == scoreboard_path
+
+    warning = state.score_history_warning or ""
+    assert "publication binding" in warning
+    assert "binding store unavailable" in warning
+    assert "Score history was not persisted" not in warning

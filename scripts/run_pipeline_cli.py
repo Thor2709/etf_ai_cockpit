@@ -15,8 +15,8 @@ def require_cached_inputs(*paths: Path) -> None:
             raise ValueError(f"Cached input unavailable: {path}. Import or refresh real data first.")
 
 
-def run_cli(main: Callable[[], int]) -> int:
-    """Reject invalid roots and record decisions after a successful pipeline run."""
+def run_cli(main: Callable[[], int], *, record_paper_bots: bool = False) -> int:
+    """Reject invalid roots; with ``record_paper_bots`` record decisions after a successful full pipeline run."""
     try:
         explicit_root = os.getenv("ETF_COCKPIT_ROOT")
         recorder_root = None
@@ -28,11 +28,13 @@ def run_cli(main: Callable[[], int]) -> int:
                     "containing configs/universe.yaml and data/."
                 )
         result = main()
-        if result == 0:
+        if result == 0 and record_paper_bots:
             try:
                 from etf_cockpit.portfolio.paper_bots import run_paper_bots
 
                 paper_result = run_paper_bots(datetime.now(timezone.utc), root=recorder_root)
+                for warning in paper_result.warnings:
+                    print(f"Paper bots warning: {warning}")
                 if paper_result.status != "available":
                     print(
                         "Paper bots "
