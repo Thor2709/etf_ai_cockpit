@@ -609,7 +609,7 @@ def authority_selection_as_of(row: Mapping[str, object], as_of: str) -> str:
     that the earlier filing stays canonical.
     """
 
-    stored = str(row.get("authority_selection") or "")
+    stored = _record_value(dict(row), "authority_selection")
     cutoff = _available_instant(as_of, as_of=True)
     if cutoff is None:
         raise ValueError("as_of must be an ISO date or timestamp")
@@ -620,9 +620,23 @@ def authority_selection_as_of(row: Mapping[str, object], as_of: str) -> str:
         return "unavailable"
     superseded = _available_instant(_record_value(row, "superseded_at"))
     family = stored.split("_", 1)[1]
+    if stored.startswith("retained_") and superseded is None:
+        # Legacy store (no ``superseded_at``): a stored loser is never promoted to canonical.
+        return stored
     if superseded is not None and superseded <= cutoff:
         return f"retained_{family}"
     return f"canonical_{family}"
+
+
+def _sec_rank(record: object) -> tuple[object, ...]:
+    instant = _available_instant(_publication(record))
+    return (
+        instant is not None,
+        instant or _EARLIEST,
+        1 if _record_value(record, "form").upper().endswith("/A") else 0,
+        _record_value(record, "accession"),
+        _record_value(record, "source_id"),
+    )
 
 
 def _preferred_sec_fact(records: Iterable[object]) -> object:
@@ -632,21 +646,14 @@ def _preferred_sec_fact(records: Iterable[object]) -> object:
     (never wins by string order).
     """
 
-    def rank(record: object) -> tuple[object, ...]:
-        instant = _available_instant(_publication(record))
-        return (
-            instant is not None,
-            instant or _EARLIEST,
-            1 if _record_value(record, "form").upper().endswith("/A") else 0,
-            _record_value(record, "accession"),
-            _record_value(record, "source_id"),
-        )
-
-    return max(tuple(records), key=rank)
+    return max(tuple(records), key=_sec_rank)
 
 
 def _supersession(records: Iterable[Mapping[str, object]]) -> dict[str, str]:
-    """source_id -> publication of the next later official fact for the same exact key (``""`` if none)."""
+    """source_id -> publication of the earliest same-key official fact that outranks it (``""`` if none).
+
+    Uses the ``_preferred_sec_fact`` rank, so a same-publication loser (10-K vs 10-K/A) is superseded too.
+    """
 
     groups: dict[tuple[str, ...], list[Mapping[str, object]]] = {}
     for record in records:
@@ -656,8 +663,9 @@ def _supersession(records: Iterable[Mapping[str, object]]) -> dict[str, str]:
     for group in groups.values():
         dated = [(instant, record) for record in group if (instant := _available_instant(_publication(record))) is not None]
         for instant, record in dated:
-            later = [item for item in dated if item[0] > instant]
-            result[str(record["source_id"])] = _publication(min(later, key=lambda item: item[0])[1]) if later else ""
+            rank = _sec_rank(record)
+            outranking = [item for item in dated if _sec_rank(item[1]) > rank]
+            result[str(record["source_id"])] = _publication(min(outranking, key=lambda item: item[0])[1]) if outranking else ""
     return result
 
 

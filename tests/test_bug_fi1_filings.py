@@ -436,3 +436,21 @@ def test_malformed_filed_in_companyfacts_never_wins_earliest_filed_choice(bad_fi
 
     assert row["revenue"] == 480.0
     assert row["shares_outstanding"] == 100.0
+
+
+def test_same_day_amendment_leaves_exactly_one_canonical_fact(tmp_path) -> None:
+    original = _fact("sec_edgar:original", "2025-02-20")
+    amended = _fact("sec_edgar:amended", "2025-02-20", form="10-K/A", value=2)
+    destination = tmp_path / "statement_facts.parquet"
+
+    write_statement_facts((original, amended), destination, vendor_records=(_VENDOR,))
+
+    rows = [row for _, row in pd.read_parquet(destination).iterrows()]
+    for as_of in ("2025-02-21", "2025-03-01"):
+        views = sorted(authority_selection_as_of(row.to_dict(), as_of) for row in rows)
+        assert views.count("canonical_sec") == 1, (as_of, views)
+    by_id = {row["source_id"]: row.to_dict() for row in rows}
+    assert by_id["sec_edgar:original"]["superseded_at"] == "2025-02-20"
+    # legacy store without ``superseded_at``: a stored loser is never promoted to canonical
+    legacy = {**by_id["sec_edgar:original"], "superseded_at": ""}
+    assert authority_selection_as_of(legacy, "2025-03-01") == "retained_sec"
