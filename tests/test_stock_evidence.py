@@ -60,7 +60,10 @@ def test_golden_metrics_for_a_fiscal_year_company() -> None:
     assert m["ebit_margin"].value == pytest.approx(200.0 / rev)
     assert m["roe"].value == pytest.approx(ni / 1200.0)  # closing parent equity at FY2025
     nopat = 200.0 * (1 - 45.0 / 180.0)
-    assert m["roic"].value == pytest.approx(nopat / (1200 + 300 + 50 - 150))  # closing invested capital at FY2025
+    assert m["roic"].status == sm.UNAVAILABLE
+    assert "ownership" in str(m["roic"].reason)
+    compatible = _evidence([_period(y, minority_interest=0.0) for y in (2022, 2023, 2024, 2025)])
+    assert compatible.metrics["roic"].value == pytest.approx(nopat / (1200 + 300 + 50 - 150))  # closing invested capital at FY2025
     assert m["fcf"].value == pytest.approx(150.0) and m["net_debt"].value == pytest.approx(200.0)
     assert m["market_cap"].value == pytest.approx(500.0)  # 50 x 10
     assert m["ev"].value == pytest.approx(730.0)  # 500 + 200 net debt + 30 minority

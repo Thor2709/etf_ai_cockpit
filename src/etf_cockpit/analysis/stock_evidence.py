@@ -424,6 +424,10 @@ class _Builder:
         ):
             self.metrics["roic"] = _missing("roic", "currency_mismatch between NOPAT and invested capital")
             return
+        if any((period.values.get("minority_interest") or 0.0) != 0.0
+               for period in (*window.periods, close) if period is not None):
+            self.metrics["roic"] = _missing("roic", "ownership scope mismatch: consolidated NOPAT and parent-only invested capital with non-controlling interests")
+            return
         rate = sm.effective_tax_rate(sm.window_sum(window, "income_tax"), sm.window_sum(window, "pretax_income"))
         nopat = sm.nopat(sm.window_sum(window, "ebit"), rate)
 
@@ -502,7 +506,10 @@ class _Builder:
             cash_value = latest.values.get(cash_field)
             balance_fields = ["ib_debt", cash_field]
             balance_currency = self._period_currency(latest, balance_fields)
-            if cash_value is None:
+            if str(latest.values.get("__currency_cash_sti") or "") == "currency_mismatch":
+                self.metrics["net_debt"] = _missing("net_debt", "currency_mismatch between cash and short-term investments")
+                latest = None
+            elif cash_value is None:
                 self.metrics["net_debt"] = _missing("net_debt", "cash and short-term investments are unavailable on the latest debt balance", "debt + leases - cash and short-term investments")
                 latest = None
             elif balance_currency is None:
@@ -815,13 +822,8 @@ class _Builder:
             period_end = date.fromisoformat(str(metric.as_of)[:10])
         except ValueError:
             return "metric date is unverifiable; not eligible for scoring"
-        publication_dates = [
-            period.known_at.date()
-            for period in self.known
-            if period.period_end == period_end and period.source == "sec_edgar"
-        ]
-        freshness_date = max([period_end, *publication_dates])
-        age = (self.decision_time.date() - freshness_date).days
+        # Publication proves availability, never renews the age of fiscal evidence.
+        age = (self.decision_time.date() - period_end).days
         if age < 0:
             return "metric is dated after the decision time; not eligible for scoring"
         if age > self.stale_days:
@@ -881,7 +883,7 @@ class _Builder:
         newest = max(self.known, key=lambda p: p.known_at)
         as_of = newest.known_at.date().isoformat()
         freshness_dates = [
-            max(p.period_end, p.known_at.date()) if p.source == "sec_edgar" else p.period_end
+            p.period_end
             for p in self.known
         ]
         latest_report_date = max(freshness_dates)

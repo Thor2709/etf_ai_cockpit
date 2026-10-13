@@ -12,6 +12,7 @@ import math
 
 import pandas as pd
 
+from etf_cockpit.analysis import stock_metrics as sm
 from etf_cockpit.core.values import finite_float_or_none as _float
 from etf_cockpit.core.pandas_values import source_text_or_empty as _metadata_text
 from etf_cockpit.data.statement_normalisation import statement_coverage, statement_view
@@ -24,7 +25,7 @@ _SPECIAL_SECTORS = frozenset(
 _MINIMUM_INCREMENTAL_PERIODS = 3
 _MINIMUM_CAPITAL_CHANGE = 0.01
 _FORMULAS = {
-    "invested_capital": "equity + debt - cash",
+    "invested_capital": "equity + debt + separately reported leases - cash",
     "nopat": "operating_income * (1 - tax_rate)",
     "roic": "NOPAT / invested_capital",
     "incremental_roic": "change in NOPAT / change in invested_capital",
@@ -290,10 +291,8 @@ def _period_records(
         values = {
             name: _alias_value(raw, aliases) for name, aliases in _ALIASES.items()
         }
-        invested_capital = _sum(
-            values["equity"],
-            values["debt"],
-            -values["cash"] if values["cash"] is not None else None,
+        invested_capital = sm.invested_capital(
+            values["equity"], values["debt"], raw.get("lease_liabilities"), values["cash"],
         )
         nopat = (
             None

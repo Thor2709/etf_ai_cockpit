@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from etf_cockpit.analysis import stock_metrics as sm
 from etf_cockpit.core.atomic_io import sha256_file as _file_sha256
 from etf_cockpit.core.paths import RAW_DIR
 from etf_cockpit.core.values import finite_float_or_none as _float, mapping_or_attribute as _projection_member
@@ -118,7 +119,7 @@ def profitability_analysis(
     metrics["net_margin"] = _ratio_metric("net_margin", net_income, revenue, "net_income / revenue", frame, "revenue")
     metrics["roa"] = _ratio_metric("roa", net_income, assets, "net_income / assets", frame, "assets")
     metrics["roe"] = _ratio_metric("roe", net_income, equity, "net_income / equity", frame, "equity")
-    invested_capital = _sum_if_present(equity, debt, -cash if cash is not None else None)
+    invested_capital = sm.invested_capital(equity, debt, latest.get("lease_liabilities"), cash)
     roic = None if special else (None if operating_income is None or tax is None else operating_income * (1.0 - tax))
     metrics["roic"] = _ratio_metric(
         "roic",
@@ -206,7 +207,7 @@ def profitability_analysis(
             "cash_conversion": ("cash_from_operations", "net_income"),
             "accrual_ratio": ("net_income", "cash_from_operations", "assets"),
             "exceptional_item_dependence": ("exceptional_items", "net_income"),
-            "roic": ("operating_income", "equity", "debt", "cash", "income_before_tax", "tax_expense"),
+            "roic": ("operating_income", "equity", "debt", "cash", "income_before_tax", "tax_expense") + (("lease_liabilities",) if "lease_liabilities" in histories else ()),
         }
         for name, metric_components in current_specs.items():
             comparable_value, reason = _latest_comparable_value(frame, name, metric_components)
@@ -2330,7 +2331,7 @@ def _latest_comparable_value(frame: pd.DataFrame, metric: str, components: tuple
         operating_income = values.get("operating_income")
         if pre_tax in (None, 0) or tax_expense is None or debt is None or cash is None or equity is None or operating_income is None:
             return None, "roic_inputs_unavailable"
-        invested_capital = equity + debt - cash
+        invested_capital = sm.invested_capital(equity, debt, values.get("lease_liabilities"), cash)
         return (None, "roic_denominator_zero") if invested_capital == 0 else (float(operating_income * (1.0 - tax_expense / pre_tax) / invested_capital), "")
     if metric == "net_debt":
         debt = values.get(components[0])

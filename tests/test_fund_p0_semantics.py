@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
@@ -134,13 +135,23 @@ def _research_statements() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def test_roe_roic_formula_parity_across_metrics_research_and_capital_efficiency() -> None:
+@pytest.mark.parametrize("lease", [0.0, 20.0])
+def test_roe_roic_formula_parity_across_metrics_research_and_capital_efficiency(lease: float) -> None:
     frame = _research_statements()
+    lease_rows = frame[frame["canonical_metric"].eq("debt")].copy()
+    lease_rows["canonical_metric"] = "lease_liabilities"
+    lease_rows["value"] = lease
+    frame = pd.concat([frame, lease_rows], ignore_index=True)
     research = profitability_analysis(frame, instrument_id="ACME", tax_rate=0.25)
+    comparable_frame = frame.assign(currency="EUR", consolidation_scope="consolidated", end=frame["period_end"], start=frame["fiscal_year"].astype(str) + "-01-01", fiscal_period="FY")
+    strict = profitability_analysis(comparable_frame, instrument_id="ACME", tax_rate=0.25, strict_comparability=True, sector="Technology")
+    assert strict["metrics"]["roic"]["value"] == pytest.approx(research["metrics"]["roic"]["value"])
     capital = capital_efficiency_analysis(frame, instrument_id="ACME", tax_rate=0.25, profitability_output=research)
     metrics_roe = sm.roe(20.0, 60.0, 68.0)
-    metrics_roic = sm.roic(20.25, 87.0, 91.0)
+    metrics_roic = sm.roic(20.25, 87.0 + lease, 91.0 + lease)
 
+    native = build_stock_evidence("T", [_period(2025, equity_parent=68.0, ib_debt=35.0, cash_sti=12.0, lease_liabilities=lease, ebit=27.0)], DECISION, MarketInputs(), None, CONFIG)
+    assert native.metrics["roic"].value == pytest.approx(metrics_roic.value)
     assert research["metrics"]["roe"]["value"] == pytest.approx(metrics_roe.value)
     assert research["metrics"]["roic"]["value"] == pytest.approx(metrics_roic.value)
     assert capital["reported"]["metrics"]["roic"]["value"] == pytest.approx(metrics_roic.value)
@@ -148,10 +159,11 @@ def test_roe_roic_formula_parity_across_metrics_research_and_capital_efficiency(
     assert research["metrics"]["roic"]["formula"] == capital["reported"]["metrics"]["roic"]["formula"]
 
 
-def test_stale_report_is_display_only_and_never_score_eligible() -> None:
+@pytest.mark.parametrize("source", ["yfinance", "sec_edgar"])
+def test_stale_report_is_display_only_and_never_score_eligible(source: str) -> None:
     stale_periods = [
-        _period(2023, known_at="2026-10-12", source="yfinance"),
-        _period(2024, known_at="2026-10-12", source="yfinance"),
+        _period(2023, known_at="2026-10-12", source=source),
+        _period(2024, known_at="2026-10-12", source=source),
     ]
     evidence = build_stock_evidence("T", stale_periods, DECISION, MarketInputs(price=50.0, price_currency="EUR"), None, CONFIG)
     quality = evidence.components["stock_quality"]
@@ -212,10 +224,20 @@ def test_share_count_disagreement_requires_reconciliation(snapshot_shares: float
     assert evidence.metrics["pe"].status == sm.UNAVAILABLE
 
 
-def test_unattributed_consolidated_income_is_unavailable_when_nci_exists() -> None:
+@pytest.mark.parametrize("income_concepts", [["NetIncomeLoss"], ["NetIncomeLoss", "OtherConcept"], ["OtherConcept", "NetIncomeLoss"], ["OtherConcept"], ["NetIncomeLossAvailableToCommonStockholdersBasic", "NetIncomeLoss"]])
+def test_unattributed_consolidated_income_is_unavailable_when_nci_exists(income_concepts: list[str]) -> None:
     """P1-06, B102-N003 and B105-N001: consolidated earnings never stand in for parent income."""
+    config = deepcopy(CONFIG)
+    config["sec_edgar_concepts"]["net_income_parent"] = income_concepts
     payload = _sec_payload(
         facts={
+            "OperatingIncomeLoss": {"units": {"USD": [_fact("2025-01-01", "2025-12-31", 20.0, "2026-02-10")]}},
+            "IncomeTaxExpenseBenefit": {"units": {"USD": [_fact("2025-01-01", "2025-12-31", 5.0, "2026-02-10")]}},
+            "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest": {"units": {"USD": [_fact("2025-01-01", "2025-12-31", 20.0, "2026-02-10")]}},
+            "StockholdersEquity": {"units": {"USD": [_fact(None, "2025-12-31", 100.0, "2026-02-10")]}},
+            "LongTermDebtNoncurrent": {"units": {"USD": [_fact(None, "2025-12-31", 30.0, "2026-02-10")]}},
+            "CashAndCashEquivalentsAtCarryingValue": {"units": {"USD": [_fact(None, "2025-12-31", 10.0, "2026-02-10")]}},
+            "ShortTermInvestments": {"units": {"USD": [_fact(None, "2025-12-31", 0.0, "2026-02-10")]}},
             "NetIncomeLoss": {"units": {"USD": [_fact("2025-01-01", "2025-12-31", 100.0, "2026-02-10")]}},
             "PaymentsToAcquirePropertyPlantAndEquipment": {
                 "units": {"USD": [_fact("2025-01-01", "2025-12-31", 10.0, "2026-02-10")]}
@@ -223,7 +245,10 @@ def test_unattributed_consolidated_income_is_unavailable_when_nci_exists() -> No
             "MinorityInterest": {"units": {"USD": [_fact(None, "2025-12-31", 20.0, "2026-02-10")]}},
         }
     )
-    row = next(r for r in sources.parse_edgar_companyfacts(payload, CONFIG, source_ref="test") if r["period_type"] == "FY")
+    selected = income_concepts[0]
+    if selected != "NetIncomeLoss":
+        payload["facts"]["us-gaap"][selected] = payload["facts"]["us-gaap"]["NetIncomeLoss"]
+    row = next(r for r in sources.parse_edgar_companyfacts(payload, config, source_ref="test") if r["period_type"] == "FY")
 
     assert "net_income_parent" not in row
     periods = store.periods_for("T", pd.DataFrame([{**row, "instrument_id": "T"}]), ["sec_edgar"])
@@ -234,6 +259,27 @@ def test_unattributed_consolidated_income_is_unavailable_when_nci_exists() -> No
     assert evidence.metrics["pe"].status == sm.UNAVAILABLE
     assert evidence.metrics["fcf_conversion"].status == sm.UNAVAILABLE
     assert "non-controlling interests" in str(evidence.metrics["fcf_conversion"].reason)
+
+    assert evidence.metrics["roic"].status == sm.UNAVAILABLE
+    assert "ownership" in str(evidence.metrics["roic"].reason)
+
+    initial_payload = deepcopy(payload)
+    initial_payload["facts"]["us-gaap"]["MinorityInterest"]["units"]["USD"][0]["val"] = 0.0
+    initial = next(r for r in sources.parse_edgar_companyfacts(initial_payload, config, source_ref="first") if r["period_type"] == "FY")
+    later = {**row, "known_at": "2026-03-10"}
+    fallback = {**initial, "source": "yfinance", "known_at": "2026-03-11"}
+    versions = store.periods_for("T", pd.DataFrame([{**item, "instrument_id": "T"} for item in (initial, later, fallback)]), ["sec_edgar", "yfinance"])
+    market = MarketInputs(price=50.0, price_currency="USD", shares_fallback=10.0, shares_fallback_known_at=datetime(2026, 2, 10, tzinfo=UTC))
+    earlier = build_stock_evidence("T", versions, datetime(2026, 2, 20, tzinfo=UTC), market, None, CONFIG)
+    assert earlier.metrics["net_income"].value == 100.0
+    assert earlier.metrics["pe"].value == 5.0
+    assert earlier.metrics["fcf_conversion"].value == 0.7
+    assert earlier.metrics["roic"].status == sm.OK
+    current = build_stock_evidence("T", versions, DECISION, market, None, CONFIG)
+    assert not sm.known_periods(versions, DECISION)[-1].has("net_income_parent")
+    for metric in ("net_income", "pe", "fcf_conversion", "roic"):
+        assert current.metrics[metric].status == sm.UNAVAILABLE
+        assert current.metrics[metric].value is None
 
 
 def test_yahoo_acquisition_cannot_be_used_for_a_pre_acquisition_decision() -> None:
@@ -320,3 +366,31 @@ def test_sparse_newer_statement_row_keeps_previous_cash_flow_evidence() -> None:
     assert latest.values["revenue"] == 520.0
     assert latest.values["cfo"] == 80.0
     assert latest.values["capex"] == 20.0
+
+
+def test_cash_sti_currency_conflict_blocks_cash_only_fallback() -> None:
+    payload = _sec_payload(facts={
+        "CashAndCashEquivalentsAtCarryingValue": {"units": {"USD": [_fact(None, "2025-12-31", 10.0, "2026-02-10")]}},
+        "ShortTermInvestments": {"units": {"EUR": [_fact(None, "2025-12-31", 5.0, "2026-02-10")]}},
+        "LongTermDebtNoncurrent": {"units": {"USD": [_fact(None, "2025-12-31", 30.0, "2026-02-10")]}},
+    })
+    rows = sources.parse_edgar_companyfacts(payload, CONFIG, source_ref="test")
+    periods = store.periods_for("T", pd.DataFrame([{**row, "instrument_id": "T"} for row in rows]), ["sec_edgar"])
+    metric = build_stock_evidence("T", periods, DECISION, MarketInputs(), None, CONFIG).metrics["net_debt"]
+    assert metric.status == sm.UNAVAILABLE
+    assert metric.value is None
+    assert "currency_mismatch" in str(metric.reason)
+
+
+def test_sparse_sec_publication_does_not_refresh_carried_stale_fields() -> None:
+    old = _period(2023)
+    rows = [dict(instrument_id="T", period_end="2023-12-31", period_type="FY", known_at="2024-02-15", currency="EUR", source="sec_edgar", **old.values),
+            dict(instrument_id="T", period_end="2023-12-31", period_type="FY", known_at="2026-10-12", currency="EUR", source="sec_edgar", shares_outstanding=11.0)]
+    periods = store.periods_for("T", pd.DataFrame(rows), ["sec_edgar"])
+    assert periods[-1].values["ebit"] == 20.0
+    assert periods[-1].values["__known_at_ebit"].startswith("2024-02-15")
+    assert len(sm.known_periods(periods, datetime(2024, 3, 1, tzinfo=UTC))) == 1
+    evidence = build_stock_evidence("T", periods, DECISION, MarketInputs(), None, CONFIG)
+    assert evidence.components["stock_quality"].freshness == "stale"
+    assert evidence.components["stock_quality"].used_count == 0
+    assert all(item.score is None for item in evidence.components["stock_quality"].inputs)

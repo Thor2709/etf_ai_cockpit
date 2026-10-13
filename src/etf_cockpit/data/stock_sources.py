@@ -259,6 +259,7 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
     gaap = (payload.get("facts", {}) or {}).get("us-gaap", {}) or {}
     dei = (payload.get("facts", {}) or {}).get("dei", {}) or {}
     currency = ""
+    selected_flow_concepts: dict[tuple[str, str, str], str] = {}
     flow_cumulative: dict[str, dict[tuple[str, str], tuple[float, str, str]]] = defaultdict(dict)
     def collect_flow(name: str, concept_names: Sequence[str]) -> dict[tuple[str, str], tuple[float, str, str]]:
         nonlocal currency
@@ -277,7 +278,9 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                 if key not in local or filed < local[key][1]:
                     local[key] = (value, filed, unit)
             for key, item in local.items():
-                merged.setdefault(key, item)
+                if key not in merged:
+                    merged[key] = item
+                    selected_flow_concepts[(name, *key)] = concept_name
             currency = currency or unit
         return merged
 
@@ -351,6 +354,8 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                         entry[f"{name}_currency"] = unit
                     else:
                         entry[name] = value
+                        if name == "net_income_parent":
+                            entry["_income_concepts"] = {selected_flow_concepts.get((name, start, end))}
                         entry[f"{name}_currency"] = unit
                     entry["_filed"].append(filed)
                 if previous_end is None:
@@ -361,6 +366,8 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                             entry[f"{name}_currency"] = unit
                         else:
                             entry[name] = value
+                            if name == "net_income_parent":
+                                entry["_income_concepts"] = {selected_flow_concepts.get((name, start, end))}
                             entry[f"{name}_currency"] = unit
                         entry["_filed"].append(filed)
                         previous_end, previous_value, previous_filed, previous_unit = end, value, filed, unit
@@ -375,6 +382,8 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                             entry[f"{name}_currency"] = "currency_mismatch"
                         elif unit != "currency_mismatch":
                             entry[name] = value - previous_value
+                            if name == "net_income_parent":
+                                entry["_income_concepts"] = {selected_flow_concepts.get((name, start, end)), selected_flow_concepts.get((name, start, previous_end))}
                             entry[f"{name}_currency"] = unit
                         entry["_filed"].extend([filed, previous_filed])
                         previous_end, previous_value, previous_filed, previous_unit = end, value, filed, unit
@@ -389,8 +398,11 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
                         entry[f"{name}_currency"] = unit
                     else:
                         entry[name] = value
+                        if name == "net_income_parent":
+                            entry["_income_concepts"] = {selected_flow_concepts.get((name, start, end))}
                         entry[f"{name}_currency"] = unit
                     entry["_filed"].append(filed)
+
 
     # ----- balance sheet items ---------------------------------------------------------------
     equity = collect_instant(concepts.get("equity_parent", []))
@@ -419,9 +431,12 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
         if (
             minority_item is not None
             and minority_item[0] > 0
-            and concepts.get("net_income_parent") == ["NetIncomeLoss"]
+            and any(
+                {"NetIncomeLoss": "consolidated", "NetIncomeLossAvailableToCommonStockholdersBasic": "common_available"}.get(concept, "unverified") != "parent"
+                for concept in entry.get("_income_concepts", {None})
+            )
         ):
-            # NetIncomeLoss is consolidated. Without a configured parent-attributable fact, a
+            # Only an explicitly parent-attributable selected fact can establish scope; a
             # positive non-controlling balance makes it unsafe for parent-equity multiples.
             entry.pop("net_income_parent", None)
             entry.pop("net_income_parent_currency", None)
@@ -499,6 +514,7 @@ def parse_edgar_companyfacts(payload: Mapping[str, Any], config: Mapping[str, An
             entry["currency"] = max(reported_currencies, key=reported_currencies.count)
     output = []
     for entry in rows.values():
+        entry.pop("_income_concepts", None)
         filed = [item for item in entry.pop("_filed") if item]
         if not filed:
             continue
