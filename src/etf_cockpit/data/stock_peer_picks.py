@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from pathlib import Path
 
 from etf_cockpit.core.atomic_io import atomic_write_bytes
+from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import ROOT
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._=^-]{0,31}$")
+_UPSERT_LOCK = threading.Lock()
 
 
 def picks_path(root: Path | None = None) -> Path:
@@ -17,7 +20,8 @@ def picks_path(root: Path | None = None) -> Path:
 
 
 def _validate(path: Path) -> None:
-    json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(json.loads(path.read_text(encoding="utf-8")), dict):
+        raise ValueError("user peer picks must be a JSON object")
 
 
 def load_user_peers(root: Path | None = None) -> dict[str, list[str]]:
@@ -26,9 +30,11 @@ def load_user_peers(root: Path | None = None) -> dict[str, list[str]]:
         return {}
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return {}
-    return {str(k): [str(i) for i in v] for k, v in raw.items() if isinstance(v, list)}
+    if not isinstance(raw, dict):  # a non-object file is invalid as a whole and invalidates only this file
+        return {}
+    return {str(k): [str(i) for i in v if isinstance(i, (str, int)) and not isinstance(i, bool)] for k, v in raw.items() if isinstance(v, list)}
 
 
 def _save(picks: dict[str, list[str]], root: Path | None) -> None:
@@ -48,10 +54,13 @@ def set_user_peers(instrument_id: str, peer_ids: list[str], *, root: Path | None
             raise ValueError(f"'{peer}' is not a valid instrument id or ticker")
         if peer != instrument_id and peer not in clean:
             clean.append(peer)
-    picks = load_user_peers(root)
-    if clean:
-        picks[instrument_id] = clean
-    else:
-        picks.pop(instrument_id, None)
-    _save(picks, root)
+    path = picks_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _UPSERT_LOCK, persistent_file_guard(path.with_name(path.name + ".guard")):  # read-modify-write: concurrent upserts must not lose entries
+        picks = load_user_peers(root)
+        if clean:
+            picks[instrument_id] = clean
+        else:
+            picks.pop(instrument_id, None)
+        _save(picks, root)
     return clean

@@ -17,7 +17,7 @@ from typing import Any
 import pandas as pd
 
 from etf_cockpit.analysis import stock_metrics as sm
-from etf_cockpit.analysis.stock_evidence import AnalystInputs, MarketInputs, StockEvidence, build_stock_evidence
+from etf_cockpit.analysis.stock_evidence import AnalystInputs, MarketInputs, StockEvidence, build_stock_evidence, metric_freshness_reason
 from etf_cockpit.analysis.stock_peers import PeerPick, PeerProfile, auto_peers, effective_peers
 from etf_cockpit.core.frame_signature import columns_key
 from etf_cockpit.core.paths import ROOT
@@ -79,6 +79,8 @@ def stock_records(universe_rows: Iterable[Mapping[str, Any]], config: Mapping[st
         instrument_id = str(row.get("id") or "")
         if not instrument_id:
             continue
+        if row.get("lifecycle_date") and sm.as_utc(row.get("lifecycle_date")) is None:
+            continue  # an unparseable lifecycle cutoff cannot prove the stock is still active: fail closed
         records.append(
             StockRecord(
                 instrument_id,
@@ -87,9 +89,7 @@ def stock_records(universe_rows: Iterable[Mapping[str, Any]], config: Mapping[st
                 str(row.get("currency") or ""),
                 str(row.get("region") or ""),
                 str(row.get("sector") or ""),
-                (sm.as_utc(row.get("lifecycle_date")) or datetime.max.replace(tzinfo=timezone.utc)).date()
-                if row.get("lifecycle_date")
-                else None,
+                sm.as_utc(row.get("lifecycle_date")).date() if row.get("lifecycle_date") else None,  # type: ignore[union-attr]
             )
         )
     return records
@@ -145,7 +145,11 @@ def market_inputs(
             dividend_reason = "incomplete_dividend_year: stored dividend rows do not cover the full trailing year"
     else:
         dividend_reason = "incomplete_dividend_year: no complete trailing-year dividend observations are stored"
-    month_ends = known.set_index("date")["close"].resample("ME").last().dropna()
+    closes = known.set_index("date")["close"].dropna()
+    # the month-end reading is dated by the last stored price, not the calendar label, so filings known between the two never leak in
+    month_ends = closes.groupby(closes.index.to_period("M")).tail(1)
+    if not month_ends.empty and month_ends.index[-1] < month_ends.index[-1] + pd.offsets.MonthEnd(0):
+        month_ends = month_ends.iloc[:-1]  # the running month is not a completed month-end reading
     series = tuple((index.date(), float(value)) for index, value in month_ends.items())
     shares = sm._finite((snapshot or {}).get("shares_outstanding"))
     snap_time = sm.as_utc((snapshot or {}).get("known_at"))
@@ -194,7 +198,10 @@ def _profile(record: StockRecord, snapshot: Mapping[str, Any] | None, fx: pd.Dat
         if quote_major == "EUR":
             cap_eur = cap / 1e9
         else:
-            rate, _day = store.fx_rate(f"{quote_major}EUR", decision_time.date(), fx, decision_time=decision_time, max_age_days=30)
+            cap_time = sm.as_utc((snapshot or {}).get("known_at"))
+            cap_date = cap_time.date() if cap_time is not None else None
+            # the provider cap is dated by its snapshot: convert with the FX of that date, never a later or older vintage
+            rate, _day = (None, None) if cap_date is None else store.fx_rate(f"{quote_major}EUR", cap_date, fx, decision_time=decision_time)
             cap_eur = None if rate is None else cap * rate / 1e9
     return PeerProfile(
         record.instrument_id,
@@ -251,7 +258,15 @@ def build_universe_evidence(
         result.names[iid] = (snapshot or {}).get("long_name") if iid.startswith("peer:") and snapshot else record.name
         first[iid] = build_stock_evidence(iid, periods, decision_time, market, analyst_inputs(analyst), cfg, no_data_reason=reason)
         result.profiles[iid] = _profile(record, snapshot, fx, cfg, decision_time)
-    peer_values = {key: {iid: ev.metrics[key].value for iid, ev in first.items() if key in ev.metrics and ev.metrics[key].available} for key in PEER_METRIC_KEYS}
+    stale_days = int((cfg.get("reporting", {}) or {}).get("max_balance_staleness_days", 400))
+    peer_values = {
+        key: {
+            iid: ev.metrics[key].value
+            for iid, ev in first.items()
+            if key in ev.metrics and ev.metrics[key].available and metric_freshness_reason(ev.metrics[key], decision_time, stale_days) is None
+        }
+        for key in PEER_METRIC_KEYS
+    }
     candidates = [result.profiles[r.instrument_id] for r in records]
     for record in records:
         iid = record.instrument_id
