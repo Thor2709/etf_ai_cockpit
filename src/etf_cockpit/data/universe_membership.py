@@ -505,8 +505,8 @@ def _record_capture(
         if deduplicate_snapshot:
             duplicate = connection.execute(
                 "SELECT 1 FROM capture_log WHERE scope=? AND snapshot_date=? AND checksum=? "
-                "AND source_kind='self' LIMIT 1",
-                (scope, snapshot_date, digest),
+                "AND source=? AND source_id=? AND source_kind='self' LIMIT 1",
+                (scope, snapshot_date, digest, source, source_id),
             ).fetchone()
             if duplicate is not None:
                 connection.commit()
@@ -518,11 +518,18 @@ def _record_capture(
         if previous_known_at is not None and timestamp <= str(previous_known_at):
             raise MembershipCaptureError("capture known_at must advance within its declared scope")
         active = _latest_intervals(connection, scope, timestamp, "self")
+        # Listing IDs are compared case-normalised so a case-only change is not a close/open.
         open_by_instrument = {
-            str(row["instrument_id"]): row
+            str(row["instrument_id"]).casefold(): row
             for row in active
             if row["valid_to"] is None
         }
+        for key, prior in open_by_instrument.items():
+            if str(prior["valid_from"]) > snapshot_date and key not in {item.casefold() for item in identifiers}:
+                raise MembershipCaptureError(
+                    "backdated capture would close a membership interval before it opened: "
+                    f"{prior['instrument_id']!r} opened {prior['valid_from']} but snapshot_date is {snapshot_date}"
+                )
         raw_path = _store_raw_payload(payload, digest, active_root)
         cursor = connection.execute(
             "INSERT INTO capture_log(snapshot_date, scope, source, source_id, checksum, complete, known_at, row_count, "
@@ -540,14 +547,14 @@ def _record_capture(
             ),
         )
         capture_id = int(cursor.lastrowid)
-        new_ids = set(identifiers)
+        new_ids = {item.casefold() for item in identifiers}
         changed_rows: list[dict[str, object]] = []
-        for instrument_id, prior in open_by_instrument.items():
-            if instrument_id in new_ids:
+        for folded_id, prior in open_by_instrument.items():
+            if folded_id in new_ids:
                 continue
             closed = {
                 "scope": scope,
-                "instrument_id": instrument_id,
+                "instrument_id": prior["instrument_id"],
                 "valid_from": prior["valid_from"],
                 "valid_to": snapshot_date,
                 "known_at": timestamp,
@@ -560,7 +567,7 @@ def _record_capture(
             _insert_interval_revision(connection, closed)
             changed_rows.append(closed)
         for row, instrument_id in zip(materialised, identifiers, strict=True):
-            if instrument_id in open_by_instrument:
+            if instrument_id.casefold() in open_by_instrument:
                 continue
             opened = {
                 "scope": scope,
