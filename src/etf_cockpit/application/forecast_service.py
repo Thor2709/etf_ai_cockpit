@@ -31,7 +31,7 @@ from etf_cockpit.data.duckdb_store import load_prices
 from etf_cockpit.features.forecast_lab import build_forecast_lab_workspace as _build_forecast_lab_workspace
 from etf_cockpit.features.returns import daily_log_returns
 from etf_cockpit.models.baseline_models import baseline_forecast
-from etf_cockpit.models.calibration import load_forecast_history, target_matches_evaluation, horizon_calibration_scores
+from etf_cockpit.models.calibration import adjusted_log_return_target, load_forecast_history, target_matches_evaluation, horizon_calibration_scores
 from etf_cockpit.models.forecast_scores import configured_forecast_request_identity as configured_forecast_request_identity, forecast_request_identity
 from etf_cockpit.models.model_promotion import (
     OPTIONAL_MODELS,
@@ -167,14 +167,16 @@ class ForecastService:
         if progress_callback is not None:
             progress_callback("Checking cached TimesFM forecasts", 2, 4)
         with timed_step("forecasts", "model:timesfm", run_id=run_id):
-            forecasts.extend(self._run_timesfm_forecasts(pivot, etf_ids, horizons, as_of_date, run_id))
+            forecasts.extend(_stamp_adjusted_log_return_target(self._run_timesfm_forecasts(pivot, etf_ids, horizons, as_of_date, run_id)))
         if "timesfm3" in self.config.models.models:
             with timed_step("forecasts", "model:timesfm3", run_id=run_id):
-                forecasts.extend(self._run_timesfm_forecasts(pivot, etf_ids, horizons, as_of_date, run_id, model_name="timesfm3"))
+                forecasts.extend(_stamp_adjusted_log_return_target(
+                    self._run_timesfm_forecasts(pivot, etf_ids, horizons, as_of_date, run_id, model_name="timesfm3")
+                ))
         if progress_callback is not None:
             progress_callback("Checking cached Toto forecasts", 3, 4)
         with timed_step("forecasts", "model:toto", run_id=run_id):
-            forecasts.extend(self._run_toto_forecasts(price_frame, etf_ids, horizons, as_of_date, run_id))
+            forecasts.extend(_stamp_adjusted_log_return_target(self._run_toto_forecasts(price_frame, etf_ids, horizons, as_of_date, run_id)))
         forecasts = self._evidence_gated_forecasts(forecasts, as_of_date, evidence_prices)
         forecasts = _postprocess_forecast_benchmark_fields(
             forecasts,
@@ -228,25 +230,32 @@ class ForecastService:
         """Admission of each producer's P(up) on matured history known at ``as_of_date`` (never the current run)."""
 
         stored = load_forecast_history() if history is None else history
-        return {
-            _probability_scope(forecast): positive_probability_status(
-                stored, prices, forecast.model_name, as_of_date,
-                model_version=forecast.model_version, target_id=forecast.target_id, horizon_days=forecast.horizon_days,
-            ) for forecast in forecasts
-        }
+        statuses: dict[tuple[str, str, str | None, int], str] = {}
+        for forecast in forecasts:
+            scope = _probability_scope(forecast)
+            if scope not in statuses:  # pooled evidence is per (model, version, target, horizon), not per ETF
+                statuses[scope] = positive_probability_status(
+                    stored, prices, forecast.model_name, as_of_date,
+                    model_version=forecast.model_version, target_id=forecast.target_id, horizon_days=forecast.horizon_days,
+                )
+        return statuses
 
     def _evidence_gated_forecasts(self, forecasts, as_of_date, prices, history=None):
         stored = load_forecast_history() if history is None else history
+        sufficient: dict[tuple[str, str, str | None, int], bool] = {}
         output = []
         for forecast in forecasts:
             forecast = _identity_gated_forecast(forecast, self.config.models.models)
             if forecast.status == "ok":
-                evidence = matured_probability_frame(
-                    stored, prices, forecast.model_name, as_of_date,
-                    model_version=forecast.model_version, target_id=forecast.target_id, horizon_days=forecast.horizon_days,
-                )
-                metrics = horizon_calibration_scores(evidence)
-                if metrics.empty or not metrics["status"].eq("ok").all():
+                scope = _probability_scope(forecast)
+                if scope not in sufficient:
+                    evidence = matured_probability_frame(
+                        stored, prices, forecast.model_name, as_of_date,
+                        model_version=forecast.model_version, target_id=forecast.target_id, horizon_days=forecast.horizon_days,
+                    )
+                    metrics = horizon_calibration_scores(evidence)
+                    sufficient[scope] = not metrics.empty and bool(metrics["status"].eq("ok").all())
+                if not sufficient[scope]:
                     forecast = _unavailable_forecast(forecast, "Insufficient finite per-horizon calibration metrics or effective dates.")
             output.append(forecast)
         return output
@@ -378,12 +387,30 @@ class ForecastService:
 
 
 def _unavailable_forecast(forecast: ForecastResult, reason: str) -> ForecastResult:
+    # The producer's P(up) stays stored as a heuristic (never a user-facing probability) so a diagnostic
+    # row can still mature into probability-calibration evidence.
+    positive = forecast.prob_positive_return
+    heuristic = forecast.heuristic_probability_positive
+    if heuristic is None and positive is not None and math.isfinite(positive) and 0.0 <= positive <= 1.0:
+        heuristic = positive
     return replace(forecast, status="unavailable", reason_unavailable=reason, error_message=reason,
                    model_allowed_in_score=False, prob_positive_return=None, prob_beat_benchmark=None,
-                   probability_calibration_status="unavailable")
+                   heuristic_probability_positive=heuristic, probability_calibration_status="unavailable")
+
+
+def _stamp_adjusted_log_return_target(forecasts: list[ForecastResult]) -> list[ForecastResult]:
+    """Adapter forecasts are adjusted-close log returns of their horizon; name that registered target."""
+
+    return [
+        forecast if forecast.target_id is not None
+        else replace(forecast, target_id=adjusted_log_return_target(forecast.horizon_days).target_id)
+        for forecast in forecasts
+    ]
 
 
 def _identity_gated_forecast(forecast: ForecastResult, model_settings=None) -> ForecastResult:
+    if forecast.status != "ok":
+        return forecast  # keep the producer's own, more specific unavailable reason
     if not target_matches_evaluation(forecast.target_id, forecast.horizon_days):
         return _unavailable_forecast(forecast, "Missing, unregistered or mismatched target identity.")
     if forecast.model_name in OPTIONAL_MODELS:

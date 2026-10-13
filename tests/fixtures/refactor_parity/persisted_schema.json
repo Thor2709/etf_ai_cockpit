@@ -1141,23 +1141,23 @@
   },
   "data/derived/model_calibration.csv": {
    "kind": "csv",
-   "rows": 57,
+   "rows": 0,
    "columns": ["instrument_id", "model_name", "evaluated_forecasts", "matured_forecasts", "oos_mase", "oos_directional_accuracy", "q10_q90_coverage", "calibration_score_10", "calibration_status", "calibration_label"]
   },
   "data/derived/model_calibration.parquet": {
    "kind": "parquet",
-   "rows": 57,
+   "rows": 0,
    "schema": [
-    ["instrument_id", "string"],
-    ["model_name", "string"],
-    ["evaluated_forecasts", "int64"],
-    ["matured_forecasts", "int64"],
+    ["instrument_id", "null"],
+    ["model_name", "null"],
+    ["evaluated_forecasts", "null"],
+    ["matured_forecasts", "null"],
     ["oos_mase", "null"],
     ["oos_directional_accuracy", "null"],
     ["q10_q90_coverage", "null"],
     ["calibration_score_10", "null"],
-    ["calibration_status", "string"],
-    ["calibration_label", "string"]
+    ["calibration_status", "null"],
+    ["calibration_label", "null"]
    ]
   },
   "data/derived/run_manifests/backtest__s2e451e324e57.json": {
@@ -2182,7 +2182,7 @@
   "data/forecasts/forecast_results_yfinance_20260930.csv": {
    "kind": "csv",
    "rows": 855,
-   "columns": ["run_id", "model_name", "model_version", "etf_id", "forecast_date", "horizon_days", "expected_return", "expected_excess_return", "q10_return", "q50_return", "q90_return", "forecast_vol", "prob_positive_return", "prob_beat_benchmark", "heuristic_probability_positive", "heuristic_probability_beat_benchmark", "probability_calibration_status", "forecast_drawdown_prob", "status", "error_message", "model_allowed_in_score", "is_fallback", "fallback_model", "reason_unavailable", "oos_mase", "oos_directional_accuracy", "calibration_status", "q05_return", "q25_return", "q75_return", "q95_return", "quantile_method", "coverage_ratio", "promotion_status", "calibration_horizon_days", "point_statistic", "distribution_status", "checkpoint_sha", "checkpoint_config", "checkpoint_licence", "cutoff_scope", "pretraining_cutoff", "pretraining_sources", "contamination_status", "promotion_evidence_allowed", "evaluation_scope", "promotion_state", "promotion_reason", "execution_allowed"]
+   "columns": ["run_id", "model_name", "model_version", "etf_id", "forecast_date", "horizon_days", "expected_return", "expected_excess_return", "q10_return", "q50_return", "q90_return", "forecast_vol", "prob_positive_return", "prob_beat_benchmark", "heuristic_probability_positive", "heuristic_probability_beat_benchmark", "probability_calibration_status", "forecast_drawdown_prob", "status", "error_message", "model_allowed_in_score", "is_fallback", "fallback_model", "reason_unavailable", "oos_mase", "oos_directional_accuracy", "calibration_status", "q05_return", "q25_return", "q75_return", "q95_return", "quantile_method", "coverage_ratio", "promotion_status", "calibration_horizon_days", "point_statistic", "distribution_status", "target_id", "checkpoint_sha", "checkpoint_config", "checkpoint_licence", "cutoff_scope", "pretraining_cutoff", "pretraining_sources", "contamination_status", "promotion_evidence_allowed", "evaluation_scope", "promotion_state", "promotion_reason", "execution_allowed"]
   },
   "data/forecasts/forecast_results_yfinance_20260930.csv.meta.json": {
    "kind": "json",
@@ -2275,8 +2275,8 @@
   "file": "forecast_results_yfinance_20260930.csv",
   "frame": {
    "excluded_columns": [],
-   "shape": [855, 49],
-   "columns": ["run_id", "model_name", "model_version", "etf_id", "forecast_date", "horizon_days", "expected_return", "expected_excess_return", "q10_return", "q50_return", "q90_return", "forecast_vol", "prob_positive_return", "prob_beat_benchmark", "heuristic_probability_positive", "heuristic_probability_beat_benchmark", "probability_calibration_status", "forecast_drawdown_prob", "status", "error_message", "model_allowed_in_score", "is_fallback", "fallback_model", "reason_unavailable", "oos_mase", "oos_directional_accuracy", "calibration_status", "q05_return", "q25_return", "q75_return", "q95_return", "quantile_method", "coverage_ratio", "promotion_status", "calibration_horizon_days", "point_statistic", "distribution_status", "checkpoint_sha", "checkpoint_config", "checkpoint_licence", "cutoff_scope", "pretraining_cutoff", "pretraining_sources", "contamination_status", "promotion_evidence_allowed", "evaluation_scope", "promotion_state", "promotion_reason", "execution_allowed"],
+   "shape": [855, 50],
+   "columns": ["run_id", "model_name", "model_version", "etf_id", "forecast_date", "horizon_days", "expected_return", "expected_excess_return", "q10_return", "q50_return", "q90_return", "forecast_vol", "prob_positive_return", "prob_beat_benchmark", "heuristic_probability_positive", "heuristic_probability_beat_benchmark", "probability_calibration_status", "forecast_drawdown_prob", "status", "error_message", "model_allowed_in_score", "is_fallback", "fallback_model", "reason_unavailable", "oos_mase", "oos_directional_accuracy", "calibration_status", "q05_return", "q25_return", "q75_return", "q95_return", "quantile_method", "coverage_ratio", "promotion_status", "calibration_horizon_days", "point_statistic", "distribution_status", "target_id", "checkpoint_sha", "checkpoint_config", "checkpoint_licence", "cutoff_scope", "pretraining_cutoff", "pretraining_sources", "contamination_status", "promotion_evidence_allowed", "evaluation_scope", "promotion_state", "promotion_reason", "execution_allowed"],
    "dtypes": {
     "run_id": "object",
     "model_name": "object",
@@ -2315,6 +2315,7 @@
     "calibration_horizon_days": "float64",
     "point_statistic": "object",
     "distribution_status": "object",
+    "target_id": "object",
     "checkpoint_sha": "object",
     "checkpoint_config": "object",
     "checkpoint_licence": "object",
@@ -2490,7 +2491,7 @@
      "max": null
     }
    },
-   "non_float_digest": "9dfc8fe3d8f9355a4974d5e880ef974dcca632d9419ad8fe9b56546b5e6ebb76",
+   "non_float_digest": "e2429872470cd7c6be440cb16db7a97961efff214e2059ebd018e8f26d16d352",
    "first_rows": [
     {
      "run_id": "forecast_20260930__s2e451e324e57",
@@ -2511,12 +2512,12 @@
      "heuristic_probability_beat_benchmark": "<NaN>",
      "probability_calibration_status": "unavailable",
      "forecast_drawdown_prob": "<NaN>",
-     "status": "ok",
-     "error_message": "<NaN>",
-     "model_allowed_in_score": true,
+     "status": "unavailable",
+     "error_message": "Insufficient finite per-horizon calibration metrics or effective dates.",
+     "model_allowed_in_score": false,
      "is_fallback": false,
      "fallback_model": "<NaN>",
-     "reason_unavailable": "<NaN>",
+     "reason_unavailable": "Insufficient finite per-horizon calibration metrics or effective dates.",
      "oos_mase": "<NaN>",
      "oos_directional_accuracy": "<NaN>",
      "calibration_status": "not_evaluated",
@@ -2530,6 +2531,7 @@
      "calibration_horizon_days": "<NaN>",
      "point_statistic": "<NaN>",
      "distribution_status": "<NaN>",
+     "target_id": "adj_close_log_return_5d",
      "checkpoint_sha": "<NaN>",
      "checkpoint_config": "<NaN>",
      "checkpoint_licence": "<NaN>",
@@ -2562,12 +2564,12 @@
      "heuristic_probability_beat_benchmark": "<NaN>",
      "probability_calibration_status": "unavailable",
      "forecast_drawdown_prob": "<NaN>",
-     "status": "ok",
-     "error_message": "<NaN>",
-     "model_allowed_in_score": true,
+     "status": "unavailable",
+     "error_message": "Insufficient finite per-horizon calibration metrics or effective dates.",
+     "model_allowed_in_score": false,
      "is_fallback": false,
      "fallback_model": "<NaN>",
-     "reason_unavailable": "<NaN>",
+     "reason_unavailable": "Insufficient finite per-horizon calibration metrics or effective dates.",
      "oos_mase": "<NaN>",
      "oos_directional_accuracy": "<NaN>",
      "calibration_status": "not_evaluated",
@@ -2581,6 +2583,7 @@
      "calibration_horizon_days": "<NaN>",
      "point_statistic": "<NaN>",
      "distribution_status": "<NaN>",
+     "target_id": "adj_close_log_return_20d",
      "checkpoint_sha": "<NaN>",
      "checkpoint_config": "<NaN>",
      "checkpoint_licence": "<NaN>",
@@ -2613,12 +2616,12 @@
      "heuristic_probability_beat_benchmark": "<NaN>",
      "probability_calibration_status": "unavailable",
      "forecast_drawdown_prob": "<NaN>",
-     "status": "ok",
-     "error_message": "<NaN>",
-     "model_allowed_in_score": true,
+     "status": "unavailable",
+     "error_message": "Insufficient finite per-horizon calibration metrics or effective dates.",
+     "model_allowed_in_score": false,
      "is_fallback": false,
      "fallback_model": "<NaN>",
-     "reason_unavailable": "<NaN>",
+     "reason_unavailable": "Insufficient finite per-horizon calibration metrics or effective dates.",
      "oos_mase": "<NaN>",
      "oos_directional_accuracy": "<NaN>",
      "calibration_status": "not_evaluated",
@@ -2632,6 +2635,7 @@
      "calibration_horizon_days": "<NaN>",
      "point_statistic": "<NaN>",
      "distribution_status": "<NaN>",
+     "target_id": "adj_close_log_return_60d",
      "checkpoint_sha": "<NaN>",
      "checkpoint_config": "<NaN>",
      "checkpoint_licence": "<NaN>",
@@ -2685,6 +2689,7 @@
      "calibration_horizon_days": "<NaN>",
      "point_statistic": "<NaN>",
      "distribution_status": "<NaN>",
+     "target_id": "adj_close_log_return_60d",
      "checkpoint_sha": "unknown",
      "checkpoint_config": "{\"backend\": \"toto2\", \"context_length\": 2048, \"decode_block_size\": 768, \"hf_repo_id\": \"Datadog/Toto-2.0-1B\", \"model_size\": \"1b\"}",
      "checkpoint_licence": "unknown",
@@ -2736,6 +2741,7 @@
      "calibration_horizon_days": "<NaN>",
      "point_statistic": "<NaN>",
      "distribution_status": "<NaN>",
+     "target_id": "adj_close_log_return_120d",
      "checkpoint_sha": "unknown",
      "checkpoint_config": "{\"backend\": \"toto2\", \"context_length\": 2048, \"decode_block_size\": 768, \"hf_repo_id\": \"Datadog/Toto-2.0-1B\", \"model_size\": \"1b\"}",
      "checkpoint_licence": "unknown",
@@ -2787,6 +2793,7 @@
      "calibration_horizon_days": "<NaN>",
      "point_statistic": "<NaN>",
      "distribution_status": "<NaN>",
+     "target_id": "adj_close_log_return_180d",
      "checkpoint_sha": "unknown",
      "checkpoint_config": "{\"backend\": \"toto2\", \"context_length\": 2048, \"decode_block_size\": 768, \"hf_repo_id\": \"Datadog/Toto-2.0-1B\", \"model_size\": \"1b\"}",
      "checkpoint_licence": "unknown",
@@ -2804,7 +2811,7 @@
   },
   "by_model_status": {
    "model_name": ["baseline", "timesfm", "toto"],
-   "status": ["ok", "unavailable", "unavailable"],
+   "status": ["unavailable", "unavailable", "unavailable"],
    "rows": [285, 285, 285],
    "instruments": [57, 57, 57],
    "horizons": [

@@ -22,10 +22,11 @@ from etf_cockpit.models.distribution_store import (
     complete_return_quantiles,
     normalise_quantiles,
 )
-from etf_cockpit.models.calibration import target_matches_evaluation
+from etf_cockpit.models.calibration import TARGET_REGISTRY, target_matches_evaluation
 from etf_cockpit.models.ensemble import MIXTURE_QUANTILE_METHOD, mixture_quantiles
 from etf_cockpit.models.uncertainty import unavailable_decomposition
 
+EXTRA_QUANTILE_FIELDS = tuple(field for field in QUANTILE_FIELDS if field not in {"q10_return", "q50_return", "q90_return"})
 PRIMARY_MODEL_HORIZON_DAYS = 60
 FALLBACK_MODEL_HORIZONS_DAYS = (120, 20, 5, 180)
 CANONICAL_DISTRIBUTION_HORIZONS_DAYS = frozenset({5, 20, 60, 120, 180, 504, 1260})
@@ -351,7 +352,7 @@ def forecast_component_maps(forecasts: pd.DataFrame) -> dict[str, dict[str, floa
     frame["expected_return"] = pd.to_numeric(frame["expected_return"], errors="coerce")
     allowed = frame["model_allowed_in_score"].astype(str).str.lower().isin({"true", "1", "yes"})
     frame = frame[(frame["status"].astype(str).str.lower() == "ok") & allowed]
-    frame = frame.dropna(subset=["etf_id", "model_name", "horizon_days"])
+    frame = frame.dropna(subset=["etf_id", "model_name", "horizon_days", "expected_return"])
     if frame.empty:
         return output
 
@@ -456,7 +457,6 @@ def forecast_return_distributions(
             )
         return output
     horizon_days = canonical_horizon
-    supplied_quantile_columns = {field for field in QUANTILE_FIELDS if field in frame}
     numeric_columns = (
         "expected_return",
         "q05_return",
@@ -524,7 +524,7 @@ def forecast_return_distributions(
             selected = _latest_row(exact_horizon)
             if selected is None:
                 continue
-            if not target_matches_evaluation(selected.get("target_id"), horizon_days):
+            if _target_identity_rejected(selected.get("target_id"), horizon_days):
                 invalid_member_reason = "Selected ensemble member has missing, unregistered or mismatched target identity."
                 break
             expected = _finite_or_none(selected.get("expected_return"))
@@ -544,8 +544,10 @@ def forecast_return_distributions(
                 invalid_member_reason = "Selected ensemble member has invalid or non-finite quantiles."
                 break
             native_quantiles = normalise_quantiles({field: selected.get(field) for field in QUANTILE_FIELDS})
-            supplied_invalid = any(_finite_or_none(selected.get(field)) is None for field in supplied_quantile_columns)
-            if supplied_invalid or (set(QUANTILE_FIELDS).issubset(supplied_quantile_columns) and native_quantiles is None):
+            # Rows that carry only q10/q50/q90 (extra levels empty) are legacy three-quantile members; a partially
+            # supplied, non-finite or crossing extra level invalidates the member.
+            extras_finite = [_finite_or_none(selected.get(field)) is not None for field in EXTRA_QUANTILE_FIELDS]
+            if (any(extras_finite) and not all(extras_finite)) or (all(extras_finite) and native_quantiles is None):
                 invalid_member_reason = "Selected ensemble member has invalid or non-finite supplied quantiles."
                 break
             legacy_vector = native_quantiles or complete_return_quantiles(q10, q50, q90)
@@ -893,6 +895,16 @@ def _finite_integer(value: object) -> int | None:
     if number is None or not number.is_integer():
         return None
     return int(number)
+
+
+def _target_identity_rejected(target_id: object, horizon_days: int) -> bool:
+    """Fail closed for a missing/blank target_id or a registered target of another horizon or return space;
+    any other id keeps the declared-horizon validation (``_horizon_identity_is_valid``)."""
+
+    if not isinstance(target_id, str) or not target_id.strip():
+        return True
+    identity = target_id.strip()
+    return identity in TARGET_REGISTRY and not target_matches_evaluation(identity, horizon_days)
 
 
 def _declared_horizons_by_id(frame: pd.DataFrame, identity_column: str, horizon_column: str) -> dict[str, frozenset[int]]:

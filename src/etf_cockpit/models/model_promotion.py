@@ -304,7 +304,7 @@ def _decide(
     common["excluded_pre_cutoff"] = excluded
     eligible = at_horizon.loc[at_horizon["forecast_date"] > pd.Timestamp(start)]
     pairs = eligible.merge(
-        baseline.loc[baseline["provenance_verified"], ["etf_id", "forecast_date", "expected_return"]].drop_duplicates(["etf_id", "forecast_date"], keep="last").rename(columns={"expected_return": "baseline_return"}),
+        baseline.loc[baseline["provenance_verified"], ["etf_id", "forecast_date", "expected_return", "target_id"]].drop_duplicates(["etf_id", "forecast_date"], keep="last").rename(columns={"expected_return": "baseline_return", "target_id": "baseline_target_id"}),
         on=["etf_id", "forecast_date"],
         how="inner",
     )
@@ -367,6 +367,7 @@ def _matured_pairs(pairs: pd.DataFrame, price_series: dict[str, pd.Series], hori
     # A registered target of another horizon or return space cannot count as evidence for this one.
     keep = [
         target_matches_evaluation(row.target_id, horizon)
+        and target_matches_evaluation(row.baseline_target_id, horizon)
         and realised_horizon_return(series, row.forecast_date, horizon) is not None
         if (series := price_series.get(row.etf_id)) is not None and len(series) >= 5
         else False
@@ -378,8 +379,10 @@ def _matured_pairs(pairs: pd.DataFrame, price_series: dict[str, pd.Series], hori
 def _paired_scores(matured: pd.DataFrame, price_series: dict[str, pd.Series]) -> dict[str, object]:
     """Pool per-instrument oos_mase / oos_directional_accuracy for the model and baseline on identical pairs."""
 
-    base = matured[["etf_id", "forecast_date", "horizon_days", "baseline_return"]].rename(columns={"baseline_return": "expected_return"})
-    model_columns = ["etf_id", "forecast_date", "horizon_days", "expected_return", *[name for name in ("q10_return", "q90_return") if name in matured]]
+    base = matured[["etf_id", "forecast_date", "horizon_days", "baseline_return", "baseline_target_id"]].rename(
+        columns={"baseline_return": "expected_return", "baseline_target_id": "target_id"}
+    )
+    model_columns = ["etf_id", "forecast_date", "horizon_days", "target_id", "expected_return", *[name for name in ("q10_return", "q90_return") if name in matured]]
     frame = pd.concat(
         [
             matured[model_columns].assign(model_name="model"),

@@ -18,6 +18,8 @@ from etf_cockpit.application.forecast_service import (
     _forecast_to_row,
     _postprocess_forecast_benchmark_fields,
     _shadow_forecast,
+    _stamp_adjusted_log_return_target,
+    _unavailable_forecast,
 )
 from etf_cockpit.core.types import ForecastResult
 from etf_cockpit.models.baseline_models import baseline_forecast
@@ -36,7 +38,7 @@ from etf_cockpit.models.calibration import (
 )
 from etf_cockpit.models.distribution_store import QUANTILE_FIELDS
 from etf_cockpit.models.ensemble import mixture_quantiles
-from etf_cockpit.models.forecast_scores import forecast_return_distributions
+from etf_cockpit.models.forecast_scores import forecast_component_maps, forecast_return_distributions
 from etf_cockpit.models.model_promotion import (
     _matured_pairs,
     checkpoint_provenance,
@@ -291,11 +293,12 @@ def test_promotion_evidence_excludes_mismatched_registered_targets() -> None:
     index = pd.bdate_range("2025-01-01", periods=100)
     series = pd.Series(100 * np.exp(np.arange(100) * 0.001), index=index)
     pairs = pd.DataFrame({
-        "etf_id": ["AAA"] * 3, "forecast_date": [index[0], index[1], index[2]],
-        "target_id": [adjusted_log_return_target(20).target_id, adjusted_log_return_target(60).target_id, None],
+        "etf_id": ["AAA"] * 4, "forecast_date": [index[0], index[1], index[2], index[3]],
+        "target_id": [adjusted_log_return_target(20).target_id, adjusted_log_return_target(60).target_id, None, adjusted_log_return_target(20).target_id],
+        "baseline_target_id": [adjusted_log_return_target(20).target_id] * 3 + [adjusted_log_return_target(60).target_id],
     })
     kept = _matured_pairs(pairs, {"AAA": series}, 20)
-    assert list(kept["forecast_date"]) == [index[0]]  # unidentified and mismatched rows cannot count
+    assert list(kept["forecast_date"]) == [index[0]]  # unidentified and mismatched model or baseline rows cannot count
 
 
 # 8. Checkpoint evidence (correction pass 1) ------------------------------------------------------
@@ -397,3 +400,49 @@ def test_unverifiable_checkpoint_disables_optional_publication(revision):
     assert gated.status == row["status"] == "unavailable"
     assert not row["model_allowed_in_score"] and row["prob_positive_return"] is None
     assert "checkpoint identity" in row["reason_unavailable"]
+
+
+def test_distribution_target_gate_keeps_declared_horizon_ids_but_rejects_blank_and_mismatched_registry_ids():
+    base = dict(etf_id="X", model_name="a", horizon_days=60, forecast_date="2026-01-02", expected_return=0.0, status="ok", model_allowed_in_score=True, **_vector(0.0))
+    custom = {**base, "target_id": "custom-target", "target_horizon_days": 60}
+    assert forecast_return_distributions(pd.DataFrame([custom]))["X"]["status"] == "available"
+    for identity in (None, "  ", "adj_close_log_return_20d"):
+        result = forecast_return_distributions(pd.DataFrame([{**custom, "target_id": identity}]))["X"]
+        assert result["canonical_status"] == "unavailable" and result["q50_return"] is None
+
+
+def test_component_maps_exclude_rows_without_expected_return():
+    rows = pd.DataFrame([
+        dict(etf_id="X", model_name="baseline", horizon_days=60, forecast_date="2026-01-02", expected_return=float("nan"), status="ok", model_allowed_in_score=True),
+        dict(etf_id="Y", model_name="baseline", horizon_days=60, forecast_date="2026-01-02", expected_return=0.02, status="ok", model_allowed_in_score=True),
+    ])
+    scores = forecast_component_maps(rows)["baseline"]
+    assert "X" not in scores and "Y" in scores
+
+
+def test_adapter_forecast_with_immutable_revision_reaches_calibrated_from_heuristic_history():
+    from types import SimpleNamespace
+    revision = "a" * 40
+    settings = {"timesfm": {"revision": revision}}
+    service = object.__new__(ForecastService)
+    service.config = SimpleNamespace(models=SimpleNamespace(models=settings))
+    history, prices = _matured_history()
+    as_of = date(2025, 12, 31)
+    rows = []
+    for record in history.to_dict("records"):
+        produced = _stamp_adjusted_log_return_target([_producer_row(
+            forecast_date=record["forecast_date"].date(), horizon_days=5, target_id=None,
+            prob_positive_return=record["prob_positive_return"],
+        )])[0]
+        assert produced.target_id == "adj_close_log_return_5d"
+        # No stored history yet: insufficient metrics -> unavailable, but P(up) is kept as a heuristic.
+        gated = service._evidence_gated_forecasts([produced], as_of, prices, history.iloc[0:0])[0]
+        assert gated.status == "unavailable" and gated.prob_positive_return is None
+        assert gated.heuristic_probability_positive == record["prob_positive_return"]
+        rows.append({**_forecast_to_row(gated, model_settings=settings), "created_at": record["created_at"], "q10_return": -0.1, "q50_return": 0.0, "q90_return": 0.1})
+    stored = pd.DataFrame(rows)
+    scope = dict(model_version="v", target_id="adj_close_log_return_5d", horizon_days=5)
+    assert positive_probability_status(stored, prices, "timesfm", as_of, **scope) == "calibrated"
+    latest = _stamp_adjusted_log_return_target([_producer_row(horizon_days=5, target_id=None, forecast_date=date(2025, 12, 31))])[0]
+    assert service._evidence_gated_forecasts([latest], as_of, prices, stored)[0].status == "ok"
+    assert _unavailable_forecast(_producer_row(), "x").heuristic_probability_positive == 0.8

@@ -39,6 +39,8 @@ def test_forecast_runner_output_is_accepted_by_app_loader(monkeypatch, tmp_path)
     monkeypatch.setattr(runner, "require_cached_inputs", lambda *paths: None)
     monkeypatch.setattr(runner, "load_prices", lambda: prices)
     monkeypatch.setattr(forecast_service, "FORECASTS_DIR", tmp_path)
+    # Calibration-evidence sufficiency has its own tests (test_forecast_honesty); this one covers the loader.
+    monkeypatch.setattr(forecast_service, "horizon_calibration_scores", lambda frame: pd.DataFrame({"status": ["ok"]}))
     monkeypatch.setattr(sys, "argv", ["run_forecasts.py"])
     assert runner.main() == 0
     # The app snapshot binds to enabled-universe prices only (snapshot_builder.build_snapshot).
