@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -223,6 +223,7 @@ def build_real_asset_projection(
     limitations: set[str] = set()
     seen: set[str] = set()
     for item in sorted(evidence, key=lambda row: (row.metric, row.known_at, row.source_id)):
+        item = _canonical_ratio(item)
         _validate(item, model, decision)
         if item.metric in _PROHIBITED:
             raise RealAssetAdapterError(f"generic fallback {item.metric!r} is forbidden")
@@ -250,7 +251,7 @@ def build_real_asset_projection(
     results.extend(_derived_reit_results(model, results))
     results.sort(key=lambda row: (row.metric, row.known_at, row.source_id))
     values = {row.metric: row.value for row in results if row.status == "available"}
-    checks = _checks(model, values)
+    checks = _checks(model, values, {row.metric: row.period for row in results})
     protected_metrics = (
         {"nav"} if model == "reit"
         else {"rab"} if model == "utility"
@@ -359,6 +360,7 @@ def _validate(item: RealAssetMetricEvidence, model: str, decision: datetime) -> 
     if (item.execution_allowed or item.business_model != model or not item.period.strip()
             or not item.reporting_standard.strip() or not item.jurisdiction.strip()
             or not item.source_id.strip() or _time(item.as_of) > decision
+            or _time(item.as_of) > _time(item.known_at)
             or _time(item.known_at) > decision
             or (decision - _time(item.as_of)).days > 550):
         raise RealAssetAdapterError("real-asset metric lineage is invalid")
@@ -366,6 +368,15 @@ def _validate(item: RealAssetMetricEvidence, model: str, decision: datetime) -> 
         SourceAuthority.OFFICIAL, SourceAuthority.ISSUER,
     }:
         raise RealAssetAdapterError("NAV/RAB requires reliable issuer or official evidence")
+
+
+def _canonical_ratio(item: RealAssetMetricEvidence) -> RealAssetMetricEvidence:
+    """Percent ratios become fractions once, before validation, derivation or checks."""
+
+    if (item.metric in _RATIO_METRICS and item.unit == "percent"
+            and item.value is not None and _finite(item.value)):
+        return replace(item, value=item.value / 100.0, unit="ratio")
+    return item
 
 
 def _derived_reit_results(
@@ -379,6 +390,8 @@ def _derived_reit_results(
     def make(metric: str, inputs: tuple[str, ...], formula: str) -> RealAssetMetricResult:
         rows = [by_metric.get(name) for name in inputs]
         available = all(row is not None and row.status == "available" for row in rows)
+        mixed_period = available and len({row.period for row in rows if row is not None}) > 1
+        available = available and not mixed_period
         value: float | None = None
         if available:
             numbers = {name: by_metric[name].value for name in inputs}
@@ -399,7 +412,7 @@ def _derived_reit_results(
             metric=metric, status="available" if available else "unavailable",
             value=float(value) if value is not None else None, unit="currency",
             direction="higher_is_better",
-            period=reference.period if reference else "unavailable",
+            period="mixed" if mixed_period else reference.period if reference else "unavailable",
             reporting_standard=reference.reporting_standard if reference else "unavailable",
             jurisdiction=reference.jurisdiction if reference else "unavailable",
             business_model=model, source_id=f"derived:{metric}",
@@ -408,7 +421,11 @@ def _derived_reit_results(
             known_at=max((row.known_at for row in rows if row is not None), default="unavailable"),
             definition=f"derived from statement evidence: {formula}",
             missing_policy="unavailable",
-            limitations=() if available else ("required_statement_inputs_unavailable",),
+            limitations=(
+                () if available
+                else ("period_mismatch",) if mixed_period
+                else ("required_statement_inputs_unavailable",)
+            ),
         )
 
     if "ffo" not in by_metric:
@@ -428,11 +445,23 @@ def _derived_reit_results(
     return derived
 
 
-def _checks(model: str, values: Mapping[str, float | None]) -> tuple[RealAssetCheck, ...]:
+def _checks(
+    model: str, values: Mapping[str, float | None], periods: Mapping[str, str] | None = None,
+) -> tuple[RealAssetCheck, ...]:
+    periods = periods or {}
+
+    def same_period(*names: str) -> bool:
+        return len({periods.get(name) for name in names}) <= 1
+
     def ratio(name: str, numerator: str, denominator: str, formula: str) -> RealAssetCheck:
         top, bottom = values.get(numerator), values.get(denominator)
-        if top is None or bottom is None or bottom == 0:
+        if top is None or bottom is None:
             return RealAssetCheck(name, "unavailable", None, "ratio", formula, "required_statement_inputs_unavailable")
+        if bottom <= 0 or top < 0:
+            # A negative or zero cash-flow base (or negative distribution) has no meaningful payout/coverage.
+            return RealAssetCheck(name, "unavailable", None, "ratio", formula, "non_positive_ratio_input")
+        if name == "payout" and not same_period(numerator, denominator):
+            return RealAssetCheck(name, "unavailable", None, "ratio", formula, "period_mismatch")
         return RealAssetCheck(name, "available", float(top / bottom), "ratio", formula, "reconciled_to_statement_evidence")
     checks = [
         ratio("payout", "distributions", "affo" if model == "reit" else "operating_cash_flow",
@@ -442,13 +471,17 @@ def _checks(model: str, values: Mapping[str, float | None]) -> tuple[RealAssetCh
     ]
     if model == "reit":
         required = ("net_income", "depreciation_amortisation", "property_sale_gains", "ffo")
-        if all(values.get(key) is not None for key in required):
+        if all(values.get(key) is not None for key in required) and not same_period(*required):
+            checks.append(RealAssetCheck("ffo_reconciliation", "unavailable", None, "currency", "net income + D&A - property sale gains", "period_mismatch"))
+        elif all(values.get(key) is not None for key in required):
             expected = values["net_income"] + values["depreciation_amortisation"] - values["property_sale_gains"]  # type: ignore[operator]
             checks.append(RealAssetCheck("ffo_reconciliation", "available" if math.isclose(expected, values["ffo"] or 0.0) else "failed", values["ffo"], "currency", "net income + D&A - property sale gains", "reconciled" if math.isclose(expected, values["ffo"] or 0.0) else "statement_mismatch"))
         else:
             checks.append(RealAssetCheck("ffo_reconciliation", "unavailable", None, "currency", "net income + D&A - property sale gains", "required_statement_inputs_unavailable"))
         required_affo = ("ffo", "maintenance_capex", "recurring_adjustments", "affo")
-        if all(values.get(key) is not None for key in required_affo):
+        if all(values.get(key) is not None for key in required_affo) and not same_period(*required_affo):
+            checks.append(RealAssetCheck("affo_reconciliation", "unavailable", None, "currency", "FFO - maintenance capex + recurring adjustments; expansion capex excluded", "period_mismatch"))
+        elif all(values.get(key) is not None for key in required_affo):
             expected = values["ffo"] - values["maintenance_capex"] + values["recurring_adjustments"]  # type: ignore[operator]
             checks.append(RealAssetCheck("affo_reconciliation", "available" if math.isclose(expected, values["affo"] or 0.0) else "failed", values["affo"], "currency", "FFO - maintenance capex + recurring adjustments; expansion capex excluded", "reconciled" if math.isclose(expected, values["affo"] or 0.0) else "statement_mismatch"))
         else:

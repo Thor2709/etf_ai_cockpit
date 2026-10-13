@@ -108,7 +108,7 @@ _DIRECTIONS = {
     "reinsurance_exposure": "lower_is_better",
     "funding_cost": "lower_is_better",
     "credit_loss_ratio": "lower_is_better",
-    "capital_requirement": "higher_is_better",
+    "capital_requirement": "lower_is_better",
     "capital_headroom": "higher_is_better",
     "leverage_ratio": "higher_is_better",
     "net_stable_funding_ratio": "higher_is_better",
@@ -135,6 +135,9 @@ _REGULATORY = frozenset(
         "capital_ratio",
     }
 )
+# Regulatory capital older than this at the decision is stale (annual Pillar 3
+# cadence plus filing lag); stale evidence is unavailable, never scored.
+_REGULATORY_MAX_AGE_DAYS = 400
 
 
 class FinancialAdapterError(ValueError):
@@ -330,6 +333,10 @@ def build_financial_institution_projection(
         }:
             confidence = min(confidence, 0.55)
             limitations.add(f"{item.metric}:weak_regulatory_authority")
+        stale = (
+            item.metric in _REGULATORY
+            and (decision - _time(item.as_of)).days > _REGULATORY_MAX_AGE_DAYS
+        )
         regulatory_category_ok = not (
             item.metric in _REGULATORY
             and item.fact_category.casefold() != "pillar3"
@@ -338,12 +345,14 @@ def build_financial_institution_projection(
             item.value is not None
             and _finite(item.value)
             and regulatory_category_ok
+            and not stale
         )
         item_limitations = tuple(
             sorted(
                 {
                     *item.limitations,
-                    *(() if available else ("missing_value",)),
+                    *(() if available or stale else ("missing_value",)),
+                    *(("stale",) if stale else ()),
                     *(() if regulatory_category_ok else ("regulatory_fact_required",)),
                 }
             )
@@ -397,8 +406,10 @@ def build_financial_institution_projection(
         for item in critical_results
         if item.status == "available" and item.authority_label == "high"
     ]
+    # Confidence reflects evidence coverage: unavailable and undisclosed metrics
+    # of the model's formula set pull it down instead of being ignored.
     aggregate_confidence = (
-        sum(item.confidence for item in available_results) / len(available_results)
+        sum(item.confidence for item in available_results) / len(allowed)
         if available_results
         else 0.0
     )
@@ -645,6 +656,7 @@ def _validate_evidence(
         or item.fact_category.casefold() not in valid_categories
         or _time(item.known_at) > decision
         or _time(item.as_of) > decision
+        or _time(item.as_of) > _time(item.known_at)
     ):
         raise FinancialAdapterError("financial metric lineage is invalid")
 
