@@ -29,9 +29,9 @@ def run_cli(main: Callable[[], int]) -> int:
                 )
         result = main()
         if result == 0:
-            from etf_cockpit.portfolio.paper_bots import run_paper_bots
-
             try:
+                from etf_cockpit.portfolio.paper_bots import run_paper_bots
+
                 paper_result = run_paper_bots(datetime.now(timezone.utc), root=recorder_root)
                 if paper_result.status != "available":
                     print(

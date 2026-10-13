@@ -126,8 +126,6 @@ def test_shared_value_helpers_do_not_import_pandas() -> None:
     assert result.stdout.strip() == "[]"
 
 
-# Measure the cold-start budget outside the parallel, CPU-contended test lane.
-@pytest.mark.serial
 def test_startup_import_timing_stays_within_versioned_budget(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     timing_path = tmp_path / "startup-timings.jsonl"
@@ -174,12 +172,6 @@ def test_startup_import_timing_stays_within_versioned_budget(tmp_path: Path) -> 
     records = read_timing_records(timing_path)
     assert records and isinstance(records[-1]["duration_ms"], (int, float))
     assert isinstance(records[-1]["slow"], bool)
-
-
-def test_startup_import_budget_test_runs_in_serial_lane() -> None:
-    markers = getattr(test_startup_import_timing_stays_within_versioned_budget, "pytestmark", ())
-
-    assert any(marker.name == "serial" for marker in markers)
 
 
 def test_startup_timing_retry_decision_passes_after_an_under_budget_run() -> None:

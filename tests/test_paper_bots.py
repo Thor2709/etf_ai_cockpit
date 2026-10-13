@@ -595,3 +595,14 @@ def test_pipeline_cli_runs_the_recorder_only_after_success(monkeypatch, tmp_path
     monkeypatch.setenv("ETF_COCKPIT_ROOT", str(explicit_root))
     assert cli.run_cli(lambda: 0) == 0
     assert calls[1][1] == explicit_root.resolve()
+
+
+def test_pipeline_cli_swallows_recorder_import_failure_after_success(monkeypatch, capsys) -> None:
+    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    monkeypatch.delenv("ETF_COCKPIT_ROOT", raising=False)
+    cli = importlib.import_module("run_pipeline_cli")
+    monkeypatch.setitem(sys.modules, "etf_cockpit.portfolio.paper_bots", None)
+
+    assert cli.run_cli(lambda: 0) == 0
+    assert "Paper bots unavailable: ModuleNotFoundError." in capsys.readouterr().out
