@@ -171,6 +171,24 @@ def test_amendment_does_not_change_canonical_before_its_filed_date(tmp_path) -> 
     assert select_authoritative_facts((older, amended), (_VENDOR,), as_of="2025-01-01") == (_VENDOR,)
 
 
+def test_statement_view_as_known_at_uses_point_in_time_authority(tmp_path) -> None:
+    from etf_cockpit.data.statement_normalisation import statement_view
+
+    older = _fact("sec_edgar:older", "2025-01-20")
+    amended = _fact("sec_edgar:amended", "2025-02-20", form="10-K/A", value=2)
+    destination = tmp_path / "statement_facts.parquet"
+    write_statement_facts((older, amended), destination, vendor_records=(_VENDOR,))
+    stored = pd.read_parquet(destination)
+    stored["known_at"] = stored["filed"]  # the knowledge-time ledger stamps first observation
+    assert stored.set_index("source_id").loc["sec_edgar:older", "authority_selection"] == "retained_sec"
+
+    before = statement_view(stored, "as_known_at", as_known_at="2025-02-10").set_index("source_id")
+    after = statement_view(stored, "as_known_at", as_known_at="2025-03-01").set_index("source_id")
+
+    assert before.loc["sec_edgar:older", "authority_selection"] == "canonical_sec"
+    assert after.loc["sec_edgar:amended", "authority_selection"] == "canonical_sec"
+
+
 def test_date_only_filing_is_not_available_at_exact_midnight() -> None:
     fact = _fact("sec_edgar:a", "2025-02-20")
 
@@ -404,3 +422,17 @@ def test_lower_priority_revenue_concept_filed_earlier_is_not_suppressed() -> Non
         "RevenueFromContractWithCustomerExcludingAssessedTax": [{**period, "val": 480.0, "filed": "2026-02-10"}],
     })
     assert _fy_row(tie)["revenue"] == 500.0  # same filing: configured concept priority decides
+
+
+@pytest.mark.parametrize("bad_filed", ["0000-00-00", "1999-bad", 19990101, None])
+def test_malformed_filed_in_companyfacts_never_wins_earliest_filed_choice(bad_filed) -> None:
+    period = {"start": "2025-01-01", "end": "2025-12-31"}
+    payload = _fy(
+        {"Revenues": [{**period, "val": 1.0, "filed": bad_filed}, {**period, "val": 480.0, "filed": "2026-02-10"}]},
+        [{"end": "2026-02-05", "val": 900.0, "filed": bad_filed}, {"end": "2026-02-05", "val": 100.0, "filed": "2026-02-10"}],
+    )
+
+    row = _fy_row(payload)
+
+    assert row["revenue"] == 480.0
+    assert row["shares_outstanding"] == 100.0
