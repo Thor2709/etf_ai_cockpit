@@ -192,6 +192,15 @@ class PaperLedger:
                 if event.get("event_type") == "fill_recorded" and isinstance(event.get("payload"), Mapping)
             )
 
+    def confirmed_fill_ids(self, *, account_id: str, as_of: datetime) -> frozenset[str]:
+        """Confirm actual paper cash postings from the same verified prefix as cash_balance.
+
+        Paper cash posts at fill_recorded; settlement still governs when sale
+        proceeds can be spent. A lifecycle-only fill is never confirmed here.
+        """
+
+        return self.projected_fill_ids(account_id=account_id, as_of=as_of)
+
     def _events_through(self, as_of: datetime) -> list[dict[str, object]]:
         """Return the log prefix up to the first event dated after ``as_of`` (shared by cash and fill projections).
 

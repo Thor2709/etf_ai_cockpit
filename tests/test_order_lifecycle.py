@@ -136,7 +136,7 @@ def test_partial_fill_keeps_exact_decimal_residual_reservation(tmp_path: Path) -
     ) == Decimal("899.85")
 
 
-def test_partial_fill_unsettled_debit_expires_on_settlement_date(tmp_path: Path) -> None:
+def test_partial_fill_unsettled_debit_requires_posting_on_settlement_date(tmp_path: Path) -> None:
     lifecycle = _lifecycle(tmp_path / "orders.sqlite3")
     _reserve(lifecycle, fee=Decimal("0.25"))
     lifecycle.transition(
@@ -164,7 +164,7 @@ def test_partial_fill_unsettled_debit_expires_on_settlement_date(tmp_path: Path)
         account_id="account-1",
         currency="EUR",
         as_of=datetime(2026, 10, 2, 0, tzinfo=timezone.utc),
-    ) == Decimal("939.75")
+    ) == Decimal("899.85")
 
 
 def test_fill_cannot_consume_cash_reserved_for_another_order(tmp_path: Path) -> None:

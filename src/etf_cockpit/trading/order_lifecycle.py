@@ -22,7 +22,6 @@ from etf_cockpit.trading.cash_reservation import (
     CashReservationService,
     CashSource,
     decimal_value,
-    projected_fill_ids,
 )
 
 
@@ -104,8 +103,7 @@ ALLOWED_TRANSITIONS: Mapping[OrderState, frozenset[OrderState]] = {
 FILL_STATES = frozenset({OrderState.PARTIALLY_FILLED, OrderState.FILLED})
 ACCOUNTING_EVENT_TYPES = frozenset({"fill", "reconciled"})
 
-# Exchange-local time zones for the venue labels in configs/settlement_v1.yaml. A venue without an
-# entry keeps the UTC trade date (the previous behaviour), so supply `venue_timezones` for new venues.
+# Exchange-local time zones for known venues. Unmapped or unavailable zones fail closed.
 DEFAULT_VENUE_TIMEZONES: Mapping[str, str] = {
     "xetra": "Europe/Berlin",
     "euronext": "Europe/Paris",
@@ -115,6 +113,8 @@ DEFAULT_VENUE_TIMEZONES: Mapping[str, str] = {
     "ose": "Europe/Oslo",
     "lse": "Europe/London",
     "us": "America/New_York",
+    "nyse": "America/New_York",
+    "nasdaq": "America/New_York",
 }
 
 RECONCILIATION_ALLOWED_TARGETS = frozenset(
@@ -271,8 +271,7 @@ class OrderLifecycle:
         instant = self._timestamp(occurred_at)
         clean_venue = self._optional_text(venue)
         clean_type = self._optional_text(instrument_type)
-        settle_on = self.settlement.settlement_date(clean_venue, clean_type, self._trade_date(clean_venue, instant))
-        warning = None if settle_on is not None else "No settlement rule is available; unsettled sale proceeds remain locked until reconciled."
+        settle_on, warning = self._settlement_at(clean_venue, clean_type, instant)
 
         connection = self._connect()
         try:
@@ -546,11 +545,14 @@ class OrderLifecycle:
             event_payload: dict[str, object] = {"reason": detail, "execution_allowed": False}
             committed_fill = Decimal(str(row[6])) < Decimal(str(row[5]))
             if target is OrderState.REJECTED and committed_fill:
-                raise OrderTransitionError(
-                    "An order with a committed fill cannot be reconciled to REJECTED; "
-                    "reconcile it to CANCELLED to close the unfilled remainder."
-                )
-            if target in FILL_STATES:
+                target = OrderState.PARTIALLY_FILLED if Decimal(str(row[6])) > 0 else OrderState.FILLED
+                event_payload.update({
+                    "requested_state": OrderState.REJECTED.value,
+                    "filled_quantity": str(Decimal(str(row[5])) - Decimal(str(row[6]))),
+                    "remaining_quantity": str(row[6]),
+                    "partial_fill_committed": True,
+                })
+            elif target in FILL_STATES:
                 prior_remaining = decimal_value(row[6], "remaining_quantity", positive=True)
                 if target is OrderState.PARTIALLY_FILLED:
                     if remaining_quantity is None:
@@ -578,7 +580,7 @@ class OrderLifecycle:
                 expected_cash_change = -(gross + fee) if side == "buy" else gross - fee
                 if cash_change != expected_cash_change:
                     raise OrderLifecycleError("Reconciled cash evidence does not match the fill terms.")
-                settlement = self.settlement.settlement_date(row[10], row[11], self._trade_date(row[10], instant))
+                settlement, warning = self._settlement_at(row[10], row[11], instant)
                 self.reservations.record_fill(
                     connection,
                     order_id=order_id,
@@ -594,10 +596,9 @@ class OrderLifecycle:
                     connection,
                     row=row,
                     fill_id=identifier,
-                    cash_delta=cash_change,
                     instant=instant,
                 )
-                self._refresh_settlement(connection, order_id, settlement)
+                self._refresh_settlement(connection, order_id, settlement, warning)
                 connection.execute(
                     "UPDATE order_intents SET remaining_quantity = ? WHERE order_id = ?",
                     (str(remaining), order_id),
@@ -693,9 +694,7 @@ class OrderLifecycle:
                 cash_delta = -cash_delta
             else:
                 cash_delta = filled * fill_price * multiplier - fill_fee
-            settlement = self.settlement.settlement_date(
-                row[10], row[11], self._trade_date(row[10], instant)
-            )
+            settlement, warning = self._settlement_at(row[10], row[11], instant)
             self.reservations.record_fill(
                 connection,
                 order_id=order_id,
@@ -711,10 +710,9 @@ class OrderLifecycle:
                 connection,
                 row=row,
                 fill_id=identifier,
-                cash_delta=cash_delta,
                 instant=instant,
             )
-            self._refresh_settlement(connection, order_id, settlement)
+            self._refresh_settlement(connection, order_id, settlement, warning)
             self._append_event(
                 connection,
                 order_id=order_id,
@@ -817,7 +815,6 @@ class OrderLifecycle:
         *,
         row: tuple[object, ...],
         fill_id: str,
-        cash_delta: Decimal,
         instant: datetime,
     ) -> None:
         """Fail the fill when it would consume cash reserved for another order or exceed the cash source."""
@@ -830,39 +827,41 @@ class OrderLifecycle:
             as_of=instant,
             in_flight_fill_ids=frozenset({fill_id}),
         )
-        # The fill being recorded is not yet in a per-fill source's balance, so its buy debit is
-        # already subtracted; a boolean source needs it applied explicitly.
-        if projected_fill_ids(
-            self.cash_source, account_id=str(row[2]), as_of=instant
-        ) is None and bool(getattr(self.cash_source, "cash_includes_unsettled_trades", False)):
-            available_after_fill -= max(Decimal("0"), -cash_delta)
         if available_after_fill < 0:
             raise OrderLifecycleError(
                 "The fill would consume cash reserved for another open order."
             )
 
-    def _refresh_settlement(self, connection: sqlite3.Connection, order_id: str, settlement: date | None) -> None:
+    def _refresh_settlement(
+        self, connection: sqlite3.Connection, order_id: str, settlement: date | None, warning: str | None,
+    ) -> None:
         """Keep the intent's settlement date equal to the one the latest fill commitment uses."""
 
-        warning = (
-            None if settlement is not None
-            else "No settlement rule is available; unsettled sale proceeds remain locked until reconciled."
-        )
         connection.execute(
             "UPDATE order_intents SET settlement_date = ?, settlement_warning = ? WHERE order_id = ?",
             (None if settlement is None else settlement.isoformat(), warning, order_id),
         )
 
-    def _trade_date(self, venue: object, instant: datetime) -> date:
-        """Return the trade date in the venue's exchange-local time zone (UTC when none is configured)."""
+    def _settlement_at(self, venue: object, instrument_type: object, instant: datetime) -> tuple[date | None, str | None]:
+        trade_date = self._trade_date(venue, instant)
+        if trade_date is None:
+            return None, f"Settlement unavailable: verified exchange time zone for venue {venue!r} is unavailable."
+        settlement = self.settlement.settlement_date(venue, instrument_type, trade_date)
+        warning = None if settlement is not None else (
+            "No settlement rule is available; unsettled sale proceeds remain locked until reconciled."
+        )
+        return settlement, warning
+
+    def _trade_date(self, venue: object, instant: datetime) -> date | None:
+        """Return an exchange-local date only when the configured time zone can be verified."""
 
         zone_name = self.venue_timezones.get(str(venue).strip().casefold()) if venue else None
         if zone_name is None:
-            return instant.date()
+            return None
         try:
             return instant.astimezone(ZoneInfo(zone_name)).date()
-        except (ZoneInfoNotFoundError, ValueError) as exc:
-            raise OrderLifecycleError(f"Venue time zone {zone_name!r} is not available.") from exc
+        except (ZoneInfoNotFoundError, ValueError, TypeError):
+            return None
 
     @staticmethod
     def _validate_reconcile_retry(
@@ -882,7 +881,9 @@ class OrderLifecycle:
 
         payload = existing.payload
         same = existing.event_type == "reconciled" and payload.get("reason") == reason
-        if same and target in FILL_STATES:
+        if same and payload.get("requested_state") == OrderState.REJECTED.value:
+            same = target is OrderState.REJECTED and existing.state in FILL_STATES
+        elif same and target in FILL_STATES:
             expected = {
                 "fill_id": fill_id,
                 "fill_quantity": fill_quantity,

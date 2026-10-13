@@ -251,7 +251,8 @@ def test_mixed_projection_does_not_unlock_unsettled_sale_credit(tmp_path: Path) 
     )
     assert _cash(ledger, _day(10.5)) == pytest.approx(950)
     assert lifecycle.available_buying_power(account_id=ledger.account_id, currency="EUR", as_of=_day(10.5)) == Decimal("700")
-    assert lifecycle.available_buying_power(account_id=ledger.account_id, currency="EUR", as_of=_day(16)) == Decimal("780")
+    # Settlement cannot release the unprojected 30 debit without a cash posting.
+    assert lifecycle.available_buying_power(account_id=ledger.account_id, currency="EUR", as_of=_day(16)) == Decimal("750")
 
 
 # D018-N003 (cutoff parity): a backdated fill recorded after a later-dated event is in neither projection

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 import re
 import sqlite3
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -60,8 +60,15 @@ class LedgerEntry:
 class Ledger:
     """Journal operations backed by the connection from ``TransactionalStore``."""
 
-    def __init__(self, connection: sqlite3.Connection):
+    def __init__(self, connection: sqlite3.Connection, *, fill_entry_ids: Mapping[str, str] | None = None):
         self.connection = connection
+        # Explicit source evidence only: ledger entry IDs are not implicitly fill IDs.
+        self.fill_entry_ids = dict(fill_entry_ids or {})
+        for fill_id, entry_id in self.fill_entry_ids.items():
+            _required_text(fill_id, "fill_id")
+            _required_text(entry_id, "entry_id")
+        if len(set(self.fill_entry_ids.values())) != len(self.fill_entry_ids):
+            raise LedgerInvariantError("fill confirmation requires an unambiguous fill-to-entry association")
 
     def create_account(
         self,
@@ -192,6 +199,47 @@ class Ledger:
             except InvalidOperation as exc:
                 raise LedgerInvariantError("cash account contains an invalid stored Decimal posting") from exc
         return total
+
+    def confirmed_fill_ids(
+        self, *, account_id: str, as_of: datetime, authority: str = "broker",
+    ) -> frozenset[str]:
+        """Confirm mapped fills only when their cash debit is present in the settled PIT balance.
+
+        Without an explicit fill-to-entry association no fill can be confirmed.
+        This read-only association requires no journal mutation or schema change.
+        """
+
+        _required_text(account_id, "account_id")
+        _validate_authority(authority)
+        if not isinstance(as_of, datetime) or as_of.tzinfo is None:
+            raise LedgerInvariantError("fill confirmation as_of must be a timezone-aware datetime")
+        cutoff = as_of.astimezone(timezone.utc)
+        account = self.get_account(account_id, authority=authority)
+        if account is None or account.account_role != "cash":
+            raise LedgerInvariantError("fill confirmation requires an existing cash-role account")
+        confirmed = set()
+        for fill_id, entry_id in self.fill_entry_ids.items():
+            _required_text(fill_id, "fill_id")
+            _required_text(entry_id, "entry_id")
+            entry = self.get_entry(entry_id, authority=authority)
+            if entry is None or entry.settlement_at is None:
+                continue
+            if any(_parse_instant(value) > cutoff for value in (
+                entry.effective_at, entry.settlement_at, entry.recorded_at,
+            )):
+                continue
+            reversal = self.connection.execute(
+                """SELECT effective_at, recorded_at FROM ledger_entries
+                   WHERE reversal_of_entry_id = ? AND authority = ? AND status = 'posted'""",
+                (entry_id, authority),
+            ).fetchone()
+            if reversal is not None and all(_parse_instant(value) <= cutoff for value in reversal):
+                continue
+            cash_postings = [posting for posting in entry.postings if posting.account_id == account_id]
+            if (cash_postings and len({posting.currency for posting in cash_postings}) == 1
+                    and sum((posting.credit - posting.debit for posting in cash_postings), Decimal("0")) > 0):
+                confirmed.add(fill_id)
+        return frozenset(confirmed)
 
     def post(
         self,

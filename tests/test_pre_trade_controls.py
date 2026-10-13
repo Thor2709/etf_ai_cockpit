@@ -295,6 +295,7 @@ def test_failed_paper_fill_append_keeps_cash_committed_and_recovers_once(
 
     lifecycle = ledger._order_lifecycle()
     assert ledger.cash_includes_unsettled_trades is False
+    assert "interrupted-fill-1" not in ledger.confirmed_fill_ids(account_id="local-paper", as_of=datetime.now(timezone.utc))
     assert lifecycle.available_buying_power(account_id="local-paper", currency="EUR") == Decimal("800")
     monkeypatch.setattr(ledger, "_append", original_append)
     with pytest.raises(PaperLedgerError, match="buying power"):
@@ -312,6 +313,8 @@ def test_failed_paper_fill_append_keeps_cash_committed_and_recovers_once(
         account_id="local-paper", currency="EUR", as_of=datetime.now(timezone.utc)
     ) == Decimal("900")
     assert len(lifecycle.fill_events()) == 1
+    assert "interrupted-fill-1" in ledger.confirmed_fill_ids(account_id="local-paper", as_of=datetime.now(timezone.utc))
+    assert lifecycle.available_buying_power(account_id="local-paper", currency="EUR") == Decimal("800")
     paper_fills = [event for event in ledger._read_events() if event["event_type"] == "fill_recorded"]
     assert len(paper_fills) == 1
 

@@ -12,6 +12,7 @@ import pytest
 from etf_cockpit.core.config import SettlementConfig
 from etf_cockpit.data.local_storage import _apply_migrations, _register_ledger_sql_functions
 from etf_cockpit.portfolio.ledger import Ledger, LedgerInvariantError, LedgerPosting
+from etf_cockpit.trading.cash_reservation import CashReservationError
 from etf_cockpit.trading.order_lifecycle import (
     IdempotencyConflict,
     OrderLifecycle,
@@ -157,6 +158,7 @@ def _reserve(
     quantity: str = "10",
     price: str = "10",
     occurred_at: datetime = AT,
+    venue: str = "XETRA",
 ) -> None:
     lifecycle.reserve_order(
         account_id="account-1",
@@ -167,7 +169,7 @@ def _reserve(
         quantity=Decimal(quantity),
         limit_price=Decimal(price),
         fee_estimate=Decimal("0"),
-        venue="XETRA",
+        venue=venue,
         instrument_type="etf",
         occurred_at=occurred_at,
     )
@@ -292,13 +294,43 @@ def test_t_plus_zero_buy_of_200_from_100_cannot_pass(tmp_path: Path) -> None:
     assert lifecycle.get_state("order-1") is OrderState.ACKNOWLEDGED
 
 
-def test_settled_commitment_is_released_only_after_the_cash_source_posts_it(tmp_path: Path) -> None:
-    unposted = _lifecycle(tmp_path / "a", lag=0, source=SettledOnlySource(Decimal("1000")))
+@pytest.mark.parametrize("source_kind", ["fixed", "projected", "settled", "ledger"])
+def test_settled_commitment_is_released_only_after_the_cash_source_posts_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source_kind: str,
+) -> None:
+    class ProjectedSource(FixedCashSource):
+        def projected_fill_ids(self, *, account_id: str, as_of: datetime) -> frozenset[str]:
+            return frozenset()
+
+    connection = None
+    if source_kind == "ledger":
+        monkeypatch.setattr("etf_cockpit.portfolio.ledger._utc_now", lambda: AT.isoformat())
+        connection, _ = _ledger()
+        source = Ledger(connection, fill_entry_ids={"f1": "cash-f1"})
+        source.create_account("account-1", name="Order cash", account_type="asset", authority="broker", account_role="cash")
+        source.post("opening", authority="broker", effective_at=AT.isoformat(), settlement_at=AT.isoformat(), postings=(
+            LedgerPosting("account-1", "EUR", debit=Decimal("1000")),
+            LedgerPosting("equity", "EUR", credit=Decimal("1000")),
+        ))
+    else:
+        source = {"fixed": FixedCashSource, "projected": ProjectedSource, "settled": SettledOnlySource}[source_kind](Decimal("1000"))
+    unposted = _lifecycle(tmp_path / "a", lag=0, source=source)
     _reserve(unposted)
     unposted.transition("order-1", OrderState.ACKNOWLEDGED, event_key="ack", occurred_at=AT)
     unposted.record_fill("order-1", fill_id="f1", quantity=Decimal("10"), price=Decimal("10"), occurred_at=AT)
     later = AT + timedelta(days=3)
     assert unposted.available_buying_power(account_id="account-1", currency="EUR", as_of=later) == Decimal("900")
+
+    if connection is not None:
+        source.post("cash-f1", authority="broker", effective_at=AT.isoformat(), settlement_at=later.isoformat(), postings=(
+            LedgerPosting("account-1", "EUR", credit=Decimal("100")),
+            LedgerPosting("equity", "EUR", debit=Decimal("100")),
+        ))
+        assert source.confirmed_fill_ids(account_id="account-1", as_of=AT) == frozenset()
+        assert source.confirmed_fill_ids(account_id="account-1", as_of=later) == frozenset({"f1"})
+        assert Ledger(connection).confirmed_fill_ids(account_id="account-1", as_of=later) == frozenset()
+        assert unposted.available_buying_power(account_id="account-1", currency="EUR", as_of=later) == Decimal("900")
+        connection.close()
 
     posted = _lifecycle(tmp_path / "b", lag=0, source=SettledOnlySource(Decimal("900"), frozenset({"f1"})))
     _reserve(posted)
@@ -324,20 +356,29 @@ def test_reconcile_with_zero_remaining_becomes_filled(tmp_path: Path) -> None:
     assert lifecycle.get_state("order-1") is OrderState.FILLED
 
 
-def test_rejected_after_a_committed_partial_fill_is_refused_and_cancel_keeps_the_partial(tmp_path: Path) -> None:
+def test_rejected_after_a_committed_partial_fill_restores_the_partial_state(tmp_path: Path) -> None:
     lifecycle = _lifecycle(tmp_path)
     _reserve(lifecycle)
     lifecycle.transition("order-1", OrderState.ACKNOWLEDGED, event_key="ack", occurred_at=AT)
     lifecycle.record_fill("order-1", fill_id="f1", quantity=Decimal("4"), price=Decimal("10"), occurred_at=AT)
     _unknown(lifecycle)
 
-    with pytest.raises(OrderTransitionError):
-        _reconcile(lifecycle, OrderState.REJECTED, key="rej")
-
-    event = _reconcile(lifecycle, OrderState.CANCELLED, key="cancel")
+    event = _reconcile(lifecycle, OrderState.REJECTED, key="rej")
+    assert event.state is OrderState.PARTIALLY_FILLED
+    assert lifecycle.get_state("order-1") is OrderState.PARTIALLY_FILLED
+    assert lifecycle.get_intent("order-1").remaining_quantity == Decimal("6")
+    assert lifecycle.get_reservation("order-1").reserved_amount == Decimal("60")
+    assert lifecycle.available_buying_power(account_id="account-1", currency="EUR", as_of=AT) == Decimal("900")
     assert event.payload["partial_fill_committed"] is True
     assert event.payload["filled_quantity"] == "4"
     assert event.payload["remaining_quantity"] == "6"
+    assert event.payload["requested_state"] == "REJECTED"
+    count = lifecycle.event_count()
+    assert _reconcile(lifecycle, OrderState.REJECTED, key="rej").event_id == event.event_id
+    assert lifecycle.event_count() == count
+    assert len(lifecycle.fill_events()) == 1
+    with pytest.raises(IdempotencyConflict):
+        _reconcile(lifecycle, OrderState.CANCELLED, key="rej")
 
 
 def test_event_timestamps_are_monotonic_and_not_before_order_creation(tmp_path: Path) -> None:
@@ -353,22 +394,36 @@ def test_event_timestamps_are_monotonic_and_not_before_order_creation(tmp_path: 
         )
 
 
-def test_settlement_date_is_refreshed_on_fill_using_the_exchange_local_trade_date(tmp_path: Path) -> None:
-    lifecycle = _lifecycle(tmp_path, lag=1)
-    _reserve(lifecycle)
+@pytest.mark.parametrize("venue,zones,fill_at,expected", [
+    ("XETRA", None, datetime(2026, 10, 1, 23, 30, tzinfo=UTC), date(2026, 10, 5)),
+    ("NYSE", None, datetime(2026, 12, 2, 1, 30, tzinfo=UTC), date(2026, 12, 2)),
+    ("NYSE", {}, datetime(2026, 12, 2, 1, 30, tzinfo=UTC), None),
+    ("NYSE", {"NYSE": "invalid/zone"}, datetime(2026, 12, 2, 1, 30, tzinfo=UTC), None),
+])
+def test_settlement_date_is_refreshed_on_fill_using_the_exchange_local_trade_date(
+    tmp_path: Path, venue: str, zones: dict[str, str] | None, fill_at: datetime, expected: date | None,
+) -> None:
+    lifecycle = OrderLifecycle(
+        tmp_path / "orders.sqlite3", FixedCashSource(Decimal("1000")),
+        settlement=SettlementConfig(settlement_lags={venue: {"etf": 1}}), venue_timezones=zones,
+    )
+    _reserve(lifecycle, venue=venue)
     lifecycle.transition("order-1", OrderState.ACKNOWLEDGED, event_key="ack", occurred_at=AT)
     # Thu 2026-10-01 23:30 UTC is already Fri 2026-10-02 in Berlin: T+1 is Monday 2026-10-05.
-    fill_at = datetime(2026, 10, 1, 23, 30, tzinfo=UTC)
 
     lifecycle.record_fill("order-1", fill_id="f1", quantity=Decimal("1"), price=Decimal("10"), occurred_at=fill_at)
 
     with sqlite3.connect(lifecycle.db_path) as connection:
         stored = connection.execute("SELECT settlement_date FROM order_intents WHERE order_id = 'order-1'").fetchone()[0]
         commitment = connection.execute("SELECT settlement_date FROM unsettled_cash_commitments").fetchone()[0]
-    assert stored == commitment == date(2026, 10, 5).isoformat()
+    assert stored == commitment == (None if expected is None else expected.isoformat())
+    if expected is None:
+        assert "time zone" in lifecycle.get_intent("order-1").settlement_warning
+        assert lifecycle.available_buying_power(account_id="account-1", currency="EUR", as_of=fill_at) == Decimal("900")
 
 
-def test_reservations_created_after_the_as_of_do_not_reduce_historical_buying_power(tmp_path: Path) -> None:
+@pytest.mark.parametrize("finish", ["fill", "cancel"])
+def test_reservations_created_after_the_as_of_do_not_reduce_historical_buying_power(tmp_path: Path, finish: str) -> None:
     lifecycle = _lifecycle(tmp_path, Decimal("1000"))
     _reserve(lifecycle, occurred_at=AT + timedelta(days=1))
 
@@ -376,3 +431,20 @@ def test_reservations_created_after_the_as_of_do_not_reduce_historical_buying_po
     assert lifecycle.available_buying_power(
         account_id="account-1", currency="EUR", as_of=AT + timedelta(days=2)
     ) == Decimal("900")
+    partial_at = AT + timedelta(days=2)
+    final_at = AT + timedelta(days=3)
+    lifecycle.transition("order-1", OrderState.ACKNOWLEDGED, event_key="ack", occurred_at=partial_at)
+    lifecycle.record_fill("order-1", fill_id="f1", quantity=Decimal("4"), price=Decimal("8"), occurred_at=partial_at)
+    if finish == "fill":
+        lifecycle.record_fill("order-1", fill_id="f2", quantity=Decimal("6"), price=Decimal("8"), occurred_at=final_at)
+    else:
+        lifecycle.transition("order-1", OrderState.CANCELLED, event_key="cancel", occurred_at=final_at)
+    assert lifecycle.available_buying_power(account_id="account-1", currency="EUR", as_of=AT) == Decimal("1000")
+    assert lifecycle.available_buying_power(account_id="account-1", currency="EUR", as_of=AT + timedelta(days=1)) == Decimal("900")
+    assert lifecycle.available_buying_power(account_id="account-1", currency="EUR", as_of=partial_at) == Decimal("908")
+    assert lifecycle.available_buying_power(account_id="account-1", currency="EUR", as_of=final_at) == Decimal("920" if finish == "fill" else "968")
+    with sqlite3.connect(lifecycle.db_path) as connection:
+        connection.execute("DROP TRIGGER order_events_no_delete")
+        connection.execute("DELETE FROM order_lifecycle_events WHERE event_type = 'cash_reserved'")
+    with pytest.raises(CashReservationError, match="Reservation history unavailable"):
+        lifecycle.available_buying_power(account_id="account-1", currency="EUR", as_of=AT + timedelta(days=1))
