@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+import math
 from typing import Any
 
 import numpy as np
@@ -49,8 +50,21 @@ class SyntheticScenarioSpec:
             raise SyntheticScenarioError("asset names must be bounded and non-empty")
         if not 2 <= self.periods <= 10_000:
             raise SyntheticScenarioError("periods must be between 2 and 10000")
+        for label, value in (
+            ("start_price", self.start_price),
+            ("annual_volatility", self.annual_volatility),
+            ("jump_probability", self.jump_probability),
+            ("missing_rate", self.missing_rate),
+            ("restatement_rate", self.restatement_rate),
+            ("action_rate", self.action_rate),
+            ("conflict_rate", self.conflict_rate),
+        ):
+            if not math.isfinite(value):
+                raise SyntheticScenarioError(f"{label} must be a finite number")
         if self.start_price <= 0 or self.annual_volatility <= 0:
             raise SyntheticScenarioError("start_price and annual_volatility must be positive")
+        if pd.isna(pd.to_datetime(self.start_date, errors="coerce")):
+            raise SyntheticScenarioError("start_date must be a parseable date")
         if not 1 <= self.regime_count <= 8:
             raise SyntheticScenarioError("regime_count must be between one and eight")
         for label, value in (
@@ -154,8 +168,19 @@ class SyntheticScenarioGenerator:
             name: bool(frame.empty or frame.get("synthetic", pd.Series(dtype=bool)).fillna(False).all())
             for name, frame in frames.items()
         }
+        prices = dataset.prices
+        observed = pd.to_numeric(prices["adjusted_close"], errors="coerce") if "adjusted_close" in prices else pd.Series(dtype=float)
+        closes = pd.to_numeric(prices["close"], errors="coerce") if "close" in prices else pd.Series(dtype=float)
+        # NaN is a labelled missing observation; zero, negative or infinite prices are invalid.
+        invalid_prices = int(
+            sum(
+                int((~np.isfinite(series.dropna().to_numpy(dtype=float)) | (series.dropna().to_numpy(dtype=float) <= 0)).sum())
+                for series in (observed, closes)
+            )
+        )
         return {
-            "status": "pass" if all(synthetic_columns.values()) else "fail",
+            "status": "pass" if all(synthetic_columns.values()) and invalid_prices == 0 else "fail",
+            "invalid_price_values": invalid_prices,
             "synthetic_labels": synthetic_columns,
             "promotion_eligible": False,
             "seed": dataset.metadata.get("seed"),
@@ -216,9 +241,20 @@ class SyntheticScenarioGenerator:
         return pd.DataFrame(rows, columns=["event_id", "status", "latency_ms", "synthetic", "seed"])
 
     def _metadata(self, spec: SyntheticScenarioSpec, *frames: pd.DataFrame) -> dict[str, Any]:
-        payload = {"generator_version": self.version, "spec": asdict(spec), "frame_rows": [len(frame) for frame in frames]}
+        # The hash binds the spec AND the generated content, so any changed value changes the hash.
+        payload = {
+            "generator_version": self.version,
+            "spec": asdict(spec),
+            "frame_rows": [len(frame) for frame in frames],
+            "frame_hashes": [_frame_hash(frame) for frame in frames],
+        }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
         return {"synthetic": True, "promotion_eligible": False, "generator_version": self.version, "scenario_id": spec.scenario_id, "seed": spec.seed, "spec": asdict(spec), "dataset_hash": hashlib.sha256(encoded).hexdigest()}
+
+
+def _frame_hash(frame: pd.DataFrame) -> str:
+    stable = frame.reset_index(drop=True).astype(str)
+    return hashlib.sha256(stable.to_csv(index=False).encode("utf-8")).hexdigest()
 
 
 __all__ = ["SyntheticDataset", "SyntheticScenarioError", "SyntheticScenarioGenerator", "SyntheticScenarioSpec"]

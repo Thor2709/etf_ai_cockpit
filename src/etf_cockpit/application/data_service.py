@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import dataclasses
+import re
+import threading
 from collections.abc import Callable
 from datetime import date
 from io import BytesIO
@@ -196,33 +198,43 @@ class DataService:
         messages: list[str] = []
 
         result = provider.fetch_prices([], start_date, end_date)
-        result = _carry_forward_failed_instruments(result)
-        if not result.ok or result.data is None:
-            return redact_text(str(result.message))
-        result, quarantined = _quarantine_invalid_ohlc(result)
-        report = validate_prices(result.data, as_of_date=end_date)
-        # Vendor OHLC glitches are quarantined row by row above, and a short history is a per-instrument
-        # signal gate the snapshot re-applies; neither should block committing every other instrument.
-        commit_tolerated = {"insufficient_history"}
-        block_issues = [
-            f"{issue.etf_id}: {issue.message}" for issue in report.issues
-            if issue.severity == "block" and issue.code not in commit_tolerated
-        ]
-        if block_issues:
-            return "Yahoo Finance prices fetched but not committed because validation blocked them: " + "; ".join(block_issues)
-        if quarantined is not None and not quarantined.empty:
-            quarantine_path = ROOT / "data" / "quality" / f"price_quarantine_{end_date.isoformat()}.parquet"
-            quarantine_path.parent.mkdir(parents=True, exist_ok=True)
-            quarantined.to_parquet(quarantine_path, index=False)
-            messages.append(f"Quarantined {len(quarantined)} invalid OHLC rows to {quarantine_path.name}.")
-        with publication_scope(publish_guard):
-            commit_result = commit_price_import(result)
+        symbol_map = getattr(provider, "_symbol_map", None)
+        expected_ids = tuple(symbol_map([])) if callable(symbol_map) else None
+        # Merge-with-stored and commit are one critical section: two concurrent partial refreshes
+        # must not both start from the same stored snapshot and overwrite each other's rows.
+        with _PRICE_REFRESH_LOCK:
+            result = _carry_forward_failed_instruments(result, expected_ids=expected_ids)
+            partial_missing = tuple(getattr(result, "missing_ids", ()))
+            if partial_missing and result.data is not None:
+                result = dataclasses.replace(result, status="ok")  # fresh + stored rows are real data; success stays False
+            if not result.ok or result.data is None:
+                return redact_text(str(result.message))
+            result, quarantined = _quarantine_invalid_ohlc(result)
+            report = validate_prices(result.data, as_of_date=end_date)
+            # Vendor OHLC glitches are quarantined row by row above, and a short history is a per-instrument
+            # signal gate the snapshot re-applies; neither should block committing every other instrument.
+            commit_tolerated = {"insufficient_history"}
+            block_issues = [
+                f"{issue.etf_id}: {issue.message}" for issue in report.issues
+                if issue.severity == "block" and issue.code not in commit_tolerated
+            ]
+            if block_issues:
+                return "Yahoo Finance prices fetched but not committed because validation blocked them: " + "; ".join(block_issues)
+            if quarantined is not None and not quarantined.empty:
+                quarantine_path = _unused_quarantine_path(ROOT / "data" / "quality", end_date)
+                quarantine_path.parent.mkdir(parents=True, exist_ok=True)
+                quarantined.to_parquet(quarantine_path, index=False)
+                messages.append(f"Quarantined {len(quarantined)} invalid OHLC rows to {quarantine_path.name}.")
+            with publication_scope(publish_guard):
+                commit_result = commit_price_import(result)
         messages.append(
             (
                 f"{result.message} Validated and committed {commit_result.rows} price rows. "
                 f"Clean prices: {commit_result.clean_path}. Previous snapshot: {commit_result.previous_snapshot_path or 'none'}."
             )
         )
+        if partial_missing:
+            messages.insert(0, "PARTIAL refresh, not ok: no price data for " + ", ".join(sorted(partial_missing)) + ".")
 
         if include_reference_data:
             from etf_cockpit.data.etf_e1_fetch import fetch_etf_e1_reference_data
@@ -700,21 +712,52 @@ class DataService:
         )
 
 
-def _carry_forward_failed_instruments(result: ProviderResult, *, clean_path: Path | None = None) -> ProviderResult:
+_PRICE_REFRESH_LOCK = threading.Lock()
+_FAILED_SYMBOL = re.compile(r"(?:^|[;.]\s*)([^\s/;:]+)/[^\s:;]+: ")
+
+
+@dataclasses.dataclass(frozen=True)
+class PartialProviderResult(ProviderResult):
+    """A refresh in which configured instruments have neither fresh nor stored prices: never ok."""
+
+    missing_ids: tuple[str, ...] = ()
+
+
+def _unused_quarantine_path(directory: Path, day: date) -> Path:
+    """A same-day quarantine never overwrites an earlier one."""
+
+    path = directory / f"price_quarantine_{day.isoformat()}.parquet"
+    counter = 1
+    while path.exists():
+        counter += 1
+        path = directory / f"price_quarantine_{day.isoformat()}_{counter}.parquet"
+    return path
+
+
+def _carry_forward_failed_instruments(
+    result: ProviderResult,
+    *,
+    clean_path: Path | None = None,
+    expected_ids: tuple[str, ...] | None = None,
+) -> ProviderResult:
     """One instrument the provider could not return must not block every other refresh.
 
     The price store is replaced on commit, so the instruments missing from a partial fetch keep
     their stored history unchanged (they turn stale and the staleness gate reports them) instead
-    of being dropped. Nothing is filled or estimated."""
+    of being dropped. Nothing is filled or estimated. A configured instrument with neither fresh
+    nor stored prices makes the result a `PartialProviderResult` (status unavailable), never ok."""
 
     if result.ok or result.data is None or result.data.empty:
         return result
     path = clean_path or CLEAN_DIR / "prices.parquet"
     fetched = set(result.data["etf_id"].astype(str))
     stored = pd.read_parquet(path) if path.is_file() else pd.DataFrame(columns=["etf_id"])
+    stored_ids = set(stored["etf_id"].astype(str))
     kept = stored[~stored["etf_id"].astype(str).isin(fetched)]
     data = pd.concat([result.data, kept], ignore_index=True) if not kept.empty else result.data
     kept_ids = sorted(set(kept["etf_id"].astype(str)))
+    wanted = set(expected_ids) if expected_ids is not None else set(_FAILED_SYMBOL.findall(str(result.message)))
+    missing = tuple(sorted(wanted - fetched - stored_ids))
     message = (
         f"Downloaded fresh prices for {len(fetched)} instruments. Not refreshed, stored history kept: "
         + (", ".join(kept_ids) if kept_ids else "none (no stored history)")
@@ -722,6 +765,16 @@ def _carry_forward_failed_instruments(result: ProviderResult, *, clean_path: Pat
         + str(result.message).replace("Partial refresh rejected; no incomplete Yahoo Finance price set was committed. ", "")
     )
     metadata = dataclasses.replace(result.metadata, checksum=sha256_dataframe(data)) if result.metadata else None
+    if missing:
+        return PartialProviderResult(
+            result.provider_name,
+            result.dataset_type,
+            "unavailable",
+            message + " No data at all for: " + ", ".join(missing) + ".",
+            data,
+            metadata,
+            missing_ids=missing,
+        )
     return ProviderResult(result.provider_name, result.dataset_type, "ok", message, data, metadata)
 
 
