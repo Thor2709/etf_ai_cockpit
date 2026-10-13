@@ -17,12 +17,13 @@ import pandas as pd
 import requests
 
 from etf_cockpit.core.config import ProviderSection
+from etf_cockpit.core.http_fetch import requests_get_checked, same_host_https
 from etf_cockpit.core.values import years_before
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority, redact_text
 from etf_cockpit.data.ohlcv_discrepancy import normalise_ohlcv
 from etf_cockpit.data.provenance import metadata_from_frame
 from etf_cockpit.data.providers import DataProvider, PriceProvider, ProviderResult
-from etf_cockpit.data.twelvedata_provider import RateLimiter, RateLimitState
+from etf_cockpit.data.twelvedata_provider import RateLimiter, RateLimitState, within_window
 
 DEFAULT_BASE_URL = "https://api.tiingo.com"
 FREE_TIER_CALLS_PER_HOUR = 50
@@ -122,7 +123,7 @@ class TiingoProvider(DataProvider, PriceProvider):
                     return json.loads(resp), None
                 return None, "Unexpected transport return type."
 
-            response = requests.get(url, headers=headers, timeout=30)
+            response = requests_get_checked(requests.get, url, allowed=same_host_https(url), headers=headers, timeout=30)
             if response.status_code == 429:
                 return None, f"HTTP 429: {self._redact(response.text)}"
             response.raise_for_status()
@@ -156,7 +157,8 @@ class TiingoProvider(DataProvider, PriceProvider):
             return pd.DataFrame()
 
         raw_df = pd.DataFrame(payload)
-        return normalise_ohlcv(raw_df, source=self.name, symbol=clean_symbol, currency=self.default_currency)
+        frame = normalise_ohlcv(raw_df, source=self.name, symbol=clean_symbol, currency=self.default_currency)
+        return within_window(frame, start, end)
 
     def fetch_intraday_prices(
         self,
@@ -167,6 +169,9 @@ class TiingoProvider(DataProvider, PriceProvider):
     ) -> pd.DataFrame:
         """Fetch intraday OHLCV from Tiingo IEX endpoint."""
         if not self.is_configured:
+            return pd.DataFrame()
+
+        if interval not in self.supported_intervals:
             return pd.DataFrame()
 
         state = self.limiter.acquire()
@@ -191,7 +196,8 @@ class TiingoProvider(DataProvider, PriceProvider):
         if err or not isinstance(payload, list) or not payload:
             return pd.DataFrame()
 
-        return normalise_ohlcv(pd.DataFrame(payload), source=self.name, symbol=clean_symbol, currency=self.default_currency)
+        frame = normalise_ohlcv(pd.DataFrame(payload), source=self.name, symbol=clean_symbol, currency=self.default_currency)
+        return within_window(frame, start, end)
 
     def fetch_prices(self, symbols: list[str], start_date: date, end_date: date) -> ProviderResult:
         """Bulk price fetch interface returning ProviderResult."""

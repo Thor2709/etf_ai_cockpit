@@ -159,6 +159,17 @@ def _scope_prices(price_history: pd.DataFrame, instrument_id: str, as_of: object
     return frame.drop_duplicates("_date", keep="last")
 
 
+def _quote_identity_matches(frame: pd.DataFrame, identity_columns: list[str], instrument_id: str) -> pd.Series:
+    populated = pd.DataFrame(
+        {column: frame[column].map(lambda value: _text(value) if pd.api.types.is_scalar(value) and not pd.isna(value) else None) for column in identity_columns},
+        index=frame.index,
+    )
+    matches = populated.apply(lambda column: column.eq(instrument_id), axis=0)
+    has_value = populated.notna()
+    conflicting = (has_value & ~matches).any(axis=1)
+    return matches.any(axis=1) & ~conflicting
+
+
 def _scope_quote(quote_evidence: pd.DataFrame | Mapping[str, object] | None, instrument_id: str, cutoff: pd.Timestamp | None = None) -> pd.DataFrame:
     if isinstance(quote_evidence, Mapping):
         frame = pd.DataFrame([dict(quote_evidence)])
@@ -166,10 +177,12 @@ def _scope_quote(quote_evidence: pd.DataFrame | Mapping[str, object] | None, ins
         frame = quote_evidence.copy()
     else:
         return pd.DataFrame()
-    identity_column = next((column for column in _QUOTE_ID_COLUMNS if column in frame.columns), None)
-    if identity_column is None:
+    identity_columns = [column for column in _QUOTE_ID_COLUMNS if column in frame.columns]
+    if not identity_columns:
         return pd.DataFrame()
-    frame = frame[frame[identity_column].astype(str).eq(str(instrument_id))]
+    # Every populated identity column must name this instrument. A row whose identity columns
+    # disagree (for example instrument_id and etf_id naming different instruments) is rejected.
+    frame = frame[_quote_identity_matches(frame, identity_columns, str(instrument_id))]
     timestamp_column = next((column for column in ("quote_timestamp", "timestamp", "as_of", "date") if column in frame.columns), None)
     if timestamp_column is None:
         return pd.DataFrame()
@@ -201,14 +214,10 @@ def _quote_context(quote_evidence: pd.DataFrame | Mapping[str, object] | None, i
         else:
             has_quote_records = has_identity = False
         identity_matches = False
-        if isinstance(quote_evidence, Mapping):
-            identity_matches = any(str(quote_evidence.get(column, "")) == instrument_id for column in _QUOTE_ID_COLUMNS)
-        elif isinstance(quote_evidence, pd.DataFrame):
-            identity_matches = any(
-                quote_evidence[column].astype(str).eq(instrument_id).any()
-                for column in _QUOTE_ID_COLUMNS
-                if column in quote_evidence.columns
-            )
+        raw_frame = pd.DataFrame([dict(quote_evidence)]) if isinstance(quote_evidence, Mapping) else quote_evidence
+        if isinstance(raw_frame, pd.DataFrame) and not raw_frame.empty:
+            id_columns = [column for column in _QUOTE_ID_COLUMNS if column in raw_frame.columns]
+            identity_matches = bool(id_columns) and bool(_quote_identity_matches(raw_frame, id_columns, str(instrument_id)).any())
         missing = {"bid_ask", "nav", "quote_timestamp"}
         if has_quote_records and (not has_identity or not identity_matches):
             missing.add("quote_identity")
@@ -276,11 +285,18 @@ def _quote_context(quote_evidence: pd.DataFrame | Mapping[str, object] | None, i
     untyped_fields = (("bid", "bid_eur"), ("ask", "ask_eur"), ("nav", "nav_eur"), ("indicative_nav", "indicative_nav_eur"))
     if not allow_untyped and any(_positive(row.get(plain)) is not None and _positive(row.get(eur)) is None for plain, eur in untyped_fields):
         missing.add("quote_currency_not_eur")
+    if stale:
+        # B012-N001: a quote older than the freshness limit must not set spread, premium or cost.
+        missing.update({"quote_stale", "bid_ask", "nav"})
+        bid = ask = mid = nav = None
+        nav_freshness_stale = True
+    else:
+        nav_freshness_stale = False
     quote_complete = mid is not None and nav is not None and timestamp is not None and not missing.intersection(
         {"bid_ask", "nav", "nav_identity", "nav_timestamp", "quote_timestamp", "quote_currency_not_eur"}
     )
     if nav is None:
-        nav_freshness = "unavailable"
+        nav_freshness = "stale" if nav_freshness_stale else "unavailable"
     elif nav_timestamp_column is None:
         nav_freshness = "inherited_quote_timestamp"
     else:

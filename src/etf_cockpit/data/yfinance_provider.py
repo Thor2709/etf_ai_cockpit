@@ -158,7 +158,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
             source_name=self.name,
             source_type="prices",
             as_of_date=latest,
-            currency=self.default_currency,
+            currency=_single_or_mixed(data.get("currency")),
             provider_or_manual_source="Yahoo Finance via yfinance",
             staleness_status="unknown",
             notes=("; ".join(errors) if errors else "Downloaded with yfinance; Yahoo data availability can vary by listing."),
@@ -328,7 +328,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
                 "low": pd.to_numeric(frame["Low"], errors="coerce"),
                 "close": pd.to_numeric(frame["Close"], errors="coerce"),
                 "adjusted_close": pd.to_numeric(frame.get("Adj Close", frame["Close"]), errors="coerce"),
-                "volume": _numeric_frame_column(frame, "Volume", default=0.0),
+                "volume": _numeric_frame_column(frame, "Volume", default=float("nan"), fill=False),
                 "currency": self._quote_currency(symbol, etf_id),
                 "provider_symbol": symbol,
                 "source": self.name,
@@ -381,6 +381,7 @@ class YFinanceProvider(DataProvider, PriceProvider):
             "name": info.get("longName") or info.get("shortName") or configured.get("name", ""),
             "currency": info.get("currency") or fast_info.get("currency") or configured.get("currency") or self.default_currency,
             "ter": ter if ter is not None else configured.get("configured_ter"),
+            "ter_source": "provider_own_column" if ter is not None else "configured" if configured.get("configured_ter") is not None else "unavailable",
             "provider": info.get("fundFamily") or fund_overview.get("family") or "Yahoo Finance",
             "factsheet_url": "",
             "quote_type": info.get("quoteType") or fast_info.get("quoteType") or fund_overview.get("legalType") or "",
@@ -512,13 +513,11 @@ def _safe_dataframe(value: object) -> pd.DataFrame:
 def _fund_operation_value(frame: pd.DataFrame, symbol: str, label: str) -> float | None:
     if frame.empty or label not in frame.index:
         return None
-    for column in (symbol, *list(frame.columns)):
-        if column not in frame.columns:
-            continue
-        value = _safe_float(frame.loc[label, column])
-        if value is not None:
-            return value
-    return None
+    # Only the instrument's own column counts; the other columns (e.g. "Category Average")
+    # describe a peer group and must never be reported as this fund's value.
+    if symbol not in frame.columns:
+        return None
+    return _safe_float(frame.loc[label, symbol])
 
 
 def _safe_float(value: object) -> float | None:
@@ -530,10 +529,12 @@ def _safe_float(value: object) -> float | None:
         return None
 
 
-def _numeric_frame_column(frame: pd.DataFrame, column: str, *, default: float) -> pd.Series:
+def _numeric_frame_column(frame: pd.DataFrame, column: str, *, default: float, fill: bool = True) -> pd.Series:
+    """Numeric column; ``fill=False`` keeps missing values as NaN (unknown, never zero)."""
     if column not in frame.columns:
         return pd.Series([default] * len(frame), index=frame.index, dtype="float64")
-    return pd.to_numeric(frame[column], errors="coerce").fillna(default)
+    values = pd.to_numeric(frame[column], errors="coerce")
+    return values.fillna(default) if fill else values
 
 
 def _single_or_mixed(series: pd.Series | None) -> str | None:

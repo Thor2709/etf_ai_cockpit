@@ -614,7 +614,8 @@ def write_provider_probe_results(config: AppConfig) -> Path:
                 "enabled": item.configured,
                 "source_authority": legacy_authority,
                 "requires_api_key": _provider_requires_api_key(item.provider_id, active),
-                "has_api_key": bool(section.api_key),
+                # The resolved credential (vault/env/config) the probe actually used, not the raw config field.
+                "has_api_key": bool(item.secret_present),
                 "base_url_configured": bool(section.base_url),
                 "capabilities": canonical["dataset_type"],
                 "last_probe_at": now,

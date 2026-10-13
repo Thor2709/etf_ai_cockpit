@@ -46,6 +46,10 @@ _DOMAIN_LABELS = {
 _TD_METHOD = "INDEX_PLUS_TD_MINUS_TRADING_COSTS"
 _FALLBACK_METHOD = "INDEX_MINUS_TER_MINUS_STRUCTURAL_DRAG_MINUS_TRADING_COSTS"
 _LOW_CONFIDENCE = {"high": 0.85, "medium": 0.65, "low": 0.35}
+# Evidence older than these limits (decision time minus effective date) is not score-eligible.
+# Tracking evidence is recomputed from daily total-return series; fee (TER) disclosures are annual.
+_TRACKING_MAX_AGE_DAYS = 10.0
+_TER_MAX_AGE_DAYS = 400.0
 
 
 def compose_etf_decision(
@@ -148,6 +152,7 @@ def compose_etf_decision(
         structural_drag,
         vehicle_metrics,
         decision,
+        target_context,
     )
     exposure_evidence = _exposure_scored_metrics(
         exposure_registry, look_through, decision
@@ -373,8 +378,8 @@ def _vehicle_scored_metrics(
 ) -> list[ScoredMetric]:
     definitions = {item.metric_id: item for item in registry.metrics}
     evidence: dict[str, ScoredMetric] = {}
-    _add_tracking_metrics(evidence, definitions, economics)
-    _add_fee_metric(evidence, definitions, economics)
+    _add_tracking_metrics(evidence, definitions, economics, decision)
+    _add_fee_metric(evidence, definitions, economics, decision, context)
     _add_liquidity_metrics(evidence, definitions, liquidity, liquidity_known_at)
     _add_closure_metric(evidence, definitions, economics)
     _add_look_through_vehicle_metrics(evidence, definitions, look_through)
@@ -447,6 +452,7 @@ def _add_tracking_metrics(
     evidence: dict[str, ScoredMetric],
     definitions: Mapping[str, MetricDefinition],
     economics: object | None,
+    decision: datetime,
 ) -> None:
     if economics is None:
         return
@@ -460,6 +466,8 @@ def _add_tracking_metrics(
     )
     effective = _timestamp(_member(economics, "matched_end"))
     if str(_member(economics, "tracking_status", "")).casefold() != "available" or known is None or effective is None:
+        return
+    if _is_stale(effective, decision, _TRACKING_MAX_AGE_DAYS):
         return
     provenance = {
         "source": "data.etf_economics.calculate_etf_economics",
@@ -508,20 +516,66 @@ def _tracking_history_reliable(economics: object) -> bool:
     )
 
 
+def _fee_evidence(economics: object, context: InstrumentContextV2 | None = None) -> Mapping[str, object]:
+    """Return the fee evidence for the scored share class, else the fund-level evidence (B014-N001).
+
+    The class is the observation whose id is this instrument, else the one class in the instrument's
+    share-class currency. Classes of one fund can charge different TERs, so when classes exist, none
+    can be selected unambiguously and their TERs differ from the fund's, the TER is unavailable
+    rather than guessed. A selected class without a TER never falls back to the fund TER.
+    """
+
+    fund = _mapping(_member(economics, "fund_metrics"))
+    classes = _mapping(_member(economics, "share_class_metrics"))
+    if not classes:
+        return fund
+    instrument = _member(economics, "instrument_id")
+    selected = _mapping(classes.get(instrument)) if instrument in classes else {}
+    if not selected:
+        currency = (getattr(context, "share_class_currency", None) or "").strip().upper()
+        candidates = [
+            _mapping(item)
+            for item in classes.values()
+            if currency and str(_mapping(item).get("currency") or "").upper() == currency
+        ]
+        if len(candidates) == 1:
+            selected = candidates[0]
+        else:
+            fund_fee = _finite(fund.get("ter"))
+            if all(_finite(_mapping(item).get("ter")) == fund_fee for item in classes.values()):
+                return fund
+            return {}
+    return {
+        "ter": selected.get("ter"),
+        "fee_unit": selected.get("fee_unit"),
+        "evidence_as_of": selected.get("effective_at", selected.get("as_of")),
+        "evidence_known_at": selected.get("known_at"),
+        "source_id": selected.get("source_id"),
+        "source_provenance": selected.get("source_provenance"),
+        "source_checksum": selected.get("source_checksum"),
+        "scope": "share_class",
+        "share_class_id": selected.get("share_class_id"),
+    }
+
+
 def _add_fee_metric(
     evidence: dict[str, ScoredMetric],
     definitions: Mapping[str, MetricDefinition],
     economics: object | None,
+    decision: datetime,
+    context: InstrumentContextV2 | None = None,
 ) -> None:
     if economics is None or "ter" not in definitions:
         return
-    fund = _mapping(_member(economics, "fund_metrics"))
+    fund = _fee_evidence(economics, context)
     fee = _finite(fund.get("ter"))
     effective = _timestamp(fund.get("evidence_as_of"))
     known = _timestamp(fund.get("evidence_known_at"))
     if fee is None or effective is None or known is None:
         return
     if fund.get("fee_unit") != "decimal_fraction":
+        return
+    if _is_stale(effective, decision, _TER_MAX_AGE_DAYS):
         return
     evidence["ter"] = _metric(
         definitions["ter"],
@@ -533,6 +587,8 @@ def _add_fee_metric(
             "source": fund.get("source_id"),
             "provenance": fund.get("source_provenance"),
             "checksum": fund.get("source_checksum"),
+            "scope": fund.get("scope", "fund"),
+            "share_class_id": fund.get("share_class_id"),
         },
     )
 
@@ -556,6 +612,8 @@ def _add_liquidity_metrics(
         "known_at": known.isoformat().replace("+00:00", "Z"),
     }
     trading_cost = _finite(_member(liquidity, "estimated_cost_bps"))
+    if _quote_determined_but_stale(liquidity):
+        trading_cost = None
     if trading_cost is not None and "estimated_trading_cost" in definitions:
         evidence["estimated_trading_cost"] = _metric(
             definitions["estimated_trading_cost"],
@@ -566,6 +624,8 @@ def _add_liquidity_metrics(
             source={**source, "original_value_bps": trading_cost},
         )
     premium = _finite(_member(liquidity, "premium_discount_bps"))
+    if _member(liquidity, "stale_quote") is True:
+        premium = None
     if premium is not None and "premium_discount_abs" in definitions:
         evidence["premium_discount_abs"] = _metric(
             definitions["premium_discount_abs"],
@@ -581,6 +641,8 @@ def _add_liquidity_metrics(
         ("order_to_daily_turnover", "order_to_daily_turnover", "ratio"),
     ):
         value = _finite(_member(liquidity, field))
+        if _quote_determined_but_stale(liquidity) and field.startswith("spread"):
+            value = None
         if value is not None and metric_id in definitions:
             evidence[metric_id] = _metric(
                 definitions[metric_id],
@@ -590,6 +652,19 @@ def _add_liquidity_metrics(
                 known_at=known,
                 source=source,
             )
+
+
+def _quote_determined_but_stale(liquidity: object) -> bool:
+    """True when the spread/cost in a liquidity report came from a quote that is stale (B012-N001)."""
+
+    return (
+        _member(liquidity, "stale_quote") is True
+        and str(_member(liquidity, "spread_source", "")).casefold() == "quoted_bid_ask"
+    )
+
+
+def _is_stale(effective: datetime, decision: datetime, max_age_days: float) -> bool:
+    return (decision - effective).total_seconds() > max_age_days * 86_400.0
 
 
 def _add_closure_metric(
@@ -681,19 +756,30 @@ def _add_currency_metric(
     if effective is None or known is None or not currency_weights:
         return
     result = build_currency_context(context.trading_currency, currency_weights)
-    differs = result.trading_currency_differs_from_economic
-    if differs is None:
+    weights = result.economic_currency_weights
+    trading = result.trading_currency
+    if weights is None or trading is None or not math.isclose(math.fsum(weight for _, weight in weights), 1.0, abs_tol=1e-9):
         return
+    hedge_currency = (context.hedging_currency or "").strip().upper() or None
+    if hedge_currency is not None:
+        # A class hedged into its listing currency carries no residual currency mismatch; a class
+        # hedged into another currency is fully mismatched with the listing currency.
+        mismatch = 0.0 if hedge_currency == trading else 1.0
+    else:
+        # Unhedged (no hedge evidence): the share of economic exposure outside the listing currency.
+        mismatch = max(0.0, 1.0 - sum(weight for currency, weight in weights if currency == trading))
     evidence["currency_mismatch"] = _metric(
         definitions["currency_mismatch"],
-        1.0 if differs else 0.0,
-        unit="boolean",
+        round(min(1.0, mismatch), 10),
+        unit="fraction",
         effective_at=effective,
         known_at=known,
         source={
             "source": "analysis.etf_tax_context.build_currency_context",
             "economic_currency_weights": currency_weights,
             "trading_currency": context.trading_currency,
+            "hedging_currency": hedge_currency,
+            "hedge_status": "hedged" if hedge_currency else "unhedged_no_hedge_evidence",
         },
     )
 
@@ -758,6 +844,7 @@ def _expected_return_record(
     structural_drag: Mapping[str, object] | None,
     vehicle_metrics: Mapping[str, object],
     decision: datetime,
+    context: InstrumentContextV2 | None = None,
 ) -> tuple[ScoredMetric | None, str]:
     definitions = {item.metric_id: item for item in registry.metrics}
     definition = definitions.get("expected_etf_return")
@@ -786,10 +873,15 @@ def _expected_return_record(
             return None, method
         if td.get("unit") != "decimal_fraction":
             return None, method
+        # B012-N002: the compounded tracking difference covers ``horizon_days`` sessions; it may only
+        # be added to an index forecast declared for the same horizon.
+        index_horizon = _finite(index.get("horizon_days"))
+        if index_horizon is None or index_horizon != _finite(_member(economics, "horizon_days")):
+            return None, method
         components.append(("canonical_tracking_difference", td))
         value = float(index["value"]) + float(td["value"]) - float(trading["value"])
     else:
-        ter = _ter_record(economics, decision)
+        ter = _ter_record(economics, decision, context)
         drag = _validated_record(structural_drag, decision)
         if ter is None or drag is None:
             return None, method
@@ -830,6 +922,8 @@ def _tracking_record(economics: object, decision: datetime) -> dict[str, object]
     ))
     if value is None or effective is None or known is None or effective > decision or known > decision:
         return None
+    if _is_stale(effective, decision, _TRACKING_MAX_AGE_DAYS):
+        return None
     return {
         "value": value,
         "unit": "decimal_fraction",
@@ -845,10 +939,17 @@ def _tracking_record(economics: object, decision: datetime) -> dict[str, object]
     }
 
 
-def _ter_record(economics: object | None, decision: datetime) -> dict[str, object] | None:
+def _ter_record(
+    economics: object | None,
+    decision: datetime,
+    context: InstrumentContextV2 | None = None,
+) -> dict[str, object] | None:
     if economics is None:
         return None
-    fund = _mapping(_member(economics, "fund_metrics"))
+    fund = _fee_evidence(economics, context)
+    effective_fee = _timestamp(fund.get("evidence_as_of"))
+    if effective_fee is None or _is_stale(effective_fee, decision, _TER_MAX_AGE_DAYS):
+        return None
     record = {
         "value": fund.get("ter"),
         "effective_at": fund.get("evidence_as_of"),
@@ -876,7 +977,7 @@ def _trading_cost_record(
     value = _finite(_member(liquidity, "estimated_cost_bps"))
     effective = _timestamp(_member(liquidity, "as_of"))
     known = _timestamp(known_at)
-    if value is None or effective is None or known is None:
+    if value is None or effective is None or known is None or _quote_determined_but_stale(liquidity):
         return None
     return _validated_record(
         {
@@ -934,6 +1035,7 @@ def _validated_record(
         "reliability": _quality(value.get("reliability", value.get("confidence")), 0.35),
         "coverage": _fraction(value.get("coverage")) if value.get("coverage") is not None else 1.0,
         "provenance": value.get("provenance", {"source": source}),
+        "horizon_days": _finite(value.get("horizon_days")),
     }
 
 
