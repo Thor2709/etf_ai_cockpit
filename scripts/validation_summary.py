@@ -74,7 +74,9 @@ def validate_summary(report: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if report.get("schema_version") != SCHEMA_VERSION:
         errors.append("terminal summary schema mismatch")
-    for key in ("base_sha", "head_sha"):
+    # tested_sha is the commit the workflow actually ran: github.sha, i.e. the PR merge commit on
+    # pull_request events and equal to head_sha on push events.
+    for key in ("base_sha", "head_sha", "tested_sha"):
         if not isinstance(report.get(key), str) or not re.fullmatch(r"[0-9a-f]{40}", report[key]):
             errors.append(f"terminal summary {key} is invalid")
     if report.get("tier") not in {"E", "O", "H", "C"} or not report.get("reason"):
@@ -319,7 +321,7 @@ def _collect_platform_junit(artifacts_root: Path, head: str, root: Path | None =
 
 def _shard_coverage_errors(report: dict[str, Any]) -> list[str]:
     shards = report.get("platform_shards")
-    head = report.get("head_sha")
+    tested = report.get("tested_sha")
     if not isinstance(shards, dict) or set(shards) != {"windows", "linux"}:
         return ["terminal summary shard coverage is required"]
     errors: list[str] = []
@@ -330,8 +332,8 @@ def _shard_coverage_errors(report: dict[str, Any]) -> list[str]:
         if not isinstance(record, dict) or set(record) != SHARD_KEYS:
             errors.append(f"terminal summary {platform} shard coverage is malformed")
             continue
-        if record["head_sha"] != [head]:
-            errors.append(f"terminal summary {platform} shard evidence is not for the exact head SHA")
+        if record["head_sha"] != [tested]:
+            errors.append(f"terminal summary {platform} shard evidence is not for the exact tested SHA")
         if record["shards"] != expected_numbers or record["labels"] != expected_labels:
             errors.append(f"terminal summary {platform} shards are incomplete (expected 1/3 to 3/3)")
         report_errors = record["report_errors"]
@@ -852,9 +854,11 @@ def collect_summary(
     base: str,
     head: str,
     job_results: dict[str, str],
+    tested: str | None = None,
 ) -> dict[str, Any]:
-    if not SHA_RE.fullmatch(base) or not SHA_RE.fullmatch(head):
-        raise ValueError("validation summary base and head must be full lowercase Git SHAs")
+    tested = head if tested is None else tested
+    if not SHA_RE.fullmatch(base) or not SHA_RE.fullmatch(head) or not SHA_RE.fullmatch(tested):
+        raise ValueError("validation summary base, head and tested must be full lowercase Git SHAs")
     classifier_paths = list(artifacts_root.rglob("classifier.json"))
     if len(classifier_paths) != 1:
         raise ValueError("exactly one classifier artifact is required")
@@ -872,12 +876,13 @@ def collect_summary(
         for path in sorted(artifacts_root.rglob("*"))
         if path.is_file()
     ]
-    junit, shards = _collect_platform_junit(artifacts_root, head, root)
+    junit, shards = _collect_platform_junit(artifacts_root, head, root)  # test inventory is read at the PR head
     groups = identity_groups()
     report = {
         "schema_version": SCHEMA_VERSION,
         "base_sha": base,
         "head_sha": head,
+        "tested_sha": tested,
         "tier": tier,
         "package_gate_required": package,
         "reason": classifier.get("reasons"),
@@ -911,6 +916,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--base")
     parser.add_argument("--head")
+    parser.add_argument("--tested")
     parser.add_argument("--job-result", action="append", default=[])
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
@@ -922,6 +928,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.artifacts_root,
                 base=args.base,
                 head=args.head,
+                tested=args.tested,
                 job_results=results,
             )
             if args.output:
