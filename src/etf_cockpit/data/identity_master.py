@@ -620,8 +620,25 @@ class IdentityMasterStore:
         effective_at: str | datetime | None,
         decision_time: str | datetime | None,
     ) -> tuple[IdentityConflict, ...]:
+        # Only claims of this instrument and claims of other entities that share one of
+        # its unique identifiers can form a duplicate group; an unrelated entity's
+        # undated claim must not block point-in-time resolution of this instrument.
+        own_keys = {
+            (_field(claim.field), _identifier_value(_field(claim.field), claim.value))
+            for claim in claims
+            if claim.instrument_id == instrument_id and _field(claim.field) in _UNIQUE_INSTRUMENT_IDENTIFIERS
+        }
+        relevant = tuple(
+            claim
+            for claim in claims
+            if claim.instrument_id == instrument_id
+            or (
+                _field(claim.field) in _UNIQUE_INSTRUMENT_IDENTIFIERS
+                and (_field(claim.field), _identifier_value(_field(claim.field), claim.value)) in own_keys
+            )
+        )
         eligible = _eligible_claims(
-            claims,
+            relevant,
             effective_at=effective_at,
             decision_time=decision_time,
         )
