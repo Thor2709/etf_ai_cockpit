@@ -256,12 +256,6 @@ class BatchRetriever(Generic[T]):
                         value = downloader(symbol)
                         payload = self.encode(value)
                         retrieved_at = self._retrieved_at()
-                        self._write_cache(self._cache_key(symbol, request), payload, retrieved_at)
-                        status = "done" if self.is_available(value) else "unavailable"
-                        record.update(status=status, error_fingerprint=None)
-                        self._write_manifest(manifest)
-                        values[symbol] = self._result(symbol, status, attempts, value, retrieved_at)
-                        break
                     except Exception as exc:
                         error = redact_text(f"{type(exc).__name__}: {exc}")
                         record.update(
@@ -271,6 +265,27 @@ class BatchRetriever(Generic[T]):
                         self._write_manifest(manifest)
                         if attempts_this_run < self.max_retries + 1:
                             self.sleep(self.backoff_seconds * (2 ** (attempts_this_run - 1)))
+                        continue
+                    # The download succeeded: a cache or checkpoint write failure is a local persistence
+                    # fault, classified separately and never retried as a provider failure.
+                    status = "done" if self.is_available(value) else "unavailable"
+                    try:
+                        self._write_cache(self._cache_key(symbol, request), payload, retrieved_at)
+                        record.update(status=status, error_fingerprint=None)
+                        self._write_manifest(manifest)
+                    except Exception as exc:
+                        error = redact_text(f"checkpoint_failure: {type(exc).__name__}: {exc}")
+                        record.update(status="failed", error_fingerprint=_error_fingerprint(error))
+                        values[symbol] = SymbolRetrieval(
+                            symbol=symbol,
+                            status="failed",
+                            attempts=attempts,
+                            error=error,
+                            error_fingerprint=_error_fingerprint(error),
+                        )
+                        break
+                    values[symbol] = self._result(symbol, status, attempts, value, retrieved_at)
+                    break
                 else:
                     record["status"] = "failed"
                 if symbol not in values:
