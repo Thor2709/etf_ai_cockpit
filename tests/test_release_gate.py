@@ -167,6 +167,7 @@ def test_full_tests_fails_when_either_xdist_phase_fails(
     assert f"phase {expected_phase} failed" in result.failure
     evidence = json.loads(result.output.removeprefix(release_gate._FULL_TEST_EVIDENCE_PREFIX))
     assert evidence["collection_node_counts"] == {"full": 2, "phase_a": 1, "phase_b": 1}
+    assert evidence["collection_nodeids"] == ["tests/test_sample.py::test_a", "tests/test_sample.py::test_b"]
     assert evidence["phase_duration_ms"] == {"phase_a": 12.5, "phase_b": 12.5}
     report = release_gate._report_markdown(
         {"schema_version": "1.0", "git": {}, "source_manifest_sha256": "test"},

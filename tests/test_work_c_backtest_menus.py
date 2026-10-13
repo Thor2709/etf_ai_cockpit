@@ -57,4 +57,3 @@ def test_page_card_menus_export_and_show_real_price_rows(tmp_path, monkeypatch):
     assert table.visible
     assert table.controls[1].visible
     assert "VWCE" in [getattr(c, "value", None) for c in walk(table)]
-

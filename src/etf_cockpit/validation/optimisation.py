@@ -748,7 +748,7 @@ def run_walk_forward_tuning(
         return unavailable("sample_dates_not_strictly_increasing")
     try:
         spec = ValidationSpec(1, split.eval_size, split.horizon, split.embargo, split.final_test_size, seed=config.search.seed)
-        fold = build_walk_forward_splits(len(dates), spec)[0]
+        fold = build_walk_forward_splits(len(dates), spec, strict_label_purge=False)[0]
     except ValueError as exc:
         return unavailable(f"insufficient_samples: {exc}")
     tune, evaluation = fold.train_indices, fold.validation_indices
