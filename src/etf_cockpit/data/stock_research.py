@@ -59,6 +59,7 @@ _GROWTH_ALIASES: dict[str, tuple[str, ...]] = {
     "net_income": ("net_income", "net_profit"),
     "shares_outstanding": ("shares_outstanding",),
     "diluted_shares_outstanding": ("diluted_shares_outstanding", "diluted_shares"),
+    "weighted_average_shares": ("weighted_average_shares", "weighted_average_shares_basic", "weighted_shares"),
     "earnings_per_share": ("earnings_per_share", "eps", "basic_eps", "diluted_eps"),
     "organic_revenue": ("organic_revenue", "organic_sales"),
     "acquisition_revenue": ("acquisition_revenue", "inorganic_revenue", "acquired_revenue"),
@@ -647,7 +648,8 @@ def growth_analysis(
             "earnings_per_share",
             ("earnings_per_share",),
             basis="per_share",
-            derived_from=("net_income", "shares_outstanding"),
+            derived_from=("net_income", "weighted_average_shares"),
+            unavailable_reason="weighted-average shares are not reported for the period; period-end shares are not a valid EPS denominator",
         ),
         "free_cash_flow_per_share": _growth_series(
             periods,
@@ -904,10 +906,13 @@ def _period_rows(frame: pd.DataFrame) -> list[dict[str, object]]:
                     sources[logical] = raw_sources.get(alias, ())
                     formulas[logical] = f"reported {alias}"
                     break
-        if "earnings_per_share" not in values and {"net_income", "shares_outstanding"} <= values.keys() and values["shares_outstanding"] != 0:
-            values["earnings_per_share"] = values["net_income"] / values["shares_outstanding"]
-            sources["earnings_per_share"] = tuple(sorted(set(sources.get("net_income", ())) | set(sources.get("shares_outstanding", ()))))
-            formulas["earnings_per_share"] = "net_income / shares_outstanding"
+        if "earnings_per_share" not in values and "net_income" in values and values.get("weighted_average_shares") not in (None, 0):
+            # EPS divides a period flow by the weighted-average share count of that period. Period-end
+            # shares are not a verified denominator for the earnings period, so without a reported EPS or
+            # a weighted average the series stays unavailable (see ``unavailable_reason``).
+            values["earnings_per_share"] = values["net_income"] / values["weighted_average_shares"]
+            sources["earnings_per_share"] = tuple(sorted(set(sources.get("net_income", ())) | set(sources.get("weighted_average_shares", ()))))
+            formulas["earnings_per_share"] = "net_income / weighted_average_shares"
 
         first = rows.iloc[0]
         fiscal_year = str(first.get("fiscal_year", "") or "")
@@ -943,6 +948,7 @@ def _growth_series(
     *,
     basis: str,
     derived_from: tuple[str, str] | None = None,
+    unavailable_reason: str | None = None,
 ) -> dict[str, object]:
     history: list[dict[str, object]] = []
     for period in periods:
@@ -969,6 +975,7 @@ def _growth_series(
                 "formula": formula or f"reported {name}",
                 "source_ids": list(source_ids),
                 "status": "available" if value is not None else "missing",
+                **({"reason": unavailable_reason} if value is None and unavailable_reason else {}),
             }
         )
     growth: list[dict[str, object]] = []

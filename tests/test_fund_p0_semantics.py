@@ -236,6 +236,7 @@ def test_unattributed_consolidated_income_is_unavailable_when_nci_exists(income_
             "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest": {"units": {"USD": [_fact("2025-01-01", "2025-12-31", 20.0, "2026-02-10")]}},
             "StockholdersEquity": {"units": {"USD": [_fact(None, "2025-12-31", 100.0, "2026-02-10")]}},
             "LongTermDebtNoncurrent": {"units": {"USD": [_fact(None, "2025-12-31", 30.0, "2026-02-10")]}},
+            "LongTermDebtCurrent": {"units": {"USD": [_fact(None, "2025-12-31", 0.0, "2026-02-10")]}},  # reported zero: both long-term portions are verified
             "CashAndCashEquivalentsAtCarryingValue": {"units": {"USD": [_fact(None, "2025-12-31", 10.0, "2026-02-10")]}},
             "ShortTermInvestments": {"units": {"USD": [_fact(None, "2025-12-31", 0.0, "2026-02-10")]}},
             "NetIncomeLoss": {"units": {"USD": [_fact("2025-01-01", "2025-12-31", 100.0, "2026-02-10")]}},
