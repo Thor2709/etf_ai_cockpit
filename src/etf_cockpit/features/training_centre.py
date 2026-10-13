@@ -33,7 +33,7 @@ from etf_cockpit.models.monitoring import (
     assess_drift,
     compare_net_performance,
 )
-from etf_cockpit.validation.optimisation import _identifier
+from etf_cockpit.validation.optimisation import _ENTITY_TRIAL as _ENTITY_SEARCH_TRIAL, _identifier
 
 
 RunStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
@@ -346,6 +346,14 @@ class LocalTrainingRegistry:
                     reason = "trial_family_manifest_conflict"
                 else:
                     prior[item.entity_id] = values
+        # Optimiser search trials (every status: completed, pruned, failed, rejected) are
+        # unpaired family members: counted for DSR, they make FDR unavailable. The ledger
+        # carries no experiment id, so only records whose run_id is a run of this
+        # experiment (or the experiment id itself) are attributable without a migration.
+        retained_count += sum(
+            1 for row in store.list(_ENTITY_SEARCH_TRIAL, include_deleted=True)
+            if row.payload.get("run_id") in runs or row.payload.get("run_id") == current_run["experiment_id"]
+        )
         if any(run_id != current_run["run_id"] and run_id not in covered_runs for run_id in runs):
             reason = "prior_run_trial_evidence_missing"
         if any(row.deleted_at for row in runs.values()) or any(row.deleted_at or row.revision != 1 for row in reports.values()):

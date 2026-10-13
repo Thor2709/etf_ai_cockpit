@@ -36,7 +36,8 @@ def test_validation_retains_discarded_trials_and_never_uses_final_test_for_selec
     challenger = np.full(80, 0.20)
     challenger[-10:] = 0.00
     baseline[-10:] = 0.50
-    report = evaluate_registered_trials(tmp_path, str(run["run_id"]), 
+    report = evaluate_registered_trials(
+        tmp_path, str(run["run_id"]),
         {"baseline": baseline, "challenger": challenger},
         spec=spec, frozen_candidate_id="challenger", predeclared_comparator_ids=("baseline",), holdout_id="final-score-regression",
         parameters={"baseline": {"kind": "naive"}, "challenger": {"kind": "candidate"}},

@@ -129,35 +129,48 @@ def build_walk_forward_splits(
     spec: ValidationSpec | None = None,
     *,
     reserve_final_test: bool = True,
+    strict_label_purge: bool = True,
 ) -> tuple[ValidationFold, ...]:
-    """Return non-overlapping temporal folds with label purge and embargo."""
+    """Return non-overlapping temporal folds with label purge and embargo.
+
+    Labels are assumed to span t+1..t+horizon. ``strict_label_purge`` (default,
+    used by inference) purges ``horizon`` rows before validation, keeps a
+    ``horizon`` gap before the final test and requires two training rows per
+    fold. ``strict_label_purge=False`` keeps the original ``horizon - 1`` purge
+    and unpadded final tail for non-inference callers (the tuning optimiser).
+    """
 
     definition = spec or ValidationSpec()
     n_samples = int(n_samples)
-    final_gap = definition.final_test_size + definition.horizon if reserve_final_test else 0
+    final_gap = 0
+    if reserve_final_test:
+        final_gap = definition.final_test_size + (definition.horizon if strict_label_purge else 0)
+    purge_width = definition.horizon if strict_label_purge else definition.horizon - 1
+    min_train = 2 if strict_label_purge else 0
     development_end = n_samples - final_gap
     required = (
         final_gap
         + definition.n_splits * definition.test_size
         + definition.horizon
         + definition.embargo
-        + 2
+        + min_train
     )
     if n_samples < required:
         raise ValueError(
-            f"at least {required} observations are required for this validation spec, "
-            "including two post-purge training observations"
+            f"at least {required} observations are required for this validation spec"
+            + (", " if strict_label_purge else "")
+            + ("including two post-purge training observations" if strict_label_purge else "")
         )
     folds: list[ValidationFold] = []
     for fold in range(definition.n_splits):
         validation_start = development_end - (definition.n_splits - fold) * definition.test_size
         validation_end = validation_start + definition.test_size
-        purge_end = max(0, validation_start - definition.horizon)
+        purge_end = max(0, validation_start - purge_width)
         embargo_start = validation_end
         embargo_end = min(development_end, validation_end + definition.embargo)
         train_start = 0 if definition.expanding or definition.train_size is None else max(0, purge_end - definition.train_size)
         train_indices = tuple(range(train_start, purge_end))
-        if len(train_indices) < 2:
+        if len(train_indices) < min_train:
             raise ValueError("each fold requires at least two training observations after label purge")
         purged = tuple(range(purge_end, validation_start))
         embargoed = tuple(range(embargo_start, embargo_end))

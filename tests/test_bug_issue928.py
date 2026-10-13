@@ -9,6 +9,7 @@ import pytest
 from etf_cockpit.application.validation import evaluate_registered_trials
 from etf_cockpit.data.local_storage import TransactionalStore
 from etf_cockpit.features.training_centre import LocalTrainingRegistry, TrainingRegistryError
+from etf_cockpit.validation.optimisation import OptimisationLedger, TrialRecord
 from etf_cockpit.validation.protocol import (
     ValidationSpec,
     _deflated_sharpe,
@@ -155,6 +156,8 @@ def test_candidate_champion_inference_bootstraps_paired_improvement() -> None:
 
 
 def test_train_label_purge_excludes_the_first_validation_label_observation() -> None:
+    # Convention: the label of row t spans t+1..t+horizon, so training row t is
+    # usable only if t + horizon < first validation row.
     spec = _spec(n_splits=3, test_size=10, final_test_size=10, horizon=3)
     folds = build_walk_forward_splits(100, spec)
 
@@ -171,6 +174,7 @@ def test_final_holdout_does_not_inflate_trial_correlation_count() -> None:
     after = evaluate_trials({"baseline": baseline, "trial": altered}, spec=spec)
 
     assert before.effective_independent_trial_count == pytest.approx(after.effective_independent_trial_count)
+    assert before.effective_independent_trial_count == before.total_trial_count == 2  # no correlation discount
 
 
 def test_minimum_split_rejects_fewer_than_two_post_purge_training_rows() -> None:
@@ -243,7 +247,7 @@ def test_issue928_1_chronological_clusters_and_paired_block_reference() -> None:
 
 
 def test_issue928_2_published_method_numeric_references() -> None:
-    # DSR: symmetric returns give SR=0, skew=0, Pearson kurtosis=1.64,
+    # DSR: symmetric returns give SR=0, skew=0, Pearson kurtosis=1.36,
     # estimator variance=1/3; two trial SRs (-1,+1) give variance=2.
     # Bailey/Lopez de Prado expected-max formula => probability below.
     values = np.array([-2., -1., 1., 2.])
@@ -321,3 +325,34 @@ def test_issue928_8_single_trial_and_too_small_inference_guards(tmp_path) -> Non
     assert _false_discovery_rate([]) is None
     assert _false_discovery_rate([float("nan")]) is None
     assert _deflated_sharpe(np.array([1., 2.]), 2, 12, [0., 1.]) is None
+
+
+def test_non_inference_split_keeps_the_legacy_horizon_minus_one_contract() -> None:
+    spec = _spec(n_splits=1, test_size=20, final_test_size=10, horizon=5)
+    legacy = build_walk_forward_splits(100, spec, strict_label_purge=False)[0]
+    strict = build_walk_forward_splits(100, spec)[0]
+
+    assert len(legacy.purged_indices) == spec.horizon - 1
+    assert legacy.validation_indices[-1] == 100 - spec.final_test_size - 1
+    assert len(strict.purged_indices) == spec.horizon
+    assert strict.validation_indices[-1] == 100 - spec.final_test_size - spec.horizon - 1
+
+
+def test_optimiser_search_trials_count_in_the_validation_family(tmp_path) -> None:
+    registry = _run(tmp_path, "searched-run")
+    ledger = OptimisationLedger(tmp_path)
+    statuses = ("completed", "pruned", "failed", "completed")
+    for sequence, status in enumerate(statuses):
+        ledger.record(TrialRecord(
+            "searched-run", f"t{sequence}", sequence, {"z": sequence}, status, None if status == "failed" else 0.1,
+            1.0, 1.0, None, sequence == 0,
+        ))
+    ledger.record(TrialRecord("unrelated-run", "t0", 0, {}, "completed", 0.1, 1.0, 1.0, None, False))
+    rng = np.random.default_rng(3)
+    report = registry.evaluate_validation_trials(
+        "searched-run", {"baseline": np.zeros(80), "candidate": rng.normal(0.001, 0.01, 80)}, spec=_spec(),
+    )
+
+    assert report.total_trial_count == 2 + len(statuses)  # unattributable runs are not guessed into the family
+    assert report.false_discovery_rate is None
+    assert any(item.startswith("fdr_unavailable") for item in report.warnings)
