@@ -149,6 +149,15 @@ def market_inputs(
     series = tuple((index.date(), float(value)) for index, value in month_ends.items())
     shares = sm._finite((snapshot or {}).get("shares_outstanding"))
     snap_time = sm.as_utc((snapshot or {}).get("known_at"))
+    provider_cap = sm._finite((snapshot or {}).get("market_cap_provider"))
+    if provider_cap is not None and (snap_time is None or snap_time > decision_time):
+        provider_cap = None  # a snapshot not known at the decision time is not independent evidence
+    if provider_cap is not None and reporting_currency and quote:
+        reporting_major, _ = sm.minor_unit(reporting_currency, minor)
+        if reporting_major != quote_major:
+            provider_cap = None if fx_rate is None else provider_cap * fx_rate  # same-date FX, else no comparison
+    elif provider_cap is not None:
+        provider_cap = None
     return MarketInputs(
         price=close,
         price_currency=quote_major or None,
@@ -159,6 +168,7 @@ def market_inputs(
         price_series=series,
         shares_fallback=shares,
         shares_fallback_known_at=snap_time,
+        market_cap_provider=provider_cap,
     )
 
 

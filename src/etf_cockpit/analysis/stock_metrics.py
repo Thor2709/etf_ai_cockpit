@@ -20,6 +20,9 @@ pages and Stock Research all call these. Definitions (owner coordinator addendum
 * Valuation versus history = percentile of the current multiple within the instrument's own
   point-in-time history; versus peers = median of the peer set excluding the instrument itself.
 * Currency: ratios never mix currencies; a mismatch without an FX rate is ``currency_mismatch``.
+* Evidence states (``VALUE_STATUSES``): a missing fact is ``unavailable``, never 0; a reported 0 is ``reported_zero``.
+* Accounting identities (cash roll-forward, balance identity) and anomaly guards are validations: a failure
+  blocks the matched score, it is never clamped into range.
 """
 
 from __future__ import annotations
@@ -42,6 +45,9 @@ FLOW_FIELDS = (
     "capex",
     "capex_extra",
     "dividends_paid",
+    "cfi",  # accounting-identity legs (cash roll-forward); signed as reported
+    "cff",
+    "fx_effect",
 )
 BALANCE_FIELDS = (
     "equity_parent",
@@ -51,6 +57,7 @@ BALANCE_FIELDS = (
     "cash_sti",
     "cash",
     "total_assets",
+    "total_liabilities",  # accounting-identity leg (balance identity)
     "shares_outstanding",
 )
 PERIOD_FIELDS = FLOW_FIELDS + BALANCE_FIELDS
@@ -58,6 +65,24 @@ PERIOD_FIELDS = FLOW_FIELDS + BALANCE_FIELDS
 OK = "ok"
 NOT_MEANINGFUL = "not_meaningful"
 UNAVAILABLE = "unavailable"
+
+# Evidence states of one financial fact (Blueprint Part 1 §3/§5). "observed" and "reported_zero" are
+# facts as reported; "derived" was computed from reported facts; nothing is ever filled in with 0.
+VALUE_STATUSES = (
+    "observed",
+    "reported_zero",
+    "derived",
+    "estimated_scenario",
+    "partial",
+    "unavailable",
+    "not_applicable",
+    "conflicted",
+    "stale",
+    "invalid",
+)
+# Only these states may feed a ratio; every other state is reported as such and never used as a number.
+USABLE_STATUSES = ("observed", "reported_zero", "derived")
+FCF_PROXY_LABEL = "CFO−capex, not FCFE"
 
 
 @dataclass(frozen=True)
@@ -72,9 +97,42 @@ class Period:
     values: Mapping[str, float]
     field_sources: Mapping[str, str] = field(default_factory=dict)
     source_ref: str = ""
+    value_status: Mapping[str, str] = field(default_factory=dict)  # per-field state when not plain "observed"
+
+    def has_numeric(self, *names: str) -> bool:
+        """Every name carries a finite number, whatever its evidence state."""
+
+        return all(_finite(self.values.get(name)) is not None for name in names)
+
+    def usable(self, name: str) -> bool:
+        """A finite number whose explicit evidence state allows use (stale, invalid, partial, conflicted... do not)."""
+
+        explicit = str(self.value_status.get(name) or "")
+        return _finite(self.values.get(name)) is not None and (not explicit or explicit in USABLE_STATUSES)
 
     def has(self, *names: str) -> bool:
-        return all(_finite(self.values.get(name)) is not None for name in names)
+        return all(self.usable(name) for name in names)
+
+    def blocked_state(self, name: str) -> str | None:
+        """The explicit non-usable state of a field (number or not), else None."""
+
+        explicit = str(self.value_status.get(name) or "")
+        if explicit and explicit not in USABLE_STATUSES:
+            return explicit
+        return None
+
+    def status_of(self, name: str) -> str:
+        """Evidence state of one field: missing is ``unavailable`` (never 0), a reported 0 is ``reported_zero``."""
+
+        if str(self.values.get(f"__currency_{name}") or "") == "currency_mismatch":
+            return "conflicted"
+        explicit = str(self.value_status.get(name) or "")
+        if explicit in VALUE_STATUSES:
+            return explicit
+        number = _finite(self.values.get(name))
+        if number is None:
+            return "unavailable"
+        return "reported_zero" if number == 0.0 else "observed"
 
     def source_of(self, name: str) -> str:
         return str(self.field_sources.get(name) or self.source)
@@ -217,17 +275,21 @@ def source_label(window: Window) -> str:
 
 
 def balance_near(periods: Sequence[Period], target: date, names: Sequence[str], *, tolerance_days: int = 40) -> Period | None:
-    """The period (any type) closest to ``target`` that reports every name, within the tolerance."""
+    """The period (any type) closest to ``target`` that reports every name, within the tolerance.
+
+    The nearest reporting period decides: if its evidence state is not usable the result is None, an
+    older or farther balance never stands in for it.
+    """
 
     best: Period | None = None
     best_gap = tolerance_days + 1
     for period in periods:
-        if not period.has(*names):
+        if not period.has_numeric(*names):
             continue
         gap = abs((period.period_end - target).days)
         if gap < best_gap:
             best, best_gap = period, gap
-    return best
+    return best if best is not None and best.has(*names) else None
 
 
 def opening_balance(periods: Sequence[Period], window_end: date, names: Sequence[str]) -> Period | None:
@@ -237,8 +299,11 @@ def opening_balance(periods: Sequence[Period], window_end: date, names: Sequence
 
 
 def latest_balance(periods: Sequence[Period], names: Sequence[str]) -> Period | None:
-    candidates = [period for period in periods if period.has(*names)]
-    return max(candidates, key=lambda item: (item.period_end, item.period_type == "FY"), default=None)
+    """Latest period reporting every name; a latest period whose state is not usable yields None (no older fallback)."""
+
+    candidates = [period for period in periods if period.has_numeric(*names)]
+    latest = max(candidates, key=lambda item: (item.period_end, item.period_type == "FY"), default=None)
+    return latest if latest is not None and latest.has(*names) else None
 
 
 # ---------------------------------------------------------------------------------------------
@@ -328,6 +393,9 @@ def roic(nopat_value: float | None, capital_open: float | None, capital_close: f
         return _unavailable(key, label, "needs NOPAT and closing invested capital", formula=formula)
     if capital_close <= 0:
         return _not_meaningful(key, label, "closing invested capital is zero or negative", formula=formula)
+    if capital_open is not None and capital_open <= 0:
+        # a negative or zero endpoint makes the capital base of the window meaningless, whichever end it is
+        return _not_meaningful(key, label, "opening invested capital is zero or negative", formula=formula)
     return Metric(key, label, nopat_value / capital_close, "ratio", OK, formula=formula)
 
 
@@ -503,6 +571,205 @@ def implied_growth_from_dcf(
         else:
             high = mid
     return Metric(key, label, (low + high) / 2.0, "ratio", OK, formula=formula)
+
+
+# ---------------------------------------------------------------------------------------------
+# Evidence states, accounting identities and anomaly guards (P1-08..P1-16)
+# ---------------------------------------------------------------------------------------------
+
+
+def metric_value_status(metric: Metric) -> str:
+    """Evidence state of a computed metric, kept apart from its ok / not_meaningful / unavailable status."""
+
+    reason = str(metric.reason or "").casefold()
+    if metric.status == OK and metric.value is not None:
+        return "derived"
+    if metric.status == NOT_MEANINGFUL:
+        return "not_applicable"
+    if "stale report" in reason or reason.startswith("stale"):
+        return "stale"
+    for state in ("stale", "invalid", "conflicted", "partial", "not_applicable"):
+        if f" is {state};" in reason:  # "<fact> for the period ending <date> is <state>; a fact in that state is not used"
+            return state
+    if "mismatch" in reason or "conflict" in reason:
+        return "conflicted"
+    if "partial" in reason:
+        return "partial"
+    return "unavailable"
+
+
+@dataclass(frozen=True)
+class IdentityCheck:
+    """Result of one accounting identity or anomaly guard; ``failed`` blocks the matched score."""
+
+    name: str
+    status: str  # ok | failed | unavailable
+    reason: str | None = None
+    difference: float | None = None
+
+    @property
+    def blocks(self) -> bool:
+        return self.status == "failed"
+
+
+def _tolerance(scale: float, relative: float, absolute: float) -> float:
+    return max(absolute, relative * abs(scale))
+
+
+def cash_rollforward_check(
+    opening_cash: float | None,
+    cfo: float | None,
+    cfi: float | None,
+    cff: float | None,
+    fx_effect: float | None,
+    closing_cash: float | None,
+    *,
+    relative_tolerance: float = 0.01,
+    absolute_tolerance: float = 1.0,
+) -> IdentityCheck:
+    """opening + CFO + CFI + CFF + FX effect = closing; a missing leg is unavailable, never 0."""
+
+    name = "cash_rollforward"
+    legs = {"opening cash": opening_cash, "CFO": cfo, "CFI": cfi, "CFF": cff, "FX effect": fx_effect, "closing cash": closing_cash}
+    missing = [label for label, value in legs.items() if _finite(value) is None]
+    if missing:
+        return IdentityCheck(name, "unavailable", "cash roll-forward needs " + ", ".join(missing))
+    expected = float(opening_cash) + float(cfo) + float(cfi) + float(cff) + float(fx_effect)  # type: ignore[arg-type]
+    difference = float(closing_cash) - expected  # type: ignore[arg-type]
+    if abs(difference) > _tolerance(float(closing_cash), relative_tolerance, absolute_tolerance):  # type: ignore[arg-type]
+        return IdentityCheck(name, "failed", f"closing cash differs from the roll-forward by {difference:,.2f}", difference)
+    return IdentityCheck(name, "ok", None, difference)
+
+
+def balance_identity_check(
+    total_assets: float | None,
+    total_liabilities: float | None,
+    equity_parent: float | None,
+    non_controlling_interest: float | None,
+    *,
+    relative_tolerance: float = 0.01,
+    absolute_tolerance: float = 1.0,
+) -> IdentityCheck:
+    """assets = liabilities + parent equity + non-controlling interest (NCI is part of the identity)."""
+
+    name = "balance_identity"
+    legs = {"total assets": total_assets, "total liabilities": total_liabilities, "parent equity": equity_parent, "non-controlling interest": non_controlling_interest}
+    missing = [label for label, value in legs.items() if _finite(value) is None]
+    if missing:
+        return IdentityCheck(name, "unavailable", "balance identity needs " + ", ".join(missing))
+    difference = float(total_assets) - (float(total_liabilities) + float(equity_parent) + float(non_controlling_interest))  # type: ignore[arg-type]
+    if abs(difference) > _tolerance(float(total_assets), relative_tolerance, absolute_tolerance):  # type: ignore[arg-type]
+        return IdentityCheck(name, "failed", f"assets differ from liabilities + equity + NCI by {difference:,.2f}", difference)
+    return IdentityCheck(name, "ok", None, difference)
+
+
+def anomaly_guards(
+    *,
+    equity: float | None = None,
+    total_assets: float | None = None,
+    cash: float | None = None,
+    denominators: Mapping[str, float | None] | None = None,
+    scale: float | None = None,
+    tiny_ratio: float = 1e-3,
+) -> tuple[IdentityCheck, ...]:
+    """Negative equity, cash above total assets and tiny denominators (relative to ``scale``, e.g. revenue)."""
+
+    checks: list[IdentityCheck] = []
+    if _finite(equity) is not None and float(equity) < 0:  # type: ignore[arg-type]
+        checks.append(IdentityCheck("negative_equity", "failed", "parent equity is negative"))
+    if _finite(cash) is not None and _finite(total_assets) is not None and float(cash) > float(total_assets):  # type: ignore[arg-type]
+        checks.append(IdentityCheck("cash_above_assets", "failed", "cash exceeds total assets"))
+    base = _finite(scale)
+    if base is not None and base > 0:
+        for label, value in (denominators or {}).items():
+            number = _finite(value)
+            if number is not None and abs(number) < tiny_ratio * base:
+                checks.append(IdentityCheck(f"tiny_denominator:{label}", "failed", f"{label} is below {tiny_ratio:.2%} of the scale; a ratio on it is not reliable"))
+    return tuple(checks)
+
+
+def accruals_ratio(net_income: float | None, cfo: float | None, average_assets: float | None) -> Metric:
+    key, label, formula = "accruals", "Accruals ratio", "(net income - CFO) / average total assets"
+    if net_income is None or cfo is None or average_assets is None:
+        return _unavailable(key, label, "needs net income, CFO and total assets", formula=formula)
+    if average_assets <= 0:
+        return _not_meaningful(key, label, "total assets are zero or negative", formula=formula)
+    return Metric(key, label, (net_income - cfo) / average_assets, "ratio", OK, formula=formula)
+
+
+def cash_conversion(cfo: float | None, net_income: float | None) -> Metric:
+    key, label, formula = "cash_conversion", "Cash conversion", "CFO / net income to parent"
+    if cfo is None or net_income is None:
+        return _unavailable(key, label, "needs CFO and net income", formula=formula)
+    if net_income <= 0:
+        return _not_meaningful(key, label, "not meaningful (loss): net income is zero or negative", formula=formula)
+    return Metric(key, label, cfo / net_income, "ratio", OK, formula=formula)
+
+
+def interest_cover(ebit: float | None, interest_expense: float | None) -> Metric:
+    key, label, formula = "interest_cover", "Interest cover", "EBIT / interest expense"
+    if ebit is None or interest_expense is None:
+        return _unavailable(key, label, "needs EBIT and interest expense", formula=formula, unit="multiple")
+    if abs(interest_expense) <= 0:
+        return _not_meaningful(key, label, "interest expense is zero: no cover multiple", formula=formula, unit="multiple")
+    return Metric(key, label, ebit / abs(interest_expense), "multiple", OK, formula=formula)
+
+
+def dilution(shares_open: float | None, shares_close: float | None) -> Metric:
+    key, label, formula = "dilution", "Share dilution", "closing shares / opening shares - 1"
+    if shares_open is None or shares_close is None:
+        return _unavailable(key, label, "needs the opening and closing share count", formula=formula)
+    if shares_open <= 0 or shares_close <= 0:
+        return _not_meaningful(key, label, "share count is zero or negative", formula=formula)
+    return Metric(key, label, shares_close / shares_open - 1.0, "ratio", OK, formula=formula)
+
+
+def price_shares_consistency(
+    price: float | None,
+    shares: float | None,
+    provider_market_cap: float | None,
+    *,
+    tolerance: float = 0.25,
+) -> tuple[bool | None, str | None]:
+    """price x shares against an independent market cap; ``None`` when there is nothing to compare."""
+
+    cap = market_cap(price, shares)
+    if cap is None or provider_market_cap is None or provider_market_cap <= 0:
+        return None, None
+    ratio = cap / provider_market_cap
+    if 1.0 / (1.0 + tolerance) <= ratio <= 1.0 + tolerance:
+        return True, None
+    return False, f"price x shares ({cap:,.0f}) and the provider market cap ({provider_market_cap:,.0f}) differ by more than {tolerance:.0%}"
+
+
+# ---------------------------------------------------------------------------------------------
+# Fiscal calendars (P1-10)
+# ---------------------------------------------------------------------------------------------
+
+
+def ytd_to_discrete(ytd: Mapping[int, float | None]) -> dict[int, float | None]:
+    """Cumulative YTD values keyed by quarter number (1..4) to discrete quarters.
+
+    A quarter is only derived when its own and the previous cumulative value are both known, so a
+    missing H1 leaves Q2 and Q3 unavailable (never bridged). Example: 100/210/300/410 -> 100/110/90/110.
+    """
+
+    out: dict[int, float | None] = {}
+    for quarter in (1, 2, 3, 4):
+        current = _finite(ytd.get(quarter))
+        if quarter == 1:
+            out[quarter] = current
+            continue
+        previous = _finite(ytd.get(quarter - 1))
+        out[quarter] = None if current is None or previous is None else current - previous
+    return out
+
+
+def consecutive_fiscal_years(period_ends: Sequence[date], *, span_days: tuple[int, int] = (345, 385)) -> bool:
+    """True when every neighbouring fiscal year end is one fiscal year apart (52/53-week years included)."""
+
+    ordered = sorted(period_ends)
+    return all(span_days[0] <= (b - a).days <= span_days[1] for a, b in zip(ordered, ordered[1:]))
 
 
 def with_context(metric: Metric, **changes: object) -> Metric:

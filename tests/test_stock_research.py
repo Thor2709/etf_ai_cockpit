@@ -23,9 +23,9 @@ from etf_cockpit.data.stock_research import (
 def _statements() -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     values = {
-        2024: {"revenue": 100.0, "gross_profit": 35.0, "operating_income": 18.0, "net_income": 12.0, "assets": 120.0, "equity": 55.0, "debt": 35.0, "cash": 8.0, "cash_from_operations": 16.0, "current_assets": 45.0, "current_liabilities": 30.0, "receivables": 12.0, "interest_expense": 3.0, "exceptional_items": 1.0, "shares_outstanding": 10.0, "free_cash_flow": 14.0},
-        2025: {"revenue": 110.0, "gross_profit": 40.0, "operating_income": 22.0, "net_income": 15.0, "assets": 125.0, "equity": 60.0, "debt": 32.0, "cash": 10.0, "cash_from_operations": 20.0, "current_assets": 50.0, "current_liabilities": 28.0, "receivables": 13.0, "interest_expense": 2.5, "exceptional_items": 0.5, "shares_outstanding": 10.0, "free_cash_flow": 18.0},
-        2026: {"revenue": 120.0, "gross_profit": 48.0, "operating_income": 27.0, "net_income": 20.0, "assets": 130.0, "equity": 68.0, "debt": 30.0, "cash": 12.0, "cash_from_operations": 25.0, "current_assets": 56.0, "current_liabilities": 25.0, "receivables": 14.0, "interest_expense": 2.0, "exceptional_items": 0.2, "shares_outstanding": 10.0, "free_cash_flow": 23.0},
+        2024: {"revenue": 100.0, "gross_profit": 35.0, "operating_income": 18.0, "net_income": 12.0, "assets": 120.0, "equity": 55.0, "debt": 35.0, "cash": 8.0, "cash_from_operations": 16.0, "current_assets": 45.0, "current_liabilities": 30.0, "receivables": 12.0, "interest_expense": 3.0, "exceptional_items": 1.0, "shares_outstanding": 10.0, "weighted_average_shares": 10.0, "free_cash_flow": 14.0},
+        2025: {"revenue": 110.0, "gross_profit": 40.0, "operating_income": 22.0, "net_income": 15.0, "assets": 125.0, "equity": 60.0, "debt": 32.0, "cash": 10.0, "cash_from_operations": 20.0, "current_assets": 50.0, "current_liabilities": 28.0, "receivables": 13.0, "interest_expense": 2.5, "exceptional_items": 0.5, "shares_outstanding": 10.0, "weighted_average_shares": 10.0, "free_cash_flow": 18.0},
+        2026: {"revenue": 120.0, "gross_profit": 48.0, "operating_income": 27.0, "net_income": 20.0, "assets": 130.0, "equity": 68.0, "debt": 30.0, "cash": 12.0, "cash_from_operations": 25.0, "current_assets": 56.0, "current_liabilities": 25.0, "receivables": 14.0, "interest_expense": 2.0, "exceptional_items": 0.2, "shares_outstanding": 10.0, "weighted_average_shares": 10.0, "free_cash_flow": 23.0},
     }
     for year, metrics in values.items():
         for metric, value in metrics.items():
