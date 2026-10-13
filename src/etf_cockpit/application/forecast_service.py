@@ -8,6 +8,7 @@ from dataclasses import (
     replace,
 )
 from collections import Counter
+import importlib.util
 import math
 from datetime import date
 from pathlib import Path
@@ -444,15 +445,10 @@ def build_forecast_lab_workspace(
     ``forecast_history`` is every stored forecast row (promotion needs matured runs, not only the latest);
     it defaults to ``forecasts``.
     """
+    # Artefact availability (stored ok forecasts up to the as-of) is built by the report for every optional
+    # model; the installed runtime is a separate fact and is reported next to it, never merged into it.
+    kwargs.setdefault("runtime_installed", optional_runtime_installed())
     report = _build_forecast_lab_workspace(config, forecasts, prices, **kwargs)
-    models = report.get("models")
-    catalogue = report.get("model_catalogue")
-    if isinstance(models, pd.DataFrame) and isinstance(catalogue, pd.DataFrame):
-        # The report has already removed future rows; raw inputs cannot set this label.
-        ready = bool((models.loc[models["model_name"].eq("timesfm3"), "ok_rows"] > 0).any()) if not models.empty else False
-        catalogue = catalogue.copy()
-        catalogue.loc[catalogue["model_id"].eq("timesfm3"), "state"] = "available" if ready else "unavailable"
-        report["model_catalogue"] = catalogue
     history = forecasts if forecast_history is None else pd.concat([forecast_history, forecasts], ignore_index=True)
     as_of = _promotion_as_of(kwargs.get("as_of_date"), prices, history)
     if config.models.promotion.enabled:
@@ -466,10 +462,21 @@ def build_forecast_lab_workspace(
     return _stamp_promotion_states(report, promotions)
 
 
-def forecast_lab_inputs(latest: pd.DataFrame, history: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
-    """Every stored forecast that can be graded, so matured outcomes and walk-forward folds are not limited to the latest run.
+_OPTIONAL_RUNTIME_PACKAGES = {"timesfm": "timesfm", "timesfm3": "timesfm", "toto": "toto2"}
 
-    Instruments without any stored price cannot be graded and are left out; a repeated forecast keeps its newest row.
+
+def optional_runtime_installed() -> dict[str, bool]:
+    """Whether each optional model's python runtime package is importable (weights are not checked here)."""
+
+    return {model: importlib.util.find_spec(package) is not None for model, package in _OPTIONAL_RUNTIME_PACKAGES.items()}
+
+
+def forecast_lab_inputs(latest: pd.DataFrame, history: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
+    """Every stored forecast, so matured outcomes and walk-forward folds are not limited to the latest run.
+
+    Forecasts whose instrument has no stored price (for example a delisted ETF) are kept: the Forecast Lab lists them
+    as excluded (``missing_price_series``) and counts them in the completeness denominator instead of hiding them.
+    A repeated forecast keeps its newest row. ``prices`` is accepted for call compatibility.
     """
 
     parts = [frame for frame in (history, latest) if isinstance(frame, pd.DataFrame) and not frame.empty]
@@ -477,11 +484,11 @@ def forecast_lab_inputs(latest: pd.DataFrame, history: pd.DataFrame, prices: pd.
         return latest
     combined = pd.concat(parts, ignore_index=True)
     key = ["model_name", "etf_id", "forecast_date", "horizon_days"]
-    if not {*key, "status"}.issubset(combined.columns) or "etf_id" not in prices.columns:
+    if not {*key, "status"}.issubset(combined.columns):
         return latest
     stamp = pd.to_datetime(combined["forecast_date"], errors="coerce", utc=True, format="mixed").dt.normalize()
     combined = combined.assign(_day=stamp).drop_duplicates(["model_name", "etf_id", "_day", "horizon_days"], keep="last").drop(columns="_day")
-    return combined.loc[combined["etf_id"].astype(str).isin(set(prices["etf_id"].astype(str)))].reset_index(drop=True)
+    return combined.reset_index(drop=True)
 
 
 def _promotion_as_of(requested: object, prices: pd.DataFrame, history: pd.DataFrame) -> date:
