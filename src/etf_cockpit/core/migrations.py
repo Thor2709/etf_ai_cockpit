@@ -96,12 +96,20 @@ def run_migrations(context: MigrationContext) -> MigrationReport:
         context.root,
         event_path=context.root / "logs" / "session.jsonl",
     )
-    blocked = [result for result in recovery_results if result.state == "recovery_required"]
+    blocked = [
+        result for result in recovery_results if result.state in {"recovery_required", "quarantined"}
+    ]
     if blocked:
         reasons = "; ".join(result.reason for result in blocked)
         raise OSError(f"migration blocked by incomplete atomic transaction: {reasons}")
     state = _load_state(context.state_path)
-    current_version = int(state.get("schema_version", 0))
+    raw_version = state.get("schema_version", 0)
+    latest_version = max(migration.version for migration in MIGRATIONS)
+    if isinstance(raw_version, bool) or not isinstance(raw_version, int) or not 0 <= raw_version <= latest_version:
+        raise ValueError(
+            f"unsupported migration state schema_version {raw_version!r}; this build supports 0..{latest_version}"
+        )
+    current_version = raw_version
     pending = tuple(migration for migration in MIGRATIONS if migration.version > current_version)
     if not pending:
         return MigrationReport((), current_version, None, context.state_path)

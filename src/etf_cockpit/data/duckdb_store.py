@@ -161,6 +161,7 @@ def load_features(
     settings_revision: str | None = None,
     reference_identity: dict[str, object] | None = None,
     price_binding: Mapping[str, object] | None = None,
+    extra_binding: Mapping[str, object] | None = None,
 ) -> pd.DataFrame:
     if isinstance(reference_identity, Mapping) and "analysis" in reference_identity and price_binding is None:
         return pd.DataFrame()
@@ -177,6 +178,7 @@ def load_features(
                 or settings_revision is not None
                 or reference_identity is not None
                 or price_binding is not None
+                or extra_binding is not None
             ):
                 return pd.DataFrame()
             payload_bytes = path.read_bytes()
@@ -199,6 +201,8 @@ def load_features(
             ):
                 return pd.DataFrame()
             if price_binding is not None and not _cache_binding_matches(metadata, price_binding):
+                return pd.DataFrame()
+            if extra_binding is not None and any(metadata.get(key) != value for key, value in extra_binding.items()):
                 return pd.DataFrame()
             if metadata.get("payload_sha256") is not None and metadata["payload_sha256"] != hashlib.sha256(payload_bytes).hexdigest():
                 return pd.DataFrame()

@@ -231,7 +231,7 @@ def _apply_migrations(connection: sqlite3.Connection) -> None:
     )
     connection.commit()
     applied = {int(row[0]) for row in connection.execute("SELECT version FROM schema_migrations")}
-    _validate_storage_schema(applied)
+    _validate_storage_schema(applied, connection)
     if all(version in applied for version, _name, _migration in migrations):
         return
 
@@ -240,7 +240,7 @@ def _apply_migrations(connection: sqlite3.Connection) -> None:
     try:
         connection.execute("BEGIN IMMEDIATE")
         applied = {int(row[0]) for row in connection.execute("SELECT version FROM schema_migrations")}
-        _validate_storage_schema(applied)
+        _validate_storage_schema(applied, connection)
         for version, name, migration in migrations:
             if version in applied:
                 continue
@@ -255,12 +255,43 @@ def _apply_migrations(connection: sqlite3.Connection) -> None:
         raise
 
 
-def _validate_storage_schema(applied: set[int]) -> None:
+# Tables each schema version must leave behind.  A version marker alone is not
+# proof of a usable store: a valid SQLite file can carry the markers and lack
+# the tables.
+_REQUIRED_TABLES_BY_VERSION: dict[int, tuple[str, ...]] = {
+    1: ("transactional_records",),
+    2: ("analytical_generations", "analytical_generation_keys", "storage_operations"),
+    3: ("bitemporal_observations",),
+    4: ("workflow_runs", "durable_jobs", "durable_job_dependencies", "durable_job_events"),
+    5: ("ledger_accounts", "ledger_entries", "ledger_postings"),
+}
+
+
+def _missing_required_tables(connection: sqlite3.Connection, applied: set[int]) -> tuple[str, ...]:
+    present = {
+        str(row[0]) for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
+    required = {
+        table
+        for version, tables in _REQUIRED_TABLES_BY_VERSION.items()
+        if version in applied
+        for table in tables
+    }
+    return tuple(sorted(required - present))
+
+
+def _validate_storage_schema(applied: set[int], connection: sqlite3.Connection | None = None) -> None:
     highest = max(applied, default=0)
     if highest > STORAGE_SCHEMA_VERSION:
         raise StorageSchemaError(
             f"storage schema {highest} is newer than supported version {STORAGE_SCHEMA_VERSION}"
         )
+    if connection is not None:
+        missing = _missing_required_tables(connection, applied)
+        if missing:
+            raise StorageSchemaError(
+                f"storage schema markers present but mandatory tables are missing: {', '.join(missing)}"
+            )
 
 
 def _migration_v1(connection: sqlite3.Connection) -> None:
@@ -1190,7 +1221,7 @@ class TransactionalStore:
                 raise StorageTombstoneConflict(
                     f"immutable record was soft-deleted and cannot be re-acknowledged: {entity_id}"
                 )
-            if dict(json.loads(str(previous[2]))) != dict(payload):
+            if dict(json.loads(str(previous[2]))) != dict(json.loads(encoded)):
                 raise StorageRevisionConflict(
                     f"immutable record already exists with different content: {entity_id}"
                 )
@@ -1259,7 +1290,7 @@ class TransactionalStore:
                         raise StorageTombstoneConflict(
                             f"immutable record was soft-deleted and cannot be re-acknowledged: {entity_id}"
                         )
-                    if dict(json.loads(str(previous[2]))) != payload:
+                    if dict(json.loads(str(previous[2]))) != dict(json.loads(encoded)):
                         raise StorageRevisionConflict(f"immutable record already exists with different content: {entity_id}")
                     stored.append(StoredRecord(entity_type, entity_id, payload, int(previous[0]), str(previous[1]), str(previous[3])))
                     continue
@@ -1354,13 +1385,37 @@ class TransactionalStore:
         query += " ORDER BY entity_id"
         return tuple(_record(row) for row in self.connection.execute(query, (entity_type,)))
 
-    def delete(self, entity_type: str, entity_id: str) -> bool:
+    def delete(self, entity_type: str, entity_id: str, *, expected_revision: int | None = None) -> bool:
+        """Soft-delete a record; the tombstone is a new revision.
+
+        A stale ``expected_revision`` is rejected so a delete cannot overwrite a
+        newer write, and stale writers cannot later resurrect the record.
+        """
+
         entity_type, entity_id = _validate_identity(entity_type, entity_id)
+        if expected_revision is not None and (
+            isinstance(expected_revision, bool)
+            or not isinstance(expected_revision, int)
+            or expected_revision < 0
+        ):
+            raise ValueError("expected_revision must be a non-negative integer")
         now = _utc_now()
         with self.transaction() as connection:
+            row = connection.execute(
+                "SELECT revision, deleted_at FROM transactional_records WHERE entity_type = ? AND entity_id = ?",
+                (entity_type, entity_id),
+            ).fetchone()
+            if row is None or row[1] is not None:
+                return False
+            current_revision = int(row[0])
+            if expected_revision is not None and current_revision != expected_revision:
+                raise StorageRevisionConflict(
+                    f"expected revision {expected_revision}, current revision is {current_revision}"
+                )
             result = connection.execute(
-                "UPDATE transactional_records SET deleted_at = ?, updated_at = ? WHERE entity_type = ? AND entity_id = ? AND deleted_at IS NULL",
-                (now, now, entity_type, entity_id),
+                "UPDATE transactional_records SET deleted_at = ?, updated_at = ?, revision = ? "
+                "WHERE entity_type = ? AND entity_id = ? AND deleted_at IS NULL AND revision = ?",
+                (now, now, current_revision + 1, entity_type, entity_id, current_revision),
             )
         return result.rowcount == 1
 
@@ -1373,6 +1428,10 @@ class TransactionalStore:
             )
             version = int(self.connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] or 0)
             errors = () if sqlite_integrity == "ok" and not foreign_keys else ("sqlite integrity check failed",)
+            applied = {int(row[0]) for row in self.connection.execute("SELECT version FROM schema_migrations")}
+            missing = _missing_required_tables(self.connection, applied)
+            if missing:
+                errors = (*errors, f"mandatory tables missing: {', '.join(missing)}")
             return StorageIntegrity(not errors, version, sqlite_integrity, foreign_keys, errors)
         except (sqlite3.DatabaseError, TypeError, ValueError) as exc:
             return StorageIntegrity(False, 0, "unavailable", (), (f"integrity check failed: {exc}",))
