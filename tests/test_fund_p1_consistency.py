@@ -539,4 +539,3 @@ def test_t24_refresh_reports_partial_statements_per_instrument(tmp_path) -> None
     )
     assert "balance_sheet" in report.per_instrument["T"] and report.per_instrument["T"] != "ok"
     assert report.rows_added > 0 and not report.failures
-
