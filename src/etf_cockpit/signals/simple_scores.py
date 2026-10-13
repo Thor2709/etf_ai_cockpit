@@ -3967,7 +3967,7 @@ def _price_liquidity_lookup(
     fx_state: dict[str, object] = {"frame": fx_rates, "snapshots": {}}
     output: dict[str, dict[str, object]] = {}
     for etf_id, group in frame.sort_values("date").groupby("etf_id", sort=False):
-        tail = group.tail(20)
+        tail = group.tail(20).reset_index(drop=True)
         turnover = (tail["close"] * tail["volume"]).replace([float("inf"), float("-inf")], pd.NA).dropna()
         spread = ((tail["high"] - tail["low"]) / tail["close"]).replace([float("inf"), float("-inf")], pd.NA).dropna()
         avg_turnover: float | None = None
@@ -4049,7 +4049,8 @@ def _turnover_eur_average(
 
 def _liquidity_fx_snapshot(fx_state: dict[str, object], row_day: date, known_at: datetime) -> FxRateSnapshot:
     snapshots = fx_state["snapshots"]
-    assert isinstance(snapshots, dict)
+    if not isinstance(snapshots, dict):
+        raise TypeError("liquidity FX snapshot cache must be a dict")
     cache_key = (row_day, known_at)
     if cache_key not in snapshots:
         frame = fx_state["frame"]
@@ -4059,7 +4060,8 @@ def _liquidity_fx_snapshot(fx_state: dict[str, object], row_day: date, known_at:
             except Exception:
                 frame = pd.DataFrame()
             fx_state["frame"] = frame
-        assert isinstance(frame, pd.DataFrame)
+        if not isinstance(frame, pd.DataFrame):
+            frame = pd.DataFrame()
         snapshots[cache_key] = build_fx_rate_snapshot(frame, decision_time=row_day, known_at=known_at)
     return snapshots[cache_key]
 

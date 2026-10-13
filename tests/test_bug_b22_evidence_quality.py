@@ -73,7 +73,7 @@ def test_model_readiness_is_reported_separately(count, status):
     assert readiness["reason"]
     frame = simple_scoreboard_frame([score])
     assert frame.loc[0, "model_readiness"] == readiness
-    assert frame.loc[0, "execution_allowed"] == False
+    assert not frame.loc[0, "execution_allowed"]
 
 
 @pytest.mark.parametrize("change", [
