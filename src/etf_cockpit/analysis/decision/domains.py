@@ -376,6 +376,10 @@ def _score_metric(
             "UNAVAILABLE",
             "EFFECTIVE_AFTER_DECISION_TIME",
         ), None, "FUTURE_EFFECTIVE_METRIC_EXCLUDED"
+    if evidence.freshness <= 0.0:
+        return _MetricOutcome(
+            definition, evidence, None, "UNAVAILABLE", "STALE_EVIDENCE"
+        ), None, None
     if (
         evidence.metric_shape != definition.metric_shape
         or evidence.comparison_scope != definition.comparison_scope

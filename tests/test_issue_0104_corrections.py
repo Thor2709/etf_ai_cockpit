@@ -1330,7 +1330,7 @@ def test_backtest_service_reads_holdings_for_run_and_invalidates_cache(tmp_path,
     def fake_run_id(name, *, settings_identity):
         return "backtest-test"
 
-    def fake_manifest(run_id, dependencies, *, settings_identity):
+    def fake_manifest(run_id, dependencies, *, settings_identity, **_kwargs):
         return None
 
     def fake_append(path, event, payload):

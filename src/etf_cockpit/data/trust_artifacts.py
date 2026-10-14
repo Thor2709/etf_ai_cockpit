@@ -614,7 +614,8 @@ def write_provider_probe_results(config: AppConfig) -> Path:
                 "enabled": item.configured,
                 "source_authority": legacy_authority,
                 "requires_api_key": _provider_requires_api_key(item.provider_id, active),
-                "has_api_key": bool(section.api_key),
+                # The resolved credential (vault/env/config) the probe actually used, not the raw config field.
+                "has_api_key": bool(item.secret_present),
                 "base_url_configured": bool(section.base_url),
                 "capabilities": canonical["dataset_type"],
                 "last_probe_at": now,
@@ -872,6 +873,7 @@ def write_evidence_ledger(scores: Iterable[Any], *, run_id: str, created_at: str
                 getattr(component, "score_10", None),
                 source_obj,
                 conflict_id=getattr(component, "conflict_id", None),
+                decision_date=_freshness_reference_day(created_at).date(),
             )
             eligible = typed_entry.score_eligible and _component_score_eligible(component)
             rows.append(

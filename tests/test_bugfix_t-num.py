@@ -140,7 +140,8 @@ def test_p01_n003(tmp_path: Path) -> None:
     result = ManualLocalFileProvider().import_file(path, "prices")
     report = validate_prices(result.data, as_of_date=date(2024, 1, 12))
 
-    assert result.ok
+    # #951 (A101-N004): stricter contract - an unparseable manual date is a row error, never a loaded "ok" result.
+    assert not result.ok and result.status == "error" and "unparseable dates" in result.message
     assert "invalid_dates" in {issue.code for issue in report.issues}
 
 
@@ -171,7 +172,7 @@ def test_p01_n004(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_p02_n005() -> None:
     for invalid in (float("nan"), float("inf"), float("-inf")):
         source = EvidenceSource("prices", "source:fixture", SourceAuthority.VENDOR, "2026-10-01", "fresh")
-        entry = ledger_entry_for_component("ETF-A", "score", invalid, source)
+        entry = ledger_entry_for_component("ETF-A", "score", invalid, source, decision_date="2026-10-13")
         assert entry.score_eligible is False
 
 
@@ -181,10 +182,10 @@ def test_p02_n006() -> None:
             source = EvidenceSource(
                 "prices", "source:fixture", SourceAuthority.VENDOR, "2026-10-01", freshness, quality=quality
             )
-            assert ledger_entry_for_component("ETF-A", "score", 7.0, source).score_eligible
+            assert ledger_entry_for_component("ETF-A", "score", 7.0, source, decision_date="2026-10-13").score_eligible
     for invalid in ("future", "garbled"):
         source = EvidenceSource("prices", "source:fixture", SourceAuthority.VENDOR, "2026-10-01", invalid)
-        assert ledger_entry_for_component("ETF-A", "score", 7.0, source).score_eligible is False
+        assert ledger_entry_for_component("ETF-A", "score", 7.0, source, decision_date="2026-10-13").score_eligible is False
 
 
 def test_p03_n005() -> None:
@@ -460,12 +461,12 @@ def test_p06_n011() -> None:
 @pytest.mark.parametrize("invalid", [float("inf"), float("-inf"), float("nan"), 10**400])
 def test_int_num_1_non_finite_quality_is_ineligible(field, invalid) -> None:
     source = EvidenceSource("prices", "source:fixture", SourceAuthority.VENDOR, "2026-10-01", "fresh", **{field: invalid})
-    entry = ledger_entry_for_component("ETF-A", "score", 7.0, source)
+    entry = ledger_entry_for_component("ETF-A", "score", 7.0, source, decision_date="2026-10-13")
     assert entry.score_eligible is False
     assert "quality" in entry.reason
     assert entry.executable_authority is False
     valid = EvidenceSource("prices", "source:fixture", SourceAuthority.VENDOR, "2026-10-01", "fresh", **{field: 0.5})
-    assert ledger_entry_for_component("ETF-A", "score", 7.0, valid).score_eligible
+    assert ledger_entry_for_component("ETF-A", "score", 7.0, valid, decision_date="2026-10-13").score_eligible
 
 
 def test_int_num_2_wide_history_conflicts_are_order_independent() -> None:

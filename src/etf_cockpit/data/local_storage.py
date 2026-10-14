@@ -13,10 +13,10 @@ from typing import Any, cast
 
 import pandas as pd
 
-from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
+from etf_cockpit.core.atomic_io import atomic_write_bytes, backup_paths, parquet_payload, validate_parquet_file
 
 
-STORAGE_SCHEMA_VERSION = 7
+STORAGE_SCHEMA_VERSION = 8
 
 
 class StorageSchemaError(RuntimeError):
@@ -25,6 +25,14 @@ class StorageSchemaError(RuntimeError):
 
 class StorageRevisionConflict(RuntimeError):
     """Raised when a stale writer attempts to replace newer local state."""
+
+
+class StorageTombstoneConflict(StorageRevisionConflict):
+    """Raised when an immutable put targets a soft-deleted record.
+
+    Conservative choice: an immutable record is never silently restored, and an
+    invisible (tombstoned) record is never acknowledged as a successful write.
+    """
 
 
 @dataclass(frozen=True)
@@ -211,6 +219,7 @@ def _apply_migrations(connection: sqlite3.Connection) -> None:
         (5, "double_entry_ledger_v1", _migration_v5),
         (6, "ledger_authority_and_integrity_v2", _migration_v6),
         (7, "ledger_positions_and_settlement_v1", _migration_v7),
+        (8, "bitemporal_entity_scoped_uniqueness_v1", _migration_v8),
     )
     connection.execute(
         """
@@ -223,16 +232,19 @@ def _apply_migrations(connection: sqlite3.Connection) -> None:
     )
     connection.commit()
     applied = {int(row[0]) for row in connection.execute("SELECT version FROM schema_migrations")}
-    _validate_storage_schema(applied)
+    _validate_storage_schema(applied, connection)
     if all(version in applied for version, _name, _migration in migrations):
         return
+
+    if applied and 8 not in applied:
+        _backup_before_rebuild(connection)
 
     # Only pending migrations take the write lock.  Re-read after acquiring it
     # because another constructor may have completed the same first-open work.
     try:
         connection.execute("BEGIN IMMEDIATE")
         applied = {int(row[0]) for row in connection.execute("SELECT version FROM schema_migrations")}
-        _validate_storage_schema(applied)
+        _validate_storage_schema(applied, connection)
         for version, name, migration in migrations:
             if version in applied:
                 continue
@@ -247,12 +259,56 @@ def _apply_migrations(connection: sqlite3.Connection) -> None:
         raise
 
 
-def _validate_storage_schema(applied: set[int]) -> None:
+def _backup_before_rebuild(connection: sqlite3.Connection) -> None:
+    """Copy an existing store aside (existing schema-migration backup pattern) before a table rebuild."""
+
+    row = connection.execute("PRAGMA database_list").fetchone()
+    database = Path(str(row[2])) if row is not None and row[2] else None
+    if database is None or not database.is_file():
+        return
+    # Fold the WAL into the main file so the file copy is a complete image.
+    connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    backup_paths([database], database.parent.parent.parent / "backups" / "schema_migrations")
+
+
+# Tables each schema version must leave behind.  A version marker alone is not
+# proof of a usable store: a valid SQLite file can carry the markers and lack
+# the tables.
+_REQUIRED_TABLES_BY_VERSION: dict[int, tuple[str, ...]] = {
+    1: ("transactional_records",),
+    2: ("analytical_generations", "analytical_generation_keys", "storage_operations"),
+    3: ("bitemporal_observations",),
+    4: ("workflow_runs", "durable_jobs", "durable_job_dependencies", "durable_job_events"),
+    5: ("ledger_accounts", "ledger_entries", "ledger_postings"),
+    8: ("bitemporal_observations",),
+}
+
+
+def _missing_required_tables(connection: sqlite3.Connection, applied: set[int]) -> tuple[str, ...]:
+    present = {
+        str(row[0]) for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
+    required = {
+        table
+        for version, tables in _REQUIRED_TABLES_BY_VERSION.items()
+        if version in applied
+        for table in tables
+    }
+    return tuple(sorted(required - present))
+
+
+def _validate_storage_schema(applied: set[int], connection: sqlite3.Connection | None = None) -> None:
     highest = max(applied, default=0)
     if highest > STORAGE_SCHEMA_VERSION:
         raise StorageSchemaError(
             f"storage schema {highest} is newer than supported version {STORAGE_SCHEMA_VERSION}"
         )
+    if connection is not None:
+        missing = _missing_required_tables(connection, applied)
+        if missing:
+            raise StorageSchemaError(
+                f"storage schema markers present but mandatory tables are missing: {', '.join(missing)}"
+            )
 
 
 def _migration_v1(connection: sqlite3.Connection) -> None:
@@ -372,6 +428,108 @@ def _migration_v3(connection: sqlite3.Connection) -> None:
             SELECT RAISE(ABORT, 'bitemporal observations are append-only');
         END
         """
+    )
+
+
+_BITEMPORAL_COLUMNS = (
+    "observation_id, dataset_id, entity_id, stable_id, run_id, value_json, valid_from, valid_to, "
+    "published_at, available_at, observed_at, ingested_at, revised_at, revision, source_id, "
+    "source_checksum, timezone_confidence, availability_confidence, status"
+)
+
+
+def _migration_v8(connection: sqlite3.Connection) -> None:
+    """Rebuild bitemporal_observations so the UNIQUE key is scoped by entity_id (A113-N001).
+
+    Every row is copied verbatim: no value is derived or defaulted.  Rows whose
+    entity_id is empty stay empty and are counted in the storage_operations
+    report.  The swap happens inside the caller's single transaction, and a
+    table that already carries the entity-scoped key is left untouched.
+    """
+
+    existing = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'bitemporal_observations'"
+    ).fetchone()
+    if existing is None:
+        return
+    compact = "".join(str(existing[0]).replace('"', "").split())
+    if "UNIQUE(dataset_id,entity_id,stable_id,source_id,revision)" in compact:
+        return
+    if "UNIQUE(dataset_id,stable_id,source_id,revision)" not in compact:
+        raise StorageSchemaError("bitemporal_observations has an unrecognised UNIQUE key; refusing to rebuild")
+    # Free the index/trigger names; they are recreated on the rebuilt table below.
+    connection.execute("DROP TABLE IF EXISTS bitemporal_observations_v7")
+    for trigger in ("bitemporal_observations_append_only_update", "bitemporal_observations_append_only_delete"):
+        connection.execute(f"DROP TRIGGER IF EXISTS {trigger}")
+    for index in ("bitemporal_observations_as_of", "bitemporal_observations_entity"):
+        connection.execute(f"DROP INDEX IF EXISTS {index}")
+    connection.execute("ALTER TABLE bitemporal_observations RENAME TO bitemporal_observations_v7")
+    connection.execute(
+        """
+        CREATE TABLE bitemporal_observations (
+            observation_id TEXT PRIMARY KEY,
+            dataset_id TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            stable_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            value_json TEXT NOT NULL,
+            valid_from TEXT NOT NULL,
+            valid_to TEXT,
+            published_at TEXT NOT NULL,
+            available_at TEXT NOT NULL,
+            observed_at TEXT NOT NULL,
+            ingested_at TEXT NOT NULL,
+            revised_at TEXT,
+            revision INTEGER NOT NULL CHECK (revision > 0),
+            source_id TEXT NOT NULL,
+            source_checksum TEXT NOT NULL,
+            timezone_confidence TEXT NOT NULL CHECK (timezone_confidence IN ('exact', 'normalised', 'unknown')),
+            availability_confidence TEXT NOT NULL CHECK (availability_confidence IN ('exact', 'inferred')),
+            status TEXT NOT NULL CHECK (status IN ('active', 'retracted', 'superseded')),
+            UNIQUE(dataset_id, entity_id, stable_id, source_id, revision)
+        )
+        """
+    )
+    before = int(connection.execute("SELECT COUNT(*) FROM bitemporal_observations_v7").fetchone()[0])
+    without_entity = int(
+        connection.execute(
+            "SELECT COUNT(*) FROM bitemporal_observations_v7 WHERE entity_id IS NULL OR TRIM(entity_id) = ''"
+        ).fetchone()[0]
+    )
+    connection.execute(
+        f"INSERT INTO bitemporal_observations({_BITEMPORAL_COLUMNS}) "
+        f"SELECT {_BITEMPORAL_COLUMNS} FROM bitemporal_observations_v7"
+    )
+    copied = int(connection.execute("SELECT COUNT(*) FROM bitemporal_observations").fetchone()[0])
+    if copied != before:
+        raise StorageSchemaError(f"bitemporal rebuild copied {copied} of {before} rows")
+    connection.execute("DROP TABLE bitemporal_observations_v7")
+    connection.execute(
+        "CREATE INDEX bitemporal_observations_as_of ON bitemporal_observations(dataset_id, stable_id, available_at, revision)"
+    )
+    connection.execute(
+        "CREATE INDEX bitemporal_observations_entity ON bitemporal_observations(dataset_id, entity_id, available_at)"
+    )
+    for suffix, event in (("update", "UPDATE"), ("delete", "DELETE")):
+        connection.execute(
+            f"""
+            CREATE TRIGGER bitemporal_observations_append_only_{suffix}
+            BEFORE {event} ON bitemporal_observations
+            BEGIN
+                SELECT RAISE(ABORT, 'bitemporal observations are append-only');
+            END
+            """
+        )
+    connection.execute(
+        "INSERT INTO storage_operations(operation, completed_at, detail_json) VALUES (?, ?, ?)",
+        (
+            "bitemporal_unique_key_rebuild",
+            _utc_now(),
+            json.dumps(
+                {"rows_copied": copied, "rows_without_entity_id": without_entity, "schema_version": 8},
+                sort_keys=True,
+            ),
+        ),
     )
 
 
@@ -1174,11 +1332,15 @@ class TransactionalStore:
         )
         now = _utc_now()
         previous = connection.execute(
-            "SELECT revision, created_at, payload_json, updated_at FROM transactional_records WHERE entity_type = ? AND entity_id = ?",
+            "SELECT revision, created_at, payload_json, updated_at, deleted_at FROM transactional_records WHERE entity_type = ? AND entity_id = ?",
             (entity_type, entity_id),
         ).fetchone()
         if previous and immutable:
-            if dict(json.loads(str(previous[2]))) != dict(payload):
+            if previous[4] is not None:
+                raise StorageTombstoneConflict(
+                    f"immutable record was soft-deleted and cannot be re-acknowledged: {entity_id}"
+                )
+            if dict(json.loads(str(previous[2]))) != dict(json.loads(encoded)):
                 raise StorageRevisionConflict(
                     f"immutable record already exists with different content: {entity_id}"
                 )
@@ -1239,11 +1401,15 @@ class TransactionalStore:
         with self.transaction() as connection:
             for entity_type, entity_id, payload, encoded in prepared:
                 previous = connection.execute(
-                    "SELECT revision, created_at, payload_json, updated_at FROM transactional_records WHERE entity_type = ? AND entity_id = ?",
+                    "SELECT revision, created_at, payload_json, updated_at, deleted_at FROM transactional_records WHERE entity_type = ? AND entity_id = ?",
                     (entity_type, entity_id),
                 ).fetchone()
                 if previous and immutable:
-                    if dict(json.loads(str(previous[2]))) != payload:
+                    if previous[4] is not None:
+                        raise StorageTombstoneConflict(
+                            f"immutable record was soft-deleted and cannot be re-acknowledged: {entity_id}"
+                        )
+                    if dict(json.loads(str(previous[2]))) != dict(json.loads(encoded)):
                         raise StorageRevisionConflict(f"immutable record already exists with different content: {entity_id}")
                     stored.append(StoredRecord(entity_type, entity_id, payload, int(previous[0]), str(previous[1]), str(previous[3])))
                     continue
@@ -1338,13 +1504,37 @@ class TransactionalStore:
         query += " ORDER BY entity_id"
         return tuple(_record(row) for row in self.connection.execute(query, (entity_type,)))
 
-    def delete(self, entity_type: str, entity_id: str) -> bool:
+    def delete(self, entity_type: str, entity_id: str, *, expected_revision: int | None = None) -> bool:
+        """Soft-delete a record; the tombstone is a new revision.
+
+        A stale ``expected_revision`` is rejected so a delete cannot overwrite a
+        newer write, and stale writers cannot later resurrect the record.
+        """
+
         entity_type, entity_id = _validate_identity(entity_type, entity_id)
+        if expected_revision is not None and (
+            isinstance(expected_revision, bool)
+            or not isinstance(expected_revision, int)
+            or expected_revision < 0
+        ):
+            raise ValueError("expected_revision must be a non-negative integer")
         now = _utc_now()
         with self.transaction() as connection:
+            row = connection.execute(
+                "SELECT revision, deleted_at FROM transactional_records WHERE entity_type = ? AND entity_id = ?",
+                (entity_type, entity_id),
+            ).fetchone()
+            if row is None or row[1] is not None:
+                return False
+            current_revision = int(row[0])
+            if expected_revision is not None and current_revision != expected_revision:
+                raise StorageRevisionConflict(
+                    f"expected revision {expected_revision}, current revision is {current_revision}"
+                )
             result = connection.execute(
-                "UPDATE transactional_records SET deleted_at = ?, updated_at = ? WHERE entity_type = ? AND entity_id = ? AND deleted_at IS NULL",
-                (now, now, entity_type, entity_id),
+                "UPDATE transactional_records SET deleted_at = ?, updated_at = ?, revision = ? "
+                "WHERE entity_type = ? AND entity_id = ? AND deleted_at IS NULL AND revision = ?",
+                (now, now, current_revision + 1, entity_type, entity_id, current_revision),
             )
         return result.rowcount == 1
 
@@ -1357,6 +1547,10 @@ class TransactionalStore:
             )
             version = int(self.connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] or 0)
             errors = () if sqlite_integrity == "ok" and not foreign_keys else ("sqlite integrity check failed",)
+            applied = {int(row[0]) for row in self.connection.execute("SELECT version FROM schema_migrations")}
+            missing = _missing_required_tables(self.connection, applied)
+            if missing:
+                errors = (*errors, f"mandatory tables missing: {', '.join(missing)}")
             return StorageIntegrity(not errors, version, sqlite_integrity, foreign_keys, errors)
         except (sqlite3.DatabaseError, TypeError, ValueError) as exc:
             return StorageIntegrity(False, 0, "unavailable", (), (f"integrity check failed: {exc}",))

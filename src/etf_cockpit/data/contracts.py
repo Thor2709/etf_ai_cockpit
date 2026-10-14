@@ -28,6 +28,15 @@ class SourceAuthority(StrEnum):
         }[self]
 
 
+# One canonical authority whitelist shared by every selector (B021-N001).
+# Primary sources may back a canonical/score-eligible value; context-only
+# sources are retained for display and never become canonical on their own.
+PRIMARY_SOURCE_AUTHORITIES: frozenset[SourceAuthority] = frozenset({SourceAuthority.OFFICIAL, SourceAuthority.ISSUER})
+CONTEXT_ONLY_AUTHORITIES: frozenset[SourceAuthority] = frozenset(
+    {SourceAuthority.MODEL, SourceAuthority.COMMUNITY, SourceAuthority.MANUAL}
+)
+
+
 @dataclass(frozen=True)
 class ProviderCapability:
     provider_id: str

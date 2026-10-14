@@ -19,14 +19,15 @@ def _fy(end: str, known: str, **values: float) -> sm.Period:
     return sm.Period(date.fromisoformat(end), "FY", datetime.fromisoformat(known).replace(tzinfo=UTC), "EUR", "yfinance", values)
 
 
-def test_roe_uses_average_parent_equity_and_rejects_non_positive_equity() -> None:
-    assert sm.roe(120.0, 900.0, 1100.0).value == pytest.approx(0.12)  # 120 / ((900 + 1100) / 2)
+def test_roe_uses_closing_parent_equity_and_rejects_non_positive_equity() -> None:
+    assert sm.roe(120.0, 900.0, 1100.0).value == pytest.approx(120.0 / 1100.0)
     negative = sm.roe(120.0, -50.0, 1100.0)
-    assert negative.status == sm.NOT_MEANINGFUL and negative.value is None
-    assert sm.roe(120.0, None, 1100.0).status == sm.UNAVAILABLE
+    assert negative.status == sm.OK and negative.value == pytest.approx(120.0 / 1100.0)
+    assert sm.roe(120.0, 900.0, -50.0).status == sm.NOT_MEANINGFUL
+    assert sm.roe(120.0, None, 1100.0).value == pytest.approx(120.0 / 1100.0)
 
 
-def test_tax_rate_is_clamped_and_roic_uses_average_invested_capital() -> None:
+def test_tax_rate_is_clamped_and_roic_uses_closing_invested_capital() -> None:
     assert sm.effective_tax_rate(30.0, 100.0) == pytest.approx(0.30)
     assert sm.effective_tax_rate(60.0, 100.0) == pytest.approx(0.40)  # clamped to 40 %
     assert sm.effective_tax_rate(-5.0, 100.0) == 0.0  # clamped to 0 %
@@ -36,7 +37,7 @@ def test_tax_rate_is_clamped_and_roic_uses_average_invested_capital() -> None:
     opening = sm.invested_capital(800.0, 300.0, 50.0, 150.0)  # 800 + 300 + 50 - 150
     closing = sm.invested_capital(900.0, 350.0, 50.0, 100.0)  # 900 + 350 + 50 - 100
     assert (opening, closing) == (1000.0, 1200.0)
-    assert sm.roic(nopat, opening, closing).value == pytest.approx(150.0 / 1100.0)
+    assert sm.roic(nopat, opening, closing).value == pytest.approx(150.0 / 1200.0)
 
 
 def test_margins_fcf_net_debt_and_leverage() -> None:

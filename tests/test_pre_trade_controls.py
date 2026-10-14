@@ -274,7 +274,7 @@ def test_failed_paper_fill_append_keeps_cash_committed_and_recovers_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ledger = PaperLedger(tmp_path)
-    ledger.open_account(initial_cash=1_000)
+    ledger.open_account(initial_cash=1_000, occurred_at=datetime(2026, 9, 1, tzinfo=timezone.utc))
     order = ledger.accept_proposal(_proposal(quantity_delta=20, source="interrupted-fill"), execution_price=10)
     original_append = ledger._append
 
@@ -309,7 +309,7 @@ def test_failed_paper_fill_append_keeps_cash_committed_and_recovers_once(
     )
     assert recovered["status"] == "partially_filled"
     assert ledger.cash_balance(
-        account_id="local-paper", currency="EUR", as_of=datetime(2026, 9, 30, tzinfo=timezone.utc)
+        account_id="local-paper", currency="EUR", as_of=datetime.now(timezone.utc)
     ) == Decimal("900")
     assert len(lifecycle.fill_events()) == 1
     paper_fills = [event for event in ledger._read_events() if event["event_type"] == "fill_recorded"]

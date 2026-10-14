@@ -33,6 +33,7 @@ from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import BACKTESTS_DIR, DERIVED_DIR, FORECASTS_DIR, RAW_DIR, REPORTS_DIR, ROOT
 from etf_cockpit.core.types import SignalResult, latest_signal
 from etf_cockpit.data.classification import classification_score_state
+from etf_cockpit.data.fx_data import FxRateSnapshot, build_fx_rate_snapshot, fx_cross_rate, load_fx_rates
 from etf_cockpit.data.trade_candidate_analysis import load_candidate_price_binding
 from etf_cockpit.data.macro_warehouse import MacroWarehouse, load_risk_free_proxy_mappings
 from etf_cockpit.data.score_history import latest_sparebank_scores, project_classification_score_frame
@@ -539,6 +540,11 @@ class SimpleInstrumentScore:
 
     def to_public_dict(self) -> dict[str, object]:
         return self.to_v2_dict()
+
+    @property
+    def model_readiness(self) -> dict[str, object]:
+        """Advisory availability only; never an input to deterministic labels."""
+        return _model_readiness(self.components)
 
     @property
     def valid_component_count(self) -> int:
@@ -1263,6 +1269,7 @@ def simple_scoreboard_frame(
             "missing_components": "|".join(score.missing_components),
             "identity_conflict_reason": score.identity_conflict_reason,
             "model_authority_label": score.model_authority_label,
+            "model_readiness": score.model_readiness,
             "backtest_trust_label": score.backtest_trust_label,
             "backtest_trust_score_10": score.backtest_trust_score_10,
             "model_calibration_label": score.model_calibration_label,
@@ -1454,13 +1461,18 @@ def build_universe_simple_scores(
     crowding: ClusterReport | None = None,
     missing_signal_reasons: Mapping[str, str] | None = None,
     cyclical_projections: Mapping[str, object] | None = None,
+    fx_rates: pd.DataFrame | None = None,
 ) -> list[SimpleInstrumentScore]:
     raw_forecast_scores = forecast_component_maps(forecasts)
     return_distributions = forecast_return_distributions(forecasts)
     forecast_details = forecast_score_details(forecasts)
     latest_prices = _latest_price_lookup(prices)
     price_quality = _price_quality_lookup(prices)
-    liquidity = _price_liquidity_lookup(prices)
+    liquidity = _price_liquidity_lookup(
+        prices,
+        currency_by_id={str(key): str(value.currency) for key, value in config.universe.by_id().items()},
+        fx_rates=fx_rates,
+    )
     etf_exposure = _etf_exposure_lookup()
     stock_evidence, stock_evidence_error = _stock_evidence_lookup(config, signals, prices)
     symbol_map = yfinance_symbol_map_from_config(config)
@@ -2452,7 +2464,10 @@ def _relative_strength_why(raw: float | None) -> str:
 def _liquidity_component(info: dict[str, object]) -> SimpleScoreComponent:
     avg_turnover = _safe_float(info.get("avg_turnover_20"))
     spread_proxy = _safe_float(info.get("spread_proxy_20"))
-    raw, why = _liquidity_raw_and_reason(avg_turnover, spread_proxy)
+    fx_unavailable = _noneable_str(info.get("fx_unavailable_reason"))
+    if fx_unavailable is not None:
+        return _component("liquidity_cost", None, fx_unavailable, authority="high", role="risk_friction")
+    raw, why = _liquidity_raw_and_reason(avg_turnover, spread_proxy, conversion_note=_noneable_str(info.get("fx_note")))
     return _component("liquidity_cost", raw, why, authority="high", role="risk_friction")
 
 
@@ -2543,7 +2558,12 @@ def _candidate_liquidity_component(row: pd.Series) -> SimpleScoreComponent:
     return _component("liquidity_cost", raw, why, authority="high", role="risk_friction")
 
 
-def _liquidity_raw_and_reason(avg_turnover_eur: float | None, spread_proxy: float | None) -> tuple[float | None, str]:
+def _liquidity_raw_and_reason(
+    avg_turnover_eur: float | None,
+    spread_proxy: float | None,
+    *,
+    conversion_note: str | None = None,
+) -> tuple[float | None, str]:
     if avg_turnover_eur is None or avg_turnover_eur <= 0:
         return None, "No usable yfinance volume/turnover data is available for a liquidity-cost estimate."
     if avg_turnover_eur >= 10_000_000:
@@ -2570,6 +2590,8 @@ def _liquidity_raw_and_reason(avg_turnover_eur: float | None, spread_proxy: floa
             score += 0.5
     score = _clamp_score_10(score)
     why = f"Average traded value proxy is EUR {avg_turnover_eur:,.0f}; {spread_text}. Costs are estimated conservatively from yfinance OHLCV."
+    if conversion_note:
+        why = f"{why} {conversion_note}"
     return _score_10_to_raw(score), why
 
 
@@ -2895,25 +2917,38 @@ def _evidence_quality_score(
     warnings: list[str],
     asset_type: str,
 ) -> float | None:
-    data_quality = _score_by_key(components, "data_quality")
-    if data_quality is None:
+    def usable(component: SimpleScoreComponent) -> bool:
+        value = _safe_float(component.score_10)
+        raw = _safe_float(component.raw_score)
+        return (
+            component.score_eligible
+            and value is not None and 0.0 <= value <= 10.0
+            and raw is not None and -1.0 <= raw <= 1.0
+            and str(component.freshness_status).strip().casefold() in {"ok", "fresh"}
+            and _parse_date(component.as_of_date) is not None
+        )
+
+    quality_components = [component for component in components if component.key == "data_quality"]
+    if len(quality_components) != 1 or not usable(quality_components[0]):
         return None
-    expected = [component for component in components if component.score_role in {"evidence", "risk_friction", "model_confirmation"}]
-    valid = [component for component in expected if component.score_10 is not None]
-    completeness = len(valid) / len(expected) if expected else 0.0
-    model_components = [component for component in components if component.score_role == "model_confirmation"]
-    valid_models = [component for component in model_components if component.score_10 is not None]
-    model_score = 10.0 * len(valid_models) / len(model_components) if model_components else 0.0
+    data_quality = quality_components[0].score_10
+    expected = [component for component in components if component.score_role in {"evidence", "risk_friction"}]
+    valid = [component for component in expected if usable(component)]
+    if not valid or len({component.key for component in expected}) != len(expected):
+        return None
+    completeness = len(valid) / len(expected)
     warning_penalty = min(2.0, 0.4 * len(warnings))
     missing_penalty = 0.0
-    if asset_type == "ETF" and _score_by_key(components, "etf_exposure") is None:
+    valid_keys = {component.key for component in valid}
+    if asset_type == "ETF" and "etf_exposure" not in valid_keys:
         missing_penalty += 1.0
     if _is_stock_like_asset_type(asset_type):
-        if _score_by_key(components, "stock_value") is None:
+        if "stock_value" not in valid_keys:
             missing_penalty += 0.8
-        if _score_by_key(components, "stock_quality") is None:
+        if "stock_quality" not in valid_keys:
             missing_penalty += 0.8
-    quality = (0.50 * data_quality) + (0.25 * completeness * 10.0) + (0.15 * model_score) + 1.0
+    # F5: remove optional confirmation without redistributing its weight.
+    quality = (0.50 * data_quality) + (0.25 * completeness * 10.0) + 1.0
     return round(_clamp_score_10(quality - warning_penalty - missing_penalty), 1)
 
 
@@ -2943,7 +2978,8 @@ def final_label_from_scores(
     hard_flags = {"missing_price_data", "missing_latest_price", "insufficient_12m_history", "stale_price"}
     if hard_flags & set(warnings):
         return "blocked_data_quality", "manual_review", "Manual Review"
-    if evidence_score is None or evidence_quality is None or risk_friction is None:
+    if any(value is None or not 0.0 <= value <= 10.0
+           for value in (_safe_float(evidence_score), _safe_float(evidence_quality), _safe_float(risk_friction))):
         return "manual_review", "manual_review", "Manual Review"
     if evidence_quality < 4.0:
         return "low_quality_manual_review", "manual_review", "Manual Review"
@@ -2958,6 +2994,33 @@ def final_label_from_scores(
     if evidence_score >= 4.0:
         return "mixed_evidence_review", "no_trade", "Hold Context"
     return "weak_evidence_review", "manual_review", "Weak Evidence Review"
+
+
+def _model_readiness(components: list[SimpleScoreComponent]) -> dict[str, object]:
+    """Use existing component provenance; unverifiable forecasts stay unavailable."""
+    models = [component for component in components if component.score_role == "model_confirmation"]
+    available = []
+    for component in models:
+        value = _safe_float(component.score_10)
+        raw = _safe_float(component.raw_score)
+        if (
+            sum(other.key == component.key for other in models) == 1
+            and component.key in {"baseline", "timesfm", "toto"}
+            and component.source_id == COMPONENT_SOURCE_IDS[component.key]
+            and str(component.status).casefold() == "ok"
+            and str(component.freshness_status).casefold() == "ok"
+            and _parse_date(component.as_of_date) is not None
+            and not component.conflict_id
+            and value is not None and 0.0 <= value <= 10.0
+            and raw is not None and -1.0 <= raw <= 1.0
+        ):
+            available.append(component.key)
+    status = "unavailable" if not available else "available" if len(available) == len(models) else "partial"
+    usable_models = [component for component in models if component.key in available]
+    reason = _model_authority_label(usable_models)
+    if len(available) != len(models) or not models:
+        reason += "; missing or unverifiable model evidence remains unavailable."
+    return {"status": status, "available_models": available, "reason": reason}
 
 
 def _model_authority_label(components: list[SimpleScoreComponent]) -> str:
@@ -3864,7 +3927,34 @@ def _price_quality_lookup(prices: pd.DataFrame) -> dict[str, dict[str, object]]:
     return output
 
 
-def _price_liquidity_lookup(prices: pd.DataFrame) -> dict[str, dict[str, object]]:
+# Stored OHLCV is already in major units (the provider scales pence once), so a minor-unit label
+# only names the major currency and must never trigger a second /100.
+_MINOR_UNIT_MAJOR_CURRENCY = {"GBp": "GBP", "GBX": "GBP", "ILA": "ILS", "ZAc": "ZAR"}
+_LIQUIDITY_END_OF_DAY = pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+
+
+def _liquidity_major_currency(value: object) -> str | None:
+    text = _noneable_str(value)
+    if text is None:
+        return None
+    text = _MINOR_UNIT_MAJOR_CURRENCY.get(text, text).upper()
+    return text if re.fullmatch(r"[A-Z]{3}", text) else None
+
+
+def _price_liquidity_lookup(
+    prices: pd.DataFrame,
+    *,
+    currency_by_id: Mapping[str, str] | None = None,
+    fx_rates: pd.DataFrame | None = None,
+) -> dict[str, dict[str, object]]:
+    """Average 20-day traded value in EUR plus a spread proxy, per instrument.
+
+    Each row's close x volume is in the instrument's quote currency and is converted to EUR with
+    the dated FX rate quoted on or before that row's UTC date (and ingested before that row's
+    UTC day ends) *before* averaging. Missing, stale, conflicting or unverifiable FX makes the
+    instrument's turnover unavailable (``fx_unavailable_reason``); 1:1 is never assumed.
+    """
+
     if prices.empty or not {"etf_id", "date", "close", "volume"}.issubset(prices.columns):
         return {}
     frame = prices.copy()
@@ -3873,16 +3963,107 @@ def _price_liquidity_lookup(prices: pd.DataFrame) -> dict[str, dict[str, object]
         if column not in frame:
             frame[column] = pd.NA
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    currency_by_id = currency_by_id or {}
+    fx_state: dict[str, object] = {"frame": fx_rates, "snapshots": {}}
     output: dict[str, dict[str, object]] = {}
     for etf_id, group in frame.sort_values("date").groupby("etf_id", sort=False):
-        tail = group.tail(20)
+        tail = group.tail(20).reset_index(drop=True)
         turnover = (tail["close"] * tail["volume"]).replace([float("inf"), float("-inf")], pd.NA).dropna()
         spread = ((tail["high"] - tail["low"]) / tail["close"]).replace([float("inf"), float("-inf")], pd.NA).dropna()
+        avg_turnover: float | None = None
+        fx_note: str | None = None
+        unavailable: str | None = None
+        if not turnover.empty:
+            avg_turnover, fx_note, unavailable = _turnover_eur_average(
+                str(etf_id), tail, turnover, currency_by_id.get(str(etf_id)), fx_state
+            )
         output[str(etf_id)] = {
-            "avg_turnover_20": float(turnover.mean()) if not turnover.empty else None,
+            "avg_turnover_20": avg_turnover,
             "spread_proxy_20": float(spread.mean()) if not spread.empty else None,
+            "fx_note": fx_note,
+            "fx_unavailable_reason": unavailable,
         }
     return output
+
+
+def _turnover_eur_average(
+    etf_id: str,
+    tail: pd.DataFrame,
+    turnover: pd.Series,
+    configured_currency: str | None,
+    fx_state: dict[str, object],
+) -> tuple[float | None, str | None, str | None]:
+    currency = _liquidity_major_currency(configured_currency)
+    if "currency" in tail.columns:
+        resolved_currencies = [
+            _liquidity_major_currency(value) for value in tail.loc[turnover.index, "currency"]
+        ]
+        if currency is None and any(resolved is None for resolved in resolved_currencies):
+            return None, None, (
+                f"Liquidity is unavailable: included turnover rows for {etf_id} have an unknown quote currency "
+                "and no authoritative configured currency, so turnover cannot be converted to EUR."
+            )
+        row_currencies = {resolved for resolved in resolved_currencies if resolved is not None}
+        if len(row_currencies) > 1 or (currency is not None and row_currencies and row_currencies != {currency}):
+            return None, None, (
+                f"Liquidity is unavailable: price rows for {etf_id} carry a quote currency "
+                f"({', '.join(sorted(row_currencies))}) that conflicts with the configured {currency or 'unknown'}; "
+                "turnover cannot be converted to EUR."
+            )
+        if currency is None and len(row_currencies) == 1:
+            currency = next(iter(row_currencies))
+    if currency is None:
+        return None, None, f"Liquidity is unavailable: the quote currency of {etf_id} is unknown, so turnover cannot be converted to EUR."
+    if currency == "EUR":
+        return float(turnover.mean()), None, None
+
+    converted: list[float] = []
+    fx_dates: list[date] = []
+    for index, value in turnover.items():
+        if value == 0:
+            converted.append(0.0)
+            continue
+        row_time = pd.Timestamp(tail.at[index, "date"])
+        row_time = row_time.tz_localize("UTC") if row_time.tzinfo is None else row_time.tz_convert("UTC")
+        row_day = row_time.date()
+        known_at = (row_time.normalize() + _LIQUIDITY_END_OF_DAY).to_pydatetime()
+        snapshot = _liquidity_fx_snapshot(fx_state, row_day, known_at)
+        cross = fx_cross_rate(snapshot, currency, "EUR") if snapshot.available else None
+        if cross is None or not cross.rate > 0:
+            detail = snapshot.reason or f"no unambiguous dated {currency}/EUR rate"
+            return None, None, (
+                f"Liquidity is unavailable: {currency} turnover cannot be converted to EUR for {row_day.isoformat()} "
+                f"({detail}); 1:1 is never assumed."
+            )
+        converted.append(float(value) * cross.rate)
+        if cross.as_of_date is not None:
+            fx_dates.append(cross.as_of_date)
+    if fx_dates:
+        first, last = min(fx_dates), max(fx_dates)
+        span = first.isoformat() if first == last else f"{first.isoformat()} to {last.isoformat()}"
+    else:
+        span = "not needed: no non-zero turnover rows"
+    note = f"Daily {currency} turnover was converted to EUR with the dated {currency}/EUR FX rate known for each day (FX date {span}) before averaging."
+    return sum(converted) / len(converted), note, None
+
+
+def _liquidity_fx_snapshot(fx_state: dict[str, object], row_day: date, known_at: datetime) -> FxRateSnapshot:
+    snapshots = fx_state["snapshots"]
+    if not isinstance(snapshots, dict):
+        raise TypeError("liquidity FX snapshot cache must be a dict")
+    cache_key = (row_day, known_at)
+    if cache_key not in snapshots:
+        frame = fx_state["frame"]
+        if frame is None:
+            try:
+                frame = load_fx_rates()
+            except Exception:
+                frame = pd.DataFrame()
+            fx_state["frame"] = frame
+        if not isinstance(frame, pd.DataFrame):
+            frame = pd.DataFrame()
+        snapshots[cache_key] = build_fx_rate_snapshot(frame, decision_time=row_day, known_at=known_at)
+    return snapshots[cache_key]
 
 
 def _etf_exposure_lookup() -> dict[str, dict[str, object]]:

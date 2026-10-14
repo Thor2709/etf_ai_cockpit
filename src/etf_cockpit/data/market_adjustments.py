@@ -18,6 +18,7 @@ import json
 import math
 from pathlib import Path
 import re
+import sys
 from typing import Any, Iterable, Mapping, Sequence, cast
 
 import numpy as np
@@ -303,6 +304,23 @@ def is_canonical_corporate_action_coverage(value: object) -> bool:
     )
 
 
+def _fx_rate_float(rate: object) -> float:
+    """Return a usable FX rate or raise: not bool, finite, positive, above the subnormal guard, invertible."""
+
+    if isinstance(rate, (bool, np.bool_)):
+        raise MarketAdjustmentError("FX rate must be numeric, not boolean")
+    try:
+        value = float(str(rate).strip() if isinstance(rate, str) else rate)  # type: ignore[arg-type]
+    except (TypeError, ValueError, ArithmeticError) as exc:
+        raise MarketAdjustmentError("FX rate must be numeric") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise MarketAdjustmentError("FX rate must be positive")
+    # Subnormal rates lose precision and their inverse overflows; reject both ends.
+    if value < sys.float_info.min or not math.isfinite(1.0 / value) or 1.0 / value < sys.float_info.min:
+        raise MarketAdjustmentError("FX rate is outside the supported range")
+    return value
+
+
 @dataclass(frozen=True)
 class FXObservation:
     observation_id: str
@@ -329,6 +347,7 @@ class FXObservation:
         object.__setattr__(self, "quote_currency", _currency(self.quote_currency, required=True))
         if self.base_currency == self.quote_currency:
             raise MarketAdjustmentError("FX base and quote currencies must differ")
+        _fx_rate_float(self.rate)
         object.__setattr__(self, "valid_at", _utc(self.valid_at, "valid_at"))
         object.__setattr__(self, "published_at", _utc(self.published_at, "published_at"))
         object.__setattr__(self, "retrieved_at", _utc(self.retrieved_at, "retrieved_at"))
@@ -365,9 +384,7 @@ class FXObservation:
         return "reference" if self.is_reference else "executable" if self.executable else "indicative"
 
     def validate(self) -> None:
-        rate = float(str(self.rate))
-        if not math.isfinite(rate) or rate <= 0:
-            raise MarketAdjustmentError("FX rate must be positive")
+        _fx_rate_float(self.rate)
         if self.is_reference and self.executable:
             raise MarketAdjustmentError("a reference FX rate cannot be executable")
 
@@ -429,7 +446,9 @@ class _ObservationStore:
         if decision_time is None:
             observations = self._store.observations(self.dataset_id, entity_id=entity_id)
             return [dict(item.value) for item in observations]
-        frame = self._store.as_of(self.dataset_id, _utc(decision_time, "decision_time"), entity_id=entity_id)
+        # valid_from is an event/coverage time here (an announced action may take effect after the
+        # knowledge cutoff); every caller applies its own effective/coverage cutoff to the result.
+        frame = self._store.as_of(self.dataset_id, _utc(decision_time, "decision_time"), entity_id=entity_id, effective_validity=False)
         if frame.empty:
             return []
         return [dict(value) for value in frame["value"].tolist()]
@@ -591,8 +610,15 @@ class ProviderReconciliation:
         return tuple(item.as_dict() for item in self.observations)
 
 
+def _event_date(action: CorporateAction) -> str:
+    return pd.Timestamp(_utc(action.event_at, "action_event_at")).date().isoformat()
+
+
 def _candidate_signature(action: CorporateAction) -> tuple[float, float, str | None, float, str]:
-    return (action.quantity_factor, action.cash_amount, action.currency, action.withholding_rate, action.event_at)
+    if action.action_type == CorporateActionType.SPLIT.value:
+        # A split is a pure quantity event: provider cash/currency fields are irrelevant.
+        return (action.quantity_factor, 0.0, None, 0.0, _event_date(action))
+    return (action.quantity_factor, action.cash_amount, action.currency, action.withholding_rate, _event_date(action))
 
 
 def reconcile_provider_observations(*groups: Sequence[CorporateAction | FXObservation], tolerance: float = 1e-8) -> ProviderReconciliation:
@@ -612,7 +638,7 @@ def reconcile_provider_observations(*groups: Sequence[CorporateAction | FXObserv
             if left[2:] != right[2:] or not math.isclose(left[0], right[0], rel_tol=tolerance, abs_tol=tolerance) or not math.isclose(left[1], right[1], rel_tol=tolerance, abs_tol=tolerance):
                 discrepancies.append(f"{first.source_id}!={other.source_id}:action_terms")
         elif isinstance(first, FXObservation) and isinstance(other, FXObservation):
-            if first.pair != other.pair or first.valuation_at != other.valuation_at or not math.isclose(float(str(first.rate)), float(str(other.rate)), rel_tol=tolerance, abs_tol=tolerance):
+            if first.pair != other.pair or first.valuation_at != other.valuation_at or not math.isclose(float(str(first.rate)), float(str(other.rate)), rel_tol=tolerance, abs_tol=0.0):
                 discrepancies.append(f"{first.source_id}!={other.source_id}:fx_rate")
         else:
             discrepancies.append("mixed_observation_types")
@@ -695,6 +721,94 @@ def is_canonical_adjustment_result(value: object) -> bool:
     )
 
 
+def _applied_date(action: CorporateAction, convention: str) -> pd.Timestamp:
+    """Date an action takes effect in a series: splits always on the ex-date, cash per convention."""
+
+    if action.action_type == CorporateActionType.SPLIT.value or convention == "reinvest_on_ex_date":
+        value = action.event_at
+    else:
+        value = action.payable_at or action.event_at
+    return pd.Timestamp(_utc(value, "action_event_at")).normalize()
+
+
+def _action_group_key(action: CorporateAction) -> tuple[str, ...]:
+    if action.action_type == CorporateActionType.SPLIT.value:
+        # Providers name the same split differently: identity is (instrument, ex-date).
+        return ("split", action.instrument_id, _event_date(action))
+    return (action.action_id, action.action_type)
+
+
+@dataclass(frozen=True)
+class _ResolvedActions:
+    selected: tuple[CorporateAction, ...]
+    reconciliations: tuple[ProviderReconciliation, ...]
+    warnings: tuple[str, ...]
+    conflicts: tuple[tuple[CorporateAction, ...], ...]
+
+
+def _resolve_actions(actions: Sequence[CorporateAction], tolerance: float) -> _ResolvedActions:
+    """Deduplicate actions across providers; disagreeing candidates are conflicts, never summed."""
+
+    groups: dict[tuple[str, ...], list[CorporateAction]] = defaultdict(list)
+    for action in actions:
+        groups[_action_group_key(action)].append(action)
+    selected: list[CorporateAction] = []
+    reconciliations: list[ProviderReconciliation] = []
+    warnings: list[str] = []
+    conflicts: list[tuple[CorporateAction, ...]] = []
+    for candidates in groups.values():
+        report = reconcile_provider_observations(candidates, tolerance=tolerance)
+        reconciliations.append(report)
+        if not report.available or report.selected_source_id is None:
+            warnings.append(f"quarantined_action:{candidates[0].action_id}")
+            conflicts.append(tuple(candidates))
+            continue
+        selected.append(next(item for item in candidates if item.source_id == report.selected_source_id))
+    return _ResolvedActions(tuple(selected), tuple(reconciliations), tuple(warnings), tuple(conflicts))
+
+
+def _price_currency_of(raw_prices: pd.DataFrame, explicit: str | None) -> tuple[str | None, bool]:
+    """Return (currency, mixed); mixed rows never get a single guessed currency."""
+
+    values = (
+        {str(item).strip().upper() for item in raw_prices["currency"].dropna() if str(item).strip()}
+        if "currency" in raw_prices.columns
+        else set()
+    )
+    declared = _currency(explicit)
+    if declared is not None:
+        # Rows quoted in a currency other than the declared one are mixed evidence, not a guessable currency.
+        return declared, bool(values - {declared})
+    if not values:
+        return None, False
+    if len(values) > 1:
+        return None, True
+    return (next(iter(values)) if values else None), False
+
+
+def _duplicate_rows_disagree(
+    frame: pd.DataFrame, identity: pd.DataFrame, duplicated: pd.Series, tolerance: float
+) -> pd.Series:
+    """Flag duplicate rows whose other evidence columns (nav, dividend, index, ...) differ from the first row of their key."""
+    clash = pd.Series(False, index=frame.index)
+    keys = [identity[column] for column in identity.columns]
+    for column in frame.columns:
+        if column in {"date", "close", "raw_close", "known_at"}:
+            continue
+        values = frame[column]
+        first = values.groupby(keys, dropna=False, sort=False).transform("first")
+        numeric = pd.to_numeric(values, errors="coerce")
+        first_numeric = pd.to_numeric(first, errors="coerce")
+        if numeric.notna().sum() == values.notna().sum() and first_numeric.notna().sum() == first.notna().sum():
+            left, right = numeric.to_numpy(dtype=float), first_numeric.to_numpy(dtype=float)
+            same = (np.isnan(left) & np.isnan(right)) | np.isclose(left, right, rtol=tolerance, atol=0.0, equal_nan=False)
+            differs = pd.Series(~same, index=frame.index)
+        else:
+            differs = pd.Series(values.astype(str).to_numpy() != first.astype(str).to_numpy(), index=frame.index)
+        clash |= duplicated & differs
+    return clash
+
+
 def apply_total_return_adjustments(
     raw_prices: pd.DataFrame | Sequence[float] | None = None,
     actions: Sequence[CorporateAction] = (),
@@ -702,8 +816,14 @@ def apply_total_return_adjustments(
     prices: Sequence[float] | None = None,
     convention: str = "reinvest_on_ex_date",
     discrepancy_tolerance: float = 1e-8,
+    price_currency: str | None = None,
 ) -> AdjustmentResult:
-    """Derive adjusted and total-return series without modifying raw prices."""
+    """Derive adjusted and total-return series without modifying raw prices.
+
+    Price return (split/quantity adjusted, cash excluded) and total return (cash
+    included) are separate columns.  A conflict or unusable action makes only
+    the affected basis NaN; ``raw_close`` is always retained.
+    """
 
     if prices is not None:
         raw_prices = prices
@@ -715,25 +835,44 @@ def apply_total_return_adjustments(
         action.validate()
     if not isinstance(raw_prices, pd.DataFrame):
         values = tuple(float(value) for value in raw_prices)
-        if len(values) < 2 or any(not math.isfinite(value) or value <= 0 for value in values):
-            raise MarketAdjustmentError("prices require at least two positive values")
-        ratio = math.prod(item.quantity_factor for item in actions if item.action_type == "split")
+        # An exact total loss (final price 0) is representable; earlier prices must stay positive.
+        if (
+            len(values) < 2
+            or any(not math.isfinite(value) or value <= 0 for value in values[:-1])
+            or not math.isfinite(values[-1])
+            or values[-1] < 0
+        ):
+            raise MarketAdjustmentError("prices require at least two positive values (the last may be zero)")
+        resolved = _resolve_actions(actions, discrepancy_tolerance)
+        if resolved.conflicts:
+            return _mark_canonical_adjustment(
+                AdjustmentResult(
+                    "quarantined",
+                    pd.DataFrame({"raw_close": values, "adjusted_close": math.nan}),
+                    convention,
+                    resolved.reconciliations,
+                    resolved.warnings,
+                    raw_prices=values,
+                )
+            )
+        chosen = resolved.selected
+        ratio = math.prod(item.quantity_factor for item in chosen if item.action_type == "split")
         adjusted = (*tuple(value / ratio for value in values[:-1]), values[-1])
         price_return = values[-1] * ratio / values[0] - 1.0
-        income_return = sum(item.net_cash_amount for item in actions if item.cash_flow_classification == "investment_income") / values[0]
-        security_cash = sum(item.net_cash_amount for item in actions)
+        income_return = sum(item.net_cash_amount for item in chosen if item.cash_flow_classification == "investment_income") / values[0]
+        security_cash = sum(item.net_cash_amount for item in chosen)
         total_return = (values[-1] * ratio + security_cash) / values[0] - 1.0
         return _mark_canonical_adjustment(AdjustmentResult(
             "available",
             pd.DataFrame({"raw_close": values, "adjusted_close": adjusted}),
             convention,
-            (),
+            resolved.reconciliations,
             (),
             price_return,
             income_return,
             total_return,
             adjusted,
-            tuple(item.action_id for item in actions),
+            tuple(item.action_id for item in chosen),
             ratio,
             values,
         ))
@@ -744,40 +883,91 @@ def apply_total_return_adjustments(
     frame = raw_prices.copy(deep=True)
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce", utc=True)
     frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
-    if frame["date"].isna().any() or not np.isfinite(frame["close"]).all() or frame["close"].le(0).any():
-        raise MarketAdjustmentError("raw prices contain invalid dates or non-finite/non-positive close values")
+    if frame["date"].isna().any() or not np.isfinite(frame["close"]).all() or frame["close"].lt(0).any():
+        raise MarketAdjustmentError("raw prices contain invalid dates or non-finite/negative close values")
     frame = frame.sort_values("date", kind="stable").reset_index(drop=True)
     frame["raw_close"] = frame["close"].astype(float)
 
-    by_identity: dict[tuple[str, str], list[CorporateAction]] = defaultdict(list)
-    for action in actions:
-        by_identity[(action.action_id, action.action_type)].append(action)
-    reconciliations: list[ProviderReconciliation] = []
-    selected: list[CorporateAction] = []
     warnings: list[str] = []
-    for candidates in by_identity.values():
-        report = reconcile_provider_observations(candidates, tolerance=discrepancy_tolerance)
-        reconciliations.append(report)
-        if not report.available or report.selected_source_id is None:
-            warnings.append(f"quarantined_action:{candidates[0].action_id}")
-            continue
-        selected.append(next(item for item in candidates if item.source_id == report.selected_source_id))
-    if any(item.status == "quarantined" for item in reconciliations):
-        return _mark_canonical_adjustment(AdjustmentResult("quarantined", _unavailable_adjustment_frame(frame), convention, tuple(reconciliations), tuple(warnings)))
+    # Duplicate daily candles collapse before adjustment so an action is never applied twice.
+    # Rows of one day that carry different ``known_at`` stamps are revisions, kept for as-known selection.
+    day = frame["date"].dt.normalize()
+    identity = pd.DataFrame({"day": day})
+    if "known_at" in frame.columns:
+        identity["known_at"] = pd.to_datetime(frame["known_at"], errors="coerce", utc=True)
+    duplicated = identity.duplicated(keep="first")
+    if duplicated.any():
+        # Same (day, known_at) key with a different close is conflicting evidence; NaT stamps group together.
+        first_close = frame.groupby(
+            [identity[column] for column in identity.columns], dropna=False, sort=False
+        )["raw_close"].transform("first")
+        clash = duplicated & ~np.isclose(
+            frame["raw_close"].to_numpy(dtype=float),
+            first_close.to_numpy(dtype=float),
+            rtol=discrepancy_tolerance,
+            atol=0.0,
+        )
+        clash = clash | _duplicate_rows_disagree(frame, identity, duplicated, discrepancy_tolerance)
+        if clash.any():
+            warnings.extend(f"conflicting_duplicate_candle:{item}" for item in sorted({day.iloc[i].date().isoformat() for i in frame.index[clash]}))
+            return _mark_canonical_adjustment(
+                AdjustmentResult("quarantined", _unavailable_adjustment_frame(frame), convention, (), tuple(warnings))
+            )
+        drop = duplicated
+        if drop.any():
+            warnings.append(f"collapsed_duplicate_candles:{int(drop.sum())}")
+            frame = frame.loc[~drop.to_numpy()].reset_index(drop=True)
+    # An exact total loss (last close 0) is representable; a zero before the end is not.
+    if frame["raw_close"].iloc[0] <= 0 or (len(frame) > 1 and frame["raw_close"].iloc[:-1].le(0).any()):
+        raise MarketAdjustmentError("raw prices contain invalid dates or non-finite/non-positive close values")
+
+    # Out-of-range actions cannot affect any return of this series: ignore with a note.
+    first_day = pd.Timestamp(frame["date"].iloc[0]).normalize()
+    last_day = pd.Timestamp(frame["date"].iloc[-1]).normalize()
+    in_range: list[CorporateAction] = []
+    for action in actions:
+        applied = _applied_date(action, convention)
+        if applied <= first_day:
+            warnings.append(f"ignored_out_of_range_action:{action.action_id}:not_after_first_candle")
+        elif applied > last_day:
+            warnings.append(f"ignored_out_of_range_action:{action.action_id}:after_last_candle")
+        else:
+            in_range.append(action)
+
+    resolved = _resolve_actions(in_range, discrepancy_tolerance)
+    warnings.extend(resolved.warnings)
+    price_blocked = any(item.ratio is not None for group in resolved.conflicts for item in group)
+    total_blocked = bool(resolved.conflicts)
+    status = "quarantined" if resolved.conflicts else "available"
 
     events: dict[pd.Timestamp, list[CorporateAction]] = defaultdict(list)
-    for action in selected:
-        event_value = action.event_at if convention == "reinvest_on_ex_date" else action.payable_at or action.event_at
-        event_date = pd.Timestamp(_utc(event_value, "action_event_at")).normalize()
-        events[event_date].append(action)
-
+    for action in resolved.selected:
+        events[_applied_date(action, convention)].append(action)
     candle_dates = {pd.Timestamp(value).normalize() for value in frame["date"]}
-    unmatched = [action for event_date, event_actions in events.items() if event_date not in candle_dates for action in event_actions]
-    if unmatched:
-        warnings.extend(f"unmatched_action_date:{action.action_id}" for action in unmatched)
-        return _mark_canonical_adjustment(
-            AdjustmentResult("quarantined", _unavailable_adjustment_frame(frame), convention, tuple(reconciliations), tuple(warnings))
-        )
+    for event_date, event_actions in events.items():
+        if event_date in candle_dates:
+            continue
+        for action in event_actions:
+            warnings.append(f"unmatched_action_date:{action.action_id}")
+            status = "quarantined"
+            total_blocked = True
+            price_blocked = price_blocked or action.ratio is not None
+
+    local_currency, mixed_currency = _price_currency_of(frame, price_currency)
+    currency_problem = mixed_currency
+    if mixed_currency:
+        warnings.append("mixed_price_currency")
+    for action in (item for group in events.values() for item in group if item.cash_amount > 0):
+        if local_currency is None:
+            # Cash distributions on a price series of unknown currency cannot be reconciled: fail closed.
+            warnings.append(f"action_currency_unverified:{action.action_id}")
+            currency_problem = True
+        elif action.currency != local_currency:
+            warnings.append(f"action_currency_mismatch:{action.action_id}:{action.currency}!={local_currency}")
+            currency_problem = True
+    if currency_problem:
+        total_blocked = True
+        status = status if status == "quarantined" else "unavailable"
 
     local_returns: list[float] = [math.nan]
     price_returns: list[float] = [math.nan]
@@ -786,24 +976,39 @@ def apply_total_return_adjustments(
     income: list[float] = [0.0]
     principal: list[float] = [0.0]
     action_ids: list[str] = [""]
+    applied_days: set[pd.Timestamp] = {first_day}
     for index in range(1, len(frame)):
         previous = float(frame.loc[index - 1, "raw_close"])
         current = float(frame.loc[index, "raw_close"])
-        day_actions = events.get(pd.Timestamp(frame.loc[index, "date"]).normalize(), [])
+        row_day = pd.Timestamp(frame.loc[index, "date"]).normalize()
+        # A day's actions are applied on its first row only (revision rows never repeat them).
+        day_actions = events.get(row_day, []) if row_day not in applied_days else []
+        applied_days.add(row_day)
         quantity_factor = math.prod(item.quantity_factor for item in day_actions)
         net_cash = sum(item.net_cash_amount for item in day_actions)
         income_cash = sum(item.net_cash_amount for item in day_actions if item.cash_flow_classification == "investment_income")
         principal_cash = sum(item.net_cash_amount for item in day_actions if item.cash_flow_classification == "security_principal")
-        price_return = current / previous - 1.0
-        total_return = (current * quantity_factor + net_cash) / previous - 1.0
-        price_returns.append(price_return)
-        local_returns.append(total_return)
+        # Price return is quantity-adjusted only: cash distributions never enter it.
+        price_returns.append(current * quantity_factor / previous - 1.0)
+        local_returns.append((current * quantity_factor + net_cash) / previous - 1.0)
         quantities.append(quantity_factor)
         cashflows.append(net_cash)
         income.append(income_cash)
         principal.append(principal_cash)
         action_ids.append(",".join(sorted(item.action_id for item in day_actions)))
+    first_raw = float(frame["raw_close"].iloc[0])
+    last_raw = float(frame["raw_close"].iloc[-1])
+
+    def _anchored(index: pd.Series) -> pd.Series:
+        # Anchor to the last raw close; an exact total loss (raw close 0 or index 0) anchors to the first close instead.
+        last_index = float(index.iloc[-1])
+        if last_raw <= 0.0 or last_index == 0.0:
+            return index * first_raw / 100.0
+        return index * last_raw / last_index
+
     frame["price_return"] = price_returns
+    frame["price_return_index"] = 100.0 * (1.0 + frame["price_return"].fillna(0.0)).cumprod()
+    frame["price_adjusted_close"] = _anchored(frame["price_return_index"])
     frame["local_total_return"] = local_returns
     frame["quantity_factor"] = quantities
     frame["security_cash_flow"] = cashflows
@@ -811,17 +1016,44 @@ def apply_total_return_adjustments(
     frame["security_principal"] = principal
     frame["external_flow"] = 0.0
     frame["action_ids"] = action_ids
-    wealth = (1.0 + frame["local_total_return"].fillna(0.0)).cumprod()
-    frame["total_return_index"] = 100.0 * wealth
-    frame["adjusted_close"] = frame["total_return_index"] * float(frame["raw_close"].iloc[-1]) / float(frame["total_return_index"].iloc[-1])
+    frame["total_return_index"] = 100.0 * (1.0 + frame["local_total_return"].fillna(0.0)).cumprod()
+    # adjusted_close is the total-return-adjusted close (cash reinvested); price_adjusted_close excludes cash.
+    frame["adjusted_close"] = _anchored(frame["total_return_index"])
+    frame["adjusted_close_basis"] = "total_return"
     frame["total_return_convention"] = convention
     frame["execution_allowed"] = False
-    return _mark_canonical_adjustment(AdjustmentResult("available", frame, convention, tuple(reconciliations), tuple(warnings)))
+
+    price_result: float | None = float(frame["price_return_index"].iloc[-1]) / 100.0 - 1.0
+    total_result: float | None = float(frame["total_return_index"].iloc[-1]) / 100.0 - 1.0
+    income_result: float | None = float(sum(income)) / first_raw
+    if price_blocked:
+        for column in ("price_return", "price_return_index", "price_adjusted_close", "quantity_factor"):
+            frame[column] = math.nan
+        price_result = None
+    if total_blocked:
+        for column in ("local_total_return", "total_return_index", "adjusted_close", "security_cash_flow", "investment_income", "security_principal"):
+            frame[column] = math.nan
+        total_result = None
+        income_result = None
+    return _mark_canonical_adjustment(
+        AdjustmentResult(
+            status,
+            frame,
+            convention,
+            resolved.reconciliations,
+            tuple(warnings),
+            price_result,
+            income_result,
+            total_result,
+            action_ids=tuple(sorted({item.action_id for item in resolved.selected})),
+            applied_ratio=math.prod(item.quantity_factor for item in resolved.selected if item.action_type == "split"),
+        )
+    )
 
 
 def _unavailable_adjustment_frame(frame: pd.DataFrame) -> pd.DataFrame:
     unavailable = frame.copy()
-    for column in ("price_return", "local_total_return", "total_return_index", "adjusted_close"):
+    for column in ("price_return", "price_return_index", "price_adjusted_close", "local_total_return", "total_return_index", "adjusted_close"):
         unavailable[column] = math.nan
     unavailable["execution_allowed"] = False
     return unavailable
@@ -860,7 +1092,10 @@ def reconcile_adjustments(
         adjusted = tuple(float(value) for value in (adjusted_prices or ()))
         if len(raw) != len(adjusted) or not raw:
             return AdjustmentReconciliation("unavailable", None, 0, ("mismatched_price_series",))
-        ratio = math.prod(item.quantity_factor for item in actions if item.action_type == "split")
+        resolved = _resolve_actions(actions, tolerance=1e-8)
+        if resolved.conflicts:
+            return AdjustmentReconciliation("quarantined", None, len(raw), resolved.warnings, False, tuple(item.action_id for item in actions))
+        ratio = math.prod(item.quantity_factor for item in resolved.selected if item.action_type == "split")
         expected = (*tuple(value / ratio for value in raw[:-1]), raw[-1])
         sequence_residuals = [abs(left - right) for left, right in zip(expected, adjusted, strict=True)]
         maximum = max(sequence_residuals, default=0.0)
@@ -923,10 +1158,16 @@ def _select_fx_edge(candidates: Sequence[FXObservation], *, tolerance: float) ->
     if not candidates:
         return None, (), ("missing_or_stale_fx",), None
     best_rank = min(_authority_rank(item.authority) for item in candidates)
-    ranked = tuple(item for item in candidates if _authority_rank(item.authority) == best_rank)
-    reference = float(str(ranked[0].rate))
-    if any(not math.isclose(float(str(item.rate)), reference, rel_tol=tolerance, abs_tol=tolerance) for item in ranked[1:]):
+    ranked = tuple(sorted((item for item in candidates if _authority_rank(item.authority) == best_rank), key=lambda item: (item.source_id, item.observation_id)))
+    try:
+        rates = [_fx_rate_float(item.rate) for item in ranked]
+    except MarketAdjustmentError:
+        return None, ranked, ("invalid_fx_rate",), None
+    # Relative tolerance only: an absolute floor would accept multi-percent gaps on tiny rates.
+    # Comparing the extremes (not the first item) keeps the verdict independent of input order.
+    if not math.isclose(min(rates), max(rates), rel_tol=tolerance, abs_tol=0.0):
         return None, ranked, ("conflicted_fx_sources",), None
+    reference = rates[0]
     labels = {item.rate_label for item in ranked}
     label = "executable" if labels == {"executable"} else "reference" if "reference" in labels else "indicative"
     return reference, ranked, (), label
@@ -987,7 +1228,10 @@ def derive_fx_cross(
             next_path = (*path, neighbour)
             next_used = (*used, *sources)
             next_label = "executable" if label == edge_label == "executable" else "reference" if "reference" in {label, edge_label} else "indicative"
-            next_rate = rate * edge_rate
+            try:
+                next_rate = _fx_rate_float(rate * edge_rate)
+            except MarketAdjustmentError:
+                return FXRateResult("unavailable", None, base, quote, target, (), (), (), None, ("fx_cross_rate_out_of_supported_range",))
             if neighbour == quote:
                 paths.append((next_rate, next_path, next_used, next_label))
             else:
@@ -998,7 +1242,7 @@ def derive_fx_cross(
     shortest = min(len(item[1]) for item in paths)
     comparable = [item for item in paths if len(item[1]) <= shortest + 1]
     chosen = sorted(comparable, key=lambda item: (len(item[1]), item[1]))[0]
-    if any(not math.isclose(item[0], chosen[0], rel_tol=tolerance, abs_tol=tolerance) for item in comparable[1:]):
+    if any(not math.isclose(item[0], chosen[0], rel_tol=tolerance, abs_tol=0.0) for item in comparable[1:]):
         return FXRateResult("quarantined", None, base, quote, target, (), (), (), None, ("triangular_inconsistency",))
     used = chosen[2]
     return FXRateResult(
@@ -1057,8 +1301,35 @@ def selected_currency_return(
     if local_return is None:
         return SelectedCurrencyReturn("unavailable", None, None, None, None)
     local = float(local_return)
-    if not math.isfinite(local) or local <= -1:
-        raise MarketAdjustmentError("local_return must be finite and greater than -1")
+    if not math.isfinite(local) or local < -1:
+        # Exactly -1 is an exact total loss and stays representable.
+        raise MarketAdjustmentError("local_return must be finite and at least -1")
+    if (
+        fx_return is None
+        and start_rate is None
+        and end_rate is None
+        and _currency(base_currency) is not None
+        and _currency(base_currency) == _currency(output_currency)
+    ):
+        # Identity conversion needs no FX evidence, so it is available even with no (or an empty) store.
+        return SelectedCurrencyReturn(
+            "available",
+            local,
+            0.0,
+            local,
+            0.0,
+            _optional_utc(transaction_at, "transaction_at"),
+            _optional_utc(valuation_at, "valuation_at"),
+            1.0,
+            1.0,
+            None,
+            True,
+            False,
+            False,
+            (),
+            (),
+            "reference",
+        )
     if fx_store is None:
         return SelectedCurrencyReturn("unavailable", local, None, None, None, reason_code="FX_SOURCE_UNLINKED")
     if fx_return is not None or start_rate is not None or end_rate is not None:
@@ -1081,7 +1352,24 @@ def selected_currency_return(
         eligible = [item for item in observations if pd.Timestamp(item.valid_at) <= pd.Timestamp(valuation_timestamp) and pd.Timestamp(item.known_at) <= pd.Timestamp(valuation_timestamp)]
         if not eligible:
             return SelectedCurrencyReturn("unavailable", local, None, None, None, reason_code="FX_MISSING")
-        transaction_timestamp = _utc(transaction_at, "transaction_at") if transaction_at is not None else min(item.valid_at for item in eligible)
+        if transaction_at is not None:
+            transaction_timestamp = _utc(transaction_at, "transaction_at")
+        else:
+            # Preserve the earliest derivable or conflicted start; later quotes cannot erase a conflict.
+            # Intermediate-edge dates also count; each candidate retains its own decision cutoff.
+            relevant = {_currency(base_currency, required=True), _currency(output_currency, required=True)}
+            scoped = [item for item in eligible if relevant & {item.base_currency, item.quote_currency}]
+            if not scoped:
+                return SelectedCurrencyReturn("unavailable", local, None, None, None, reason_code="FX_MISSING")
+            transaction_timestamp = min(item.valid_at for item in scoped)
+            for candidate in sorted({item.valid_at for item in eligible}):
+                if candidate < transaction_timestamp:
+                    continue
+                candidate_result = derive_fx_cross(fx_store, base_currency, output_currency, as_of=candidate, decision_time=candidate, max_age_days=max_age_days)
+                conflicted = candidate_result.status == "quarantined" or any("conflict" in item for item in candidate_result.discrepancies)
+                if candidate_result.available or conflicted:
+                    transaction_timestamp = candidate
+                    break
         if pd.Timestamp(transaction_timestamp) > pd.Timestamp(valuation_timestamp):
             raise MarketAdjustmentError("valuation_at cannot precede transaction_at")
         start_result = derive_fx_cross(fx_store, base_currency, output_currency, as_of=transaction_timestamp, decision_time=transaction_timestamp, max_age_days=max_age_days)

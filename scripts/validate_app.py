@@ -19,10 +19,11 @@ from typing import Iterable, cast
 
 
 try:
-    from scripts import release_gate
+    from scripts import release_gate, select_focused_tests
     from scripts.git_change_paths import changed_paths, working_paths
 except ImportError:  # also pywin32's top-level 'scripts' namespace
     import release_gate  # type: ignore[no-redef]
+    import select_focused_tests  # type: ignore[no-redef]
     from git_change_paths import changed_paths, working_paths  # type: ignore[no-redef]
 
 
@@ -261,7 +262,18 @@ def _checks_for_mode(
                     )
                 )
         else:
-            checks.append(_Check("changed_scope", (python, "-c", "print('No changed test paths detected')")))
+            unselected = _production_changes_without_tests(root)
+            if unselected:
+                shown = ", ".join(unselected[:5]) + (f" (+{len(unselected) - 5} more)" if len(unselected) > 5 else "")
+                message = f"Production paths changed but no tests were selected: {shown}"
+                checks.append(
+                    _Check(
+                        "changed_scope",
+                        (python, "-c", f"import sys; sys.exit({message!r})"),
+                    )
+                )
+            else:
+                checks.append(_Check("changed_scope", (python, "-c", "print('No changed test paths detected')")))
     return checks
 
 
@@ -447,12 +459,25 @@ def _changed_paths(root: Path) -> list[str]:
     return sorted(set(pending) | set(committed))
 
 
+# Paths whose change must be covered by at least one selected test (docs-only changes need none).
+PRODUCTION_PREFIXES = ("src/", "scripts/", "configs/")
+
+
 def _changed_test_paths(root: Path) -> list[str]:
-    return sorted(
-        path
-        for path in _changed_paths(root)
-        if path.startswith("tests/") and path.endswith(".py") and (root / path).is_file()
-    )
+    """Changed tests plus the tests that import a changed module (same selection as the CI focused job)."""
+
+    paths = _changed_paths(root)
+    try:
+        selected = select_focused_tests.select_tests(root, paths)
+    except select_focused_tests.SelectionError as exc:
+        raise ValueError(str(exc)) from exc
+    return sorted(path for path in selected if (root / path).is_file())
+
+
+def _production_changes_without_tests(root: Path) -> list[str]:
+    """Changed production paths when the selection is empty (a green run would prove nothing)."""
+
+    return [path for path in _changed_paths(root) if path.startswith(PRODUCTION_PREFIXES)]
 
 
 def _git(root: Path, *args: str) -> str:

@@ -180,6 +180,7 @@ def _valuation_rows() -> pd.DataFrame:
     values = {
         "free_cash_flow": 19.0,
         "diluted_shares_outstanding": 10.0,
+        "shares_outstanding": 10.0,
         "debt": 30.0,
         "cash": 12.0,
         "equity": 68.0,

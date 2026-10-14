@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from etf_cockpit.analysis import stock_metrics as sm
 from etf_cockpit.core.atomic_io import sha256_file as _file_sha256
 from etf_cockpit.core.paths import RAW_DIR
 from etf_cockpit.core.values import finite_float_or_none as _float, mapping_or_attribute as _projection_member
@@ -56,8 +57,9 @@ _GROWTH_ALIASES: dict[str, tuple[str, ...]] = {
     "operating_profit": ("operating_profit", "operating_income", "ebit"),
     "free_cash_flow": ("free_cash_flow",),
     "net_income": ("net_income", "net_profit"),
-    "shares_outstanding": ("shares_outstanding", "weighted_average_shares"),
+    "shares_outstanding": ("shares_outstanding",),
     "diluted_shares_outstanding": ("diluted_shares_outstanding", "diluted_shares"),
+    "weighted_average_shares": ("weighted_average_shares", "weighted_average_shares_basic", "weighted_shares"),
     "earnings_per_share": ("earnings_per_share", "eps", "basic_eps", "diluted_eps"),
     "organic_revenue": ("organic_revenue", "organic_sales"),
     "acquisition_revenue": ("acquisition_revenue", "inorganic_revenue", "acquired_revenue"),
@@ -118,13 +120,13 @@ def profitability_analysis(
     metrics["net_margin"] = _ratio_metric("net_margin", net_income, revenue, "net_income / revenue", frame, "revenue")
     metrics["roa"] = _ratio_metric("roa", net_income, assets, "net_income / assets", frame, "assets")
     metrics["roe"] = _ratio_metric("roe", net_income, equity, "net_income / equity", frame, "equity")
-    invested_capital = _sum_if_present(equity, debt, -cash if cash is not None else None)
+    invested_capital = sm.invested_capital(equity, debt, latest.get("lease_liabilities"), cash)
     roic = None if special else (None if operating_income is None or tax is None else operating_income * (1.0 - tax))
     metrics["roic"] = _ratio_metric(
         "roic",
         roic,
         invested_capital,
-        "(operating_income * (1 - tax_rate)) / (equity + debt - cash)",
+        "NOPAT / invested_capital",
         frame,
         "equity",
         applicability="not_applicable" if special else "applicable",
@@ -206,7 +208,7 @@ def profitability_analysis(
             "cash_conversion": ("cash_from_operations", "net_income"),
             "accrual_ratio": ("net_income", "cash_from_operations", "assets"),
             "exceptional_item_dependence": ("exceptional_items", "net_income"),
-            "roic": ("operating_income", "equity", "debt", "cash", "income_before_tax", "tax_expense"),
+            "roic": ("operating_income", "equity", "debt", "cash", "income_before_tax", "tax_expense") + (("lease_liabilities",) if "lease_liabilities" in histories else ()),
         }
         for name, metric_components in current_specs.items():
             comparable_value, reason = _latest_comparable_value(frame, name, metric_components)
@@ -399,8 +401,6 @@ def valuation_analysis(
     for input_name in ("shares_outstanding", "market_cap", "net_debt", "enterprise_value"):
         if input_name in market:
             values[input_name] = market[input_name]
-    if "diluted_shares_outstanding" in latest:
-        values["shares_outstanding"] = latest["diluted_shares_outstanding"]
     if values.get("enterprise_value") is None and values.get("market_cap") is not None and values.get("net_debt") is not None:
         adjustments = _float(market.get("other_enterprise_value_adjustments"))
         if adjustments is not None:
@@ -648,7 +648,8 @@ def growth_analysis(
             "earnings_per_share",
             ("earnings_per_share",),
             basis="per_share",
-            derived_from=("net_income", "shares_outstanding"),
+            derived_from=("net_income", "weighted_average_shares"),
+            unavailable_reason="weighted-average shares are not reported for the period; period-end shares are not a valid EPS denominator",
         ),
         "free_cash_flow_per_share": _growth_series(
             periods,
@@ -905,10 +906,13 @@ def _period_rows(frame: pd.DataFrame) -> list[dict[str, object]]:
                     sources[logical] = raw_sources.get(alias, ())
                     formulas[logical] = f"reported {alias}"
                     break
-        if "earnings_per_share" not in values and {"net_income", "shares_outstanding"} <= values.keys() and values["shares_outstanding"] != 0:
-            values["earnings_per_share"] = values["net_income"] / values["shares_outstanding"]
-            sources["earnings_per_share"] = tuple(sorted(set(sources.get("net_income", ())) | set(sources.get("shares_outstanding", ()))))
-            formulas["earnings_per_share"] = "net_income / shares_outstanding"
+        if "earnings_per_share" not in values and "net_income" in values and values.get("weighted_average_shares") not in (None, 0):
+            # EPS divides a period flow by the weighted-average share count of that period. Period-end
+            # shares are not a verified denominator for the earnings period, so without a reported EPS or
+            # a weighted average the series stays unavailable (see ``unavailable_reason``).
+            values["earnings_per_share"] = values["net_income"] / values["weighted_average_shares"]
+            sources["earnings_per_share"] = tuple(sorted(set(sources.get("net_income", ())) | set(sources.get("weighted_average_shares", ()))))
+            formulas["earnings_per_share"] = "net_income / weighted_average_shares"
 
         first = rows.iloc[0]
         fiscal_year = str(first.get("fiscal_year", "") or "")
@@ -944,6 +948,7 @@ def _growth_series(
     *,
     basis: str,
     derived_from: tuple[str, str] | None = None,
+    unavailable_reason: str | None = None,
 ) -> dict[str, object]:
     history: list[dict[str, object]] = []
     for period in periods:
@@ -970,6 +975,7 @@ def _growth_series(
                 "formula": formula or f"reported {name}",
                 "source_ids": list(source_ids),
                 "status": "available" if value is not None else "missing",
+                **({"reason": unavailable_reason} if value is None and unavailable_reason else {}),
             }
         )
     growth: list[dict[str, object]] = []
@@ -1707,10 +1713,7 @@ def _valuation_model_provenance(
         if use_margin:
             source_metrics.append("revenue")
             required_inputs.append(("statement:revenue", "revenue"))
-        if "diluted_shares_outstanding" in latest:
-            source_metrics.append("diluted_shares_outstanding")
-            required_inputs.append(("statement:diluted_shares_outstanding", "diluted_shares_outstanding"))
-        elif _float(market_inputs.get("shares_outstanding")) is not None:
+        if _float(market_inputs.get("shares_outstanding")) is not None:
             market_metric_names.append("shares_outstanding")
             required_inputs.append(("market:shares_outstanding", "shares_outstanding"))
         elif "shares_outstanding" in latest:
@@ -1752,10 +1755,7 @@ def _valuation_model_provenance(
             required_inputs.extend(
                 [("statement:equity", "equity"), ("statement:net_income", "net_income")]
             )
-            if "diluted_shares_outstanding" in latest:
-                source_metrics.append("diluted_shares_outstanding")
-                required_inputs.append(("statement:diluted_shares_outstanding", "diluted_shares_outstanding"))
-            elif _float(market_inputs.get("shares_outstanding")) is not None:
+            if _float(market_inputs.get("shares_outstanding")) is not None:
                 market_metric_names.append("shares_outstanding")
                 required_inputs.append(("market:shares_outstanding", "shares_outstanding"))
             elif "shares_outstanding" in latest:
@@ -1773,10 +1773,7 @@ def _valuation_model_provenance(
             required_inputs = [item for item in required_inputs if item[1] != "net_income"]
             required_inputs.append(("market:net_income", "net_income"))
         if bank_route:
-            if "diluted_shares_outstanding" in latest:
-                source_metrics.append("diluted_shares_outstanding")
-                required_inputs.append(("statement:diluted_shares_outstanding", "diluted_shares_outstanding"))
-            elif _float(market_inputs.get("shares_outstanding")) is not None:
+            if _float(market_inputs.get("shares_outstanding")) is not None:
                 market_metric_names.append("shares_outstanding")
                 required_inputs.append(("market:shares_outstanding", "shares_outstanding"))
             elif "shares_outstanding" in latest:
@@ -2341,7 +2338,7 @@ def _latest_comparable_value(frame: pd.DataFrame, metric: str, components: tuple
         operating_income = values.get("operating_income")
         if pre_tax in (None, 0) or tax_expense is None or debt is None or cash is None or equity is None or operating_income is None:
             return None, "roic_inputs_unavailable"
-        invested_capital = equity + debt - cash
+        invested_capital = sm.invested_capital(equity, debt, values.get("lease_liabilities"), cash)
         return (None, "roic_denominator_zero") if invested_capital == 0 else (float(operating_income * (1.0 - tax_expense / pre_tax) / invested_capital), "")
     if metric == "net_debt":
         debt = values.get(components[0])

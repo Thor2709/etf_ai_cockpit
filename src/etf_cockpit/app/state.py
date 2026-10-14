@@ -306,8 +306,16 @@ def _shared_snapshot():
     with _SHARED_SNAPSHOT_LOCK:
         key = _data_fingerprint()
         if _SHARED_SNAPSHOT.get("key") != key or _SHARED_SNAPSHOT.get("snapshot") is None:
-            _SHARED_SNAPSHOT["snapshot"] = build_snapshot()
-            _SHARED_SNAPSHOT["key"] = _data_fingerprint()
+            # Store the fingerprint read BEFORE the build: if inputs change while building, the stored key is stale,
+            # so the snapshot is never pinned under the newer fingerprint. Rebuild once; if inputs still moved, the
+            # snapshot is returned but stays "not current" and the next call rebuilds.
+            for _attempt in range(2):
+                _SHARED_SNAPSHOT["snapshot"] = build_snapshot()
+                _SHARED_SNAPSHOT["key"] = key
+                after = _data_fingerprint()
+                if after == key:
+                    break
+                key = after
         return _SHARED_SNAPSHOT["snapshot"]
 
 
@@ -1266,11 +1274,18 @@ class AppState:
 
     def _record_score_history_failure(self, exc: Exception, scoreboard_path: Path) -> None:
         reason = redact_text(" ".join(f"{type(exc).__name__}: {exc}".split()))[:240]
-        warning = (
-            f"Score history was not persisted ({reason}). "
-            f"Scoreboard {scoreboard_path.name} was written; score history, components, evidence ledger "
-            "and feature drivers for this run are unavailable, not empty. Scores and actions are unchanged."
-        )
+        if isinstance(exc, _scoreboard_publication.ScoreboardPublicationBindingError):
+            warning = (
+                f"Scoreboard {scoreboard_path.name} was written, but its score-history publication binding "
+                f"was not recorded ({reason}). Paper bot decisions for this publication are unavailable. "
+                "Scores and actions are unchanged."
+            )
+        else:
+            warning = (
+                f"Score history was not persisted ({reason}). "
+                f"Scoreboard {scoreboard_path.name} was written; score history, components, evidence ledger "
+                "and feature drivers for this run are unavailable, not empty. Scores and actions are unchanged."
+            )
         self.score_history_warning = warning
         self.last_message = warning
         action_id = self.shared_activity_id or (self.current_activity.action_id if self.current_activity else None)

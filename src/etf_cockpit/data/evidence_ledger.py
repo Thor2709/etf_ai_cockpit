@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
+from datetime import date, datetime
 from typing import Any
 
 from etf_cockpit.core.values import finite_float_or_none
-from etf_cockpit.data.contracts import SourceAuthority
+from etf_cockpit.data.contracts import CONTEXT_ONLY_AUTHORITIES, SourceAuthority
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,7 @@ def ledger_entry_for_component(
     source: EvidenceSource | None = None,
     *,
     conflict_id: str | None = None,
+    decision_date: date | str | None,
 ) -> EvidenceLedgerEntry:
     """Build a ledger entry using either legacy or typed-call syntax.
 
@@ -99,6 +101,10 @@ def ledger_entry_for_component(
     callers may pass ``(SimpleScoreComponent, EvidenceSource)``; the adapter
     reads ``key``/``score_10`` and keeps compatibility with duck-typed score
     components to avoid a dependency cycle.
+
+    ``decision_date`` is required: the date the evidence is judged at (a replay
+    passes its own as-of date, never the wall clock); evidence dated after it
+    is never fresh, and a missing or invalid date makes the entry ineligible.
     """
 
     if isinstance(component_or_source, EvidenceSource) and not isinstance(instrument_or_component, str):
@@ -115,7 +121,7 @@ def ledger_entry_for_component(
     if source_obj is not None and not isinstance(source_obj, EvidenceSource):
         raise TypeError("source must be an EvidenceSource or None")
     effective_conflict = conflict_id or (source_obj.conflict_id if source_obj else None)
-    eligible, reason = _eligibility(component_value, source_obj, effective_conflict)
+    eligible, reason = _eligibility(component_value, source_obj, effective_conflict, decision_date)
     numeric_value = _number_or_none(component_value)
     return EvidenceLedgerEntry(
         instrument_id=instrument_id,
@@ -131,7 +137,12 @@ def ledger_entry_for_component(
     )
 
 
-def _eligibility(value: object, source: EvidenceSource | None, conflict_id: str | None) -> tuple[bool, str]:
+def _eligibility(
+    value: object,
+    source: EvidenceSource | None,
+    conflict_id: str | None,
+    decision_date: date | str | None,
+) -> tuple[bool, str]:
     if value is None or _number_or_none(value) is None:
         return False, "ineligible: score value is unavailable"
     if source is None or not source.source_id:
@@ -140,15 +151,34 @@ def _eligibility(value: object, source: EvidenceSource | None, conflict_id: str 
         return False, "ineligible: evidence as-of date is missing"
     if not source.available:
         return False, "ineligible: source is unavailable"
+    as_of = _date_or_none(source.as_of_date)
+    if as_of is None:
+        return False, "ineligible: evidence as-of date is not a valid date"
+    decision = _date_or_none(decision_date) if decision_date is not None else None
+    if decision is None:
+        return False, "ineligible: decision date is missing or not a valid date"
+    if as_of > decision:
+        return False, "ineligible: evidence as-of date is after the decision date"
     if conflict_id:
         return False, f"ineligible: material conflict {conflict_id} requires manual review"
     if source.freshness_status not in {"fresh", "ok", "current", "warning"}:
         return False, f"ineligible: evidence freshness is {source.freshness_status}"
-    if source.authority in {SourceAuthority.MODEL, SourceAuthority.COMMUNITY, SourceAuthority.MANUAL}:
+    if source.authority in CONTEXT_ONLY_AUTHORITIES:
         return False, f"ineligible: {source.authority.value} evidence is context-only"
     if not _quality_acceptable(source.quality) or not _quality_acceptable(source.confidence):
         return False, "ineligible: evidence confidence or quality is below the score threshold"
     return True, "eligible: source-backed fresh evidence"
+
+
+def _date_or_none(value: object) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value).strip()[:10])
+    except ValueError:
+        return None
 
 
 def _quality_acceptable(value: float | str | None) -> bool:

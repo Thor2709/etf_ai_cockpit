@@ -13,7 +13,7 @@ import re
 import zipfile
 from collections import defaultdict
 from dataclasses import dataclass, replace
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
@@ -119,7 +119,8 @@ def _acceptance_time(value: object) -> str | None:
             return None
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         return None
-    return parsed.isoformat()
+    # One canonical UTC representation so equal instants compare and hash equal.
+    return parsed.astimezone(timezone.utc).isoformat()
 
 
 def _accepted_at(row: Mapping[str, str], accepted_at_by_accession: Mapping[str, object]) -> tuple[str | None, str | None]:
@@ -193,6 +194,29 @@ def _instrument_map(funds: Mapping[tuple[str, str], str]) -> tuple[dict[tuple[st
     return result, {cik for cik, _series in result}
 
 
+def _usable_cusip(value: object) -> str:
+    """Return a 9-character CUSIP string (leading zeros kept); placeholders such as 000000000 are not identities."""
+    text = str(value or "").strip().upper()
+    return text if len(text) == 9 and text.isalnum() and set(text) != {"0"} else ""
+
+
+def _merge_identifier_row(
+    target: dict[str, str], conflicts: set[str], row: Mapping[str, str]
+) -> None:
+    """Fold one IDENTIFIERS row into a holding; later rows never erase a value and conflicts withhold it."""
+    for field, value in row.items():
+        if field in {"HOLDING_ID", "IDENTIFIERS_ID", "ACCESSION_NUMBER"} or not value:
+            continue
+        if field in conflicts:
+            continue
+        existing = target.get(field, "")
+        if not existing:
+            target[field] = value
+        elif existing.casefold() != value.casefold():
+            conflicts.add(field)
+            target[field] = ""
+
+
 def _decimal_percentage(value: object) -> Decimal | None:
     try:
         parsed = Decimal(str(value).strip())
@@ -241,7 +265,7 @@ def _holdings_for_filing(
     filing_row: Mapping[str, str],
     nav_row: Mapping[str, str] | None,
     holding_rows: Sequence[Mapping[str, str]],
-    identifiers: Mapping[str, Mapping[str, str]],
+    identifiers: Mapping[tuple[str, str], Mapping[str, str]],
     accepted_at_by_accession: Mapping[str, object],
     dataset_sha256: str | None,
     today: str | date | datetime | None,
@@ -256,7 +280,7 @@ def _holdings_for_filing(
         if percent is None or percent < 0:
             invalid_weight = True
             break
-        parsed_weights.append((row, identifiers.get(row.get("HOLDING_ID", ""), {}), percent))
+        parsed_weights.append((row, identifiers.get((accession, row.get("HOLDING_ID", "")), {}), percent))
     raw_total = sum((item[2] for item in parsed_weights), Decimal("0"))
     if not parsed_weights or invalid_weight or raw_total > Decimal("100"):
         reason = "holdings_percentage_missing_or_invalid" if invalid_weight or not parsed_weights else "holdings_percentage_exceeds_nav"
@@ -273,7 +297,7 @@ def _holdings_for_filing(
             security = holding.get("ISSUER_NAME", "") or holding.get("ISSUER_TITLE", "")
             isin = extra_ids.get("IDENTIFIER_ISIN", "")
             ticker = extra_ids.get("IDENTIFIER_TICKER", "")
-            cusip = holding.get("ISSUER_CUSIP", "")
+            cusip = _usable_cusip(holding.get("ISSUER_CUSIP", ""))
             if security and (isin or ticker or cusip):
                 market_bucket[1] = market_bucket[1] + percent
                 mapped_total += percent
@@ -416,18 +440,30 @@ def parse_sec_nport_archive(
                 fund_info[accession] = (series_id, instrument)
         selected = {accession: info for accession, info in fund_info.items() if accession in submissions}
         holdings_by_accession: dict[str, list[Mapping[str, str]]] = defaultdict(list)
-        selected_ids: set[str] = set()
+        # HOLDING_ID is unique per filing, not across filings: bind identifier rows to the filing.
+        holding_filings: dict[str, set[str]] = defaultdict(set)
         for row in _zip_table(archive, "FUND_REPORTED_HOLDING"):
             accession = row.get("ACCESSION_NUMBER", "")
             if accession in selected:
                 holdings_by_accession[accession].append(row)
                 if row.get("HOLDING_ID"):
-                    selected_ids.add(row["HOLDING_ID"])
-        identifiers: dict[str, dict[str, str]] = defaultdict(dict)
+                    holding_filings[row["HOLDING_ID"]].add(accession)
+        identifiers: dict[tuple[str, str], dict[str, str]] = defaultdict(dict)
+        identifier_conflicts: dict[tuple[str, str], set[str]] = defaultdict(set)
         for row in _zip_table(archive, "IDENTIFIERS", required=False):
             holding_id = row.get("HOLDING_ID", "")
-            if holding_id in selected_ids:
-                identifiers[holding_id].update(row)
+            filings = holding_filings.get(holding_id)
+            if not filings:
+                continue
+            row_accession = row.get("ACCESSION_NUMBER", "")
+            if row_accession:
+                targets = [row_accession] if row_accession in filings else []
+            else:
+                # Without an accession a shared HOLDING_ID cannot be attributed to one filing: withhold it.
+                targets = list(filings) if len(filings) == 1 else []
+            for accession in targets:
+                key = (accession, holding_id)
+                _merge_identifier_row(identifiers[key], identifier_conflicts[key], row)
         nav_by_accession = {
             row.get("ACCESSION_NUMBER", ""): row
             for row in _zip_table(archive, "FUND_REPORTED_INFO")
@@ -542,6 +578,30 @@ def _authority(value: object) -> SourceAuthority:
         raise ValueError(f"unsupported fund evidence authority: {redact_text(value)}") from exc
 
 
+def _non_finite_number(value: object) -> bool:
+    try:
+        number = Decimal(str(value).strip())
+    except (InvalidOperation, ValueError):
+        return False
+    return not number.is_finite()
+
+
+def _evidence_value_key(row: Mapping[str, object]) -> tuple[str, str, str]:
+    """Comparison identity: numeric value (100.0 == 100.00) together with unit and currency."""
+
+    raw = str(row.get("value")).strip()
+    try:
+        number = Decimal(raw)
+        text = format(number.normalize(), "f") if number.is_finite() else raw
+    except (InvalidOperation, ValueError):
+        text = raw
+    return (
+        text,
+        str(row.get("unit") or "").strip().casefold(),
+        str(row.get("currency") or "").strip().upper(),
+    )
+
+
 def resolve_fund_evidence(candidates: Iterable[Mapping[str, object]]) -> tuple[tuple[dict[str, object], ...], tuple[dict[str, object], ...]]:
     """Resolve same-date fund evidence by authority and record every conflict.
 
@@ -554,6 +614,8 @@ def resolve_fund_evidence(candidates: Iterable[Mapping[str, object]]) -> tuple[t
     grouped: dict[tuple[str, str, str], list[dict[str, object]]] = defaultdict(list)
     for candidate in candidates:
         if candidate.get("value") is None or not str(candidate.get("value")).strip():
+            continue
+        if _non_finite_number(candidate.get("value")):
             continue
         key = tuple(str(candidate.get(field) or "").strip() for field in ("instrument_id", "metric", "as_of"))
         if not all(key):
@@ -569,7 +631,7 @@ def resolve_fund_evidence(candidates: Iterable[Mapping[str, object]]) -> tuple[t
         top = [row for row in rows if _authority(row["authority"]) is preferred]
         top_values = {str(row.get("value")) for row in top}
         selected = None
-        if len(top_values) == 1:
+        if len({_evidence_value_key(row) for row in top}) == 1:
             selected = sorted(top, key=lambda row: (str(row.get("source", "")), str(row.get("source_id", ""))))[0]
         resolved.append({
             "instrument_id": key[0],
@@ -580,9 +642,9 @@ def resolve_fund_evidence(candidates: Iterable[Mapping[str, object]]) -> tuple[t
             "status": "resolved" if selected is not None else "conflict_at_preferred_authority",
         })
         if selected is not None:
-            selected_value = str(selected.get("value"))
+            selected_value = _evidence_value_key(selected)
             for rejected in rows:
-                if rejected is selected or str(rejected.get("value")) == selected_value:
+                if rejected is selected or _evidence_value_key(rejected) == selected_value:
                     continue
                 conflicts.append({
                     "instrument_id": key[0],

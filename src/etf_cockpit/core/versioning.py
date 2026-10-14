@@ -136,8 +136,13 @@ def build_run_manifest(
     root: Path | None = None,
     code_revision: str | None = None,
     settings_identity: Mapping[str, object] | None = None,
+    dataset_bindings: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    """Resolve exact version/hash references for one immutable run."""
+    """Resolve exact version/hash references for one immutable run.
+
+    ``dataset_bindings`` pins the exact data state (for example the adjusted-price snapshot
+    checksum) the run was built from; it is recorded only when supplied.
+    """
 
     if not _SAFE_ID_RE.fullmatch(str(run_id).strip()):
         raise VersionRegistryError("run_id must be a safe local identifier")
@@ -175,6 +180,8 @@ def build_run_manifest(
         "immutable_after_run": True,
         "execution_allowed": False,
     }
+    if dataset_bindings:
+        payload["dataset_bindings"] = _canonical_bindings(dataset_bindings)
     payload["dependency_graph_hash"] = _payload_hash(dependencies)
     return sign_run_manifest(payload)
 
@@ -187,6 +194,7 @@ def write_run_manifest(
     root: Path | None = None,
     code_revision: str | None = None,
     settings_identity: Mapping[str, object] | None = None,
+    dataset_bindings: Mapping[str, object] | None = None,
 ) -> Path:
     root = Path(root) if root is not None else ROOT
     payload = build_run_manifest(
@@ -196,6 +204,7 @@ def write_run_manifest(
         root=root,
         code_revision=code_revision,
         settings_identity=settings_identity,
+        dataset_bindings=dataset_bindings,
     )
     destination = root / "data" / "derived" / "run_manifests" / f"{run_id}.json"
     if destination.exists():
@@ -215,8 +224,13 @@ def ensure_run_manifest(
     root: Path | None = None,
     code_revision: str | None = None,
     settings_identity: Mapping[str, object] | None = None,
+    dataset_bindings: Mapping[str, object] | None = None,
 ) -> Path:
-    """Return an existing immutable manifest or create it once."""
+    """Return an existing immutable manifest or create it once.
+
+    An existing manifest is reused only when its settings, dependencies and dataset bindings
+    all equal the requested ones; any difference is a hard error, never an overwrite.
+    """
 
     root = Path(root) if root is not None else ROOT
     destination = root / "data" / "derived" / "run_manifests" / f"{run_id}.json"
@@ -247,6 +261,10 @@ def ensure_run_manifest(
             raise VersionRegistryError(
                 f"immutable run manifest already exists with different dependencies: {run_id}"
             )
+        if _canonical_bindings(existing.get("dataset_bindings")) != _canonical_bindings(dataset_bindings):
+            raise VersionRegistryError(
+                f"immutable run manifest already exists with different dataset bindings: {run_id}"
+            )
         return destination
     return write_run_manifest(
         run_id,
@@ -255,6 +273,7 @@ def ensure_run_manifest(
         root=root,
         code_revision=code_revision,
         settings_identity=settings_identity,
+        dataset_bindings=dataset_bindings,
     )
 
 
@@ -278,6 +297,31 @@ def settings_bound_run_id(
     if not _SAFE_ID_RE.fullmatch(candidate):
         raise VersionRegistryError("settings-bound run_id is invalid")
     return candidate
+
+
+def price_bound_run_label(base_run_id: str, price_binding: Mapping[str, object]) -> str:
+    """Bind a run label to the exact adjusted-price snapshot it is built from.
+
+    The result still goes through ``settings_bound_run_id``, so one run identity covers the
+    label, the price state and the settings revision.
+    """
+
+    checksum = str(price_binding.get("price_snapshot_checksum") or "").casefold()
+    if re.fullmatch(r"[0-9a-f]{64}", checksum) is None:
+        raise VersionRegistryError("price snapshot checksum must be a SHA-256 digest")
+    suffix = f"_p{checksum[:12]}"
+    # Leave room for the "__s" + 12-hex settings suffix added by settings_bound_run_id.
+    return f"{str(base_run_id).strip()[: 128 - 15 - len(suffix)]}{suffix}"
+
+
+def _canonical_bindings(value: object) -> dict[str, object]:
+    """Round-trip bindings through canonical JSON so equality ignores key order and tuple/list."""
+
+    if not value:
+        return {}
+    if not isinstance(value, Mapping):
+        raise VersionRegistryError("dataset bindings must be a mapping")
+    return json.loads(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str))
 
 
 def current_settings_revision(root: Path | None = None) -> str:
@@ -507,6 +551,7 @@ __all__ = [
     "current_settings_identity",
     "current_settings_revision",
     "ensure_run_manifest",
+    "price_bound_run_label",
     "load_version_registry",
     "migration_plan",
     "parse_semver",

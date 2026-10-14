@@ -129,7 +129,7 @@ def test_ledger_reversing_entry_preserves_immutable_audit(tmp_path):
 def test_ledger_v5_persists_account_hierarchy_and_authority(tmp_path):
     with TransactionalStore(tmp_path) as store:
         ledger = Ledger(store.connection)
-        assert store.integrity().schema_version == STORAGE_SCHEMA_VERSION == 7
+        assert store.integrity().schema_version == STORAGE_SCHEMA_VERSION == 8
         assert store.connection.execute(
             "SELECT name FROM schema_migrations WHERE version = 5"
         ).fetchone()[0] == "double_entry_ledger_v1"
@@ -359,7 +359,7 @@ def test_v7_migrates_v6_ledger_facts_without_rewriting_them(tmp_path):
 
     with TransactionalStore(tmp_path) as store:
         ledger = Ledger(store.connection)
-        assert store.integrity().schema_version == 7
+        assert store.integrity().schema_version == 8
         # V6 has no role evidence: preserve it as general instead of inferring cash from its name.
         assert ledger.get_account("cash", authority="paper").account_role == "general"
         entry = ledger.get_entry("legacy-entry", authority="paper")

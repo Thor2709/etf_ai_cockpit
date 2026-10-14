@@ -17,12 +17,13 @@ import pandas as pd
 import requests
 
 from etf_cockpit.core.config import ProviderSection
+from etf_cockpit.core.http_fetch import requests_get_checked, same_host_https
 from etf_cockpit.core.values import years_before
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority, redact_text
-from etf_cockpit.data.ohlcv_discrepancy import normalise_ohlcv
+from etf_cockpit.data.ohlcv_discrepancy import OhlcvNormalisationError, normalise_ohlcv
 from etf_cockpit.data.provenance import metadata_from_frame
 from etf_cockpit.data.providers import DataProvider, PriceProvider, ProviderResult
-from etf_cockpit.data.twelvedata_provider import RateLimiter, RateLimitState
+from etf_cockpit.data.twelvedata_provider import RateLimiter, RateLimitState, within_window
 
 DEFAULT_BASE_URL = "https://api.tiingo.com"
 FREE_TIER_CALLS_PER_HOUR = 50
@@ -60,6 +61,7 @@ class TiingoProvider(DataProvider, PriceProvider):
         self.transport = transport
         self.default_currency = default_currency
         self.last_limiter_state: RateLimitState | None = None
+        self.last_normalisation_errors: dict[str, str] = {}
 
     @property
     def is_configured(self) -> bool:
@@ -122,13 +124,23 @@ class TiingoProvider(DataProvider, PriceProvider):
                     return json.loads(resp), None
                 return None, "Unexpected transport return type."
 
-            response = requests.get(url, headers=headers, timeout=30)
+            response = requests_get_checked(requests.get, url, allowed=same_host_https(url), headers=headers, timeout=30)
             if response.status_code == 429:
                 return None, f"HTTP 429: {self._redact(response.text)}"
             response.raise_for_status()
             return response.json(), None
         except Exception as exc:
             return None, self._redact(f"{type(exc).__name__}: {exc}")
+
+    def _normalise(self, raw: pd.DataFrame, symbol: str, currency: str) -> pd.DataFrame:
+        """Normalise rows; conflicting or ambiguous data makes this instrument unavailable, never the run."""
+        try:
+            frame = normalise_ohlcv(raw, source=self.name, symbol=symbol, currency=currency)
+        except OhlcvNormalisationError as exc:
+            self.last_normalisation_errors[symbol] = self._redact(str(exc))
+            return pd.DataFrame()
+        self.last_normalisation_errors.pop(symbol, None)
+        return frame
 
     def fetch_daily_prices(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         """Fetch daily OHLCV from Tiingo and normalise to canonical schema."""
@@ -156,7 +168,8 @@ class TiingoProvider(DataProvider, PriceProvider):
             return pd.DataFrame()
 
         raw_df = pd.DataFrame(payload)
-        return normalise_ohlcv(raw_df, source=self.name, symbol=clean_symbol, currency=self.default_currency)
+        frame = self._normalise(raw_df, clean_symbol, self.default_currency)
+        return within_window(frame, start, end)
 
     def fetch_intraday_prices(
         self,
@@ -167,6 +180,9 @@ class TiingoProvider(DataProvider, PriceProvider):
     ) -> pd.DataFrame:
         """Fetch intraday OHLCV from Tiingo IEX endpoint."""
         if not self.is_configured:
+            return pd.DataFrame()
+
+        if interval not in self.supported_intervals:
             return pd.DataFrame()
 
         state = self.limiter.acquire()
@@ -191,7 +207,8 @@ class TiingoProvider(DataProvider, PriceProvider):
         if err or not isinstance(payload, list) or not payload:
             return pd.DataFrame()
 
-        return normalise_ohlcv(pd.DataFrame(payload), source=self.name, symbol=clean_symbol, currency=self.default_currency)
+        frame = self._normalise(pd.DataFrame(payload), clean_symbol, self.default_currency)
+        return within_window(frame, start, end)
 
     def fetch_prices(self, symbols: list[str], start_date: date, end_date: date) -> ProviderResult:
         """Bulk price fetch interface returning ProviderResult."""
@@ -216,9 +233,11 @@ class TiingoProvider(DataProvider, PriceProvider):
                 errors.append(f"{symbol}: rate limit reached (non-blocking)")
                 break
 
+            self.last_normalisation_errors.pop(symbol.strip(), None)
             df = self.fetch_daily_prices(symbol, start_date, end_date)
             if df.empty:
-                errors.append(f"{symbol}: no rows returned")
+                reason = self.last_normalisation_errors.get(symbol.strip())
+                errors.append(f"{symbol}: {reason}" if reason else f"{symbol}: no rows returned")
             else:
                 frames.append(df)
 

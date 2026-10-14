@@ -14,6 +14,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from etf_cockpit.core.process import pid_is_alive as _pid_alive
 from etf_cockpit.core.atomic_io import (
     AtomicWriteRequest,
     atomic_write_group,
@@ -23,8 +24,19 @@ from etf_cockpit.core.atomic_io import (
 from etf_cockpit.governance.product_scope import load_gate_policy
 
 
+_ORPHAN_RECHECK_ATTEMPTS = 3
+
+
 class JournalIntegrityError(ValueError):
-    """Raised when persisted journal evidence cannot be trusted."""
+    """Raised when persisted journal evidence cannot be trusted.
+
+    ``integrity_status`` names the read-side failure class when one applies
+    (``operations_log_missing`` / ``operations_log_corrupt`` / ``orphan_entries``).
+    """
+
+    def __init__(self, message: str, *, integrity_status: str = "integrity_error") -> None:
+        super().__init__(message)
+        self.integrity_status = integrity_status
 
 
 class JournalEntry(BaseModel):
@@ -211,6 +223,62 @@ class DecisionJournal:
             except ValueError as exc:
                 raise JournalIntegrityError("journal operation record id is malformed") from exc
 
+    def integrity_status(self, root: Path) -> str:
+        """Return ``ok`` or the first log-level integrity failure class for ``root``."""
+
+        root = Path(root)
+        try:
+            index = self._read_index(root)
+        except JournalIntegrityError:
+            return "integrity_error"
+        return self._log_integrity_status(root, index)
+
+    def _log_integrity_status(self, root: Path, index: list[dict[str, str]]) -> str:
+        directory = self._directory(root)
+        operations_path = directory / "operations.jsonl"
+        if not operations_path.is_file():
+            if index and not self._is_pre_log_legacy_store(root, index):
+                return "operations_log_missing"
+        else:
+            try:
+                self._validate_operations(self._read_operations(root))
+            except JournalIntegrityError:
+                return "operations_log_corrupt"
+        entries_dir = directory / "entries"
+        if entries_dir.is_dir():
+            current = index
+            for attempt in range(_ORPHAN_RECHECK_ATTEMPTS):
+                names = {path.name for path in entries_dir.glob("*.json")}
+                indexed = {self._entry_path(root, row["journal_entry_id"]).name for row in current}
+                if names <= indexed:
+                    break
+                if attempt == _ORPHAN_RECHECK_ATTEMPTS - 1:
+                    return "orphan_entries"
+                # A group commit publishes the entry file before the index: the index
+                # held here may predate it.  Re-read it (guarded, so after the commit).
+                try:
+                    current = self._read_index(root)
+                except JournalIntegrityError:
+                    return "integrity_error"
+        return "ok"
+
+    def _is_pre_log_legacy_store(self, root: Path, index: list[dict[str, str]]) -> bool:
+        """True only when every indexed payload is schema 1.0, which predates the operation log."""
+
+        for row in index:
+            try:
+                payload = json.loads(self._entry_path(root, row["journal_entry_id"]).read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, ValueError):
+                return False
+            if not isinstance(payload, dict) or payload.get("schema_version") != "1.0":
+                return False
+        return True
+
+    def _require_log_integrity(self, root: Path, index: list[dict[str, str]]) -> None:
+        status = self._log_integrity_status(root, index)
+        if status != "ok":
+            raise JournalIntegrityError(f"journal integrity check failed: {status}", integrity_status=status)
+
     @staticmethod
     def _operation_record(operation: str, entry: JournalEntry) -> dict[str, object]:
         return {
@@ -219,6 +287,66 @@ class DecisionJournal:
             "checksum": entry.checksum,
             "schema_version": entry.schema_version,
         }
+
+    @staticmethod
+    def _dead_owner_text(lock_path: Path) -> str | None:
+        """Return the lock payload only when it names a verifiably dead owner PID."""
+
+        try:
+            owner_text = lock_path.read_text(encoding="ascii")
+            pid_text, separator, token = owner_text.partition(":")
+            owner_pid = int(pid_text) if separator and token else 0
+        except (OSError, UnicodeDecodeError, ValueError):
+            return None
+        if owner_pid <= 0 or _pid_alive(owner_pid):
+            return None
+        return owner_text
+
+    def _recover_dead_owner_lock(self, lock_path: Path) -> bool:
+        """Remove a lock whose owner PID is dead; never touches a live or unreadable lock.
+
+        Recoverers are serialised through a short ``.recover`` mutex and compare the
+        owner token again under it, so a lock re-acquired in between is not stolen.
+        """
+
+        owner_text = self._dead_owner_text(lock_path)
+        if owner_text is None:
+            return False
+        guard_path = lock_path.with_name(lock_path.name + ".recover")
+        guard_payload = f"{os.getpid()}:{uuid.uuid4().hex}"
+        try:
+            descriptor = os.open(guard_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            guard_text = self._dead_owner_text(guard_path)
+            if guard_text is not None:
+                try:
+                    if guard_path.read_text(encoding="ascii") == guard_text:
+                        guard_path.unlink()
+                except OSError:
+                    pass
+            return False
+        except OSError:
+            return False
+        try:
+            try:
+                os.write(descriptor, guard_payload.encode("ascii"))
+            finally:
+                os.close(descriptor)
+            try:
+                if lock_path.read_text(encoding="ascii") != owner_text:
+                    return False
+                lock_path.unlink()
+            except FileNotFoundError:
+                return True
+            except (OSError, UnicodeDecodeError):
+                return False
+            return True
+        finally:
+            try:
+                if guard_path.read_text(encoding="ascii") == guard_payload:
+                    guard_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     @contextmanager
     def _journal_write_lock(self, root: Path):
@@ -239,6 +367,8 @@ class DecisionJournal:
                 os.close(descriptor)
                 break
             except FileExistsError:
+                if self._recover_dead_owner_lock(lock_path):
+                    continue
                 if time.monotonic() >= deadline:
                     raise TimeoutError(
                         f"decision journal lock is unavailable; manual review required: {lock_path}"
@@ -324,6 +454,7 @@ class DecisionJournal:
             raise JournalIntegrityError(f"journal entry is missing: {journal_entry_id}")
         try:
             discovery_index = self._decode_index(read_atomic_group((index_path,))[0])
+            self._require_log_integrity(root, discovery_index)
             row = next((candidate for candidate in discovery_index if candidate["journal_entry_id"] == journal_entry_id), None)
             if row is None:
                 if path.is_file():
@@ -364,6 +495,7 @@ class DecisionJournal:
             return self._read_index(root)
         try:
             discovery_index = self._decode_index(read_atomic_group((index_path,))[0])
+            self._require_log_integrity(root, discovery_index)
             paths = [self._entry_path(root, row["journal_entry_id"]) for row in discovery_index]
             grouped = read_atomic_group((index_path, *paths))
             index = self._decode_index(grouped[0])

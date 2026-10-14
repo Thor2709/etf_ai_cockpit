@@ -11,23 +11,29 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
 import hashlib
+import inspect
 import json
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 import pandas as pd
 
 from etf_cockpit.core.config import ProviderSection
+from etf_cockpit.core.http_fetch import host_checked_urlopen as urlopen
 from etf_cockpit.data.contracts import ProviderCapability, SourceAuthority, redact_text
 from etf_cockpit.data.providers import DataProvider, PriceProvider, ProviderResult
 
 
 Transport = Callable[..., Any]
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 _TIME_SERIES_PREFIX = "Time Series"
 
@@ -56,7 +62,8 @@ class AlphaVantageProvider(DataProvider, PriceProvider):
         cache_dir: Path | None = None,
         transport: Transport | None = None,
         daily_call_budget: int = DEFAULT_DAILY_CALL_BUDGET,
-        clock: Callable[[], date | datetime] = date.today,
+        clock: Callable[[], date | datetime] = _utc_now,
+        outputsize: str = "compact",
     ) -> None:
         supplied_key = str(api_key or "").strip()
         self.section = section or ProviderSection(
@@ -71,6 +78,10 @@ class AlphaVantageProvider(DataProvider, PriceProvider):
             raise ValueError("Alpha Vantage daily call budget must be a positive integer")
         self.daily_call_budget = daily_call_budget
         self._clock = clock
+        if outputsize not in {"compact", "full"}:
+            raise ValueError("Alpha Vantage outputsize must be 'compact' or 'full'")
+        # 'full' is premium-only on the vendor side, so the free-tier default is 'compact'.
+        self.outputsize = outputsize
         self._calls_by_day: dict[date, int] = {}
         self._memory_cache: dict[str, pd.DataFrame] = {}
 
@@ -128,7 +139,7 @@ class AlphaVantageProvider(DataProvider, PriceProvider):
 
         symbol = requested[0]
         provider_symbol = str(self.section.symbols_map.get(symbol, symbol)).strip() or symbol
-        cached = self._load_cache(provider_symbol)
+        cached = self._load_cache(provider_symbol, symbol)
         today = self._today()
         effective_decision_time = self._decision_time(decision_time)
         used = self._calls_by_day.get(today, 0)
@@ -153,11 +164,16 @@ class AlphaVantageProvider(DataProvider, PriceProvider):
             notice = _quota_notice(payload)
             if notice:
                 return self._replay_or_unavailable(cached, start_date, end_date, effective_decision_time, f"Alpha Vantage quota exhausted: {notice}")
+            # One clock read stamps the rows and, by default, the decision time: two reads differ by microseconds
+            # on a high-resolution clock (Linux), which would hide the rows just retrieved from their own request.
+            retrieved_at = self._observation_time()
+            if decision_time is None:
+                effective_decision_time = retrieved_at
             frame = _normalise_payload(
                 payload,
                 symbol=symbol,
                 provider_symbol=provider_symbol,
-                available_at=self._observation_time(),
+                available_at=retrieved_at,
             )
             if frame.empty:
                 return self._replay_or_unavailable(cached, start_date, end_date, effective_decision_time, "Alpha Vantage returned no usable daily price rows.")
@@ -177,7 +193,8 @@ class AlphaVantageProvider(DataProvider, PriceProvider):
 
     def fetch_daily_prices(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         result = self.fetch_prices([symbol], start, end)
-        return result.data.copy() if result.data is not None else pd.DataFrame()
+        # Only an "ok" result is data; an unavailable result (e.g. a cache replay) is not.
+        return result.data.copy() if result.status == "ok" and result.data is not None else pd.DataFrame()
 
     def verify_ticker(
         self,
@@ -212,33 +229,35 @@ class AlphaVantageProvider(DataProvider, PriceProvider):
 
     def _observation_time(self) -> datetime:
         value = self._clock()
-        return value if isinstance(value, datetime) else datetime.combine(value, time.min)
+        # A date-only clock carries no time of day: assume the end of that day so rows are
+        # never stamped earlier than they were retrieved (no same-day look-ahead).
+        return value if isinstance(value, datetime) else datetime.combine(value, time.max)
 
     def _decision_time(self, value: date | datetime | None) -> date | datetime:
         return self._observation_time() if value is None else value
 
     def _request_url(self, symbol: str) -> str:
         base = str(self.section.base_url or self.BASE_URL).strip() or self.BASE_URL
-        if self.api_key:
-            base = base.replace(self.api_key, "[REDACTED]")
-        return f"{base}?{urlencode({'function': 'TIME_SERIES_DAILY', 'symbol': symbol, 'outputsize': 'full'})}"
+        query = {"function": "TIME_SERIES_DAILY", "symbol": symbol, "outputsize": self.outputsize, "apikey": self.api_key}
+        return f"{base}?{urlencode(query)}"
 
     def _request(self, url: str) -> tuple[bytes, int]:
-        headers = {"Accept": "application/json", "X-Alpha-Vantage-Api-Key": self.api_key}
+        headers = {"Accept": "application/json"}
         if self.transport is not None:
+            # Choose the call shape from the signature: a TypeError raised inside the
+            # transport is a transport failure and must not trigger a second request.
             try:
-                value = self.transport(url, headers, {"api_key": self.api_key})
+                inspect.signature(self.transport).bind(url, headers)
+                args: tuple[Any, ...] = (url, headers)
             except TypeError:
-                try:
-                    value = self.transport(url, headers)
-                except TypeError:
-                    value = self.transport(url)
-            return _normalise_response(value)
+                args = (url,)
+            return _normalise_response(self.transport(*args))
         request = Request(url, headers=headers)
         try:
             with urlopen(request, timeout=20.0) as response:
                 return bytes(response.read()), int(getattr(response, "status", 200))
         except HTTPError as exc:
+            # Redirects off the provider host raise ValueError (the key is in the query string).
             return b"", int(exc.code)
 
     def _cache_path(self, symbol: str) -> Path | None:
@@ -247,19 +266,27 @@ class AlphaVantageProvider(DataProvider, PriceProvider):
         digest = hashlib.sha256(symbol.encode("utf-8")).hexdigest()[:16]
         return self.cache_dir / f"alpha_vantage_{digest}.json"
 
-    def _load_cache(self, symbol: str) -> pd.DataFrame | None:
+    def _load_cache(self, symbol: str, local_symbol: str | None = None) -> pd.DataFrame | None:
         cached = self._memory_cache.get(symbol)
-        if cached is not None:
-            return cached.copy()
-        path = self._cache_path(symbol)
-        if path is None or not path.is_file():
-            return None
-        try:
-            frame = _normalise_frame(pd.read_json(path, orient="records"))
-        except (OSError, ValueError, TypeError, KeyError):
-            return None
-        self._memory_cache[symbol] = frame
-        return frame.copy()
+        if cached is None:
+            path = self._cache_path(symbol)
+            if path is None or not path.is_file():
+                return None
+            try:
+                cached = _normalise_frame(pd.read_json(path, orient="records"))
+            except (OSError, ValueError, TypeError, KeyError):
+                return None
+            self._memory_cache[symbol] = cached
+        frame = cached.copy()
+        if frame.empty:
+            return frame
+        # The cache is keyed by provider symbol; replay only that symbol's rows and
+        # label them with the requesting local symbol, never another alias's id.
+        if "provider_symbol" in frame:
+            frame = frame[frame["provider_symbol"].astype(str) == symbol].reset_index(drop=True)
+        if local_symbol is not None and "etf_id" in frame:
+            frame["etf_id"] = local_symbol
+        return frame
 
     def _store_cache(self, symbol: str, frame: pd.DataFrame) -> None:
         self._memory_cache[symbol] = frame.copy()

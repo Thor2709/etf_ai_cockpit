@@ -130,9 +130,13 @@ def test_write_guard_resolves_fd_relative_removal_against_its_directory(tmp_path
     assert len(violations) == 1
 
 
-def test_stale_roots_are_pruned_by_heartbeat_and_live_roots_are_kept() -> None:
-    stale = conftest.ISOLATED_ROOTS / f"stale-{os.getpid()}"
-    live = conftest.ISOLATED_ROOTS / f"live-{os.getpid()}"
+def test_stale_roots_are_pruned_by_heartbeat_and_live_roots_are_kept(monkeypatch, tmp_path) -> None:
+    # A private roots directory: pruning the shared one would also remove other sessions' stale roots, whose
+    # links into the checkout (e.g. .agents) the write guard rightly reports as checkout writes.
+    roots = tmp_path / "roots"
+    monkeypatch.setattr(conftest, "ISOLATED_ROOTS", roots)
+    stale = roots / "stale"
+    live = roots / "live"
     for root in (stale, live):
         root.mkdir(parents=True)
         (root / conftest._HEARTBEAT).touch()
@@ -142,7 +146,7 @@ def test_stale_roots_are_pruned_by_heartbeat_and_live_roots_are_kept() -> None:
         conftest._prune_stale_isolated_roots()
         assert not stale.exists()
         assert live.exists()
-        assert Path(os.environ["ETF_COCKPIT_ROOT"]).exists()
+        assert Path(os.environ["ETF_COCKPIT_ROOT"]).exists()  # the session's own root is outside the pruned directory
     finally:
         conftest._remove_isolated_root(live)
 

@@ -77,7 +77,11 @@ def build_feature_catalogue_view(root: Path, features: object | None) -> Feature
         if name != "date"
     )
     columns = tuple(name for name in SAMPLE_COLUMNS if name in getattr(features, "columns", ()))
-    tail = features.tail(SAMPLE_ROWS)  # type: ignore[attr-defined]
+    ordered = features
+    if "date" in getattr(features, "columns", ()):
+        # Newest rows, whatever order the snapshot was stored in.
+        ordered = features.sort_values("date", kind="stable")  # type: ignore[attr-defined]
+    tail = ordered.tail(SAMPLE_ROWS)
     sample = tuple({name: row[name] for name in columns} for _, row in tail[list(columns)].iterrows()) if columns else ()
     return FeatureCatalogueView(
         definitions,

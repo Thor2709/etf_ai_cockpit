@@ -688,7 +688,18 @@ def _normalise_metadata(values):
         label = _text(key)
         if not label:
             continue
-        if isinstance(attributes, Mapping):
+        if not isinstance(attributes, Mapping):
+            continue
+        if label in result:
+            # Keys that canonicalise to one instrument must agree: a disputed field (for example the
+            # exposure type) is withheld rather than overwritten by whichever entry came last.
+            previous = result[label]
+            result[label] = {
+                field: value
+                for field, value in previous.items()
+                if field in attributes and attributes[field] == value
+            }
+        else:
             result[label] = dict(attributes)
     return result
 

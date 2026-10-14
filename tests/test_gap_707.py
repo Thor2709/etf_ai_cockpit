@@ -339,7 +339,8 @@ def test_full_coverage_exposes_dimensions_and_currency_evidence_gates_metrics() 
     assert summary.normalized_exposures["factor"] == {"Growth": 0.5, "Value": 0.5}
     assert summary.lineage["exposure_evidence"]["factor"]["label"] == "provider_reported_holdings_dimension"
 
-    # Missing, ambiguous or mismatched currency evidence withholds the metrics.
+    # HL1 (#953): P/E and ROIC are dimensionless, so mismatched, missing or ambiguous currency evidence
+    # no longer withholds them.
     holdings = pd.DataFrame([_holding(APPLE_ISIN, 1.0, sector="Technology")])
     mixed_currency = pd.DataFrame(
         [
@@ -365,9 +366,8 @@ def test_full_coverage_exposes_dimensions_and_currency_evidence_gates_metrics() 
             },
             require_canonical_identity=True,
         )
-        assert result.calculated_metrics["pe_ratio"]["value"] is None, name
-        assert result.calculated_metrics["roic"]["value"] is None, name
-        assert any("currency" in item for item in result.limitations), name
+        assert result.calculated_metrics["pe_ratio"]["value"] == pytest.approx(10.0), name
+        assert result.calculated_metrics["roic"]["value"] == pytest.approx(0.1), name
 
     # Missing holding currency on any listing or merged row withholds the metrics.
     missing_listing = pd.DataFrame(
@@ -395,10 +395,9 @@ def test_full_coverage_exposes_dimensions_and_currency_evidence_gates_metrics() 
             },
             require_canonical_identity=True,
         )
-        assert result.calculated_metrics["pe_ratio"]["value"] is None, name
-        assert result.calculated_metrics["roic"]["value"] is None, name
-        assert result.fundamental_data_coverage["pe_ratio"]["covered_weight"] == 0.0, name
-        assert any("currency" in item for item in result.limitations), name
+        assert result.calculated_metrics["pe_ratio"]["value"] == pytest.approx(10.0), name
+        assert result.calculated_metrics["roic"]["value"] == pytest.approx(0.1), name
+        assert result.fundamental_data_coverage["pe_ratio"]["covered_weight"] == pytest.approx(1.0), name
 
 
 def test_missing_canonical_identity_evidence_is_unavailable_or_unresolved(

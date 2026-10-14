@@ -34,8 +34,9 @@ def test_append_keeps_first_known_at_and_only_stores_changes() -> None:
 
 def test_merge_prefers_filings_fills_gaps_and_never_leaks_later_values() -> None:
     frame = pd.DataFrame(columns=store.PERIOD_COLUMNS)
-    frame, _ = store.append_period_rows(frame, "AAA", [_row("sec_edgar", "2026-02-10T00:00:00+00:00", 100.0, net_income_parent=10.0)])
-    frame, _ = store.append_period_rows(frame, "AAA", [_row("yfinance", "2026-09-01T00:00:00+00:00", 101.0, net_income_parent=11.0, da=5.0)])
+    verified = {"reporting_standard": "us-gaap", "consolidation_scope": "consolidated", "share_class": "all_classes", "period_days": 365}  # a cross-source merge needs verified identity
+    frame, _ = store.append_period_rows(frame, "AAA", [_row("sec_edgar", "2026-02-10T00:00:00+00:00", 100.0, net_income_parent=10.0, **verified)])
+    frame, _ = store.append_period_rows(frame, "AAA", [_row("yfinance", "2026-09-01T00:00:00+00:00", 101.0, net_income_parent=11.0, da=5.0, **verified)])
     periods = store.periods_for("AAA", frame, ["sec_edgar", "yfinance"])
     early = [p for p in periods if p.known_at <= datetime(2026, 3, 1, tzinfo=UTC)]
     late = max(periods, key=lambda p: p.known_at)

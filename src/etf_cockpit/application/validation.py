@@ -24,6 +24,16 @@ from etf_cockpit.validation.protocol import ValidationReport, ValidationSpec, ev
 from etf_cockpit.validation.optimisation import OptimisationLedger
 
 
+def evaluate_registered_trials(root, run_id: str, scores, **options) -> ValidationReport:
+    """Evaluate an existing durable run, retaining its complete trial submission.
+
+    A frozen candidate, comparator IDs and holdout ID explicitly request one
+    audited holdout use. Repeated uses are development data across restarts.
+    Calls without this declaration remain development-only.
+    """
+    return evaluate_trials(scores, registry=LocalTrainingRegistry(root), run_id=run_id, **options)
+
+
 def build_validation_preview(
     prices: pd.DataFrame | None,
     *,
@@ -71,7 +81,7 @@ def record_validation_preview(
     """Persist the complete local preview search, including discarded trials."""
 
     scoped_prices = _clip_to_reference_window(prices, reference_context)
-    values, definition, _, _ = _preview_inputs(scoped_prices, None)
+    values, definition, regimes, subgroups = _preview_inputs(scoped_prices, None)
     report = (
         build_validation_preview(prices, spec=definition, reference_context=reference_context)
         if values is not None
@@ -107,6 +117,12 @@ def record_validation_preview(
         environment_hash=environment_hash,
     )
     try:
+        report = evaluate_registered_trials(
+            root, str(run["run_id"]), {"baseline": values, "current_pipeline": values},
+            spec=definition, parameters={trial.trial_id: trial.parameters for trial in report.trials},
+            regime_labels=regimes, subgroup_labels=subgroups,
+        )
+        report_hash = report_fingerprint(report)
         stored = registry.record_validation_report(
             str(run["run_id"]),
             report,
@@ -171,7 +187,7 @@ def _preview_inputs(prices: pd.DataFrame | None, spec: ValidationSpec | None) ->
         return None, spec or ValidationSpec(), [], []
     values = returns.mean(axis=1).to_numpy(float)
     definition = spec or ValidationSpec(n_splits=3, test_size=10, final_test_size=10, horizon=1, embargo=2, bootstrap_repetitions=40, seed=42)
-    required = definition.final_test_size + definition.n_splits * definition.test_size + definition.horizon + definition.embargo
+    required = definition.final_test_size + definition.n_splits * definition.test_size + 2 * definition.horizon + definition.embargo + 2
     if len(values) < required:
         return None, definition, [], []
     regime_threshold = float(pd.Series(values).abs().median())
@@ -227,6 +243,7 @@ __all__ = [
     "SyntheticScenarioGenerator",
     "SyntheticScenarioSpec",
     "build_validation_preview",
+    "evaluate_registered_trials",
     "load_optimisation_evidence",
     "load_training_evidence",
     "record_validation_preview",

@@ -15,7 +15,7 @@ from etf_cockpit.analysis.peer_cohorts import (
 )
 from etf_cockpit.core.values import is_finite_number as _finite
 from etf_cockpit.data.classification import InstrumentContextV2
-from etf_cockpit.data.contracts import SourceAuthority
+from etf_cockpit.data.contracts import PRIMARY_SOURCE_AUTHORITIES, SourceAuthority
 
 
 FINANCIAL_ADAPTER_CONTRACT = "financial-institution-adapter.v1"
@@ -369,7 +369,7 @@ def build_financial_institution_projection(
                     "high"
                     if confidence >= 0.8
                     and item.source_authority
-                    in {SourceAuthority.OFFICIAL, SourceAuthority.ISSUER}
+                    in PRIMARY_SOURCE_AUTHORITIES
                     else "limited"
                 ),
                 limitations=item_limitations,

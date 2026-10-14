@@ -201,7 +201,11 @@ def _seed_key() -> str:
     digest = hashlib.sha256(sys.version.encode("utf-8"))
     tracked_data = _tracked_files(("data",)) or []
     sources = sorted(
-        [*(ROOT / "src").rglob("*.py"), *(path for path in (ROOT / "configs").rglob("*") if path.is_file())]
+        [
+            # Every packaged resource under src/ (yaml, json, csv, ...) can change the generated dataset.
+            *(path for path in (ROOT / "src").rglob("*") if path.is_file() and "__pycache__" not in path.parts),
+            *(path for path in (ROOT / "configs").rglob("*") if path.is_file()),
+        ]
         + [ROOT / relative for relative in tracked_data]
     )
     for path in sources:

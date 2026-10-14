@@ -518,6 +518,39 @@ def _load_universe_config(config_dir: Path) -> UniverseConfig:
         raise ConfigError(f"Could not read persisted universe {persisted}: {exc}") from exc
 
 
+def _save_provider_through_settings_revision(
+    provider_key: str, active_provider: str, base_url: str, config_dir: Path
+) -> bool:
+    """Route the write through the revisioned settings save when a saved bundle exists.
+
+    A direct ``data_providers.yaml`` write would leave ``settings.yaml`` pointing at a
+    stale revision, so every later settings load would fail closed.  Returns False
+    for installs without a saved (version >= 1) settings bundle, which keep the
+    plain write because the loader re-binds their shipped default.
+    """
+
+    from etf_cockpit.core.settings_bundle import SettingsError, load_settings_bundle, save_settings
+
+    if not (config_dir / "settings.yaml").is_file():
+        return False
+    root = config_dir.parent
+    try:
+        bundle = load_settings_bundle(root)
+        if bundle.settings_version == 0:
+            return False
+        providers = {key: dict(value) if isinstance(value, dict) else value for key, value in bundle.providers.items()}
+        section = providers.setdefault("providers", {})
+        current = dict(section.get(provider_key) or {})
+        current["active_provider"] = active_provider.strip() or "none"
+        current["base_url"] = base_url.strip()
+        current.setdefault("symbols_map", {})
+        section[provider_key] = current
+        save_settings(bundle.model_copy(update={"providers": providers}), expected_revision=bundle.revision, root=root)
+    except SettingsError as exc:
+        raise ConfigError(f"Could not save provider settings through the settings revision: {exc}") from exc
+    return True
+
+
 def save_provider_settings(
     provider_name: str,
     *,
@@ -530,16 +563,17 @@ def save_provider_settings(
     if not provider_key:
         raise ConfigError("Provider name cannot be empty.")
     provider_path = config_dir / "data_providers.yaml"
-    raw = _read_yaml(provider_path) if provider_path.exists() else {"providers": {}}
-    providers = raw.setdefault("providers", {})
-    current = providers.get(provider_key, {}) or {}
-    current["active_provider"] = active_provider.strip() or "none"
-    current["base_url"] = base_url.strip()
-    current["api_key"] = ""
-    current.setdefault("symbols_map", {})
-    providers[provider_key] = current
-    provider_path.parent.mkdir(parents=True, exist_ok=True)
-    provider_path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+    if not _save_provider_through_settings_revision(provider_key, active_provider, base_url, config_dir):
+        raw = _read_yaml(provider_path) if provider_path.exists() else {"providers": {}}
+        providers = raw.setdefault("providers", {})
+        current = providers.get(provider_key, {}) or {}
+        current["active_provider"] = active_provider.strip() or "none"
+        current["base_url"] = base_url.strip()
+        current["api_key"] = ""
+        current.setdefault("symbols_map", {})
+        providers[provider_key] = current
+        provider_path.parent.mkdir(parents=True, exist_ok=True)
+        provider_path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
     if api_key.strip():
         _write_env_value(config_dir.parent / ".env", _provider_env_key(provider_key, "API_KEY"), api_key.strip())
 

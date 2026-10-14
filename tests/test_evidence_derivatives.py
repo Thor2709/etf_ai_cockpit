@@ -279,7 +279,7 @@ def test_peer_attribution_does_not_forward_fill_a_single_peer_observation() -> N
     assert attribution["ALT"]["sector_sample_size"] == 0
 
 
-def test_sparse_price_compatibility_keeps_regime_and_portfolio_forward_fill_but_not_peer_attribution() -> None:
+def test_sparse_price_compatibility_bounds_regime_and_portfolio_forward_fill_but_not_peer_attribution() -> None:
     dates = pd.bdate_range("2025-01-01", periods=260)
     rows = []
     for index, dt in enumerate(dates):
@@ -309,7 +309,7 @@ def test_sparse_price_compatibility_keeps_regime_and_portfolio_forward_fill_but_
         metadata={"ALT": {"sector": "Technology"}, "PEER": {"sector": "Technology"}},
     )
     pivot = regime_prices.pivot(index="date", columns="etf_id", values="adjusted_close").sort_index()
-    forward_filled_returns = pivot.ffill().pct_change(fill_method=None)
+    forward_filled_returns = pivot.ffill(limit=5).pct_change(fill_method=None)  # default bound: 5 sessions (C004)
     expected_regime_volatility = float(
         forward_filled_returns.tail(60).std(skipna=True).median() * np.sqrt(252)
     )

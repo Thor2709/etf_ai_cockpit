@@ -11,6 +11,7 @@ from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.core.versioning import (
     current_settings_identity,
     ensure_run_manifest,
+    price_bound_run_label,
     settings_bound_run_id,
 )
 from etf_cockpit.data.duckdb_store import (
@@ -28,6 +29,7 @@ from etf_cockpit.portfolio.benchmark_reference import (
 from etf_cockpit.application.derived_cache import (
     _calculation_window,
     _current_universe_revision,
+    _feature_cache_binding,
     _price_snapshot_binding,
     _reference_identity_hash,
 )
@@ -96,8 +98,10 @@ class FeatureService:
         features.attrs["reference_identity"] = context.identity
         features.attrs["reference_identity_hash"] = _reference_identity_hash(context.identity)
         features.attrs["price_binding"] = dict(price_binding)
+        # One run identity: date + exact price snapshot + settings revision. A corrected price
+        # state gets a new immutable manifest instead of reusing the old one.
         run_id = settings_bound_run_id(
-            f"features_{effective_as_of.isoformat()}",
+            price_bound_run_label(f"features_{effective_as_of.isoformat()}", price_binding),
             settings_identity=settings_identity,
         )
         with publication_scope(publish_guard):
@@ -105,6 +109,7 @@ class FeatureService:
                 run_id,
                 ("schema:local-storage", "dataset:prices", "dataset:universe"),
                 settings_identity=settings_identity,
+                dataset_bindings={"dataset:prices": dict(price_binding)},
             )
         with publication_scope(publish_guard):
             write_features(
@@ -114,6 +119,7 @@ class FeatureService:
                     "settings_revision": str(settings_identity["settings_revision"]),
                     "reference_identity": context.identity,
                     **price_binding,
+                    **_feature_cache_binding(frame, calculation_window=calculation_window),
                 },
             )
         return features
