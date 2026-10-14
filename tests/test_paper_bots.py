@@ -16,6 +16,11 @@ from etf_cockpit.application import scoreboard_publication
 from etf_cockpit.portfolio import paper_bots
 
 
+# Fixed recorder clock: the forward recorder only accepts the current UTC day, so tests that build
+# "minutes ago" cutoffs must not depend on the real wall clock (fails within minutes after 00:00 UTC).
+_NOW = datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc)
+
+
 def _time(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -142,6 +147,7 @@ def _run_fixture(
         cutoff,
         root=tmp_path,
         config_path=config_path or paper_bots.PAPER_BOTS_CONFIG_PATH,
+        now=_NOW,
     )
 
 
@@ -151,7 +157,7 @@ def test_publication_binding_records_exact_board_bytes_and_history_identity(tmp_
     board_path = derived / "scoreboard.parquet"
     expected_board = pd.DataFrame({"instrument_id": ["AAA"], "current_price": [42.0]})
     expected_board.to_parquet(board_path, index=False)
-    now = datetime.now(timezone.utc)
+    now = _NOW
     history_path = derived / "score_history.parquet"
     pd.DataFrame(
         [{
@@ -192,7 +198,7 @@ def test_publication_binding_accepts_nested_empty_model_readiness_arrays(tmp_pat
         }
     )
     expected_board.to_parquet(board_path, index=False)
-    now = datetime.now(timezone.utc)
+    now = _NOW
     history_path = derived / "score_history.parquet"
     pd.DataFrame(
         [
@@ -214,7 +220,7 @@ def test_publication_binding_accepts_nested_empty_model_readiness_arrays(tmp_pat
 
 @pytest.mark.parametrize("boundary", ["consumer", "producer"])
 def test_publication_uses_one_immutable_scoreboard_buffer(monkeypatch, tmp_path: Path, boundary: str) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     known_at = now - timedelta(minutes=5)
     rows = _rows(known_at)
     board = _scoreboard(rows, known_at)
@@ -272,7 +278,7 @@ def test_publication_uses_one_immutable_scoreboard_buffer(monkeypatch, tmp_path:
     ("gate_policy_checksum", "g" * 64),
 ])
 def test_every_history_row_requires_valid_lineage(monkeypatch, tmp_path: Path, field: str, invalid) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     known_at = now - timedelta(minutes=5)
     rows = _rows(known_at)
     rows[0][field] = invalid
@@ -289,7 +295,7 @@ def test_every_history_row_requires_valid_lineage(monkeypatch, tmp_path: Path, f
 
 @pytest.mark.parametrize("duplicate_rank", [1, 9])
 def test_duplicate_history_instruments_reject_publication(monkeypatch, tmp_path: Path, duplicate_rank: int) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     known_at = now - timedelta(minutes=5)
     rows = _rows(known_at)
     board = _scoreboard(rows, known_at).drop(columns=["rank"])
@@ -304,7 +310,7 @@ def test_duplicate_history_instruments_reject_publication(monkeypatch, tmp_path:
 
 
 def test_changed_scoreboard_bytes_cannot_reuse_an_older_publication_binding(monkeypatch, tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     known_at = now - timedelta(minutes=5)
     rows = _rows(known_at)
     original = _scoreboard(rows, known_at)
@@ -318,7 +324,7 @@ def test_changed_scoreboard_bytes_cannot_reuse_an_older_publication_binding(monk
         changed.to_parquet(index=False)
     )
 
-    result = paper_bots.run_paper_bots(now, root=tmp_path, config_path=paper_bots.PAPER_BOTS_CONFIG_PATH)
+    result = paper_bots.run_paper_bots(now, root=tmp_path, config_path=paper_bots.PAPER_BOTS_CONFIG_PATH, now=_NOW)
 
     assert result.status == "unavailable"
     assert all(record["status"] == "unavailable" for record in result.records)
@@ -326,7 +332,7 @@ def test_changed_scoreboard_bytes_cannot_reuse_an_older_publication_binding(monk
 
 
 def test_saved_month_slot_is_not_returned_before_its_as_of_cutoff(monkeypatch, tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     known_at = now - timedelta(minutes=20)
     rows = _rows(known_at)
     board = _scoreboard(rows, known_at)
@@ -343,7 +349,7 @@ def test_saved_month_slot_is_not_returned_before_its_as_of_cutoff(monkeypatch, t
 
 
 def test_unknown_gate_rank_or_freshness_fails_closed_without_reweighting(monkeypatch, tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     known_at = now - timedelta(minutes=5)
     rows = _rows(known_at)
     board = _scoreboard(rows, known_at)
@@ -375,7 +381,7 @@ def test_unknown_gate_rank_or_freshness_fails_closed_without_reweighting(monkeyp
 
 
 def test_first_eligible_snapshot_can_follow_an_earlier_stale_publication(monkeypatch, tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     stale_time = now - timedelta(hours=25)
     fresh_time = now - timedelta(minutes=5)
     stale_rows = _rows(stale_time, run_id="stale-run", snapshot="a")
@@ -393,7 +399,7 @@ def test_first_eligible_snapshot_can_follow_an_earlier_stale_publication(monkeyp
 
 
 def test_b1_top_n_includes_vwce_when_it_is_an_eligible_ranked_etf(monkeypatch, tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     known_at = now - timedelta(minutes=5)
     rows = _rows(known_at)
     board = _scoreboard(rows, known_at)
@@ -409,7 +415,7 @@ def test_b1_top_n_includes_vwce_when_it_is_an_eligible_ranked_etf(monkeypatch, t
 def test_configuration_changes_create_a_new_bot_identity_and_invalid_allocations_are_rejected(
     monkeypatch, tmp_path: Path
 ) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     known_at = now - timedelta(minutes=5)
     rows = _rows(known_at)
     board = _scoreboard(rows, known_at)
@@ -434,7 +440,7 @@ def test_configuration_changes_create_a_new_bot_identity_and_invalid_allocations
 
 
 def test_spec_hash_is_stable_when_a_decision_recovers_from_unavailable(monkeypatch, tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     known_at = now - timedelta(minutes=5)
     rows = _rows(known_at)
     unknown = _scoreboard(rows, known_at)
@@ -453,7 +459,7 @@ def test_spec_hash_is_stable_when_a_decision_recovers_from_unavailable(monkeypat
 
 
 def test_decisions_use_only_published_rows_known_at_the_cutoff(monkeypatch, tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     known_at = now - timedelta(minutes=10)
     cutoff = now + timedelta(seconds=1)
     past_rows = _rows(known_at)
@@ -483,7 +489,7 @@ def test_decisions_use_only_published_rows_known_at_the_cutoff(monkeypatch, tmp_
 
 
 def test_score_version_creates_new_challenger_identity_and_preserves_old_records(monkeypatch, tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     first_time = now - timedelta(minutes=20)
     first_rows = _rows(first_time)
     first = _run_fixture(
@@ -511,7 +517,7 @@ def test_score_version_creates_new_challenger_identity_and_preserves_old_records
 
 
 def test_failed_gate_never_enters_a_top_n_or_candidate_sleeve(monkeypatch, tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     known_at = now - timedelta(minutes=5)
     rows = _rows(known_at)
     board = _scoreboard(rows, known_at)
@@ -542,7 +548,7 @@ def test_failed_gate_never_enters_a_top_n_or_candidate_sleeve(monkeypatch, tmp_p
 
 
 def test_b0_stage_a_target_is_vwce_only_and_captures_price(monkeypatch, tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     known_at = now - timedelta(minutes=5)
     rows = _rows(known_at)
     result = _run_fixture(monkeypatch, tmp_path, rows, _scoreboard(rows, known_at), now + timedelta(seconds=1))
@@ -556,7 +562,7 @@ def test_b0_stage_a_target_is_vwce_only_and_captures_price(monkeypatch, tmp_path
 
 
 def test_missing_or_mismatched_published_snapshot_is_unavailable(monkeypatch, tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     known_at = now - timedelta(minutes=5)
     rows = _rows(known_at)
     board = _scoreboard(rows, known_at)
@@ -572,7 +578,7 @@ def test_missing_or_mismatched_published_snapshot_is_unavailable(monkeypatch, tm
 
 
 def test_missing_published_snapshot_is_unavailable(monkeypatch, tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     result = _run_fixture(monkeypatch, tmp_path, [], pd.DataFrame(), now)
 
     assert result.status == "unavailable"
@@ -583,7 +589,7 @@ def test_missing_published_snapshot_is_unavailable(monkeypatch, tmp_path: Path) 
 
 
 def test_stale_published_snapshot_is_unavailable(monkeypatch, tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     known_at = now - timedelta(minutes=1)
     rows = _rows(known_at)
     config_text = paper_bots.PAPER_BOTS_CONFIG_PATH.read_text(encoding="utf-8")
@@ -675,7 +681,7 @@ def test_pipeline_cli_swallows_recorder_import_failure_after_success(monkeypatch
     ids=["naive-time", "null-time", "null-checksum", "null-lineage", "duplicate-instrument", "no-run-id"],
 )
 def test_dirty_older_run_does_not_block_the_clean_bound_run(monkeypatch, tmp_path: Path, mutate) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     bound_time = now - timedelta(minutes=5)
     old_rows = mutate(_rows(bound_time - timedelta(days=40), run_id="old-run", snapshot="b"))
     bound_rows = _rows(bound_time, run_id="bound-run", snapshot="a")
@@ -691,7 +697,7 @@ def test_dirty_older_run_does_not_block_the_clean_bound_run(monkeypatch, tmp_pat
 
 
 def test_dirty_bound_run_is_unavailable_with_a_reason(monkeypatch, tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     bound_time = now - timedelta(minutes=5)
     old_rows = _rows(bound_time - timedelta(days=40), run_id="old-run", snapshot="b")
     bound_rows = _rows(bound_time, run_id="bound-run", snapshot="a")
@@ -707,7 +713,7 @@ def test_dirty_bound_run_is_unavailable_with_a_reason(monkeypatch, tmp_path: Pat
 
 
 def test_real_score_history_read_path_uses_the_configured_location(monkeypatch, tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     known_at = now - timedelta(minutes=5)
     rows = _rows(known_at)
     board = _scoreboard(rows, known_at)
@@ -731,7 +737,7 @@ def test_real_score_history_read_path_uses_the_configured_location(monkeypatch, 
         store.put_many([(paper_bots.PUBLICATION_BINDING_ENTITY_TYPE, "binding-1", payload)], immutable=True)
     monkeypatch.setattr(paper_bots, "project_classification_score_frame", lambda frame, *, root: frame)
 
-    result = paper_bots.run_paper_bots(now, root=tmp_path, config_path=paper_bots.PAPER_BOTS_CONFIG_PATH)
+    result = paper_bots.run_paper_bots(now, root=tmp_path, config_path=paper_bots.PAPER_BOTS_CONFIG_PATH, now=_NOW)
 
     assert result.status == "available"
     assert result.snapshot_hash == "a" * 64
@@ -747,7 +753,7 @@ def test_date_only_as_of_is_rejected_with_a_clear_message(tmp_path: Path, value)
 
 
 def test_add_candidate_action_maps_to_the_candidate_buy_sleeve(monkeypatch, tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     known_at = now - timedelta(minutes=5)
     rows = _rows(known_at)
     board = _scoreboard(rows, known_at)
@@ -761,7 +767,7 @@ def test_add_candidate_action_maps_to_the_candidate_buy_sleeve(monkeypatch, tmp_
 
 
 def test_top_n_with_fewer_eligible_is_equal_weight_with_a_recorded_reason(monkeypatch, tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
+    now = _NOW
     known_at = now - timedelta(minutes=5)
     rows = _rows(known_at)
     board = _scoreboard(rows, known_at)

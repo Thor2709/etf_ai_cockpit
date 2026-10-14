@@ -58,8 +58,16 @@ def build_correlation_clusters(
     window: int = 120,
     ranked_instruments: Sequence[str] | Mapping[str, float] | None = None,
     weights: Mapping[str, float] | None = None,
+    as_of: object | None = None,
+    historical: bool = False,
 ) -> ClusterReport:
     """Build deterministic connected correlation clusters from adjusted prices.
+
+    ``as_of`` caps the price history (nothing after it is read). In ``historical`` mode an
+    explicit ``as_of`` is required: without it the report is unavailable, because an
+    unanchored window would silently use whatever data happens to be loaded (look-ahead).
+    Ranked weights are only used where evidenced; a missing weight is never replaced by an
+    equal weight.
 
     The function accepts both the canonical long price panel and a wide test or
     research frame. Missing values are never fabricated; pairwise correlations
@@ -68,10 +76,20 @@ def build_correlation_clusters(
 
     if window < 2:
         return _unavailable(window, "Correlation window must contain at least two price observations.")
+    if historical and (as_of is None or str(as_of).strip() == ""):
+        return _unavailable(window, "Historical crowding requires an explicit as_of date; none was supplied.")
     frame = _price_frame(prices)
     if frame.empty:
         return _unavailable(window, "No clean adjusted-price observations are available.")
-    frame = frame.sort_index().tail(window)
+    frame = frame.sort_index()
+    if as_of is not None:
+        cutoff = _as_of_timestamp(as_of)
+        if cutoff is None:
+            return _unavailable(window, "The crowding as_of is not a valid date.")
+        frame = frame.loc[frame.index <= cutoff]
+        if frame.empty:
+            return _unavailable(window, "No adjusted-price observations exist on or before the requested as_of.")
+    frame = frame.tail(window)
     returns = frame.pct_change(fill_method=None)
     min_pair_samples = max(20, min(60, window - 1))
     corr = returns.corr(min_periods=min_pair_samples)
@@ -256,11 +274,17 @@ def _ranking_weights(
     ranking = list(dict.fromkeys(item for item in ranking if item in instrument_ids))
     if not ranking:
         return [], {}
-    raw = {instrument_id: max(0.0, _safe_float((weights or {}).get(instrument_id)) or 0.0) for instrument_id in ranking}
-    if not any(raw.values()):
-        raw = {instrument_id: 1.0 for instrument_id in ranking}
+    # Only evidenced (explicit, finite, non-negative) weights count. A missing weight is not
+    # replaced by an equal weight: that would invent a false 100% concentration.
+    raw: dict[str, float] = {}
+    for instrument_id in ranking:
+        value = _safe_float((weights or {}).get(instrument_id))
+        if value is not None and value >= 0.0:
+            raw[instrument_id] = value
     total = sum(raw.values())
-    return ranking, {instrument_id: value / total for instrument_id, value in raw.items()}
+    if total <= 0.0:
+        return [], {}
+    return list(raw), {instrument_id: value / total for instrument_id, value in raw.items()}
 
 
 def _requested_ranking_count(
@@ -383,6 +407,18 @@ def _dominant(counts: dict[str, int], total: int) -> str | None:
 def _text(value: object) -> str | None:
     text = str(value or "").strip()
     return text or None
+
+
+def _as_of_timestamp(value: object) -> pd.Timestamp | None:
+    try:
+        stamp = pd.Timestamp(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(stamp):
+        return None
+    if stamp.tzinfo is not None:
+        stamp = stamp.tz_convert("UTC").tz_localize(None)
+    return stamp.normalize() + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
 
 
 def _as_of(index: pd.Index) -> str | None:

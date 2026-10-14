@@ -10,18 +10,26 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
 import os
 from pathlib import Path
 import sqlite3
 import threading
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, InvalidOperation
 from typing import Literal, Mapping
+
+import pandas as pd
 
 from etf_cockpit.core.config import load_config, load_settlement_config
 from etf_cockpit.core.paths import CONFIG_DIR
+from etf_cockpit.portfolio.benchmark_reference import (
+    VWCE_QUOTE_CURRENCY,
+    VwceReferenceSeriesCheck,
+    vwce_series_source_hash,
+)
+from etf_cockpit.portfolio.valuation import build_daily_portfolio_snapshots
 from etf_cockpit.trading.cash_reservation import CashReservationError
 from etf_cockpit.trading.order_lifecycle import (
     ALLOWED_TRANSITIONS,
@@ -44,6 +52,39 @@ class PaperLedgerError(ValueError):
 
 class PaperLedgerIntegrityError(PaperLedgerError):
     """The append-only ledger cannot be trusted and must remain read-only."""
+
+
+SHADOW_ACCOUNT_TYPE = "benchmark_shadow_account"
+_SHADOW_FLOW_KINDS = ("contribution", "withdrawal")
+
+
+@dataclass(frozen=True)
+class ShadowCostPolicy:
+    """Costs and lot policy a benchmark shadow account shares with the active account it mirrors.
+
+    ``commission`` is a flat fee per trade in the account base currency; ``adverse_bps`` is the combined
+    spread and slippage applied against the trade price; ``lot_size`` is the smallest tradable quantity step
+    (``1`` for whole units). The same instance (compared by digest) must drive both accounts.
+    """
+
+    commission: Decimal = Decimal("0")
+    adverse_bps: Decimal = Decimal("0")
+    lot_size: Decimal = MIN_QUANTITY
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "commission", _decimal_number(self.commission, "commission", non_negative=True))
+        object.__setattr__(self, "adverse_bps", _decimal_number(self.adverse_bps, "adverse_bps", non_negative=True))
+        object.__setattr__(self, "lot_size", _decimal_number(self.lot_size, "lot_size", positive=True))
+
+    def to_payload(self) -> dict[str, str]:
+        return {
+            "commission": format(self.commission.normalize(), "f"),
+            "adverse_bps": format(self.adverse_bps.normalize(), "f"),
+            "lot_size": format(self.lot_size.normalize(), "f"),
+        }
+
+    def digest(self) -> str:
+        return _digest(self.to_payload())
 
 
 @dataclass(frozen=True)
@@ -142,8 +183,11 @@ class PaperLedger:
         *,
         initial_cash: float,
         base_currency: str = "EUR",
+        cost_policy: ShadowCostPolicy | None = None,
         occurred_at: datetime | None = None,
     ) -> PaperAccountSnapshot:
+        if cost_policy is not None and (not isinstance(cost_policy, ShadowCostPolicy) or base_currency != "EUR" or initial_cash != 0):
+            raise PaperLedgerError("Matched active accounts require explicit policy, EUR and zero opening cash; record external flows separately.")
         cash = _decimal_number(initial_cash, "initial_cash", non_negative=True)
         currency = _clean_id(base_currency, "base_currency").upper()
         with self._lock, self._file_lock():
@@ -155,11 +199,42 @@ class PaperLedger:
                 return self._snapshot(events, state)
             self._append(
                 "account_opened",
-                {"initial_cash": str(cash), "base_currency": currency},
+                {"initial_cash": str(cash), "base_currency": currency, **({"cost_policy": cost_policy.to_payload(), "cost_policy_digest": cost_policy.digest()} if cost_policy is not None else {})},
                 occurred_at=occurred_at,
             )
             events = self._read_events()
             return self._snapshot(events, self._replay(events))
+
+    def record_external_flow(
+        self, *, flow_id: str, kind: Literal["contribution", "withdrawal"], amount: object,
+        flow_at: datetime, source_authority: str, source_checksum: str, effective_at: datetime | None = None,
+    ) -> dict[str, object]:
+        """Record canonical active-account cash evidence in the existing append-only ledger."""
+        if kind not in _SHADOW_FLOW_KINDS or not isinstance(flow_at, datetime) or flow_at.tzinfo is None:
+            raise PaperLedgerError("External flows require a supported kind and aware effective time.")
+        effective = effective_at or flow_at
+        if effective.tzinfo is None or effective < flow_at or (kind == "contribution" and effective != flow_at):
+            raise PaperLedgerError("Active flow effective time must be aware and cannot precede its request.")
+        payload = {"flow_id": _clean_id(flow_id, "flow_id"), "flow_kind": kind,
+                   "amount": str(_decimal_number(amount, "amount", positive=True)), "flow_at": _timestamp(flow_at), "effective_at": _timestamp(effective),
+                   **_provenance(source_authority, source_checksum), "execution_allowed": False}
+        with self._lock, self._file_lock():
+            events = self._read_events()
+            state = self._replay(events)
+            self._require_open(state)
+            if state["shadow"] is not None or state["cost_policy"] is None:
+                raise PaperLedgerError("Canonical active flows require an active account with an explicit cost policy.")
+            existing = state["external_flows"].get(payload["flow_id"])
+            if existing is not None:
+                if existing != payload:
+                    raise PaperLedgerError("The active flow was already recorded with different terms.")
+                return dict(existing)
+            if any(_event_time(event) > effective for event in events):
+                raise PaperLedgerError("Backdated active flows are unsupported.")
+            if kind == "withdrawal" and state["cash"] < Decimal(payload["amount"]):
+                raise PaperLedgerError("The active withdrawal exceeds available cash.")
+            self._append("external_flow_recorded", payload, occurred_at=effective)
+            return payload
 
     def cash_balance(self, *, account_id: str, currency: str, as_of: datetime) -> Decimal:
         """Expose the simulated account cash projection to the reservation service."""
@@ -282,6 +357,8 @@ class PaperLedger:
             events = self._read_events()
             state = self._replay(events)
             self._require_open(state)
+            if state["account_type"] != "paper":
+                raise PaperLedgerError("A benchmark shadow account cannot accept proposals.")
             self._require_order_pipeline_open()
             if proposal_id in state["rejections"]:
                 raise PaperLedgerError("A rejected proposal cannot be accepted later.")
@@ -698,6 +775,7 @@ class PaperLedger:
         fee: float | None = None,
         fx_rate: float | None = None,
         occurred_at: datetime | None = None,
+        reference_price: object | None = None,
     ) -> dict[str, object]:
         fill_quantity_decimal = _decimal_number(quantity, "quantity", positive=True)
         if fill_quantity_decimal < MIN_QUANTITY:
@@ -756,6 +834,18 @@ class PaperLedger:
                     / _decimal_number(order["quantity"], "quantity", positive=True)
                 )
                 fill_fee = float(fill_fee_decimal)
+            policy_payload = state["cost_policy"]
+            if policy_payload is not None:
+                policy = ShadowCostPolicy(**{key: Decimal(str(value)) for key, value in policy_payload.items()})
+                if (fill_quantity_decimal % policy.lot_size != 0 or fill_fee_decimal != policy.commission
+                        or fill_fx_decimal != 1 or order["currency"] != "EUR"):
+                    raise PaperLedgerError("The active fill conflicts with the canonical cost, FX or lot policy.")
+                if reference_price is None:
+                    raise PaperLedgerError("A canonical-policy fill requires its reference price.")
+                reference = _decimal_number(reference_price, "reference_price", positive=True)
+                expected = reference * (Decimal(1) + policy.adverse_bps / Decimal(10000) * (1 if order["side"] == "buy" else -1))
+                if fill_price_decimal != expected:
+                    raise PaperLedgerError("The active fill conflicts with canonical adverse-price policy.")
             if order["status"] in {"filled", "cancelled"}:
                 raise PaperLedgerError(f"The paper order is already {order['status']}.")
             if fill_quantity > float(order["remaining_quantity"]) + 1e-8:
@@ -1419,6 +1509,303 @@ class PaperLedger:
             rows.append(row)
         return tuple(rows)
 
+    def open_benchmark_shadow_account(
+        self,
+        *,
+        cost_policy: ShadowCostPolicy,
+        active_account: PaperLedger | None = None,
+        base_currency: str = "EUR",
+        instrument_id: str = "VWCE",
+        occurred_at: datetime | None = None,
+    ) -> PaperAccountSnapshot:
+        """Open the cash-flow-matched benchmark shadow account (same ledger, ``benchmark_shadow_account`` type).
+
+        It holds only the benchmark instrument and is funded solely by the external flows copied from the
+        active account (``record_shadow_flow``); it never accepts proposals.
+        """
+
+        if not isinstance(cost_policy, ShadowCostPolicy):
+            raise PaperLedgerError("A shadow cost policy is required.")
+        currency = _clean_id(base_currency, "base_currency").upper()
+        if currency != "EUR":
+            raise PaperLedgerError("Benchmark shadow accounts support EUR only.")
+        if not isinstance(active_account, PaperLedger) or active_account.account_id == self.account_id or active_account.root != self.root:
+            raise PaperLedgerError("A canonical active account in the same ledger root is required.")
+        active_events = active_account._read_events()
+        active_state = active_account._replay(active_events)
+        if (active_state["shadow"] is not None or active_state["base_currency"] != "EUR"
+                or active_state["cost_policy"] != cost_policy.to_payload()):
+            raise PaperLedgerError("The active account has unavailable or conflicting cost policy.")
+        instrument = _clean_id(instrument_id, "instrument_id").upper()
+        if instrument != "VWCE":
+            raise PaperLedgerError("The benchmark shadow instrument must be VWCE.")
+        with self._lock, self._file_lock():
+            events = self._read_events()
+            state = self._replay(events)
+            if state["opened"]:
+                shadow = state["shadow"]
+                if (
+                    not isinstance(shadow, Mapping)
+                    or state["base_currency"] != currency
+                    or shadow["instrument_id"] != instrument
+                    or shadow["cost_policy_digest"] != cost_policy.digest()
+                ):
+                    raise PaperLedgerError("The paper account already exists with different opening terms.")
+                return self._snapshot(events, state)
+            self._append(
+                "account_opened",
+                {
+                    "initial_cash": "0",
+                    "base_currency": currency,
+                    "account_type": SHADOW_ACCOUNT_TYPE,
+                    "active_account_id": active_account.account_id,
+                    "active_opening_hash": active_events[0]["event_hash"],
+                    "instrument_id": instrument,
+                    "cost_policy": cost_policy.to_payload(),
+                    "cost_policy_digest": cost_policy.digest(),
+                },
+                occurred_at=occurred_at,
+            )
+            events = self._read_events()
+            return self._snapshot(events, self._replay(events))
+
+    def record_shadow_flow(
+        self,
+        *,
+        flow_id: str,
+        kind: Literal["contribution", "withdrawal"],
+        amount: object,
+        flow_at: datetime,
+        prices: pd.DataFrame,
+        series_check: VwceReferenceSeriesCheck,
+        cost_policy: ShadowCostPolicy,
+        fx_rate: object | None = None,
+        decision_time: datetime | None = None,
+        source_authority: str = "vwce_reference_series",
+        occurred_at: datetime | None = None,
+    ) -> dict[str, object]:
+        """Mirror one external flow of the active account into the benchmark shadow account.
+
+        The cash enters at the first session on or after the flow date and buys (contribution) or sells
+        (withdrawal) the benchmark at the close of the first session strictly after the flow date, so no
+        same-day close is used. Costs and lot policy come from ``cost_policy``, which must equal the policy the
+        account was opened with. The price series must have passed the VWCE series contract; otherwise nothing
+        is recorded. A re-submitted ``flow_id`` with identical terms returns the recorded flow.
+        """
+
+        flow = _clean_id(flow_id, "flow_id")
+        if kind not in _SHADOW_FLOW_KINDS:
+            raise PaperLedgerError("A shadow flow must be a contribution or a withdrawal.")
+        amount_decimal = _decimal_number(amount, "amount", positive=True)
+        explicit_fx = None if fx_rate is None else _decimal_number(fx_rate, "fx_rate", positive=True)
+        if not isinstance(flow_at, datetime) or flow_at.tzinfo is None:
+            raise PaperLedgerError("A timezone-aware flow time is required.")
+        if not isinstance(series_check, VwceReferenceSeriesCheck) or series_check.status != "available":
+            raise PaperLedgerError("The benchmark shadow account requires a source-backed VWCE price series.")
+        if not isinstance(prices, pd.DataFrame) or series_check.source_hash != vwce_series_source_hash(prices):
+            raise PaperLedgerError("The price series does not match its verified source hash.")
+        cutoff = decision_time or occurred_at
+        if cutoff is None or cutoff.tzinfo is None or series_check.known_at is None or pd.Timestamp(series_check.known_at) > pd.Timestamp(cutoff):
+            raise PaperLedgerError("Reference known_at is unavailable at the requested decision cutoff.")
+        if explicit_fx is not None and explicit_fx != 1:
+            raise PaperLedgerError("EUR shadow accounts require identity FX.")
+        sessions = pd.to_datetime(prices["date"]).dt.normalize()
+        flow_day = pd.Timestamp(flow_at.astimezone(timezone.utc).date())
+        entry = sessions[sessions >= flow_day].min()
+        executed = sessions[sessions > flow_day].min()
+        if pd.isna(entry) or pd.isna(executed):
+            raise PaperLedgerError("No eligible benchmark session exists after the flow date yet.")
+        if executed.date() >= cutoff.astimezone(timezone.utc).date():
+            raise PaperLedgerError("Benchmark execution close is unavailable at the decision cutoff.")
+        close = prices.loc[sessions == executed, "close"]
+        if len(close) != 1:
+            raise PaperLedgerError("The benchmark session price is missing or ambiguous.")
+        close_price = _decimal_number(close.iloc[0], "close", positive=True)
+        checksum = series_check.source_hash
+        prefix_hash = _shadow_prefix_hash(prices, executed)
+        with self._lock, self._file_lock():
+            events = self._read_events()
+            state = self._replay(events)
+            self._require_open(state)
+            shadow = state["shadow"]
+            if not isinstance(shadow, Mapping):
+                raise PaperLedgerError("The account is not a benchmark shadow account.")
+            if cost_policy.digest() != shadow["cost_policy_digest"]:
+                raise PaperLedgerError("The shadow account must use the cost and lot policy it was opened with.")
+            existing = state["shadow_flows"].get(flow)
+            if existing is not None:
+                if (
+                    existing["flow_kind"] != kind
+                    or Decimal(existing["amount"]) != amount_decimal
+                    or existing["entry_session"] != entry.date().isoformat()
+                ):
+                    raise PaperLedgerError("The shadow flow was already recorded with different terms.")
+                return dict(existing)
+            active = PaperLedger(self.root, account_id=str(shadow.get("active_account_id", "")))
+            active_events = active._read_events()
+            active_state = active._replay(active_events)
+            matched = [event for event in active_events if event["event_type"] == "external_flow_recorded" and event["payload"]["flow_id"] == flow]
+            if (not active_events or active_events[0]["event_hash"] != shadow.get("active_opening_hash")
+                    or active_state["cost_policy"] != cost_policy.to_payload() or len(matched) != 1):
+                raise PaperLedgerError("Canonical active flow and policy evidence is unavailable.")
+            active_flow = matched[0]["payload"]
+            if (active_flow["flow_kind"] != kind or Decimal(active_flow["amount"]) != amount_decimal
+                    or pd.Timestamp(active_flow["flow_at"]) != pd.Timestamp(flow_at)):
+                raise PaperLedgerError("The shadow flow conflicts with canonical active flow terms.")
+            if pd.Timestamp(matched[0]["occurred_at"]) > pd.Timestamp(cutoff):
+                raise PaperLedgerError("Active flow evidence is unavailable at the decision cutoff.")
+            prior = list(state["shadow_flows"].values())
+            if any(pd.Timestamp(item["executed_session"]) >= entry for item in prior):
+                raise PaperLedgerError("Overlapping or backdated shadow execution chronology is unsupported.")
+            active_entry = pd.Timestamp(active_flow["effective_at"]).tz_convert("UTC").tz_localize(None).normalize()
+            if kind == "withdrawal" and active_entry == executed:
+                entry = executed
+            elif active_entry != entry:
+                raise PaperLedgerError("Canonical active flow effective session does not match the shadow session.")
+            if kind == "withdrawal" and entry < executed and state["cash"] < amount_decimal:
+                raise PaperLedgerError("Withdrawal chronology requires canonical settlement at the execution session.")
+            fx = self._resolve_fx(explicit_fx, VWCE_QUOTE_CURRENCY, state)
+            policy = cost_policy
+            adverse = policy.adverse_bps / Decimal(10000)
+            cash = state["cash"]
+            units = state["shadow_units"]
+            side, quantity, price, fee = "none", Decimal("0"), close_price, Decimal("0")
+            if kind == "contribution":
+                price = close_price * (Decimal(1) + adverse)
+                budget = amount_decimal - policy.commission
+                if budget > 0:
+                    lots = (budget / (price * fx) / policy.lot_size).to_integral_value(rounding=ROUND_FLOOR)
+                    quantity = lots * policy.lot_size
+                if quantity > 0:
+                    side, fee = "buy", policy.commission
+                else:
+                    quantity = Decimal("0")
+            elif cash < amount_decimal:
+                price = close_price * (Decimal(1) - adverse)
+                needed = amount_decimal - cash + policy.commission
+                lots = (needed / (price * fx) / policy.lot_size).to_integral_value(rounding=ROUND_CEILING)
+                quantity = lots * policy.lot_size
+                if quantity > units:
+                    raise PaperLedgerError("The withdrawal exceeds the value of the benchmark shadow account.")
+                side, fee = "sell", policy.commission
+            payload = {
+                "flow_id": flow,
+                "active_flow_hash": matched[0]["event_hash"],
+                "reference_known_at": series_check.known_at,
+                "decision_time": _timestamp(cutoff),
+                "flow_kind": kind,
+                "amount": str(amount_decimal),
+                "flow_at": _timestamp(flow_at),
+                "entry_session": entry.date().isoformat(),
+                "executed_session": executed.date().isoformat(),
+                "executed_close": str(close_price),
+                "prefix_hash": prefix_hash,
+                "instrument_id": shadow["instrument_id"],
+                "side": side,
+                "quantity": str(quantity),
+                "price": str(price),
+                "fx_rate": str(fx),
+                "fee": str(fee),
+                "cost_policy_digest": policy.digest(),
+                "execution_allowed": False,
+                **_provenance(source_authority, checksum),
+            }
+            self._append("shadow_flow_executed", payload, occurred_at=occurred_at)
+            return payload
+
+    def shadow_daily_snapshots(
+        self,
+        prices: pd.DataFrame,
+        *,
+        series_check: VwceReferenceSeriesCheck,
+        through: date,
+        decision_time: datetime | None = None,
+    ) -> pd.DataFrame:
+        """Value the shadow account per session through the canonical daily-snapshot builder.
+
+        The result has the standard ``SNAPSHOT_COLUMNS`` so TWR, XIRR and the performance series run on the same
+        canonical path as the active account. External flows appear on their entry session; trades and fees on
+        their execution session.
+        """
+
+        if not isinstance(series_check, VwceReferenceSeriesCheck) or series_check.status != "available":
+            raise PaperLedgerError("The benchmark shadow account requires a source-backed VWCE price series.")
+        if not isinstance(prices, pd.DataFrame) or series_check.source_hash != vwce_series_source_hash(prices):
+            raise PaperLedgerError("The price series does not match its verified source hash.")
+        if (decision_time is None or decision_time.tzinfo is None or series_check.known_at is None
+                or pd.Timestamp(series_check.known_at) > pd.Timestamp(decision_time)):
+            raise PaperLedgerError("Reference known_at is unavailable at the requested decision cutoff.")
+        with self._lock:
+            state = self._replay(self._read_events())
+        shadow = state["shadow"]
+        if not isinstance(shadow, Mapping):
+            raise PaperLedgerError("The account is not a benchmark shadow account.")
+        flows = list(state["shadow_flows"].values())
+        if any(pd.Timestamp(flow.get("decision_time")) > pd.Timestamp(decision_time) for flow in flows):
+            raise PaperLedgerError("Shadow flow evidence is unavailable at the requested decision cutoff.")
+        if not flows:
+            raise PaperLedgerError("The benchmark shadow account has no recorded flows.")
+        sessions = pd.to_datetime(prices["date"]).dt.normalize()
+        # ``source_checksum`` is provenance only: appending newer sessions changes the whole-series hash. Each flow
+        # instead binds the history up to its own execution session (prefix hash plus raw close).
+        for flow in flows:
+            executed_day = pd.Timestamp(str(flow["executed_session"]))
+            recorded_close = flow.get("executed_close")
+            current = prices.loc[sessions == executed_day, "close"]
+            if (
+                not flow.get("prefix_hash")
+                or recorded_close is None
+                or len(current) != 1
+                or _decimal_number(current.iloc[0], "close", positive=True) != Decimal(str(recorded_close))
+                or _shadow_prefix_hash(prices, executed_day) != flow["prefix_hash"]
+            ):
+                raise PaperLedgerError(f"historical_price_revised:{flow['flow_id']}")
+        closes = dict(zip(sessions.dt.date, prices["close"], strict=True))
+        start = min(date.fromisoformat(str(flow["entry_session"])) for flow in flows)
+        end = through if isinstance(through, date) else date.fromisoformat(str(through))
+        if end >= decision_time.astimezone(timezone.utc).date():
+            raise PaperLedgerError("Benchmark close is unavailable at the decision cutoff.")
+        days = sorted(day for day in closes if start <= day <= end)
+        if not days or days[-1] != end:
+            raise PaperLedgerError("The requested end date is not a benchmark session.")
+        instrument = str(shadow["instrument_id"])
+        holdings, price_rows, cash_rows, events = [], [], [], []
+        for day in days:
+            cash = Decimal("0")
+            units = Decimal("0")
+            for flow in flows:
+                sign = Decimal(1) if flow["flow_kind"] == "contribution" else Decimal(-1)
+                if date.fromisoformat(str(flow["entry_session"])) <= day:
+                    cash += sign * Decimal(flow["amount"])
+                if date.fromisoformat(str(flow["executed_session"])) <= day and flow["side"] != "none":
+                    gross = Decimal(flow["quantity"]) * Decimal(flow["price"]) * Decimal(flow["fx_rate"])
+                    traded = Decimal(flow["quantity"]) * (1 if flow["side"] == "buy" else -1)
+                    cash += (-gross if flow["side"] == "buy" else gross) - Decimal(flow["fee"])
+                    units += traded
+            holdings.append({"date": day, "instrument_id": instrument, "quantity": float(units)})
+            price_rows.append({"date": day, "instrument_id": instrument, "price": float(closes[day])})
+            cash_rows.append({"date": day, "cash_value": float(cash)})
+        for flow in flows:
+            entry = date.fromisoformat(str(flow["entry_session"]))
+            executed = date.fromisoformat(str(flow["executed_session"]))
+            if start <= entry <= end:
+                events.append({"date": entry, "event_type": flow["flow_kind"], "amount": float(Decimal(flow["amount"]))})
+            if start <= executed <= end and Decimal(flow["fee"]) > 0:
+                events.append({"date": executed, "event_type": "fee", "amount": float(Decimal(flow["fee"]))})
+        inputs = [pd.DataFrame(holdings), pd.DataFrame(price_rows), pd.DataFrame(cash_rows),
+                  pd.DataFrame(events, columns=["date", "event_type", "amount"])]
+        for frame in inputs:
+            frame["available_at"] = series_check.known_at
+        result = build_daily_portfolio_snapshots(
+            *inputs,
+            decision_time=decision_time,
+            calendar="XETR",
+        )
+        result.attrs.update(benchmark_id="benchmark:ftse-all-world", source_hash=series_check.source_hash,
+                            known_at=series_check.known_at, active_account_id=shadow["active_account_id"],
+                            shadow_account_id=self.account_id, execution_allowed=False, calendar="XETR")
+        return result
+
     def _append(self, event_type: str, payload: Mapping[str, object], *, occurred_at: datetime | None) -> None:
         events = self._read_events()
         sequence = len(events) + 1
@@ -1693,6 +2080,12 @@ class PaperLedger:
             "order_pnls": {},
             "timeline": {},
             "benchmark_return": None,
+            "account_type": "paper",
+            "shadow": None,
+            "shadow_flows": {},
+            "shadow_units": Decimal("0"),
+            "cost_policy": None,
+            "external_flows": {},
         }
         for event in events:
             kind = str(event["event_type"])
@@ -1708,7 +2101,18 @@ class PaperLedger:
                     initial_cash=_decimal_number(payload["initial_cash"], "initial_cash", non_negative=True),
                     cash=_decimal_number(payload["initial_cash"], "initial_cash", non_negative=True),
                     equity_peak=float(payload["initial_cash"]),
+                    account_type=str(payload.get("account_type", "paper")),
                 )
+                state["cost_policy"] = payload.get("cost_policy")
+                if state["account_type"] == SHADOW_ACCOUNT_TYPE:
+                    state["shadow"] = {
+                        "instrument_id": str(payload["instrument_id"]),
+                        "active_account_id": payload.get("active_account_id"),
+                        "active_opening_hash": payload.get("active_opening_hash"),
+                        "cost_policy_digest": str(payload["cost_policy_digest"]),
+                    }
+                elif state["account_type"] != "paper":
+                    raise PaperLedgerIntegrityError("Paper account type is unsupported.")
             elif not state["opened"]:
                 raise PaperLedgerIntegrityError("Paper events precede account opening.")
             elif kind == "order_accepted":
@@ -1763,6 +2167,17 @@ class PaperLedger:
                 except PaperLedgerError as exc:
                     raise PaperLedgerIntegrityError("A paper outcome has invalid source provenance.") from exc
                 outcomes[outcome_id] = dict(payload)
+            elif kind == "external_flow_recorded":
+                flow_id = str(payload["flow_id"])
+                amount = _decimal_number(payload["amount"], "amount", positive=True)
+                if flow_id in state["external_flows"] or payload["flow_kind"] not in _SHADOW_FLOW_KINDS:
+                    raise PaperLedgerIntegrityError("An active external flow is duplicated or invalid.")
+                state["cash"] += amount if payload["flow_kind"] == "contribution" else -amount
+                if state["cash"] < 0:
+                    raise PaperLedgerIntegrityError("An active external flow overdrew cash.")
+                state["external_flows"][flow_id] = dict(payload)
+            elif kind == "shadow_flow_executed":
+                self._apply_shadow_flow(state, payload)
             elif kind == "operational_error":
                 errors = state["operational_errors"]
                 assert isinstance(errors, list)
@@ -1872,6 +2287,59 @@ class PaperLedger:
         if any(str(item.get("fill_id")) == str(payload.get("fill_id")) for item in fills if isinstance(item, Mapping)):
             raise PaperLedgerIntegrityError("A paper fill ID was recorded twice.")
         fills.append(dict(payload))
+
+    @staticmethod
+    def _apply_shadow_flow(state: dict[str, object], payload: Mapping[str, object]) -> None:
+        """Apply one external flow and the benchmark trade it triggered to a shadow account's replay state."""
+
+        shadow = state["shadow"]
+        flows = state["shadow_flows"]
+        positions = state["positions"]
+        assert isinstance(flows, dict) and isinstance(positions, dict)
+        if not isinstance(shadow, Mapping):
+            raise PaperLedgerIntegrityError("A shadow flow was recorded on a non-shadow paper account.")
+        flow_id = str(payload["flow_id"])
+        kind = str(payload["flow_kind"])
+        side = str(payload["side"])
+        if flow_id in flows or kind not in _SHADOW_FLOW_KINDS or side not in {"buy", "sell", "none"}:
+            raise PaperLedgerIntegrityError("A shadow flow is duplicated or malformed.")
+        if str(payload["cost_policy_digest"]) != shadow["cost_policy_digest"]:
+            raise PaperLedgerIntegrityError("A shadow flow used a different cost policy than the account.")
+        _provenance(payload.get("source_authority"), payload.get("source_checksum"))
+        amount = _decimal_number(payload["amount"], "amount", positive=True)
+        quantity = _decimal_number(payload["quantity"], "quantity", non_negative=True)
+        price = _decimal_number(payload["price"], "price", positive=True)
+        fx = _decimal_number(payload["fx_rate"], "fx_rate", positive=True)
+        fee = _decimal_number(payload["fee"], "fee", non_negative=True)
+        cash = state["cash"] + (amount if kind == "contribution" else -amount)
+        units = state["shadow_units"]
+        instrument_id = str(shadow["instrument_id"])
+        position = positions.setdefault(
+            instrument_id,
+            {"quantity": 0.0, "average_cost": 0.0, "realised_pnl": 0.0, "currency": state["base_currency"]},
+        )
+        gross = quantity * price * fx
+        if side == "buy":
+            cash -= gross + fee
+            total_cost = float(units) * float(position["average_cost"]) + float(gross + fee)
+            units += quantity
+            position["average_cost"] = total_cost / float(units)
+        elif side == "sell":
+            if quantity > units:
+                raise PaperLedgerIntegrityError("A shadow sale exceeds the benchmark position.")
+            cash += gross - fee
+            position["realised_pnl"] = float(position.get("realised_pnl", 0.0)) + float(
+                gross - fee - quantity * Decimal(str(position["average_cost"]))
+            )
+            units -= quantity
+            if units == 0:
+                position["average_cost"] = 0.0
+        if cash < 0:
+            raise PaperLedgerIntegrityError("A shadow flow overdrew the benchmark account cash.")
+        position["quantity"] = float(units)
+        state["cash"] = cash
+        state["shadow_units"] = units
+        flows[flow_id] = dict(payload)
 
     @staticmethod
     def _apply_corporate_action(
@@ -2105,6 +2573,13 @@ def _update_equity_peak(state: dict[str, object]) -> None:
     state["equity_peak"] = max(float(state.get("equity_peak", 0.0)), equity)
 
 
+def _shadow_prefix_hash(prices: pd.DataFrame, executed: pd.Timestamp) -> str:
+    """Hash the VWCE rows up to and including ``executed`` so later appended sessions do not change it."""
+
+    sessions = pd.to_datetime(prices["date"]).dt.normalize()
+    return vwce_series_source_hash(prices.loc[sessions <= executed].reset_index(drop=True))
+
+
 def _provenance(source_authority: object, source_checksum: object) -> dict[str, str]:
     authority = _clean_id(source_authority, "source_authority")
     checksum = str(source_checksum or "").strip().lower()
@@ -2270,6 +2745,8 @@ __all__ = [
     "EXECUTION_ALLOWED",
     "NETWORK_ACCESS_ALLOWED",
     "PAPER_SCHEMA_VERSION",
+    "SHADOW_ACCOUNT_TYPE",
+    "ShadowCostPolicy",
     "PaperAccountSnapshot",
     "PaperLedger",
     "PaperLedgerError",

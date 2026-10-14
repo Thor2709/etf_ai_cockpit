@@ -4154,6 +4154,14 @@ def _price_liquidity_lookup(
     output: dict[str, dict[str, object]] = {}
     for etf_id, group in frame.sort_values("date").groupby("etf_id", sort=False):
         tail = group.tail(20).reset_index(drop=True)
+        if (tail["volume"] < 0).any() or (tail["volume"].abs() == float("inf")).any():
+            output[str(etf_id)] = {
+                "avg_turnover_20": None,
+                "spread_proxy_20": None,
+                "fx_note": None,
+                "fx_unavailable_reason": f"Liquidity is unavailable: {etf_id} has negative or non-finite volume in the turnover window.",
+            }
+            continue
         turnover = (tail["close"] * tail["volume"]).replace([float("inf"), float("-inf")], pd.NA).dropna()
         spread = ((tail["high"] - tail["low"]) / tail["close"]).replace([float("inf"), float("-inf")], pd.NA).dropna()
         avg_turnover: float | None = None
