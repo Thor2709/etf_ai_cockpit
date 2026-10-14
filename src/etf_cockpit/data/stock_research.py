@@ -488,6 +488,7 @@ def valuation_analysis(
             for item in raw_scenarios.values()
         )
         dcf_facts = ("free_cash_flow", "revenue") if margin_scenario else ("free_cash_flow",)
+        dcf_facts += _bridge_statement_metrics(frame, values, market)
         dcf_basis = _valuation_inputs_comparable(frame, dcf_facts, market_inputs or {}, net_debt=True)
         if bank_route:
             sustainable_roe = _float(assumption_values.get("sustainable_roe"))
@@ -2750,6 +2751,24 @@ def _ev_equity_bridge(values: Mapping[str, float], assumptions: Mapping[str, obj
     }
 
 
+def _bridge_statement_metrics(frame: pd.DataFrame, values: Mapping[str, float], market: Mapping[str, object]) -> tuple[str, ...]:
+    """Statement-sourced bridge metrics actually used, so strict mode checks their period/currency/scope with the DCF facts."""
+
+    if frame.empty or "canonical_metric" not in frame.columns:
+        return ()
+    present = set(frame["canonical_metric"].astype(str))
+    used: list[str] = []
+    for name, aliases, _sign in _BRIDGE_ITEMS:
+        alias = next((item for item in aliases if values.get(item) is not None), None)
+        if alias is None or market.get(alias) is not None:
+            continue
+        if alias in present:
+            used.append(alias)
+        elif name == "net_debt":
+            used.extend(item for item in ("debt", "cash") if item in present)  # net debt derived from debt - cash
+    return tuple(used)
+
+
 def _equity_from_enterprise(enterprise_value: float, bridge: Mapping[str, object]) -> float | None:
     claims = bridge.get("total_claims")
     return None if claims is None else enterprise_value + float(claims)
@@ -2882,7 +2901,11 @@ def _residual_income(values: Mapping[str, float], assumptions: Mapping[str, obje
     book = values.get("equity")
     net_income = values.get("net_income")
     shares = values.get("shares_outstanding")
-    cost = _float(assumptions.get("cost_of_equity", assumptions.get("discount_rate")))
+    if "cost_of_equity" in assumptions and assumptions["cost_of_equity"] is None:
+        cost = None  # explicit None (bank route) blocks the CAPM and discount-rate fallbacks
+    else:
+        ledger_cost = build_cost_of_capital_ledger(assumptions).cost_of_equity  # one ledger shared with the FCFE DCF
+        cost = ledger_cost if ledger_cost is not None else _float(assumptions.get("discount_rate"))
     growth = _float(assumptions.get("terminal_growth"))
     years = _forecast_years(assumptions)
     if book is None or net_income is None or shares is None or shares <= 0 or cost is None or growth is None or years <= 0 or cost <= growth or cost <= -1.0 or growth <= -1.0:

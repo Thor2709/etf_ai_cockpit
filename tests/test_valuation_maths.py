@@ -267,3 +267,27 @@ def test_b06_c2_n002_preview_rejects_terminal_growth_the_dcf_rejects() -> None:
         valuation_views._normalise_valuation_assumptions(contract)
     assert sr._intrinsic_value(_values(), _assumptions(discount_rate=0.1, terminal_growth=-1.0))["status"] == "unavailable"
     assert valuation_views._normalise_valuation_assumptions({**contract, "terminal_growth": -0.99})["terminal_growth"] == -0.99
+
+
+def test_fcff_bridge_items_must_share_the_net_debt_period_in_strict_mode() -> None:
+    frame = _statement_frame()
+    nd = {"instrument_id": "ACME", "currency": "USD", "start": "2025-01-01", "end": "2025-12-31", "period_end": "2025-12-31", "filed": "2026-02-01", "available_at": "2026-02-01T00:00:00Z", "consolidation_scope": "consolidated"}
+    mi = {**nd, "start": "2024-01-01", "end": "2024-12-31", "period_end": "2024-12-31", "filed": "2025-02-01", "available_at": "2025-02-01T00:00:00Z"}
+    rows = [{**nd, "canonical_metric": "net_debt", "value": 400.0, "source_id": "f-nd"}, {**mi, "canonical_metric": "minority_interest", "value": 30.0, "source_id": "f-mi"}]
+    assumptions = _assumptions(cash_flow_claim_type="fcff", wacc=0.092, bridge_not_applicable={k: v for k, v in NIL_BRIDGE.items() if k != "minority_interest"})
+    mixed = sr.valuation_analysis(pd.concat([frame, pd.DataFrame(rows)]), instrument_id="ACME", assumptions=assumptions, as_known_at="2026-06-30T00:00:00Z")
+    assert mixed["intrinsic_value"]["status"] == mixed["reverse_dcf"]["status"] == mixed["driver_dcf"]["status"] == "unavailable"
+    assert "reporting period" in mixed["intrinsic_value"]["reason"]
+    aligned = pd.DataFrame([rows[0], {**rows[1], **nd, "canonical_metric": "minority_interest"}])
+    ok = sr.valuation_analysis(pd.concat([frame, aligned]), instrument_id="ACME", assumptions=assumptions, as_known_at="2026-06-30T00:00:00Z")
+    assert "reporting period" not in str(ok["intrinsic_value"].get("reason"))
+
+
+def test_residual_income_uses_the_shared_cost_of_capital_ledger() -> None:
+    values = {"equity": 500.0, "net_income": 80.0, "shares_outstanding": 100.0}
+    capm = {"forecast_years": 5, "terminal_growth": 0.02, "discount_rate": 0.08, "risk_free_rate": 0.03, "equity_risk_premium": 0.05, "beta": 1.2}
+    ledger = build_cost_of_capital_ledger(capm)
+    result = sr._residual_income(values, capm)
+    assert ledger.cost_of_equity == pytest.approx(0.09) and result["cost_of_equity"] == pytest.approx(0.09)
+    assert sr._residual_income(values, {k: v for k, v in capm.items() if k not in {"risk_free_rate", "beta"}})["cost_of_equity"] == 0.08  # no ledger k_e -> discount_rate
+    assert sr._residual_income(values, {**capm, "cost_of_equity": None})["status"] == "unavailable"  # explicit None (bank route) still blocks

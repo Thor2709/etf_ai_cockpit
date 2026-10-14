@@ -2745,6 +2745,8 @@ def _valuation_panel(instrument_id: str, asset_type: object, decision_time: obje
             for name in ("ev_to_sales", "ev_to_ebitda", "price_to_earnings", "price_to_book", "dividend_yield")
         },
         **models,
+        **{field: result.get(field) for field in ("operator_weights", "valuation_status", "expires_at", "refresh_reason", "comparability_mode")},
+        "cost_of_capital": {field: (result.get("cost_of_capital") or {}).get(field) for field in ("basis", "cost_of_equity", "wacc", "conflicts")},
         "assumption_context": assumption_context,
         "scenario_status": models["intrinsic_value"]["status"] if context else "unavailable: explicit scenario assumptions required",
         "source_lineage": {field: result["source_lineage"].get(field) for field in ("statement_view", "as_known_at", "source_ids", "knowledge_precision", "cutoff_policy")},
