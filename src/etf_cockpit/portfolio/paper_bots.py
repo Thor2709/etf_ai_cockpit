@@ -78,8 +78,12 @@ def run_paper_bots(
     *,
     root: Path | None = None,
     config_path: Path | None = None,
+    now: datetime | None = None,
 ) -> PaperBotRunResult:
-    """Record this month's first eligible published decision for each bot."""
+    """Record this month's first eligible published decision for each bot.
+
+    ``now`` injects the recorder clock (default: the real UTC clock) for deterministic replay and tests.
+    """
 
     project_root = Path(root or ROOT).resolve()
     try:
@@ -87,7 +91,7 @@ def run_paper_bots(
     except (TypeError, ValueError) as exc:
         return PaperBotRunResult("unavailable", None, None, (), f"Invalid as_of: {exc}")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc) if now is None else now.astimezone(timezone.utc)
     if cutoff.date() != now.date() or cutoff > now + timedelta(minutes=5):
         return PaperBotRunResult(
             "unavailable",
