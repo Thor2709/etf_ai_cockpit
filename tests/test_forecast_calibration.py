@@ -75,24 +75,25 @@ def _settings(*, minimum: int = 2, tolerance: float = 0.05) -> dict[str, object]
 
 def test_calibration_excludes_outcomes_maturing_at_decision_time() -> None:
     prices = _prices(12)
-    forecasts = _forecasts(prices, 4)
+    forecasts = _forecasts(prices, 8)
     calibrated = calibrate_forecast_distribution(
         forecasts,
         prices,
         _distribution(),
         instrument_id="AAA",
-        decision_time=prices["date"].iloc[3],
-        settings=_settings(minimum=2),
+        decision_time=prices["date"].iloc[6],
+        settings=_settings(minimum=4),
     )
 
+    # Origins 0-4 have targets before the decision day; origin 5 matures on it and is excluded.
     evidence = calibrated["conformal_calibration"]
     assert evidence["status"] == "calibrated"
-    assert evidence["sample_count"] == 2
+    assert evidence["sample_count"] == 5
 
 
 def test_calibration_rejects_in_sample_rows_and_accepts_out_of_fold_rows() -> None:
     prices = _prices(12)
-    forecasts = _forecasts(prices, 5)
+    forecasts = _forecasts(prices, 8)
     forecasts["out_of_fold"] = False
     splits = build_walk_forward_splits(forecasts["forecast_date"].dt.date.unique())
 
@@ -110,7 +111,7 @@ def test_calibration_rejects_in_sample_rows_and_accepts_out_of_fold_rows() -> No
     # Audit finding E: retrospective date grouping is not out-of-fold evidence and must not
     # unlock calibration on its own.
     grouped = _mark_walk_forward_provenance(forecasts, splits)
-    assert grouped["out_of_fold"].tolist() == [False] * 5
+    assert grouped["out_of_fold"].tolist() == [False] * 8
     assert grouped.loc[grouped["evidence_basis"].eq("retrospective_date_grouped"), "fold_id"].notna().all()
     still_in_sample = calibrate_forecast_distribution(
         grouped,
@@ -124,17 +125,17 @@ def test_calibration_rejects_in_sample_rows_and_accepts_out_of_fold_rows() -> No
 
     # Rows carrying genuine out-of-fold provenance from a real walk-forward fit still calibrate.
     genuine = grouped.copy()
-    genuine.loc[genuine.index[-2:], "out_of_fold"] = True
+    genuine.loc[genuine["fold_id"].notna(), "out_of_fold"] = True
     out_of_fold = calibrate_forecast_distribution(
         genuine,
         prices,
         _distribution(),
         instrument_id="AAA",
-        decision_time=prices["date"].iloc[6],
-        settings=_settings(minimum=2),
+        decision_time=prices["date"].iloc[9],
+        settings=_settings(minimum=4),
     )
     assert out_of_fold["conformal_calibration"]["status"] == "calibrated"
-    assert out_of_fold["conformal_calibration"]["sample_count"] == 2
+    assert out_of_fold["conformal_calibration"]["sample_count"] == 5
 
 
 def test_duplicate_predictions_do_not_meet_floor_and_other_model_evidence_is_ignored() -> None:
@@ -357,7 +358,7 @@ def test_missing_calibration_configuration_fails_closed() -> None:
 
 def test_probabilities_restore_only_from_matching_matured_calibration_evidence() -> None:
     prices = _prices(12)
-    forecasts = _forecasts(prices, 5)
+    forecasts = _forecasts(prices, 8)
     construction = [{
         "model_name": "baseline",
         "model_id": "model-A",
@@ -367,6 +368,8 @@ def test_probabilities_restore_only_from_matching_matured_calibration_evidence()
     probability_evidence = {
         "status": "calibrated",
         "sample_count": 2,
+        "instrument_id": "AAA",
+        "horizon_days": 1,
         "matured_through": prices["date"].iloc[6],
         "model_construction": construction,
         "probabilities": {

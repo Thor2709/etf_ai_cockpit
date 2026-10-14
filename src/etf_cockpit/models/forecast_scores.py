@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from io import BytesIO
 import json
+import logging
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from etf_cockpit.models.calibration import TARGET_REGISTRY, target_matches_evalu
 from etf_cockpit.models.ensemble import MIXTURE_QUANTILE_METHOD, mixture_quantiles
 from etf_cockpit.models.uncertainty import unavailable_decomposition
 
+_LOGGER = logging.getLogger(__name__)
 EXTRA_QUANTILE_FIELDS = tuple(field for field in QUANTILE_FIELDS if field not in {"q10_return", "q50_return", "q90_return"})
 PRIMARY_MODEL_HORIZON_DAYS = 60
 FALLBACK_MODEL_HORIZONS_DAYS = (120, 20, 5, 180)
@@ -336,8 +338,58 @@ def filter_forecasts_for_universe(
     return forecasts.loc[valid].copy()
 
 
-def forecast_component_maps(forecasts: pd.DataFrame) -> dict[str, dict[str, float]]:
-    """Return per-model score maps from validated forecast rows."""
+def _is_mock_forecast_row(frame: pd.DataFrame) -> pd.Series:
+    """Rows produced by an optional model's mock mode are never score inputs."""
+
+    mock = pd.Series(False, index=frame.index)
+    if "calibration_status" in frame.columns:
+        mock |= frame["calibration_status"].astype(str).str.lower().str.contains("mock", na=False)
+    if "model_version" in frame.columns:
+        mock |= frame["model_version"].astype(str).str.lower().str.endswith("_mock", na=False)
+    return mock
+
+
+def _scoreable_forecast_rows(frame: pd.DataFrame, decision_time: object = None) -> pd.DataFrame:
+    """Return successful, allowed, non-mock rows with finite horizon/return at or before ``decision_time``.
+
+    Dropped rows are reported by reason through the module logger; a supplied
+    decision time without a usable forecast date drops the row (fail closed).
+    """
+
+    frame = frame.copy()
+    frame["model_name"] = frame["model_name"].astype(str).str.lower()
+    frame["horizon_days"] = pd.to_numeric(frame["horizon_days"], errors="coerce")
+    frame["expected_return"] = pd.to_numeric(frame["expected_return"], errors="coerce")
+    allowed = frame["model_allowed_in_score"].astype(str).str.lower().isin({"true", "1", "yes"})
+    frame = frame[(frame["status"].astype(str).str.lower() == "ok") & allowed]
+    frame = frame.dropna(subset=["etf_id", "model_name", "horizon_days", "expected_return"])
+    mock = _is_mock_forecast_row(frame)
+    finite = np.isfinite(frame["horizon_days"]) & np.isfinite(frame["expected_return"]) & (frame["horizon_days"] > 0)
+    if bool(mock.any()):
+        _LOGGER.warning("Dropped %d mock forecast row(s) from the score map: mock output is never scoreable.", int(mock.sum()))
+    if bool((~finite).any()):
+        _LOGGER.warning("Dropped %d forecast row(s) with a non-finite or non-positive horizon or return.", int((~finite).sum()))
+    frame = frame[~mock & finite]
+    if decision_time is not None:
+        cutoff = _normalise_decision_time(decision_time)
+        if cutoff is None or "forecast_date" not in frame.columns:
+            if not frame.empty:
+                _LOGGER.warning("Dropped all forecast rows: a point-in-time cutoff needs a valid decision time and forecast dates.")
+            return frame.iloc[0:0]
+        dates = frame["forecast_date"].map(_normalise_decision_time)
+        keep = dates.notna() & (dates <= cutoff)
+        if bool((~keep).any()):
+            _LOGGER.warning("Dropped %d forecast row(s) dated after the decision time or undated.", int((~keep).sum()))
+        frame = frame[keep]
+    return frame
+
+
+def forecast_component_maps(forecasts: pd.DataFrame, *, decision_time: object = None) -> dict[str, dict[str, float]]:
+    """Return per-model score maps from validated forecast rows.
+
+    ``decision_time`` applies a point-in-time cutoff: rows dated after it are
+    excluded. Mock, non-finite-horizon and non-finite-return rows never score.
+    """
     output: dict[str, dict[str, float]] = {"toto": {}, "timesfm": {}, "baseline": {}}
     if forecasts.empty:
         return output
@@ -346,13 +398,7 @@ def forecast_component_maps(forecasts: pd.DataFrame) -> dict[str, dict[str, floa
     if not required.issubset(forecasts.columns):
         return output
 
-    frame = forecasts.copy()
-    frame["model_name"] = frame["model_name"].astype(str).str.lower()
-    frame["horizon_days"] = pd.to_numeric(frame["horizon_days"], errors="coerce")
-    frame["expected_return"] = pd.to_numeric(frame["expected_return"], errors="coerce")
-    allowed = frame["model_allowed_in_score"].astype(str).str.lower().isin({"true", "1", "yes"})
-    frame = frame[(frame["status"].astype(str).str.lower() == "ok") & allowed]
-    frame = frame.dropna(subset=["etf_id", "model_name", "horizon_days", "expected_return"])
+    frame = _scoreable_forecast_rows(forecasts, decision_time)
     if frame.empty:
         return output
 
@@ -372,14 +418,14 @@ def forecast_component_maps(forecasts: pd.DataFrame) -> dict[str, dict[str, floa
     return output
 
 
-def forecast_score_details(forecasts: pd.DataFrame) -> pd.DataFrame:
+def forecast_score_details(forecasts: pd.DataFrame, *, decision_time: object = None) -> pd.DataFrame:
     if forecasts.empty:
         return pd.DataFrame(columns=["etf_id", "model_name", "horizon_days", "expected_return", "score"])
     rows: list[dict[str, object]] = []
-    maps = forecast_component_maps(forecasts)
+    maps = forecast_component_maps(forecasts, decision_time=decision_time)
     for model_name, scores in maps.items():
         for etf_id, score in scores.items():
-            selected = _selected_forecast_row(forecasts, model_name, etf_id)
+            selected = _selected_forecast_row(forecasts, model_name, etf_id, decision_time=decision_time)
             rows.append(
                 {
                     "etf_id": etf_id,
@@ -493,6 +539,7 @@ def forecast_return_distributions(
     allowed = frame["model_allowed_in_score"].astype(str).str.lower().isin({"true", "1", "yes"})
     frame = frame[(frame["status"].astype(str).str.lower() == "ok") & allowed]
     frame = frame.dropna(subset=["etf_id", "model_name", "horizon_days"])
+    frame = frame[~_is_mock_forecast_row(frame) & np.isfinite(frame["horizon_days"]) & (frame["horizon_days"] > 0)]
     model_horizons_by_id = _declared_horizons_by_id(frame, "model_id", "model_horizon_days")
     target_horizons_by_id = _declared_horizons_by_id(frame, "target_id", "target_horizon_days")
     if frame.empty:
@@ -929,18 +976,11 @@ def _horizon_identity_is_valid(
     return horizons_by_id.get(identity.strip()) == frozenset({requested_horizon})
 
 
-def _selected_forecast_row(forecasts: pd.DataFrame, model_name: str, etf_id: str) -> pd.Series | None:
-    frame = forecasts.copy()
-    frame["model_name"] = frame["model_name"].astype(str).str.lower()
-    frame["horizon_days"] = pd.to_numeric(frame["horizon_days"], errors="coerce")
-    frame["expected_return"] = pd.to_numeric(frame["expected_return"], errors="coerce")
-    allowed = frame["model_allowed_in_score"].astype(str).str.lower().isin({"true", "1", "yes"})
-    frame = frame[
-        (frame["model_name"] == model_name)
-        & (frame["etf_id"].astype(str) == etf_id)
-        & (frame["status"].astype(str).str.lower() == "ok")
-        & allowed
-    ].dropna(subset=["horizon_days", "expected_return"])
+def _selected_forecast_row(
+    forecasts: pd.DataFrame, model_name: str, etf_id: str, *, decision_time: object = None
+) -> pd.Series | None:
+    frame = _scoreable_forecast_rows(forecasts, decision_time)
+    frame = frame[(frame["model_name"] == model_name) & (frame["etf_id"].astype(str) == etf_id)]
     return _choose_horizon_row(frame)
 
 
@@ -952,6 +992,8 @@ def _choose_horizon_row_for(group: pd.DataFrame, primary_horizon: int) -> pd.Ser
     if "forecast_date" not in group.columns:
         return None
     group = group.loc[group["forecast_date"].map(_normalise_decision_time).notna()]
+    horizons = pd.to_numeric(group["horizon_days"], errors="coerce")
+    group = group.loc[np.isfinite(horizons) & (horizons > 0)]
     if group.empty:
         return None
     fallback_horizons = tuple(horizon for horizon in (PRIMARY_MODEL_HORIZON_DAYS, *FALLBACK_MODEL_HORIZONS_DAYS) if horizon != primary_horizon)

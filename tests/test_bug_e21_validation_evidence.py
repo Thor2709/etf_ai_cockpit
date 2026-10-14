@@ -184,7 +184,7 @@ def test_terminal_summary_requires_all_shards_exact_sha_and_no_duplicates(
     assert any("shards are incomplete" in error for error in validation_summary.validate_summary(one_shard))
 
     stale = _collect(_artifacts(tmp_path / "b", sha="c" * 40), tmp_path, monkeypatch)
-    assert any("exact head SHA" in error for error in validation_summary.validate_summary(stale))
+    assert any("exact tested SHA" in error for error in validation_summary.validate_summary(stale))
 
     duplicated = _collect(_artifacts(tmp_path / "c", overlap=True), tmp_path, monkeypatch)
     assert any("duplicate test(s)" in error for error in validation_summary.validate_summary(duplicated))
