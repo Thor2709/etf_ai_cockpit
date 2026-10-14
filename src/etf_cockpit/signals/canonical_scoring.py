@@ -39,6 +39,34 @@ class CanonicalScoreError(ValueError):
     """Raised when the versioned canonical score policy is invalid."""
 
 
+# S3-02: model forecasts are a separate ``expected_return`` domain. Its weight in any rank is 0 until the #811
+# promotion (with the paired #928 test) records an explicit finite weight; the ``expected_return`` group weights in
+# ``score_engine_v3.yaml`` size that separate domain's own 0-10 value and are never rank weights.
+RANK_DOMAINS = ("attractiveness", "risk_implementation")
+FORECAST_DOMAIN = "expected_return"
+
+
+def rank_domain_weights(
+    policy: "ScorePolicy",
+    *,
+    forecast_promotion: Mapping[str, object] | None = None,
+) -> dict[str, float]:
+    """Rank weight per domain: the forecast domain is 0.0 unless a promotion record carries an explicit weight.
+
+    Fails closed: a promotion without ``promoted is True``, the paired ``test_id`` and a finite ``weight`` in (0, 1]
+    leaves the forecast weight at 0.0. The ranked domains are the policy's own group sums, unchanged.
+    """
+
+    weights = {group: float(sum(policy.groups.get(group, {}).values())) for group in RANK_DOMAINS}
+    weight = 0.0
+    if isinstance(forecast_promotion, Mapping) and forecast_promotion.get("promoted") is True and forecast_promotion.get("test_id"):
+        candidate = finite_float_or_none(forecast_promotion.get("weight"))
+        if candidate is not None and 0.0 < candidate <= 1.0:
+            weight = candidate
+    weights[FORECAST_DOMAIN] = weight
+    return weights
+
+
 @dataclass(frozen=True)
 class ScorePolicy:
     formula_version: str

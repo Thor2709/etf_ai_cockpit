@@ -86,7 +86,7 @@ from etf_cockpit.application.ui_facade import (
     MacroWarehouseError,
     SimpleInstrumentScore,
     build_data_health,
-    build_simple_instrument_scores,
+    build_simple_instrument_scores as build_simple_instrument_scores,
     compare_runs,
     events_available_as_of,
     filter_forecasts_for_universe,
@@ -184,6 +184,10 @@ def _home_view(state: AppState) -> tuple[HomeView, list[SimpleInstrumentScore]]:
         change.instrument_id: (change.previous_rank, change.current_rank)
         for change in (report.changes if report is not None else ())
     }
+    if report is not None:
+        from etf_cockpit.application.score_views import displayed_rank_info
+
+        rank_info = displayed_rank_info(rank_info, scores, _score_history_for_snapshot(state), report.previous_run_id)
     data_report = state.snapshot.data_report
     try:
         health_report = build_data_health(
