@@ -296,7 +296,9 @@ def test_projection_authority_complete_weak_missing_and_unavailable() -> None:
     )
     missing = _build("bank", (_metric("npl_ratio", "bank"),))
     unavailable = _build("bank", (_metric("cet1_ratio", "bank", None),))
-    assert complete.authority_status == "high"
+    # B108/B008: confidence reflects evidence coverage, so one metric of the
+    # model's formula set is no longer "high"; full coverage is asserted by the golden test.
+    assert complete.authority_status == "limited" and complete.aggregate_confidence < 0.2
     assert weak.authority_status == "limited" and weak.aggregate_confidence <= 0.55
     assert (
         missing.authority_status == "limited" and missing.aggregate_confidence <= 0.45

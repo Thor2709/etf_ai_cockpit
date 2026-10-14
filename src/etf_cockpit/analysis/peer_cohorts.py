@@ -404,6 +404,7 @@ def normalize_peer_metric(
     bootstrap_seed: int = 0,
     bootstrap_samples: int = 400,
     winsor_mad: float = 3.0,
+    minimum_support: int | None = None,
 ) -> PeerNormalizationResult:
     """Rank a configured metric shape and convert its shrunk percentile to z."""
 
@@ -493,6 +494,7 @@ def normalize_peer_metric(
         bootstrap_seed=bootstrap_seed,
         bootstrap_samples=bootstrap_samples,
         winsor_mad=winsor_mad,
+        minimum_support=minimum_support,
     )
     if ranked.shrunk_percentile is None or ranked.percentile is None:
         return PeerNormalizationResult(
@@ -540,8 +542,12 @@ def calculate_peer_metric(
     bootstrap_seed: int = 0,
     bootstrap_samples: int = 400,
     winsor_mad: float = 3.0,
+    minimum_support: int | None = None,
 ) -> PeerMetricResult:
-    """Calculate robust rank evidence; inapplicable metrics never receive a score."""
+    """Calculate robust rank evidence; inapplicable metrics never receive a score.
+
+    With ``minimum_support`` set, a cohort below it is unavailable instead of ranked on thin support.
+    """
 
     if not applicable:
         return PeerMetricResult(
@@ -599,6 +605,22 @@ def calculate_peer_metric(
             0.0,
             0,
             "PEER_VALUES_UNAVAILABLE",
+        )
+    if minimum_support is not None and len(usable) < minimum_support:
+        return PeerMetricResult(
+            metric,
+            True,
+            "unavailable",
+            target_value,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            0.0,
+            len(usable),
+            "PEER_SUPPORT_BELOW_MINIMUM",
         )
     values = [value for value, _ in usable]
     weights = [weight for _, weight in usable]
@@ -686,11 +708,11 @@ def bootstrap_percentile_interval(
     population = list(range(len(pairs)))
     probabilities = [weight for _, weight in pairs]
     draws: list[float] = []
+    n = effective_sample_size(probabilities)  # same shrinkage mass as the point estimate
     for _ in range(samples):
         indices = rng.choices(population, weights=probabilities, k=len(pairs))
         sample_values = [pairs[index][0] for index in indices]
         rank = weighted_empirical_cdf(sample_values, [1.0] * len(indices), target)
-        n = float(len(indices))
         draws.append(
             (n * rank + shrinkage_strength * parent_percentile)
             / (n + shrinkage_strength)
@@ -731,6 +753,7 @@ def build_peer_projection(
         applicable=applicable
         and (not adapter.applicable_metrics or metric in adapter.applicable_metrics),
         bootstrap_seed=bootstrap_seed,
+        minimum_support=minimum_support,
     )
     formula_parameters = {
         "minimum_support": minimum_support,

@@ -17,7 +17,7 @@ from typing import Any
 import pandas as pd
 
 from etf_cockpit.analysis import stock_metrics as sm
-from etf_cockpit.analysis.stock_evidence import AnalystInputs, MarketInputs, StockEvidence, build_stock_evidence
+from etf_cockpit.analysis.stock_evidence import AnalystInputs, MarketInputs, StockEvidence, build_stock_evidence, metric_freshness_reason
 from etf_cockpit.analysis.stock_peers import PeerPick, PeerProfile, auto_peers, effective_peers
 from etf_cockpit.core.frame_signature import columns_key
 from etf_cockpit.core.paths import ROOT
@@ -49,6 +49,7 @@ class StockRecord:
     region: str
     sector: str
     lifecycle_date: date | None = None
+    invalid_lifecycle: bool = False  # a cutoff was given but cannot be parsed: no evidence, with a reason
 
 
 @dataclass
@@ -64,6 +65,18 @@ class UniverseEvidence:
     prices: dict[str, MarketInputs] = field(default_factory=dict)
     periods: dict[str, list[sm.Period]] = field(default_factory=dict)
     config: dict[str, Any] = field(default_factory=dict)
+    excluded: dict[str, str] = field(default_factory=dict)  # instrument_id -> reason it has no evidence
+
+
+def _blank(value: object) -> bool:
+    if value is None:
+        return True
+    try:
+        if bool(pd.isna(value)):
+            return True
+    except (TypeError, ValueError):
+        pass
+    return isinstance(value, str) and value.strip().casefold() in {"", "nan", "nat", "none"}
 
 
 def stock_records(universe_rows: Iterable[Mapping[str, Any]], config: Mapping[str, Any]) -> list[StockRecord]:
@@ -79,6 +92,9 @@ def stock_records(universe_rows: Iterable[Mapping[str, Any]], config: Mapping[st
         instrument_id = str(row.get("id") or "")
         if not instrument_id:
             continue
+        raw_cutoff = row.get("lifecycle_date")
+        cutoff = None if _blank(raw_cutoff) else sm.as_utc(raw_cutoff)  # a blank cell (None/NaN/NaT/"") means no cutoff
+        invalid = not _blank(raw_cutoff) and cutoff is None  # an unparseable cutoff cannot prove the stock is active: fail closed
         records.append(
             StockRecord(
                 instrument_id,
@@ -87,9 +103,8 @@ def stock_records(universe_rows: Iterable[Mapping[str, Any]], config: Mapping[st
                 str(row.get("currency") or ""),
                 str(row.get("region") or ""),
                 str(row.get("sector") or ""),
-                (sm.as_utc(row.get("lifecycle_date")) or datetime.max.replace(tzinfo=timezone.utc)).date()
-                if row.get("lifecycle_date")
-                else None,
+                cutoff.date() if cutoff is not None else None,
+                invalid,
             )
         )
     return records
@@ -145,7 +160,11 @@ def market_inputs(
             dividend_reason = "incomplete_dividend_year: stored dividend rows do not cover the full trailing year"
     else:
         dividend_reason = "incomplete_dividend_year: no complete trailing-year dividend observations are stored"
-    month_ends = known.set_index("date")["close"].resample("ME").last().dropna()
+    closes = known.set_index("date")["close"].dropna()
+    # the month-end reading is dated by the last stored price, not the calendar label, so filings known between the two never leak in
+    month_ends = closes.groupby(closes.index.to_period("M")).tail(1)
+    running_month = pd.Period(decision_time.date(), "M")
+    month_ends = month_ends[month_ends.index.to_period("M") < running_month]  # the decision month is still running, every earlier month is complete
     series = tuple((index.date(), float(value)) for index, value in month_ends.items())
     shares = sm._finite((snapshot or {}).get("shares_outstanding"))
     snap_time = sm.as_utc((snapshot or {}).get("known_at"))
@@ -189,12 +208,16 @@ def _profile(record: StockRecord, snapshot: Mapping[str, Any] | None, fx: pd.Dat
     minor = (config.get("reporting", {}) or {}).get("minor_currency_units", {}) or {}
     cap = sm._finite((snapshot or {}).get("market_cap_provider"))
     cap_eur = None
-    if cap is not None:
-        quote_major, _ = sm.minor_unit(str((snapshot or {}).get("quote_currency") or record.currency), minor)
+    quote = str((snapshot or {}).get("quote_currency") or "").strip()  # never the instrument's listing currency: the cap's own currency is unknown otherwise
+    if cap is not None and quote:
+        quote_major, _ = sm.minor_unit(quote, minor)
         if quote_major == "EUR":
             cap_eur = cap / 1e9
         else:
-            rate, _day = store.fx_rate(f"{quote_major}EUR", decision_time.date(), fx, decision_time=decision_time, max_age_days=30)
+            cap_time = sm.as_utc((snapshot or {}).get("known_at"))
+            cap_date = cap_time.date() if cap_time is not None else None
+            # the provider cap is dated by its snapshot: convert with the FX of that date, never a later or older vintage
+            rate, _day = (None, None) if cap_date is None else store.fx_rate(f"{quote_major}EUR", cap_date, fx, decision_time=decision_time)
             cap_eur = None if rate is None else cap * rate / 1e9
     return PeerProfile(
         record.instrument_id,
@@ -214,13 +237,14 @@ def build_universe_evidence(
     root: Path | None = None,
     config: Mapping[str, Any] | None = None,
 ) -> UniverseEvidence:
-    records = [record for record in records if record.lifecycle_date is None or decision_time.date() <= record.lifecycle_date]
+    excluded = {r.instrument_id: "invalid_lifecycle_date: the lifecycle cutoff cannot be parsed, so the stock is not shown as active" for r in records if r.invalid_lifecycle}
+    records = [record for record in records if not record.invalid_lifecycle and (record.lifecycle_date is None or decision_time.date() <= record.lifecycle_date)]
     cfg = dict(config) if config is not None else store.load_stock_config(root)
     chain = list((cfg.get("sources", {}) or {}).get("chain", ["sec_edgar", "yfinance"]))
     periods_frame = store.read_fundamentals(root)
     snapshots = store.read_snapshots(root)
     fx = store.read_fx(root)
-    result = UniverseEvidence(decision_time, config=cfg)
+    result = UniverseEvidence(decision_time, config=cfg, excluded=excluded)
     user_picks = load_user_peers(root)
     result.user_peers = user_picks
     ids = [r.instrument_id for r in records]
@@ -251,7 +275,15 @@ def build_universe_evidence(
         result.names[iid] = (snapshot or {}).get("long_name") if iid.startswith("peer:") and snapshot else record.name
         first[iid] = build_stock_evidence(iid, periods, decision_time, market, analyst_inputs(analyst), cfg, no_data_reason=reason)
         result.profiles[iid] = _profile(record, snapshot, fx, cfg, decision_time)
-    peer_values = {key: {iid: ev.metrics[key].value for iid, ev in first.items() if key in ev.metrics and ev.metrics[key].available} for key in PEER_METRIC_KEYS}
+    stale_days = int((cfg.get("reporting", {}) or {}).get("max_balance_staleness_days", 400))
+    peer_values = {
+        key: {
+            iid: ev.metrics[key].value
+            for iid, ev in first.items()
+            if key in ev.metrics and ev.metrics[key].available and metric_freshness_reason(ev.metrics[key], decision_time, stale_days) is None
+        }
+        for key in PEER_METRIC_KEYS
+    }
     candidates = [result.profiles[r.instrument_id] for r in records]
     for record in records:
         iid = record.instrument_id

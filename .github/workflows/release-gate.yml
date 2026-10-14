@@ -969,6 +969,7 @@ jobs:
         env:
           BASE_SHA: ${{ needs.classifier.outputs.base_sha }}
           HEAD_SHA: ${{ needs.classifier.outputs.head_sha }}
+          TESTED_SHA: ${{ github.sha }}
           CLASSIFIER_RESULT: ${{ needs.classifier.result }}
           PREFLIGHT_RESULT: ${{ needs.preflight.result }}
           SUPPLY_RESULT: ${{ needs['supply-chain'].result }}
@@ -980,6 +981,7 @@ jobs:
             --artifacts-root validation-evidence \
             --base "$BASE_SHA" \
             --head "$HEAD_SHA" \
+            --tested "$TESTED_SHA" \
             --job-result "classifier=$CLASSIFIER_RESULT" \
             --job-result "preflight=$PREFLIGHT_RESULT" \
             --job-result "supply_chain=$SUPPLY_RESULT" \

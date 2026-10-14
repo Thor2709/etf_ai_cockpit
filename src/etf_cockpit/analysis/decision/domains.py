@@ -439,6 +439,7 @@ def _score_metric(
             metric_shape=definition.metric_shape,
             comparison_scope=definition.comparison_scope,
             band=definition.band,
+            minimum_support=minimum_support,
         )
     except PeerCohortError as exc:
         return (

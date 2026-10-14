@@ -425,6 +425,7 @@ def normalise_valuation_assumptions(
     aliases = (
         ("cost_of_equity", ("cost_of_equity", "k", "cost_of_equity_pct"), "COST_OF_EQUITY_ALIAS_CONFLICT"),
         ("long_run_growth", ("long_run_growth", "g", "long_run_growth_pct"), "GROWTH_ALIAS_CONFLICT"),
+        ("sustainable_roe", ("sustainable_roe", "sustainable_roe_pct"), "SUSTAINABLE_ROE_ALIAS_CONFLICT"),
     )
     default_values = defaults or {}
     for canonical, names, conflict_code in aliases:
