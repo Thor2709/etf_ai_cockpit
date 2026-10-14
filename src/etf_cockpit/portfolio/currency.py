@@ -6,6 +6,7 @@ import math
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from types import MappingProxyType
 from typing import Literal, Mapping
 
@@ -221,3 +222,35 @@ def _monetary_values(analysis: PortfolioAnalysis) -> tuple[tuple[str, object], .
                 )
             )
     return tuple(values)
+
+
+def session_fx_rate(
+    fx_rates: pd.DataFrame | None,
+    session: date | datetime | str,
+    *,
+    from_currency: str,
+    to_currency: str,
+    known_at: date | datetime | str | None = None,
+) -> tuple[Decimal | None, str | None]:
+    """Return the point-in-time FX rate for one price session, or ``(None, reason)``.
+
+    The rate must be quoted on or before the session and known by ``known_at`` (default: the session);
+    a stale, missing or inconsistent snapshot is unavailable. An identical-currency conversion is exactly 1
+    and never needs a quote, so a EUR-quoted VWCE listing is never re-converted from its USD base currency.
+    """
+
+    base = str(from_currency or "").strip().upper()
+    quote = str(to_currency or "").strip().upper()
+    if not re.fullmatch(r"[A-Z]{3}", base) or not re.fullmatch(r"[A-Z]{3}", quote):
+        return None, "FX conversion requires three-letter currency codes."
+    if base == quote:
+        return Decimal("1"), None
+    if not isinstance(fx_rates, pd.DataFrame):
+        return None, "FX rates are unavailable."
+    snapshot = build_fx_rate_snapshot(fx_rates, decision_time=session, known_at=known_at)
+    if not snapshot.available:
+        return None, snapshot.reason or "FX snapshot is unavailable."
+    cross = fx_cross_rate(snapshot, base, quote)
+    if cross is None or not math.isfinite(cross.rate) or cross.rate <= 0:
+        return None, f"No consistent {base}/{quote} FX rate is available."
+    return Decimal(repr(cross.rate)), None
