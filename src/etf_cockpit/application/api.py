@@ -99,6 +99,9 @@ CommandHandler = Callable[[ApplicationCommand], Mapping[str, object] | None]
 PageItemT = TypeVar("PageItemT")
 
 
+_REPLAYABLE_STATUSES = frozenset({ApiStatus.ACCEPTED, ApiStatus.AVAILABLE, ApiStatus.REPLAYED})
+
+
 @dataclass(frozen=True)
 class _LedgerEntry:
     fingerprint: str
@@ -441,17 +444,7 @@ class LocalApplicationApi:
 
     def get_portfolios(self, page: PageRequest = PageRequest()) -> PageView[PortfolioViewModel]:
         frame = _frame(getattr(self._snapshot(), "holdings", pd.DataFrame()))
-        rows = tuple(
-            PortfolioViewModel(
-                instrument_id=str(row.get("etf_id", row.get("instrument_id", ""))),
-                current_weight=_finite(row.get("current_weight")),
-                target_weight=_finite(row.get("target_weight")),
-                market_value=_finite(row.get("market_value_eur", row.get("market_value"))),
-                currency=_optional_text(row.get("currency")),
-                status="available",
-            )
-            for _, row in frame.iterrows()
-        )
+        rows = tuple(_portfolio_view_model(row) for _, row in frame.iterrows())
         return _page(rows, page)
 
     def get_jobs(self, page: PageRequest = PageRequest()) -> PageView[JobViewModel]:
@@ -721,6 +714,9 @@ class LocalApplicationApi:
                         error_code="idempotency_key_reused",
                         error_message="The idempotency key was already used for a different command.",
                     )
+                if prior.result.status not in _REPLAYABLE_STATUSES:
+                    # An unsuccessful command stays unsuccessful on replay; only the flag marks it as stored.
+                    return prior.result.model_copy(update={"replayed": True})
                 return prior.result.model_copy(update={"status": ApiStatus.REPLAYED, "replayed": True})
             if command.expected_revision is not None and command.expected_revision != self.revision:
                 result = _result(
@@ -847,6 +843,25 @@ def _proposal_view_model(item: Mapping[str, object]) -> ProposalViewModel:
         authority_policy_checksum=str(item.get("authority_policy_checksum", "")),
         gate_policy_version=str(item.get("gate_policy_version", "")),
         gate_policy_checksum=str(item.get("gate_policy_checksum", "")),
+    )
+
+
+def _portfolio_view_model(row: Mapping[str, object]) -> PortfolioViewModel:
+    """Pair a holding value with the currency it is actually expressed in; no value is unavailable."""
+
+    if "market_value_eur" in row:
+        value, currency = _finite(row.get("market_value_eur")), "EUR"
+    else:
+        value, currency = _finite(row.get("market_value")), _optional_text(row.get("currency"))
+    if value is None or currency is None:
+        value, currency = None, None
+    return PortfolioViewModel(
+        instrument_id=str(row.get("etf_id", row.get("instrument_id", ""))),
+        current_weight=_finite(row.get("current_weight")),
+        target_weight=_finite(row.get("target_weight")),
+        market_value=value,
+        currency=currency,
+        status="available" if value is not None else "unavailable",
     )
 
 
