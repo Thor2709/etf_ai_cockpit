@@ -361,6 +361,7 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/performance_budgets.yaml | budgets, policy_version, regression_tolerance_pct, schema_version | policy_version="2026-07-17"; schema_version="performance-budgets.v1" |
 | configs/plugin_registry.yaml | allowlist, execution_allowed, schema_version | schema_version="plugin-registry.v1" |
 | configs/portfolio_forecast_v1.yaml | scenario_count, scenario_seed, schema_version, stress_correlation | schema_version=portfolio_forecast.v1 |
+| configs/portfolio_policy_v1.yaml | approval, execution_allowed, historical_targets, passive_default, policy_id, schema_version, version | schema_version=portfolio-policy.v1; version=1.0.0 |
 | configs/portfolio_targets.yaml | base_currency, cash_min_weight, cash_target_weight, portfolio, positions | — |
 | configs/pre_trade_limits_v1.yaml | allowed_instruments, cancel_open_paper_orders_on_kill_switch, max_daily_turnover, max_order_value, max_override_ttl_seconds, max_position_exposure, schema_version | schema_version=pre_trade_limits.v1 |
 | configs/product_governance.yaml | authority, default_portfolio_review_state, default_research_state, executable_authority, execution_allowed, policy_id, policy_version, product, prohibited_claims, required_disclosures, schema_version | policy_version="2026-07-12"; schema_version="1.0" |

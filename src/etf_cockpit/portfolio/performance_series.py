@@ -11,10 +11,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from io import StringIO
-from typing import Literal
+from typing import Literal, Mapping
 
 import pandas as pd
 
@@ -76,7 +76,7 @@ _CURRENCY_METRICS = frozenset(
     }
 )
 _UNAVAILABLE_METRICS = {
-    "benchmark": "Benchmark return observations are not stored in portfolio valuation snapshots.",
+    "benchmark": "No source-backed VWCE benchmark reference is available, so benchmark returns are not shown.",
 }
 _FREQUENCIES = {"week": "W-SUN", "month": "M", "quarter": "Q-DEC", "year": "Y-DEC"}
 
@@ -124,8 +124,14 @@ def build_portfolio_performance_series(
     custom_start: date | str | None = None,
     custom_end: date | str | None = None,
     fx_rates: pd.DataFrame | None = None,
+    benchmark_snapshots: pd.DataFrame | None = None,
+    benchmark_reference: Mapping[str, object] | None = None,
 ) -> PerformanceSeries:
     """Build a view without modifying saved snapshots or reimplementing returns.
+
+    ``metric="benchmark"`` is the cash-flow-matched VWCE shadow account's TWR return over the same periods. It
+    needs ``benchmark_snapshots`` (shadow-account daily snapshots) and a ``benchmark_reference`` whose status is
+    ``available`` (``vwce_reference_status``); either missing leaves the metric unavailable with a reason.
 
     TWR and MWR always pass through the canonical valuation functions. Period
     P&L uses the saved daily canonical ``investment_pnl`` values. Currency
@@ -142,6 +148,44 @@ def build_portfolio_performance_series(
         return _unavailable(selected_metric, selected_currency, selected_range, selected_aggregation, "The requested aggregation is unsupported.")
     if not _valid_currency(selected_currency):
         return _unavailable(selected_metric, selected_currency, selected_range, selected_aggregation, "Output currency must be a three-letter currency code.")
+    if selected_metric == "benchmark":
+        if (
+            not isinstance(benchmark_reference, Mapping)
+            or benchmark_reference.get("status") != "available"
+            or benchmark_reference.get("execution_allowed") is not False
+        ):
+            return _unavailable(selected_metric, selected_currency, selected_range, selected_aggregation, _UNAVAILABLE_METRICS[selected_metric])
+        if selected_currency != "EUR":
+            return _unavailable(selected_metric, selected_currency, selected_range, selected_aggregation, "The VWCE benchmark series is EUR-quoted; no currency conversion is applied to it.")
+        if benchmark_snapshots is None:
+            return _unavailable(selected_metric, selected_currency, selected_range, selected_aggregation, "The cash-flow-matched VWCE shadow account snapshots are unavailable.")
+        source_hash = benchmark_reference.get("source_hash")
+        lineage = benchmark_snapshots.attrs
+        if (not isinstance(source_hash, str) or len(source_hash) != 64
+                or benchmark_reference.get("benchmark_id") != "benchmark:ftse-all-world"
+                or not benchmark_reference.get("known_at")
+                or lineage.get("source_hash") != source_hash
+                or lineage.get("known_at") != benchmark_reference.get("known_at")
+                or lineage.get("benchmark_id") != "benchmark:ftse-all-world"
+                or not lineage.get("shadow_account_id")
+                or not isinstance(snapshots, pd.DataFrame)
+                or snapshots.attrs.get("account_id") != lineage.get("active_account_id")):
+            return _unavailable(selected_metric, selected_currency, selected_range, selected_aggregation, "Canonical reference and active-account snapshot lineage are unavailable.")
+        from etf_cockpit.portfolio.benchmark_relative_diagnostics import build_relative_performance
+
+        matched = build_relative_performance(snapshots, benchmark_snapshots)
+        if matched.compounded_relative_wealth is None:
+            return _unavailable(selected_metric, selected_currency, selected_range, selected_aggregation, "Canonical active and benchmark dates, flows or valuation evidence are not matched.")
+        inner = build_portfolio_performance_series(
+            benchmark_snapshots,
+            metric="twr_return",
+            date_range=selected_range,
+            aggregation=selected_aggregation,
+            currency=selected_currency,
+            custom_start=custom_start,
+            custom_end=custom_end,
+        )
+        return replace(inner, metric="benchmark")
     if selected_metric in _UNAVAILABLE_METRICS:
         return _unavailable(selected_metric, selected_currency, selected_range, selected_aggregation, _UNAVAILABLE_METRICS[selected_metric])
     if snapshots is None or not isinstance(snapshots, pd.DataFrame) or snapshots.empty:
@@ -581,7 +625,7 @@ def _metric_value(
 def _canonical_twr(snapshots: pd.DataFrame) -> dict[str, object]:
     if len(snapshots) < 2:
         return {"status": "unavailable", "value": None, "reason": "At least two complete daily snapshots are required."}
-    return link_time_weighted_return(snapshots, start=snapshots.iloc[0]["date"], end=snapshots.iloc[-1]["date"])
+    return link_time_weighted_return(snapshots, start=snapshots.iloc[0]["date"], end=snapshots.iloc[-1]["date"], calendar=snapshots.attrs.get("calendar", "XNYS"))
 
 
 def _canonical_mwr(snapshots: pd.DataFrame) -> dict[str, object]:

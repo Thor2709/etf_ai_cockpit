@@ -1,0 +1,23 @@
+schema_version: portfolio-policy.v1
+policy_id: portfolio_policy
+version: 1.0.0
+execution_allowed: false
+# The policy is inert until the owner approves it: a pending approval makes
+# load_passive_default_policy() report "unavailable" and nothing may rely on it.
+approval:
+  status: pending_owner_approval
+  approved_by: null
+  approved_at: null
+passive_default:
+  instrument_id: VWCE
+  isin: IE00BK5BQT80
+  listing: VWCE.DE
+  currency: EUR
+  # VWCE is the default holding unless an active edge over buy-and-hold VWCE is shown.
+  applies_when: no_active_edge_shown
+  active_edge_evidence: cash_flow_matched_vwce_shadow_account
+# portfolio_targets.yaml is the historical analysis-only target file. This policy
+# versions the passive default beside it and never edits it.
+historical_targets:
+  file: configs/portfolio_targets.yaml
+  modified_by_policy: false
