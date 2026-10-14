@@ -734,7 +734,6 @@ def _revision(value: object) -> int:
 
 PERIOD_EXCESS_LABEL = "Period excess return R_p - R_b (arithmetic difference of period returns; not compounded)"
 RELATIVE_WEALTH_LABEL = "Compounded relative wealth W_p / W_b - 1 (cash-flow-matched end values)"
-RELATIVE_RETURN_LABEL = PERIOD_EXCESS_LABEL  # BenchmarkRelativeReport.relative_return is a period difference.
 
 
 @dataclass(frozen=True, slots=True)
@@ -742,7 +741,9 @@ class RelativePerformance:
     """Strategy versus cash-flow-matched benchmark, with each measure separately labelled.
 
     ``strategy_twr`` / ``benchmark_twr`` measure the strategy independent of investor flow timing;
-    ``strategy_mwr`` / ``benchmark_mwr`` are de-annualised XIRR period returns that include timing.
+    ``strategy_mwr`` / ``benchmark_mwr`` are the period returns from ``calculate_money_weighted_return``, which
+    already de-annualises XIRR over the window (or falls back to Modified Dietz, also a period return), so they
+    are like-for-like with the TWR period returns and ``investor_timing_gap = MWR - TWR`` needs no conversion.
     The excess return and the relative wealth are different quantities and are never merged.
     """
 
@@ -864,7 +865,6 @@ __all__ = [
     "DimensionDiagnostic",
     "MODEL_VERSION",
     "PERIOD_EXCESS_LABEL",
-    "RELATIVE_RETURN_LABEL",
     "RELATIVE_WEALTH_LABEL",
     "RelativePerformance",
     "ReturnObservation",

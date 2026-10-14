@@ -1622,6 +1622,7 @@ class PaperLedger:
             raise PaperLedgerError("The benchmark session price is missing or ambiguous.")
         close_price = _decimal_number(close.iloc[0], "close", positive=True)
         checksum = series_check.source_hash
+        prefix_hash = _shadow_prefix_hash(prices, executed)
         with self._lock, self._file_lock():
             events = self._read_events()
             state = self._replay(events)
@@ -1697,6 +1698,8 @@ class PaperLedger:
                 "flow_at": _timestamp(flow_at),
                 "entry_session": entry.date().isoformat(),
                 "executed_session": executed.date().isoformat(),
+                "executed_close": str(close_price),
+                "prefix_hash": prefix_hash,
                 "instrument_id": shadow["instrument_id"],
                 "side": side,
                 "quantity": str(quantity),
@@ -1740,11 +1743,23 @@ class PaperLedger:
         flows = list(state["shadow_flows"].values())
         if any(pd.Timestamp(flow.get("decision_time")) > pd.Timestamp(decision_time) for flow in flows):
             raise PaperLedgerError("Shadow flow evidence is unavailable at the requested decision cutoff.")
-        if any(flow.get("source_checksum") != series_check.source_hash for flow in flows):
-            raise PaperLedgerError("Shadow execution lineage differs from the supplied reference series.")
         if not flows:
             raise PaperLedgerError("The benchmark shadow account has no recorded flows.")
         sessions = pd.to_datetime(prices["date"]).dt.normalize()
+        # ``source_checksum`` is provenance only: appending newer sessions changes the whole-series hash. Each flow
+        # instead binds the history up to its own execution session (prefix hash plus raw close).
+        for flow in flows:
+            executed_day = pd.Timestamp(str(flow["executed_session"]))
+            recorded_close = flow.get("executed_close")
+            current = prices.loc[sessions == executed_day, "close"]
+            if (
+                not flow.get("prefix_hash")
+                or recorded_close is None
+                or len(current) != 1
+                or _decimal_number(current.iloc[0], "close", positive=True) != Decimal(str(recorded_close))
+                or _shadow_prefix_hash(prices, executed_day) != flow["prefix_hash"]
+            ):
+                raise PaperLedgerError(f"historical_price_revised:{flow['flow_id']}")
         closes = dict(zip(sessions.dt.date, prices["close"], strict=True))
         start = min(date.fromisoformat(str(flow["entry_session"])) for flow in flows)
         end = through if isinstance(through, date) else date.fromisoformat(str(through))
@@ -2556,6 +2571,13 @@ def _update_equity_peak(state: dict[str, object]) -> None:
         marked_value += float(position.get("quantity", 0.0)) * float(position["mark_price"]) * float(position.get("mark_fx_rate", 1.0))
     equity = float(state.get("cash", 0.0)) + marked_value
     state["equity_peak"] = max(float(state.get("equity_peak", 0.0)), equity)
+
+
+def _shadow_prefix_hash(prices: pd.DataFrame, executed: pd.Timestamp) -> str:
+    """Hash the VWCE rows up to and including ``executed`` so later appended sessions do not change it."""
+
+    sessions = pd.to_datetime(prices["date"]).dt.normalize()
+    return vwce_series_source_hash(prices.loc[sessions <= executed].reset_index(drop=True))
 
 
 def _provenance(source_authority: object, source_checksum: object) -> dict[str, str]:

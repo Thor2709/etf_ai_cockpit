@@ -230,6 +230,17 @@ def test_twr_and_xirr_diverge_on_a_late_contribution_and_relative_fields_are_sep
     assert relative.benchmark_twr == pytest.approx(0.0, abs=1e-9)
     assert relative.benchmark_mwr is not None and relative.benchmark_mwr < -0.05
     assert relative.investor_timing_gap is not None
+    # MWR and TWR are both period returns over the same window: the gap is their exact difference, and the MWR is
+    # the de-annualised XIRR (annualised rate compounded over the elapsed days), not the annualised rate itself.
+    from etf_cockpit.portfolio.valuation import calculate_money_weighted_return
+
+    shadow_snapshots = _snapshots(shadow, benchmark_frame)
+    mwr = calculate_money_weighted_return(shadow_snapshots)
+    assert mwr["method"] == "xirr_deannualized_period_return"
+    expected_period = (1 + mwr["annualized_xirr"]) ** (mwr["period_days"] / 365.0) - 1
+    assert relative.benchmark_mwr == pytest.approx(expected_period, abs=1e-12)
+    assert relative.benchmark_mwr != pytest.approx(mwr["annualized_xirr"], abs=1e-6)
+    assert relative.investor_timing_gap == pytest.approx(relative.strategy_mwr - relative.strategy_twr, abs=1e-12)
     # Excess return (R_p - R_b) and compounded relative wealth (W_p / W_b - 1) are different, labelled numbers.
     assert relative.period_excess_return == pytest.approx(relative.strategy_twr - relative.benchmark_twr)
     assert relative.compounded_relative_wealth != pytest.approx(relative.period_excess_return, abs=1e-6)
@@ -437,6 +448,32 @@ def test_shadow_account_rejects_unverified_series_and_proposals(tmp_path: Path) 
     assert reopened.snapshot().positions[0].quantity == pytest.approx(10.0)
     with pytest.raises(PaperLedgerError, match="policy|opening terms"):
         reopened.open_benchmark_shadow_account(cost_policy=ShadowCostPolicy(commission=Decimal("1")), active_account=PaperLedger(tmp_path, account_id="shadow-vwce-active"))
+
+
+def _extended(frame: pd.DataFrame, closes: list[float]) -> pd.DataFrame:
+    days = pd.bdate_range("2025-03-17", periods=len(closes))
+    more = pd.DataFrame({"date": days, "close": closes, "adjusted_close": closes})
+    for name in ("provider_symbol", "source", "currency", "is_adjusted", "stock_splits", "dividends", "capital_gains"):
+        more[name] = frame[name].iloc[0]
+    return pd.concat([frame, more], ignore_index=True)
+
+
+def test_shadow_flows_bind_history_to_their_session_not_the_whole_series(tmp_path: Path) -> None:
+    frame = _series()
+    shadow = _ledger(tmp_path, "shadow-vwce", POLICY)
+    _fund(shadow, frame, POLICY, FLOWS)
+    base = shadow.shadow_daily_snapshots(frame, series_check=_check(frame), through=date(2025, 3, 14), decision_time=_at("2025-03-21"))
+    # (a) Appending newer sessions leaves every older flow valid (sequential flows share one prefix-bound lineage).
+    longer = _extended(frame, [101.0, 102.0])
+    grown = shadow.shadow_daily_snapshots(longer, series_check=_check(longer), through=date(2025, 3, 14), decision_time=_at("2025-03-21"))
+    pd.testing.assert_frame_equal(base.reset_index(drop=True), grown.reset_index(drop=True))
+    assert len(shadow.shadow_daily_snapshots(longer, series_check=_check(longer), through=date(2025, 3, 18), decision_time=_at("2025-03-21"))) > len(base)
+    # (b) A revised close at or before a flow's execution session fails closed, even with a valid check for it.
+    for row in (0, 1, 5):
+        revised = frame.copy()
+        revised.loc[row, ["close", "adjusted_close"]] = revised.loc[row, "close"] + 0.5
+        with pytest.raises(PaperLedgerError, match="historical_price_revised:f"):
+            shadow.shadow_daily_snapshots(revised, series_check=_check(revised), through=date(2025, 3, 14), decision_time=_at("2025-03-21"))
 
 
 def test_session_fx_rate_never_reconverts_a_same_currency_quote() -> None:
