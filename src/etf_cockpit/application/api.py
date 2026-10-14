@@ -99,6 +99,9 @@ CommandHandler = Callable[[ApplicationCommand], Mapping[str, object] | None]
 PageItemT = TypeVar("PageItemT")
 
 
+_REPLAYABLE_STATUSES = frozenset({ApiStatus.ACCEPTED, ApiStatus.AVAILABLE, ApiStatus.REPLAYED})
+
+
 @dataclass(frozen=True)
 class _LedgerEntry:
     fingerprint: str
@@ -403,25 +406,57 @@ class LocalApplicationApi:
             }
 
     def get_scores(self, page: PageRequest = PageRequest()) -> PageView[ScoreViewModel]:
+        """Typed scores on the canonical 0-10 scale: the same research score the UI, scoreboard and history carry.
+
+        Score-only instruments (no signal row) are included. A signal row never supplies the number (its raw value
+        is a different scale); same-date signals that disagree make the instrument unavailable, never order-dependent.
+        """
+
+        from etf_cockpit.application.score_views import latest_signal_per_instrument, published_scores
+
         snapshot = self._snapshot()
-        latest: dict[str, object] = {}
-        for signal in getattr(snapshot, "signals", ()):
-            instrument_id = str(getattr(signal, "etf_id", ""))
-            prior = latest.get(instrument_id)
-            if prior is None or str(getattr(signal, "signal_date", "")) >= str(getattr(prior, "signal_date", "")):
-                latest[instrument_id] = signal
-        rows = tuple(
-            ScoreViewModel(
+        signals = latest_signal_per_instrument(getattr(snapshot, "signals", ()))
+        try:
+            listed = published_scores(snapshot)
+        except (AttributeError, KeyError, OSError, TypeError, ValueError):
+            listed = []  # no canonical score rows: every value below is unavailable, never a rescaled signal
+        rows: dict[str, ScoreViewModel] = {}
+        conflicting_scores: set[str] = set()
+        for score in listed:
+            instrument_id = str(getattr(score, "display_id", ""))
+            signal, signal_conflict = signals.get(instrument_id, (None, False))
+            value = None if signal_conflict else _finite(getattr(score, "final_score_10", None))
+            if instrument_id in rows and rows[instrument_id].score != value:
+                conflicting_scores.add(instrument_id)
+            canonical_confidence = _finite(getattr(getattr(score, "canonical_score", None), "evidence_confidence_10", None))
+            confidence = (
+                _finite(getattr(signal, "confidence", None))
+                if signal is not None
+                else None if canonical_confidence is None else canonical_confidence / 10.0
+            )
+            research_state = getattr(score, "research_state", None)
+            rows[instrument_id] = ScoreViewModel(
                 instrument_id=instrument_id,
-                score=_finite(getattr(signal, "total_score", None)),
+                score=value,
+                state=str(getattr(research_state, "value", research_state) or "unavailable"),
+                confidence=confidence,
+                status="conflicting_same_date_signals" if signal_conflict else ("ok" if value is not None else str(getattr(score, "analysis_status", "") or "unavailable")),
+                as_of=_date_text(getattr(score, "latest_date", None)),
+            )
+        for instrument_id in conflicting_scores:
+            rows[instrument_id] = rows[instrument_id].model_copy(update={"score": None, "status": "conflicting_same_date_scores"})
+        for instrument_id, (signal, signal_conflict) in signals.items():
+            if instrument_id in rows:
+                continue
+            rows[instrument_id] = ScoreViewModel(
+                instrument_id=instrument_id,
+                score=None,  # the raw signal is not on the 0-10 scale; no canonical row means no value
                 state=str(getattr(signal, "research_state", "unavailable")),
                 confidence=_finite(getattr(signal, "confidence", None)),
-                status=str(getattr(signal, "status", "unavailable")),
+                status="conflicting_same_date_signals" if signal_conflict else str(getattr(signal, "status", "unavailable")),
                 as_of=_date_text(getattr(signal, "signal_date", None)),
             )
-            for instrument_id, signal in sorted(latest.items())
-        )
-        return _page(rows, page)
+        return _page(tuple(rows[key] for key in sorted(rows)), page)
 
     def get_forecasts(self, page: PageRequest = PageRequest()) -> PageView[ForecastViewModel]:
         frame = _frame(getattr(self._snapshot(), "forecasts", pd.DataFrame()))
@@ -441,17 +476,7 @@ class LocalApplicationApi:
 
     def get_portfolios(self, page: PageRequest = PageRequest()) -> PageView[PortfolioViewModel]:
         frame = _frame(getattr(self._snapshot(), "holdings", pd.DataFrame()))
-        rows = tuple(
-            PortfolioViewModel(
-                instrument_id=str(row.get("etf_id", row.get("instrument_id", ""))),
-                current_weight=_finite(row.get("current_weight")),
-                target_weight=_finite(row.get("target_weight")),
-                market_value=_finite(row.get("market_value_eur", row.get("market_value"))),
-                currency=_optional_text(row.get("currency")),
-                status="available",
-            )
-            for _, row in frame.iterrows()
-        )
+        rows = tuple(_portfolio_view_model(row) for _, row in frame.iterrows())
         return _page(rows, page)
 
     def get_jobs(self, page: PageRequest = PageRequest()) -> PageView[JobViewModel]:
@@ -721,6 +746,9 @@ class LocalApplicationApi:
                         error_code="idempotency_key_reused",
                         error_message="The idempotency key was already used for a different command.",
                     )
+                if prior.result.status not in _REPLAYABLE_STATUSES:
+                    # An unsuccessful command stays unsuccessful on replay; only the flag marks it as stored.
+                    return prior.result.model_copy(update={"replayed": True})
                 return prior.result.model_copy(update={"status": ApiStatus.REPLAYED, "replayed": True})
             if command.expected_revision is not None and command.expected_revision != self.revision:
                 result = _result(
@@ -847,6 +875,25 @@ def _proposal_view_model(item: Mapping[str, object]) -> ProposalViewModel:
         authority_policy_checksum=str(item.get("authority_policy_checksum", "")),
         gate_policy_version=str(item.get("gate_policy_version", "")),
         gate_policy_checksum=str(item.get("gate_policy_checksum", "")),
+    )
+
+
+def _portfolio_view_model(row: Mapping[str, object]) -> PortfolioViewModel:
+    """Pair a holding value with the currency it is actually expressed in; no value is unavailable."""
+
+    if "market_value_eur" in row:
+        value, currency = _finite(row.get("market_value_eur")), "EUR"
+    else:
+        value, currency = _finite(row.get("market_value")), _optional_text(row.get("currency"))
+    if value is None or currency is None:
+        value, currency = None, None
+    return PortfolioViewModel(
+        instrument_id=str(row.get("etf_id", row.get("instrument_id", ""))),
+        current_weight=_finite(row.get("current_weight")),
+        target_weight=_finite(row.get("target_weight")),
+        market_value=value,
+        currency=currency,
+        status="available" if value is not None else "unavailable",
     )
 
 

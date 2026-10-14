@@ -219,7 +219,7 @@ class PreTradeControls:
         for control, passes, reason in checks:
             if passes:
                 continue
-            grant = self._find_override(events, control, proposal_id, at, override_id)
+            grant = self._find_override(events, control, proposal_id, at, override_id, instrument_id)
             if grant is None:
                 return self._block(
                     control, reason, actor, at, proposal_id=proposal_id, instrument_id=instrument_id,
@@ -227,18 +227,42 @@ class PreTradeControls:
                     daily_turnover=current_turnover + order_value,
                 )
             overrides_to_record.append(grant)
-        for grant in overrides_to_record:
-            grant_payload = grant["details"]
-            self._append_event(
-                "override_used", who=actor, when=at, why=str(grant_payload["why"]),
-                expiry=str(grant_payload["expiry"]), details={
-                    "override_id": str(grant_payload["override_id"]),
-                    "control": str(grant_payload["control"]),
-                    "proposal_id": proposal_id,
-                    "maker": str(grant_payload["maker"]),
-                    "checker": str(grant_payload["checker"]),
-                },
-            )
+        if overrides_to_record:
+            # The grants were found on an unlocked read: re-check them under the journal lock so a
+            # one-order exception cannot be consumed twice by concurrent evaluations.
+            with self._lock, self._file_lock():
+                fresh_events = self._read_events()
+                stale = next(
+                    (
+                        str(grant["details"]["control"]) for grant in overrides_to_record
+                        if self._find_override(
+                            fresh_events, str(grant["details"]["control"]), proposal_id, at,
+                            str(grant["details"]["override_id"]), instrument_id,
+                        ) is None
+                    ),
+                    None,
+                )
+                if stale is None:
+                    for grant in overrides_to_record:
+                        grant_payload = grant["details"]
+                        self._append_event_locked(
+                            "override_used", who=actor, when=at, why=str(grant_payload["why"]),
+                            expiry=str(grant_payload["expiry"]), details={
+                                "override_id": str(grant_payload["override_id"]),
+                                "control": str(grant_payload["control"]),
+                                "proposal_id": proposal_id,
+                                "instrument_id": instrument_id,
+                                "maker": str(grant_payload["maker"]),
+                                "checker": str(grant_payload["checker"]),
+                            },
+                        )
+            if stale is not None:
+                return self._block(
+                    stale, "The approved override is no longer available (used or expired).", actor, at,
+                    proposal_id=proposal_id, instrument_id=instrument_id,
+                    order_value=order_value, position_exposure=proposed_exposure,
+                    daily_turnover=current_turnover + order_value,
+                )
         used_override_id = None if not overrides_to_record else str(
             overrides_to_record[0]["details"]["override_id"]
         )
@@ -264,8 +288,13 @@ class PreTradeControls:
         reason: str,
         expires_at: datetime,
         occurred_at: datetime | None = None,
+        instrument_id: str | None = None,
     ) -> dict[str, object]:
-        """Record a one-order exception approved by two distinct people."""
+        """Record a one-order exception approved by two distinct people.
+
+        The grant is scoped to its control and proposal, to ``instrument_id`` when given, to a
+        single use, and to the interval between its recording and its expiry.
+        """
 
         at = _aware_utc(occurred_at or datetime.now(timezone.utc), "occurred_at")
         override_key = _clean_text(override_id, "override_id", 160)
@@ -280,6 +309,8 @@ class PreTradeControls:
             "override_id": override_key, "control": control_key, "proposal_id": proposal_key,
             "maker": maker_key, "checker": checker_key,
         }
+        if instrument_id is not None:
+            details["instrument_id"] = _clean_text(instrument_id, "instrument_id", 80).upper()
         if maker_key == checker_key:
             return self._reject_override(
                 "self-approved overrides are forbidden", maker_key, at, why, expiry_text, details
@@ -462,6 +493,7 @@ class PreTradeControls:
         proposal_id: str,
         at: datetime,
         requested_override_id: str | None,
+        instrument_id: str | None = None,
     ) -> Mapping[str, object] | None:
         expired = {
             str(event.get("details", {}).get("override_id"))
@@ -482,10 +514,15 @@ class PreTradeControls:
                 override_key in expired or override_key in used
                 or (requested_override_id is not None and override_key != requested_override_id)
                 or details.get("control") != control or details.get("proposal_id") != proposal_id
+                or (details.get("instrument_id") is not None and details.get("instrument_id") != instrument_id)
             ):
                 continue
             expiry = _aware_utc(datetime.fromisoformat(str(details["expiry"])), "override expiry")
-            if expiry > at:
+            try:
+                granted_at = _aware_utc(datetime.fromisoformat(str(event.get("when"))), "override grant time")
+            except (ValueError, PreTradeControlError):
+                continue
+            if granted_at <= at < expiry:
                 return event
         return None
 
@@ -542,26 +579,40 @@ class PreTradeControls:
         expiry: str | None,
         details: Mapping[str, object],
     ) -> dict[str, object]:
-        payload = _json_copy(details)
         with self._lock, self._file_lock():
-            events = self._read_events()
-            event: dict[str, object] = {
-                "schema_version": PRE_TRADE_AUDIT_SCHEMA,
-                "sequence": len(events) + 1,
-                "event_type": _clean_text(event_type, "event_type", 80),
-                "who": _clean_text(who, "who", 120),
-                "when": _iso(_aware_utc(when, "when")),
-                "why": _clean_text(why, "why", 500),
-                "expiry": expiry,
-                "details": payload,
-                "prior_event_hash": str(events[-1]["event_hash"]) if events else _ZERO_HASH,
-            }
-            event["event_hash"] = _digest(event)
-            self.audit_path.parent.mkdir(parents=True, exist_ok=True)
-            with self.audit_path.open("a", encoding="utf-8", newline="\n") as handle:
-                handle.write(json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n")
-                handle.flush()
-                os.fsync(handle.fileno())
+            return self._append_event_locked(event_type, who=who, when=when, why=why, expiry=expiry, details=details)
+
+    def _append_event_locked(
+        self,
+        event_type: str,
+        *,
+        who: str,
+        when: datetime,
+        why: str,
+        expiry: str | None,
+        details: Mapping[str, object],
+    ) -> dict[str, object]:
+        """Append one event; the caller already holds the journal lock."""
+
+        payload = _json_copy(details)
+        events = self._read_events()
+        event: dict[str, object] = {
+            "schema_version": PRE_TRADE_AUDIT_SCHEMA,
+            "sequence": len(events) + 1,
+            "event_type": _clean_text(event_type, "event_type", 80),
+            "who": _clean_text(who, "who", 120),
+            "when": _iso(_aware_utc(when, "when")),
+            "why": _clean_text(why, "why", 500),
+            "expiry": expiry,
+            "details": payload,
+            "prior_event_hash": str(events[-1]["event_hash"]) if events else _ZERO_HASH,
+        }
+        event["event_hash"] = _digest(event)
+        self.audit_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.audit_path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
         return event
 
     @contextmanager
