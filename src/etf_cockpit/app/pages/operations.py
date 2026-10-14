@@ -44,8 +44,14 @@ from etf_cockpit.application.contracts import (
     PaperProposalRejectRequest,
 )
 
-from etf_cockpit.application.operation_records import OperationRecord, build_operation_preview, load_operation_records, save_operation_record
-from etf_cockpit.application.ui_facade import load_paper_tca_view
+from etf_cockpit.application.operation_records import (
+    OperationRecord,
+    build_operation_preview,
+    load_operation_records,
+    save_operation_record,
+    terminal_operation_record,
+)
+from etf_cockpit.application.ui_facade import load_paper_tca_view as load_paper_tca_view
 from etf_cockpit.app.formatting import format_currency, format_number
 from collections.abc import Mapping
 
@@ -79,15 +85,19 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
     operations = api.get_operations()
     get_portfolios = getattr(api, "get_portfolios", None)  # an API without portfolios fails closed to "Unavailable"
     portfolio_values: list[float | None] = []
+    portfolio_currencies: set[str | None] = set()
     if get_portfolios is not None:
         portfolio_page = get_portfolios(PageRequest())
         portfolio_values = [item.market_value for item in portfolio_page.items]
+        portfolio_currencies.update(getattr(item, "currency", "EUR") for item in portfolio_page.items)
         next_offset = getattr(portfolio_page, "next_offset", None)
         while next_offset is not None:
             portfolio_page = get_portfolios(PageRequest(offset=next_offset, limit=portfolio_page.limit))
             portfolio_values.extend(item.market_value for item in portfolio_page.items)
+            portfolio_currencies.update(getattr(item, "currency", "EUR") for item in portfolio_page.items)
             next_offset = getattr(portfolio_page, "next_offset", None)
-    total_value = sum(portfolio_values) if portfolio_values and all(value is not None for value in portfolio_values) else None
+    # The KPI is labelled EUR, so a mixed or non-EUR holding value is unavailable rather than summed.
+    total_value = sum(portfolio_values) if portfolio_values and all(value is not None for value in portfolio_values) and portfolio_currencies <= {"EUR"} else None
     local_status = {"paper": "Local paper actions are available when their required evidence is supplied."}
 
     preview_instrument = text_field("Instrument", "operations.instrument", value=str(getattr(state, "selected_etf", "") or ""))
@@ -130,7 +140,6 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
             wrap=True,
         ),
     )
-    preview_details = ft.Container(content=Disclosure("preview details", "No operation preview has been stored."))
 
     def notify(status: ft.Text, details: ft.Container, name: str, action) -> None:
         try:
@@ -293,6 +302,16 @@ def operations_page(page: ft.Page | None, state: AppState) -> PageView:
                 event_policy=selected_event_policy(),
                 decision_time=datetime.now(timezone.utc) if event_enabled["value"] else None,
             )
+            finished = terminal_operation_record(record.operation_id)
+            if finished is not None:
+                message.value = (
+                    f"An identical preview already ended as {finished.get('status')}; its audit record is kept unchanged. "
+                    "Change the inputs to create a new preview."
+                )
+                confirm_button.disabled = True
+                refresh_records()
+                _safe_update(page)
+                return
             save_operation_record(record)
             set_record(record)
             if not record.authority["submission_allowed"]:
