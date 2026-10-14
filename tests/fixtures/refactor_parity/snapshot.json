@@ -596,10 +596,10 @@
     "liquidity_score": {
      "nan_count": 1083,
      "count": 13851,
-     "sum": -79.92816521190883,
-     "mean": -0.005770570010245385,
-     "min": -0.332088897668872,
-     "max": 0.21394843760698143
+     "sum": -43.08203836606841,
+     "mean": -0.0031103919114914744,
+     "min": -0.329390491566181,
+     "max": 0.22154938116170206
     },
     "last_price": {
      "nan_count": 0,
@@ -741,7 +741,7 @@
      "drawdown_current": -0.05523030072499735,
      "drawdown_60d_max": -0.07546528502931349,
      "drawdown_120d_max": -0.09247511193907054,
-     "liquidity_score": 0.03755785380271052,
+     "liquidity_score": 0.02895429420153543,
      "last_price": 49.925979782060914,
      "relative_strength_60d": "<NaN>",
      "relative_strength_120d": "<NaN>"
@@ -770,7 +770,7 @@
      "drawdown_current": -0.09173277146007086,
      "drawdown_60d_max": -0.04892634634727844,
      "drawdown_120d_max": -0.1720503557387022,
-     "liquidity_score": -0.023320644599056806,
+     "liquidity_score": -0.022352419011488916,
      "last_price": 131.53482756934088,
      "relative_strength_60d": 0.060365154188587296,
      "relative_strength_120d": -0.09336690073703455
@@ -799,7 +799,7 @@
      "drawdown_current": -0.024779020386613837,
      "drawdown_60d_max": -0.04066814150291942,
      "drawdown_120d_max": -0.09108398273144536,
-     "liquidity_score": 0.04487080666054825,
+     "liquidity_score": 0.05337475417525658,
      "last_price": 77.07136433166389,
      "relative_strength_60d": 0.09890487454496744,
      "relative_strength_120d": 0.02945542154553067
@@ -1011,10 +1011,10 @@
     "liquidity_score": {
      "nan_count": 0,
      "count": 57,
-     "sum": 0.06708439727113816,
-     "mean": 0.001176919250370845,
-     "min": -0.10501473927516021,
-     "max": 0.12579548436411692
+     "sum": -1.0498023085373251,
+     "mean": -0.01841758436030395,
+     "min": -0.13727064966931243,
+     "max": 0.10473025745737392
     },
     "last_price": {
      "nan_count": 0,
@@ -1067,7 +1067,7 @@
      "drawdown_current": -0.1548498061267174,
      "drawdown_60d_max": -0.16578607429905468,
      "drawdown_120d_max": -0.16578607429905468,
-     "liquidity_score": -0.10265422587649849,
+     "liquidity_score": -0.12997697975085623,
      "last_price": 69.77071745403329,
      "relative_strength_60d": -0.09405266367450665,
      "relative_strength_120d": -0.0878227277127543
@@ -1096,7 +1096,7 @@
      "drawdown_current": -0.09471033430664877,
      "drawdown_60d_max": -0.0730798603789109,
      "drawdown_120d_max": -0.0730798603789109,
-     "liquidity_score": 0.026093761387889103,
+     "liquidity_score": 0.032613931255910465,
      "last_price": 86.14893774959219,
      "relative_strength_60d": 0.08573074307660618,
      "relative_strength_120d": 0.05553056036312022
@@ -1125,7 +1125,7 @@
      "drawdown_current": -0.15310076562911612,
      "drawdown_60d_max": -0.06153606701772063,
      "drawdown_120d_max": -0.17297886426030096,
-     "liquidity_score": 0.10207537218369349,
+     "liquidity_score": 0.09918985050287077,
      "last_price": 145.00716820689365,
      "relative_strength_60d": -0.021970811091968287,
      "relative_strength_120d": -0.1722584700806225
@@ -1156,7 +1156,7 @@
      "drawdown_current": -0.2324141643454367,
      "drawdown_60d_max": -0.17450388421515461,
      "drawdown_120d_max": -0.23348529901466097,
-     "liquidity_score": -0.08622370973604927,
+     "liquidity_score": -0.11874700727429754,
      "last_price": 91.12142810788356,
      "relative_strength_60d": -0.1271657827297092,
      "relative_strength_120d": -0.27951701299614373
@@ -1185,7 +1185,7 @@
      "drawdown_current": -0.08720293530788625,
      "drawdown_60d_max": -0.08720293530788625,
      "drawdown_120d_max": -0.08720293530788625,
-     "liquidity_score": -0.08021247527095336,
+     "liquidity_score": -0.09689370780920943,
      "last_price": 80.35963341988567,
      "relative_strength_60d": -0.03897507792740743,
      "relative_strength_120d": -0.003059291027211551
@@ -1214,7 +1214,7 @@
      "drawdown_current": -0.024779020386613837,
      "drawdown_60d_max": -0.04066814150291942,
      "drawdown_120d_max": -0.09108398273144536,
-     "liquidity_score": 0.04487080666054825,
+     "liquidity_score": 0.05337475417525658,
      "last_price": 77.07136433166389,
      "relative_strength_60d": 0.09890487454496744,
      "relative_strength_120d": 0.02945542154553067

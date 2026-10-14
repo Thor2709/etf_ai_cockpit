@@ -89,7 +89,7 @@ def compute_features(prices: pd.DataFrame, benchmark_etf_id: str | None = None) 
                 "drawdown_current": drawdown(price).values,
                 "drawdown_60d_max": rolling_max_drawdown(price, 60).values,
                 "drawdown_120d_max": rolling_max_drawdown(price, 120).values,
-                "liquidity_score": liquidity_score(group["volume"]).values,
+                "liquidity_score": liquidity_score(group["volume"], price=group["close"] if "close" in group.columns else None).values,
                 "last_price": price.values,
             }
         )
