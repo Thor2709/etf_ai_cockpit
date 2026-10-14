@@ -105,7 +105,7 @@ def build_cost_of_capital_ledger(assumptions: Mapping[str, object] | None) -> Co
     conflicts: list[str] = []
     wacc = None
     if present:
-        if len({round(value, 12) for value in present.values()}) > 1 and "wacc" in present:
+        if len({round(value, 12) for value in present.values()}) > 1:
             conflicts.append("wacc aliases disagree: " + ", ".join(f"{name}={value}" for name, value in sorted(present.items())))
         else:
             wacc = present.get("wacc", present.get("cost_of_capital", present.get("discount_rate")))

@@ -2621,7 +2621,8 @@ def _stress_scenarios(values: Mapping[str, float], frame: pd.DataFrame, assumpti
     else:
         gap = max(0.0, due_1y - cash - max(fcf, 0.0))
         dilution = None if market_cap is None or market_cap <= 0 else gap / (market_cap + gap)
-        scenarios["dilution_insolvency"] = {"status": "available", "confidence": "scenario_only", "assumptions": dilution_assumed, "liquidity_shortfall": gap, "dilution_fraction": dilution, "dilution_status": "available" if dilution is not None else "unavailable: market cap required", "insolvency_flag": gap > 0 and (market_cap is None or market_cap <= 0), **_STRESS_LABEL}
+        insolvency_flag = None if market_cap is None else gap > 0 and market_cap <= 0  # unknown market cap is never read as insolvency
+        scenarios["dilution_insolvency"] = {"status": "available", "confidence": "scenario_only", "assumptions": dilution_assumed, "liquidity_shortfall": gap, "dilution_fraction": dilution, "dilution_status": "available" if dilution is not None else "unavailable: market cap required", "insolvency_flag": insolvency_flag, "insolvency_status": "available" if market_cap is not None else "unavailable: market cap required", **_STRESS_LABEL}
     return scenarios
 
 
@@ -2852,7 +2853,7 @@ def _reverse_dcf(values: Mapping[str, float], assumptions: Mapping[str, object])
         return {**labels, "status": "unavailable", "confidence": "low", "reason": "positive FCF, market value, diluted share count, net debt, a valid claim label, bridge evidence and explicit bounded assumptions are required", "execution_allowed": False}
 
     def equity_for(growth: float) -> float:
-        per_share = _dcf_per_share(values, growth, None, discount, terminal_growth, years, claim=claim, bridge=bridge)
+        per_share = _dcf_per_share(values, growth, None, discount, terminal_growth, years, claim=claim, bridge=bridge, floor_negative=False)
         return float(per_share * shares) if per_share is not None else math.nan
 
     low, high = -0.5, 1.0
@@ -3170,6 +3171,7 @@ def _dcf_per_share(
     values: Mapping[str, float], growth: float, margin: float | None,
     discount: float, terminal_growth: float, years: int,
     *, claim: str = _DEFAULT_CLAIM_TYPE, bridge: Mapping[str, object] | None = None,
+    floor_negative: bool = True,
 ) -> float | None:
     shares, fcf = values.get("shares_outstanding"), values.get("free_cash_flow")
     if shares is None or shares <= 0 or fcf is None or discount <= terminal_growth or discount <= -1.0 or terminal_growth <= -1.0 or growth <= -1.0:
@@ -3190,8 +3192,8 @@ def _dcf_per_share(
         return None
     resolved = bridge if bridge is not None else _ev_equity_bridge(values, {}, claim)
     equity_value = enterprise_value if claim == "fcfe" else _equity_from_enterprise(enterprise_value, resolved)
-    if equity_value is None or equity_value < 0:
-        return None
+    if equity_value is None or (floor_negative and equity_value < 0):
+        return None  # the reverse-DCF solver passes floor_negative=False to keep its bracket finite
     result = equity_value / shares
     return result if math.isfinite(result) else None
 
