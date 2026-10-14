@@ -415,9 +415,9 @@ def analyse_sparebank_ec(
         reasons.append("GENERIC_BANK_VALUATION_INAPPLICABLE")
     from .bank_economics import build_bank_economics, owner_normalisation
     from .events import analyse_events
-    from .valuation import valuation
+    from .valuation import normalise_valuation_assumptions, valuation
     from .scorecard import build_sparebank_scorecard
-    assumptions = dict(valuation_assumptions or {})
+    assumptions = normalise_valuation_assumptions(dict(valuation_assumptions or {}))
     bank_economics = owner_normalisation(
         build_bank_economics(bank_economics_evidence, bank_metrics=bank_metrics),
         claim,

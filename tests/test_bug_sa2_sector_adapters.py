@@ -32,6 +32,9 @@ from etf_cockpit.analysis.real_asset_sector_adapters import (
     build_real_asset_projection,
     real_asset_adapter_definitions,
 )
+from etf_cockpit.analysis.sparebank import analyse_sparebank_ec
+from etf_cockpit.analysis.sparebank.claim import build_claim_state
+from etf_cockpit.analysis.sparebank.valuation import valuation
 from etf_cockpit.data.classification import ClassificationEvidence, resolve_instrument_context
 from etf_cockpit.data.contracts import SourceAuthority
 
@@ -265,3 +268,46 @@ def test_biotech_runway_from_mixed_periods_is_unavailable():
     runway = next(m for m in mixed.metrics if m.metric == "cash_runway_months")
     assert (runway.status, runway.value) == ("unavailable", None)
     assert "cash_runway_reconciliation:period_mismatch" in mixed.limitations
+
+
+def test_real_asset_net_cash_leverage_stays_available():
+    result = _ra_build(_reit(net_debt=-50.0, ebitda=100.0))
+    leverage = next(c for c in result.checks if c.check == "leverage")
+    assert (leverage.status, leverage.value) == ("available", pytest.approx(-0.5))
+
+
+# ---------------------------------------------------------------- sustainable ROE unit (B116)
+
+
+def test_sustainable_roe_percent_and_ratio_value_identically():
+    facts = {
+        "ec_capital": {"available": True, "value": 100.0}, "overkursfond": {"available": True, "value": 50.0},
+        "utjevningsfond": {"available": True, "value": 250.0}, "sparebankens_fond": {"available": True, "value": 600.0},
+        "gavefond": {"available": True, "value": 0.0}, "registered_ec_count": {"available": True, "value": 4.0},
+        "ec_attributable_result": {"available": True, "value": 48.0},
+    }
+    claim = build_claim_state({"facts": facts, "known_at": "2025-03-01T00:00:00Z", "source_url": "synthetic"})
+    base = {"cost_of_equity": 0.09, "long_run_growth": 0.03}
+    ratio = valuation(claim, price=150.0, assumptions={**base, "sustainable_roe": 0.12})
+    percent = valuation(claim, price=150.0, assumptions={**base, "sustainable_roe_pct": 12})
+    assert ratio["central_owner_value_per_ec"]["justified_pb"] == pytest.approx(1.5)
+    assert percent["central_owner_value_per_ec"]["justified_pb"] == pytest.approx(1.5)
+    assert percent["central_owner_value_per_ec"]["sustainable_roe"] == pytest.approx(0.12)
+
+
+def test_sustainable_roe_percent_assumption_is_converted_before_the_owner_bridge():
+    facts = {
+        "ec_capital": {"available": True, "value": 100.0}, "overkursfond": {"available": True, "value": 50.0},
+        "utjevningsfond": {"available": True, "value": 250.0}, "sparebankens_fond": {"available": True, "value": 600.0},
+        "gavefond": {"available": True, "value": 0.0}, "registered_ec_count": {"available": True, "value": 4.0},
+        "ec_attributable_result": {"available": True, "value": 48.0},
+    }
+    evidence = {"facts": facts, "known_at": "2025-03-01T00:00:00Z", "source_url": "synthetic"}
+    out = {}
+    for key, raw in (("sustainable_roe", 0.12), ("sustainable_roe_pct", 12)):
+        analysis = analyse_sparebank_ec(
+            evidence, decision_time="2025-03-02T00:00:00Z", price=150.0,
+            valuation_assumptions={"cost_of_equity": 0.09, "long_run_growth": 0.03, key: raw},
+        )
+        out[key] = analysis.valuation["central_owner_value_per_ec"]
+    assert out["sustainable_roe_pct"]["justified_pb"] == pytest.approx(out["sustainable_roe"]["justified_pb"]) == pytest.approx(1.5)

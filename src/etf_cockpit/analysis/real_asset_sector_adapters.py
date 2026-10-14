@@ -457,8 +457,8 @@ def _checks(
         top, bottom = values.get(numerator), values.get(denominator)
         if top is None or bottom is None:
             return RealAssetCheck(name, "unavailable", None, "ratio", formula, "required_statement_inputs_unavailable")
-        if bottom <= 0 or top < 0:
-            # A negative or zero cash-flow base (or negative distribution) has no meaningful payout/coverage.
+        if bottom <= 0 or (name == "payout" and top < 0):
+            # A non-positive base, or a negative distribution in a payout, has no meaningful ratio; net cash leverage is legitimate.
             return RealAssetCheck(name, "unavailable", None, "ratio", formula, "non_positive_ratio_input")
         if name == "payout" and not same_period(numerator, denominator):
             return RealAssetCheck(name, "unavailable", None, "ratio", formula, "period_mismatch")
