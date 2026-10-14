@@ -6,7 +6,7 @@ import threading
 
 import pandas as pd
 
-from dataclasses import replace
+from dataclasses import fields, is_dataclass, replace
 from math import isfinite
 
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
@@ -25,7 +25,8 @@ def snapshot_scores(snapshot: object, universe_revision: str = "", *, penalise_m
     """Build the score rows once per snapshot (and universe revision); later callers reuse them.
 
     With the missing-data penalty on (user preference), every score is pulled toward neutral in
-    proportion to its missing evidence; stored scores and history are never changed.
+    proportion to its missing evidence and the visible rank follows the displayed value; the research
+    score is never changed here. Persisting callers use ``published_scores`` (never penalised).
     """
 
     if snapshot is None:
@@ -58,6 +59,12 @@ def snapshot_scores(snapshot: object, universe_revision: str = "", *, penalise_m
         return _presented(scores, penalise)
 
 
+def published_scores(snapshot: object, universe_revision: str = "") -> list[object]:
+    """The research scores that are stored (scoreboard, history, exports): the penalty is a display annotation only."""
+
+    return snapshot_scores(snapshot, universe_revision, penalise_missing=False)
+
+
 def _without_superseded_candidates(scores: list[object]) -> list[object]:
     """A stale candidate-report row never duplicates an instrument that is configured and scored."""
 
@@ -84,7 +91,136 @@ def _without_superseded_candidates(scores: list[object]) -> list[object]:
 
 
 def _presented(scores: list[object], penalise: bool) -> list[object]:
-    return [apply_missing_data_penalty(score) for score in scores] if penalise else list(scores)
+    if not penalise:
+        return list(scores)
+    return _ranked_by_displayed_score([apply_missing_data_penalty(score) for score in scores])
+
+
+def _rank_sort_key(score: object) -> tuple[bool, float, str]:
+    value = getattr(score, "final_score_10", None)
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return (True, 0.0, str(getattr(score, "display_id", "")))
+    return (not isfinite(number), -number if isfinite(number) else 0.0, str(getattr(score, "display_id", "")))
+
+
+def _ranked_by_displayed_score(scores: list[object]) -> list[object]:
+    """Visible rank and rank-delta follow the displayed score: the ranked score is the shown score.
+
+    Only rows that already carry a rank (ordinary instruments; native bank rows have none) are re-ranked,
+    in the same order the research ranking uses (unavailable last, ties by identifier).
+    """
+
+    ranked_rows = [
+        score
+        for score in scores
+        if is_dataclass(score)
+        and {"rank", "score_rank"} <= {field.name for field in fields(score)}
+        and getattr(score, "rank", None) is not None
+    ]
+    if not ranked_rows:
+        return scores
+    new_ranks = {id(score): position for position, score in enumerate(sorted(ranked_rows, key=_rank_sort_key), start=1)}
+    result: list[object] = []
+    for score in scores:
+        position = new_ranks.get(id(score))
+        if position is None:
+            result.append(score)
+            continue
+        presented = replace(score, rank=position, score_rank=position)  # type: ignore[type-var]
+        basis = getattr(score, "_display_basis", None)
+        if basis is not None:
+            object.__setattr__(presented, "_display_basis", basis)
+        result.append(presented)
+    return result
+
+
+def displayed_rank_info(
+    rank_info: dict[str, tuple[float | None, float | None]],
+    scores: list[object],
+    history: pd.DataFrame | None,
+    previous_run_id: object,
+) -> dict[str, tuple[float | None, float | None]]:
+    """(previous, current) rank per instrument on ONE basis: the displayed (possibly penalised) score.
+
+    Stored history ranks are the unpenalised research ranks. While the missing-data penalty is on, the current
+    rank is the visible one and the previous rank is recomputed from the previous run's stored scores and
+    coverage with the same penalty, so a delta never compares two different bases. With the penalty off the
+    stored pair is returned unchanged; an instrument with no recomputable previous rank gets ``None`` (no delta).
+    """
+
+    if not any(getattr(score, "_display_basis", None) is not None for score in scores):
+        return dict(rank_info)
+    current = {str(score.display_id): score.rank for score in scores if getattr(score, "rank", None) is not None}  # type: ignore[attr-defined]
+    previous: dict[str, int] = {}
+    if isinstance(history, pd.DataFrame) and not history.empty and {"run_id", "instrument_id", "final_combined_score_10"} <= set(history.columns):
+        frame = history.loc[history["run_id"].astype(str) == str(previous_run_id)]
+        if "rank" in frame.columns:
+            frame = frame.loc[frame["rank"].notna()]  # rows without a rank (native bank rows) stay unranked
+        entries: list[tuple[bool, float, str]] = []
+        for record in frame.to_dict(orient="records"):
+            raw = pd.to_numeric(record.get("final_combined_score_10"), errors="coerce")
+            coverage = pd.to_numeric(record.get("coverage"), errors="coerce") if "coverage" in frame.columns else float("nan")
+            value = float(raw) if isfinite(raw) else None
+            if value is not None and isfinite(coverage):
+                value = round(NEUTRAL_SCORE_10 + (value - NEUTRAL_SCORE_10) * min(max(float(coverage), 0.0), 1.0), 2)
+            entries.append((value is None, -(value or 0.0), str(record.get("instrument_id", ""))))
+        previous = {key[2]: position for position, key in enumerate(sorted(entries), start=1)}
+    return {
+        instrument_id: (
+            None if instrument_id not in previous or instrument_id not in current else previous[instrument_id],
+            current.get(instrument_id),
+        )
+        for instrument_id in rank_info
+    }
+
+
+def latest_signal_per_instrument(signals: object) -> dict[str, tuple[object, bool]]:
+    """Latest signal per instrument; ``(signal, conflict)`` where same-date signals that disagree set ``conflict``.
+
+    The choice never depends on row order: the latest ``signal_date`` wins, and when several rows share it they
+    must agree on score and state, otherwise the instrument is reported as conflicting (callers show unavailable).
+    """
+
+    grouped: dict[str, list[object]] = {}
+    for signal in signals or ():  # type: ignore[attr-defined]
+        grouped.setdefault(str(getattr(signal, "etf_id", "")), []).append(signal)
+    result: dict[str, tuple[object, bool]] = {}
+    for instrument_id, rows in grouped.items():
+        newest = max(str(getattr(row, "signal_date", "")) for row in rows)
+        same_day = [row for row in rows if str(getattr(row, "signal_date", "")) == newest]
+        fingerprints = {
+            (repr(getattr(row, "total_score", None)), str(getattr(row, "research_state", "")), str(getattr(row, "status", "")))
+            for row in same_day
+        }
+        ordered = sorted(
+            same_day,
+            key=lambda row: (repr(getattr(row, "total_score", None)), str(getattr(row, "research_state", ""))),
+        )
+        result[instrument_id] = (ordered[0], len(fingerprints) > 1)
+    return result
+
+
+def evidence_ordered_history(history: pd.DataFrame) -> pd.DataFrame:
+    """Score history ordered by evidence date, then run completion: a late backfill never becomes "Latest"."""
+
+    if not isinstance(history, pd.DataFrame) or history.empty:
+        return history
+    keys: list[pd.Series] = []
+    for column in ("data_as_of_date", "run_completed_at"):
+        if column in history.columns:
+            keys.append(pd.to_datetime(history[column], errors="coerce", utc=True))
+    if not keys:
+        return history
+    frame = history.copy()
+    names = []
+    for index, key in enumerate(keys):
+        name = f"__order_{index}"
+        frame[name] = key
+        names.append(name)
+    frame = frame.sort_values(names, kind="stable", na_position="first")
+    return frame.drop(columns=names)
 
 
 def score_coverage(score: object) -> float | None:
