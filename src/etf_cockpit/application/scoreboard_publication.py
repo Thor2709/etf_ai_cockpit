@@ -45,7 +45,7 @@ SCOREBOARD_PUBLICATION_BINDING_ENTITY_TYPE = "scoreboard_publication_binding"
 # --- Score lineage (S3-01/S3-02): one row per user-visible score field ---------------------------------------------
 
 LINEAGE_SCHEMA_VERSION = "score_lineage.v1"
-SCORE_SURFACES = ("ui", "export", "scoreboard", "history", "api")
+SCORE_SURFACES = ("ui", "export", "scoreboard", "history", "api", "decision")  # "decision": DA-v1 / QV / QVM assessment
 AUTHORITIES = ("descriptive", "rank", "decision")
 _V3_CONFIG = "configs/score_engine_v3.yaml"
 _V3_CODE = "signals/canonical_scoring.py:build_canonical_score"
@@ -55,6 +55,17 @@ _HORIZON = "1-3 months"
 _CUTOFF_PRICE = "latest validated price date of the run; never after the snapshot decision time"
 _ELIGIBLE_V3 = "score-eligible components only (ok status, fresh, sourced, no conflict); a failed critical gate gives no value"
 _LEGACY_WEIGHTS = "legacy_evidence_weights"
+_DA_POLICY = "da_v1_policy"
+_DA_CODE = "analysis/decision/opportunity.py:_benchmark_scores (read via application/decision_views.py)"
+_DA_ROUTE_CODE = "analysis/decision/rank_validation.py:route_consumer_rank (via application/decision_views.py:_ui_decision_rank_route)"
+_DA_ELIGIBLE = "unavailable (UNAVAILABLE_INPUTS) when a required input is missing, stale or conflicting; never zero-filled or reweighted"
+_DECISION = ("decision",)
+_PATH_CODE = {
+    "legacy_composite": "signals/simple_scores.py:build_simple_instrument_scores",
+    "v3_canonical_groups": _V3_CODE,
+    "display_adjusted_score_10": "application/score_views.py:apply_missing_data_penalty",
+    "DA-v1": "analysis/decision/rank_validation.py:route_consumer_rank",
+}
 
 
 @dataclass(frozen=True)
@@ -81,22 +92,32 @@ def _row(field: str, surfaces: tuple[str, ...], origin: str, code: str, weights:
 SCORE_LINEAGE: tuple[ScoreLineageRow, ...] = (
     _row("final_combined_score_10", _ALL_PERSISTED, "legacy evidence composite 0-10 (display name: Research score)",
          _LEGACY_CODE, _LEGACY_WEIGHTS,
-         "unavailable when a critical gate fails or coverage is below the policy minimum; the missing-data penalty never changes it",
+         "unavailable when a critical gate fails or coverage is below the policy minimum; the stored/exported value is never penalised",
          "rank"),
-    _row("final_score_10", ("ui",), "same value as final_combined_score_10 (in-memory score row)", _LEGACY_CODE,
-         _LEGACY_WEIGHTS, "same as final_combined_score_10", "rank"),
+    _row("final_score_10", ("ui",),
+         "displayed score (in-memory row only): equals final_combined_score_10, or display_adjusted_score_10 while the "
+         "missing-data preference is on; never stored or exported",
+         "application/score_views.py:snapshot_scores (apply_missing_data_penalty when the preference is on)",
+         _LEGACY_WEIGHTS, "same as final_combined_score_10; with the preference on the value is pulled toward 5 by missing evidence",
+         "descriptive"),
     _row("score", ("api",), "typed API score = final_combined_score_10 (0-10, never the raw signal in [-1, 1])",
-         "application/api.py:LocalApplicationApi.get_scores", _LEGACY_WEIGHTS,
+         "signals/simple_scores.py:build_simple_instrument_scores; application/api.py:LocalApplicationApi.get_scores", _LEGACY_WEIGHTS,
          "unavailable when the instrument has no canonical score row or same-date signals conflict", "rank"),
     _row("research_score_10", ("ui",), "same value as final_combined_score_10 (shown beside the display-adjusted value)",
-         "application/score_views.py:score_display_values", _LEGACY_WEIGHTS, "same as final_combined_score_10", "rank"),
+         "signals/simple_scores.py:build_simple_instrument_scores; application/score_views.py:score_display_values", _LEGACY_WEIGHTS, "same as final_combined_score_10", "rank"),
     _row("display_adjusted_score_10", ("ui",), "5 + (research - 5) x coverage: display annotation only, never stored",
          "application/score_views.py:apply_missing_data_penalty", "none",
          "only while the user preference is on; the visible rank follows this displayed value", "descriptive"),
-    _row("rank", ("ui", "history", "api"), "ordinal of the ranked score (unavailable last, ties by identifier)",
+    _row("rank", ("history", "api"), "stored research rank: ordinal of final_combined_score_10 (unavailable last, ties by identifier)",
+         "signals/simple_scores.py:build_simple_instrument_scores", _LEGACY_WEIGHTS,
+         "ordinary instruments only; native bank rows carry no rank", "rank"),
+    _row("rank", ("ui",), "visible rank: the research rank, re-ordered by final_score_10 only while the missing-data preference is on",
          "signals/simple_scores.py:build_simple_instrument_scores; application/score_views.py:_ranked_by_displayed_score",
-         _LEGACY_WEIGHTS, "ordinary instruments only; native bank rows carry no rank", "rank"),
-    _row("score_rank", ("ui", "history"), "same ordinal as rank", "signals/simple_scores.py:build_simple_instrument_scores",
+         _LEGACY_WEIGHTS, "ordinary instruments only; rank deltas recompute the previous rank on the same basis", "rank"),
+    _row("score_rank", ("history",), "same stored ordinal as rank", "signals/simple_scores.py:build_simple_instrument_scores",
+         _LEGACY_WEIGHTS, "same as rank", "rank"),
+    _row("score_rank", ("ui",), "same visible ordinal as rank",
+         "signals/simple_scores.py:build_simple_instrument_scores; application/score_views.py:_ranked_by_displayed_score",
          _LEGACY_WEIGHTS, "same as rank", "rank"),
     _row("evidence_score_10", _ALL_PERSISTED, "evidence-component composite before risk/friction shaping", _LEGACY_CODE,
          _LEGACY_WEIGHTS, "usable evidence components only", "descriptive"),
@@ -133,16 +154,42 @@ SCORE_LINEAGE: tuple[ScoreLineageRow, ...] = (
     _row("*_score_10", _ALL_PERSISTED, "per-component 0-10 score (component key in the name)",
          "signals/simple_scores.py:SimpleScoreComponent", _LEGACY_WEIGHTS,
          "shown with its status; ineligible components carry no weight", "descriptive"),
+    # Decision Architecture v1 (DA-v1) with its QV / QVM benchmark rankers: side by side with the paths above.
+    _row("active_rank_score", _DECISION,
+         "score of the ranker the #811 cutover selects: the v3 replay until a valid promotion record activates DA-v1",
+         _DA_ROUTE_CODE, _DA_POLICY, "falls back to the v3 comparator, with a reason, when the promoted score is unavailable",
+         "decision"),
+    _row("v3_replay_score", _DECISION, "v3 comparator retained beside the active rank for replay", _DA_ROUTE_CODE, _DA_POLICY,
+         "v3 replay score only; unavailable when v3 is missing", "decision"),
+    _row("benchmark_rankers.score", _DECISION,
+         "benchmark ranker scores: Q, V, M, R, QV=(Q+V)/2, QVM=(Q+V+M)/3, five_factor, v3 replay", _DA_CODE, _DA_POLICY,
+         _DA_ELIGIBLE, "decision"),
+    _row("benchmark_rankers.percentile", _DECISION, "universe percentile of one benchmark ranker score", _DA_CODE, _DA_POLICY,
+         _DA_ELIGIBLE, "decision"),
+    _row("baseline_z", _DECISION, "DA-v1 baseline z-score across the eligible universe (metric weights: configs/decision_domains_v1.yaml)",
+         _DA_CODE, _DA_POLICY, _DA_ELIGIBLE, "decision"),
+    _row("percentile", _DECISION, "DA-v1 universe percentile of the baseline z-score", _DA_CODE, _DA_POLICY, _DA_ELIGIBLE, "decision"),
+    _row("universe_rank", _DECISION, "DA-v1 universe rank of the baseline z-score", _DA_CODE, _DA_POLICY, _DA_ELIGIBLE, "decision"),
+    _row("peer_percentile", _DECISION, "DA-v1 peer-group percentile", _DA_CODE, _DA_POLICY, _DA_ELIGIBLE, "decision"),
+    _row("peer_rank", _DECISION, "DA-v1 peer-group rank", _DA_CODE, _DA_POLICY, _DA_ELIGIBLE, "decision"),
+    _row("domain_scores", _DECISION, "DA-v1 per-domain scores", _DA_CODE, _DA_POLICY, _DA_ELIGIBLE, "decision"),
+    _row("coverage", _DECISION, "DA-v1 share of required metric weight present (0-1)", _DA_CODE, _DA_POLICY,
+         "always defined; 0 when nothing is usable", "decision"),
 )
 
 _SCORE_FIELD_NAMES = frozenset({"rank", "score_rank", "score", "coverage", "final_score_10"})
+_DECISION_SCORE_FIELD_NAMES = frozenset(
+    {"active_rank_score", "v3_replay_score", "baseline_z", "percentile", "universe_rank", "peer_percentile", "peer_rank", "domain_scores"}
+)
 
 
 def is_visible_score_field(name: object) -> bool:
     """True when a column/field name denotes a user-visible score, rank or coverage value."""
 
     text = str(name or "").strip()
-    return text in _SCORE_FIELD_NAMES or text.endswith("_10")
+    return text in _SCORE_FIELD_NAMES or text in _DECISION_SCORE_FIELD_NAMES or text.endswith("_10") or (
+        text.startswith("benchmark_rankers.") and text.rsplit(".", 1)[-1] in {"score", "percentile"}
+    )
 
 
 def lineage_row_for(field: str, surface: str | None = None) -> ScoreLineageRow | None:
@@ -164,19 +211,28 @@ def unregistered_score_fields(fields: Iterable[object], surface: str | None = No
 
 
 def score_rank_authority(*, promotion_record: Mapping[str, object] | None = None) -> dict[str, object]:
-    """Which path ranks: DA-v1 only behind the #811 cutover gate, otherwise the v3 rank; everything else is display-only."""
+    """Which path produces the visible rank: the legacy composite until the #811 cutover activates DA-v1.
+
+    ``display_only_paths`` never carry rank authority in the lineage manifest: the manifest derives its ``rank``
+    authority from this same declaration. The v3 groups and the display adjustment are display-only throughout.
+    """
 
     from etf_cockpit.analysis.decision.rank_validation import resolve_rank_cutover
 
     cutover = resolve_rank_cutover(promotion_record=promotion_record)
+    da_active = bool(cutover.active)
+    active = "DA-v1" if da_active else "legacy_composite"
+    display_only = ["v3_canonical_groups", "display_adjusted_score_10"] + (["legacy_composite"] if da_active else [])
     return {
-        "active_rank_path": cutover.ranker,
+        "active_rank_path": active,
+        "active_ranker": cutover.ranker,
         "candidate_rank_path": "DA-v1",
         "cutover_gate": "#811",
         "cutover_enabled": cutover.enabled,
-        "cutover_active": cutover.active,
+        "cutover_active": da_active,
         "cutover_reason": cutover.reason,
-        "display_only_paths": ["legacy_composite", "v3_canonical_groups", "display_adjusted_score_10"],
+        "display_only_paths": display_only,
+        "path_code": dict(_PATH_CODE),
         "domain_rank_weights": rank_domain_weights(load_score_policy("ETF")),
         "forecast_domain": FORECAST_DOMAIN,
         "execution_allowed": False,
@@ -187,19 +243,40 @@ def _weights_digest(weights: Mapping[str, object]) -> str:
     return hashlib.sha256(json.dumps(weights, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def score_lineage_manifest() -> list[dict[str, object]]:
-    """Generated, versioned lineage table: one row per visible score field and surface."""
+def _formula_version(row: ScoreLineageRow, policy: Any, cutover_policy: Any) -> str:
+    if row.weights_source == "v3_policy":
+        return str(policy.formula_version)
+    if row.weights_source == _DA_POLICY:
+        return str(cutover_policy.version)
+    return "legacy-evidence-composite"
+
+
+def score_lineage_manifest(*, promotion_record: Mapping[str, object] | None = None) -> list[dict[str, object]]:
+    """Generated, versioned lineage table: one row per visible score field and surface.
+
+    ``authority`` agrees with :func:`score_rank_authority`: a row whose code path is display-only never says ``rank``.
+    """
+
+    from etf_cockpit.analysis.decision.rank_validation import load_rank_validation_policy
 
     policy = load_score_policy("ETF")
     legacy = {"ETF": dict(ETF_EVIDENCE_WEIGHTS), "STOCK": dict(STOCK_EVIDENCE_WEIGHTS)}
+    rank_authority = score_rank_authority(promotion_record=promotion_record)
+    display_only_code = [_PATH_CODE[path] for path in rank_authority["display_only_paths"]]  # type: ignore[attr-defined]
+    cutover_policy = load_rank_validation_policy()
+    da_weights = {name: dict(spec.weights) for name, spec in cutover_policy.rankers.items() if spec.weights}
     sources: dict[str, tuple[object, str, str]] = {
         "v3_policy": (policy.groups, policy.formula_checksum, _V3_CONFIG),
+        _DA_POLICY: (da_weights, cutover_policy.checksum, "configs/decision_cutover_v1.yaml"),
         _LEGACY_WEIGHTS: (legacy, _weights_digest(legacy), "signals/simple_scores.py:ETF_EVIDENCE_WEIGHTS|STOCK_EVIDENCE_WEIGHTS"),
         "none": ({}, "none", "none"),
     }
     forecast_weight = rank_domain_weights(policy)[FORECAST_DOMAIN]
     manifest: list[dict[str, object]] = []
     for row in SCORE_LINEAGE:
+        authority = row.authority
+        if authority == "rank" and any(code in row.code_path for code in display_only_code):
+            authority = "descriptive"  # this path is display-only now (e.g. the legacy composite after the #811 cutover)
         weights, digest, source = sources[row.weights_source]
         if row.weights_source == "v3_policy" and isinstance(weights, Mapping):
             # S3-02: only the rank groups are active rank weights; the forecast domain's internal sizing is labelled apart.
@@ -215,13 +292,13 @@ def score_lineage_manifest() -> list[dict[str, object]]:
                     "surface": surface,
                     "origin_formula": row.origin_formula,
                     "code_path": row.code_path,
-                    "formula_version": policy.formula_version if row.weights_source == "v3_policy" else "legacy-evidence-composite",
+                    "formula_version": _formula_version(row, policy, cutover_policy),
                     "weights_source": source,
                     "active_weights": weights,
                     "config_hash": digest,
                     "data_cutoff": row.data_cutoff,
                     "eligibility_rule": row.eligibility_rule,
-                    "authority": row.authority,
+                    "authority": authority,
                     "horizon": row.horizon,
                     "domain": row.domain,
                     "rank_weight": forecast_weight if row.domain == FORECAST_DOMAIN else None,

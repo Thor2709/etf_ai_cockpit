@@ -136,6 +136,46 @@ def _ranked_by_displayed_score(scores: list[object]) -> list[object]:
     return result
 
 
+def displayed_rank_info(
+    rank_info: dict[str, tuple[float | None, float | None]],
+    scores: list[object],
+    history: pd.DataFrame | None,
+    previous_run_id: object,
+) -> dict[str, tuple[float | None, float | None]]:
+    """(previous, current) rank per instrument on ONE basis: the displayed (possibly penalised) score.
+
+    Stored history ranks are the unpenalised research ranks. While the missing-data penalty is on, the current
+    rank is the visible one and the previous rank is recomputed from the previous run's stored scores and
+    coverage with the same penalty, so a delta never compares two different bases. With the penalty off the
+    stored pair is returned unchanged; an instrument with no recomputable previous rank gets ``None`` (no delta).
+    """
+
+    if not any(getattr(score, "_display_basis", None) is not None for score in scores):
+        return dict(rank_info)
+    current = {str(score.display_id): score.rank for score in scores if getattr(score, "rank", None) is not None}  # type: ignore[attr-defined]
+    previous: dict[str, int] = {}
+    if isinstance(history, pd.DataFrame) and not history.empty and {"run_id", "instrument_id", "final_combined_score_10"} <= set(history.columns):
+        frame = history.loc[history["run_id"].astype(str) == str(previous_run_id)]
+        if "rank" in frame.columns:
+            frame = frame.loc[frame["rank"].notna()]  # rows without a rank (native bank rows) stay unranked
+        entries: list[tuple[bool, float, str]] = []
+        for record in frame.to_dict(orient="records"):
+            raw = pd.to_numeric(record.get("final_combined_score_10"), errors="coerce")
+            coverage = pd.to_numeric(record.get("coverage"), errors="coerce") if "coverage" in frame.columns else float("nan")
+            value = float(raw) if isfinite(raw) else None
+            if value is not None and isfinite(coverage):
+                value = round(NEUTRAL_SCORE_10 + (value - NEUTRAL_SCORE_10) * min(max(float(coverage), 0.0), 1.0), 2)
+            entries.append((value is None, -(value or 0.0), str(record.get("instrument_id", ""))))
+        previous = {key[2]: position for position, key in enumerate(sorted(entries), start=1)}
+    return {
+        instrument_id: (
+            None if instrument_id not in previous or instrument_id not in current else previous[instrument_id],
+            current.get(instrument_id),
+        )
+        for instrument_id in rank_info
+    }
+
+
 def latest_signal_per_instrument(signals: object) -> dict[str, tuple[object, bool]]:
     """Latest signal per instrument; ``(signal, conflict)`` where same-date signals that disagree set ``conflict``.
 

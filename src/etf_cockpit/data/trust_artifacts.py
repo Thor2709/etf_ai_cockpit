@@ -4,6 +4,7 @@ import hashlib
 from dataclasses import asdict
 from io import BytesIO
 import json
+import logging
 import math
 from numbers import Integral
 import uuid
@@ -56,6 +57,8 @@ from etf_cockpit.features.cash_comparison import (
     cash_comparison_from_projection,
     validate_cash_comparison_result,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 PROVIDER_PROBE_PATH = CLEAN_DIR / "provider_probe_results.parquet"
 IDENTITY_PATH = CLEAN_DIR / "instrument_identity.parquet"
@@ -1808,6 +1811,8 @@ def _unique_scores_by_instrument(scores: Iterable[Any]) -> list[Any]:
         fingerprints = {(_safe_float(getattr(row, "final_score_10", None)), str(getattr(row, "final_label", ""))) for row in rows}
         if len(fingerprints) == 1:
             unique.append(rows[0])
+        else:
+            _LOGGER.warning("score history: dropped %d conflicting duplicate scores for %s", len(rows), rows[0].display_id)
     return unique
 
 
@@ -1900,7 +1905,8 @@ def _price_row_state(score: Any, as_of: object | None = None) -> str | None:
     parsed = pd.to_datetime(latest_date, errors="coerce")
     if pd.isna(parsed):
         return "invalid"
-    if hasattr(score, "latest_price"):
+    if hasattr(score, "latest_price") and str(getattr(score, "final_label", "") or "").casefold() != "scorecard_owned":
+        # native bank scorecards carry no market price, so a missing price is not an invalid row there
         price = _safe_float(getattr(score, "latest_price", None))
         if price is None or price <= 0:
             return "invalid"

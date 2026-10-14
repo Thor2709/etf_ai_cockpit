@@ -90,7 +90,65 @@ def test_every_visible_score_field_has_a_lineage_row() -> None:
     assert v3["config_hash"] == load_score_policy("ETF").formula_checksum
     rank = publication.score_rank_authority()
     assert rank["candidate_rank_path"] == "DA-v1" and rank["cutover_gate"] == "#811"
-    assert rank["active_rank_path"] in {"v3", "DA-v1"} and rank["execution_allowed"] is False
+    assert rank["active_rank_path"] in {"legacy_composite", "DA-v1"} and rank["execution_allowed"] is False
+
+
+def test_rank_authority_and_manifest_agree_before_and_after_the_cutover(monkeypatch) -> None:
+    from etf_cockpit.analysis.decision import rank_validation as rv
+
+    def rank_rows(manifest):
+        return [row for row in manifest if row["authority"] == "rank"]
+
+    off = publication.score_rank_authority()
+    assert off["active_rank_path"] == "legacy_composite" and off["cutover_active"] is False
+    assert "legacy_composite" not in off["display_only_paths"]
+    display_only_code = [off["path_code"][path] for path in off["display_only_paths"]]
+    rows = rank_rows(publication.score_lineage_manifest())
+    assert {row["field"] for row in rows} >= {"final_combined_score_10", "rank", "score", "research_score_10"}
+    for row in rows:
+        assert not any(code in row["code_path"] for code in display_only_code), (row["field"], row["code_path"])
+        assert off["path_code"][off["active_rank_path"]] in row["code_path"], row["field"]
+
+    active = rv.RankCutover(True, True, "QVM", "v3", {"record_id": "r"}, "promoted_rank_active")
+    monkeypatch.setattr(rv, "resolve_rank_cutover", lambda **kwargs: active)
+    on = publication.score_rank_authority()
+    assert on["active_rank_path"] == "DA-v1" and on["active_ranker"] == "QVM" and "legacy_composite" in on["display_only_paths"]
+    on_code = [on["path_code"][path] for path in on["display_only_paths"]]
+    for row in rank_rows(publication.score_lineage_manifest()):
+        assert not any(code in row["code_path"] for code in on_code), (row["field"], row["code_path"])
+    assert not rank_rows(publication.score_lineage_manifest()), "after the cutover the legacy composite carries no rank authority"
+
+
+def test_da_v1_and_qv_qvm_scores_are_registered_beside_v3_and_legacy() -> None:
+    from dataclasses import fields as dataclass_fields
+
+    from etf_cockpit.analysis.decision.contracts import OpportunityBenchmarkRank, OpportunityResult
+
+    decision_fields = [
+        *(item.name for item in dataclass_fields(OpportunityResult)),
+        *(f"benchmark_rankers.{item.name}" for item in dataclass_fields(OpportunityBenchmarkRank)),
+        "active_rank_score", "v3_replay_score",  # the cutover route attached by application/decision_views.py
+    ]
+    assert publication.unregistered_score_fields(decision_fields, "decision") == []
+    # real component columns (not just the pattern) on the persisted surfaces
+    component_columns = [f"{key}_score_10" for key in ss.COMPONENT_LABELS]
+    for surface in ("ui", "scoreboard", "history"):
+        assert publication.unregistered_score_fields(component_columns, surface) == [], surface
+    assert publication.unregistered_score_fields(["benchmark_rankers.mystery", "mystery_rank_score_10"], "decision") == ["mystery_rank_score_10"]
+
+    manifest = publication.score_lineage_manifest()
+    decision_rows = [row for row in manifest if row["surface"] == "decision"]
+    assert decision_rows and {row["authority"] for row in decision_rows} == {"decision"}
+    assert all(row["execution_allowed"] is False for row in decision_rows)
+    benchmark = next(row for row in decision_rows if row["field"] == "benchmark_rankers.score")
+    assert {"QV", "QVM"} <= set(benchmark["active_weights"]) and "QVM" in benchmark["origin_formula"]
+    assert benchmark["formula_version"] and benchmark["config_hash"] not in {"none", ""}
+    # side by side: all paths appear in one manifest, and the cutover state is explicit
+    assert {row["weights_source"] for row in manifest} >= {
+        "signals/simple_scores.py:ETF_EVIDENCE_WEIGHTS|STOCK_EVIDENCE_WEIGHTS", "configs/score_engine_v3.yaml",
+        "configs/decision_cutover_v1.yaml",
+    }
+    assert "cutover_active" in publication.score_rank_authority()
 
 
 def test_same_instrument_and_date_share_one_value_across_ui_export_scoreboard_history_api(monkeypatch, tmp_path) -> None:
@@ -109,15 +167,25 @@ def test_same_instrument_and_date_share_one_value_across_ui_export_scoreboard_hi
     board = pd.read_parquet(scoreboard_path).set_index("instrument_id")
     export = pd.read_csv(scoreboard_path.with_suffix(".csv")).set_index("instrument_id")
     history = pd.read_parquet(history_path).set_index("instrument_id")
+    shown = {item.display_id: item for item in score_views.snapshot_scores(snapshot, penalise_missing=True)}
     for row in rows:
         expected = row.final_score_10
         ui = next(item for item in score_views.snapshot_scores(snapshot, penalise_missing=False) if item.display_id == row.display_id)
         assert ui.final_score_10 == expected
+        # the field actually shown with the preference on: UI final_score_10 is the display-adjusted value, and the
+        # research score beside it is the single stored value every other surface carries
+        values = score_views.score_display_values(shown[row.display_id])
+        assert values["research_score_10"] == expected
+        assert shown[row.display_id].final_score_10 == values["display_adjusted_score_10"]
+        assert values["display_adjusted_score_10"] == round(5.0 + (expected - 5.0) * _COVERAGE[row.display_id], 2)
         assert board.loc[row.display_id, "final_combined_score_10"] == expected
         assert export.loc[row.display_id, "final_combined_score_10"] == expected
         assert history.loc[row.display_id, "final_combined_score_10"] == expected
         assert api_rows[row.display_id].score == expected
         assert history.loc[row.display_id, "rank"] == row.rank
+    ui_row = publication.lineage_row_for("final_score_10", "ui")
+    assert ui_row is not None and ui_row.authority == "descriptive" and "display_adjusted_score_10" in ui_row.origin_formula
+    assert publication.lineage_row_for("final_score_10", "history") is None  # the UI label is never stored under that name
 
 
 def test_forecast_domain_weight_in_the_rank_is_zero_unless_promoted() -> None:
@@ -136,7 +204,7 @@ def test_forecast_domain_weight_in_the_rank_is_zero_unless_promoted() -> None:
     assert forecast_rows and all(row["rank_weight"] == 0.0 and row["authority"] == "descriptive" for row in forecast_rows)
     assert publication.score_rank_authority()["domain_rank_weights"][FORECAST_DOMAIN] == 0.0
     # S3-02: no v3 row implies forecast weights as active rank weights
-    v3_rows = [row for row in publication.score_lineage_manifest() if row["formula_version"] != "legacy-evidence-composite"]
+    v3_rows = [row for row in publication.score_lineage_manifest() if row["weights_source"] == "configs/score_engine_v3.yaml"]
     assert v3_rows
     for row in v3_rows:
         if row["domain"] == FORECAST_DOMAIN:
@@ -247,6 +315,31 @@ def test_e107_n002_b021_n003_visible_rank_follows_the_displayed_score(monkeypatc
     assert stored == {"AAA": 1, "BBB": 2, "CCC": 3}  # stored research rank is untouched
 
 
+def test_e107_n002_b021_n003_rank_delta_uses_the_displayed_basis_with_the_penalty_on(monkeypatch) -> None:
+    rows = [_row("AAA", 9.0, rank=1, coverage=0.2), _row("BBB", 6.0, rank=2, coverage=1.0)]
+    _patch_scores(monkeypatch, rows)
+    scores = score_views.snapshot_scores(_snapshot(), penalise_missing=True)
+    visible = {row.display_id: row.rank for row in scores}
+    assert visible == {"AAA": 2, "BBB": 1}  # 9.0 at 20% coverage displays as 5.8, below BBB
+    # unchanged previous run: stored (unpenalised) ranks are AAA 1 / BBB 2 in both runs
+    history = pd.DataFrame([
+        {"run_id": "prev", "instrument_id": "AAA", "final_combined_score_10": 9.0, "coverage": 0.2, "rank": 1},
+        {"run_id": "prev", "instrument_id": "BBB", "final_combined_score_10": 6.0, "coverage": 1.0, "rank": 2},
+        {"run_id": "cur", "instrument_id": "AAA", "final_combined_score_10": 9.0, "coverage": 0.2, "rank": 1},
+        {"run_id": "cur", "instrument_id": "BBB", "final_combined_score_10": 6.0, "coverage": 1.0, "rank": 2},
+    ])
+    stored = {"AAA": (1.0, 1.0), "BBB": (2.0, 2.0)}
+    info = score_views.displayed_rank_info(stored, scores, history, "prev")
+    assert info == {"AAA": (2, 2), "BBB": (1, 1)}  # previous recomputed with the same penalty; nothing moved
+    deltas = {key: old - new for key, (old, new) in info.items()}
+    assert deltas == {"AAA": 0, "BBB": 0}
+    assert all(info[key][1] == visible[key] for key in info)  # the delta's current rank is the visible rank
+    # penalty off: the stored pair is returned unchanged; an unknown previous run gives no delta
+    plain = score_views.snapshot_scores(_snapshot(), penalise_missing=False)
+    assert score_views.displayed_rank_info(stored, plain, history, "prev") == stored
+    assert score_views.displayed_rank_info(stored, scores, history, "missing-run") == {"AAA": (None, 2), "BBB": (None, 1)}
+
+
 def test_c015_n003_late_backfill_does_not_become_latest_or_invert_the_delta() -> None:
     def run(run_id: str, evidence: str, completed: str, score: float) -> dict:
         return {"run_id": run_id, "instrument_id": "AAA", "data_as_of_date": evidence, "run_completed_at": completed,
@@ -324,6 +417,7 @@ def test_c115_n001_stale_stored_scoreboard_never_supplies_evidence_beside_the_li
         ({"latest_price": 10.0, "latest_date": "2026-09-01"}, "stale"),
         ({"latest_price": 10.0, "latest_date": "2026-12-31"}, "invalid"),  # dated after the run: look-ahead
         ({"latest_price": 10.0, "latest_date": "not a date"}, "invalid"),
+        ({"latest_price": None, "latest_date": "2026-10-09", "final_label": "scorecard_owned"}, "ok"),  # native bank row: no price
     ],
 )
 def test_e101_n002_invalid_or_stale_price_rows_are_never_marked_ok(kwargs, expected) -> None:
@@ -332,7 +426,7 @@ def test_e101_n002_invalid_or_stale_price_rows_are_never_marked_ok(kwargs, expec
     assert trust_artifacts._score_freshness(score, "2026-10-10T00:00:00Z") == expected
 
 
-def test_e101_n004_same_date_duplicate_scores_do_not_depend_on_row_order(monkeypatch, tmp_path) -> None:
+def test_e101_n004_same_date_duplicate_scores_do_not_depend_on_row_order(monkeypatch, tmp_path, caplog) -> None:
     def signal(total: float) -> SimpleNamespace:
         return SimpleNamespace(etf_id="AAA", signal_date="2026-10-09", total_score=total, research_state="s", confidence=0.5, status="ok")
 
@@ -358,3 +452,7 @@ def test_e101_n004_same_date_duplicate_scores_do_not_depend_on_row_order(monkeyp
         assert list(stored["rank"]) == [1] and list(stored["score_rank"]) == [1]  # dropped duplicates never hold a rank slot
     collapsed = trust_artifacts._unique_scores_by_instrument([_row("AAA", 7.0), _row("AAA", 7.0)])
     assert len(collapsed) == 1
+    caplog.clear()
+    with caplog.at_level("WARNING", logger=trust_artifacts.__name__):
+        trust_artifacts._unique_scores_by_instrument([_row("AAA", 7.0), _row("AAA", 4.0)])
+    assert any("AAA" in record.getMessage() and "conflicting" in record.getMessage() for record in caplog.records)
