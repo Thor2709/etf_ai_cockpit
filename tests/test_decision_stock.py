@@ -373,6 +373,7 @@ def test_margin_of_safety_is_per_model_and_uses_canonical_price_provenance() -> 
         instrument_id="ACME",
         market_inputs=market,
         assumptions=assumptions,
+        strict_comparability=False,
     )
     mos = result["margin_of_safety"]["models"]
 
@@ -404,6 +405,7 @@ def test_margin_of_safety_fails_closed_for_missing_price_timing_or_nonpositive_p
         instrument_id="ACME",
         market_inputs=market,
         assumptions=assumptions,
+        strict_comparability=False,
     )
     market["share_price"] = 0.0
     nonpositive = valuation_analysis(
@@ -411,6 +413,7 @@ def test_margin_of_safety_fails_closed_for_missing_price_timing_or_nonpositive_p
         instrument_id="ACME",
         market_inputs=market,
         assumptions=assumptions,
+        strict_comparability=False,
     )
 
     assert missing_timing["margin_of_safety"]["models"]["dcf:base"]["status"] == "unavailable"

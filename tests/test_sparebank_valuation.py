@@ -75,6 +75,7 @@ def test_scenarios_require_explicit_weights_and_marketability_is_an_input():
     ])
     assert result["value"] == pytest.approx(100)
     assert result["weight_semantics"] == "operator_supplied"
+    assert result["weights_are_probabilities"] is False
 
 
 def test_order_size_and_days_to_trade_fallback():

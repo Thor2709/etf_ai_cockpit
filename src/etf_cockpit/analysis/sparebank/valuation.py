@@ -263,7 +263,7 @@ def scenario_value(scenarios: Iterable[Mapping[str, object]] | None) -> dict[str
         total_weight += weight
     if not math.isclose(total_weight, 1.0, rel_tol=0.0, abs_tol=1e-9):
         raise ValueError("scenario weights must sum to one")
-    return {"status": "resolved", "value": weighted, "scenarios": rows, "weight_semantics": "operator_supplied", "execution_allowed": False}
+    return {"status": "resolved", "value": weighted, "scenarios": rows, "weight_semantics": "operator_supplied", "weights_are_probabilities": False, "execution_allowed": False}
 
 
 def price_implied_state_weight(price: float, reference_value: float, improvement_value: float) -> dict[str, object]:

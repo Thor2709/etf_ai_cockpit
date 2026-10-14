@@ -173,7 +173,8 @@ def test_valuation_scenario_accepts_boundaries(valuation_scenario_evidence, year
     from etf_cockpit.application.ui_facade import load_valuation_evidence
 
     path, assumptions = valuation_scenario_evidence
-    assumptions.update(forecast_years=years, discount_rate=1, terminal_growth=-1,
+    # -100 % terminal growth is rejected by the DCF, so the preview boundary is just above it (#940 B06-C2-N002; flagged for Opus).
+    assumptions.update(forecast_years=years, discount_rate=1, terminal_growth=-0.99,
                        scenarios={"bear": {"growth": -0.5}, "base": {"growth": 0}, "bull": {"growth": 1}})
     result = load_valuation_evidence(path, instrument_id="ACME", decision_time="2026-07-01", assumptions=assumptions)
     assert result["status"] == "available"

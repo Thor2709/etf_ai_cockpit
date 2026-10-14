@@ -2723,7 +2723,7 @@ def _valuation_panel(instrument_id: str, asset_type: object, decision_time: obje
     if result["status"] != "available":
         return _unavailable(result["message"])
     metric_fields = ("name", "value", "status", "formula", "period", "source_ids", "confidence", "applicability", "limitation")
-    model_fields = ("status", "confidence", "reason", "execution_allowed", "forecast_years", "discount_rate", "terminal_growth", "implied_growth", "target_equity_value", "equity_value", "per_share", "range")
+    model_fields = ("status", "confidence", "reason", "execution_allowed", "forecast_years", "discount_rate", "terminal_growth", "implied_growth", "target_equity_value", "equity_value", "per_share", "range", "cash_flow_claim_type", "score_eligible", "label", "averaged", "deltas")
     context = result.get("assumption_context", {})
     assumption_context = {field: context.get(field) for field in ("kind", "instrument_id", "decision_time", "session_preview_only", "score_authority", "execution_allowed")} if context else {}
     if context:
