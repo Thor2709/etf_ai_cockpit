@@ -18,6 +18,7 @@ from etf_cockpit.analysis.stock_metrics import Metric, Period
 NO_PERIODS_REASON = "no fundamentals have been loaded for this instrument"
 # Cash roll-forward tolerance: the cash-flow statement may include restricted cash that the balance-sheet cash line excludes.
 ROLLFORWARD_TOLERANCE = 0.05
+ANALYST_MAX_AGE_DAYS = 120  # 90-day estimate lookback plus 30 days; scoring.analyst_revision.max_age_days overrides
 
 
 @dataclass(frozen=True)
@@ -875,7 +876,7 @@ class _Builder:
         for key in ("pe", "ev_ebit", "ev_sales", "pb", "roe", "ebit_margin", "fcf_yield", "dividend_yield", "revenue_cagr"):
             others = {pid: v for pid, v in (self.peer_values.get(key) or {}).items() if pid != self.id and v is not None}
             own = self.metrics.get(key)
-            own_value = own.value if own is not None and own.available else None
+            own_value = own.value if own is not None and own.available and self._metric_freshness_reason(own) is None else None
             median = sm.median(others.values())
             premium = None
             if own_value is not None and median not in (None, 0.0) and key in {"pe", "ev_ebit", "ev_sales", "pb"}:
@@ -938,21 +939,7 @@ class _Builder:
         return SubScore(key, label, None, "—", None, metric.reason or "unavailable")
 
     def _metric_freshness_reason(self, metric: Metric) -> str | None:
-        if metric.status == sm.UNAVAILABLE:
-            return None
-        if metric.as_of is None:
-            return "metric date is unavailable; not eligible for scoring"
-        try:
-            period_end = date.fromisoformat(str(metric.as_of)[:10])
-        except ValueError:
-            return "metric date is unverifiable; not eligible for scoring"
-        # Publication proves availability, never renews the age of fiscal evidence.
-        age = (self.decision_time.date() - period_end).days
-        if age < 0:
-            return "metric is dated after the decision time; not eligible for scoring"
-        if age > self.stale_days:
-            return f"stale report ({age} days); display only, excluded from scoring"
-        return None
+        return metric_freshness_reason(metric, self.decision_time, self.stale_days)
 
     def components(self) -> dict[str, Component]:
         return {
@@ -1070,6 +1057,16 @@ class _Builder:
         known = a is not None and a.known_at is not None and a.known_at <= self.decision_time
         if a is not None and a.known_at is not None and not known:
             reason = "analyst snapshot is dated after the decision time"
+        max_age = int(cfg.get("max_age_days", ANALYST_MAX_AGE_DAYS)) if isinstance(cfg, Mapping) else ANALYST_MAX_AGE_DAYS
+        if known:
+            age = (self.decision_time - a.known_at).days  # type: ignore[union-attr, operator]
+            fields = (a.eps_current, a.eps_90d_ago, a.revisions_up_30d, a.revisions_down_30d)  # type: ignore[union-attr]
+            if age > max_age:
+                known, reason = False, f"analyst snapshot is {age} days old; at most {max_age} are scored"
+            elif any(value is None for value in fields):
+                known, reason = False, "analyst snapshot is partial (missing estimate or revision fields); not scored"
+            elif a.revisions_up_30d < 0 or a.revisions_down_30d < 0:  # type: ignore[union-attr, operator]
+                known, reason = False, "analyst snapshot has a negative revision count; not scored"
         change = None
         if known and a.eps_current is not None and a.eps_90d_ago not in (None, 0.0):
             change = a.eps_current / a.eps_90d_ago - 1.0 if a.eps_90d_ago > 0 else None
@@ -1087,6 +1084,26 @@ class _Builder:
         as_of = a.known_at.date().isoformat() if known and a.known_at else None
         component = self._assemble("analyst_revision", "Analyst revision", subs, group, f"{(a.source if a else 'yfinance')}:analyst_estimates", as_of, "ok" if known else "unavailable")
         return component
+
+
+def metric_freshness_reason(metric: Metric, decision_time: datetime, stale_days: int) -> str | None:
+    """Why a metric may not enter a score (undated, future-dated or stale), else None."""
+
+    if metric.status == sm.UNAVAILABLE:
+        return None
+    if metric.as_of is None:
+        return "metric date is unavailable; not eligible for scoring"
+    try:
+        period_end = date.fromisoformat(str(metric.as_of)[:10])
+    except ValueError:
+        return "metric date is unverifiable; not eligible for scoring"
+    # Publication proves availability, never renews the age of fiscal evidence.
+    age = (decision_time.date() - period_end).days
+    if age < 0:
+        return "metric is dated after the decision time; not eligible for scoring"
+    if age > stale_days:
+        return f"stale report ({age} days); display only, excluded from scoring"
+    return None
 
 
 def build_stock_evidence(
