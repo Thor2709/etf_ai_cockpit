@@ -975,6 +975,7 @@ def append_score_history(
             start=1,
         )
     }
+    scores = _unique_scores_by_instrument(scores)
     rows: list[dict[str, Any]] = []
     for score in scores:
         warnings = "|".join(str(item).strip() for item in (getattr(score, "warnings", []) or []) if str(item).strip()) or "unavailable"
@@ -1798,6 +1799,24 @@ def _run_snapshot_hash(frame: pd.DataFrame) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _unique_scores_by_instrument(scores: Iterable[Any]) -> list[Any]:
+    """One score per instrument per run, independent of input order.
+
+    Identical duplicates collapse; duplicates that disagree on the stored score are all dropped from the run's
+    history rows (an unverifiable score is never persisted by "last row wins").
+    """
+
+    grouped: dict[str, list[Any]] = {}
+    for score in scores:
+        grouped.setdefault(str(getattr(score, "display_id", "")), []).append(score)
+    unique: list[Any] = []
+    for rows in grouped.values():
+        fingerprints = {(_safe_float(getattr(row, "final_score_10", None)), str(getattr(row, "final_label", ""))) for row in rows}
+        if len(fingerprints) == 1:
+            unique.append(rows[0])
+    return unique
+
+
 def _score_sort_key(score: Any) -> tuple[bool, float, str]:
     value = _safe_float(getattr(score, "final_score_10", None))
     return (value is None, -(value or 0.0), str(getattr(score, "display_id", "")))
@@ -1874,7 +1893,33 @@ def _score_snapshot_hash(score: Any) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
+def _price_row_state(score: Any, as_of: object | None = None) -> str | None:
+    """``invalid`` / ``stale`` when the dated price row cannot support an "ok" freshness; ``None`` when it can (or is pending).
+
+    A dated row needs a finite positive price and a date that is neither in the future of the run nor older than the
+    stale-block window; component freshness labels never override that.
+    """
+
+    latest_date = str(getattr(score, "latest_date", "") or "")
+    if not latest_date or latest_date == "pending refresh":
+        return None
+    parsed = pd.to_datetime(latest_date, errors="coerce")
+    if pd.isna(parsed):
+        return "invalid"
+    if hasattr(score, "latest_price"):
+        price = _safe_float(getattr(score, "latest_price", None))
+        if price is None or price <= 0:
+            return "invalid"
+    age_days = (_freshness_reference_day(as_of) - parsed.tz_localize(None).normalize()).days if parsed.tzinfo else (_freshness_reference_day(as_of) - parsed.normalize()).days
+    if age_days < 0:
+        return "invalid"  # a price dated after the run is look-ahead, not fresh data
+    return "stale" if age_days > 10 else None
+
+
 def _score_freshness(score: Any, as_of: object | None = None) -> str:
+    price_state = _price_row_state(score, as_of)
+    if price_state == "invalid":
+        return "invalid"
     statuses = [
         str(getattr(component, "freshness_status", "") or "")
         for component in getattr(score, "components", []) or []
@@ -1882,6 +1927,8 @@ def _score_freshness(score: Any, as_of: object | None = None) -> str:
     ]
     if any(status in {"stale", "stale_block"} for status in statuses):
         return "stale"
+    if statuses and price_state == "stale":
+        return "stale"  # a fresh component label never overrides an old price row
     if any(status in {"partial", "warning", "unknown", "missing_or_pending"} for status in statuses):
         return "partial"
     return statuses[0] if statuses else _freshness_from_date(str(getattr(score, "latest_date", "")), as_of)

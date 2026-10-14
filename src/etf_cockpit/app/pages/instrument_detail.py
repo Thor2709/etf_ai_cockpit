@@ -717,6 +717,7 @@ def _model_for(state: object, selected: str) -> InstrumentDetailViewModel:
         snapshot,
         selected,
         candidate_score=getattr(state, "selected_instrument_score", None),
+        live_score=_listed_score(state, selected),
         financial_projection=getattr(state, "financial_projection", None),
         real_asset_projection=getattr(state, "real_asset_projection", None),
         cyclical_projection=getattr(state, "cyclical_projection", None),

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from fnmatch import fnmatchcase
 import hashlib
 from io import BytesIO
 import json
 from pathlib import Path
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any, Protocol
 
 import numpy as np
@@ -25,7 +27,11 @@ from etf_cockpit.models.calibration import (
     write_forecast_calibration,
 )
 from etf_cockpit.application.snapshot_builder import CockpitSnapshot
+from etf_cockpit.signals.canonical_scoring import FORECAST_DOMAIN, load_score_policy, rank_domain_weights
 from etf_cockpit.signals.simple_scores import (
+    COMPONENT_LABELS,
+    ETF_EVIDENCE_WEIGHTS,
+    STOCK_EVIDENCE_WEIGHTS,
     build_simple_instrument_scores as build_simple_instrument_scores,
     load_latest_candidate_report,
     simple_scoreboard_frame,
@@ -34,6 +40,189 @@ from etf_cockpit.signals.simple_scores import (
 
 
 SCOREBOARD_PUBLICATION_BINDING_ENTITY_TYPE = "scoreboard_publication_binding"
+
+
+# --- Score lineage (S3-01/S3-02): one row per user-visible score field ---------------------------------------------
+
+LINEAGE_SCHEMA_VERSION = "score_lineage.v1"
+SCORE_SURFACES = ("ui", "export", "scoreboard", "history", "api")
+AUTHORITIES = ("descriptive", "rank", "decision")
+_V3_CONFIG = "configs/score_engine_v3.yaml"
+_V3_CODE = "signals/canonical_scoring.py:build_canonical_score"
+_LEGACY_CODE = "signals/simple_scores.py:build_simple_instrument_scores (legacy evidence composite, forecast weight 0 by owner rule F5)"
+_ALL_PERSISTED = ("ui", "export", "scoreboard", "history")
+_HORIZON = "1-3 months"
+_CUTOFF_PRICE = "latest validated price date of the run; never after the snapshot decision time"
+_ELIGIBLE_V3 = "score-eligible components only (ok status, fresh, sourced, no conflict); a failed critical gate gives no value"
+_LEGACY_WEIGHTS = "legacy_evidence_weights"
+
+
+@dataclass(frozen=True)
+class ScoreLineageRow:
+    """Where one visible score field comes from and what it may be used for."""
+
+    field: str  # exact column/field name, or an fnmatch pattern for a family such as ``*_score_10``
+    surfaces: tuple[str, ...]
+    origin_formula: str
+    code_path: str
+    weights_source: str  # "v3_policy" | "legacy_evidence_weights" | "none"
+    data_cutoff: str
+    eligibility_rule: str
+    authority: str  # descriptive | rank | decision
+    horizon: str
+    domain: str = "evidence"  # "expected_return" is the separate model-forecast domain
+
+
+def _row(field: str, surfaces: tuple[str, ...], origin: str, code: str, weights: str, eligibility: str, authority: str,
+         *, cutoff: str = _CUTOFF_PRICE, domain: str = "evidence") -> ScoreLineageRow:
+    return ScoreLineageRow(field, surfaces, origin, code, weights, cutoff, eligibility, authority, _HORIZON, domain)
+
+
+SCORE_LINEAGE: tuple[ScoreLineageRow, ...] = (
+    _row("final_combined_score_10", _ALL_PERSISTED, "legacy evidence composite 0-10 (display name: Research score)",
+         _LEGACY_CODE, _LEGACY_WEIGHTS,
+         "unavailable when a critical gate fails or coverage is below the policy minimum; the missing-data penalty never changes it",
+         "rank"),
+    _row("final_score_10", ("ui",), "same value as final_combined_score_10 (in-memory score row)", _LEGACY_CODE,
+         _LEGACY_WEIGHTS, "same as final_combined_score_10", "rank"),
+    _row("score", ("api",), "typed API score = final_combined_score_10 (0-10, never the raw signal in [-1, 1])",
+         "application/api.py:LocalApplicationApi.get_scores", _LEGACY_WEIGHTS,
+         "unavailable when the instrument has no canonical score row or same-date signals conflict", "rank"),
+    _row("research_score_10", ("ui",), "same value as final_combined_score_10 (shown beside the display-adjusted value)",
+         "application/score_views.py:score_display_values", _LEGACY_WEIGHTS, "same as final_combined_score_10", "rank"),
+    _row("display_adjusted_score_10", ("ui",), "5 + (research - 5) x coverage: display annotation only, never stored",
+         "application/score_views.py:apply_missing_data_penalty", "none",
+         "only while the user preference is on; the visible rank follows this displayed value", "descriptive"),
+    _row("rank", ("ui", "history", "api"), "ordinal of the ranked score (unavailable last, ties by identifier)",
+         "signals/simple_scores.py:build_simple_instrument_scores; application/score_views.py:_ranked_by_displayed_score",
+         _LEGACY_WEIGHTS, "ordinary instruments only; native bank rows carry no rank", "rank"),
+    _row("score_rank", ("ui", "history"), "same ordinal as rank", "signals/simple_scores.py:build_simple_instrument_scores",
+         _LEGACY_WEIGHTS, "same as rank", "rank"),
+    _row("evidence_score_10", _ALL_PERSISTED, "evidence-component composite before risk/friction shaping", _LEGACY_CODE,
+         _LEGACY_WEIGHTS, "usable evidence components only", "descriptive"),
+    _row("evidence_quality_10", _ALL_PERSISTED, "data quality and completeness score", _LEGACY_CODE, _LEGACY_WEIGHTS,
+         "usable evidence components only", "descriptive"),
+    _row("risk_friction_10", _ALL_PERSISTED, "0.60 risk + 0.40 liquidity/cost components", _LEGACY_CODE, _LEGACY_WEIGHTS,
+         "usable evidence components only", "descriptive"),
+    _row("coverage", _ALL_PERSISTED, "share of configured evidence present (0-1)", _LEGACY_CODE, _LEGACY_WEIGHTS,
+         "always defined; 0 when nothing is usable", "descriptive"),
+    _row("canonical_attractiveness_10", _ALL_PERSISTED, "v3 attractiveness group", _V3_CODE, "v3_policy", _ELIGIBLE_V3,
+         "descriptive"),
+    _row("canonical_risk_implementation_10", _ALL_PERSISTED, "v3 risk/implementation group", _V3_CODE, "v3_policy",
+         _ELIGIBLE_V3, "descriptive"),
+    _row("canonical_evidence_confidence_10", _ALL_PERSISTED, "v3 evidence confidence (coverage, freshness, structure cap)",
+         _V3_CODE, "v3_policy", _ELIGIBLE_V3, "descriptive"),
+    _row("canonical_coverage", _ALL_PERSISTED, "v3 configured-weight coverage (0-1)", _V3_CODE, "v3_policy",
+         "always defined", "descriptive"),
+    _row("canonical_expected_return_10", _ALL_PERSISTED,
+         "v3 model-forecast domain (baseline/TimesFM/Toto), separate from the rank (S3-02)", _V3_CODE, "v3_policy",
+         "advisory model outputs only; rank weight 0 until #811 promotes it with the paired #928 test", "descriptive",
+         cutoff="forecast date; evaluation data must post-date each model's pretraining cutoff", domain=FORECAST_DOMAIN),
+    _row("backtest_trust_score_10", _ALL_PERSISTED, "backtest-trust context score (informational)",
+         "signals/simple_scores.py:build_simple_instrument_scores", "none", "informational; never part of the rank",
+         "descriptive"),
+    _row("model_calibration_score_10", _ALL_PERSISTED, "forecast-calibration context score (informational)",
+         "signals/simple_scores.py:build_simple_instrument_scores", "none", "informational; never part of the rank",
+         "descriptive"),
+    _row("market_regime_score_10", _ALL_PERSISTED, "market-regime context score (informational)",
+         "signals/simple_scores.py:build_simple_instrument_scores", "none", "informational; never part of the rank",
+         "descriptive"),
+    _row("portfolio_fit_score_10", _ALL_PERSISTED, "portfolio-fit context score (informational)",
+         "signals/simple_scores.py:build_simple_instrument_scores", "none", "informational; never part of the rank",
+         "descriptive"),
+    _row("*_score_10", _ALL_PERSISTED, "per-component 0-10 score (component key in the name)",
+         "signals/simple_scores.py:SimpleScoreComponent", _LEGACY_WEIGHTS,
+         "shown with its status; ineligible components carry no weight", "descriptive"),
+)
+
+_SCORE_FIELD_NAMES = frozenset({"rank", "score_rank", "score", "coverage", "final_score_10"})
+
+
+def is_visible_score_field(name: object) -> bool:
+    """True when a column/field name denotes a user-visible score, rank or coverage value."""
+
+    text = str(name or "").strip()
+    return text in _SCORE_FIELD_NAMES or text.endswith("_10")
+
+
+def lineage_row_for(field: str, surface: str | None = None) -> ScoreLineageRow | None:
+    """The lineage row covering ``field`` (exact names win over family patterns); ``None`` when unregistered."""
+
+    components = {f"{key}_score_10" for key in COMPONENT_LABELS}  # the family pattern covers real component keys only
+    matches = [
+        row for row in SCORE_LINEAGE
+        if (row.field == field or ("*" in row.field and fnmatchcase(field, row.field) and field in components))
+        and (surface is None or surface in row.surfaces)
+    ]
+    return min(matches, key=lambda row: "*" in row.field) if matches else None
+
+
+def unregistered_score_fields(fields: Iterable[object], surface: str | None = None) -> list[str]:
+    """Visible score fields without a lineage row (the lineage test fails on any)."""
+
+    return sorted({str(name) for name in fields if is_visible_score_field(name) and lineage_row_for(str(name), surface) is None})
+
+
+def score_rank_authority(*, promotion_record: Mapping[str, object] | None = None) -> dict[str, object]:
+    """Which path ranks: DA-v1 only behind the #811 cutover gate, otherwise the v3 rank; everything else is display-only."""
+
+    from etf_cockpit.analysis.decision.rank_validation import resolve_rank_cutover
+
+    cutover = resolve_rank_cutover(promotion_record=promotion_record)
+    return {
+        "active_rank_path": cutover.ranker,
+        "candidate_rank_path": "DA-v1",
+        "cutover_gate": "#811",
+        "cutover_enabled": cutover.enabled,
+        "cutover_active": cutover.active,
+        "cutover_reason": cutover.reason,
+        "display_only_paths": ["legacy_composite", "v3_canonical_groups", "display_adjusted_score_10"],
+        "domain_rank_weights": rank_domain_weights(load_score_policy("ETF")),
+        "forecast_domain": FORECAST_DOMAIN,
+        "execution_allowed": False,
+    }
+
+
+def _weights_digest(weights: Mapping[str, object]) -> str:
+    return hashlib.sha256(json.dumps(weights, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def score_lineage_manifest() -> list[dict[str, object]]:
+    """Generated, versioned lineage table: one row per visible score field and surface."""
+
+    policy = load_score_policy("ETF")
+    legacy = {"ETF": dict(ETF_EVIDENCE_WEIGHTS), "STOCK": dict(STOCK_EVIDENCE_WEIGHTS)}
+    sources: dict[str, tuple[object, str, str]] = {
+        "v3_policy": (policy.groups, policy.formula_checksum, _V3_CONFIG),
+        _LEGACY_WEIGHTS: (legacy, _weights_digest(legacy), "signals/simple_scores.py:ETF_EVIDENCE_WEIGHTS|STOCK_EVIDENCE_WEIGHTS"),
+        "none": ({}, "none", "none"),
+    }
+    forecast_weight = rank_domain_weights(policy)[FORECAST_DOMAIN]
+    manifest: list[dict[str, object]] = []
+    for row in SCORE_LINEAGE:
+        weights, digest, source = sources[row.weights_source]
+        for surface in row.surfaces:
+            manifest.append(
+                {
+                    "schema_version": LINEAGE_SCHEMA_VERSION,
+                    "field": row.field,
+                    "surface": surface,
+                    "origin_formula": row.origin_formula,
+                    "code_path": row.code_path,
+                    "formula_version": policy.formula_version if row.weights_source == "v3_policy" else "legacy-evidence-composite",
+                    "weights_source": source,
+                    "active_weights": weights,
+                    "config_hash": digest,
+                    "data_cutoff": row.data_cutoff,
+                    "eligibility_rule": row.eligibility_rule,
+                    "authority": row.authority,
+                    "horizon": row.horizon,
+                    "domain": row.domain,
+                    "rank_weight": forecast_weight if row.domain == FORECAST_DOMAIN else None,
+                    "execution_allowed": False,
+                }
+            )
+    return manifest
 
 
 class ScoreboardPublicationBindingError(RuntimeError):
@@ -90,9 +279,10 @@ def _write_current_scoreboard(session: ScoreboardSession) -> Path:
     calibration = evaluate_forecast_calibration(load_forecast_history(), session.snapshot.prices)
     with session.activity_publication():
         write_forecast_calibration(calibration)
-    from etf_cockpit.application.score_views import snapshot_scores
+    from etf_cockpit.application.score_views import published_scores
 
-    scores = snapshot_scores(session.snapshot)
+    # The missing-data penalty is a display annotation: stored scoreboard and history rows are never penalised.
+    scores = published_scores(session.snapshot)
     scoreboard_frame = simple_scoreboard_frame(scores)
     with session.activity_publication():
         path = write_simple_scoreboard(scores)
