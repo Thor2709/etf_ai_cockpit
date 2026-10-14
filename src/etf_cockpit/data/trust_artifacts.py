@@ -965,17 +965,11 @@ def append_score_history(
     scores = list(scores)
     if version_registry_signature == "unavailable":
         version_registry_signature = str(build_version_registry().get("registry_signature", "unavailable"))
+    scores = _unique_scores_by_instrument(scores)
     ranked_ids = {
         str(getattr(score, "display_id", "")): rank
-        for rank, score in enumerate(
-            sorted(
-                scores,
-                key=_score_sort_key,
-            ),
-            start=1,
-        )
+        for rank, score in enumerate(sorted(scores, key=_score_sort_key), start=1)
     }
-    scores = _unique_scores_by_instrument(scores)
     rows: list[dict[str, Any]] = []
     for score in scores:
         warnings = "|".join(str(item).strip() for item in (getattr(score, "warnings", []) or []) if str(item).strip()) or "unavailable"

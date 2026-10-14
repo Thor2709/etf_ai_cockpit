@@ -27,7 +27,7 @@ from etf_cockpit.models.calibration import (
     write_forecast_calibration,
 )
 from etf_cockpit.application.snapshot_builder import CockpitSnapshot
-from etf_cockpit.signals.canonical_scoring import FORECAST_DOMAIN, load_score_policy, rank_domain_weights
+from etf_cockpit.signals.canonical_scoring import FORECAST_DOMAIN, RANK_DOMAINS, load_score_policy, rank_domain_weights
 from etf_cockpit.signals.simple_scores import (
     COMPONENT_LABELS,
     ETF_EVIDENCE_WEIGHTS,
@@ -201,6 +201,12 @@ def score_lineage_manifest() -> list[dict[str, object]]:
     manifest: list[dict[str, object]] = []
     for row in SCORE_LINEAGE:
         weights, digest, source = sources[row.weights_source]
+        if row.weights_source == "v3_policy" and isinstance(weights, Mapping):
+            # S3-02: only the rank groups are active rank weights; the forecast domain's internal sizing is labelled apart.
+            if row.domain == FORECAST_DOMAIN:
+                weights = {"domain_internal_sizing_not_rank_weights": dict(weights.get(FORECAST_DOMAIN, {}))}
+            else:
+                weights = {group: weights[group] for group in RANK_DOMAINS if group in weights}
         for surface in row.surfaces:
             manifest.append(
                 {

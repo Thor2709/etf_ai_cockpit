@@ -135,6 +135,16 @@ def test_forecast_domain_weight_in_the_rank_is_zero_unless_promoted() -> None:
     forecast_rows = [row for row in publication.score_lineage_manifest() if row["domain"] == FORECAST_DOMAIN]
     assert forecast_rows and all(row["rank_weight"] == 0.0 and row["authority"] == "descriptive" for row in forecast_rows)
     assert publication.score_rank_authority()["domain_rank_weights"][FORECAST_DOMAIN] == 0.0
+    # S3-02: no v3 row implies forecast weights as active rank weights
+    v3_rows = [row for row in publication.score_lineage_manifest() if row["formula_version"] != "legacy-evidence-composite"]
+    assert v3_rows
+    for row in v3_rows:
+        if row["domain"] == FORECAST_DOMAIN:
+            assert set(row["active_weights"]) == {"domain_internal_sizing_not_rank_weights"}
+        else:
+            assert set(row["active_weights"]) == {"attractiveness", "risk_implementation"}
+            assert FORECAST_DOMAIN not in row["active_weights"]
+            assert all(FORECAST_KEYS.isdisjoint(group) for group in row["active_weights"].values())
 
 
 def test_historical_score_row_is_unchanged_after_a_formula_version_bump(monkeypatch, tmp_path) -> None:
@@ -252,19 +262,57 @@ def test_c015_n003_late_backfill_does_not_become_latest_or_invert_the_delta() ->
     panel = detail._history_panel("AAA", history)
     assert panel["rows"][-1]["run_id"] == "r2"
     changes = detail._run_changes_panel("AAA", history)
-    assert changes.get("current_run_id") in {"r2", None} and changes.get("previous_run_id") in {"r1", None}
+    assert changes["status"] == "available"  # the unavailable/exception path must fail this test
+    assert changes["current_run_id"] == "r2" and changes["previous_run_id"] == "r1"
+    (change,) = changes["changes"]
+    assert change["instrument_id"] == "AAA" and change["score_delta"] == 2.0  # 7.0 - 5.0; the backfill never enters
 
 
-def test_c115_n001_stale_stored_scoreboard_never_supplies_evidence_beside_the_live_headline() -> None:
-    live = _row("AAA", 7.0, canonical_score=SimpleNamespace(source_vintage_hash="v-live", formula_checksum="f1"))
-    fresh = {"source_vintage_hash": "v-live", "formula_checksum": "f1"}
+LIVE_VINTAGE = "a" * 64  # score panels only surface sha256-shaped vintages
+OLD_VINTAGE = "b" * 64
+
+
+def _live_canonical(vintage: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        source_vintage_hash=vintage, formula_checksum="f1", attractiveness_10=7.5, expected_return_10=None,
+        risk_implementation_10=6.5, evidence_confidence_10=0.8, coverage=1.0, formula_version="v3",
+    )
+
+
+def test_c115_n001_stale_stored_scoreboard_never_supplies_evidence_beside_the_live_headline(monkeypatch, tmp_path) -> None:
+    import etf_cockpit.application.instrument_detail_view as view
+    from etf_cockpit.application.snapshot_builder import build_snapshot
+
+    live = _row("AAA", 7.0, canonical_score=_live_canonical(LIVE_VINTAGE))
+    fresh = {"source_vintage_hash": LIVE_VINTAGE, "formula_checksum": "f1"}
     assert detail._scoreboard_matches_live(fresh, live) is True
-    assert detail._scoreboard_matches_live({**fresh, "source_vintage_hash": "v-old"}, live) is False
+    assert detail._scoreboard_matches_live({**fresh, "source_vintage_hash": OLD_VINTAGE}, live) is False
     assert detail._scoreboard_matches_live({"formula_checksum": "f1"}, live) is False  # unverifiable is stale
     assert detail._scoreboard_matches_live({**fresh, "formula_checksum": "f0"}, live) is False
-    import inspect
 
-    assert "live_score" in inspect.signature(detail.build_instrument_detail).parameters
+    snapshot = build_snapshot()
+    instrument_id = snapshot.config.universe.enabled_ids[0]
+    live = replace(live, display_id=instrument_id, instrument_key=f"etf:{instrument_id}", final_label="Live label")
+    stored = {
+        "display_id": instrument_id, "evidence_score_10": 3.0, "evidence_quality_10": 3.5, "final_label": "Stale label",
+        "one_line_reason": "Stored.", "freshness_status": "ok", "formula_checksum": "f1",
+    }
+
+    def evidence(vintage: str) -> dict:
+        path = tmp_path / f"scoreboard-{vintage}.parquet"
+        pd.DataFrame([{**stored, "source_vintage_hash": vintage}]).to_parquet(path, index=False)
+        monkeypatch.setattr(view, "SCOREBOARD_PATH", path)
+        panel = view.build_instrument_detail(snapshot, instrument_id, live_score=live).sections["scores"]
+        return {key: panel[key] for key in ("evidence_score", "evidence_quality", "final_label", "source_vintage_hash")}
+
+    # a stale stored row (other vintage) is replaced wholesale by the live row's evidence
+    assert evidence(OLD_VINTAGE) == {
+        "evidence_score": 7.0, "evidence_quality": live.evidence_quality_10, "final_label": "Live label", "source_vintage_hash": LIVE_VINTAGE,
+    }
+    # a stored row from the same vintage is kept untouched
+    assert evidence(LIVE_VINTAGE) == {
+        "evidence_score": 3.0, "evidence_quality": 3.5, "final_label": "Stale label", "source_vintage_hash": LIVE_VINTAGE,
+    }
 
 
 @pytest.mark.parametrize(
@@ -307,5 +355,6 @@ def test_e101_n004_same_date_duplicate_scores_do_not_depend_on_row_order(monkeyp
         stored = pd.read_parquet(path)
         stored = stored.loc[stored["run_id"] == f"run-{index}"]
         assert list(stored["instrument_id"]) == ["BBB"]
+        assert list(stored["rank"]) == [1] and list(stored["score_rank"]) == [1]  # dropped duplicates never hold a rank slot
     collapsed = trust_artifacts._unique_scores_by_instrument([_row("AAA", 7.0), _row("AAA", 7.0)])
     assert len(collapsed) == 1
