@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+import math
+
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
@@ -38,3 +41,91 @@ def trend_weights(config: AppConfig, price_history: pd.DataFrame, columns: list[
     weights = base.where(active, 0.0)
     total = weights.sum()
     return weights / total if total > 0 else pd.Series(0.0, index=columns)
+
+
+def long_only_top_n_weights(scores: pd.Series, top_n: int) -> pd.Series:
+    """Equal-weight the ``top_n`` highest finite scores; every other weight is zero.
+
+    The result is long-only (no negative weight, sum 1, or all-zero when no
+    finite score exists); ties break on the instrument id for determinism.
+    """
+
+    numeric = pd.to_numeric(scores, errors="coerce")
+    valid = numeric[numeric.map(lambda value: math.isfinite(value) if pd.notna(value) else False)]
+    weights = pd.Series(0.0, index=scores.index, dtype=float)
+    count = min(max(int(top_n), 0), len(valid))
+    if count <= 0:
+        return weights
+    ordered = sorted(valid.items(), key=lambda item: (-float(item[1]), str(item[0])))
+    for instrument_id, _ in ordered[:count]:
+        weights.loc[instrument_id] = 1.0 / count
+    return weights
+
+
+def assert_long_only(weights: pd.Series) -> pd.Series:
+    """Return ``weights`` unchanged, or raise when any weight is short or non-finite."""
+
+    values = pd.to_numeric(weights, errors="coerce")
+    if values.isna().any() or (values < -1e-12).any() or not values.map(math.isfinite).all():
+        raise ValueError("investable portfolios must be long-only with finite weights")
+    return weights
+
+
+def investable_comparison(
+    long_leg_return: float,
+    *,
+    short_leg_return: float | None = None,
+    benchmark_return: float | None = None,
+    cash_return: float | None = None,
+) -> dict[str, object]:
+    """Compare a long-only top-N result with VWCE and cash; the short leg is research only.
+
+    The investable result is the long leg alone.  A long-short spread (which
+    assumes free shorting) is reported under ``research_only`` and never feeds
+    ``investable_return``.
+    """
+
+    long_value = float(long_leg_return)
+    if not math.isfinite(long_value):
+        return {"status": "unavailable", "reason": "long-leg return is not finite", "short_leg_included": False}
+
+    def excess(reference: float | None) -> float | None:
+        if reference is None or not math.isfinite(float(reference)):
+            return None
+        return long_value - float(reference)
+
+    short_value = None if short_leg_return is None else float(short_leg_return)
+    spread = None if short_value is None or not math.isfinite(short_value) else long_value - short_value
+    return {
+        "status": "available",
+        "investable_return": long_value,
+        "excess_vs_benchmark": excess(benchmark_return),
+        "excess_vs_cash": excess(cash_return),
+        "short_leg_included": False,
+        "research_only": {"long_short_spread": spread, "label": "research_only_not_investable"},
+    }
+
+
+def investable_comparator_summary(
+    final_values: Mapping[str, float],
+    *,
+    initial_value_eur: float,
+    benchmark_final_value: float | None,
+    universe: list[str],
+    start: object,
+    end: object,
+    cost_regime: str,
+) -> dict[str, object]:
+    """Long-only strategies vs VWCE and cash on one universe, date range and cost regime."""
+
+    return {
+        "long_only": True,
+        "short_legs_excluded": True,
+        "universe": list(universe),
+        "start_date": str(start),
+        "end_date": str(end),
+        "cost_regime": cost_regime,
+        "strategies": {name: float(value) for name, value in final_values.items()},
+        "benchmark_vwce": None if benchmark_final_value is None else float(benchmark_final_value),
+        "cash": float(initial_value_eur),
+    }

@@ -337,12 +337,12 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/analysis_parity_v1.yaml | numeric_analysis_fields, numeric_tolerances, portfolio_artifacts, required_core_surfaces, schema_version, version | schema_version=1; version=analysis-parity-v1 |
 | configs/audit_manifest.yaml | governance, required, version | version=1 |
 | configs/authority_matrix.yaml | adr_id, adr_path, authority_stages, capabilities, completion_contract, executable_authority, execution_allowed, mandatory_core, optional_enrichment, policy_id, policy_version, schema_version | policy_version="2026-07-21"; schema_version="1.0" |
-| configs/backtest_default.yaml | end_date, initial_value_eur, rebalance_frequency_days, start_date, strategies, transaction_cost_bps | — |
+| configs/backtest_default.yaml | end_date, enforce_capacity, initial_value_eur, legacy_override_qualifies, qualification_cost_regime, rebalance_frequency_days, start_date, strategies, stress_cost_multiplier, transaction_cost_bps | — |
 | configs/costs.yaml | base_currency, broker, cost_model, per_etf | — |
 | configs/data_providers.yaml | providers | — |
 | configs/data_source_policy.yaml | mandatory_tiers, policy_version, quota_failure, schema_version, sources | policy_version="2026-07-17"; schema_version="data-source-policy.v1" |
 | configs/decision_cutover_v1.yaml | monitoring, rankers, replay, schema_version, validation, version | schema_version=1; version=decision-cutover-v1.0.0 |
-| configs/decision_domains_v1.yaml | etf_decision_graph, hash_scheme, metrics, rank_cutover, schema_version, stock_decision, version | schema_version=1; version=decision-domains-v1.0.0 |
+| configs/decision_domains_v1.yaml | critical_evidence, etf_decision_graph, hash_scheme, metrics, rank_cutover, schema_version, stock_decision, version | schema_version=1; version=decision-domains-v1.0.0 |
 | configs/decision_opportunity_v1.yaml | labels, minimum_exposure_peer_sector_share, minimum_peer_support, minimum_universe_support, schema_version, timing, version | schema_version=1; version=opportunity-v1.0.0 |
 | configs/esef_extension_concepts.yaml | equity_member_rules, issuers | — |
 | configs/etf_tax_assumptions_v1.yaml | hedge_enabled, hedge_ratio, hedge_target_currency, known_at, source_withholding_label, source_withholding_rate, tax_enabled, tax_residence_country, version | version=1 |

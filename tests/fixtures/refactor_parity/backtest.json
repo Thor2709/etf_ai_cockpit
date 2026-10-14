@@ -6,22 +6,22 @@
  "quality_notes": ["Uses adjusted-close sample/local series without silent forward-fill.", "Advanced diagnostics are deterministic local estimates: probabilistic Sharpe, deflated Sharpe and a CSCV-style PBO proxy.", "Parameter sensitivity status reflects period stability plus a 2x transaction-cost stress on realised trade logs.", "Signals are evaluated only with history available at the signal date and executed on the next complete session.", "Next-open and spread evidence is unavailable when the source panel does not provide OHLC fields."],
  "results_columns": ["cagr", "volatility", "sharpe", "sortino", "max_drawdown", "calmar", "turnover", "cost_drag", "information_ratio", "return_hit_rate", "average_win_return", "average_loss_return", "payoff_ratio", "expected_value_per_period", "payoff_asymmetry_warning", "skew", "payoff_profile", "losses_dominate_wins", "loss_dominance_warning", "payoff_profile_disclaimer", "diagnostic_method", "diagnostic_status", "execution_allowed", "worst_1d_return", "worst_5d_return", "worst_10d_return", "worst_drawdown_start", "worst_drawdown_end", "worst_drawdown_duration_days", "worst_drawdown_duration_sessions", "observed_session_count", "loss_cluster_max_days", "largest_negative_period_return", "largest_negative_period_date", "largest_negative_contribution_periods", "negative_return_concentration_share", "negative_return_concentration_status", "negative_return_concentration_reason", "negative_return_concentration_method", "few_days_explain_most_performance", "performance_concentration_basis", "performance_concentration_method", "performance_concentration_status", "performance_concentration_share", "gross_log_return", "positive_performance_concentration_share", "positive_performance_concentration_status", "positive_performance_few_sessions_explain_most", "negative_performance_concentration_share", "negative_performance_concentration_status", "negative_performance_few_sessions_explain_most", "losses_during_high_volatility", "high_volatility_loss_status", "high_volatility_loss_reason", "high_volatility_loss_method", "high_volatility_threshold", "high_volatility_loss_sessions", "loss_sessions_observed", "losses_during_regime_stress", "regime_stress_loss_status", "regime_stress_loss_reason", "regime_stress_loss_method", "benchmark_id", "benchmark_status", "n_walk_forward_periods", "train_periods", "validation_periods", "test_periods", "trade_count", "average_trade_eur", "median_holding_period_days", "turnover_annualised", "worst_12m_return", "probabilistic_sharpe", "deflated_sharpe", "pbo_probability_backtest_overfitting", "parameter_sensitivity_status", "overfitting_warning", "data_quality_status", "benchmark_strategy", "backtest_quality", "strategy_name", "start_date", "end_date", "final_value_eur"],
  "results": {
-  "cagr": [0.04237320845216486, -0.0290612250997464, -0.028619603055257126, -0.032401735163531176, 0.0, 0.0, -0.0290612250997464],
-  "volatility": [0.10422479664951981, 0.10614758278301081, 0.1095934648775911, 0.11115292223692932, 0.0, 0.0, 0.10614758278301081],
-  "sharpe": [0.39817822668338043, -0.27783832246871676, -0.2649531111712759, -0.29633313142222867, 0.0, 0.0, -0.27783832246871676],
-  "sortino": [0.6594826493661191, -0.44636637250134253, -0.4355315059464748, -0.4722675941316932, 0.0, 0.0, -0.44636637250134253],
-  "max_drawdown": [-0.18092810024740924, -0.2065108076764356, -0.21354689602317822, -0.21401562486335568, 0.0, 0.0, -0.2065108076764356],
-  "calmar": [0.2341991564285582, -0.1407249597574573, -0.13402022501020466, -0.15139892325253812, 0.0, 0.0, -0.1407249597574573],
+  "cagr": [0.04237320845216486, -0.029059029343928677, -0.02858474475960482, -0.03236807822381593, 0.0, 0.0, -0.029059029343928677],
+  "volatility": [0.10422479664951981, 0.10614649753422577, 0.10957831872815466, 0.11113107613194559, 0.0, 0.0, 0.10614649753422577],
+  "sharpe": [0.39817822668338043, -0.2778198578853361, -0.2646622538526326, -0.29607839014675313, 0.0, 0.0, -0.2778198578853361],
+  "sortino": [0.6594826493661191, -0.4463437896419757, -0.4351768850780698, -0.47201125448620984, 0.0, 0.0, -0.4463437896419757],
+  "max_drawdown": [-0.18092810024740924, -0.20650879081900841, -0.21348912499299877, -0.21394170970234483, 0.0, 0.0, -0.20650879081900841],
+  "calmar": [0.2341991564285582, -0.14071570139305611, -0.13389321240855823, -0.15129391210741164, 0.0, 0.0, -0.14071570139305611],
   "turnover": [0.0, 1.1530335744477445, 13.192074398865495, 18.05608291946227, 0.0, 0.0, 1.1530335744477445],
-  "cost_drag": [0.0, 1892.0644573499999, 1850.7572647199997, 2288.1417527000003, 0.0, 0.0, 1892.0644573499999],
+  "cost_drag": [0.0, 1892.01108957, 1849.9513666199996, 2287.43369626, 0.0, 0.0, 1892.01108957],
   "information_ratio": [null, null, null, null, null, null, null],
   "return_hit_rate": [0.5096, 0.4948, 0.4904, 0.4948, "<NaN>", "<NaN>", 0.4948],
-  "average_win_return": [0.005287, 0.005265, 0.005531, 0.005522, "<NaN>", "<NaN>", 0.005265],
-  "average_loss_return": [0.005158, 0.005389, 0.005549, 0.005668, "<NaN>", "<NaN>", 0.005389],
-  "payoff_ratio": [1.0251, 0.977, 0.9967, 0.9742, "<NaN>", "<NaN>", 0.977],
+  "average_win_return": [0.005287, 0.005265, 0.005531, 0.005521, "<NaN>", "<NaN>", 0.005265],
+  "average_loss_return": [0.005158, 0.005389, 0.005549, 0.005667, "<NaN>", "<NaN>", 0.005389],
+  "payoff_ratio": [1.0251, 0.977, 0.9967, 0.9743, "<NaN>", "<NaN>", 0.977],
   "expected_value_per_period": [0.000165, -0.000117, -0.000115, -0.000131, "<NaN>", "<NaN>", -0.000117],
   "payoff_asymmetry_warning": ["balanced_or_positive_payoff", "balanced_or_positive_payoff", "balanced_or_positive_payoff", "balanced_or_positive_payoff", "insufficient_return_distribution", "insufficient_return_distribution", "balanced_or_positive_payoff"],
-  "skew": [0.017308, -0.029041, -0.01407, -0.075659, "<NaN>", "<NaN>", -0.029041],
+  "skew": [0.017308, -0.029006, -0.013442, -0.074878, "<NaN>", "<NaN>", -0.029006],
   "payoff_profile": ["mixed", "mixed", "mixed", "mixed", "insufficient data", "insufficient data", "mixed"],
   "losses_dominate_wins": [false, true, true, true, null, null, true],
   "loss_dominance_warning": ["wins_dominate_losses", "losses_dominate_wins", "losses_dominate_wins", "losses_dominate_wins", "insufficient_return_distribution", "insufficient_return_distribution", "losses_dominate_wins"],
@@ -29,16 +29,16 @@
   "diagnostic_method": ["historical_tail_diagnostics.v2", "historical_tail_diagnostics.v2", "historical_tail_diagnostics.v2", "historical_tail_diagnostics.v2", "historical_tail_diagnostics.v2", "historical_tail_diagnostics.v2", "historical_tail_diagnostics.v2"],
   "diagnostic_status": ["available", "available", "available", "available", "available", "available", "available"],
   "execution_allowed": [false, false, false, false, false, false, false],
-  "worst_1d_return": [-0.017596601714023885, -0.0175304635700968, -0.02037903439004296, -0.021363904062948413, 0.0, 0.0, -0.0175304635700968],
-  "worst_5d_return": [-0.044599075692889456, -0.05010967301389846, -0.04904408056418563, -0.052009116338221584, 0.0, 0.0, -0.05010967301389846],
-  "worst_10d_return": [-0.0598257554331465, -0.06563236800605976, -0.06985488385709548, -0.0714715128092267, 0.0, 0.0, -0.06563236800605976],
+  "worst_1d_return": [-0.017596601714023885, -0.017530463570096688, -0.020327686440455905, -0.021303735619586983, 0.0, 0.0, -0.017530463570096688],
+  "worst_5d_return": [-0.044599075692889456, -0.050108078042738424, -0.049019630224575006, -0.05198994079643382, 0.0, 0.0, -0.050108078042738424],
+  "worst_10d_return": [-0.0598257554331465, -0.06563039492781153, -0.06983096859087512, -0.07144328110282261, 0.0, 0.0, -0.06563039492781153],
   "worst_drawdown_start": ["2025-04-30", "2025-04-30", "2025-04-30", "2025-04-30", "2024-02-22", "2024-02-22", "2025-04-30"],
   "worst_drawdown_end": ["2025-08-28", "2026-09-30", "2025-08-06", "2025-08-06", "2024-02-22", "2024-02-22", "2026-09-30"],
   "worst_drawdown_duration_days": [87, 371, 71, 71, 1, 1, 371],
   "worst_drawdown_duration_sessions": [87, 371, 71, 71, 1, 1, 371],
   "observed_session_count": [680, 680, 680, 680, 680, 680, 680],
   "loss_cluster_max_days": [10, 10, 10, 10, 0, 0, 10],
-  "largest_negative_period_return": [-0.017596601714023885, -0.0175304635700968, -0.02037903439004296, -0.021363904062948413, "<NaN>", "<NaN>", -0.0175304635700968],
+  "largest_negative_period_return": [-0.017596601714023885, -0.017530463570096688, -0.020327686440455905, -0.021303735619586983, "<NaN>", "<NaN>", -0.017530463570096688],
   "largest_negative_period_date": ["2025-03-26", "2025-03-26", "2024-03-25", "2024-03-25", null, null, "2025-03-26"],
   "largest_negative_contribution_periods": [
    [
@@ -66,11 +66,11 @@
    [
     {
      "date": "2025-03-26",
-     "return": -0.0175304635700968
+     "return": -0.017530463570096688
     },
     {
      "date": "2026-06-24",
-     "return": -0.01724036684378427
+     "return": -0.01724036684378416
     },
     {
      "date": "2025-07-10",
@@ -78,17 +78,17 @@
     },
     {
      "date": "2024-08-08",
-     "return": -0.015261517552753512
+     "return": -0.0152615175527534
     },
     {
      "date": "2025-11-12",
-     "return": -0.015259799166239207
+     "return": -0.015259799166239096
     }
    ],
    [
     {
      "date": "2024-03-25",
-     "return": -0.02037903439004296
+     "return": -0.020327686440455905
     },
     {
      "date": "2025-03-26",
@@ -96,11 +96,11 @@
     },
     {
      "date": "2025-08-06",
-     "return": -0.01770867714419333
+     "return": -0.017675736952223242
     },
     {
      "date": "2026-06-24",
-     "return": -0.017587316277098197
+     "return": -0.017587316277098308
     },
     {
      "date": "2024-08-15",
@@ -110,23 +110,23 @@
    [
     {
      "date": "2024-03-25",
-     "return": -0.021363904062948413
+     "return": -0.021303735619586983
     },
     {
      "date": "2025-03-26",
-     "return": -0.018002553461527904
+     "return": -0.018002553461528015
     },
     {
      "date": "2025-07-10",
-     "return": -0.017724065735732708
+     "return": -0.01772406573573282
     },
     {
      "date": "2026-06-24",
-     "return": -0.01742302948535779
+     "return": -0.0174230294853579
     },
     {
      "date": "2025-09-17",
-     "return": -0.01631929058186854
+     "return": -0.01631929058186843
     }
    ],
    [],
@@ -134,11 +134,11 @@
    [
     {
      "date": "2025-03-26",
-     "return": -0.0175304635700968
+     "return": -0.017530463570096688
     },
     {
      "date": "2026-06-24",
-     "return": -0.01724036684378427
+     "return": -0.01724036684378416
     },
     {
      "date": "2025-07-10",
@@ -146,15 +146,15 @@
     },
     {
      "date": "2024-08-08",
-     "return": -0.015261517552753512
+     "return": -0.0152615175527534
     },
     {
      "date": "2025-11-12",
-     "return": -0.015259799166239207
+     "return": -0.015259799166239096
     }
    ]
   ],
-  "negative_return_concentration_share": [0.04797470134175329, 0.044482921621028515, 0.04731648850283181, 0.04693462393312346, "<NaN>", "<NaN>", 0.044482921621028515],
+  "negative_return_concentration_share": [0.04797470134175329, 0.04448334040715174, 0.047277472588634455, 0.046910731554387734, "<NaN>", "<NaN>", 0.04448334040715174],
   "negative_return_concentration_status": ["available", "available", "available", "available", "unavailable", "unavailable", "available"],
   "negative_return_concentration_reason": ["", "", "", "", "no finite negative return observations are available", "no finite negative return observations are available", ""],
   "negative_return_concentration_method": ["five worst observed loss sessions divided by total observed loss magnitude", "five worst observed loss sessions divided by total observed loss magnitude", "five worst observed loss sessions divided by total observed loss magnitude", "five worst observed loss sessions divided by total observed loss magnitude", "five worst observed loss sessions divided by total observed loss magnitude", "five worst observed loss sessions divided by total observed loss magnitude", "five worst observed loss sessions divided by total observed loss magnitude"],
@@ -162,19 +162,19 @@
   "performance_concentration_basis": ["positive_gross_log_return", "negative_gross_log_return", "negative_gross_log_return", "negative_gross_log_return", "flat_gross_log_return", "flat_gross_log_return", "negative_gross_log_return"],
   "performance_concentration_method": ["best/worst up-to-five observed sessions divided by same-sign gross log contribution", "best/worst up-to-five observed sessions divided by same-sign gross log contribution", "best/worst up-to-five observed sessions divided by same-sign gross log contribution", "best/worst up-to-five observed sessions divided by same-sign gross log contribution", "best/worst up-to-five observed sessions divided by same-sign gross log contribution", "best/worst up-to-five observed sessions divided by same-sign gross log contribution", "best/worst up-to-five observed sessions divided by same-sign gross log contribution"],
   "performance_concentration_status": ["available", "available", "available", "available", "unavailable", "unavailable", "available"],
-  "performance_concentration_share": [0.05281247339120376, 0.044660397807038094, 0.04754435157480909, 0.04715617983569958, "<NaN>", "<NaN>", 0.044660397807038094],
-  "gross_log_return": [0.11181956490319854, -0.07946419540140204, -0.07823893221904718, -0.08875040196612421, 0.0, 0.0, -0.07946419540140204],
-  "positive_performance_concentration_share": [0.05281247339120376, 0.054025683116666154, 0.053412528355040366, 0.05321868751134786, "<NaN>", "<NaN>", 0.054025683116666154],
+  "performance_concentration_share": [0.05281247339120376, 0.04466082244764278, 0.04750475629112745, 0.047131877111192155, "<NaN>", "<NaN>", 0.04466082244764278],
+  "gross_log_return": [0.11181956490319854, -0.07945810198384787, -0.07814224295482301, -0.08865668003591674, 0.0, 0.0, -0.07945810198384787],
+  "positive_performance_concentration_share": [0.05281247339120376, 0.05402603379314388, 0.05341578064423607, 0.053224662292353696, "<NaN>", "<NaN>", 0.05402603379314388],
   "positive_performance_concentration_status": ["available", "available", "available", "available", "unavailable", "unavailable", "available"],
   "positive_performance_few_sessions_explain_most": [false, false, false, false, null, null, false],
-  "negative_performance_concentration_share": [0.04817664954719758, 0.044660397807038094, 0.04754435157480909, 0.04715617983569958, "<NaN>", "<NaN>", 0.044660397807038094],
+  "negative_performance_concentration_share": [0.04817664954719758, 0.04466082244764278, 0.04750475629112745, 0.047131877111192155, "<NaN>", "<NaN>", 0.04466082244764278],
   "negative_performance_concentration_status": ["available", "available", "available", "available", "unavailable", "unavailable", "available"],
   "negative_performance_few_sessions_explain_most": [false, false, false, false, null, null, false],
   "losses_during_high_volatility": [true, true, true, true, false, false, true],
   "high_volatility_loss_status": ["available", "available", "available", "available", "available", "available", "available"],
   "high_volatility_loss_reason": ["", "", "", "", "", "", ""],
   "high_volatility_loss_method": ["loss-session alignment with 20-session realized volatility at or above its 75th percentile", "loss-session alignment with 20-session realized volatility at or above its 75th percentile", "loss-session alignment with 20-session realized volatility at or above its 75th percentile", "loss-session alignment with 20-session realized volatility at or above its 75th percentile", "loss-session alignment with 20-session realized volatility at or above its 75th percentile", "loss-session alignment with 20-session realized volatility at or above its 75th percentile", "loss-session alignment with 20-session realized volatility at or above its 75th percentile"],
-  "high_volatility_threshold": [0.007074710398085529, 0.007145919038320694, 0.007403128819146785, 0.0073556519724815375, 0.0, 0.0, 0.007145919038320694],
+  "high_volatility_threshold": [0.007074710398085529, 0.007145871758367041, 0.007402054791915956, 0.0073546558133617546, 0.0, 0.0, 0.007145871758367041],
   "high_volatility_loss_sessions": [69, 67, 76, 68, 0, 0, 67],
   "loss_sessions_observed": [322, 332, 335, 332, 0, 0, 332],
   "losses_during_regime_stress": [null, null, null, null, null, null, null],
@@ -191,9 +191,9 @@
   "average_trade_eur": [0.0, 360.3229920149201, 4122.523249645468, 5642.525912331959, 0.0, 0.0, 360.3229920149201],
   "median_holding_period_days": [21.0, 21.0, 21.0, 21.0, 21.0, 21.0, 21.0],
   "turnover_annualised": [0.0, 0.4279299863929773, 4.89602761195008, 6.701226650522079, 0.0, 0.0, 0.4279299863929773],
-  "worst_12m_return": [-0.10690588552813984, -0.16918992030133362, -0.1748723324249163, -0.18130628687365336, 0.0, 0.0, -0.16918992030133362],
-  "probabilistic_sharpe": [0.7431733923709443, 0.324262417261577, 0.331920411126724, 0.3133529479991547, 0.5, 0.5, 0.324262417261577],
-  "deflated_sharpe": [-0.3031400974603973, -0.9791566466124945, -0.9662714353150537, -0.9976514555660063, -0.7013183241437777, -0.7013183241437777, -0.9791566466124945],
+  "worst_12m_return": [-0.10690588552813984, -0.16918521664396657, -0.1748684702586879, -0.18122509611897886, 0.0, 0.0, -0.16918521664396657],
+  "probabilistic_sharpe": [0.7431733923709443, 0.3242733616022706, 0.3320944308180711, 0.31350248356655075, 0.5, 0.5, 0.3242733616022706],
+  "deflated_sharpe": [-0.3031400974603973, -0.9791381820291138, -0.9659805779964104, -0.9973967142905309, -0.7013183241437777, -0.7013183241437777, -0.9791381820291138],
   "pbo_probability_backtest_overfitting": [0.3333333333333333, 0.3333333333333333, 0.3333333333333333, 0.3333333333333333, 0.3333333333333333, 0.3333333333333333, 0.3333333333333333],
   "parameter_sensitivity_status": ["mixed", "fragile", "fragile", "fragile", "fragile", "fragile", "fragile"],
   "overfitting_warning": ["review_required: performance is sensitive to folds or transaction-cost stress", "review_required: performance is sensitive to folds or transaction-cost stress", "review_required: performance is sensitive to folds or transaction-cost stress", "review_required: performance is sensitive to folds or transaction-cost stress", "review_required: performance is sensitive to folds or transaction-cost stress", "review_required: performance is sensitive to folds or transaction-cost stress", "review_required: performance is sensitive to folds or transaction-cost stress"],
@@ -203,7 +203,7 @@
   "strategy_name": ["buy_and_hold", "equal_weight", "momentum_only", "trend_only", "quality_only", "quality_momentum", "signal_strategy"],
   "start_date": ["2024-02-22", "2024-02-22", "2024-02-22", "2024-02-22", "2024-02-22", "2024-02-22", "2024-02-22"],
   "end_date": ["2026-09-30", "2026-09-30", "2026-09-30", "2026-09-30", "2026-09-30", "2026-09-30", "2026-09-30"],
-  "final_value_eur": [11183.110598752784, 9236.110889008916, 9247.434491409285, 9150.739457303514, 10000.0, 10000.0, 9236.110889008916]
+  "final_value_eur": [11183.110598752784, 9236.167168660602, 9248.328662273881, 9151.597122458663, 10000.0, 10000.0, 9236.167168660602]
  },
  "equity_curves": {
   "excluded_columns": [],
@@ -230,26 +230,26 @@
    "equal_weight": {
     "nan_count": 0,
     "count": 680,
-    "sum": 6991451.746477254,
-    "mean": 10281.546685995962,
-    "min": 9236.110889008916,
-    "max": 11639.86980334657
+    "sum": 6991493.3114500595,
+    "mean": 10281.60781095597,
+    "min": 9236.167168660602,
+    "max": 11639.911144313479
    },
    "momentum_only": {
     "nan_count": 0,
     "count": 680,
-    "sum": 6862774.186764458,
-    "mean": 10092.314980535968,
-    "min": 8949.223449680634,
-    "max": 11379.220711861268
+    "sum": 6863431.493815284,
+    "mean": 10093.281608551888,
+    "min": 8950.482101543035,
+    "max": 11379.98518006933
    },
    "trend_only": {
     "nan_count": 0,
     "count": 680,
-    "sum": 6852714.972350486,
-    "mean": 10077.522018162479,
-    "min": 8891.402748321172,
-    "max": 11312.442116645629
+    "sum": 6853521.1527902745,
+    "mean": 10078.707577632757,
+    "min": 8893.064044191584,
+    "max": 11313.491828734564
    },
    "quality_only": {
     "nan_count": 0,
@@ -270,10 +270,10 @@
    "signal_strategy": {
     "nan_count": 0,
     "count": 680,
-    "sum": 6991451.746477254,
-    "mean": 10281.546685995962,
-    "min": 9236.110889008916,
-    "max": 11639.86980334657
+    "sum": 6991493.3114500595,
+    "mean": 10281.60781095597,
+    "min": 9236.167168660602,
+    "max": 11639.911144313479
    }
   },
   "non_float_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -309,30 +309,30 @@
   "last_rows": [
    {
     "buy_and_hold": 11253.206896001793,
-    "equal_weight": 9282.503026846873,
-    "momentum_only": 9309.77556847506,
-    "trend_only": 9223.025645406191,
+    "equal_weight": 9282.559589186088,
+    "momentum_only": 9310.675767343946,
+    "trend_only": 9223.8900856799,
     "quality_only": 10000.0,
     "quality_momentum": 10000.0,
-    "signal_strategy": 9282.503026846873
+    "signal_strategy": 9282.559589186088
    },
    {
     "buy_and_hold": 11272.122043749994,
-    "equal_weight": 9304.622795766716,
-    "momentum_only": 9316.184560367654,
-    "trend_only": 9211.647832216278,
+    "equal_weight": 9304.67949289133,
+    "momentum_only": 9317.08537894721,
+    "trend_only": 9212.5112060894,
     "quality_only": 10000.0,
     "quality_momentum": 10000.0,
-    "signal_strategy": 9304.622795766716
+    "signal_strategy": 9304.67949289133
    },
    {
     "buy_and_hold": 11183.110598752784,
-    "equal_weight": 9236.110889008916,
-    "momentum_only": 9247.434491409285,
-    "trend_only": 9150.739457303514,
+    "equal_weight": 9236.167168660602,
+    "momentum_only": 9248.328662273881,
+    "trend_only": 9151.597122458663,
     "quality_only": 10000.0,
     "quality_momentum": 10000.0,
-    "signal_strategy": 9236.110889008916
+    "signal_strategy": 9236.167168660602
    }
   ]
  },
@@ -390,18 +390,18 @@
    "cost_eur": {
     "nan_count": 0,
     "count": 128,
-    "sum": 7923.0279321200005,
-    "mean": 61.898655719687504,
-    "min": 39.34137958,
-    "max": 124.30416792
+    "sum": 7921.407242019999,
+    "mean": 61.88599407828124,
+    "min": 39.27116759,
+    "max": 123.7013917
    },
    "estimated_cost_bps": {
     "nan_count": 0,
     "count": 128,
-    "sum": 115018.07855824,
-    "mean": 898.57873873625,
-    "min": 77.38978936,
-    "max": 2340.55287062
+    "sum": 115025.38297644001,
+    "mean": 898.6358045034376,
+    "min": 77.1772903,
+    "max": 2350.50456328
    },
    "decision_price": {
     "nan_count": 0,
@@ -476,8 +476,8 @@
     "execution_date": "2024-03-25",
     "strategy": "equal_weight",
     "turnover": 0.03580679091308819,
-    "cost_eur": 59.05660514,
-    "estimated_cost_bps": 1646.32564331,
+    "cost_eur": 59.03818622,
+    "estimated_cost_bps": 1660.68527824,
     "cost_model_id": "execution-cost-v1",
     "cost_data_quality": "degraded_missing_microstructure",
     "capacity_eur": null,
@@ -514,8 +514,8 @@
     "execution_date": "2024-03-25",
     "strategy": "momentum_only",
     "turnover": 1.0003954499338876,
-    "cost_eur": 114.43760024,
-    "estimated_cost_bps": 114.18516911,
+    "cost_eur": 113.92318901,
+    "estimated_cost_bps": 114.6991383,
     "cost_model_id": "execution-cost-v1",
     "cost_data_quality": "degraded_missing_microstructure",
     "capacity_eur": null,
@@ -552,8 +552,8 @@
     "execution_date": "2024-03-25",
     "strategy": "trend_only",
     "turnover": 1.1700724625679784,
-    "cost_eur": 124.30416792,
-    "estimated_cost_bps": 106.04387705,
+    "cost_eur": 123.7013917,
+    "estimated_cost_bps": 106.48331347,
     "cost_model_id": "execution-cost-v1",
     "cost_data_quality": "degraded_missing_microstructure",
     "capacity_eur": null,
@@ -592,8 +592,8 @@
     "execution_date": "2026-09-22",
     "strategy": "momentum_only",
     "turnover": 0.23580925750043316,
-    "cost_eur": 43.67370447,
-    "estimated_cost_bps": 197.43346232,
+    "cost_eur": 43.67071562,
+    "estimated_cost_bps": 197.46651925,
     "cost_model_id": "execution-cost-v1",
     "cost_data_quality": "degraded_missing_microstructure",
     "capacity_eur": null,
@@ -630,8 +630,8 @@
     "execution_date": "2026-09-22",
     "strategy": "trend_only",
     "turnover": 0.9431306558334355,
-    "cost_eur": 87.29619747,
-    "estimated_cost_bps": 99.10334371,
+    "cost_eur": 87.31234799,
+    "estimated_cost_bps": 99.08986006,
     "cost_model_id": "execution-cost-v1",
     "cost_data_quality": "degraded_missing_microstructure",
     "capacity_eur": null,
@@ -668,8 +668,8 @@
     "execution_date": "2026-09-22",
     "strategy": "signal_strategy",
     "turnover": 0.033362933232348874,
-    "cost_eur": 58.78602619,
-    "estimated_cost_bps": 1881.64454233,
+    "cost_eur": 58.78863978,
+    "estimated_cost_bps": 1878.9785846,
     "cost_model_id": "execution-cost-v1",
     "cost_data_quality": "degraded_missing_microstructure",
     "capacity_eur": null,
@@ -1195,6 +1195,17 @@
   "quality_momentum_evidence": "unavailable",
   "input_checksum": "<sha256>",
   "excluded_short_history_instruments": [],
+  "delisted_instruments": [],
+  "survivorship_label": "full_history_simulation",
+  "survivorship_reasons": [],
+  "missing_prices_zero_filled": false,
+  "cost_regime": "modelled_default",
+  "cost_stress_multiplier": 1.0,
+  "qualifying_cost_regime": true,
+  "is_execution_evidence": false,
+  "cost_regime_note": "Detailed modelled costs are local research estimates, not execution evidence.",
+  "capacity_enforcement": "not_enforced",
+  "participation_cap": 0.1,
   "walk_forward_periods": 32,
   "strategies": ["buy_and_hold", "equal_weight", "momentum_only", "trend_only", "quality_only", "quality_momentum", "signal_strategy"],
   "same_bar_execution_count": 0,
@@ -1203,7 +1214,7 @@
   "quality_momentum_evidence_checksum": "<sha256>",
   "operational_evidence_rows": {
    "list_length": 5996,
-   "digest32": "aab3b1640c62f937a9b2aaec411c728c",
+   "digest32": "bb184355b2458a71388e358ab91eb091",
    "field_digests": {
     "arrival_price_assumption": "cba0876250854abb",
     "auction_state": "aff117cf16caa25b",
@@ -1213,7 +1224,7 @@
     "decision_price": "e81fdb475f084f53",
     "decision_price_basis": "c584a1fafcadfe39",
     "decision_price_source_identity": "df6ac53ed28ac0fb",
-    "estimated_cost_bps": "bd66992b4d714cd5",
+    "estimated_cost_bps": "64872b2e362e5931",
     "estimated_cost_bps_source": "2bdded103b110c60",
     "evidence_reason": "c5dfbaeb09086339",
     "evidence_status": "3db5b3e490618149",
@@ -1270,7 +1281,7 @@
     "spread_proxy": 0.010788796263955017,
     "cost_spread_assumption_bps": 4.0,
     "cost_spread_assumption_source": "execution-cost-v1:CostEstimate.spread_bps",
-    "estimated_cost_bps": 2004.08844849,
+    "estimated_cost_bps": 2021.7484877,
     "estimated_cost_bps_source": "execution-cost-v1:CostEstimate.total_cost_bps",
     "arrival_price_assumption": "next_adjusted_close",
     "execution_delay_sessions": null,
@@ -1310,7 +1321,7 @@
     "spread_proxy": 0.014039749080392289,
     "cost_spread_assumption_bps": 8.0,
     "cost_spread_assumption_source": "execution-cost-v1:CostEstimate.spread_bps",
-    "estimated_cost_bps": 896.37783575,
+    "estimated_cost_bps": 895.15188046,
     "estimated_cost_bps_source": "execution-cost-v1:CostEstimate.total_cost_bps",
     "arrival_price_assumption": "next_adjusted_close",
     "execution_delay_sessions": null,
@@ -1324,6 +1335,30 @@
     "reconciled_fill_source": null,
     "execution_allowed": false
    }
+  },
+  "investable_comparators": {
+   "long_only": true,
+   "short_legs_excluded": true,
+   "universe": {
+    "list_length": 57,
+    "digest32": "30152df2ffb32715e321a013d7db7083",
+    "first_item": "VWCE",
+    "last_item": "SPOG"
+   },
+   "start_date": "2024-02-22",
+   "end_date": "2026-09-30",
+   "cost_regime": "modelled_default",
+   "strategies": {
+    "buy_and_hold": 11183.110598752784,
+    "equal_weight": 9236.167168660602,
+    "momentum_only": 9248.328662273881,
+    "trend_only": 9151.597122458663,
+    "quality_only": 10000.0,
+    "quality_momentum": 10000.0,
+    "signal_strategy": 9236.167168660602
+   },
+   "benchmark_vwce": null,
+   "cash": 10000.0
   },
   "benchmark_reference_hash": "<sha256>",
   "benchmark_strategy_hash": "<sha256>",

@@ -1044,6 +1044,16 @@ def _rank_metrics(rows: pd.DataFrame, ranker: str, policy: RankValidationPolicy)
         "excess_vs_cash": fmean(top_values) - fmean(cash_values) if cash_values else None,
         "top_minus_bottom_mean": fmean(spread_values),
         "top_minus_bottom_t": _t_stat(spread_values),
+        # A long-short spread assumes free shorting; a long-only investor cannot earn it.
+        "top_minus_bottom_status": "research_only_not_investable",
+        "investable_long_only": {
+            "portfolio": "top_n_long_only",
+            "top_net_return_mean": fmean(top_values),
+            "excess_vs_benchmark": fmean(top_values) - fmean(bench_values) if bench_values else None,
+            "excess_vs_cash": fmean(top_values) - fmean(cash_values) if cash_values else None,
+            "short_leg_included": False,
+            "same_universe_dates_costs": True,
+        },
         "decile_monotonicity_fraction": fmean(decile_monotone) if decile_monotone else None,
         "quintile_monotonicity_fraction": fmean(quintile_monotone) if quintile_monotone else None,
         "decile_paths": decile_paths,
@@ -1940,6 +1950,7 @@ _REPORT_METRIC_KEYS = (
     "status", "reason", "decision_count", "instrument_observation_count", "rank_ic_mean", "rank_ic_t",
     "rank_ic_positive_fraction", "top_net_return_mean", "bottom_net_return_mean", "benchmark_net_mean",
     "cash_net_mean", "excess_vs_benchmark", "excess_vs_cash", "top_minus_bottom_mean", "top_minus_bottom_t",
+    "top_minus_bottom_status", "investable_long_only",
     "decile_monotonicity_fraction", "quintile_monotonicity_fraction", "turnover_mean",
 )
 

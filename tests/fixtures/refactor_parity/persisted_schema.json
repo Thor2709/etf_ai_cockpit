@@ -111,13 +111,21 @@
      "relative_strength_fallback_anchor": "str",
      "strategy": "str"
     },
+    "capacity_enforcement": "str",
     "complete_price_rows": "int",
     "cost_model_execution_allowed": "bool",
     "cost_model_id": "str",
     "cost_model_mode": "str",
+    "cost_regime": "str",
+    "cost_regime_note": "str",
+    "cost_stress_multiplier": "float",
     "data_status": "str",
     "date_range_end": "str",
     "date_range_start": "str",
+    "delisted_instruments": {
+     "list_length": 0,
+     "item": null
+    },
     "excluded_short_history_instruments": {
      "list_length": 0,
      "item": null
@@ -125,8 +133,32 @@
     "execution_delay_sessions": "int",
     "forward_fill_used": "bool",
     "input_checksum": "str",
+    "investable_comparators": {
+     "benchmark_vwce": "null",
+     "cash": "float",
+     "cost_regime": "str",
+     "end_date": "str",
+     "long_only": "bool",
+     "short_legs_excluded": "bool",
+     "start_date": "str",
+     "strategies": {
+      "buy_and_hold": "float",
+      "equal_weight": "float",
+      "momentum_only": "float",
+      "quality_momentum": "float",
+      "quality_only": "float",
+      "signal_strategy": "float",
+      "trend_only": "float"
+     },
+     "universe": {
+      "list_length": 57,
+      "item": "str"
+     }
+    },
+    "is_execution_evidence": "bool",
     "lookahead_protection": "str",
     "missing_observation_rows": "int",
+    "missing_prices_zero_filled": "bool",
     "not_enough_data_policy": "str",
     "operational_evidence_input_binding": "str",
     "operational_evidence_rows": {
@@ -172,7 +204,9 @@
       "strategy": "str"
      }
     },
+    "participation_cap": "float",
     "price_field": "str",
+    "qualifying_cost_regime": "bool",
     "quality_momentum_evidence": "str",
     "quality_momentum_evidence_available_rows": "int",
     "quality_momentum_evidence_checksum": "str",
@@ -212,6 +246,11 @@
      "item": "str"
     },
     "strategy": "str",
+    "survivorship_label": "str",
+    "survivorship_reasons": {
+     "list_length": 0,
+     "item": null
+    },
     "walk_forward_periods": "int"
    }
   },
