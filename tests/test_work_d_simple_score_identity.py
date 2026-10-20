@@ -16,7 +16,7 @@ def local_scores(monkeypatch):
     monkeypatch.setattr(scores_module, "load_latest_candidate_report", lambda: (pd.DataFrame(), None))
     monkeypatch.setattr(scores_module, "_latest_candidate_input_frame", lambda: pd.DataFrame())
     monkeypatch.setattr(scores_module, "load_forecast_history", lambda: pd.DataFrame())
-    monkeypatch.setattr(scores_module, "_native_sparebank_score", lambda _: (None, "Scorecard pending"))
+    monkeypatch.setattr(scores_module, "_native_sparebank_score", lambda _, **__: (None, "Scorecard pending"))
     return config
 
 
@@ -74,8 +74,8 @@ def test_candidate_only_repeated_id_is_shown_once_without_inventing_isin(local_s
 
 
 def test_repeated_signals_do_not_duplicate_configured_score(local_scores, monkeypatch):
-    monkeypatch.setattr(scores_module, "_native_sparebank_score", lambda _: (7.0, "Stored scorecard"))
-    signal = SimpleNamespace(etf_id="AURG")
+    monkeypatch.setattr(scores_module, "_native_sparebank_score", lambda _, **__: (7.0, "Stored scorecard"))
+    signal = SimpleNamespace(etf_id="AURG", signal_date="2025-04-01")
     scores = scores_module.build_universe_simple_scores(local_scores, [signal, signal], pd.DataFrame(), pd.DataFrame())
     assert len(scores) == 1
     assert scores[0].isin == "NO0006001601"

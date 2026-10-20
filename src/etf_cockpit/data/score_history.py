@@ -4,6 +4,7 @@ import hashlib
 import json
 import threading
 from dataclasses import dataclass
+from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Literal
@@ -710,17 +711,43 @@ def _current_sparebank_formula_version() -> str | None:
         return None
 
 
-def latest_sparebank_scores(*, root: Path | None = None) -> dict[str, dict[str, object]]:
+def _current_sparebank_formula_checksum() -> str | None:
+    try:
+        from etf_cockpit.analysis.sparebank import load_sparebank_scorecard_policy
+
+        return str(load_sparebank_scorecard_policy().formula_checksum)
+    except Exception:  # the checksum cannot be verified: no stored native score is shown
+        return None
+
+
+def _decision_cutoff(value: object) -> pd.Timestamp | None:
+    """UTC cutoff for a decision time; ``None`` is the live view and a date-only value is the whole day (inclusive)."""
+
+    if value is None:
+        return None
+    date_only = (isinstance(value, date) and not isinstance(value, datetime)) or (isinstance(value, str) and len(value.strip()) == 10)
+    stamp = pd.to_datetime(value, errors="coerce", utc=True)
+    if date_only and not pd.isna(stamp):
+        return stamp.normalize() + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+    return stamp
+
+
+def latest_sparebank_scores(*, root: Path | None = None, decision_time: object = None) -> dict[str, dict[str, object]]:
     """Latest native Sparebank scorecard row per instrument (run ids ``sparebank:<id>:<time>``)."""
 
     path = (Path(root) if root is not None else ROOT) / "data" / "derived" / "score_history.parquet"
-    formula_version = _current_sparebank_formula_version()
-    key = (str(path), path.stat().st_mtime_ns if path.exists() else None, formula_version)
+    formula_version, checksum = _current_sparebank_formula_version(), _current_sparebank_formula_checksum()
+    if not formula_version or not checksum:
+        return {}
+    cutoff = _decision_cutoff(decision_time)
+    if cutoff is not None and pd.isna(cutoff):
+        return {}
+    key = (str(path), path.stat().st_mtime_ns if path.exists() else None, formula_version, checksum, None if cutoff is None else str(cutoff))
     if _SPAREBANK_CACHE.get("key") == key:
         return _SPAREBANK_CACHE["value"]  # type: ignore[return-value]
     if not path.exists():
         return {}
-    wanted = ["instrument_id", "run_id", "final_combined_score_10", "coverage", "missing_components", "data_as_of_date", "formula_version"]
+    wanted = ["instrument_id", "run_id", "final_combined_score_10", "coverage", "missing_components", "data_as_of_date", "formula_version", "formula_checksum", "run_started_at", "run_completed_at", "known_at"]
     try:
         import pyarrow.parquet as pq
 
@@ -731,11 +758,19 @@ def latest_sparebank_scores(*, root: Path | None = None) -> dict[str, dict[str, 
     if frame.empty or "run_id" not in frame.columns:
         return {}
     native = frame[frame["run_id"].astype(str).str.startswith("sparebank:")]
-    if formula_version and "formula_version" in native.columns:
-        # A score from an older scorecard formula is superseded, never shown as current.
-        native = native[native["formula_version"].astype(str).eq(formula_version)]
+    required = {"formula_version", "formula_checksum", "run_started_at", "run_completed_at", "instrument_id"}
+    if not required.issubset(native.columns):
+        return {}
+    native = native.loc[native["formula_version"].eq(formula_version) & native["formula_checksum"].eq(checksum)].copy()
+    for column in ("run_started_at", "run_completed_at"):
+        stamps = pd.to_datetime(native[column], errors="coerce", utc=True)
+        native = native.loc[stamps.notna() & (stamps.le(cutoff) if cutoff is not None else True)].copy()
+    if "known_at" in native.columns:
+        stamps = pd.to_datetime(native["known_at"], errors="coerce", utc=True)
+        native = native.loc[stamps.notna() & (stamps.le(cutoff) if cutoff is not None else True)].copy()
+    native["_completed"] = pd.to_datetime(native["run_completed_at"], utc=True)
     latest: dict[str, dict[str, object]] = {}
-    for row in native.sort_values("run_id", kind="stable").to_dict("records"):
+    for row in native.sort_values(["_completed", "run_id"], kind="stable").drop(columns="_completed").to_dict("records"):
         latest[str(row["instrument_id"])] = row
     _SPAREBANK_CACHE.update(key=key, value=latest)
     return latest

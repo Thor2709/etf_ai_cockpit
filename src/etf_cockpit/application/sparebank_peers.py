@@ -132,8 +132,18 @@ def record_peer_row(root: Path | None, row: Mapping[str, object]) -> None:
         except (OSError, ValueError):
             payload = {}
         rows = payload.get("rows") if isinstance(payload, dict) and isinstance(payload.get("rows"), dict) else {}
-        rows[str(row["instrument_id"])] = dict(row)
-        atomic_write_json(path, {"schema_version": SCHEMA_VERSION, "rows": rows, "execution_allowed": False})
+        history = payload.get("history", {}) if isinstance(payload, dict) else {}
+        history = dict(history) if isinstance(history, Mapping) else {}
+        identifier = str(row["instrument_id"])
+        revisions = list(history.get(identifier, []))
+        for candidate in (rows.get(identifier), dict(row)):
+            if isinstance(candidate, Mapping) and dict(candidate) not in revisions:
+                revisions.append(dict(candidate))
+        history[identifier] = revisions
+        valid = [item for item in revisions if not pd.isna(pd.to_datetime(item.get("as_of"), errors="coerce", utc=True))]
+        # A row without a usable as_of cannot be ordered: the latest write stays the live row and is never replayed.
+        rows[identifier] = max(valid, key=lambda item: pd.Timestamp(item["as_of"])) if valid else dict(row)
+        atomic_write_json(path, {"schema_version": SCHEMA_VERSION, "rows": rows, "history": history, "execution_allowed": False})
 
 
 def load_peer_rows(
@@ -155,6 +165,27 @@ def load_peer_rows(
         return []
     rows = payload.get("rows") if isinstance(payload, dict) and isinstance(payload.get("rows"), dict) else {}
     cutoff = pd.to_datetime(decision_time, errors="coerce", utc=True) if decision_time else None
+    if cutoff is not None and pd.isna(cutoff):
+        return []
+    history = payload.get("history", {}) if isinstance(payload, Mapping) else {}
+    selected = {}
+    for key, row in rows.items():
+        revisions = history.get(key, [row]) if isinstance(history, Mapping) else [row]
+        eligible = []
+        for revision in revisions:
+            if not isinstance(revision, Mapping):
+                continue
+            stamp = pd.to_datetime(revision.get("as_of"), errors="coerce", utc=True)
+            if not pd.isna(stamp) and (cutoff is None or stamp <= cutoff):
+                eligible.append((stamp, revision))
+        if not eligible and cutoff is None and isinstance(row, Mapping):
+            selected[key] = row  # live view: the stored current row, even when it carries no as_of
+        if eligible:
+            newest = max(stamp for stamp, _ in eligible)
+            candidates = [revision for stamp, revision in eligible if stamp == newest]
+            if all(candidate == candidates[0] for candidate in candidates):
+                selected[key] = candidates[0]
+    rows = selected
     picked = set(picked_peers(root, instrument_id))
     own = rows.get(str(instrument_id))
     reference = str(formula_version or "").strip() or (str(own.get("formula_version") or "").strip() if isinstance(own, Mapping) else "")
@@ -169,7 +200,7 @@ def load_peer_rows(
         if entry["formula_mismatch"]:
             entry["composite"] = None
         result.append(entry)
-    return sorted(result, key=lambda row: (not row["picked"], bool(row["formula_mismatch"]), -(_number(row.get("composite")) or -1.0), str(row.get("instrument_id"))))
+    return sorted(result, key=lambda row: (not row["picked"], bool(row["formula_mismatch"]), -(_number(row.get("composite")) if _number(row.get("composite")) is not None else -1.0), str(row.get("instrument_id"))))
 
 
 def load_peer_row(root: Path | None, instrument_id: str) -> dict[str, object] | None:
