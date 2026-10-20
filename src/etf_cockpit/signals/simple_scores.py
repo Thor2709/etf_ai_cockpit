@@ -1633,7 +1633,8 @@ def build_universe_simple_scores(
         fx_rates=fx_rates,
     )
     etf_exposure = _etf_exposure_lookup()
-    product_inputs, product_peers = _etf_product_quality_lookup(config)
+    kid_records = _kid_record_lookup()
+    product_lookups: dict[date | None, tuple[dict[str, dict[str, object]], dict[str, dict[str, list[float]]]]] = {}
     stock_evidence, stock_evidence_error = _stock_evidence_lookup(config, signals, prices)
     symbol_map = yfinance_symbol_map_from_config(config)
     etf_lookup = config.universe.by_id()
@@ -1645,6 +1646,13 @@ def build_universe_simple_scores(
     backtest_trust = backtest_trust or {}
     crowding_lookup = {row.instrument_id: row for row in (crowding.rows if crowding else ())}
     output: list[SimpleInstrumentScore] = []
+
+    def _product_lookup_for(signal_date: object) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, list[float]]]]:
+        # peers are filtered to each signal's own decision date: a later-dated peer vintage never ranks an earlier decision
+        decision = _parse_date(signal_date)
+        if decision not in product_lookups:
+            product_lookups[decision] = _etf_product_quality_lookup(config, decision, kids=kid_records)
+        return product_lookups[decision]
 
     enabled_ids = set(config.universe.enabled_ids)
     seen_ids: set[str] = set()
@@ -1723,8 +1731,8 @@ def build_universe_simple_scores(
                 else [
                     _etf_exposure_component(exposure_info, signal.signal_date),
                     _etf_product_quality_component(
-                        product_inputs.get(signal.etf_id),
-                        product_peers.get(signal.etf_id),
+                        _product_lookup_for(signal.signal_date)[0].get(signal.etf_id),
+                        _product_lookup_for(signal.signal_date)[1].get(signal.etf_id),
                         _parse_date(signal.signal_date),
                     ),
                 ]
@@ -3089,11 +3097,20 @@ def _kid_record_lookup() -> dict[str, object]:
 
 def _etf_product_quality_lookup(
     config: AppConfig,
+    decision_date: date | None = None,
+    *,
+    kids: Mapping[str, object] | None = None,
 ) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, list[float]]]]:
-    """Per configured ETF: product-quality inputs and the metric values of its same-exposure peers (excluding itself)."""
+    """Per configured ETF: product-quality inputs and the metric values of its same-exposure peers (excluding itself).
+
+    Peer values are point-in-time: a peer counts only when its own vintage (the KID ``document_date`` or the configured
+    ``product_quality_as_of``) is known, not after ``decision_date`` and within the policy max evidence age. Without a
+    decision date no vintage can be verified, so the peer tier is empty (fail closed).
+    """
 
     identities = [item for item in config.universe.by_id().values() if _display_asset_type(item) == "ETF"]
-    kids = _kid_record_lookup()
+    kids = _kid_record_lookup() if kids is None else kids
+    max_age_days = int(_product_quality_policy()["max_age_days"])
     own: dict[str, dict[str, object]] = {}
     for identity in identities:
         extra = {name: _config_extra(identity, name) for name in ("tracking_difference", "premium_discount_bps", "replication", "structure", "product_quality_as_of")}
@@ -3112,13 +3129,22 @@ def _etf_product_quality_lookup(
         if group is not None:
             groups.setdefault(group, []).append(identity.id)
 
+    def vintage_ok(as_of: object) -> bool:
+        return _evidence_age_status(as_of, decision_date, max_age_days) == "ok"
+
     def cost_pct(instrument_id: str) -> float | None:
         values = own[instrument_id]
         ter = _safe_float(values["ter"])
         if ter is not None and 0.0 <= ter <= 0.10:
-            return ter * 100.0
+            return ter * 100.0 if vintage_ok(values["as_of_date"]) else None
         record = values["kid_record"]
-        return None if record is None or not getattr(record, "score_eligible", False) else _kid_ongoing_cost_pct(record)
+        if record is None or not getattr(record, "score_eligible", False) or not vintage_ok(getattr(record, "document_date", None)):
+            return None
+        return _kid_ongoing_cost_pct(record)
+
+    def metric_pct(instrument_id: str, metric: str) -> float | None:
+        values = own[instrument_id]
+        return _safe_float(values[metric]) if vintage_ok(values["as_of_date"]) else None
 
     inputs: dict[str, dict[str, object]] = {}
     peers: dict[str, dict[str, list[float]]] = {}
@@ -3128,8 +3154,8 @@ def _etf_product_quality_lookup(
         cost_peers = [value for value in (cost_pct(item) for item in members) if value is not None]
         peers[identity.id] = {
             "ter": [value / 100.0 for value in cost_peers],
-            "tracking_difference": [abs(v) for v in (_safe_float(own[item]["tracking_difference"]) for item in members) if v is not None],
-            "premium_discount_bps": [abs(v) for v in (_safe_float(own[item]["premium_discount_bps"]) for item in members) if v is not None],
+            "tracking_difference": [abs(v) for v in (metric_pct(item, "tracking_difference") for item in members) if v is not None],
+            "premium_discount_bps": [abs(v) for v in (metric_pct(item, "premium_discount_bps") for item in members) if v is not None],
         }
         inputs[identity.id] = dict(values)
     return inputs, peers

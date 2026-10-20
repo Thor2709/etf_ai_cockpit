@@ -219,16 +219,58 @@ def test_product_quality_carries_no_headline_weight_and_concentration_stays_a_ri
 
 def test_product_quality_peer_group_is_the_same_exposure_theme() -> None:
     def identity(name: str, theme: str, ter: float | None) -> SimpleNamespace:
-        return SimpleNamespace(id=name, theme=theme, ter=ter, isin=None, asset_class="equity", instrument_type="etf", model_extra={})
+        return SimpleNamespace(
+            id=name, theme=theme, ter=ter, isin=None, asset_class="equity", instrument_type="etf", model_extra={"product_quality_as_of": "2025-01-05"}
+        )
 
     members = {item.id: item for item in (identity("A", "World", 0.002), identity("B", "World", 0.004), identity("C", "World", 0.001), identity("D", "Gold", 0.0009), identity("E", "", 0.0001))}
     config = SimpleNamespace(universe=SimpleNamespace(by_id=lambda: members))
 
-    inputs, peers = ss._etf_product_quality_lookup(config)
+    inputs, peers = ss._etf_product_quality_lookup(config, DECISION, kids={})
 
     assert sorted(peers["A"]["ter"]) == [0.001, 0.004]  # World peers only: never Gold, never the blank theme
     assert peers["D"]["ter"] == [] and peers["E"]["ter"] == []
     assert inputs["A"]["ter"] == 0.002
+
+
+def test_product_quality_peer_tier_is_point_in_time_for_ter_and_kid_peers() -> None:
+    def identity(name: str, ter: float | None, as_of: str | None) -> SimpleNamespace:
+        extra = {} if as_of is None else {"product_quality_as_of": as_of}
+        return SimpleNamespace(id=name, theme="World", ter=ter, isin=None, asset_class="equity", instrument_type="etf", model_extra=extra)
+
+    def kid(cost: str, document_date: str, eligible: bool = True) -> SimpleNamespace:
+        return SimpleNamespace(document_date=document_date, cost_fields={"ongoing_costs": cost}, score_eligible=eligible)
+
+    members = {
+        item.id: item
+        for item in (
+            identity("OWN", 0.0020, "2025-01-05"),
+            identity("OK_TER", 0.0030, "2025-01-05"),
+            identity("FUTURE_TER", 0.0001, "2025-02-01"),  # vintage after the decision: look-ahead
+            identity("STALE_TER", 0.0001, "2020-01-01"),  # older than the max evidence age
+            identity("NO_VINTAGE_TER", 0.0001, None),
+            identity("OK_KID", None, None),
+            identity("FUTURE_KID", None, None),
+            identity("STALE_KID", None, None),
+            identity("INELIGIBLE_KID", None, None),
+        )
+    }
+    config = SimpleNamespace(universe=SimpleNamespace(by_id=lambda: members))
+    kids = {
+        "OK_KID": kid("0.40%", "2025-01-02"),
+        "FUTURE_KID": kid("0.01%", "2025-02-01"),
+        "STALE_KID": kid("0.01%", "2020-01-01"),
+        "INELIGIBLE_KID": kid("0.01%", "2025-01-02", eligible=False),
+    }
+
+    _, peers = ss._etf_product_quality_lookup(config, DECISION, kids=kids)
+
+    assert sorted(peers["OWN"]["ter"]) == pytest.approx([0.003, 0.004])  # only the dated, fresh, eligible peers
+    assert ss._etf_product_quality_lookup(config, None, kids=kids)[1]["OWN"]["ter"] == []  # no decision date: fail closed
+    inputs = _inputs(ter=0.0020)
+    ranked = ss._etf_product_quality_component(inputs, peers["OWN"], DECISION)
+    with_future = ss._etf_product_quality_component(inputs, {"ter": [*peers["OWN"]["ter"], 0.0001]}, DECISION)
+    assert ranked.score_10 is not None and with_future.score_10 != ranked.score_10  # the leak would have changed the rank
 
 
 # --- G-04: liquidity -------------------------------------------------------------------------------------------------

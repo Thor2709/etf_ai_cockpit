@@ -309,7 +309,7 @@ def build_universe_evidence(
         for key in COHORT_METRIC_KEYS
     }
     # Non-bank financials are not scored by the industrial ratios, so they must not shape industrial peer cohorts either.
-    candidates = [result.profiles[r.instrument_id] for r in records if not is_non_bank_financial_sector(result.profiles[r.instrument_id].sector)]
+    candidates = [profile for profile in (result.profiles[r.instrument_id] for r in records) if not is_non_bank_financial_sector(getattr(profile, "sector", None))]
     for record in records:
         iid = record.instrument_id
         automatic = auto_peers(result.profiles[iid], candidates, cfg)
