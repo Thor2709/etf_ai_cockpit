@@ -130,6 +130,12 @@ def test_source_dashboard_refresh_analyse_score_and_export_journey(tmp_path: Pat
             return ProviderResult("yfinance", "etf_holdings", "unavailable", "No synthetic holdings fixture.")
 
     monkeypatch.setattr(data_service, "YFinanceProvider", OfflineYFinance)
+    # The refresh also runs the ETF source chain and the stock-fundamentals fetch; both reach the live network
+    # and write the worker's shared data/ (polluting later tests such as test_etf_completion). Keep it offline.
+    from etf_cockpit.data import etf_e1_fetch
+
+    monkeypatch.setattr(etf_e1_fetch, "fetch_etf_e1_reference_data", lambda *_args, **_kwargs: ([], []))
+    monkeypatch.setattr(data_service, "_refresh_stock_fundamentals", lambda *_args, **_kwargs: "Stock fundamentals offline fixture.")
     monkeypatch.setattr(trade_candidate_analysis, "YFinanceProvider", OfflineYFinance)
     monkeypatch.setattr(DataService, "_reference_context", lambda _self: {
         "known_etfs": [], "isin_to_etf_id": {}, "ticker_to_etf_id": {}

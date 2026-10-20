@@ -193,12 +193,28 @@ _SEED_BUILD_TIMEOUT_SECONDS = 300  # equal to the stale-lock age: no second buil
 # up after the same time and run unseeded (slower, never wrong) instead of stalling.
 _SEED_LOCK_STALE_SECONDS = 300
 _SEED_KEEP = 4  # shared by all worktrees on the machine
+_SYNTHETIC_OFF = "allow_synthetic_sample_data: false"
+_SYNTHETIC_ON = "allow_synthetic_sample_data: true"
+
+
+def _opt_in_synthetic_sample_data(root: Path) -> bool:
+    """Flip the committed opt-in default for ONE isolated root (never the checkout); True if changed."""
+
+    settings = root / "configs" / "settings.yaml"
+    if not settings.is_file():
+        return False
+    text = settings.read_bytes().decode("utf-8")
+    if _SYNTHETIC_OFF not in text:
+        return False
+    settings.write_bytes(text.replace(_SYNTHETIC_OFF, _SYNTHETIC_ON).encode("utf-8"))
+    return True
 
 
 def _seed_key() -> str:
     import hashlib
 
     digest = hashlib.sha256(sys.version.encode("utf-8"))
+    digest.update(b"seed-built-with-synthetic-sample-opt-in")  # the seed is the explicit demo dataset
     tracked_data = _tracked_files(("data",)) or []
     sources = sorted(
         [
@@ -226,6 +242,8 @@ def _build_data_seed(seed: Path) -> None:
     os.close(descriptor)
     builder = _create_isolated_root()
     try:
+        # The seed is the demo dataset: the product default (synthetic sample data off) must not empty it.
+        _opt_in_synthetic_sample_data(builder)
         environment = {**os.environ, "ETF_COCKPIT_ROOT": str(builder), "ETF_COCKPIT_OFFLINE": "1"}
         environment["PYTHONPATH"] = os.pathsep.join(filter(None, [str(ROOT / "src"), environment.get("PYTHONPATH")]))
         completed = subprocess.run(
@@ -391,6 +409,35 @@ def tmp_path(request: pytest.FixtureRequest) -> Path:
     path.mkdir(parents=True, exist_ok=False)
     request.addfinalizer(lambda: shutil.rmtree(path, ignore_errors=True))
     return path
+
+
+def _synthetic_sample_opt_in_scope() -> Iterator[None]:
+    settings = ISOLATED_ROOT / "configs" / "settings.yaml"
+    original = settings.read_bytes() if settings.is_file() else None
+    _opt_in_synthetic_sample_data(ISOLATED_ROOT)
+    try:
+        yield
+    finally:
+        if original is not None:
+            settings.write_bytes(original)
+
+
+@pytest.fixture
+def synthetic_sample_opt_in() -> Iterator[None]:
+    """Explicit opt-in for tests that exercise the demo/sample path (product default stays off).
+
+    Sets ``data.allow_synthetic_sample_data`` in this process' isolated settings file for one test and
+    restores the committed value afterwards.
+    """
+
+    yield from _synthetic_sample_opt_in_scope()
+
+
+@pytest.fixture(scope="module")
+def synthetic_sample_opt_in_module() -> Iterator[None]:
+    """Module-scoped variant for module fixtures that build a demo snapshot once."""
+
+    yield from _synthetic_sample_opt_in_scope()
 
 
 @pytest.fixture

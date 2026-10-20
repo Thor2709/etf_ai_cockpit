@@ -17,6 +17,7 @@ from etf_cockpit.signals.explanations import explain_signal
 from etf_cockpit.signals.signal_pipeline import _signal_to_json
 
 
+@pytest.mark.usefixtures("synthetic_sample_opt_in")
 def test_signal_trace_is_strict_json_and_explanation_matches_published_score():
     signals = SignalService(load_config()).generate_signals()
     assert signals

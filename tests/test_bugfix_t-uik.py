@@ -64,7 +64,7 @@ def _texts(control) -> list[str]:
 
 
 @pytest.fixture(scope="module")
-def state() -> AppState:
+def state(synthetic_sample_opt_in_module) -> AppState:
     snapshot = build_snapshot()
     return AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)
 
