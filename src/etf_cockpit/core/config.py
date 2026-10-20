@@ -215,17 +215,23 @@ class ModelMonitoringSettings(BaseModel):
     alert_threshold: float = Field(default=1.0, gt=0)
 
 
+PROMOTION_MINIMUM_MATURED_FORECASTS = 100
+PROMOTION_MINIMUM_FORECAST_ORIGINS = 5
+
+
 class ModelPromotionSettings(BaseModel):
     """Evidence an optional model needs before its forecasts count in scores.
 
     100 matured pairs across 5 forecast dates is conservative: pairs from one
     date share the market move, so the date count limits that clustering.
+    These are hard floors: configuration may raise them, never lower them, and a
+    lower value is rejected at load.
     ``enabled=false`` returns every optional model to diagnostic-only output.
     """
 
     enabled: bool = True
-    minimum_matured_forecasts: int = Field(default=100, ge=2)
-    minimum_forecast_origins: int = Field(default=5, ge=1)
+    minimum_matured_forecasts: int = Field(default=PROMOTION_MINIMUM_MATURED_FORECASTS, ge=PROMOTION_MINIMUM_MATURED_FORECASTS)
+    minimum_forecast_origins: int = Field(default=PROMOTION_MINIMUM_FORECAST_ORIGINS, ge=PROMOTION_MINIMUM_FORECAST_ORIGINS)
     evidence_horizon_days: int = Field(default=60, ge=1)
 
 
