@@ -7,7 +7,7 @@ reason the analysis recorded, never as a bare dash.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 import json
 import math
 
