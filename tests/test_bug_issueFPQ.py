@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
@@ -16,7 +17,12 @@ from etf_cockpit.data import stock_research as stock_research_data
 from etf_cockpit.features import etf_economics
 from etf_cockpit.parsers.priips_kid import PriipsKidRecord
 from etf_cockpit.signals import simple_scores as ss
-from etf_cockpit.signals.canonical_scoring import headline_evidence_weights
+from etf_cockpit.signals.canonical_scoring import (
+    canonical_score_from_simple_components,
+    headline_evidence_weights,
+    load_score_policy,
+    policy_for_components,
+)
 
 DECISION = date(2025, 1, 10)
 PEERS_PCT = (0.10, 0.30, 0.60)
@@ -140,6 +146,41 @@ def test_certificate_without_fundamentals_never_gets_stock_fundamental_weights()
     assert stock == headline_evidence_weights("STOCK")
 
 
+def _cert_components() -> list[ss.SimpleScoreComponent]:
+    dated = {"as_of_date": "2025-01-09", "freshness_status": "ok"}
+    price = [
+        replace(ss._component(key, 0.4, key), source_id="yfinance:prices", **dated) for key in ("momentum", "trend", "risk")
+    ]
+    fundamentals = [ss._optional_score_component(k, None, "none", authority="medium") for k in ("stock_value", "stock_quality")]
+    return [*price, *fundamentals, ss._optional_score_component("analyst_revision", 7.0, "rev", authority="low")]
+
+
+def test_certificate_rule_is_one_function_for_the_canonical_score_the_quality_score_and_the_headline() -> None:
+    components = _cert_components()
+
+    # canonical score from components: the certificate's group tables carry no fundamentals, a stock's still do
+    certificate_policy = policy_for_components(load_score_policy("Stock"), "Certificate", components)
+    stock_policy = policy_for_components(load_score_policy("Stock"), "Stock", components)
+    assert all(table.get("stock_value", 0.0) == table.get("stock_quality", 0.0) == 0.0 for table in certificate_policy.groups.values())
+    assert certificate_policy.headline_weights["analyst_revision"] == 0.0
+    assert stock_policy.groups["attractiveness"]["stock_value"] > 0.0
+    canonical = canonical_score_from_simple_components("RABO", "Certificate", "2025-01-10", components)
+    as_stock = canonical_score_from_simple_components("RABO", "Stock", "2025-01-10", components)
+    cert_keys = {row["key"] for row in canonical.as_dict()["components"]}
+    stock_keys = {row["key"] for row in as_stock.as_dict()["components"]}
+    assert not cert_keys & {"stock_value", "stock_quality"} and {"stock_value", "stock_quality"} <= stock_keys
+
+    # evidence quality: no fundamentals completeness denominator or missing penalty for a plain certificate
+    quality = [replace(ss._component("data_quality", 0.8, "dq", authority="hard"), source_id="yfinance:prices",
+                       as_of_date="2025-01-09", freshness_status="ok"), *components]
+    cert_quality = ss._evidence_quality_score(quality, warnings=[], asset_type="Certificate")
+    stock_quality = ss._evidence_quality_score(quality, warnings=[], asset_type="Stock")
+    assert cert_quality is not None and stock_quality is not None and cert_quality > stock_quality
+
+    # score coverage / counts follow the same weights
+    assert ss._evidence_component_counts("Certificate", components)[1] < ss._evidence_component_counts("Stock", components)[1]
+
+
 # --- G-02: KID cost ------------------------------------------------------------------------------------------------
 
 
@@ -230,7 +271,19 @@ def test_product_quality_carries_no_headline_weight_and_concentration_stays_a_ri
 
     assert weights.get("etf_product_quality", 0.0) == 0.0
     assert ss._score_engine_section("etf_product_quality")["headline_weight"] == 0.0
-    assert weights["etf_exposure"] > 0.0  # unchanged v3 weight
+    # concentration is a real risk term: risk role on every path, no weight in the evidence headline
+    assert weights["etf_exposure"] == 0.0
+    info = {"top_weight_sum": 0.30, "largest_weight": 0.05, "holding_count": 10, "as_of_date": "2025-01-02"}
+    for exposure in (
+        ss._etf_exposure_component(info, DECISION),
+        ss._etf_exposure_component(None, DECISION),
+        ss._etf_exposure_component({"as_of_date": "2025-01-02"}, DECISION),
+        ss._pending_component("etf_exposure"),
+    ):
+        assert exposure.key == "etf_exposure" and exposure.score_role == "risk_friction"
+    scored = ss._etf_exposure_component(info, DECISION)
+    only = [ss._component("momentum", 0.5, "m")]
+    assert ss.combine_component_scores([*only, scored], weights) == ss.combine_component_scores(only, weights)
     assert "risk term" in ss.COMPONENT_LABELS["etf_exposure"]
     assert "not exposure attractiveness" in ss.COMPONENT_EXPLANATIONS["etf_exposure"]
     # a zero-weight, differently-roled component cannot move the headline or the evidence-quality completeness
@@ -318,12 +371,12 @@ def test_high_low_range_is_labelled_as_a_range_proxy_not_a_spread() -> None:
 
 
 def test_corwin_schultz_is_used_where_ohlc_exists_and_is_below_the_range() -> None:
-    closes = [100.0 + (i % 3) for i in range(21)]
+    closes = [100.0] * 21  # overlapping equal ranges: the estimator is identified (gapped windows floor to zero)
     high = pd.Series([c * 1.010 for c in closes])
     low = pd.Series([c * 0.990 for c in closes])
     estimate = ss._corwin_schultz_spread(high, low, min_pairs=5)
 
-    assert estimate is not None and 0.0 <= estimate < 0.02  # the 2% range overstates the spread
+    assert estimate is not None and 0.0 < estimate < 0.02  # the 2% range overstates the spread
     assert ss._corwin_schultz_spread(high.head(4), low.head(4), min_pairs=5) is None
     inverted = ss._corwin_schultz_spread(low, high, min_pairs=1)
     assert inverted is None  # inverted high/low rows are skipped, never guessed
@@ -400,3 +453,39 @@ def test_v8_e_c2_s09_n001_forecast_quantiles_are_log_returns_and_use_exp() -> No
     assert lines[0].q10[0] == pytest.approx(100.0 * math.exp(-0.5))
     assert lines[0].q90[0] == pytest.approx(100.0 * math.exp(0.7))
     assert lines[0].q90[0] != pytest.approx(100.0 * (1.0 + 0.7))
+
+
+def test_zero_floored_corwin_schultz_estimate_is_unavailable_never_a_tight_spread_bonus() -> None:
+    flat = pd.Series([100.0] * 21)
+    assert ss._corwin_schultz_spread(flat, flat, min_pairs=5) is None  # every pair floored at zero
+
+    without, why_without = ss._liquidity_raw_and_reason(10_000_000.0, None)
+    with_zero, why_zero = ss._liquidity_raw_and_reason(10_000_000.0, None, corwin_schultz=0.0)
+    tight, _ = ss._liquidity_raw_and_reason(10_000_000.0, None, corwin_schultz=0.0001)
+    assert with_zero == without == tight  # no bonus for a floored or merely small estimate
+    assert ss.raw_to_score_10(with_zero) == 9.5 and "unavailable" in why_zero
+
+
+def test_priips_kid_source_ids_pass_the_evidence_gate_and_unavailable_does_not() -> None:
+    kid = ss.build_priips_kid_cost_evidence(_kid("0.2%"), as_of_date=DECISION, peer_costs_pct=PEERS_PCT)
+    assert kid.score_10 is not None and kid.source_id == "priips_kid:" + "a" * 64
+
+    (attached,) = ss._attach_component_provenance([kid], "2025-01-09", DECISION)
+    assert ss.is_known_score_source_id(attached.source_id) and attached.score_eligible
+    assert not ss.is_known_score_source_id("priips_kid:nothex") and not ss.is_priips_kid_source_id("priips_kid:unavailable")
+    unavailable = replace(attached, source_id="priips_kid:unavailable")
+    assert not unavailable.score_eligible
+
+    def score(component: ss.SimpleScoreComponent) -> ss.SimpleInstrumentScore:
+        return ss.SimpleInstrumentScore(
+            instrument_key="E1", display_id="E1", source_group="primary", asset_type="etf", name="E", yahoo_symbol="E1.DE",
+            latest_date="2025-01-09", latest_price=100.0, final_score_10=6.0, decision="watchlist", one_line_reason="r",
+            components=[component], warnings=[],
+        )
+
+    def evidence_gate(component: ss.SimpleScoreComponent) -> bool:
+        resolved = ss._attach_authority(score(component))
+        return next(gate for gate in resolved.to_v2_dict()["gates"] if gate["gate_id"] == "evidence")["passed"]
+
+    assert evidence_gate(attached) is True
+    assert evidence_gate(unavailable) is False

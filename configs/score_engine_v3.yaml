@@ -33,7 +33,7 @@ asset_policies:
       relative_strength: 0.0
       risk: 0.2882
       liquidity_cost: 0.2059
-      etf_exposure: 0.2059
+      etf_exposure: 0.0  # FPQ: concentration is a risk term (score_role risk_friction), not headline evidence
       baseline: 0.0
       timesfm: 0.0
       toto: 0.0

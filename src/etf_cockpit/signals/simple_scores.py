@@ -101,6 +101,8 @@ from etf_cockpit.signals.canonical_scoring import (
     CanonicalScore,
     canonical_score_from_simple_components,
     headline_evidence_weights,
+    headline_weights_for_components,
+    is_certificate_without_fundamentals,
 )
 
 
@@ -124,6 +126,10 @@ CASH_MACRO_ROOT = ROOT
 _CASH_COMPARISON_RETURN_WINDOW = 120
 
 
+def _policy_key(asset_type: str) -> str:
+    return "STOCK" if _is_stock_like_asset_type(asset_type) else "ETF"
+
+
 def headline_weights(asset_type: str) -> dict[str, float]:
     """Headline evidence-composite weights for an instrument type, read from ``configs/score_engine_v3.yaml``.
 
@@ -131,7 +137,7 @@ def headline_weights(asset_type: str) -> dict[str, float]:
     keeps the forecast components at weight 0 there.
     """
 
-    return headline_evidence_weights("STOCK" if _is_stock_like_asset_type(asset_type) else "ETF")
+    return headline_evidence_weights(_policy_key(asset_type))
 
 
 COMPONENT_LABELS = {
@@ -203,6 +209,17 @@ COMPONENT_SOURCE_IDS = {
 }
 CYCLICAL_SCORE_SOURCE_IDS = frozenset(item.adapter_id for item in cyclical_adapter_definitions())
 KNOWN_SCORE_SOURCE_IDS = frozenset((*COMPONENT_SOURCE_IDS.values(), *CYCLICAL_SCORE_SOURCE_IDS))
+# A PRIIPs KID is identified by its document hash: ``priips_kid:<64-hex>``. ``priips_kid:unavailable`` is never evidence.
+_PRIIPS_KID_SOURCE_ID = re.compile(r"priips_kid:[0-9a-f]{64}", re.IGNORECASE)
+
+
+def is_priips_kid_source_id(source_id: object) -> bool:
+    return _PRIIPS_KID_SOURCE_ID.fullmatch(str(source_id or "").strip()) is not None
+
+
+def is_known_score_source_id(source_id: object) -> bool:
+    text = str(source_id or "").strip()
+    return text in KNOWN_SCORE_SOURCE_IDS or is_priips_kid_source_id(text)
 
 
 @dataclass(frozen=True)
@@ -585,7 +602,7 @@ class SimpleInstrumentScore:
 
     @property
     def score_coverage(self) -> float:
-        weights = headline_weights(self.asset_type)
+        weights = _headline_weights_for_components(_policy_key(self.asset_type), self.asset_type, self.components)
         configured_weight = sum(weights.values())
         active_weight = sum(
             float(weights.get(component.key, 0.0))
@@ -596,7 +613,7 @@ class SimpleInstrumentScore:
 
     @property
     def missing_components(self) -> tuple[str, ...]:
-        weights = headline_weights(self.asset_type)
+        weights = _headline_weights_for_components(_policy_key(self.asset_type), self.asset_type, self.components)
         eligible_keys = {component.key for component in self.components if component.score_eligible}
         return tuple(key for key, weight in weights.items() if weight > 0 and key not in eligible_keys)
 
@@ -723,7 +740,8 @@ def _component_is_score_eligible(component: SimpleScoreComponent) -> bool:
         component.raw_score is not None
         and component.score_10 is not None
         and bool(source_id)
-        and (source_id in KNOWN_SCORE_SOURCE_IDS or source_dataset in allowed_datasets)
+        and (is_known_score_source_id(source_id) or source_dataset in allowed_datasets)
+        and source_id.casefold() != "priips_kid:unavailable"
         and status == "ok"
         and source_dataset not in {"model", "community", "news", "rss", "candle"}
         and authority not in {"model_advisory", "manual_context", "community", "model"}
@@ -1320,7 +1338,7 @@ def _attach_authority(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
     evidence_present = any(
         str(component.status or "").strip().lower() == "ok"
         and component.score_10 is not None
-        and component.source_id in ALLOWED_EVIDENCE_SOURCE_IDS
+        and (component.source_id in ALLOWED_EVIDENCE_SOURCE_IDS or is_priips_kid_source_id(component.source_id))
         and _component_is_score_eligible(component)
         for component in score.components
     )
@@ -2481,7 +2499,13 @@ def _pending_components(asset_type: str, *, reason: str = PENDING_WORKFLOW_REASO
 
 
 def _pending_component(key: str, *, reason: str = PENDING_WORKFLOW_REASON) -> SimpleScoreComponent:
-    role = "model_confirmation" if key in {"baseline", "timesfm", "toto"} else "risk_friction" if key == "risk" else "evidence"
+    role = (
+        "model_confirmation"
+        if key in {"baseline", "timesfm", "toto"}
+        else "risk_friction"
+        if key in {"risk", "etf_exposure"}
+        else "evidence"
+    )
     authority = "low" if role == "model_confirmation" else "hard" if key == "data_quality" else "medium"
     return SimpleScoreComponent(
         key=key,
@@ -3193,7 +3217,7 @@ def _liquidity_raw_and_reason(
         if participation <= max_participation:
             score = ladder_score
             break
-    if corwin_schultz is not None and corwin_schultz >= 0:
+    if corwin_schultz is not None and corwin_schultz > 0:
         cs_bps = corwin_schultz * 10_000.0
         spread_text = f"Corwin-Schultz spread estimate is about {cs_bps:.0f} bps"
         penalty = policy["cs_penalty"]
@@ -3201,8 +3225,6 @@ def _liquidity_raw_and_reason(
             score -= 2.0
         elif cs_bps > penalty["moderate"]:
             score -= 1.0
-        elif cs_bps < penalty["tight"]:
-            score += 0.5
     elif spread_proxy is not None and spread_proxy > 0:
         range_bps = spread_proxy * 10_000.0
         spread_text = f"range_proxy_bps is about {range_bps:.0f} (daily high-low range: a volatility proxy, not a quoted spread)"
@@ -3286,6 +3308,7 @@ def _corwin_schultz_spread(high: pd.Series, low: pd.Series, *, min_pairs: int) -
     """Mean Corwin-Schultz (2012) proportional spread over consecutive-row high/low pairs; None below ``min_pairs`` valid pairs.
 
     Negative pair estimates are floored at zero (the published convention); a non-positive or inverted high/low pair is skipped.
+    A mean of zero (every pair floored: a flat or non-noisy window) is an unidentified estimate, not a zero spread: None.
     """
 
     root2 = 2.0 ** 0.5
@@ -3303,7 +3326,8 @@ def _corwin_schultz_spread(high: pd.Series, low: pd.Series, *, min_pairs: int) -
         estimates.append(max(spread, 0.0))
     if len(estimates) < min_pairs:
         return None
-    return sum(estimates) / len(estimates)
+    mean = sum(estimates) / len(estimates)
+    return mean if mean > 0.0 else None
 
 
 def _etf_exposure_unavailable(why: str) -> SimpleScoreComponent:
@@ -3317,7 +3341,7 @@ def _etf_exposure_unavailable(why: str) -> SimpleScoreComponent:
         good_score=GOOD_SCORE_TEXT["etf_exposure"],
         why=why,
         authority="medium",
-        score_role="evidence",
+        score_role="risk_friction",
     )
 
 
@@ -3345,6 +3369,7 @@ def _etf_exposure_component(
             None,
             "ETF exposure is unavailable because top-weight concentration evidence is incomplete.",
             authority="medium",
+            role="risk_friction",
         )
     count = int(_safe_float(info.get("holding_count")) or 0)
     top10_penalty = min(top_weight / 0.60, 1.0) * 4.0
@@ -3356,7 +3381,7 @@ def _etf_exposure_component(
         f"largest holding is {largest:.1%}. Holdings may be partial."
     )
     return replace(
-        _component("etf_exposure", _score_10_to_raw(score), why, authority="medium"),
+        _component("etf_exposure", _score_10_to_raw(score), why, authority="medium", role="risk_friction"),
         as_of_date=vintage,
     )
 
@@ -3490,15 +3515,9 @@ def _headline_weights_for_components(
     asset_type: str,
     components: Iterable[SimpleScoreComponent],
 ) -> dict[str, float]:
-    """Headline weights; a plain certificate without scorable fundamentals never carries stock fundamental weights."""
+    """Headline weights; the certificate rule lives once in ``canonical_scoring.headline_weights_for_components``."""
 
-    weights = headline_evidence_weights(policy_key)
-    if policy_key == "STOCK" and str(asset_type).strip().casefold() == "certificate":
-        items = list(components)
-        if not any(item.key in {"stock_value", "stock_quality"} and item.score_eligible for item in items):
-            for key in ("stock_value", "stock_quality", "analyst_revision"):
-                weights[key] = 0.0
-    return weights
+    return headline_weights_for_components(policy_key, asset_type, components)
 
 
 def _owner_claim_ids(evidence: object) -> tuple[str, ...]:
@@ -3739,7 +3758,13 @@ def _evidence_quality_score(
     if len(quality_components) != 1 or not usable(quality_components[0]):
         return None
     data_quality = quality_components[0].score_10
-    expected = [component for component in components if component.score_role in {"evidence", "risk_friction"}]
+    certificate_plain = is_certificate_without_fundamentals(asset_type, components)
+    expected = [
+        component
+        for component in components
+        if component.score_role in {"evidence", "risk_friction"}
+        and not (certificate_plain and component.key in {"stock_value", "stock_quality", "analyst_revision"})
+    ]
     valid = [component for component in expected if usable(component)]
     if not valid or len({component.key for component in expected}) != len(expected):
         return None
@@ -3749,7 +3774,7 @@ def _evidence_quality_score(
     valid_keys = {component.key for component in valid}
     if asset_type == "ETF" and "etf_exposure" not in valid_keys:
         missing_penalty += 1.0
-    if _is_stock_like_asset_type(asset_type):
+    if _is_stock_like_asset_type(asset_type) and not certificate_plain:
         if "stock_value" not in valid_keys:
             missing_penalty += 0.8
         if "stock_quality" not in valid_keys:
@@ -5012,9 +5037,10 @@ def _unique_strings(values: Iterable[str]) -> list[str]:
 
 
 def _evidence_component_counts(asset_type: str, components: Iterable[SimpleScoreComponent]) -> tuple[int, int]:
-    weights = headline_weights(asset_type)
+    items = list(components)
+    weights = _headline_weights_for_components(_policy_key(asset_type), asset_type, items)
     configured = [key for key, weight in weights.items() if weight > 0]
-    eligible = {component.key for component in components if component.score_eligible}
+    eligible = {component.key for component in items if component.score_eligible}
     return sum(key in eligible for key in configured), len(configured)
 
 
