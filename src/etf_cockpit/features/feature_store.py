@@ -28,7 +28,7 @@ class FeatureStoreError(ValueError):
 
 
 MissingPolicy = Literal["null", "zero", "reject"]
-TargetKind = Literal["forward_return", "excess_return", "drawdown", "tail", "event"]
+TargetKind = Literal["forward_return", "excess_return", "drawdown", "max_drawdown", "tail", "event"]
 
 # Outcome-bearing column names (targets, labels, future/forward values) can never feed an input,
 # whatever feature identifier they are registered under.
@@ -84,7 +84,7 @@ class TargetDefinition:
             raise FeatureStoreError("target identifiers cannot masquerade as feature inputs")
         if self.horizon_days < 1 or self.embargo_days < 0:
             raise FeatureStoreError("target horizon must be positive and embargo non-negative")
-        if self.kind not in {"forward_return", "excess_return", "drawdown", "tail", "event"}:
+        if self.kind not in {"forward_return", "excess_return", "drawdown", "max_drawdown", "tail", "event"}:
             raise FeatureStoreError(f"unsupported target kind: {self.kind}")
         if self.kind == "event" and self.event_threshold is None:
             raise FeatureStoreError("event targets require an event threshold")
@@ -295,6 +295,10 @@ class LocalFeatureStore:
                             value = None
                         else:
                             value = float(future_values.min()) / current_price - 1.0
+                    elif definition.kind == "max_drawdown":
+                        # peak-to-trough within the window; the origin close is the first peak
+                        window = group.iloc[current_position : target_position + 1]["__price"]
+                        value = float((window / window.cummax() - 1.0).min())
                     elif definition.kind == "event":
                         value = bool(value >= float(definition.event_threshold or 0.0))
                     output[definition.target_id] = value

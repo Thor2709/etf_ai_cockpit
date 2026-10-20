@@ -13,6 +13,8 @@ controls:
     initial_cash_eur: 100000.0
   risk_profile: medium
   rss_sources: []
+data:
+  allow_synthetic_sample_data: false
 execution_allowed: false
 revision: 5944577a97bd855aa1b2d5f1236c86ba9f541dde581ff698a1d80e8e2cc511c5
 schema_version: settings_bundle.v1

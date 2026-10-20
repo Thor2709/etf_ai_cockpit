@@ -144,6 +144,33 @@ def test_same_day_vintage_dividend_is_not_counted_twice() -> None:
     assert result.income_return == pytest.approx(0.01)
 
 
+@pytest.mark.parametrize("terminal_close", [119.0, 0.0])
+def test_first_day_revision_is_shared_income_and_anchor_origin(terminal_close: float) -> None:
+    action = CorporateAction(
+        action_id="DIV-ORIGIN", instrument_id="ETF1", action_type="dividend",
+        announced_at="2024-01-01T00:00:00Z", effective_at="2024-01-10T00:00:00Z",
+        ex_date="2024-01-10", payable_at="2024-01-31", known_at="2024-01-02T00:00:00Z",
+        revision=1, source="provider:a", source_id="provider:a:DIV-ORIGIN",
+        source_checksum="sha256:DIV-ORIGIN", amount=1.0, currency="USD",
+    )
+    prices = pd.DataFrame({
+        "date": ["2024-01-09", "2024-01-09", "2024-01-10"],
+        "close": [100.0, 120.0, terminal_close], "currency": "USD",
+        "known_at": ["2024-01-09T18:00:00Z", "2024-01-10T09:00:00Z", "2024-01-10T18:00:00Z"],
+    })
+    result = apply_total_return_adjustments(prices, (action,), price_currency="USD")
+    assert result.status == "available"
+    assert result.income_return == pytest.approx(1.0 / 120.0)
+    assert result.price_return == pytest.approx(terminal_close / 120.0 - 1.0)
+    assert result.total_return == pytest.approx((terminal_close + 1.0) / 120.0 - 1.0)
+    assert result.frame["price_adjusted_close"].iloc[1] == pytest.approx(120.0)
+    if terminal_close == 0.0:
+        assert result.frame["adjusted_close"].iloc[1] == pytest.approx(120.0)
+        assert result.frame["adjusted_close"].iloc[-1] == pytest.approx(1.0)
+        no_income = apply_total_return_adjustments(prices, (), price_currency="USD")
+        assert no_income.frame["adjusted_close"].tolist() == pytest.approx([120.0, 120.0, 0.0])
+
+
 # --- A.C4.S06.N002 filing publication date ------------------------------------------------------
 
 
@@ -380,12 +407,78 @@ def test_sec_date_only_filed_is_not_usable_on_the_filing_day() -> None:
 # --- A.C2.S18.N001 sample data ------------------------------------------------------------------
 
 
-def test_generated_sample_data_is_always_labelled_synthetic() -> None:
+def test_generated_sample_data_is_always_labelled_synthetic(tmp_path, monkeypatch) -> None:
     from etf_cockpit.core.config import load_config
-    from etf_cockpit.data.sample_data import generate_sample_holdings, generate_sample_prices
+    from etf_cockpit.data import sample_data
+    from etf_cockpit.data.fx_data import fx_rates_for_prices
 
     config = load_config()
-    prices = generate_sample_prices(config, periods=30, end_date=date(2026, 6, 26))
-    holdings = generate_sample_holdings(config, prices)
-    assert set(prices["source"]) == {"sample_generator"}
-    assert set(holdings["source"]) == {"sample_generator"}
+    prices = sample_data.generate_sample_prices(config, periods=30, end_date=date(2026, 6, 26))
+    holdings = sample_data.generate_sample_holdings(config, prices)
+    assert set(prices["source"]) == {"synthetic_sample"}
+    assert set(holdings["source"]) == {"synthetic_sample"}
+    raw = tmp_path / "raw"
+    portfolios = tmp_path / "portfolios"
+    (raw / "prices").mkdir(parents=True)
+    portfolios.mkdir()
+    monkeypatch.setattr(sample_data, "RAW_DIR", raw)
+    monkeypatch.setattr(sample_data, "PORTFOLIOS_DIR", portfolios)
+    monkeypatch.setattr(sample_data, "ensure_project_dirs", lambda: None)
+    monkeypatch.setattr(sample_data, "generate_sample_prices", lambda config: prices)
+    price_path, holdings_path = sample_data.ensure_sample_files(config, allow_synthetic=True)
+    assert set(pd.read_csv(price_path)["source"]) == {"synthetic_sample"}
+    assert set(pd.read_csv(holdings_path)["source"]) == {"synthetic_sample"}
+    fx = fx_rates_for_prices(prices.assign(currency="USD"))
+    assert not fx.empty
+    assert set(fx["source"]) == {"synthetic_sample"}
+    # The explicit setting survives normal settings saves and is consumed by the loader.
+    import yaml
+    from etf_cockpit.core.settings_bundle import load_settings_bundle, save_settings
+
+    settings_root = tmp_path / "settings"
+    settings_path = settings_root / "configs" / "settings.yaml"
+    settings_path.parent.mkdir(parents=True)
+    bundle = load_settings_bundle(settings_root)
+    document = {
+        "schema_version": bundle.schema_version, "semantic_version": bundle.semantic_version,
+        "settings_version": 0, "revision": bundle.revision,
+        "controls": bundle.controls.model_dump(mode="json"),
+        "data": {"allow_synthetic_sample_data": True}, "execution_allowed": False,
+    }
+    settings_path.write_text(yaml.safe_dump(document), encoding="utf-8")
+    assert load_config(settings_path.parent).data.allow_synthetic_sample_data is True
+    bundle = load_settings_bundle(settings_root)
+    candidate = bundle.model_copy(update={"controls": bundle.controls.model_copy(update={"horizon": "6M"})})
+    saved = save_settings(candidate, expected_revision=bundle.revision, root=settings_root)
+    assert saved.saved
+    assert load_config(settings_path.parent).data.allow_synthetic_sample_data is True
+
+
+def test_missing_sample_prices_default_disabled_reports_unavailable_without_writes(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.application.data_service import DataService
+    from etf_cockpit.core.config import load_config
+    from etf_cockpit.data import duckdb_store, sample_data
+
+    config = load_config()
+    assert config.data.allow_synthetic_sample_data is False
+    monkeypatch.setattr(sample_data, "RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr(sample_data, "PORTFOLIOS_DIR", tmp_path / "portfolios")
+    monkeypatch.setattr(duckdb_store, "PRICE_PARQUET", tmp_path / "prices.parquet")
+    monkeypatch.setattr(duckdb_store, "HOLDINGS_CSV", tmp_path / "portfolios" / "current_holdings.csv")
+    monkeypatch.setattr(duckdb_store, "load_config", lambda: config)
+    monkeypatch.setattr(sample_data, "ensure_project_dirs", lambda: pytest.fail("generation attempted"))
+    price_path, holdings_path = sample_data.ensure_sample_files(config, force=True)
+    service = DataService(config)
+    service.update_prices(force_sample=True)
+    assert not price_path.exists()
+    assert not holdings_path.exists()
+    assert list(tmp_path.iterdir()) == []
+    assert service.last_operation_succeeded is False
+    assert service.last_operation_status == "unavailable"
+    assert service.last_operation_reason == "no price data; synthetic sample data disabled"
+    prices = service.load_prices()
+    assert prices.empty
+    assert prices.attrs["status"] == "unavailable"
+    assert prices.attrs["reason"] == service.last_operation_reason
+    assert service.dry_run_update() == "unavailable: no price data; synthetic sample data disabled"
+    assert duckdb_store.load_holdings().empty

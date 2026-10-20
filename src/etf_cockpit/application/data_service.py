@@ -92,6 +92,8 @@ class DataService:
     def __init__(self, config: AppConfig):
         self.config = config
         self.last_operation_succeeded = True
+        self.last_operation_status = "available"
+        self.last_operation_reason = ""
 
     def update_prices(
         self,
@@ -99,8 +101,15 @@ class DataService:
         *,
         publish_guard: PublicationScopeFactory | None = None,
     ) -> None:
-        ensure_sample_files(self.config, force=force_sample, publish_guard=publish_guard)
+        ensure_sample_files(
+            self.config, force=force_sample, allow_synthetic=self.config.data.allow_synthetic_sample_data,
+            publish_guard=publish_guard,
+        )
         initialise_store(self.config, force_sample=force_sample, publish_guard=publish_guard)
+        prices = load_prices()
+        self.last_operation_succeeded = not prices.empty
+        self.last_operation_status = "available" if self.last_operation_succeeded else "unavailable"
+        self.last_operation_reason = str(prices.attrs.get("reason", "")) if prices.empty else ""
 
     def load_prices(self, etf_ids: list[str] | None = None, start: date | None = None, end: date | None = None) -> pd.DataFrame:
         prices = load_prices()
@@ -137,6 +146,9 @@ class DataService:
         )
 
     def dry_run_update(self) -> str:
+        prices = self.load_prices()
+        if prices.empty and prices.attrs.get("status") == "unavailable":
+            return f"unavailable: {prices.attrs['reason']}"
         report = self.validate_prices(holdings=load_holdings())
         manual_notes = load_manual_news()
         meta_lines = [

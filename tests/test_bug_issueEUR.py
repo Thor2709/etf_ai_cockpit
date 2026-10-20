@@ -331,7 +331,7 @@ def test_sample_prices_get_synthetic_fx_but_provider_prices_use_the_canonical_st
 
     synthetic = fx_data.fx_rates_for_prices(sample)
     assert set(synthetic["base_currency"]) == {"NOK"} and set(synthetic["quote_currency"]) == {"EUR"}
-    assert set(synthetic["source"]) == {"sample_generator"}
+    assert set(synthetic["source"]) == {"synthetic_sample"}
     assert fx_data.fx_rates_for_prices(provider).empty  # never synthesised for real prices
     book = eur_basis_prices(sample, synthetic, configured_currency=NOK, known_by=KNOWN_BY)
     assert book.unavailable == {}

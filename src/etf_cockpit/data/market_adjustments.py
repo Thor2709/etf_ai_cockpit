@@ -1016,7 +1016,7 @@ def apply_total_return_adjustments(
         action_ids.append(",".join(sorted(item.action_id for item in day_actions)))
     # Each day counts once in cumulative figures: its last (latest-vintage) row.
     day_is_final = [index + 1 == len(row_days) or row_days[index + 1] != day for index, day in enumerate(row_days)]
-    first_raw = float(frame["raw_close"].iloc[0])
+    first_raw = float(frame.loc[[day == first_day for day in row_days], "raw_close"].iloc[-1])
     last_raw = float(frame["raw_close"].iloc[-1])
 
     def _anchored(index: pd.Series) -> pd.Series:

@@ -14,12 +14,13 @@ from etf_cockpit.core.paths import FEATURES_DIR, PORTFOLIOS_DIR, VALIDATED_DIR
 from etf_cockpit.core.workflow import PublicationScopeFactory, publication_scope
 from etf_cockpit.core.versioning import current_settings_revision
 from etf_cockpit.data.sample_data import ensure_sample_files
-from etf_cockpit.data.validation import validate_prices
+from etf_cockpit.data.validation import REQUIRED_HOLDINGS_COLUMNS, REQUIRED_PRICE_COLUMNS, validate_prices
 from etf_cockpit.core.atomic_io import atomic_write_bytes, parquet_payload, validate_parquet_file
 
 PRICE_PARQUET = VALIDATED_DIR / "prices" / "prices_daily.parquet"
 FEATURE_PARQUET = FEATURES_DIR / "features_daily.parquet"
 HOLDINGS_CSV = PORTFOLIOS_DIR / "current_holdings.csv"
+SYNTHETIC_DISABLED_REASON = "no price data; synthetic sample data disabled"
 
 
 def read_price_csv(path: Path) -> pd.DataFrame:
@@ -66,8 +67,12 @@ def initialise_store(
     publish_guard: PublicationScopeFactory | None = None,
 ) -> None:
     cfg = config or load_config()
-    price_csv, _ = ensure_sample_files(cfg, force=force_sample, publish_guard=publish_guard)
-    if force_sample or not PRICE_PARQUET.exists():
+    price_csv, _ = ensure_sample_files(
+        cfg, force=force_sample, allow_synthetic=cfg.data.allow_synthetic_sample_data, publish_guard=publish_guard
+    )
+    if not price_csv.exists():
+        return
+    if (force_sample and cfg.data.allow_synthetic_sample_data) or not PRICE_PARQUET.exists():
         prices = read_price_csv(price_csv)
         report = validate_prices(prices)
         if report.status == "Blocked":
@@ -89,11 +94,16 @@ def write_prices(prices: pd.DataFrame, path: Path = PRICE_PARQUET) -> None:
     atomic_write_bytes(path, parquet_payload(frame), validate_parquet_file)
 
 
-def load_prices(path: Path = PRICE_PARQUET) -> pd.DataFrame:
+def load_prices(path: Path | None = None) -> pd.DataFrame:
+    path = PRICE_PARQUET if path is None else path
     if not path.exists():
         if path != PRICE_PARQUET:
             raise FileNotFoundError(path)
         initialise_store()
+        if not path.exists():
+            frame = pd.DataFrame(columns=sorted(REQUIRED_PRICE_COLUMNS))
+            frame.attrs.update(status="unavailable", reason=SYNTHETIC_DISABLED_REASON, execution_allowed=False)
+            return frame
     wait_for_atomic_group(path)
     frame = pd.read_parquet(path)
     frame["date"] = pd.to_datetime(frame["date"]).dt.date
@@ -104,11 +114,16 @@ def load_prices(path: Path = PRICE_PARQUET) -> pd.DataFrame:
     return frame
 
 
-def load_holdings(path: Path = HOLDINGS_CSV) -> pd.DataFrame:
+def load_holdings(path: Path | None = None) -> pd.DataFrame:
+    path = HOLDINGS_CSV if path is None else path
     if not path.exists():
         if path != HOLDINGS_CSV:
             raise FileNotFoundError(path)
         initialise_store()
+        if not path.exists():
+            frame = pd.DataFrame(columns=sorted(REQUIRED_HOLDINGS_COLUMNS))
+            frame.attrs.update(status="unavailable", reason="no holdings data; synthetic sample data disabled", execution_allowed=False)
+            return frame
     frame = pd.read_csv(path)
     frame["as_of_date"] = pd.to_datetime(frame["as_of_date"]).dt.date
     return frame

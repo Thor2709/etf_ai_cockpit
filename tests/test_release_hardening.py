@@ -668,6 +668,7 @@ def test_unavailable_models_are_not_allowed_in_score() -> None:
 
 def test_forecast_service_runs_optional_model_rows_when_enabled(tmp_path, monkeypatch) -> None:
     config = load_config()
+    config.data.allow_synthetic_sample_data = True
     config.models.models["timesfm"] = {"enabled": True, "mode": "mock", "revision": "a" * 40}
     config.models.models["toto"] = {"enabled": True, "mode": "mock", "context_length": 128, "revision": "a" * 40}
     # Calibration-evidence sufficiency has its own tests (test_forecast_honesty); this one covers the run itself.

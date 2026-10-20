@@ -972,7 +972,8 @@ def test_sample_calendar_identity_survives_persisted_backtest_without_identity_m
         lambda prices: real_write_prices(prices, parquet_path),
     )
 
-    price_csv, _ = sample_data.ensure_sample_files(config, force=True)
+    config.data.allow_synthetic_sample_data = True
+    price_csv, _ = sample_data.ensure_sample_files(config, force=True, allow_synthetic=True)
     persisted_csv = price_csv.read_text(encoding="utf-8")
     assert "'calendar_id': 'XETR'" not in persisted_csv
     persisted_identity = pd.read_csv(price_csv).loc[

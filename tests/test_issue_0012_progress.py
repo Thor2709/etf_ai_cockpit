@@ -1514,6 +1514,7 @@ def test_restart_recovers_canonical_workflow_terminal_without_activity_terminal(
 
 def test_sample_publication_scope_serialises_cancel_and_rejects_clean_store_write(tmp_path, monkeypatch) -> None:
     state = _state()
+    state.snapshot.config.data.allow_synthetic_sample_data = True
     action_id = state.begin_activity("Refresh sample data", "Publishing sample files").action_id
     raw_dir = tmp_path / "raw"
     portfolios_dir = tmp_path / "portfolios"

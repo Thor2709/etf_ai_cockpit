@@ -45,7 +45,7 @@ def test_s6_01_missing_prices_preserves_holdings(monkeypatch):
     monkeypatch.setattr(sample_data, "generate_sample_holdings", lambda config, prices: pd.DataFrame({"shares": [1]}))
     monkeypatch.setattr(sample_data, "ensure_project_dirs", lambda: None)
     monkeypatch.setattr(pd.DataFrame, "to_csv", lambda self, path, **kwargs: writes.append(Path(path).name))
-    sample_data.ensure_sample_files(object(), force=False)
+    sample_data.ensure_sample_files(object(), force=False, allow_synthetic=True)
     assert "current_holdings.csv" not in writes
 
 
