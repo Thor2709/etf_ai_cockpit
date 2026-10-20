@@ -443,6 +443,7 @@ class PortfolioImportStore:
                 "execution_allowed": False,
             }
             rollback_payload["rollback_hash"] = _payload_hash(rollback_payload)
+            self._verify_rollback_chain(store, batch_key, rollback_payload)
             store.put_many(
                 (
                     (
@@ -455,19 +456,73 @@ class PortfolioImportStore:
             )
         return True
 
+    def _verify_rollback_chain(
+        self,
+        store: TransactionalStore,
+        batch_id: str,
+        rollback_payload: Mapping[str, Any],
+    ) -> None:
+        """Fail closed unless rolling back ``batch_id`` leaves a valid revision chain."""
+
+        try:
+            if not store.integrity().ok:
+                raise PortfolioImportError(
+                    "rollback refused: portfolio storage integrity check failed"
+                )
+            batches = [(r.entity_id, dict(r.payload)) for r in store.list(_BATCH_TYPE)]
+            events = [(r.entity_id, dict(r.payload)) for r in store.list(_EVENT_TYPE)]
+            rollbacks = [
+                (r.entity_id, dict(r.payload)) for r in store.list(_ROLLBACK_TYPE)
+            ]
+            stages = [(r.entity_id, dict(r.payload)) for r in store.list(_STAGE_TYPE)]
+            if any(payload.get("batch_id") == batch_id for _, payload in rollbacks):
+                raise PortfolioImportError(
+                    f"rollback refused: batch {batch_id} is already rolled back"
+                )
+            # The current chain must verify (gaps, foreign batches) before and after.
+            _verified_active_payloads(batches, events, rollbacks, stages)
+            _verified_active_payloads(
+                batches,
+                events,
+                [
+                    *rollbacks,
+                    (str(rollback_payload["rollback_id"]), dict(rollback_payload)),
+                ],
+                stages,
+            )
+        except PortfolioImportError as exc:
+            if str(exc).startswith("rollback refused"):
+                raise
+            raise PortfolioImportError(
+                f"rollback refused: chain unverifiable: {exc}"
+            ) from exc
+        except (StorageSchemaError, sqlite3.DatabaseError, OSError) as exc:
+            raise PortfolioImportError(
+                f"rollback refused: storage unavailable: {exc}"
+            ) from exc
+
     def source_events(
         self,
         *,
         as_of: str | None = None,
-        known_at: str | None = None,
+        known_at: str | Mapping[Any, str] | None = None,
         store: TransactionalStore | None = None,
     ) -> pd.DataFrame:
         """Return imported source evidence, optionally visible at both cutoffs.
+
+        ``known_at`` is one cutoff for every source, or a mapping of
+        ``(provider_id, source_system)`` (or ``"provider|system"``) to that
+        source's own knowledge cutoff. A source without an entry is unavailable
+        (excluded), never defaulted to another source's cutoff.
 
         This store is an ingestion adapter. Canonical balances are available only
         from the journal replay in ``PortfolioImportApplication.reconcile``.
         """
 
+        if isinstance(known_at, Mapping):
+            return self._source_events_per_source(
+                as_of=as_of, known_at=known_at, store=store
+            )
         if store is not None and as_of is not None and known_at is not None:
             events = self._active_events_as_of(store, as_of=as_of, known_at=known_at)
         else:
@@ -492,6 +547,40 @@ class PortfolioImportStore:
             decision = pd.to_datetime(selected["decision_time"], utc=True, errors="coerce")
             selected = selected.loc[decision.le(cutoff)]
         return selected.copy()
+
+    def _source_events_per_source(
+        self,
+        *,
+        as_of: str | None,
+        known_at: Mapping[Any, str],
+        store: TransactionalStore | None,
+    ) -> pd.DataFrame:
+        cutoffs: dict[tuple[str, str], str] = {}
+        for key, value in known_at.items():
+            parts = key if isinstance(key, tuple) else str(key).split("|", 1)
+            if len(parts) != 2:
+                raise PortfolioImportError(
+                    "per-source known_at keys must be (provider_id, source_system)"
+                )
+            cutoffs[(str(parts[0]).strip().lower(), str(parts[1]).strip().lower())] = str(
+                value
+            )
+        parts_frames: list[pd.DataFrame] = []
+        for cutoff in sorted(set(cutoffs.values())):
+            sources = {key for key, value in cutoffs.items() if value == cutoff}
+            events = self.source_events(as_of=as_of, known_at=cutoff, store=store)
+            if events.empty:
+                continue
+            keys = list(
+                zip(
+                    events["provider_id"].astype(str).str.lower(),
+                    events["source_system"].astype(str).str.lower(),
+                )
+            )
+            parts_frames.append(events.loc[[key in sources for key in keys]])
+        if not parts_frames:
+            return self.source_events(as_of=as_of, known_at="1900-01-01T00:00:00Z", store=store)
+        return pd.concat(parts_frames, ignore_index=True)
 
     def rebuild(self) -> PortfolioRebuild:
         raise PortfolioImportError(
@@ -1323,7 +1412,7 @@ def _identity_candidates(
                 for record in store.list(_IDENTITY_CLAIM_TYPE)
             ]
     except (StorageSchemaError, sqlite3.DatabaseError, OSError):
-        if explicit_resolved:
+        if explicit_resolved and _missing(row.get("isin")):
             return (explicit,), "canonical_id"
         return (), "identity_master_unavailable"
     claims = [
@@ -1361,7 +1450,7 @@ def _identity_candidates(
         ticker &= venue
         return tuple(sorted(ticker)), "ticker+mic"
     if ticker:
-        return tuple(sorted(ticker)), "ticker"
+        return (), "ticker_requires_exchange"
     return (), "unresolved"
 
 

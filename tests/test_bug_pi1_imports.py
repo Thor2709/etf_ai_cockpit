@@ -4,13 +4,21 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import sqlite3
 
 import pandas as pd
+import pytest
 
 from etf_cockpit.application.portfolio_imports import PortfolioImportApplication
 from etf_cockpit.data.contracts import SourceAuthority
 from etf_cockpit.data.identity_master import IdentityMasterStore, IdentitySourceRow
-from etf_cockpit.data.portfolio_imports import PortfolioImportStore, _claim_effective
+from etf_cockpit.data import portfolio_imports as portfolio_imports_module
+from etf_cockpit.data.portfolio_imports import (
+    PortfolioImportError,
+    PortfolioImportStore,
+    _claim_effective,
+    _identity_candidates,
+)
 
 
 def _identity(root: Path, instrument_id: str, isin: str) -> None:
@@ -164,4 +172,90 @@ def test_spreadsheet_escape_round_trips_source_identity(tmp_path: Path) -> None:
     imported.commit(imported.preview(exported))
     assert sorted(imported.source_events()["source_id"]) == sorted(
         service.source_events()["source_id"]
+    )
+
+
+def test_raw_ticker_requires_exchange(tmp_path: Path) -> None:
+    """D012-N002"""
+    _identity(tmp_path, "SEC-1", "US0000000001")
+    rows = [
+        _trade(source_id="no-mic", instrument_id="", ticker="SEC-1"),
+        _trade(source_id="with-mic", instrument_id="", ticker="SEC-1", mic="XNAS"),
+    ]
+    frame = PortfolioImportStore(tmp_path).preview(_write(tmp_path / "t.csv", rows)).frame
+    assert frame["staging_status"].tolist() == ["quarantined", "accepted"]
+    assert frame.iloc[0]["quarantine_reason"] == "identity_unresolved"
+    assert frame.iloc[0]["identity_mapping_method"] == "ticker_requires_exchange"
+    assert frame.iloc[1]["instrument_id"] == "SEC-1"
+
+
+def _commit_correction(tmp_path: Path) -> tuple[PortfolioImportStore, str, str]:
+    _identity(tmp_path, "SEC-1", "US0000000001")
+    service = PortfolioImportStore(tmp_path)
+    original = service.commit(service.preview(_write(tmp_path / "o.csv", [_trade()])))
+    current = service.source_events().iloc[0]
+    corrected = _trade(
+        quantity=2,
+        settlement_cash=-202,
+        price=100,
+        fee_amount=-2,
+        predecessor_content_hash=current["content_hash"],
+        predecessor_revision=current["source_revision"],
+        source_revision=int(current["source_revision"]) + 1,
+    )
+    correction = service.commit(service.preview(_write(tmp_path / "c.csv", [corrected])))
+    return service, original.batch_id, correction.batch_id
+
+
+def test_rollback_chain_is_verified(tmp_path: Path) -> None:
+    """D012-N003"""
+    service, original, correction = _commit_correction(tmp_path)
+    with pytest.raises(PortfolioImportError, match="rollback refused"):
+        service.rollback(original, reason="withdraw base under live correction")
+    assert service.source_events().iloc[0]["quantity"] == 2
+    assert service.rollback(correction, reason="withdraw correction")
+    with pytest.raises(PortfolioImportError, match="already rolled back"):
+        service.rollback(correction, reason="again")
+    assert service.source_events().iloc[0]["quantity"] == 1
+
+
+def test_source_events_use_per_source_known_at_cutoff(tmp_path: Path) -> None:
+    """D012-N004"""
+    _identity(tmp_path, "SEC-1", "US0000000001")
+    service = PortfolioImportStore(tmp_path)
+    rows = [
+        _trade(source_id="a-1"),
+        _trade(source_id="b-1", provider_id="broker-b", source_system="broker-b"),
+    ]
+    service.commit(service.preview(_write(tmp_path / "two.csv", rows)))
+    early, late = "2000-01-01T00:00:00Z", "2100-01-01T00:00:00Z"
+    events = service.source_events(
+        known_at={("broker-a", "broker-a"): early, "broker-b|broker-b": late}
+    )
+    assert events["source_id"].tolist() == ["b-1"]
+    only_a = service.source_events(known_at={("broker-a", "broker-a"): late})
+    assert only_a["source_id"].tolist() == ["a-1"]
+    assert len(service.source_events(known_at=late)) == 2
+
+
+def test_unreadable_claim_store_does_not_accept_isin_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D012-N001 (fail closed when claims are unreadable)"""
+    _identity(tmp_path, "SEC-1", "US0000000001")
+
+    class _Broken:
+        def __init__(self, root: Path) -> None:
+            raise sqlite3.DatabaseError("claims unreadable")
+
+    monkeypatch.setattr(portfolio_imports_module, "TransactionalStore", _Broken)
+    at, decided = "2024-01-02T10:00:00Z", "2024-01-03T00:00:00Z"
+    with_isin = {"instrument_id": "SEC-1", "isin": "US0000000002"}
+    assert _identity_candidates(tmp_path, with_isin, at, decided) == (
+        (),
+        "identity_master_unavailable",
+    )
+    assert _identity_candidates(tmp_path, {"instrument_id": "SEC-1"}, at, decided) == (
+        ("SEC-1",),
+        "canonical_id",
     )
