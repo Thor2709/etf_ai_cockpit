@@ -8,6 +8,8 @@
   "source_url": "fixture://sparebank/teaching-bank",
   "facts": {
     "ec_capital": {"available": true, "value": 400.0, "unit": "NOK", "period": "2024-12-31", "source_locator": "ch. 1-2"},
+    "overkursfond": {"available": true, "value": 0.0, "unit": "NOK", "period": "2024-12-31", "source_locator": "synthetic teaching assumption: no premium pool"},
+    "utjevningsfond": {"available": true, "value": 0.0, "unit": "NOK", "period": "2024-12-31", "source_locator": "synthetic teaching assumption: no equalisation pool"},
     "sparebankens_fond": {"available": true, "value": 600.0, "unit": "NOK", "period": "2024-12-31", "source_locator": "ch. 1-2"},
     "outstanding_ec_count": {"available": true, "value": 4.0, "unit": "shares", "period": "2024-12-31", "source_locator": "ch. 1-2"},
     "period_end_ec_count": {"available": true, "value": 4.0, "unit": "shares", "period": "2024-12-31", "source_locator": "ch. 1-2"},
