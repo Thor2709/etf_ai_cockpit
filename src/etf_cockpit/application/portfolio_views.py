@@ -412,15 +412,8 @@ def load_portfolio_holdings_projection(
 
     report = load_portfolio_valuation_history(storage_root=source)
     snapshots = report.get("snapshots")
-    performance_snapshot: dict[str, object] | None = None
     as_of = _holdings_date(getattr(binding, "as_of", None))
-    if isinstance(snapshots, pd.DataFrame) and not snapshots.empty and as_of and "date" in snapshots:
-        dates = pd.to_datetime(snapshots["date"], errors="coerce", utc=True).dt.strftime("%Y-%m-%d")
-        selected = snapshots.loc[dates.eq(as_of)]
-        if len(selected) == 1:
-            performance_snapshot = selected.iloc[0].to_dict()
-            performance_snapshot["date"] = as_of
-            performance_snapshot["execution_allowed"] = False
+    performance_snapshot = _performance_snapshot_for(snapshots, as_of)
 
     signals = tuple(getattr(snapshot, "signals", ()) or ())
     current_run_ids = {
@@ -599,6 +592,24 @@ def load_portfolio_holdings_projection(
         projection["analysis_reason"] = None
     return projection
 
+
+
+def _performance_snapshot_for(snapshots: object, as_of: str | None) -> dict[str, object] | None:
+    """Select the one saved valuation snapshot for ``as_of``, keeping the ``snapshot_id`` it was saved with.
+
+    Two rows for the same date are ambiguous evidence, so none is bound.
+    """
+
+    if not (isinstance(snapshots, pd.DataFrame) and not snapshots.empty and as_of and "date" in snapshots):
+        return None
+    dates = pd.to_datetime(snapshots["date"], errors="coerce", utc=True).dt.strftime("%Y-%m-%d")
+    selected = snapshots.loc[dates.eq(as_of)]
+    if len(selected) != 1:
+        return None
+    performance_snapshot = selected.iloc[0].to_dict()
+    performance_snapshot["date"] = as_of
+    performance_snapshot["execution_allowed"] = False
+    return performance_snapshot
 
 def _holdings_date(value: object) -> str | None:
     if value is None:

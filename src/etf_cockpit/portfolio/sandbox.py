@@ -256,6 +256,7 @@ def create_candidate(
     if notional <= 0 or notional > 1_000_000_000_000:
         raise ValueError("analysis_notional_eur must be greater than zero and no more than EUR 1 trillion")
     enabled = {str(item.id) for item in config.universe.etfs if bool(item.enabled)}
+    disabled = {str(item.id) for item in config.universe.etfs if not bool(item.enabled)}
     present = _holding_ids(holdings)
     clean_targets: dict[str, float] = {}
     for raw_id, raw_weight in target_weights.items():
@@ -265,6 +266,9 @@ def create_candidate(
         if instrument_id in clean_targets:
             raise ValueError(f"duplicate instrument: {instrument_id}")
         weight = _finite_number(raw_weight, f"target weight for {instrument_id}")
+        if weight > 0 and instrument_id in disabled:
+            # An instrument the universe disables may still be held, but only sold down to zero, never targeted.
+            raise ValueError(f"unknown or disabled instrument: {instrument_id}")
         if weight < 0 or weight > 1:
             raise ValueError(f"target weight for {instrument_id} must be between 0% and 100%")
         if weight > 0:

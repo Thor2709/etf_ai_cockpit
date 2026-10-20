@@ -21,6 +21,8 @@ from etf_cockpit.portfolio.reconciliation import (
     apply_source_adjustment,
     audit_document,
     load_account_mappings,
+    lookup_account_mapping,
+    mapping_key,
     map_source_account,
     reconcile_imports,
     reverse_orphaned_source_entry,
@@ -104,10 +106,13 @@ class PortfolioImportApplication:
         clearing_account_id: str,
         reviewer: str,
         reason: str,
+        provider_id: str | None = None,
     ) -> LedgerAccountMapping:
         with TransactionalStore(self._store.root) as store:
             with store.transaction():
-                current = load_account_mappings(store, authority=authority).get(source_account_id)
+                current = load_account_mappings(store, authority=authority).get(
+                    mapping_key(provider_id, source_account_id)
+                )
                 mapping = map_source_account(
                     store.connection,
                     authority=authority,
@@ -118,6 +123,7 @@ class PortfolioImportApplication:
                     reviewer=reviewer,
                     reason=reason,
                     supersedes_mapping_id=None if current is None else current.mapping_id,
+                    provider_id=provider_id,
                 )
                 return store_account_mapping(store, mapping)
 
@@ -146,7 +152,7 @@ class PortfolioImportApplication:
                     raise ValueError("adjustment requires one active, visible source event")
                 row = rows.iloc[0].to_dict()
                 mappings = load_account_mappings(store, authority=authority, known_at=known_at)
-                mapping = mappings.get(str(row.get("account_id") or ""))
+                mapping = lookup_account_mapping(mappings, row)
                 if mapping is None:
                     raise ValueError("adjustment requires a reviewer-approved source account mapping")
                 return apply_source_adjustment(

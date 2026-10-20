@@ -296,6 +296,10 @@ def build_portfolio_performance_series(
         elif selected_metric == "drawdown":
             point_value, metric_reason = daily_drawdowns[period_rows.index[-1]]
         else:
+            previous_session: pd.DataFrame | None = None
+            if selected_metric == "twr_return" and selected_aggregation == "day":
+                earlier = selected.loc[selected["date"].lt(period_rows.iloc[0]["date"])].tail(1)
+                previous_session = earlier if not earlier.empty else anchor
             point_value, metric_reason = _metric_value(
                 selected_metric,
                 period_rows,
@@ -305,6 +309,7 @@ def build_portfolio_performance_series(
                 selected,
                 selected_aggregation,
                 previous_source,
+                previous_session,
             )
         reason_parts = list(partial_reasons)
         if metric_reason:
@@ -553,6 +558,7 @@ def _metric_value(
     selected: pd.DataFrame,
     aggregation: str,
     prior_rows: pd.DataFrame | None = None,
+    previous_session: pd.DataFrame | None = None,
 ) -> tuple[float | None, str | None]:
     dates = [value.date() for value in period_rows["date"]]
     for day in dates:
@@ -568,6 +574,14 @@ def _metric_value(
             return None, f"The saved valuation at the period end is unavailable; {field} is not shown."
         return _finite(last[field]), None if _finite(last[field]) is not None else f"Saved {field} is unavailable for the period end."
     if metric == "twr_return" and aggregation == "day":
+        # The saved daily return spans back to the previous saved row; it is one day only when no exchange session lies between.
+        if previous_session is None or previous_session.empty:
+            return None, "A prior saved valuation is required for the daily flow-adjusted return."
+        gap = expected_session_dates(previous_session.iloc[-1]["date"], period_rows.iloc[-1]["date"]).difference(
+            pd.DatetimeIndex([previous_session.iloc[-1]["date"], period_rows.iloc[-1]["date"]])
+        )
+        if not gap.empty:
+            return None, f"Missing daily valuation snapshots for dates: {', '.join(gap.strftime('%Y-%m-%d'))}."
         daily_return = _finite(converted_period.iloc[-1]["period_return"])
         if daily_return is not None and daily_return < -1.0:
             return None, "The saved daily flow-adjusted return is below -100% and invalid."
