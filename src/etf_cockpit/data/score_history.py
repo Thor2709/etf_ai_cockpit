@@ -30,6 +30,24 @@ class ScoreHistoryWriteResult:
     run_id: str
     snapshot_hash: str
     schema_version: str = "2.0"
+    # Run completeness: rows offered by the caller versus rows persisted. Invalid rows are dropped, never
+    # repaired, so a partial run is visible to the caller instead of looking like a complete snapshot.
+    rows_submitted: int = 0
+    rows_dropped: int = 0
+
+    @property
+    def complete(self) -> bool:
+        return self.rows_dropped == 0
+
+
+SCORE_MIN = 0.0
+SCORE_MAX = 10.0
+
+
+def _valid_score_mask(scores: pd.Series) -> pd.Series:
+    """Finite scores inside the 0-10 range (NaN counts as not valid)."""
+
+    return scores.between(SCORE_MIN, SCORE_MAX)
 
 
 _COLUMNS = [
@@ -195,7 +213,18 @@ def append_score_run(
     if "instrument_id" not in frame.columns or "final_combined_score_10" not in frame.columns:
         raise ValueError("score history requires instrument_id and final_combined_score_10")
     frame["final_combined_score_10"] = pd.to_numeric(frame["final_combined_score_10"], errors="coerce")
+    # Missing/unparseable scores are dropped (reported below); a parsed but non-finite or out-of-range score is a
+    # corrupt producer value and is rejected for the whole run, never persisted or clamped.
+    parsed = frame["final_combined_score_10"].dropna()
+    invalid = parsed.loc[~_valid_score_mask(parsed)]
+    if not invalid.empty:
+        raise ValueError(
+            f"score history rejects {len(invalid)} non-finite or out-of-range final_combined_score_10 value(s) "
+            f"(allowed {SCORE_MIN:g}-{SCORE_MAX:g})"
+        )
+    rows_submitted = len(frame)
     frame = frame.dropna(subset=["instrument_id", "final_combined_score_10"])
+    rows_dropped = rows_submitted - len(frame)
     frame["run_id"] = run_id
     frame["run_started_at"] = created_at
     frame["run_completed_at"] = created_at
@@ -298,7 +327,7 @@ def append_score_run(
             else pd.DataFrame()
         )
         if not duplicate.empty:
-            return ScoreHistoryWriteResult(path, 0, run_id, snapshot_hash)
+            return ScoreHistoryWriteResult(path, 0, run_id, snapshot_hash, rows_submitted=rows_submitted, rows_dropped=rows_dropped)
         # A changed hash replaces the complete run snapshot, preventing stale
         # instruments from surviving a deterministic retry with a narrower frame.
         if not existing.empty and "run_id" in existing.columns:
@@ -312,7 +341,7 @@ def append_score_run(
         # Keep parquet and the legacy CSV mirror within one repository atomic
         # write-group. Readers never observe one format from a newer generation.
         _write_history_group(combined, path)
-    return ScoreHistoryWriteResult(path, len(frame), run_id, snapshot_hash)
+    return ScoreHistoryWriteResult(path, len(frame), run_id, snapshot_hash, rows_submitted=rows_submitted, rows_dropped=rows_dropped)
 
 
 _FRAME_CACHE: dict[str, object] = {}
@@ -610,7 +639,8 @@ def _normalise_history_frame(frame: pd.DataFrame) -> pd.DataFrame:
     if "instrument_id" not in result.columns:
         result["instrument_id"] = None
     result["instrument_id"] = result["instrument_id"].map(_clean_optional_text)
-    result = result.loc[result["instrument_id"].notna() & result["final_combined_score_10"].notna()].copy()
+    # Stored rows with a missing, non-finite or out-of-range score are malformed audit residue: dropped on read.
+    result = result.loc[result["instrument_id"].notna() & _valid_score_mask(result["final_combined_score_10"])].copy()
     if result.empty:
         return pd.DataFrame(columns=_COLUMNS)
     if "run_id" not in result.columns:

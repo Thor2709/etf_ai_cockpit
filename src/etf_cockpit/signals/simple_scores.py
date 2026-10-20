@@ -455,7 +455,8 @@ class SimpleInstrumentScore:
             # Direct compatibility construction remains fail-closed.
             object.__setattr__(self, "research_promotion_allowed", False)
             object.__setattr__(self, "portfolio_review_allowed", False)
-        if valid_analysis_status and self.analysis_status == "unavailable":
+        # A typed authority decision is final: its unavailable status is never re-derived into a better one.
+        if valid_analysis_status and self.analysis_status == "unavailable" and self.authority_decision is None:
             if self.final_score_10 is None:
                 derived: AnalysisStatus = "unavailable"
             elif self.warnings:
@@ -1286,10 +1287,13 @@ def _forecast_status_for_components(components: Iterable[SimpleScoreComponent]) 
 def _attach_authority(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
     """Publish the same typed authority envelope on scoreboard release rows."""
 
+    # The evidence gate needs a component that is itself score-eligible (dated, fresh, unconflicted, non-model) and
+    # from an allowed source; a stale, undated or conflicted component from an allowed source is not evidence.
     evidence_present = any(
         str(component.status or "").strip().lower() == "ok"
         and component.score_10 is not None
         and component.source_id in ALLOWED_EVIDENCE_SOURCE_IDS
+        and _component_is_score_eligible(component)
         for component in score.components
     )
     warning_text = " ".join(score.warnings).casefold()
@@ -2434,13 +2438,14 @@ def _attach_component_provenance(
     freshness = _component_freshness_status(clean_date, decision_date)
 
     def component_freshness(component: SimpleScoreComponent) -> str:
-        if component.freshness_status:
-            return component.freshness_status
         # Evidence carrying its own date must itself be known at the decision
-        # date; the shared price date cannot vouch for evidence dated later.
+        # date; neither the shared price date nor a preset status can vouch for
+        # evidence dated later.
         own_date = _parse_date(component.as_of_date)
         if own_date is not None and decision_date is not None and own_date > decision_date:
             return "unavailable"
+        if component.freshness_status:
+            return component.freshness_status
         return freshness
 
     return [
@@ -3082,6 +3087,10 @@ def _simple_score_date(value: object) -> str | None:
 
 def _optional_score_component(key: str, score_10: object, why: str, *, authority: str) -> SimpleScoreComponent:
     score = _safe_float(score_10)
+    if score is not None and not 0.0 <= score <= 10.0:
+        # An out-of-range candidate value is corrupt input: unavailable, never silently clamped into range.
+        score = None
+        why = f"{why} (value outside the 0-10 range; treated as unavailable)"
     if score is None:
         return SimpleScoreComponent(
             key=key,
@@ -3095,7 +3104,6 @@ def _optional_score_component(key: str, score_10: object, why: str, *, authority
             authority=authority,
             score_role="evidence",
         )
-    score = _clamp_score_10(score)
     raw = _score_10_to_raw(score)
     return SimpleScoreComponent(
         key=key,
