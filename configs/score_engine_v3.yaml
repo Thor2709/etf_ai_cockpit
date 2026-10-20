@@ -18,8 +18,19 @@ asset_policies:
     risk_implementation:
       risk: 0.45
       liquidity_cost: 0.25
-      rebalance: 0.15
       concentration: 0.15
+    # Headline evidence composite (final_combined_score_10 / evidence_score_10): the weights of
+    # signals/simple_scores.combine_component_scores. Forecasts stay at 0 (owner rule F5).
+    headline_evidence:
+      momentum: 0.22
+      trend: 0.18
+      relative_strength: 0.14
+      risk: 0.14
+      liquidity_cost: 0.10
+      etf_exposure: 0.10
+      baseline: 0.0
+      timesfm: 0.0
+      toto: 0.0
   STOCK:
     attractiveness:
       momentum: 0.20
@@ -35,5 +46,30 @@ asset_policies:
     risk_implementation:
       risk: 0.45
       liquidity_cost: 0.25
-      rebalance: 0.15
       concentration: 0.15
+    headline_evidence:
+      momentum: 0.18
+      trend: 0.13
+      relative_strength: 0.12
+      risk: 0.12
+      liquidity_cost: 0.10
+      stock_value: 0.12
+      stock_quality: 0.13
+      analyst_revision: 0.05
+      baseline: 0.0
+      timesfm: 0.0
+      toto: 0.0
+# Action/gate composite (signals/scoring.py and the canonical legacy composite). Loaded into
+# config.models.ensemble["weights"] by core/config.load_config; configs/model_settings.yaml no longer carries weights.
+# Portfolio drift (rebalance) is deliberately absent: an instrument's score never depends on the portfolio.
+# chatgpt_thesis is an optional manual input: when absent it is not eligible and contributes nothing (never 0).
+action_composite:
+  weights:
+    momentum: 0.20
+    trend: 0.15
+    risk: 0.10
+    relative_strength: 0.10
+    toto: 0.15
+    timesfm: 0.10
+    baseline_ml: 0.05
+    chatgpt_thesis: 0.05

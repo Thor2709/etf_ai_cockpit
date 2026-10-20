@@ -5,6 +5,7 @@ import math
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
+from etf_cockpit.core.exceptions import ConfigError
 from etf_cockpit.core.types import ComponentScores
 from etf_cockpit.features.feature_pipeline import robust_zscore
 from etf_cockpit.models.ensemble import effective_ensemble_weights
@@ -82,13 +83,16 @@ def component_scores(
     frame["score_baseline_ml"] = baseline_forecast_score.clip(-1, 1).where(
         baseline_forecast_score.notna(), deterministic_baseline_score
     )
-    frame["score_chatgpt_thesis"] = frame["etf_id"].map(chatgpt_scores or {}).fillna(0.0).clip(-1, 1)
+    # Optional manual input: a missing thesis stays NaN (not eligible, never 0.0) and lowers the composite coverage.
+    frame["score_chatgpt_thesis"] = frame["etf_id"].map(chatgpt_scores or {}).map(_clean_score).astype(float)
     frame["cost_penalty"] = frame["etf_id"].map(lambda etf_id: estimated_cost_bps(config, str(etf_id)) / 1000).clip(0, 0.08)
     frame["turnover_penalty"] = 0.0
     max_cap = frame["max_weight"].fillna(config.risks.portfolio_limits.max_single_etf_weight)
     frame["concentration_penalty"] = ((frame["current_weight"].fillna(0) / max_cap) - 0.85).clip(lower=0, upper=0.25)
 
-    raw_weights = config.models.ensemble["weights"]
+    raw_weights = config.models.ensemble.get("weights")
+    if not raw_weights:
+        raise ConfigError("Score composite weights are unavailable: configs/score_engine_v3.yaml action_composite.weights.")
     # A live model that no promoted forecast row backs (shadow or unproven) contributes no score; its weight
     # is renormalised away instead of turning every composite score and confidence into NaN.
     weights = effective_ensemble_weights(
@@ -102,7 +106,7 @@ def component_scores(
             ("momentum", "score_momentum"),
             ("trend", "score_trend"),
             ("risk", "score_risk"),
-            ("rebalance", "score_rebalance"),
+            # Portfolio drift (score_rebalance) is a portfolio/rebalance view input, never part of the instrument score.
             ("relative_strength", "score_relative_strength"),
             ("toto", "score_toto"),
             ("timesfm", "score_timesfm"),
@@ -120,6 +124,9 @@ def component_scores(
         for key, column, weight in active_components
     )
     retained_weight = sum(weight * finite_components[key] for key, _, weight in active_components)
+    # Share of the configured composite weight that held an eligible input (missing inputs lower it; never zero-filled).
+    configured_weight = sum(weight for _, _, weight in active_components)
+    frame["composite_coverage"] = (retained_weight / configured_weight) if configured_weight > 0 else 0.0
     all_present = pd.Series(True, index=frame.index)
     for mask in finite_components.values():
         all_present &= mask

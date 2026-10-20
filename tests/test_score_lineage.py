@@ -145,7 +145,7 @@ def test_da_v1_and_qv_qvm_scores_are_registered_beside_v3_and_legacy() -> None:
     assert benchmark["formula_version"] and benchmark["config_hash"] not in {"none", ""}
     # side by side: all paths appear in one manifest, and the cutover state is explicit
     assert {row["weights_source"] for row in manifest} >= {
-        "signals/simple_scores.py:ETF_EVIDENCE_WEIGHTS|STOCK_EVIDENCE_WEIGHTS", "configs/score_engine_v3.yaml",
+        "configs/score_engine_v3.yaml#asset_policies.*.headline_evidence", "configs/score_engine_v3.yaml",
         "configs/decision_cutover_v1.yaml",
     }
     assert "cutover_active" in publication.score_rank_authority()
@@ -189,7 +189,7 @@ def test_same_instrument_and_date_share_one_value_across_ui_export_scoreboard_hi
 
 
 def test_forecast_domain_weight_in_the_rank_is_zero_unless_promoted() -> None:
-    for weights in (ss.ETF_EVIDENCE_WEIGHTS, ss.STOCK_EVIDENCE_WEIGHTS):
+    for weights in (ss.headline_weights("ETF"), ss.headline_weights("Stock")):
         assert {key: weights[key] for key in FORECAST_KEYS} == {key: 0.0 for key in FORECAST_KEYS}
     for asset in ("ETF", "STOCK"):
         policy = load_score_policy(asset)

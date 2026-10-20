@@ -32,8 +32,8 @@ for s in scores:
     elif not (0 <= v <= 10) or math.isnan(v): fails.append(f"{s.display_id}: score {v} out of range")
     if str(s.latest_date or "")[:4].isdigit() and str(s.latest_date)[:10] > today: fails.append(f"{s.display_id}: price date {s.latest_date} after today")
 # 5 F5 forecasts separate from scores
-for name in ("ETF_EVIDENCE_WEIGHTS", "STOCK_EVIDENCE_WEIGHTS"):
-    w = getattr(ss, name, {})
+for name, asset in (("headline ETF weights", "ETF"), ("headline STOCK weights", "Stock")):
+    w = ss.headline_weights(asset)
     bad = {k: w[k] for k in ("baseline", "timesfm", "toto") if w.get(k)}
     if bad: fails.append(f"F5: {name} weights forecasts {bad}")
 # 6 relative strength availability
