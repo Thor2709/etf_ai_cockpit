@@ -114,6 +114,51 @@ def test_same_day_vintages_are_returns_against_prior_day_not_prior_vintage() -> 
     assert reconcile_adjustments(result).available
 
 
+@pytest.mark.parametrize("cash_amount", [0.0, 1.0])
+def test_late_prior_close_revision_does_not_leak_into_historical_returns(cash_amount: float) -> None:
+    prices = pd.DataFrame({
+        "date": ["2024-01-09", "2024-01-09", "2024-01-10", "2024-01-10", "2024-01-11", "2024-01-11"],
+        "close": [100.0, 120.0, 110.0, 132.0, 121.0, 145.2],
+        "currency": "USD",
+        "known_at": [f"2024-01-{day:02}T18:00:00Z" for day in (9, 12, 10, 13, 11, 14)],
+    })
+    actions = (CorporateAction(
+        action_id="DIV-LATE", instrument_id="ETF1", action_type="dividend",
+        announced_at="2024-01-01T00:00:00Z", effective_at="2024-01-10T00:00:00Z",
+        ex_date="2024-01-10", payable_at="2024-01-31", known_at="2024-01-02T00:00:00Z",
+        revision=1, source="provider:a", source_id="provider:a:DIV-LATE",
+        source_checksum="sha256:DIV-LATE", amount=cash_amount, currency="USD",
+    ),) if cash_amount else ()
+    result = apply_total_return_adjustments(prices, actions)
+    assert result.status == "available"
+    assert result.frame["price_return"].iloc[2:].tolist() == pytest.approx([0.1] * 4)
+    assert result.frame["local_total_return"].iloc[2:].tolist() == pytest.approx([
+        (110 + cash_amount) / 100 - 1, (132 + cash_amount) / 120 - 1, 0.1, 0.1,
+    ])
+    assert result.frame["price_return_index"].tolist() == pytest.approx([100, 100, 110, 110, 121, 121])
+    assert result.frame["total_return_index"].tolist() == pytest.approx([
+        100, 100, 110 + cash_amount, (132 + cash_amount) / 1.2,
+        (110 + cash_amount) * 1.1, (132 + cash_amount) / 1.2 * 1.1,
+    ])
+    assert result.total_return == pytest.approx((132 + cash_amount) / 120 * 1.1 - 1)
+    assert reconcile_adjustments(result).reconciled
+    # Removing future publications must leave each historically selectable return/index unchanged.
+    for cutoff in prices["known_at"]:
+        historical = apply_total_return_adjustments(prices.loc[prices["known_at"] <= cutoff], actions)
+        selected = result.frame.loc[result.frame["known_at"] <= cutoff]
+        for column in ("price_return", "local_total_return", "price_return_index", "total_return_index"):
+            pd.testing.assert_series_equal(selected[column].reset_index(drop=True), historical.frame[column])
+    tampered = result.frame.copy()
+    tampered.loc[2, "local_total_return"] = 110 / 120 - 1
+    assert reconcile_adjustments(tampered).status == "quarantined"
+    missing_prior = prices.copy()
+    missing_prior.loc[0, "known_at"] = "2024-01-15T18:00:00Z"
+    unavailable = apply_total_return_adjustments(missing_prior, actions)
+    assert unavailable.status == "unavailable"
+    assert "price_vintage_unavailable_at_knowledge_time" in unavailable.warnings
+    assert unavailable.frame["total_return_index"].isna().all()
+
+
 def test_same_day_vintage_dividend_is_not_counted_twice() -> None:
     action = CorporateAction(
         action_id="DIV-1",
@@ -482,3 +527,53 @@ def test_missing_sample_prices_default_disabled_reports_unavailable_without_writ
     assert prices.attrs["reason"] == service.last_operation_reason
     assert service.dry_run_update() == "unavailable: no price data; synthetic sample data disabled"
     assert duckdb_store.load_holdings().empty
+
+
+def test_active_config_blocks_synthetic_fallback_even_when_default_allows_it(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.application.data_service import DataService
+    from etf_cockpit.core.config import load_config
+    from etf_cockpit.data import duckdb_store, sample_data
+
+    config = load_config()
+    config.data.allow_synthetic_sample_data = False
+    default = config.model_copy(deep=True)
+    default.data.allow_synthetic_sample_data = True
+    monkeypatch.setattr(duckdb_store, "load_config", lambda: default)
+    monkeypatch.setattr(sample_data, "RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr(sample_data, "PORTFOLIOS_DIR", tmp_path / "portfolios")
+    monkeypatch.setattr(duckdb_store, "PRICE_PARQUET", tmp_path / "prices.parquet")
+    monkeypatch.setattr(duckdb_store, "HOLDINGS_CSV", tmp_path / "portfolios" / "current_holdings.csv")
+    def generation_attempted(*_args):
+        raise RuntimeError("synthetic fallback attempted")
+
+    monkeypatch.setattr(sample_data, "generate_sample_prices", generation_attempted)
+    service = DataService(config)
+    service.update_prices(force_sample=True)
+    assert service.last_operation_status == "unavailable"
+    assert service.last_operation_succeeded is False
+    assert service.last_operation_reason == "no price data; synthetic sample data disabled"
+    assert service.load_prices().attrs["status"] == "unavailable"
+    assert service.dry_run_update() == "unavailable: no price data; synthetic sample data disabled"
+    assert service.run_yfinance_forecasts() == "No clean yfinance prices are available. Refresh yfinance data first."
+    assert duckdb_store.load_prices(config=config).attrs["status"] == "unavailable"
+    holdings = duckdb_store.load_holdings(config=config)
+    assert holdings.empty and holdings.attrs["status"] == "unavailable"
+    # Legacy callers without a config still use the configured default.
+    with pytest.raises(RuntimeError, match="synthetic fallback attempted"):
+        duckdb_store.load_holdings()
+    # Exercise service holdings fallbacks with a real local price file present.
+    pd.DataFrame({"etf_id": [config.universe.enabled_ids[0]], "date": ["2024-01-10"], "close": [100.0]}).to_parquet(
+        duckdb_store.PRICE_PARQUET, index=False,
+    )
+    def holdings_read(*_args, **_kwargs):
+        raise RuntimeError("holdings read")
+
+    monkeypatch.setattr(service, "validate_prices", holdings_read)
+    with pytest.raises(RuntimeError, match="holdings read"):
+        service.dry_run_update()
+    import etf_cockpit.application.data_service as service_module
+    monkeypatch.setattr(service_module, "_benchmark_reference_snapshot_inputs", holdings_read)
+    with pytest.raises(RuntimeError, match="holdings read"):
+        service.run_yfinance_forecasts()
+    assert not (tmp_path / "raw").exists()
+    assert not (tmp_path / "portfolios").exists()

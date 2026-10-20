@@ -94,12 +94,12 @@ def write_prices(prices: pd.DataFrame, path: Path = PRICE_PARQUET) -> None:
     atomic_write_bytes(path, parquet_payload(frame), validate_parquet_file)
 
 
-def load_prices(path: Path | None = None) -> pd.DataFrame:
+def load_prices(path: Path | None = None, *, config: AppConfig | None = None) -> pd.DataFrame:
     path = PRICE_PARQUET if path is None else path
     if not path.exists():
         if path != PRICE_PARQUET:
             raise FileNotFoundError(path)
-        initialise_store()
+        initialise_store(config)
         if not path.exists():
             frame = pd.DataFrame(columns=sorted(REQUIRED_PRICE_COLUMNS))
             frame.attrs.update(status="unavailable", reason=SYNTHETIC_DISABLED_REASON, execution_allowed=False)
@@ -114,12 +114,12 @@ def load_prices(path: Path | None = None) -> pd.DataFrame:
     return frame
 
 
-def load_holdings(path: Path | None = None) -> pd.DataFrame:
+def load_holdings(path: Path | None = None, *, config: AppConfig | None = None) -> pd.DataFrame:
     path = HOLDINGS_CSV if path is None else path
     if not path.exists():
         if path != HOLDINGS_CSV:
             raise FileNotFoundError(path)
-        initialise_store()
+        initialise_store(config)
         if not path.exists():
             frame = pd.DataFrame(columns=sorted(REQUIRED_HOLDINGS_COLUMNS))
             frame.attrs.update(status="unavailable", reason="no holdings data; synthetic sample data disabled", execution_allowed=False)

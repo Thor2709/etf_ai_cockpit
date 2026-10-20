@@ -8,7 +8,9 @@ has execution authority.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections import defaultdict, deque
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -975,6 +977,14 @@ def apply_total_return_adjustments(
         total_blocked = True
         status = status if status == "quarantined" else "unavailable"
 
+    snapshots = list(_price_vintage_snapshots(frame))
+    if any(snapshot is None for snapshot in snapshots):
+        return _mark_canonical_adjustment(AdjustmentResult(
+            "unavailable", _unavailable_adjustment_frame(frame), convention,
+            resolved.reconciliations, (*warnings, "price_vintage_unavailable_at_knowledge_time"),
+        ))
+    # Every snapshot contains all preceding trading days as known at this row's cutoff.
+    vintage_paths = [snapshot for snapshot in snapshots if snapshot is not None]
     local_returns: list[float] = [math.nan]
     price_returns: list[float] = [math.nan]
     quantities: list[float] = [1.0]
@@ -982,15 +992,11 @@ def apply_total_return_adjustments(
     income: list[float] = [0.0]
     principal: list[float] = [0.0]
     action_ids: list[str] = [""]
-    # Several rows of one day are alternative vintages of that day's close: each is measured against the
-    # previous day's final close (never against another vintage) and the day's actions apply to every vintage.
+    # Alternative vintages use the previous trading day's close available at their own knowledge time.
     row_days = [pd.Timestamp(value).normalize() for value in frame["date"]]
-    reference_close = float(frame.loc[0, "raw_close"])
     for index in range(1, len(frame)):
         current = float(frame.loc[index, "raw_close"])
         row_day = row_days[index]
-        if row_day != row_days[index - 1]:
-            reference_close = float(frame.loc[index - 1, "raw_close"])
         if row_day == first_day:
             # A revision of the first day has no prior close to be measured against.
             price_returns.append(math.nan)
@@ -1001,6 +1007,7 @@ def apply_total_return_adjustments(
             principal.append(0.0)
             action_ids.append("")
             continue
+        reference_close = float(frame.loc[vintage_paths[index][-2], "raw_close"])
         day_actions = events.get(row_day, [])
         quantity_factor = math.prod(item.quantity_factor for item in day_actions)
         net_cash = sum(item.net_cash_amount for item in day_actions)
@@ -1016,7 +1023,7 @@ def apply_total_return_adjustments(
         action_ids.append(",".join(sorted(item.action_id for item in day_actions)))
     # Each day counts once in cumulative figures: its last (latest-vintage) row.
     day_is_final = [index + 1 == len(row_days) or row_days[index + 1] != day for index, day in enumerate(row_days)]
-    first_raw = float(frame.loc[[day == first_day for day in row_days], "raw_close"].iloc[-1])
+    first_raw = float(frame.loc[vintage_paths[-1][0], "raw_close"])
     last_raw = float(frame["raw_close"].iloc[-1])
 
     def _anchored(index: pd.Series) -> pd.Series:
@@ -1027,8 +1034,6 @@ def apply_total_return_adjustments(
         return index * last_raw / last_index
 
     frame["price_return"] = price_returns
-    frame["price_return_index"] = _chain_index_by_day(frame["price_return"], row_days)
-    frame["price_adjusted_close"] = _anchored(frame["price_return_index"])
     frame["local_total_return"] = local_returns
     frame["quantity_factor"] = quantities
     frame["security_cash_flow"] = cashflows
@@ -1036,7 +1041,9 @@ def apply_total_return_adjustments(
     frame["security_principal"] = principal
     frame["external_flow"] = 0.0
     frame["action_ids"] = action_ids
-    frame["total_return_index"] = _chain_index_by_day(frame["local_total_return"], row_days)
+    frame["price_return_index"] = _chain_index_by_day(frame, vintage_paths, include_cash=False)
+    frame["price_adjusted_close"] = _anchored(frame["price_return_index"])
+    frame["total_return_index"] = _chain_index_by_day(frame, vintage_paths, include_cash=True)
     # adjusted_close is the total-return-adjusted close (cash reinvested); price_adjusted_close excludes cash.
     frame["adjusted_close"] = _anchored(frame["total_return_index"])
     frame["adjusted_close_basis"] = "total_return"
@@ -1071,17 +1078,59 @@ def apply_total_return_adjustments(
     )
 
 
-def _chain_index_by_day(returns: pd.Series, row_days: Sequence[pd.Timestamp]) -> pd.Series:
-    """Chain daily returns to an index; every vintage row of one day starts from the previous day's final level."""
+def _price_vintage_snapshots(frame: pd.DataFrame) -> Iterator[Sequence[int] | None]:
+    """Select one vintage per prior trading day at each row's knowledge cutoff.
 
-    values = [100.0] * len(row_days)
-    day_start = 100.0
-    for index in range(1, len(row_days)):
-        if row_days[index] != row_days[index - 1]:
-            day_start = values[index - 1]
-        step = returns.iloc[index]
-        values[index] = day_start * (1.0 + (0.0 if pd.isna(step) else float(step)))
-    return pd.Series(values, index=returns.index, dtype=float)
+    Undated series retain their legacy daily ordering. An explicit but missing
+    knowledge time, or a prior day with no known close, cannot establish a path.
+    """
+    days = pd.to_datetime(frame["date"], utc=True).dt.normalize() if "date" in frame else pd.Series(range(len(frame)))
+    known = pd.to_datetime(frame["known_at"], errors="coerce", utc=True) if "known_at" in frame else None
+    # The ordinary, unrevised series needs no per-row snapshot allocation.
+    if days.is_unique and (known is None or (known.notna().all() and known.is_monotonic_increasing)):
+        yield from (range(position + 1) for position in range(len(frame)))
+        return
+    by_day: dict[object, list[int]] = {}
+    for position, day in enumerate(days):
+        by_day.setdefault(day, []).append(position)
+    known_values = known.tolist() if known is not None else None
+    dated_rows = {
+        day: sorted((known_values[item], item) for item in positions if pd.notna(known_values[item]))
+        for day, positions in by_day.items()
+    } if known_values is not None else {}
+    preceding_days: list[object] = []
+    for day, positions in by_day.items():
+        for position in positions:
+            cutoff = known_values[position] if known_values is not None else None
+            path: list[int] = []
+            valid = known is None or pd.notna(cutoff)
+            for prior_day in preceding_days:
+                if known_values is None:
+                    path.append(by_day[prior_day][-1])
+                    continue
+                eligible_count = bisect_right(dated_rows[prior_day], (cutoff, len(frame))) if valid else 0
+                if not eligible_count:
+                    valid = False
+                    break
+                path.append(dated_rows[prior_day][eligible_count - 1][1])
+            yield [*path, position] if valid else None
+        preceding_days.append(day)
+
+
+def _chain_index_by_day(frame: pd.DataFrame, vintage_paths: Sequence[Sequence[int]], *, include_cash: bool) -> pd.Series:
+    """Rebuild each daily index from a single consistent as-known price snapshot."""
+    closes = frame["raw_close"].to_numpy(dtype=float)
+    quantities = frame["quantity_factor"].to_numpy(dtype=float)
+    cash = frame["security_cash_flow"].to_numpy(dtype=float) if include_cash else np.zeros(len(frame))
+    if all(isinstance(path, range) for path in vintage_paths):
+        factors = (closes[1:] * quantities[1:] + cash[1:]) / closes[:-1]
+        return pd.Series(np.r_[100.0, 100.0 * np.cumprod(factors)], index=frame.index, dtype=float)
+    values = [
+        100.0 * math.prod((closes[current] * quantities[current] + cash[current]) / closes[prior]
+                          for prior, current in zip(path, path[1:]))
+        for path in vintage_paths
+    ]
+    return pd.Series(values, index=frame.index, dtype=float)
 
 
 def _unavailable_adjustment_frame(frame: pd.DataFrame) -> pd.DataFrame:
@@ -1139,14 +1188,15 @@ def reconcile_adjustments(
     if not required.issubset(frame.columns):
         return AdjustmentReconciliation("unavailable", None, 0, ("missing_adjustment_columns",))
     residuals: list[float] = []
-    days = [pd.Timestamp(value).normalize() for value in frame["date"]] if "date" in frame.columns else list(range(len(frame)))
-    reference_close = float(frame.iloc[0]["raw_close"]) if len(frame) else math.nan
-    for index in range(1, len(frame)):
-        if days[index] != days[index - 1]:
-            reference_close = float(frame.iloc[index - 1]["raw_close"])
-        elif days[index] == days[0]:
+    for index, path in enumerate(_price_vintage_snapshots(frame)):
+        if path is None:
+            return AdjustmentReconciliation("unavailable", None, len(residuals), ("price_vintage_unavailable_at_knowledge_time",))
+        if len(path) < 2:
             continue  # a revision of the first day has no prior close
+        reference_close = float(frame.iloc[path[-2]]["raw_close"])
         observed = float(frame.iloc[index]["local_total_return"])
+        if not math.isfinite(observed):
+            return AdjustmentReconciliation("unavailable", None, len(residuals), ("missing_adjustment_return",))
         expected_return = (float(frame.iloc[index]["raw_close"]) * float(frame.iloc[index]["quantity_factor"]) + float(frame.iloc[index]["security_cash_flow"])) / reference_close - 1.0
         residuals.append(abs(observed - expected_return))
     maximum = max(residuals, default=0.0)
