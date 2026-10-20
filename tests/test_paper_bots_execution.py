@@ -306,6 +306,56 @@ def test_orders_are_sized_from_decision_time_prices_not_from_the_fill_session(mo
         ]
 
 
+def test_the_sizing_fallback_never_uses_the_decision_day_close() -> None:
+    from types import SimpleNamespace
+
+    def price(decision_day_close: float | None) -> tuple[Decimal, str] | None:
+        days = [date(2026, 10, 12), date(2026, 10, 13)] + ([DECISION_DAY] if decision_day_close else [])
+        rows = [{"etf_id": "AAA", "date": pd.Timestamp(day), "open": 20.0, "high": 21.0, "low": 19.0, "close": 20.5,
+                 "adjusted_close": 20.5, "volume": 1000.0, "currency": "EUR"} for day in days]
+        if decision_day_close:
+            rows[-1]["close"] = decision_day_close
+        context = SimpleNamespace(book=execution.PriceBook(pd.DataFrame(rows), known_at=RUN_AT), config={"sizing_price_max_age_days": 7})
+        return execution._sizing_price(context, {"prices_used": {}}, "AAA", DECISION_DAY)
+
+    assert price(None) == price(99.0) == (Decimal("20.5"), "2026-10-13")  # an injected decision-day close changes nothing
+
+
+def test_a_lost_record_write_is_recovered_from_the_ledger_not_ordered_twice(monkeypatch, tmp_path: Path) -> None:
+    clean_root, faulty_root = tmp_path / "clean", tmp_path / "faulty"
+    clean_book = _ready(monkeypatch, clean_root)
+    faulty_book = _ready(monkeypatch, faulty_root)
+    assert _execute(clean_root, clean_book).status == "available"
+    real_store = execution._store_record
+    failures = []
+
+    def flaky(context, record):
+        if record["status"] == "filled" and not failures:
+            failures.append(record["intent_id"])
+            raise OSError("record store write lost after the ledger fill")
+        real_store(context, record)
+
+    monkeypatch.setattr(execution, "_store_record", flaky)
+    _execute(faulty_root, faulty_book)
+    assert failures
+    monkeypatch.setattr(execution, "_store_record", real_store)
+    _execute(faulty_root, faulty_book)
+
+    def view(root: Path) -> tuple[list, list]:
+        track = execution.forward_track(root)
+        records = sorted((r["bot_id"], r["instrument_id"], r["side"], r["status"], r["quantity"], r["fill_id"]) for r in _records(root, track))
+        fills = sorted(
+            (account, row["paper_trade_id"], row["quantity"])
+            for account in {execution.account_id_for(r["bot_id"]) for r in _records(root, track)}
+            for row in PaperLedger(track.ledger_root, account_id=account).trade_rows()
+        )
+        return records, fills
+
+    assert view(faulty_root) == view(clean_root)  # one fill per intent, the lost record rebuilt from the ledger
+    fills = view(faulty_root)[1]
+    assert len({fill_id for _, fill_id, _ in fills}) == len(fills)
+
+
 def test_the_expiry_reference_lets_a_simulated_session_accept_a_proposal(tmp_path: Path) -> None:
     from etf_cockpit.portfolio.paper_trading import _digest
     from tests.test_paper_trading import _proposal

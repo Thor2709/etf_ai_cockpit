@@ -474,12 +474,15 @@ def _fund(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], e
 
 
 def _sizing_price(context: _Context, decision: Mapping[str, Any], instrument_id: str, decision_date: date) -> tuple[Decimal, str] | None:
-    """Last close known at the decision date; never a price from a later session."""
+    """Last close known at the decision's ``known_at``: the captured price or a bar dated strictly before the decision day.
+
+    The decision day's own close is not known when the decision is made, so the fallback never uses it.
+    """
 
     captured = decision["prices_used"].get(instrument_id)
     if isinstance(captured, Mapping) and bots._finite_number(captured.get("price")) and captured.get("price_as_of"):
         return Decimal(str(captured["price"])), str(captured["price_as_of"])
-    bar = context.book.last_bar(instrument_id, decision_date)
+    bar = context.book.last_bar(instrument_id, decision_date - timedelta(days=1))
     if bar is None:
         return None
     day = bar["date"].date()
@@ -694,7 +697,7 @@ def _proposal(
         instrument_id=str(intent["instrument_id"]), current_quantity=float(held), target_quantity=float(held + sign * quantity),
         strategy_id=str(config["strategy_id"]), strategy_stage="paper", model_id=str(config["model_id"]), model_stage="paper",
         account_id=str(config["account_capability"]), account_stage="paper",
-        optimiser_output_id=str(decision["decision_id"]), portfolio_revision=f"{ledger.account_id}:{ledger.snapshot().event_count}",
+        optimiser_output_id=str(decision["decision_id"]), portfolio_revision=f"{ledger.account_id}:{intent['intent_id']}:{session.isoformat()}",
         data_revision=str(decision.get("snapshot_hash")), as_of=decided_at,
         expires_at=decided_at + timedelta(days=float(config["proposal_validity_days"])),
         authority_policy_checksum=current_authority_policy_checksum(),
@@ -710,12 +713,21 @@ def _attempt(
     context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], intent: Mapping[str, Any], session: date, *,
     final_session: bool, awaits_settlement: bool,
 ) -> dict[str, Any]:
-    """One session's try at one planned order: a fill, a retryable deferral, or a final miss."""
+    """One session's try at one planned order: a fill, a retryable deferral, or a final miss.
+
+    The ledger and the record store are separate systems: the ledger fill is the source of truth, so a fill that
+    exists without its record is rebuilt into the record and never ordered again.
+    """
 
     def miss(reason: str) -> dict[str, Any]:
         return _record(context, decision, intent, session, "missed", reason)
 
     instrument = str(intent["instrument_id"])
+    # One fill per intent and session: the ID is deterministic so a rerun after a lost store write finds the fill.
+    fill_id = "botfill_" + _record_id(str(intent["intent_id"]), session.isoformat())[:20]
+    recorded = next((row for row in ledger.trade_rows() if row["paper_trade_id"] == fill_id), None)
+    if recorded is not None:
+        return _recovered_fill(context, decision, intent, session, recorded)
     if intent["sizing_price"] is None:
         return miss("no_decision_time_price")
     if str(intent["currency"]).upper() != "EUR":
@@ -763,7 +775,6 @@ def _attempt(
                 quote_currency="EUR", expiry_reference=fill_time,
             )
             order_id = str(order["order_id"])
-            fill_id = "botfill_" + _record_id(str(intent["intent_id"]), session.isoformat(), str(quantity))[:20]
             ledger.record_fill(
                 order_id, fill_id=fill_id, quantity=quantity, price=price, fee=policy.commission,
                 reference_price=reference, occurred_at=fill_time,
@@ -795,6 +806,23 @@ def _attempt(
             planned_quantity=str(intent["planned_quantity"]),
         )
     return miss("insufficient_settled_cash after the retry sessions")
+
+
+def _recovered_fill(
+    context: _Context, decision: Mapping[str, Any], intent: Mapping[str, Any], session: date, row: Mapping[str, Any],
+) -> dict[str, Any]:
+    """The ``filled`` record of a fill the ledger already holds (its record write was lost)."""
+
+    quantity, price, fee = (Decimal(str(row[key])) for key in ("quantity", "price", "fee"))
+    bar = context.book.bar(str(intent["instrument_id"]), session)
+    opening = None if bar is None else bots._finite_number(bar.get("open"))
+    reference = Decimal(str(opening)) if opening else None
+    return _record(
+        context, decision, intent, session, "filled", f"{intent['reason']}; recovered from the paper ledger fill",
+        quantity=str(quantity), reference_open=None if reference is None else str(reference), fill_price=str(price),
+        fee=str(fee), spread_slippage_cost="0" if reference is None else str(quantity * abs(price - reference)),
+        fill_id=str(row["paper_trade_id"]), order_id=str(row["order_id"]), planned_quantity=str(intent["planned_quantity"]),
+    )
 
 
 def _max_order_value(context: _Context) -> Decimal | None:
