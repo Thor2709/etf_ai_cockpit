@@ -384,6 +384,9 @@ def test_investable_comparators_share_universe_dates_and_costs(config, prices, m
     }
     results = report.results.set_index("strategy_name")["final_value_eur"]
     for item in summary["baselines"].values():
+        if item["status"] == "unavailable":  # quality books without evidence are not results
+            assert item["strategy"] in {"quality_only", "quality_momentum"} and item["reason"]
+            continue
         assert item["final_value_eur"] == pytest.approx(results[item["strategy"]])
     # VWCE pays the same modelled acquisition cost a trading strategy would, over the same window.
     vwce = summary["vwce"]
@@ -609,3 +612,42 @@ def test_qualification_needs_volume_evidence_for_every_capacity_checked_instrume
     assert report.metadata["capacity_enforcement"] == "enforced"
     assert report.metadata["qualifying_cost_regime"] is False
     assert "liquidity_evidence_unavailable" in report.metadata["qualification_blockers"]
+
+
+# --- correction pass 2 ----------------------------------------------------
+
+
+def test_fully_blocked_orders_are_logged_and_the_trade_log_keeps_its_columns(config, prices) -> None:
+    from io import StringIO
+
+    zero = prices.copy()
+    zero["volume"] = 0.0
+    report = run_backtest(config, zero, rebalance_frequency_days=42, enforce_capacity=True)
+    log = report.trade_log
+    assert not log.empty and (log["turnover"] == 0.0).all() and (log["unfilled_eur"] > 0.0).all()
+    assert log["capacity_fill_status"].str.contains("no_fill").all()
+    assert (log["cost_eur"] == 0.0).all() and set(log["remainder_policy"]) == {"cancelled_at_session_end"}
+    assert (report.results["trade_count"] == 0).all()  # a blocked order is not a trade
+    # With no rows at all the frame still carries the schema and survives the CSV round trip.
+    empty_log = report.trade_log.iloc[0:0]
+    assert list(pd.read_csv(StringIO(empty_log.to_csv(index=False))).columns) == list(log.columns)
+    no_volume = run_backtest(config, prices.assign(volume=float("nan")), rebalance_frequency_days=42, enforce_capacity=True)
+    assert "strategy" in no_volume.trade_log.columns and "turnover" in no_volume.trade_log.columns
+
+
+def test_quality_baselines_without_evidence_are_unavailable_not_all_cash_numbers(config, prices) -> None:
+    from etf_cockpit.backtest.benchmarks import investable_comparator_summary
+
+    report = run_backtest(config, prices, rebalance_frequency_days=42)
+    assert report.metadata["quality_momentum_evidence_available_rows"] == 0
+    baselines = report.metadata["investable_comparators"]["baselines"]
+    for label in ("QV", "QVM"):
+        assert baselines[label]["status"] == "unavailable" and baselines[label]["reason"]
+        assert "final_value_eur" not in baselines[label]
+    assert baselines["v3"]["status"] == "available" and baselines["v3"]["final_value_eur"] > 0
+    summary = investable_comparator_summary(
+        {"quality_only": {"final_value_eur": 10_000.0}, "signal_strategy": {"final_value_eur": 10_500.0}},
+        initial_value_eur=10_000.0, vwce=None, universe=["A"], start="2026-01-01", end="2026-06-26",
+        cost_regime="modelled", cost_model_id="m", unavailable_strategies={"signal_strategy": "never held a position"},
+    )
+    assert summary["baselines"]["v3"]["status"] == "unavailable" and summary["baselines"]["QV"]["status"] == "available"

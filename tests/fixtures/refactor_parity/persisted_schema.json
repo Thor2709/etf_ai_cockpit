@@ -200,26 +200,26 @@
     "investable_comparators": {
      "baselines": {
       "QV": {
-       "cost_eur": "float",
-       "final_value_eur": "float",
-       "strategy": "str",
-       "turnover": "float"
+       "reason": "str",
+       "status": "str",
+       "strategy": "str"
       },
       "QVM": {
-       "cost_eur": "float",
-       "final_value_eur": "float",
-       "strategy": "str",
-       "turnover": "float"
+       "reason": "str",
+       "status": "str",
+       "strategy": "str"
       },
       "top_n_long_only": {
        "cost_eur": "float",
        "final_value_eur": "float",
+       "status": "str",
        "strategy": "str",
        "turnover": "float"
       },
       "v3": {
        "cost_eur": "float",
        "final_value_eur": "float",
+       "status": "str",
        "strategy": "str",
        "turnover": "float"
       }

@@ -969,6 +969,42 @@ def _execution_evidence(
     }
 
 
+_TRADE_LOG_BASE_COLUMNS = (
+    "date",
+    "signal_date",
+    "execution_date",
+    "strategy",
+    "turnover",
+    "cost_eur",
+    "estimated_cost_bps",
+    "cost_model_id",
+    "cost_data_quality",
+    "capacity_eur",
+)
+_TRADE_LOG_CAPACITY_COLUMNS = (
+    "capacity_enforced",
+    "unfilled_eur",
+    "capacity_fill_status",
+    "max_days_to_fill",
+    "capacity_fx_unavailable",
+    "remainder_policy",
+)
+
+
+def _trade_log_columns(capacity_active: bool) -> list[str]:
+    """Fixed trade-log schema, so a run with no rows at all still serialises with its columns."""
+
+    evidence = _execution_evidence(
+        current_prices=pd.Series(dtype=float),
+        next_adjusted_close=pd.Series(dtype=float),
+        next_open=pd.Series(dtype=float),
+        next_high=pd.Series(dtype=float),
+        next_low=pd.Series(dtype=float),
+        changed_weights=pd.Series(dtype=float),
+    )
+    return list(dict.fromkeys([*_TRADE_LOG_BASE_COLUMNS, *(_TRADE_LOG_CAPACITY_COLUMNS if capacity_active else ()), *evidence]))
+
+
 def _open_gap_warning(gap: float | None, threshold: float | None) -> bool | None:
     """Flag a large close-to-next-open gap; unknown stays unknown."""
 
@@ -1851,7 +1887,10 @@ def run_backtest(
                 pending_costs[name] = step_cost
                 if step_turnover > 0:
                     pending_traded.add(name)
-                if step_turnover > 0:
+                # A fully blocked order has no turnover but still owns unfilled
+                # accounting, so it is logged (turnover 0, no reference prices).
+                order_blocked = capacity_info is not None and float(capacity_info["unfilled_eur"]) > 0.0
+                if step_turnover > 0 or order_blocked:
                     empty_reference = pd.Series(index=columns, dtype=float)
                     execution_evidence = _execution_evidence(
                         current_prices=pivot.iloc[i].reindex(columns),
@@ -1865,7 +1904,7 @@ def run_backtest(
                         next_low=adjusted_low_pivot.loc[execution_dt].reindex(columns)
                         if execution_dt in adjusted_low_pivot.index
                         else empty_reference,
-                        changed_weights=diff,
+                        changed_weights=diff if step_turnover > 0 else pd.Series(dtype=float),
                         signal_timestamp=pd.Timestamp(dt).isoformat(),
                         execution_timestamp=pd.Timestamp(execution_dt).isoformat(),
                         cost_spread_assumption_bps=None,
@@ -2055,8 +2094,9 @@ def run_backtest(
         metrics["train_periods"] = start_index
         metrics["validation_periods"] = 0
         metrics["test_periods"] = max(0, len(pivot) - start_index)
-        metrics["trade_count"] = len(strategy_trades)
-        metrics["average_trade_eur"] = float(initial_value_eur * (sum(float(row["turnover"]) for row in strategy_trades) / max(len(strategy_trades), 1)))
+        filled_trades = [row for row in strategy_trades if float(row["turnover"]) > 0.0]
+        metrics["trade_count"] = len(filled_trades)
+        metrics["average_trade_eur"] = float(initial_value_eur * (sum(float(row["turnover"]) for row in filled_trades) / max(len(filled_trades), 1)))
         metrics["median_holding_period_days"] = float(rebalance_frequency_days)
         metrics["turnover_annualised"] = float(turnover[name] / years)
         metrics["worst_12m_return"] = float(returns_252d.min()) if returns_252d.notna().any() else 0.0
@@ -2123,6 +2163,12 @@ def run_backtest(
             "cost_regime": cost_regime,
         }
 
+    unavailable_baselines: dict[str, str] = {}
+    for name in strategies:
+        if name in {"quality_only", "quality_momentum"} and metadata["quality_momentum_evidence_available_rows"] == 0:
+            unavailable_baselines[name] = "no point-in-time quality evidence was available in the run"
+        elif turnover[name] <= 0.0 and float(weights[name].abs().sum()) <= 0.0:
+            unavailable_baselines[name] = "the strategy never held a position"
     metadata["investable_comparators"] = investable_comparator_summary(
         {
             name: {
@@ -2139,6 +2185,7 @@ def run_backtest(
         end=equity_curves.index.max().date(),
         cost_regime=cost_regime,
         cost_model_id=COST_MODEL_ID if transaction_cost_bps is None else "explicit_transaction_cost_bps",
+        unavailable_strategies=unavailable_baselines,
     )
     no_ai = results.loc[results["strategy_name"] == "momentum_only", "calmar"].iloc[0]
     signal_calmar = results.loc[results["strategy_name"] == "signal_strategy", "calmar"].iloc[0]
@@ -2146,7 +2193,7 @@ def run_backtest(
     return BacktestReport(
         results=results,
         equity_curves=equity_curves,
-        trade_log=pd.DataFrame(trade_rows),
+        trade_log=pd.DataFrame(trade_rows, columns=_trade_log_columns(capacity_active)),
         signal_log=pd.DataFrame(signal_rows),
         ai_added_value=ai_added_value,
         quality_label=_overall_quality_label(results),

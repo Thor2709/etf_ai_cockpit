@@ -1502,24 +1502,24 @@
    "baselines": {
     "QV": {
      "strategy": "quality_only",
-     "final_value_eur": 10000.0,
-     "cost_eur": 0.0,
-     "turnover": 0.0
+     "status": "unavailable",
+     "reason": "no point-in-time quality evidence was available in the run"
     },
     "QVM": {
      "strategy": "quality_momentum",
-     "final_value_eur": 10000.0,
-     "cost_eur": 0.0,
-     "turnover": 0.0
+     "status": "unavailable",
+     "reason": "no point-in-time quality evidence was available in the run"
     },
     "v3": {
      "strategy": "signal_strategy",
+     "status": "available",
      "final_value_eur": 10133.781799472648,
      "cost_eur": 1192.8868915300004,
      "turnover": 2.1067319604523997
     },
     "top_n_long_only": {
      "strategy": "momentum_only",
+     "status": "available",
      "final_value_eur": 9532.428296707902,
      "cost_eur": 1089.63837794,
      "turnover": 8.691518768724459

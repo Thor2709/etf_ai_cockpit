@@ -123,18 +123,26 @@ def investable_comparator_summary(
     end: object,
     cost_regime: str,
     cost_model_id: str,
+    unavailable_strategies: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
     """Long-only strategies vs VWCE and cash on one universe, date range and cost path.
 
     Every entry in ``strategy_results`` and the VWCE row come from the same cost
-    machinery (``cost_eur``); the fixed baselines are named by identity.
+    machinery (``cost_eur``); the fixed baselines are named by identity.  A
+    baseline in ``unavailable_strategies`` (strategy name -> reason: no evidence,
+    never held a position) is reported as ``status: unavailable``, never as a
+    number from an all-cash book.
     """
 
-    baselines = {
-        label: {"strategy": name, **strategy_results[name]}
-        for label, name in FIXED_BASELINE_STRATEGIES.items()
-        if name in strategy_results
-    }
+    blocked = dict(unavailable_strategies or {})
+    baselines: dict[str, dict[str, object]] = {}
+    for label, name in FIXED_BASELINE_STRATEGIES.items():
+        if name not in strategy_results:
+            continue
+        if name in blocked:
+            baselines[label] = {"strategy": name, "status": "unavailable", "reason": blocked[name]}
+        else:
+            baselines[label] = {"strategy": name, "status": "available", **strategy_results[name]}
     return {
         "long_only": True,
         "short_legs_excluded": True,
