@@ -35,19 +35,22 @@ def build_factor_exposures(
     allocation: pd.DataFrame,
     latest_features: pd.DataFrame | None = None,
     holdings: pd.DataFrame | None = None,
+    *,
+    as_of: object | None = None,
 ) -> pd.DataFrame:
     """Build inspectable numeric and categorical exposures.
 
     Numeric descriptors are robustly winsorised and standardised across the
     supplied universe.  Category exposures use explicit one-hot weights.  A
-    missing descriptor remains missing and is reported in model coverage.
+    missing descriptor remains missing and is reported in model coverage. ``as_of`` is the decision
+    date: feature rows dated after it (or undated, when dates exist) are never used.
     """
 
     columns = list(_EXPOSURE_COLUMNS)
     if allocation is None or allocation.empty or "etf_id" not in allocation.columns:
         return pd.DataFrame(columns=columns)
     allocation_frame = allocation.copy()
-    feature_frame = _latest_feature_rows(latest_features)
+    feature_frame = _latest_feature_rows(latest_features, as_of=as_of)
     if not feature_frame.empty:
         feature_frame = feature_frame.rename(columns={"etf_id": "instrument_id"})
         allocation_frame = allocation_frame.merge(feature_frame, left_on="etf_id", right_on="instrument_id", how="left", suffixes=("", "_feature"))
@@ -97,19 +100,33 @@ def build_factor_risk_report(
     *,
     public_factors: pd.DataFrame | None = None,
     window: int = 252,
+    as_of: object | None = None,
 ) -> dict[str, object]:
     """Estimate factor, specific and portfolio risk with visible limitations."""
 
-    exposures = build_factor_exposures(allocation, latest_features, holdings)
+    exposures = build_factor_exposures(allocation, latest_features, holdings, as_of=as_of)
     returns = _return_matrix(prices, window=window)
     empty_factor_returns = pd.DataFrame(columns=["date", "factor", "factor_return", "standard_error", "sample_count", "method"])
     empty_contributions = pd.DataFrame(columns=["factor", "portfolio_exposure", "variance_contribution", "variance_share"])
     empty_specific = pd.DataFrame(columns=["instrument_id", "specific_vol_ann", "sample_count", "coverage"])
-    coverage = _coverage_report(prices, returns, exposures, holdings)
+    coverage = _coverage_report(prices, returns, exposures, holdings, allocation)
+    invalid_weight_ids = _invalid_weight_ids(allocation)
+    if invalid_weight_ids:
+        return _unavailable_report(
+            exposures,
+            coverage,
+            empty_factor_returns,
+            empty_contributions,
+            empty_specific,
+            "invalid_allocation_weight: explicit allocation weights must be finite numbers "
+            f"(invalid: {', '.join(invalid_weight_ids)}).",
+            reason_code="invalid_allocation_weight",
+        )
     if returns.empty or exposures.empty:
         return _unavailable_report(exposures, coverage, empty_factor_returns, empty_contributions, empty_specific, "Adjusted-price returns or transparent factor descriptors are unavailable.")
 
     matrix = exposures.pivot_table(index="instrument_id", columns="factor", values="exposure", aggfunc="sum", sort=True)
+    matrix = _fill_absent_categories(exposures, matrix)
     matrix = matrix.reindex(index=sorted(set(returns.columns) & set(matrix.index)))
     if matrix.empty or len(matrix.index) < 2:
         report = _unavailable_report(exposures, coverage, empty_factor_returns, empty_contributions, empty_specific, "At least two instruments with adjusted-price history and descriptors are required.")
@@ -247,12 +264,20 @@ def _exposure_row(instrument_id: str, factor: str, value: object, descriptor: st
     return {"instrument_id": instrument_id, "factor": factor, "raw_value": numeric, "exposure": numeric, "descriptor": descriptor, "source": source, "coverage": coverage}
 
 
-def _latest_feature_rows(features: pd.DataFrame | None) -> pd.DataFrame:
+def _latest_feature_rows(features: pd.DataFrame | None, *, as_of: object | None = None) -> pd.DataFrame:
     if features is None or features.empty or "etf_id" not in features.columns:
         return pd.DataFrame()
     frame = features.copy()
     if "date" in frame.columns:
         frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+        # An undated row has no point-in-time standing: it must neither sort after real
+        # observations and overwrite the latest nor be treated as known at the decision date.
+        frame = frame[frame["date"].notna()]
+        if as_of is not None:
+            cutoff = pd.Timestamp(as_of)
+            if cutoff.tzinfo is not None:
+                cutoff = cutoff.tz_convert(None)
+            frame = frame[frame["date"] <= cutoff.normalize()]
         frame = frame.sort_values(["etf_id", "date"], kind="stable")
     return frame.groupby("etf_id", as_index=False, sort=True).tail(1).reset_index(drop=True)
 
@@ -374,6 +399,9 @@ def _select_factors(matrix: pd.DataFrame, returns: pd.DataFrame) -> tuple[list[s
             continue
         if values.nunique(dropna=True) < 2:
             excluded[str(factor)] = "constant_exposure"
+            continue
+        if ":" in str(factor) and matrix.loc[matrix.index.intersection(returns.columns), factor].isna().any():
+            excluded[str(factor)] = "incomplete_category_exposure"
             continue
         proposed = [*selected, factor]
         valid_instruments = matrix[proposed].dropna().index.intersection(returns.columns)
@@ -541,6 +569,38 @@ def _portfolio_decomposition(
     }
 
 
+def _fill_absent_categories(exposures: pd.DataFrame, matrix: pd.DataFrame) -> pd.DataFrame:
+    """Absent look-through bucket = 0 exposure for instruments whose look-through maps that dimension.
+
+    An instrument without a look-through mapping in a dimension keeps NaN (unknown, never 0).
+    """
+
+    if exposures.empty or "source" not in exposures.columns:
+        return matrix
+    result = matrix.copy()
+    mapped = exposures.loc[exposures["exposure"].notna() & exposures["source"].eq("holdings_lookthrough"), ["instrument_id", "factor"]]
+    for column in result.columns:
+        dimension, separator, _ = str(column).partition(":")
+        if not separator:
+            continue
+        classified = set(mapped.loc[mapped["factor"].astype(str).str.startswith(f"{dimension}:"), "instrument_id"])
+        mask = result.index.isin(classified) & result[column].isna()
+        result.loc[mask, column] = 0.0
+    return result
+
+
+def _invalid_weight_ids(allocation: pd.DataFrame) -> list[str]:
+    """Explicit weights that are missing, non-numeric or non-finite are invalid, never 0."""
+
+    if allocation is None or allocation.empty or "etf_id" not in allocation.columns:
+        return []
+    column = "current_weight" if "current_weight" in allocation.columns else "target_weight" if "target_weight" in allocation.columns else None
+    if column is None:
+        return []
+    values = pd.to_numeric(allocation[column], errors="coerce")
+    return sorted({str(item) for item in allocation.loc[~np.isfinite(values.to_numpy(float)), "etf_id"]})
+
+
 def _weights(allocation: pd.DataFrame) -> pd.Series:
     if allocation is None or allocation.empty or "etf_id" not in allocation.columns:
         return pd.Series(dtype=float)
@@ -577,7 +637,7 @@ def _stability_report(factor_returns: pd.DataFrame) -> dict[str, object]:
     return {"status": "available", "split_index": midpoint, "rows": rows}
 
 
-def _coverage_report(prices: pd.DataFrame, returns: pd.DataFrame, exposures: pd.DataFrame, holdings: pd.DataFrame | None) -> dict[str, object]:
+def _coverage_report(prices: pd.DataFrame, returns: pd.DataFrame, exposures: pd.DataFrame, holdings: pd.DataFrame | None, allocation: pd.DataFrame | None = None) -> dict[str, object]:
     instrument_count = int(len(set(returns.columns) | set(exposures["instrument_id"].unique())))
     factor_coverage = []
     if not exposures.empty:
@@ -589,22 +649,37 @@ def _coverage_report(prices: pd.DataFrame, returns: pd.DataFrame, exposures: pd.
         "return_observations": int(len(returns)),
         "return_instrument_count": int(len(returns.columns)),
         "factor_coverage": factor_coverage,
-        "lookthrough": _lookthrough_coverage(holdings),
+        "lookthrough": _lookthrough_coverage(holdings, _positive_weight_ids(allocation)),
     }
 
 
-def _lookthrough_coverage(holdings: pd.DataFrame | None) -> dict[str, object]:
+def _positive_weight_ids(allocation: pd.DataFrame | None) -> list[str] | None:
+    if allocation is None or allocation.empty or "etf_id" not in allocation.columns:
+        return None
+    weights = _weights(allocation)
+    return sorted(str(item) for item in weights[weights > 0].index)
+
+
+def _lookthrough_coverage(holdings: pd.DataFrame | None, instruments: list[str] | None = None) -> dict[str, object]:
+    """Look-through coverage; ``instruments`` (positive-weight holdings) is the denominator when given."""
+
     if holdings is None or holdings.empty:
         return {"status": "unavailable", "instrument_count": 0, "dimensions": {}}
     mapped = _lookthrough_map(holdings)
+    expected = list(instruments) if instruments else sorted(mapped)
     dimensions: dict[str, dict[str, object]] = {}
     for dimension in LOOKTHROUGH_DIMENSIONS:
         coverage_values: list[float] = []
-        for instrument, values in mapped.items():
-            total = sum(values.get(dimension, {}).values())
-            if total > 0:
-                coverage_values.append(min(1.0, float(total)))
-        dimensions[dimension] = {"instrument_count": len(coverage_values), "mean_coverage": float(np.mean(coverage_values)) if coverage_values else 0.0, "full_coverage": bool(coverage_values and min(coverage_values) >= 0.99)}
+        for instrument in expected:
+            total = sum(mapped.get(instrument, {}).get(dimension, {}).values())
+            coverage_values.append(min(1.0, float(total)) if total > 0 else 0.0)
+        considered = coverage_values if instruments else [value for value in coverage_values if value > 0]
+        dimensions[dimension] = {
+            "instrument_count": sum(1 for value in coverage_values if value > 0),
+            "expected_instrument_count": len(expected),
+            "mean_coverage": float(np.mean(considered)) if considered else 0.0,
+            "full_coverage": bool(considered and min(considered) >= 0.99),
+        }
     return {"status": "available" if mapped else "unavailable", "instrument_count": len(mapped), "dimensions": dimensions}
 
 

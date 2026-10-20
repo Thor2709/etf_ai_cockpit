@@ -351,7 +351,7 @@ def verify_benchmark_relative_report(report: BenchmarkRelativeReport) -> bool:
         raise BenchmarkDiagnosticsError("reconciliation identity failed")
     if tuple(item.dimension for item in report.dimensions) != DIMENSIONS:
         raise BenchmarkDiagnosticsError("dimension structure is malformed")
-    contribution_sum = 0.0
+    contributions: list[float] = []
     for dimension in report.dimensions:
         if not isinstance(dimension, DimensionDiagnostic):
             raise BenchmarkDiagnosticsError("nested dimension is malformed")
@@ -367,7 +367,10 @@ def verify_benchmark_relative_report(report: BenchmarkRelativeReport) -> bool:
             _number(item.contribution, "contribution")
             _proportion(item.coverage, "coverage")
             _proportion(item.unresolved_weight, "unresolved_weight")
-            contribution_sum += item.contribution
+            contributions.append(item.contribution)
+    # Same exactly-rounded summation as the builder (math.fsum), so the identity check cannot
+    # fail or pass on accumulation order.
+    contribution_sum = math.fsum(contributions)
     if not math.isclose(
         contribution_sum, report.component_sum, rel_tol=0.0, abs_tol=1e-15
     ):
@@ -443,7 +446,9 @@ def _select_evidence(
             raise BenchmarkDiagnosticsError(
                 "attribution evidence horizon/frequency mismatch"
             )
-        if row.currency != template.currency and row.dimension != "currency_fx":
+        # No FX conversion happens here, so no dimension (currency_fx included) may be summed
+        # across a different currency than the report's measurement currency.
+        if row.currency != template.currency:
             raise BenchmarkDiagnosticsError("attribution evidence currency mismatch")
         if (
             _timestamp(row.known_at, "known_at") > cutoff
