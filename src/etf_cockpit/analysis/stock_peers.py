@@ -89,3 +89,22 @@ def effective_peers(auto: Sequence[PeerPick], user_ids: Sequence[str], names: Ma
             seen.add(pick.instrument_id)
             picks.append(pick)
     return picks
+
+
+COHORT_LEVELS = ("industry", "sector", "region", "universe")  # narrowest first; "universe" is the asset-class (all stocks) prior
+
+
+def cohort_members(target: PeerProfile, candidates: Sequence[PeerProfile]) -> dict[str, tuple[str, ...]]:
+    """Instrument ids per cohort level (industry -> sector -> region -> universe), the instrument itself never included.
+
+    Levels are nested in preference order, not in membership: a region cohort is every same-region stock,
+    whatever its sector. Empty traits never match (an unclassified stock has no industry/sector cohort).
+    """
+
+    others = [item for item in candidates if item.instrument_id != target.instrument_id]
+    return {
+        "industry": tuple(item.instrument_id for item in others if _same(getattr(target, "industry", ""), getattr(item, "industry", ""))),
+        "sector": tuple(item.instrument_id for item in others if _same(getattr(target, "sector", ""), getattr(item, "sector", ""))),
+        "region": tuple(item.instrument_id for item in others if _same(getattr(target, "region", ""), getattr(item, "region", ""))),
+        "universe": tuple(item.instrument_id for item in others),
+    }

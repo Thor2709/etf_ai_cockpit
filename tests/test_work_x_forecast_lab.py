@@ -55,7 +55,9 @@ def test_mase_is_row_order_stable_and_matches_promotion_definition() -> None:
     merged = outcomes.merge(forecasts, on=["etf_id", "forecast_date", "horizon_days", "model_name"])
     series = {e: g.set_index("date")["adjusted_close"] for e, g in prices.groupby("etf_id")}
     scaled = [
-        abs(row.expected_return - row.actual_return) / _mase_scale(series[row.etf_id], int(row.horizon_days))
+        # C022-N003: the scale comes from the training window only (prices up to the forecast origin).
+        abs(row.expected_return - row.actual_return)
+        / _mase_scale(series[row.etf_id].loc[:row.forecast_date], int(row.horizon_days))
         for row in merged.itertuples()
     ]
     assert len(scaled) == len(outcomes) > 0

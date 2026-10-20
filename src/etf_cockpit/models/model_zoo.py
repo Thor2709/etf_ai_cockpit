@@ -174,9 +174,19 @@ def run_model_zoo(
     if task not in {"return", "risk", "quantile", "fundamentals"}:
         raise ValueError(f"Unsupported model-zoo task: {task}")
     values = pd.to_numeric(adjusted_close, errors="coerce")
+    if isinstance(values.index, pd.DatetimeIndex):
+        if values.index.has_duplicates or values.index.isna().any():
+            raise ValueError("adjusted_close dates must be unique and available")
+        values = values.sort_index()
+        if forecast_date is not None:
+            values = values.loc[values.index.date <= forecast_date]
+    elif forecast_date is not None:
+        raise ValueError("dated adjusted_close is required for a forecast origin")
     if values.empty or values.isna().any() or not np.isfinite(values.to_numpy()).all() or (values <= 0).any():
         raise ValueError("adjusted_close must contain only positive finite values")
-    clean_horizons = tuple(sorted({int(value) for value in horizons if int(value) > 0}))
+    if any(isinstance(value, bool) or not np.isfinite(value) or value != int(value) or value <= 0 for value in horizons):
+        raise ValueError("forecast horizons must be positive integers")
+    clean_horizons = tuple(sorted({int(value) for value in horizons}))
     if not clean_horizons:
         raise ValueError("at least one positive forecast horizon is required")
     log_prices = np.log(values.astype(float))
@@ -323,7 +333,7 @@ def _estimate(model_id: str, log_prices: pd.Series, returns: pd.Series, horizon:
     elif model_id == "state_space":
         drift = float(recent.ewm(alpha=0.2, adjust=False).mean().iloc[-1])
     elif model_id == "econometric_ar":
-        drift = _ar1_drift(returns)
+        drift = _ar1_drift(returns, horizon=horizon) / horizon
     else:
         raise ValueError(f"Unsupported runnable model: {model_id}")
     volatility = float(recent.std(ddof=1) * sqrt(252)) if len(recent) > 1 else 0.0
@@ -341,14 +351,19 @@ def _linear_slope(log_prices: pd.Series, *, penalty: float) -> float:
     return float(np.dot(x, y) / denominator)
 
 
-def _ar1_drift(returns: pd.Series) -> float:
+def _ar1_drift(returns: pd.Series, *, horizon: int = 1) -> float:
     if len(returns) < 3:
-        return float(returns.mean())
+        return float(returns.mean()) * horizon
     previous = returns.iloc[:-1].to_numpy(dtype=float)
     current = returns.iloc[1:].to_numpy(dtype=float)
     denominator = float(np.dot(previous, previous) + 1e-6)
     coefficient = float(np.dot(previous, current) / denominator)
-    return float(returns.iloc[-1]) * coefficient
+    prediction = float(returns.iloc[-1])
+    total = 0.0
+    for _ in range(horizon):
+        prediction *= coefficient
+        total += prediction
+    return total
 
 
 __all__ = ["MODEL_ZOO_SCHEMA_VERSION", "ModelCard", "model_zoo_catalogue", "model_zoo_frame", "run_model_zoo"]
