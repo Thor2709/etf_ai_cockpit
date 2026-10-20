@@ -1304,6 +1304,7 @@ def _identity_candidates(
     decision_time: str,
 ) -> tuple[tuple[str, ...], str]:
     explicit = str(row.get("instrument_id") or "").strip()
+    explicit_resolved = False
     if explicit:
         try:
             with IdentityMasterStore(root) as identity_store:
@@ -1312,7 +1313,7 @@ def _identity_candidates(
                     effective_at=effective_at,
                     decision_time=decision_time,
                 )
-            return (explicit,), "canonical_id"
+            explicit_resolved = True
         except (KeyError, ValueError, IdentityMasterSchemaError):
             pass
     try:
@@ -1322,6 +1323,8 @@ def _identity_candidates(
                 for record in store.list(_IDENTITY_CLAIM_TYPE)
             ]
     except (StorageSchemaError, sqlite3.DatabaseError, OSError):
+        if explicit_resolved:
+            return (explicit,), "canonical_id"
         return (), "identity_master_unavailable"
     claims = [
         claim
@@ -1340,6 +1343,11 @@ def _identity_candidates(
             and str(claim.get("value", "")).strip().casefold() == text
         }
 
+    if explicit_resolved:
+        supplied_isin = matches({"isin"}, row.get("isin"))
+        if supplied_isin and explicit not in supplied_isin:
+            return tuple(sorted(supplied_isin | {explicit})), "id_isin_conflict"
+        return (explicit,), "canonical_id"
     isin = matches({"isin"}, row.get("isin"))
     if isin:
         return tuple(sorted(isin)), "isin"
@@ -1361,26 +1369,32 @@ def _claim_effective(
     claim: Mapping[str, Any], effective_at: str, decision_time: str
 ) -> bool:
     try:
-        effective = pd.Timestamp(effective_at)
+        effective = _utc_timestamp(effective_at)
         valid_from = (
-            pd.Timestamp(claim["valid_from"]) if claim.get("valid_from") else None
+            _utc_timestamp(claim["valid_from"]) if claim.get("valid_from") else None
         )
-        valid_to = pd.Timestamp(claim["valid_to"]) if claim.get("valid_to") else None
+        valid_to = _utc_timestamp(claim["valid_to"]) if claim.get("valid_to") else None
         available = (
-            pd.Timestamp(claim["available_at"]) if claim.get("available_at") else None
+            _utc_timestamp(claim["available_at"]) if claim.get("available_at") else None
+        )
+        decision = _utc_timestamp(decision_time)
+        return not (
+            (valid_from is not None and effective < valid_from)
+            or (valid_to is not None and effective >= valid_to)
+            or available is None
+            or available > decision
         )
     except (TypeError, ValueError):
         return False
-    try:
-        decision = pd.Timestamp(decision_time)
-    except (TypeError, ValueError):
-        return False
-    return not (
-        (valid_from is not None and effective < valid_from)
-        or (valid_to is not None and effective >= valid_to)
-        or available is None
-        or available > decision
-    )
+
+
+def _utc_timestamp(value: object) -> pd.Timestamp:
+    """Parse a timestamp as UTC; naive values are read as UTC (never mixed)."""
+
+    stamp = pd.Timestamp(value)  # type: ignore[arg-type]
+    if pd.isna(stamp):
+        raise ValueError("missing timestamp")
+    return stamp.tz_localize("UTC") if stamp.tzinfo is None else stamp.tz_convert("UTC")
 
 
 def _mapped_identity_error(row: Mapping[str, Any]) -> str:
@@ -1390,6 +1404,8 @@ def _mapped_identity_error(row: Mapping[str, Any]) -> str:
     )
     if method.startswith("currency_conflict:"):
         return "identity_currency_conflict"
+    if method == "id_isin_conflict":
+        return "identity_id_isin_conflict"
     if len(candidates) > 1 or method == "ambiguous":
         return "identity_ambiguous"
     if not str(row.get("instrument_id") or ""):
@@ -1514,8 +1530,11 @@ def _normalise_frame(
         if column not in result:
             result[column] = None
     result = result.loc[:, list(CANONICAL_COLUMNS)]
+    canonical_source = str(source_format).strip().lower().startswith("canonical")
     for column in result.columns:
         result[column] = result[column].map(_clean_value)
+        if canonical_source:
+            result[column] = result[column].map(_spreadsheet_unescape)
     result["decision_time"] = decision_time
     inferred_sides = result["record_type"].map(
         lambda value: (
@@ -1529,7 +1548,9 @@ def _normalise_frame(
         inferred_sides,
     )
     result["record_type"] = result["record_type"].map(_normalise_record_type)
-    result["source_id"] = result["source_id"].map(lambda value: str(value).strip())
+    result["source_id"] = result["source_id"].map(
+        lambda value: "" if _missing(value) else str(value).strip()
+    )
     default_system = str(source_system or source_format).strip().lower()
     default_provider = str(provider_id or "user_local").strip().lower()
     result["source_system"] = result["source_system"].map(
@@ -1596,7 +1617,8 @@ def _normalise_frame(
     result["numeric_error"] = numeric_errors
     result["event_key"] = result.apply(
         lambda row: "|".join(
-            (
+            _escape_key_part(part)
+            for part in (
                 str(row["provider_id"]),
                 str(row["source_system"]),
                 str(row.get("account_id") or "_market"),
@@ -1606,6 +1628,12 @@ def _normalise_frame(
         axis=1,
     )
     return result
+
+
+def _escape_key_part(part: str) -> str:
+    """Escape the key delimiter so distinct components never share a key."""
+
+    return part.replace("\\", "\\\\").replace("|", "\\|")
 
 
 def _resolve_currency(
@@ -1939,10 +1967,24 @@ def _json_row(row: Mapping[str, Any]) -> dict[str, Any]:
     return {str(key): _json_value(value) for key, value in row.items()}
 
 
+_FORMULA_TRIGGERS = ("=", "+", "-", "@")
+
+
 def _spreadsheet_safe(value: object) -> object:
+    """Prefix formula-like text with an apostrophe (reversible, see unescape)."""
+
     if not isinstance(value, str):
         return value
-    return "'" + value if value.startswith(("=", "+", "-", "@")) else value
+    return "'" + value if value.lstrip("'").startswith(_FORMULA_TRIGGERS) else value
+
+
+def _spreadsheet_unescape(value: object) -> object:
+    """Undo `_spreadsheet_safe` so exported text re-imports with its identity."""
+
+    if isinstance(value, str) and value.startswith("'"):
+        if value.lstrip("'").startswith(_FORMULA_TRIGGERS):
+            return value[1:]
+    return value
 
 
 def _read_xlsx(path: Path) -> pd.DataFrame:
