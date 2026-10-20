@@ -983,6 +983,7 @@ def _rank_metrics(rows: pd.DataFrame, ranker: str, policy: RankValidationPolicy)
     return_values: list[float] = []
     decile_paths: list[list[float]] = []
     quintile_paths: list[list[float]] = []
+    comparators_verified: list[bool] = []
     for decision_time, group in sample.groupby("decision_time", sort=True):
         valid = group.loc[group["score"].map(_finite) & group["net_return"].map(_finite)].copy()
         if len(valid) < policy.minimum_universe_support:
@@ -1007,6 +1008,14 @@ def _rank_metrics(rows: pd.DataFrame, ranker: str, policy: RankValidationPolicy)
             "cash_net_return": _mean_column(top, "cash_net_return"),
         }
         daily.append(entry)
+        # The comparison is on the same decision rows only when every top row carries a finite benchmark, cash and
+        # round-trip-cost figure; net_return is the cost-netted figure from the same row.
+        comparators_verified.append(
+            all(
+                column in top.columns and bool(top[column].map(_finite).all())
+                for column in ("benchmark_net_return", "cash_net_return", "round_trip_cost_bps")
+            )
+        )
         score_values.extend(float(value) for value in valid["score"])
         return_values.extend(float(value) for value in valid["net_return"])
         decile = _bucket_means(valid, 10)
@@ -1044,6 +1053,17 @@ def _rank_metrics(rows: pd.DataFrame, ranker: str, policy: RankValidationPolicy)
         "excess_vs_cash": fmean(top_values) - fmean(cash_values) if cash_values else None,
         "top_minus_bottom_mean": fmean(spread_values),
         "top_minus_bottom_t": _t_stat(spread_values),
+        # A long-short spread assumes free shorting; a long-only investor cannot earn it.
+        "top_minus_bottom_status": "research_only_not_investable",
+        "investable_long_only": {
+            "portfolio": "top_n_long_only",
+            "top_net_return_mean": fmean(top_values),
+            "excess_vs_benchmark": fmean(top_values) - fmean(bench_values) if bench_values else None,
+            "excess_vs_cash": fmean(top_values) - fmean(cash_values) if cash_values else None,
+            "short_leg_included": False,
+            # True only when derived from the data above; None means the evidence is not established.
+            "same_universe_dates_costs": True if all(comparators_verified) else None,
+        },
         "decile_monotonicity_fraction": fmean(decile_monotone) if decile_monotone else None,
         "quintile_monotonicity_fraction": fmean(quintile_monotone) if quintile_monotone else None,
         "decile_paths": decile_paths,
@@ -1940,6 +1960,7 @@ _REPORT_METRIC_KEYS = (
     "status", "reason", "decision_count", "instrument_observation_count", "rank_ic_mean", "rank_ic_t",
     "rank_ic_positive_fraction", "top_net_return_mean", "bottom_net_return_mean", "benchmark_net_mean",
     "cash_net_mean", "excess_vs_benchmark", "excess_vs_cash", "top_minus_bottom_mean", "top_minus_bottom_t",
+    "top_minus_bottom_status", "investable_long_only",
     "decile_monotonicity_fraction", "quintile_monotonicity_fraction", "turnover_mean",
 )
 

@@ -189,20 +189,14 @@ def _latest_rows(fundamentals: pd.DataFrame, signal_date: date) -> dict[str, dic
     if frame.empty:
         return {}
     frame["instrument_id"] = frame["instrument_id"].astype(str)
-    availability_column = next(
-        (
-            column
-            for column in ("available_at", "availability_date", "published_at", "publication_date", "filing_date")
-            if column in frame.columns
-        ),
-        None,
-    )
-    if availability_column is None:
-        frame["__availability_date"] = pd.NaT
-    else:
-        frame["__availability_date"] = pd.to_datetime(
-            frame[availability_column], errors="coerce", utc=True
-        ).dt.date
+    # Each row takes its own first parseable timestamp in priority order: a row that only carries a lower-priority
+    # column (e.g. filing_date while available_at is empty) is still dated, never marked unknown frame-wide.
+    frame["__availability_date"] = pd.Series(pd.NaT, index=frame.index, dtype="object")
+    for column in ("available_at", "availability_date", "published_at", "publication_date", "filing_date"):
+        if column not in frame.columns:
+            continue
+        parsed = pd.to_datetime(frame[column], errors="coerce", utc=True).dt.date
+        frame["__availability_date"] = frame["__availability_date"].where(frame["__availability_date"].notna(), parsed)
     frame["__availability_known"] = frame["__availability_date"].notna() & (
         frame["__availability_date"] <= signal_date
     )

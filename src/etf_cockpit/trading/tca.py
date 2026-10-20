@@ -278,10 +278,20 @@ class TCACalculator:
         )
 
 
+_BROKER_FILL_AUTHORITIES = frozenset({"imported_broker_fills", "imported_broker_fill", "broker_fill"})
+
+
 def calibrate_completed_fills(records: Sequence[TCAAttributionRecord | Mapping[str, object]]) -> dict[str, object]:
-    """Summarise observed cost only from fully completed, attributable orders."""
+    """Summarise observed cost only from fully completed, attributable orders.
+
+    Paper fills and imported broker fills are summarised apart
+    (``evidence_classes``); spread/slippage calibration may use broker fills
+    only, so ``spread_slippage_calibration_source`` is unavailable until real
+    fills exist.
+    """
 
     samples: list[float] = []
+    by_class: dict[str, list[float]] = {"paper_fill": [], "imported_broker_fill": []}
     for record in records:
         row = record.as_dict() if isinstance(record, TCAAttributionRecord) else record
         if row.get("calibration_eligible") is not True or row.get("completed_order") is not True:
@@ -289,11 +299,23 @@ def calibrate_completed_fills(records: Sequence[TCAAttributionRecord | Mapping[s
         value = _number(row.get("realised_cost_bps"))
         if value is not None:
             samples.append(value)
+            authority = str(row.get("source_authority") or "").strip().lower()
+            by_class["imported_broker_fill" if authority in _BROKER_FILL_AUTHORITIES else "paper_fill"].append(value)
     return {
         "sample_count": len(samples),
         "mean_realised_cost_bps": sum(samples) / len(samples) if samples else None,
         "reason": None if samples else "no_completed_fills_with_known_cost",
         "source_authority": "completed_paper_fills",
+        "evidence_classes": {
+            name: {
+                "sample_count": len(values),
+                "mean_realised_cost_bps": sum(values) / len(values) if values else None,
+            }
+            for name, values in by_class.items()
+        },
+        "spread_slippage_calibration_source": (
+            "imported_broker_fill" if by_class["imported_broker_fill"] else "unavailable_no_broker_fills"
+        ),
         "execution_allowed": False,
     }
 

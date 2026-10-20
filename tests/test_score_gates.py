@@ -339,7 +339,7 @@ def test_two_of_six_quality_inputs_is_partial_and_not_safety_verified() -> None:
     common = dict(instrument_id="Q", asset_type="STOCK", decision_time=DECISION, components=parts, critical_evidence=evidence)
     complete = build_canonical_score(**common, quality_status="complete")
     partial = build_canonical_score(**common, quality_status="partial")
-    assert partial.coverage == pytest.approx(complete.coverage - 0.24 / 2.85, abs=1e-5)  # NS1: rebalance left the v3 risk group (3.0 -> 2.85)
+    assert partial.coverage == pytest.approx(complete.coverage - 0.35 / 2.85, abs=1e-5)  # NS1: rebalance left the v3 risk group (3.0 -> 2.85); PSF: stock_quality 0.24 -> 0.35
     row = next(item for item in partial.components if item["key"] == "stock_quality")
     assert row["status"] == "partial" and row["score_eligible"] is False and row["contribution_raw"] is None
     assert all(item["key"] != "stock_quality" for item in partial.contributions)
@@ -615,6 +615,7 @@ def test_every_score_path_applies_the_gate() -> None:
             "cost_penalty": 0.01,
             "turnover_penalty": 0.0,
             "score_baseline_ml": 0.2,
+            "score_baseline_source": "forecast",
             "score_etf_exposure": 0.3,
         }
     )

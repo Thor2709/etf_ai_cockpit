@@ -9,6 +9,7 @@ from collections.abc import (
 from datetime import date
 from io import BytesIO
 import json
+import math
 import hashlib
 import inspect
 from pathlib import Path
@@ -17,9 +18,11 @@ import pandas as pd
 from etf_cockpit.backtest.engine import (
     BacktestDataUnavailableError,
     BacktestReport,
+    COST_REGIME_MODELLED,
     backtest_input_checksum,
     quality_momentum_evidence_checksum,
     run_backtest,
+    run_backtest_cost_regimes,
 )
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.atomic_io import (
@@ -90,6 +93,22 @@ def _run_backtest_compatibly(config: AppConfig, prices: pd.DataFrame, **kwargs: 
     accepts_kwargs = any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
     supported = kwargs if accepts_kwargs else {key: value for key, value in kwargs.items() if key in parameters}
     return run_backtest(config, prices, **supported)
+
+
+def _json_safe_records(frame: pd.DataFrame) -> list[dict[str, object]]:
+    """Table rows with NaN/inf replaced by None so the published metadata is strict JSON."""
+
+    records: list[dict[str, object]] = []
+    for row in frame.to_dict("records"):
+        clean: dict[str, object] = {}
+        for key, value in row.items():
+            if hasattr(value, "item"):
+                value = value.item()
+            if isinstance(value, float) and not math.isfinite(value):
+                value = None
+            clean[str(key)] = value
+        records.append(clean)
+    return records
 
 
 def _backtest_runner_kwargs(
@@ -320,11 +339,18 @@ class BacktestService:
                 structure_holdings=(structure_evidence.holdings if structure_evidence else None),
                 calendar_identity_resolver=calendar_identity_resolver,
             )
-            report = _run_backtest_compatibly(
+            # Every report carries the modelled default (the only regime that can
+            # qualify), the 13 bp legacy override and the conservative stress side by side.
+            cost_regimes = run_backtest_cost_regimes(
                 self.config,
                 prices,
+                runner=_run_backtest_compatibly,
+                comparison_runner=_run_backtest_compatibly,
                 **runner_kwargs,
             )
+            report = cost_regimes.reports[COST_REGIME_MODELLED]
+            report.metadata["cost_regime_comparison"] = _json_safe_records(cost_regimes.comparison)
+            report.metadata["qualifying_regime"] = cost_regimes.qualifying_regime
             # Bind every runner result to the freshly resolved readback context
             # before publication, including older local runner seams.
             reference_binding = _reference_binding(reference_context)
