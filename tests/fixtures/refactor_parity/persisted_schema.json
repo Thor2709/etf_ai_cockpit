@@ -1205,7 +1205,7 @@
    },
    "dataset_tuples": [
     ["dataset:prices", "dataset", "1.0.0"],
-    ["formula:score-engine-v3", "formula", "3.0.0"],
+    ["formula:score-engine-v3", "formula", "3.1.0"],
     ["model:baseline", "model", "1.0.0"],
     ["policy:costs", "policy", "1.0.0"],
     ["policy:portfolio-targets", "policy", "1.0.0"],
@@ -1319,7 +1319,7 @@
    },
    "dataset_tuples": [
     ["dataset:prices", "dataset", "1.0.0"],
-    ["formula:score-engine-v3", "formula", "3.0.0"],
+    ["formula:score-engine-v3", "formula", "3.1.0"],
     ["model:baseline", "model", "1.0.0"],
     ["model:timesfm", "model", "1.0.0"],
     ["model:toto", "model", "1.0.0"],
@@ -1373,7 +1373,7 @@
    "dataset_tuples": [
     ["dataset:universe", "dataset", "1.0.0"],
     ["feature:feature-registry", "feature", "1.0.0"],
-    ["formula:score-engine-v3", "formula", "3.0.0"],
+    ["formula:score-engine-v3", "formula", "3.1.0"],
     ["model:baseline", "model", "1.0.0"],
     ["policy:costs", "policy", "1.0.0"],
     ["policy:gate-policy", "policy", "1.0.0"],
@@ -1428,14 +1428,14 @@
    "kind": "json",
    "structure": {
     "execution_allowed": false,
-    "formula_version": "score-engine-v3.0.0",
+    "formula_version": "score-engine-v3.1.0",
     "immutable_after_run": true,
     "policies": {
      "ETF": {
       "asset_type": "str",
       "execution_allowed": false,
       "formula_checksum": "str",
-      "formula_version": "score-engine-v3.0.0",
+      "formula_version": "score-engine-v3.1.0",
       "groups": {
        "attractiveness": {
         "etf_exposure": "float",
@@ -1461,7 +1461,7 @@
       "asset_type": "str",
       "execution_allowed": false,
       "formula_checksum": "str",
-      "formula_version": "score-engine-v3.0.0",
+      "formula_version": "score-engine-v3.1.0",
       "groups": {
        "attractiveness": {
         "momentum": "float",
@@ -1726,7 +1726,7 @@
      "final_combined_score_10": "float",
      "final_label": "str",
      "formula_checksum": "str",
-     "formula_version": "score-engine-v3.0.0",
+     "formula_version": "score-engine-v3.1.0",
      "friction_reason": "str",
      "friction_status": "str",
      "gate_policy_checksum": "str",

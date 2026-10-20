@@ -1,5 +1,5 @@
 schema_version: 1
-formula_version: score-engine-v3.0.0
+formula_version: score-engine-v3.1.0
 horizons:
   primary: 1-3 months
 asset_policies:
