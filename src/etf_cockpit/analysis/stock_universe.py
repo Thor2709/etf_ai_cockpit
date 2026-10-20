@@ -329,7 +329,7 @@ def build_universe_evidence(
         result.evidence[iid] = with_sector_route(build_stock_evidence(
             iid, periods, decision_time, result.prices[iid], analyst_inputs(analysts[iid]), cfg,
             peer_values=scoped, cohort_values=cohorts, no_data_reason=store.no_data_reason(iid, snapshots, decision_time, bool(sm.known_periods(periods, decision_time))),
-        ), result.profiles[iid].sector)
+        ), getattr(result.profiles[iid], "sector", None))
     for pid, evidence in first.items():
         if pid.startswith("peer:"):
             result.evidence[pid] = evidence

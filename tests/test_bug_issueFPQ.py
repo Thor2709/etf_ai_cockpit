@@ -489,3 +489,49 @@ def test_priips_kid_source_ids_pass_the_evidence_gate_and_unavailable_does_not()
 
     assert evidence_gate(attached) is True
     assert evidence_gate(unavailable) is False
+
+
+def test_universe_evidence_tolerates_a_profile_without_sector(monkeypatch: pytest.MonkeyPatch) -> None:
+    from etf_cockpit.analysis import stock_universe as su
+    from etf_cockpit.data import stock_fundamentals
+
+    monkeypatch.setattr(stock_fundamentals, "read_fundamentals", lambda _root: pd.DataFrame(columns=stock_fundamentals.PERIOD_COLUMNS))
+    monkeypatch.setattr(stock_fundamentals, "read_snapshots", lambda _root: pd.DataFrame(columns=stock_fundamentals.SNAPSHOT_COLUMNS))
+    monkeypatch.setattr(stock_fundamentals, "read_fx", lambda _root: pd.DataFrame(columns=stock_fundamentals.FX_COLUMNS))
+    monkeypatch.setattr(stock_fundamentals, "periods_for", lambda _iid, _frame, _chain: [])
+    monkeypatch.setattr(stock_fundamentals, "latest_snapshot", lambda _iid, _frame, _decision: None)
+    monkeypatch.setattr(stock_fundamentals, "latest_analyst", lambda _iid, _frame, _decision: {})
+    monkeypatch.setattr(stock_fundamentals, "no_data_reason", lambda *_args: None)
+    monkeypatch.setattr(su, "load_user_peers", lambda _root: {})
+    monkeypatch.setattr(su, "market_inputs", lambda *_args: su.MarketInputs())
+    monkeypatch.setattr(su, "_profile", lambda record, *_args: SimpleNamespace(instrument_id=record.instrument_id))
+    monkeypatch.setattr(su, "auto_peers", lambda *_args: [])
+    monkeypatch.setattr(su, "effective_peers", lambda *_args: [])
+    monkeypatch.setattr(su, "build_stock_evidence", lambda *_args, **_kwargs: SimpleNamespace(metrics={}, components={}))
+    su._CACHE.clear()
+    records = [su.StockRecord("A", "A", "A", "EUR", "EU", "Technology")]
+    result = su.build_universe_evidence(records, pd.DataFrame(columns=["etf_id", "date", "close", "currency"]),
+                                        datetime(2026, 10, 10, tzinfo=timezone.utc), config={"sources": {"chain": ["sec_edgar"]}})
+    su._CACHE.clear()
+    assert "A" in result.evidence
+
+
+def test_high_concentration_etf_has_lower_risk_friction_than_a_diversified_one_with_the_same_headline() -> None:
+    def eligible(component: ss.SimpleScoreComponent) -> ss.SimpleScoreComponent:
+        return replace(component, source_id="yfinance:test", as_of_date="2025-01-02", freshness_status="fresh", status="ok")
+
+    def friction(info: dict[str, object]) -> tuple[float | None, float | None]:
+        comps = [eligible(ss._component("risk", 0.6, "r", role="risk_friction")),
+                 eligible(ss._component("liquidity_cost", 0.6, "l", role="risk_friction")),
+                 eligible(ss._etf_exposure_component(info, DECISION))]
+        assert all(c.score_eligible for c in comps)
+        headline = ss.combine_component_scores([eligible(ss._component("momentum", 0.5, "m")), *comps], headline_evidence_weights("ETF"))
+        return ss._risk_friction_score(comps, warnings=[]), headline
+
+    diversified = friction({"top_weight_sum": 0.10, "largest_weight": 0.01, "holding_count": 100, "as_of_date": "2025-01-02"})
+    concentrated = friction({"top_weight_sum": 0.90, "largest_weight": 0.30, "holding_count": 10, "as_of_date": "2025-01-02"})
+    assert diversified[1] == concentrated[1]
+    assert concentrated[0] < diversified[0]
+    # without holdings the former risk/liquidity mix is unchanged (never zero-filled)
+    base = [eligible(ss._component("risk", 0.6, "r", role="risk_friction")), eligible(ss._component("liquidity_cost", 0.6, "l", role="risk_friction"))]
+    assert ss._risk_friction_score([*base, ss._etf_exposure_component(None, DECISION)], warnings=[]) == ss._risk_friction_score(base, warnings=[])

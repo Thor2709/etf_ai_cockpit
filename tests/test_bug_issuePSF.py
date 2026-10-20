@@ -57,10 +57,10 @@ def test_policy_loader_exposes_the_capped_family_and_bumped_lineage() -> None:
         assert "relative_strength" not in policy.groups["attractiveness"]  # zero weights are not positive weights
         assert policy.headline_weights["relative_strength"] == 0.0
         assert sum(policy.headline_weights[k] for k in ("momentum", "trend")) / sum(policy.headline_weights.values()) <= CAP + 1e-9
-        assert policy.formula_version == "score-engine-v3.2.0"
+        assert policy.formula_version == "score-engine-v3.3.0"
         assert policy.formula_checksum == hashlib.sha256(V3.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
     record = next(item for item in build_version_registry()["records"] if item["artifact_id"] == "formula:score-engine-v3")
-    assert record["version"] == "3.2.0" and record["available"]
+    assert record["version"] == "3.3.0" and record["available"]
 
 
 def _features(scale_anchor: float = 0.0) -> pd.DataFrame:

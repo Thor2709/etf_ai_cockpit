@@ -47,13 +47,7 @@ parameters:
     upper: 0.135
     step: 0.05
     group: score.etf.headline
-  - key: score.etf.headline.etf_exposure
-    file: score_engine_v3.yaml
-    path: [asset_policies, ETF, headline_evidence, etf_exposure]
-    lower: 0.1
-    upper: 0.3
-    step: 0.05
-    group: score.etf.headline
+  # FPQ: no etf_exposure knob: concentration is a risk-role term and its headline weight is fixed at 0.
   - key: score.etf.expected_return.baseline
     file: score_engine_v3.yaml
     path: [asset_policies, ETF, expected_return, baseline]

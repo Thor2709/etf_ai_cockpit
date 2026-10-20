@@ -1,8 +1,9 @@
 schema_version: 1
-formula_version: score-engine-v3.2.0
+formula_version: score-engine-v3.3.0
 # PSF (v3.2.0): momentum + trend are ONE price-strength family capped at 30% of every configured weight table
 # (attractiveness, headline_evidence, action_composite; per asset class). relative_strength stays a displayed/research
 # feature but carries weight 0 while one global anchor is used (a single subtracted anchor cannot change ranks, B-01).
+# FPQ (v3.3.0): ETF headline etf_exposure weight 0 (risk role); risk/liquidity_cost rescaled x0.70/0.4941 (momentum+trend stay 0.30).
 # Weight freed by the cap went proportionally to the non-price families; a model that is unavailable never has its
 # weight moved to momentum/trend (ensemble.effective_ensemble_weights), and the price-derived baseline_ml fallback is
 # a labelled heuristic that carries no weight.
@@ -31,9 +32,9 @@ asset_policies:
       momentum: 0.165
       trend: 0.135
       relative_strength: 0.0
-      risk: 0.2882
-      liquidity_cost: 0.2059
-      etf_exposure: 0.0  # FPQ: concentration is a risk term (score_role risk_friction), not headline evidence
+      risk: 0.4083
+      liquidity_cost: 0.2917
+      etf_exposure: 0.0  # FPQ: etf_exposure moved to risk role, non-price ETF families rescaled pro rata
       baseline: 0.0
       timesfm: 0.0
       toto: 0.0

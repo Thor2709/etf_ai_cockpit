@@ -841,7 +841,7 @@
     "max": 1.0
    }
   },
-  "non_float_digest": "a2f32058acaa3443fdc43b970b2b423a6f35e9a1f428817d11e454c1c018be8b",
+  "non_float_digest": "c0d5d94937f545deb2b90fefaa5d0341b8f372ac1115c2352c9fbe9332b75863",
   "first_rows": [
    {
     "date": "2024-03-22",
@@ -857,7 +857,7 @@
     "canonical_risk_implementation_10": null,
     "canonical_evidence_confidence_10": null,
     "canonical_coverage": 0.0,
-    "formula_version": "score-engine-v3.2.0",
+    "formula_version": "score-engine-v3.3.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
     "structural_confidence_cap": 1.0,
@@ -877,7 +877,7 @@
     "canonical_risk_implementation_10": null,
     "canonical_evidence_confidence_10": null,
     "canonical_coverage": 0.0,
-    "formula_version": "score-engine-v3.2.0",
+    "formula_version": "score-engine-v3.3.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
     "structural_confidence_cap": 1.0,
@@ -897,7 +897,7 @@
     "canonical_risk_implementation_10": null,
     "canonical_evidence_confidence_10": null,
     "canonical_coverage": 0.0,
-    "formula_version": "score-engine-v3.2.0",
+    "formula_version": "score-engine-v3.3.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
     "structural_confidence_cap": 1.0,
@@ -919,7 +919,7 @@
     "canonical_risk_implementation_10": null,
     "canonical_evidence_confidence_10": null,
     "canonical_coverage": 0.0,
-    "formula_version": "score-engine-v3.2.0",
+    "formula_version": "score-engine-v3.3.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
     "structural_confidence_cap": 0.0,
@@ -939,7 +939,7 @@
     "canonical_risk_implementation_10": null,
     "canonical_evidence_confidence_10": null,
     "canonical_coverage": 0.0,
-    "formula_version": "score-engine-v3.2.0",
+    "formula_version": "score-engine-v3.3.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
     "structural_confidence_cap": 0.0,
@@ -959,7 +959,7 @@
     "canonical_risk_implementation_10": null,
     "canonical_evidence_confidence_10": null,
     "canonical_coverage": 0.0,
-    "formula_version": "score-engine-v3.2.0",
+    "formula_version": "score-engine-v3.3.0",
     "formula_checksum": "<sha256>",
     "source_vintage_hash": "<sha256>",
     "structural_confidence_cap": 0.0,
@@ -1565,7 +1565,7 @@
     "v3": {
      "strategy": "signal_strategy",
      "status": "available",
-     "formula_version": "score-engine-v3.2.0",
+     "formula_version": "score-engine-v3.3.0",
      "final_value_eur": 9126.271408579483,
      "cost_eur": 1989.9663384099997,
      "turnover": 2.181951157172638

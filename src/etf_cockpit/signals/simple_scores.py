@@ -3790,7 +3790,10 @@ def _risk_friction_score(components: list[SimpleScoreComponent], *, warnings: li
         (component.score_10 for component in components if component.key == "liquidity_cost" and component.score_eligible),
         None,
     )
-    values = [(risk, 0.60), (liquidity, 0.40)]
+    # FPQ: ETF concentration is a risk term. A scored etf_exposure (low score = concentrated) joins the friction mix; without it
+    # the former 0.60/0.40 mix is unchanged (missing holdings are never zero-filled, the data_quality missing penalty still applies).
+    exposure = next((c.score_10 for c in components if c.key == "etf_exposure" and c.score_eligible), None)
+    values = [(risk, 0.50), (liquidity, 0.30), (exposure, 0.20)] if exposure is not None else [(risk, 0.60), (liquidity, 0.40)]
     weighted = _weighted_score_10(values)
     if weighted is None:
         return None
