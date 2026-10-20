@@ -313,6 +313,12 @@ class ProposalReviewRequest(ContractModel):
     event_policy: EventBlockPolicy | None = None
     rationale: str = ""
     approvals: tuple[str, ...] = ()
+    # Friction-edge evidence (all optional; the proposal stays suppressed unless the first three are supplied).
+    expected_benefit_bps: float | None = Field(default=None, allow_inf_nan=False)
+    reference_price_eur: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    uncertainty_bps: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    adv_eur: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    daily_volatility: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 
 class ProposalGateViewModel(ContractModel):

@@ -226,8 +226,10 @@ def test_headline_or_score_only_input_is_manual_review_with_explicit_missing_gat
     assert decision.outcome == "manual_review"
     assert decision.proposal_allowed is False
     assert decision.quantity_delta == 0.0
-    assert all(not item.passed for item in decision.gates if item.gate_id != "event_risk")
+    # event_risk is internally evaluated and friction_edge comes from the supplied friction verdict.
+    assert all(not item.passed for item in decision.gates if item.gate_id not in {"event_risk", "friction_edge"})
     assert next(item for item in decision.gates if item.gate_id == "event_risk").passed
+    assert next(item for item in decision.gates if item.gate_id == "friction_edge").passed
     assert {item.gate_id for item in decision.gates if not item.passed} >= {
         "optimizer_output",
         "portfolio_state",

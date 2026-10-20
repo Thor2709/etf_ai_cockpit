@@ -37,6 +37,7 @@ from etf_cockpit.signals.friction_edge import evaluate_friction_gate
 from etf_cockpit.trading.tca import calibrate_completed_fills
 
 END = pd.Timestamp("2026-06-26").date()
+BROKER_PROVENANCE = {"sample_count": 12, "source_authority": "imported_broker_fills"}
 
 
 @pytest.fixture(scope="module")
@@ -52,6 +53,14 @@ def prices(config) -> pd.DataFrame:
 @pytest.fixture(scope="module")
 def regimes(config, prices):
     return run_backtest_cost_regimes(config, prices, rebalance_frequency_days=42)
+
+
+@pytest.fixture(scope="module")
+def eur_regimes(config, prices):
+    """EUR-only universe: every instrument has a capacity check, so the modelled regime can qualify."""
+
+    eur_ids = {item.id for item in config.universe.etfs if item.currency == "EUR"}
+    return run_backtest_cost_regimes(config, prices[prices["etf_id"].isin(eur_ids)], rebalance_frequency_days=42)
 
 
 # --- the five issue tests -------------------------------------------------
@@ -160,14 +169,19 @@ def test_zero_volume_day_gives_no_fill_and_thin_ec_needs_a_manual_quote(config, 
     assert (report.trade_log.get("unfilled_eur", pd.Series(dtype=float)) >= 0).all()
 
 
-def test_flat_override_run_is_flagged_non_qualifying(config, prices, regimes) -> None:
+def test_flat_override_run_is_flagged_non_qualifying(config, prices, regimes, eur_regimes) -> None:
     legacy = regimes.reports[COST_REGIME_LEGACY]
     assert legacy.metadata["cost_regime"] == COST_REGIME_LEGACY
     assert legacy.metadata["qualifying_cost_regime"] is False
     assert legacy.metadata["is_execution_evidence"] is False
     assert "not execution evidence" in legacy.metadata["cost_regime_note"]
-    assert regimes.reports[COST_REGIME_MODELLED].metadata["qualifying_cost_regime"] is True
-    assert regimes.reports[COST_REGIME_STRESS].metadata["qualifying_cost_regime"] is False
+    assert eur_regimes.reports[COST_REGIME_MODELLED].metadata["qualifying_cost_regime"] is True
+    assert eur_regimes.reports[COST_REGIME_STRESS].metadata["qualifying_cost_regime"] is False
+    # Instruments without FX evidence can never fill, so a universe containing them cannot qualify.
+    mixed = regimes.reports[COST_REGIME_MODELLED]
+    assert mixed.metadata["capacity_fx_unavailable_instruments"]
+    assert mixed.metadata["qualifying_cost_regime"] is False
+    assert "fx_unavailable_instruments_unfillable" in mixed.metadata["qualification_blockers"]
     assert load_backtest_realism_settings()["legacy_override_qualifies"] is False
     assert run_backtest(config, prices, rebalance_frequency_days=42, transaction_cost_bps=13).metadata[
         "qualifying_cost_regime"
@@ -305,7 +319,7 @@ def test_cost_evidence_classes_are_kept_apart(config) -> None:
         config, "VWCE", 5_000.0, calibration={"spread_bps": 0.5, "slippage_bps": 0.5, "evidence_class": "paper_fill"}, **kwargs
     )
     broker = estimate_execution_cost(
-        config, "VWCE", 5_000.0, calibration={"spread_bps": 0.5, "slippage_bps": 0.5, "evidence_class": "imported_broker_fill"}, **kwargs
+        config, "VWCE", 5_000.0, calibration={"spread_bps": 0.5, "slippage_bps": 0.5, "evidence_class": "imported_broker_fill", **BROKER_PROVENANCE}, **kwargs
     )
     assert paper.spread_bps == base.spread_bps and paper.evidence_class == EVIDENCE_PAPER_FILL
     assert broker.spread_bps == 0.5 and broker.evidence_class == EVIDENCE_BROKER_FILL
@@ -350,7 +364,13 @@ def test_signals_are_executed_after_the_decision_never_on_the_same_close(regimes
         assert report.metadata["same_bar_execution_count"] == 0
 
 
-def test_investable_comparators_share_universe_dates_and_costs(regimes, prices) -> None:
+def test_investable_comparators_share_universe_dates_and_costs(config, prices, monkeypatch) -> None:
+    # The sample universe has no canonical benchmark registry; bind one instrument as the validated VWCE stand-in.
+    from etf_cockpit.backtest import engine as engine_module
+
+    benchmark_id = str(prices["etf_id"].iloc[0])
+    monkeypatch.setattr(engine_module, "_validated_benchmark_data_id", lambda *_args, **_kwargs: benchmark_id)
+    regimes = run_backtest_cost_regimes(config, prices, rebalance_frequency_days=42)
     report = regimes.reports[COST_REGIME_MODELLED]
     summary = report.metadata["investable_comparators"]
     assert summary["long_only"] is True and summary["short_legs_excluded"] is True
@@ -405,7 +425,12 @@ def test_capacity_fails_closed_for_fx_unavailable_and_missing_volume(config, pri
     )
     assert executed["EURX"] == 0.0 and info["statuses"]["EURX"] == "no_fill_zero_volume"
     # No volume column at all: nothing fills, the result is flagged and cannot qualify.
-    report = run_backtest(config, prices.drop(columns=["volume"]), rebalance_frequency_days=42, enforce_capacity=True)
+    from etf_cockpit.backtest.engine import _volume_pivot
+
+    index = pd.DatetimeIndex(sorted(pd.to_datetime(prices["date"]).unique()))
+    assert _volume_pivot(prices.drop(columns=["volume"]), index, ["EURX"]) is None
+    blank = prices.assign(volume=float("nan"))
+    report = run_backtest(config, blank, rebalance_frequency_days=42, enforce_capacity=True)
     assert report.metadata["capacity_enforcement"] == "unavailable_no_volume_data"
     assert report.metadata["qualifying_cost_regime"] is False
     assert "liquidity_evidence_unavailable" in report.metadata["qualification_blockers"]
@@ -473,18 +498,27 @@ def test_non_broker_calibration_never_sets_spread_or_slippage(config) -> None:
         assert estimate.evidence_class != EVIDENCE_BROKER_FILL
     # Broker spread alone does not clear the claim restriction while slippage is still assumed.
     spread_only = estimate_execution_cost(
-        config, "VWCE", 5_000.0, calibration={"spread_bps": 0.5, "evidence_class": "imported_broker_fill"}, **kwargs
+        config, "VWCE", 5_000.0, calibration={"spread_bps": 0.5, "evidence_class": "imported_broker_fill", **BROKER_PROVENANCE}, **kwargs
     )
     assert spread_only.spread_bps == 0.5 and spread_only.slippage_bps == base.slippage_bps
     assert spread_only.precise_alpha_claims_blocked is True
     assert "partial_broker_calibration_remaining_component_assumed" in spread_only.assumptions
+    # A bare class label without fill count or broker authority cannot zero a cost or lift the claim block.
+    for provenance in ({}, {"sample_count": 0, "source_authority": "imported_broker_fills"},
+                       {"sample_count": 5, "source_authority": "local_paper_ledger"}, {"sample_count": 5}):
+        forged = estimate_execution_cost(
+            config, "VWCE", 5_000.0,
+            calibration={"spread_bps": 0, "slippage_bps": 0, "evidence_class": "imported_broker_fill", **provenance}, **kwargs
+        )
+        assert forged.spread_bps == base.spread_bps > 0 and forged.slippage_bps == base.slippage_bps > 0
+        assert forged.precise_alpha_claims_blocked is True and forged.evidence_class != EVIDENCE_BROKER_FILL
 
 
-def test_reports_qualify_only_with_modelled_costs_and_enforced_capacity(config, prices, regimes) -> None:
+def test_reports_qualify_only_with_modelled_costs_and_enforced_capacity(config, prices, regimes, eur_regimes) -> None:
     direct = run_backtest(config, prices, rebalance_frequency_days=42)
     assert direct.metadata["qualifying_cost_regime"] is False
     assert "capacity_not_enforced" in direct.metadata["qualification_blockers"]
-    qualified = regimes.reports[COST_REGIME_MODELLED]
+    qualified = eur_regimes.reports[COST_REGIME_MODELLED]
     assert qualified.metadata["qualifying_cost_regime"] is True and qualified.metadata["qualification_blockers"] == []
     # The three-regime workflow runs all three through the supplied runner, side by side.
     calls: list[dict[str, object]] = []
@@ -493,7 +527,8 @@ def test_reports_qualify_only_with_modelled_costs_and_enforced_capacity(config, 
         calls.append(kwargs)
         return run_backtest(selected_config, selected_prices, rebalance_frequency_days=42, **kwargs)
 
-    routed = run_backtest_cost_regimes(config, prices, runner=runner)
+    eur_ids = {item.id for item in config.universe.etfs if item.currency == "EUR"}
+    routed = run_backtest_cost_regimes(config, prices[prices["etf_id"].isin(eur_ids)], runner=runner)
     assert len(calls) == 3 and all(call["enforce_capacity"] is True for call in calls)
     assert set(routed.comparison["cost_regime"]) == {COST_REGIME_MODELLED, COST_REGIME_LEGACY, COST_REGIME_STRESS}
     assert routed.comparison.groupby("cost_regime")["qualifying_cost_regime"].first().to_dict() == {
@@ -550,3 +585,27 @@ def test_d011_adv_participation_capacity_is_derived_from_eur_adv(config) -> None
         adv * cap * 2.0, day_volume_shares=adv / 10.0, price_eur=10.0, adv_eur=adv, participation_rate=cap
     )
     assert partial.status == "partial_fill" and partial.days_to_fill == 2
+
+
+def test_cost_regime_comparison_is_strict_json_safe() -> None:
+    import json
+
+    from etf_cockpit.application.backtest_service import _json_safe_records
+
+    frame = pd.DataFrame(
+        {"cost_regime": ["a", "b"], "sharpe": [float("nan"), 1.5], "cagr": [float("inf"), -float("inf")], "n": [1, 2]}
+    )
+    records = _json_safe_records(frame)
+    assert records[0]["sharpe"] is None and records[0]["cagr"] is None and records[1]["sharpe"] == 1.5
+    json.dumps(records, allow_nan=False)
+
+
+def test_qualification_needs_volume_evidence_for_every_capacity_checked_instrument(config, prices) -> None:
+    eur_ids = sorted(item.id for item in config.universe.etfs if item.currency == "EUR" and item.id in set(prices["etf_id"]))
+    panel = prices[prices["etf_id"].isin(eur_ids)].copy()
+    assert run_backtest(config, panel, rebalance_frequency_days=42, enforce_capacity=True).metadata["qualifying_cost_regime"] is True
+    panel.loc[panel["etf_id"] == eur_ids[0], "volume"] = float("nan")
+    report = run_backtest(config, panel, rebalance_frequency_days=42, enforce_capacity=True)
+    assert report.metadata["capacity_enforcement"] == "enforced"
+    assert report.metadata["qualifying_cost_regime"] is False
+    assert "liquidity_evidence_unavailable" in report.metadata["qualification_blockers"]

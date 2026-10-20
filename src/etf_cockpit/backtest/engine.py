@@ -1447,8 +1447,13 @@ def run_backtest(
         qualification_blockers.append(f"cost_regime_{cost_regime}_is_not_the_qualifying_regime")
     if not enforce_capacity:
         qualification_blockers.append("capacity_not_enforced")
-    elif not volume_evidence:
+    elif not volume_evidence or any(
+        not bool(volume_pivot[column].notna().any()) for column in sorted(capacity_checked_ids)
+    ):
         qualification_blockers.append("liquidity_evidence_unavailable")
+    if enforce_capacity and metadata["capacity_fx_unavailable_instruments"]:
+        # Instruments without FX evidence can never fill: the universe would silently shrink to cash for them.
+        qualification_blockers.append("fx_unavailable_instruments_unfillable")
     metadata["qualification_blockers"] = qualification_blockers
     metadata["qualifying_cost_regime"] = not qualification_blockers
     if short_history_ids:

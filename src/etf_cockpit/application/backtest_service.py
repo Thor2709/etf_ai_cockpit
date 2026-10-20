@@ -9,6 +9,7 @@ from collections.abc import (
 from datetime import date
 from io import BytesIO
 import json
+import math
 import hashlib
 import inspect
 from pathlib import Path
@@ -92,6 +93,22 @@ def _run_backtest_compatibly(config: AppConfig, prices: pd.DataFrame, **kwargs: 
     accepts_kwargs = any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
     supported = kwargs if accepts_kwargs else {key: value for key, value in kwargs.items() if key in parameters}
     return run_backtest(config, prices, **supported)
+
+
+def _json_safe_records(frame: pd.DataFrame) -> list[dict[str, object]]:
+    """Table rows with NaN/inf replaced by None so the published metadata is strict JSON."""
+
+    records: list[dict[str, object]] = []
+    for row in frame.to_dict("records"):
+        clean: dict[str, object] = {}
+        for key, value in row.items():
+            if hasattr(value, "item"):
+                value = value.item()
+            if isinstance(value, float) and not math.isfinite(value):
+                value = None
+            clean[str(key)] = value
+        records.append(clean)
+    return records
 
 
 def _backtest_runner_kwargs(
@@ -327,12 +344,12 @@ class BacktestService:
             cost_regimes = run_backtest_cost_regimes(
                 self.config,
                 prices,
-                runner=lambda config, panel, **kwargs: _run_backtest_compatibly(config, panel, **kwargs),
-                comparison_runner=lambda config, panel, **kwargs: run_backtest(config, panel, **kwargs),
+                runner=_run_backtest_compatibly,
+                comparison_runner=_run_backtest_compatibly,
                 **runner_kwargs,
             )
             report = cost_regimes.reports[COST_REGIME_MODELLED]
-            report.metadata["cost_regime_comparison"] = cost_regimes.comparison.to_dict("records")
+            report.metadata["cost_regime_comparison"] = _json_safe_records(cost_regimes.comparison)
             report.metadata["qualifying_regime"] = cost_regimes.qualifying_regime
             # Bind every runner result to the freshly resolved readback context
             # before publication, including older local runner seams.

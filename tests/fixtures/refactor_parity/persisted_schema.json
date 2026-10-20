@@ -112,11 +112,31 @@
      "strategy": "str"
     },
     "capacity_enforcement": "str",
+    "capacity_fx_unavailable_instruments": {
+     "list_length": 24,
+     "item": "str"
+    },
+    "capacity_remainder_policy": "str",
     "complete_price_rows": "int",
     "cost_model_execution_allowed": "bool",
     "cost_model_id": "str",
     "cost_model_mode": "str",
     "cost_regime": "str",
+    "cost_regime_comparison": {
+     "list_length": 21,
+     "item": {
+      "cagr": "float",
+      "cost_drag": "float",
+      "cost_regime": "str",
+      "final_value_eur": "float",
+      "is_execution_evidence": "bool",
+      "max_drawdown": "float",
+      "qualifying_cost_regime": "bool",
+      "sharpe": "float",
+      "strategy_name": "str",
+      "turnover": "float"
+     }
+    },
     "cost_regime_note": "str",
     "cost_stress_multiplier": "float",
     "data_status": "str",
@@ -132,27 +152,129 @@
     },
     "execution_delay_sessions": "int",
     "forward_fill_used": "bool",
+    "initial_allocation": {
+     "buy_and_hold": {
+      "cost_eur": "float",
+      "fill_status": "str",
+      "remainder_policy": "str",
+      "unfilled_eur": "float"
+     },
+     "equal_weight": {
+      "cost_eur": "float",
+      "fill_status": "str",
+      "remainder_policy": "str",
+      "unfilled_eur": "float"
+     },
+     "momentum_only": {
+      "cost_eur": "float",
+      "fill_status": "str",
+      "remainder_policy": "str",
+      "unfilled_eur": "float"
+     },
+     "quality_momentum": {
+      "cost_eur": "float",
+      "fill_status": "str",
+      "remainder_policy": "str",
+      "unfilled_eur": "float"
+     },
+     "quality_only": {
+      "cost_eur": "float",
+      "fill_status": "str",
+      "remainder_policy": "str",
+      "unfilled_eur": "float"
+     },
+     "signal_strategy": {
+      "cost_eur": "float",
+      "fill_status": "str",
+      "remainder_policy": "str",
+      "unfilled_eur": "float"
+     },
+     "trend_only": {
+      "cost_eur": "float",
+      "fill_status": "str",
+      "remainder_policy": "str",
+      "unfilled_eur": "float"
+     }
+    },
     "input_checksum": "str",
     "investable_comparators": {
-     "benchmark_vwce": "null",
+     "baselines": {
+      "QV": {
+       "cost_eur": "float",
+       "final_value_eur": "float",
+       "strategy": "str",
+       "turnover": "float"
+      },
+      "QVM": {
+       "cost_eur": "float",
+       "final_value_eur": "float",
+       "strategy": "str",
+       "turnover": "float"
+      },
+      "top_n_long_only": {
+       "cost_eur": "float",
+       "final_value_eur": "float",
+       "strategy": "str",
+       "turnover": "float"
+      },
+      "v3": {
+       "cost_eur": "float",
+       "final_value_eur": "float",
+       "strategy": "str",
+       "turnover": "float"
+      }
+     },
      "cash": "float",
+     "cost_model_id": "str",
      "cost_regime": "str",
      "end_date": "str",
      "long_only": "bool",
      "short_legs_excluded": "bool",
      "start_date": "str",
      "strategies": {
-      "buy_and_hold": "float",
-      "equal_weight": "float",
-      "momentum_only": "float",
-      "quality_momentum": "float",
-      "quality_only": "float",
-      "signal_strategy": "float",
-      "trend_only": "float"
+      "buy_and_hold": {
+       "cost_eur": "float",
+       "final_value_eur": "float",
+       "turnover": "float"
+      },
+      "equal_weight": {
+       "cost_eur": "float",
+       "final_value_eur": "float",
+       "turnover": "float"
+      },
+      "momentum_only": {
+       "cost_eur": "float",
+       "final_value_eur": "float",
+       "turnover": "float"
+      },
+      "quality_momentum": {
+       "cost_eur": "float",
+       "final_value_eur": "float",
+       "turnover": "float"
+      },
+      "quality_only": {
+       "cost_eur": "float",
+       "final_value_eur": "float",
+       "turnover": "float"
+      },
+      "signal_strategy": {
+       "cost_eur": "float",
+       "final_value_eur": "float",
+       "turnover": "float"
+      },
+      "trend_only": {
+       "cost_eur": "float",
+       "final_value_eur": "float",
+       "turnover": "float"
+      }
      },
      "universe": {
       "list_length": 57,
       "item": "str"
+     },
+     "vwce": {
+      "reason": "str",
+      "status": "str"
      }
     },
     "is_execution_evidence": "bool",
@@ -162,7 +284,7 @@
     "not_enough_data_policy": "str",
     "operational_evidence_input_binding": "str",
     "operational_evidence_rows": {
-     "list_length": 5996,
+     "list_length": 3497,
      "item": {
       "arrival_price_assumption": "str",
       "auction_state": "null",
@@ -206,7 +328,12 @@
     },
     "participation_cap": "float",
     "price_field": "str",
+    "qualification_blockers": {
+     "list_length": 1,
+     "item": "str"
+    },
     "qualifying_cost_regime": "bool",
+    "qualifying_regime": "str",
     "quality_momentum_evidence": "str",
     "quality_momentum_evidence_available_rows": "int",
     "quality_momentum_evidence_checksum": "str",
@@ -452,7 +579,7 @@
   "data/backtests/trade_log.csv": {
    "kind": "csv",
    "rows": 128,
-   "columns": ["date", "signal_date", "execution_date", "strategy", "turnover", "cost_eur", "estimated_cost_bps", "cost_model_id", "cost_data_quality", "capacity_eur", "decision_price", "next_open_reference_price", "next_period_reference_price", "decision_price_basis", "next_open_reference_basis", "next_period_reference_basis", "price_provenance", "close_to_next_open_gap", "open_gap_warning", "open_gap_warning_threshold", "arrival_price_assumption", "spread_proxy", "observed_range_spread_proxy", "cost_spread_assumption_bps", "cost_spread_assumption_source", "estimated_cost_bps_source", "execution_delay_sessions", "same_bar_execution_avoided", "signal_timestamp", "execution_timestamp", "fill_source", "session_state", "auction_state", "expiry_state", "order_lifecycle", "execution_allowed"]
+   "columns": ["date", "signal_date", "execution_date", "strategy", "turnover", "cost_eur", "estimated_cost_bps", "cost_model_id", "cost_data_quality", "capacity_eur", "capacity_enforced", "unfilled_eur", "capacity_fill_status", "max_days_to_fill", "capacity_fx_unavailable", "remainder_policy", "decision_price", "next_open_reference_price", "next_period_reference_price", "decision_price_basis", "next_open_reference_basis", "next_period_reference_basis", "price_provenance", "close_to_next_open_gap", "open_gap_warning", "open_gap_warning_threshold", "arrival_price_assumption", "spread_proxy", "observed_range_spread_proxy", "cost_spread_assumption_bps", "cost_spread_assumption_source", "estimated_cost_bps_source", "execution_delay_sessions", "same_bar_execution_avoided", "signal_timestamp", "execution_timestamp", "fill_source", "session_state", "auction_state", "expiry_state", "order_lifecycle", "execution_allowed"]
   },
   "data/backtests/trade_log.csv.meta.json": {
    "kind": "json",

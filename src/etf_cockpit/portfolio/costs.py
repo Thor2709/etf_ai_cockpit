@@ -130,6 +130,25 @@ class PortfolioCostEstimate:
     execution_allowed: bool = False
 
 
+_BROKER_FILL_AUTHORITIES = frozenset({"imported_broker_fills", "imported_broker_fill", "broker_fill"})
+
+
+def _broker_provenance(calibration: Mapping[str, object] | None, name: str) -> bool:
+    """A component is broker evidence only with a positive fill count and a broker source authority.
+
+    Per-component ``<name>_sample_count`` / ``<name>_source_authority`` entries win over the shared ones,
+    mirroring ``calibrate_completed_fills`` (``evidence_classes`` sample count + broker authority).
+    """
+
+    if not calibration:
+        return False
+    count = calibration.get(f"{name}_sample_count", calibration.get("sample_count"))
+    authority = str(calibration.get(f"{name}_source_authority", calibration.get("source_authority")) or "").strip().lower()
+    if isinstance(count, bool) or not isinstance(count, (int, float)) or not math.isfinite(count) or count <= 0:
+        return False
+    return authority in _BROKER_FILL_AUTHORITIES
+
+
 def _calibration_value(calibration: Mapping[str, object] | None, name: str, fallback: float) -> tuple[float, bool]:
     """Return (value, calibrated); only a finite, non-negative entry calibrates."""
 
@@ -199,12 +218,18 @@ def estimate_execution_cost(
     # Only verified imported broker fills may calibrate spread or slippage.
     # Paper fills, configured assumptions and unclassified calibrations are kept
     # apart: the conservative configured/quoted assumption stays in force.
-    microstructure_calibration = calibration if calibration_class == EVIDENCE_BROKER_FILL else None
+    # The class label alone is a caller-supplied string: each component also needs fill-count and
+    # broker source-authority provenance, otherwise the configured/quoted assumption stays in force.
+    broker_labelled = calibration_class == EVIDENCE_BROKER_FILL
     spread, spread_calibrated = _calibration_value(
-        microstructure_calibration, "spread_bps", quoted_spread if quoted_spread is not None else configured_spread
+        calibration if broker_labelled and _broker_provenance(calibration, "spread") else None,
+        "spread_bps",
+        quoted_spread if quoted_spread is not None else configured_spread,
     )
     slippage, slippage_calibrated = _calibration_value(
-        microstructure_calibration, "slippage_bps", realised_slippage if realised_slippage is not None else configured_slippage
+        calibration if broker_labelled and _broker_provenance(calibration, "slippage") else None,
+        "slippage_bps",
+        realised_slippage if realised_slippage is not None else configured_slippage,
     )
     adv, adv_calibrated = _calibration_value(calibration, "adv_eur", _valid_quote(adv_eur) if _valid_quote(adv_eur) is not None else _non_negative(per_instrument.get("adv_eur", 0.0)))
     volatility, volatility_calibrated = _calibration_value(calibration, "daily_volatility", _valid_quote(daily_volatility) if _valid_quote(daily_volatility) is not None else _non_negative(per_instrument.get("daily_volatility", 0.0)))
@@ -283,6 +308,8 @@ def estimate_execution_cost(
         assumptions.append("non_broker_calibration_not_applied_to_spread_or_slippage")
     elif calibration and not (spread_calibrated and slippage_calibrated):
         assumptions.append("partial_broker_calibration_remaining_component_assumed")
+    if broker_labelled and calibration and not (_broker_provenance(calibration, "spread") and _broker_provenance(calibration, "slippage")):
+        assumptions.append("broker_calibration_requires_sample_count_and_broker_source_authority")
     if not spread_known:
         assumptions.append("spread_unknown_conservative_range")
     if side == "sell":
