@@ -116,6 +116,8 @@ def _forecast_lines(forecasts: pd.DataFrame, instrument_id: str, last_date: pd.T
     if forecasts is None or forecasts.empty or not needed.issubset(forecasts.columns):
         return [], False
     rows = forecasts[forecasts["etf_id"].astype(str) == str(instrument_id)]
+    if "status" in rows.columns:
+        rows = rows[rows["status"].astype(str).str.casefold().eq("ok")]  # a failed or unavailable row never draws a fan
     if rows.empty:
         return [], False
     dates = pd.to_datetime(rows["forecast_date"], errors="coerce", utc=True)

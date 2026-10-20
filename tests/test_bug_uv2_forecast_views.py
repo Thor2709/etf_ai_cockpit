@@ -104,3 +104,22 @@ def test_runs_table_shows_newest_runs_first() -> None:  # E013 oldest runs shown
     runs = pd.DataFrame({"run_id": [f"r{i:02d}" for i in range(30)], "as_of_date": pd.date_range("2026-01-01", periods=30).strftime("%Y-%m-%d")})
     shown = lab_view.recent_runs(runs, 5)
     assert list(shown["run_id"]) == ["r29", "r28", "r27", "r26", "r25"]
+
+
+def test_failed_forecast_rows_never_make_the_panel_available() -> None:  # E109-N004
+    prices = _prices()
+    origin = prices["date"].iloc[-3]
+    nan = float("nan")
+    failed = pd.DataFrame([
+        _row(origin, status="failed", q10_return=nan, q50_return=nan, q90_return=nan),
+        _row(origin, status="failed", q10_return=None, q50_return=None, q90_return=None),
+    ])
+    view = build_stock_view(prices, failed, "A", "1Y")
+    assert view.forecasts == []
+    assert view.baseline is None
+    assert view.forecast_note != "available"
+    # a failed row that still carries finite quantiles is dropped too; the ok row alone is drawn
+    mixed = pd.DataFrame([_row(origin, status="failed", q10_return=-0.9, q50_return=0.0, q90_return=0.9), _row(origin, status="ok")])
+    drawn = build_stock_view(prices, mixed, "A", "1Y").forecasts
+    anchor = float(prices["adjusted_close"].iloc[-3])
+    assert len(drawn) == 1 and drawn[0].q10 == [pytest.approx(anchor * math.exp(-0.1))]
