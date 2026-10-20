@@ -939,6 +939,7 @@
      "tax_rate": null,
      "tax_rate_basis": "unavailable",
      "cost_of_capital": null,
+     "cost_of_capital_conflicts": [],
      "cost_of_capital_basis": "unavailable",
      "profitability_basis": {
       "status": "unavailable",
@@ -1754,12 +1755,15 @@
      "confidence": "low",
      "reason": "free_cash_flow currency is unavailable; comparable valuation is withheld.",
      "scenarios": {},
-     "execution_allowed": false
+     "score_eligible": false,
+     "execution_allowed": false,
+     "score_eligibility_reasons": ["model unavailable", "flat-growth DCF is a labelled diagnostic", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: decision time is unavailable; freshness cannot be established; assumptions carry no as_of or expires_at date"]
     },
     "reverse_dcf": {
      "status": "unavailable",
      "confidence": "low",
      "reason": "free_cash_flow currency is unavailable; comparable valuation is withheld.",
+     "score_eligible": false,
      "execution_allowed": false,
      "source_provenance": [
       {
@@ -1810,6 +1814,7 @@
      "status": "unavailable",
      "confidence": "low",
      "reason": "equity currency is unavailable; comparable valuation is withheld.",
+     "score_eligible": false,
      "execution_allowed": false,
      "margin_of_safety": {
       "model": "residual_income",
@@ -1845,8 +1850,10 @@
         "missing_inputs": ["residual_income"]
        }
       ],
-      "execution_allowed": false
-     }
+      "execution_allowed": false,
+      "score_eligible": false
+     },
+     "score_eligibility_reasons": ["model unavailable", "residual income is not fully evidenced", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: decision time is unavailable; freshness cannot be established; assumptions carry no as_of or expires_at date"]
     },
     "margin_of_safety": {
      "status": "unavailable",
@@ -1885,7 +1892,8 @@
          "missing_inputs": ["residual_income"]
         }
        ],
-       "execution_allowed": false
+       "execution_allowed": false,
+       "score_eligible": false
       }
      },
      "execution_allowed": false
@@ -1907,12 +1915,99 @@
      "financial_projection_status": "not_applicable",
      "metrics": {}
     },
+    "driver_dcf": {
+     "status": "unavailable",
+     "confidence": "low",
+     "reason": "revenue currency is unavailable; comparable valuation is withheld.",
+     "score_eligible": false,
+     "execution_allowed": false,
+     "score_eligibility_reasons": ["model unavailable", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: decision time is unavailable; freshness cannot be established; assumptions carry no as_of or expires_at date"]
+    },
     "model_disagreement": {
      "status": "unavailable",
      "range": [],
      "confidence": "low",
+     "models": {},
+     "deltas": {},
+     "averaged": false,
+     "note": "Methods are compared per share under their own claim; incompatible numbers are never averaged.",
      "execution_allowed": false
     },
+    "cost_of_capital": {
+     "risk_free_rate": null,
+     "equity_risk_premium": null,
+     "beta": null,
+     "beta_source": "",
+     "risk_free_source": "",
+     "equity_risk_premium_source": "",
+     "cost_of_equity": null,
+     "wacc": null,
+     "basis": "scenario",
+     "conflicts": [],
+     "immutable": true,
+     "execution_allowed": false,
+     "sensitivity": {
+      "status": "unavailable",
+      "reason": "Both a cost of equity and a WACC are required for the k_e/WACC grid.",
+      "cells": [],
+      "execution_allowed": false
+     }
+    },
+    "score_eligibility": {
+     "models": {
+      "driver_dcf": {
+       "score_eligible": false,
+       "reasons": ["model unavailable", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: decision time is unavailable; freshness cannot be established; assumptions carry no as_of or expires_at date"]
+      },
+      "residual_income": {
+       "score_eligible": false,
+       "reasons": ["model unavailable", "residual income is not fully evidenced", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: decision time is unavailable; freshness cannot be established; assumptions carry no as_of or expires_at date"]
+      },
+      "intrinsic_value": {
+       "score_eligible": false,
+       "reasons": ["model unavailable", "flat-growth DCF is a labelled diagnostic", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: decision time is unavailable; freshness cannot be established; assumptions carry no as_of or expires_at date"]
+      }
+     },
+     "any_eligible": false,
+     "execution_allowed": false
+    },
+    "expiry": {
+     "status": "provisional",
+     "expires_at": "2028-07-01T00:00:00+00:00",
+     "refresh_reason": "decision time is unavailable; freshness cannot be established; assumptions carry no as_of or expires_at date",
+     "components": {
+      "statements": {
+       "basis": "2026-12-31",
+       "oldest_input": "revenue",
+       "inputs": {
+        "cash": "2026-12-31",
+        "debt": "2026-12-31",
+        "equity": "2026-12-31",
+        "free_cash_flow": "2026-12-31",
+        "net_income": "2026-12-31",
+        "revenue": "2026-12-31"
+       },
+       "expires_at": "2028-07-01T00:00:00+00:00"
+      }
+     },
+     "consumed_inputs": ["revenue", "free_cash_flow", "equity", "net_income", "debt", "cash"],
+     "reference_time": null,
+     "defaults": {
+      "statement_max_age_days": 548,
+      "fx_max_age_days": 7,
+      "assumption_max_age_days": 365
+     },
+     "execution_allowed": false
+    },
+    "valuation_status": "provisional",
+    "expires_at": "2028-07-01T00:00:00+00:00",
+    "refresh_reason": "decision time is unavailable; freshness cannot be established; assumptions carry no as_of or expires_at date",
+    "operator_weights": {
+     "status": "not_supplied",
+     "label": null,
+     "is_probability": false
+    },
+    "comparability_mode": "strict",
     "assumptions": {},
     "market_evidence": {},
     "provider_reported_multiples": {
@@ -3821,7 +3916,8 @@
      "tax_rate": 0.25,
      "tax_rate_basis": "explicit_assumption",
      "cost_of_capital": 0.1,
-     "cost_of_capital_basis": "explicit_assumption",
+     "cost_of_capital_conflicts": [],
+     "cost_of_capital_basis": "scenario",
      "profitability_basis": {
       "status": "unavailable",
       "reason": "Audited profitability ROIC is unavailable or not applicable."
@@ -4405,19 +4501,80 @@
       "stressed_operating_income": 21.6,
       "stressed_interest": 2.0,
       "interest_coverage": 10.8,
+      "kind": "sensitivity",
+      "is_probability": false,
       "execution_allowed": false
      },
-     "refinance_rate_up_200bp": {
+     "baseline": {
       "status": "available",
       "confidence": "scenario_only",
       "assumptions": {
        "revenue_factor": 1.0,
-       "rate_add": 0.02
+       "fixed_cost_share": 0.5,
+       "operating_leverage": true
       },
       "stressed_revenue": 120.0,
       "stressed_operating_income": 27.0,
-      "stressed_interest": 2.6,
-      "interest_coverage": 10.384615384615385,
+      "stressed_interest": 2.0,
+      "interest_coverage": 13.5,
+      "kind": "sensitivity",
+      "is_probability": false,
+      "execution_allowed": false
+     },
+     "favourable": {
+      "status": "available",
+      "confidence": "scenario_only",
+      "assumptions": {
+       "revenue_factor": 1.1,
+       "fixed_cost_share": 0.5,
+       "operating_leverage": true
+      },
+      "stressed_revenue": 132.0,
+      "stressed_operating_income": 34.349999999999994,
+      "stressed_interest": 2.0,
+      "interest_coverage": 17.174999999999997,
+      "kind": "sensitivity",
+      "is_probability": false,
+      "execution_allowed": false
+     },
+     "recession_operating_leverage": {
+      "status": "available",
+      "confidence": "scenario_only",
+      "assumptions": {
+       "revenue_factor": 0.8,
+       "fixed_cost_share": 0.5,
+       "operating_leverage": true
+      },
+      "stressed_revenue": 96.0,
+      "stressed_operating_income": 12.299999999999997,
+      "stressed_interest": 2.0,
+      "interest_coverage": 6.149999999999999,
+      "kind": "sensitivity",
+      "is_probability": false,
+      "execution_allowed": false
+     },
+     "refinancing_shock": {
+      "status": "unavailable",
+      "confidence": "low",
+      "reason": "No debt maturity schedule is available; the shock applies only to repricing debt and total debt is never repriced.",
+      "assumptions": {
+       "rate_add": 0.02,
+       "applies_to": "debt_due_1y (repricing within one year)"
+      },
+      "kind": "sensitivity",
+      "is_probability": false,
+      "execution_allowed": false
+     },
+     "dilution_insolvency": {
+      "status": "unavailable",
+      "confidence": "low",
+      "reason": "Debt due within one year, cash and free cash flow are required.",
+      "assumptions": {
+       "cash_buffer": "reported cash",
+       "funding": "equity issued at the decision-time market cap"
+      },
+      "kind": "sensitivity",
+      "is_probability": false,
       "execution_allowed": false
      }
     },
@@ -4734,12 +4891,15 @@
      "confidence": "low",
      "reason": "Enterprise-value adjustment coverage is incomplete.",
      "scenarios": {},
-     "execution_allowed": false
+     "score_eligible": false,
+     "execution_allowed": false,
+     "score_eligibility_reasons": ["model unavailable", "flat-growth DCF is a labelled diagnostic", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: assumptions carry no as_of or expires_at date"]
     },
     "reverse_dcf": {
      "status": "unavailable",
      "confidence": "low",
      "reason": "Enterprise-value adjustment coverage is incomplete.",
+     "score_eligible": false,
      "execution_allowed": false,
      "source_provenance": [
       {
@@ -4771,18 +4931,90 @@
     "residual_income": {
      "status": "available",
      "confidence": "scenario_only",
-     "equity_value": 232.99999999999994,
-     "per_share": 23.299999999999994,
+     "equity_value": 75.00000000000003,
+     "per_share": 7.500000000000003,
      "cost_of_equity": 0.1,
      "terminal_growth": 0.02,
      "forecast_years": 5,
      "net_income_basis": "latest_reported_net_income",
+     "clean_surplus": {
+      "status": "reconciled",
+      "max_abs_error": 0.0,
+      "identity": "B_t = B_{t-1} + NI_t - dividends_t + issuance_t",
+      "dividend_basis": "reported_dividend_per_share",
+      "payout_ratio": 0.3,
+      "net_issuance": 0.0,
+      "net_issuance_basis": "default_zero_unevidenced",
+      "book_roll": [
+       {
+        "year": 1,
+        "opening_book": 68.0,
+        "net_income": 20.0,
+        "dividends": 6.0,
+        "issuance": 0.0,
+        "closing_book": 82.0,
+        "residual_income": 13.2
+       },
+       {
+        "year": 2,
+        "opening_book": 82.0,
+        "net_income": 20.4,
+        "dividends": 6.119999999999999,
+        "issuance": 0.0,
+        "closing_book": 96.28,
+        "residual_income": 12.199999999999998
+       },
+       {
+        "year": 3,
+        "opening_book": 96.28,
+        "net_income": 20.808,
+        "dividends": 6.2424,
+        "issuance": 0.0,
+        "closing_book": 110.84559999999999,
+        "residual_income": 11.18
+       },
+       {
+        "year": 4,
+        "opening_book": 110.84559999999999,
+        "net_income": 21.22416,
+        "dividends": 6.367248,
+        "issuance": 0.0,
+        "closing_book": 125.702512,
+        "residual_income": 10.139600000000002
+       },
+       {
+        "year": 5,
+        "opening_book": 125.702512,
+        "net_income": 21.648643200000002,
+        "dividends": 6.49459296,
+        "issuance": 0.0,
+        "closing_book": 140.85656224,
+        "residual_income": 9.078392000000001
+       }
+      ],
+      "terminal_residual_income": 7.995959840000003,
+      "terminal_book": 140.85656224,
+      "terminal_equity_value": 82.80606024,
+      "terminal_value_basis": "dividend perpetuity (earnings, payout and issuance grow at terminal g) less closing book"
+     },
+     "dividend_model_value": 74.99999999999997,
+     "dividend_model_reconciliation": {
+      "status": "reconciled",
+      "difference": 5.684341886080802e-14
+     },
+     "dividend_reconciliation": {
+      "status": "not_checked",
+      "reason": "only one dividend input supplied"
+     },
+     "cash_flow_claim_type": "fcfe",
+     "score_eligible": false,
+     "score_eligibility_reason": "dividend or issuance evidence is a default or does not reconcile",
      "execution_allowed": false,
      "margin_of_safety": {
       "model": "residual_income",
       "status": "unavailable",
       "value": null,
-      "per_share_value": 23.299999999999994,
+      "per_share_value": 7.500000000000003,
       "price": 30.0,
       "reason_codes": ["model_source_timing_unavailable", "price_source_timing_unavailable"],
       "source_provenance": [
@@ -4806,8 +5038,10 @@
         "missing_inputs": ["shares_outstanding", "residual_income"]
        }
       ],
-      "execution_allowed": false
-     }
+      "execution_allowed": false,
+      "score_eligible": false
+     },
+     "score_eligibility_reasons": ["dividend or issuance evidence is a default or does not reconcile", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: assumptions carry no as_of or expires_at date"]
     },
     "margin_of_safety": {
      "status": "unavailable",
@@ -4816,7 +5050,7 @@
        "model": "residual_income",
        "status": "unavailable",
        "value": null,
-       "per_share_value": 23.299999999999994,
+       "per_share_value": 7.500000000000003,
        "price": 30.0,
        "reason_codes": ["model_source_timing_unavailable", "price_source_timing_unavailable"],
        "source_provenance": [
@@ -4840,7 +5074,8 @@
          "missing_inputs": ["shares_outstanding", "residual_income"]
         }
        ],
-       "execution_allowed": false
+       "execution_allowed": false,
+       "score_eligible": false
       }
      },
      "execution_allowed": false
@@ -4862,12 +5097,101 @@
      "financial_projection_status": "not_applicable",
      "metrics": {}
     },
+    "driver_dcf": {
+     "status": "unavailable",
+     "confidence": "low",
+     "reason": "Enterprise-value adjustment coverage is incomplete.",
+     "score_eligible": false,
+     "execution_allowed": false,
+     "score_eligibility_reasons": ["model unavailable", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: assumptions carry no as_of or expires_at date"]
+    },
     "model_disagreement": {
      "status": "unavailable",
-     "range": [23.299999999999994, 23.299999999999994],
+     "range": [7.500000000000003, 7.500000000000003],
      "confidence": "scenario_only",
+     "models": {
+      "residual_income": {
+       "per_share": 7.500000000000003,
+       "claim": "fcfe",
+       "source": "residual_income"
+      }
+     },
+     "deltas": {},
+     "averaged": false,
+     "note": "Methods are compared per share under their own claim; incompatible numbers are never averaged.",
      "execution_allowed": false
     },
+    "cost_of_capital": {
+     "risk_free_rate": null,
+     "equity_risk_premium": null,
+     "beta": null,
+     "beta_source": "",
+     "risk_free_source": "",
+     "equity_risk_premium_source": "",
+     "cost_of_equity": null,
+     "wacc": 0.1,
+     "basis": "scenario",
+     "conflicts": [],
+     "immutable": true,
+     "execution_allowed": false,
+     "sensitivity": {
+      "status": "unavailable",
+      "reason": "Both a cost of equity and a WACC are required for the k_e/WACC grid.",
+      "cells": [],
+      "execution_allowed": false
+     }
+    },
+    "score_eligibility": {
+     "models": {
+      "driver_dcf": {
+       "score_eligible": false,
+       "reasons": ["model unavailable", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: assumptions carry no as_of or expires_at date"]
+      },
+      "residual_income": {
+       "score_eligible": false,
+       "reasons": ["dividend or issuance evidence is a default or does not reconcile", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: assumptions carry no as_of or expires_at date"]
+      },
+      "intrinsic_value": {
+       "score_eligible": false,
+       "reasons": ["model unavailable", "flat-growth DCF is a labelled diagnostic", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: assumptions carry no as_of or expires_at date"]
+      }
+     },
+     "any_eligible": false,
+     "execution_allowed": false
+    },
+    "expiry": {
+     "status": "provisional",
+     "expires_at": "2028-07-01T00:00:00+00:00",
+     "refresh_reason": "assumptions carry no as_of or expires_at date",
+     "components": {
+      "statements": {
+       "basis": "2026-12-31",
+       "oldest_input": "equity",
+       "inputs": {
+        "equity": "2026-12-31",
+        "net_income": "2026-12-31"
+       },
+       "expires_at": "2028-07-01T00:00:00+00:00"
+      }
+     },
+     "consumed_inputs": ["equity", "net_income"],
+     "reference_time": "2027-01-02T00:00:00+00:00",
+     "defaults": {
+      "statement_max_age_days": 548,
+      "fx_max_age_days": 7,
+      "assumption_max_age_days": 365
+     },
+     "execution_allowed": false
+    },
+    "valuation_status": "provisional",
+    "expires_at": "2028-07-01T00:00:00+00:00",
+    "refresh_reason": "assumptions carry no as_of or expires_at date",
+    "operator_weights": {
+     "status": "not_supplied",
+     "label": null,
+     "is_probability": false
+    },
+    "comparability_mode": "strict",
     "assumptions": {
      "forecast_years": 5,
      "discount_rate": 0.1,
@@ -6435,6 +6759,7 @@
      "tax_rate": null,
      "tax_rate_basis": "unavailable",
      "cost_of_capital": null,
+     "cost_of_capital_conflicts": [],
      "cost_of_capital_basis": "unavailable",
      "profitability_basis": {
       "status": "not_applicable",
@@ -6901,6 +7226,51 @@
       "value": null,
       "reason": "Industrial-company balance-sheet analysis is delegated to the financial-sector adapter.",
       "execution_allowed": false
+     },
+     "cre_property_stress": {
+      "status": "unavailable",
+      "confidence": "low",
+      "reason": "CRE/property exposure is not evidenced; input not mapped: cre_exposure.",
+      "assumptions": {
+       "cre_haircut": 0.2
+      },
+      "kind": "sensitivity",
+      "is_probability": false,
+      "execution_allowed": false
+     },
+     "funding_shift": {
+      "status": "unavailable",
+      "confidence": "low",
+      "reason": "Deposits and wholesale funding are not evidenced; input not mapped: deposits, wholesale_funding.",
+      "assumptions": {
+       "deposit_outflow_fraction": 0.1,
+       "funding_spread_add": 0.01
+      },
+      "kind": "sensitivity",
+      "is_probability": false,
+      "execution_allowed": false
+     },
+     "impairment_stress": {
+      "status": "unavailable",
+      "confidence": "low",
+      "reason": "Gross loans are not evidenced; input not mapped: gross_loans.",
+      "assumptions": {
+       "impairment_rate": 0.02
+      },
+      "kind": "sensitivity",
+      "is_probability": false,
+      "execution_allowed": false
+     },
+     "capital_breach": {
+      "status": "unavailable",
+      "confidence": "low",
+      "reason": "CET1 capital, risk-weighted assets, the stated CET1 requirement and all three loss legs are required; input not mapped: cet1_capital, risk_weighted_assets, cet1_requirement (assumption).",
+      "assumptions": {
+       "cet1_requirement": null
+      },
+      "kind": "sensitivity",
+      "is_probability": false,
+      "execution_allowed": false
      }
     },
     "source_lineage": {
@@ -7204,7 +7574,9 @@
      "status": "not_applicable",
      "confidence": "low",
      "reason": "Industrial FCF DCF is not applicable to financial institutions.",
-     "execution_allowed": false
+     "execution_allowed": false,
+     "score_eligible": false,
+     "score_eligibility_reasons": ["model unavailable", "flat-growth DCF is a labelled diagnostic", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: decision time is unavailable; freshness cannot be established; assumptions carry no as_of or expires_at date", "not applicable to financial institutions"]
     },
     "reverse_dcf": {
      "status": "not_applicable",
@@ -7241,18 +7613,90 @@
     "residual_income": {
      "status": "available",
      "confidence": "scenario_only",
-     "equity_value": 85.0,
-     "per_share": 8.5,
+     "equity_value": 101.99999999999997,
+     "per_share": 10.199999999999998,
      "cost_of_equity": 0.1,
      "terminal_growth": 0.02,
      "forecast_years": 5,
      "net_income_basis": "explicit_sustainable_roe_assumption",
+     "clean_surplus": {
+      "status": "reconciled",
+      "max_abs_error": 0.0,
+      "identity": "B_t = B_{t-1} + NI_t - dividends_t + issuance_t",
+      "dividend_basis": "default_full_payout_unevidenced",
+      "payout_ratio": 1.0,
+      "net_issuance": 0.0,
+      "net_issuance_basis": "default_zero_unevidenced",
+      "book_roll": [
+       {
+        "year": 1,
+        "opening_book": 68.0,
+        "net_income": 8.16,
+        "dividends": 8.16,
+        "issuance": 0.0,
+        "closing_book": 68.0,
+        "residual_income": 1.3599999999999994
+       },
+       {
+        "year": 2,
+        "opening_book": 68.0,
+        "net_income": 8.3232,
+        "dividends": 8.3232,
+        "issuance": 0.0,
+        "closing_book": 68.0,
+        "residual_income": 1.5231999999999992
+       },
+       {
+        "year": 3,
+        "opening_book": 68.0,
+        "net_income": 8.489664,
+        "dividends": 8.489664,
+        "issuance": 0.0,
+        "closing_book": 68.0,
+        "residual_income": 1.6896639999999987
+       },
+       {
+        "year": 4,
+        "opening_book": 68.0,
+        "net_income": 8.65945728,
+        "dividends": 8.65945728,
+        "issuance": 0.0,
+        "closing_book": 68.0,
+        "residual_income": 1.859457279999999
+       },
+       {
+        "year": 5,
+        "opening_book": 68.0,
+        "net_income": 8.8326464256,
+        "dividends": 8.8326464256,
+        "issuance": 0.0,
+        "closing_book": 68.0,
+        "residual_income": 2.0326464255999994
+       }
+      ],
+      "terminal_residual_income": 2.209299354112,
+      "terminal_book": 68.0,
+      "terminal_equity_value": 112.61624192640001,
+      "terminal_value_basis": "dividend perpetuity (earnings, payout and issuance grow at terminal g) less closing book"
+     },
+     "dividend_model_value": 101.99999999999997,
+     "dividend_model_reconciliation": {
+      "status": "reconciled",
+      "difference": 0.0
+     },
+     "dividend_reconciliation": {
+      "status": "not_checked",
+      "reason": "only one dividend input supplied"
+     },
+     "cash_flow_claim_type": "fcfe",
+     "score_eligible": false,
+     "score_eligibility_reason": "dividend or issuance evidence is a default or does not reconcile",
      "execution_allowed": false,
      "margin_of_safety": {
       "model": "residual_income",
       "status": "unavailable",
       "value": null,
-      "per_share_value": 8.5,
+      "per_share_value": 10.199999999999998,
       "price": null,
       "reason_codes": ["positive_current_price_unavailable", "model_source_timing_unavailable", "price_source_timing_unavailable"],
       "source_provenance": [
@@ -7270,8 +7714,10 @@
         "missing_inputs": ["sustainable_roe", "shares_outstanding", "residual_income"]
        }
       ],
-      "execution_allowed": false
-     }
+      "execution_allowed": false,
+      "score_eligible": false
+     },
+     "score_eligibility_reasons": ["dividend or issuance evidence is a default or does not reconcile", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: decision time is unavailable; freshness cannot be established; assumptions carry no as_of or expires_at date"]
     },
     "margin_of_safety": {
      "status": "unavailable",
@@ -7280,7 +7726,7 @@
        "model": "residual_income",
        "status": "unavailable",
        "value": null,
-       "per_share_value": 8.5,
+       "per_share_value": 10.199999999999998,
        "price": null,
        "reason_codes": ["positive_current_price_unavailable", "model_source_timing_unavailable", "price_source_timing_unavailable"],
        "source_provenance": [
@@ -7298,7 +7744,8 @@
          "missing_inputs": ["sustainable_roe", "shares_outstanding", "residual_income"]
         }
        ],
-       "execution_allowed": false
+       "execution_allowed": false,
+       "score_eligible": false
       }
      },
      "execution_allowed": false
@@ -7325,12 +7772,114 @@
       "regulatory_capital_assumptions": null
      }
     },
+    "driver_dcf": {
+     "status": "not_applicable",
+     "confidence": "low",
+     "reason": "Industrial driver DCF is not applicable to financial institutions.",
+     "execution_allowed": false,
+     "score_eligible": false,
+     "score_eligibility_reasons": ["model unavailable", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: decision time is unavailable; freshness cannot be established; assumptions carry no as_of or expires_at date", "not applicable to financial institutions"]
+    },
     "model_disagreement": {
      "status": "unavailable",
-     "range": [8.5, 8.5],
+     "range": [10.199999999999998, 10.199999999999998],
      "confidence": "scenario_only",
+     "models": {
+      "residual_income": {
+       "per_share": 10.199999999999998,
+       "claim": "fcfe",
+       "source": "residual_income"
+      }
+     },
+     "deltas": {},
+     "averaged": false,
+     "note": "Methods are compared per share under their own claim; incompatible numbers are never averaged.",
      "execution_allowed": false
     },
+    "cost_of_capital": {
+     "risk_free_rate": null,
+     "equity_risk_premium": null,
+     "beta": null,
+     "beta_source": "",
+     "risk_free_source": "",
+     "equity_risk_premium_source": "",
+     "cost_of_equity": 0.1,
+     "wacc": null,
+     "basis": "scenario",
+     "conflicts": [],
+     "immutable": true,
+     "execution_allowed": false,
+     "sensitivity": {
+      "status": "unavailable",
+      "reason": "Both a cost of equity and a WACC are required for the k_e/WACC grid.",
+      "cells": [],
+      "execution_allowed": false
+     }
+    },
+    "score_eligibility": {
+     "models": {
+      "driver_dcf": {
+       "score_eligible": false,
+       "reasons": ["model unavailable", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: decision time is unavailable; freshness cannot be established; assumptions carry no as_of or expires_at date", "not applicable to financial institutions"]
+      },
+      "residual_income": {
+       "score_eligible": false,
+       "reasons": ["dividend or issuance evidence is a default or does not reconcile", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: decision time is unavailable; freshness cannot be established; assumptions carry no as_of or expires_at date"]
+      },
+      "intrinsic_value": {
+       "score_eligible": false,
+       "reasons": ["model unavailable", "flat-growth DCF is a labelled diagnostic", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: decision time is unavailable; freshness cannot be established; assumptions carry no as_of or expires_at date", "not applicable to financial institutions"]
+      }
+     },
+     "any_eligible": false,
+     "execution_allowed": false
+    },
+    "expiry": {
+     "status": "provisional",
+     "expires_at": "2028-07-01T00:00:00+00:00",
+     "refresh_reason": "decision time is unavailable; freshness cannot be established; assumptions carry no as_of or expires_at date",
+     "components": {
+      "statements": {
+       "basis": "2026-12-31",
+       "oldest_input": "assets",
+       "inputs": {
+        "assets": "2026-12-31",
+        "cash": "2026-12-31",
+        "cash_from_operations": "2026-12-31",
+        "current_assets": "2026-12-31",
+        "current_liabilities": "2026-12-31",
+        "debt": "2026-12-31",
+        "exceptional_items": "2026-12-31",
+        "free_cash_flow": "2026-12-31",
+        "gross_profit": "2026-12-31",
+        "interest_expense": "2026-12-31",
+        "operating_income": "2026-12-31",
+        "receivables": "2026-12-31",
+        "revenue": "2026-12-31",
+        "shares_outstanding": "2026-12-31",
+        "tangible_book_value": "2026-12-31"
+       },
+       "expires_at": "2028-07-01T00:00:00+00:00"
+      }
+     },
+     "consumed_inputs": ["assets", "cash", "cash_from_operations", "current_assets", "current_liabilities", "debt", "exceptional_items", "free_cash_flow", "gross_profit", "interest_expense", "operating_income", "receivables", "revenue", "shares_outstanding", "tangible_book_value"],
+     "reference_time": null,
+     "defaults": {
+      "statement_max_age_days": 548,
+      "fx_max_age_days": 7,
+      "assumption_max_age_days": 365
+     },
+     "execution_allowed": false
+    },
+    "valuation_status": "provisional",
+    "expires_at": "2028-07-01T00:00:00+00:00",
+    "refresh_reason": "decision time is unavailable; freshness cannot be established; assumptions carry no as_of or expires_at date",
+    "operator_weights": {
+     "status": "not_supplied",
+     "label": null,
+     "is_probability": false
+    },
+    "comparability_mode": "strict",
     "assumptions": {
      "forecast_years": 5,
      "cost_of_equity": 0.1,
@@ -8908,6 +9457,7 @@
      "tax_rate": null,
      "tax_rate_basis": "unavailable",
      "cost_of_capital": null,
+     "cost_of_capital_conflicts": [],
      "cost_of_capital_basis": "unavailable",
      "profitability_basis": {
       "status": "unavailable",
@@ -9455,19 +10005,80 @@
       "stressed_operating_income": 17.6,
       "stressed_interest": 2.5,
       "interest_coverage": 7.040000000000001,
+      "kind": "sensitivity",
+      "is_probability": false,
       "execution_allowed": false
      },
-     "refinance_rate_up_200bp": {
+     "baseline": {
       "status": "available",
       "confidence": "scenario_only",
       "assumptions": {
        "revenue_factor": 1.0,
-       "rate_add": 0.02
+       "fixed_cost_share": 0.5,
+       "operating_leverage": true
       },
       "stressed_revenue": 110.0,
       "stressed_operating_income": 22.0,
-      "stressed_interest": 3.14,
-      "interest_coverage": 7.006369426751592,
+      "stressed_interest": 2.5,
+      "interest_coverage": 8.8,
+      "kind": "sensitivity",
+      "is_probability": false,
+      "execution_allowed": false
+     },
+     "favourable": {
+      "status": "available",
+      "confidence": "scenario_only",
+      "assumptions": {
+       "revenue_factor": 1.1,
+       "fixed_cost_share": 0.5,
+       "operating_leverage": true
+      },
+      "stressed_revenue": 121.00000000000001,
+      "stressed_operating_income": 28.60000000000001,
+      "stressed_interest": 2.5,
+      "interest_coverage": 11.440000000000003,
+      "kind": "sensitivity",
+      "is_probability": false,
+      "execution_allowed": false
+     },
+     "recession_operating_leverage": {
+      "status": "available",
+      "confidence": "scenario_only",
+      "assumptions": {
+       "revenue_factor": 0.8,
+       "fixed_cost_share": 0.5,
+       "operating_leverage": true
+      },
+      "stressed_revenue": 88.0,
+      "stressed_operating_income": 8.799999999999997,
+      "stressed_interest": 2.5,
+      "interest_coverage": 3.5199999999999987,
+      "kind": "sensitivity",
+      "is_probability": false,
+      "execution_allowed": false
+     },
+     "refinancing_shock": {
+      "status": "unavailable",
+      "confidence": "low",
+      "reason": "No debt maturity schedule is available; the shock applies only to repricing debt and total debt is never repriced.",
+      "assumptions": {
+       "rate_add": 0.02,
+       "applies_to": "debt_due_1y (repricing within one year)"
+      },
+      "kind": "sensitivity",
+      "is_probability": false,
+      "execution_allowed": false
+     },
+     "dilution_insolvency": {
+      "status": "unavailable",
+      "confidence": "low",
+      "reason": "Debt due within one year, cash and free cash flow are required.",
+      "assumptions": {
+       "cash_buffer": "reported cash",
+       "funding": "equity issued at the decision-time market cap"
+      },
+      "kind": "sensitivity",
+      "is_probability": false,
       "execution_allowed": false
      }
     },
@@ -9780,16 +10391,38 @@
      "execution_allowed": false
     },
     "intrinsic_value": {
+     "cash_flow_claim_type": "proxy",
+     "claim_type_source": "default_proxy",
+     "discount_rate_kind": "unlabelled_discount_rate",
+     "label": "diagnostic_flat_growth",
+     "score_eligible": false,
+     "score_eligibility_reason": "proxy cash flow: descriptive value only",
+     "bridge": {
+      "status": "complete",
+      "items": {
+       "net_debt": {
+        "value": 18.0,
+        "evidence": "reported"
+       }
+      },
+      "missing": [],
+      "total_claims": -18.0,
+      "reason": "",
+      "formula": "equity = EV - net debt - leases - minorities - preferreds - pensions + non-operating assets"
+     },
      "status": "unavailable",
      "confidence": "low",
-     "reason": "free cash flow, share count, net debt, forecast and explicit scenario assumptions are required",
+     "reason": "free cash flow, share count, net debt (not for FCFE), a claim-matched discount rate, forecast and explicit scenario assumptions are required",
      "scenarios": {},
-     "execution_allowed": false
+     "execution_allowed": false,
+     "score_eligibility_reasons": ["model unavailable", "flat-growth DCF is a labelled diagnostic", "proxy cash-flow claim is descriptive only", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: assumptions carry no as_of or expires_at date"]
     },
     "reverse_dcf": {
+     "cash_flow_claim_type": "proxy",
+     "score_eligible": false,
      "status": "unavailable",
      "confidence": "low",
-     "reason": "positive FCF, market value, diluted share count, net debt and explicit bounded assumptions are required",
+     "reason": "positive FCF, market value, diluted share count, net debt, a valid claim label, bridge evidence and explicit bounded assumptions are required",
      "execution_allowed": false,
      "source_provenance": [
       {
@@ -9821,8 +10454,9 @@
     "residual_income": {
      "status": "unavailable",
      "confidence": "low",
-     "reason": "book equity, net income, diluted share count and explicit cost-of-equity/terminal assumptions are required",
+     "score_eligible": false,
      "execution_allowed": false,
+     "reason": "book equity, net income, diluted share count and explicit cost-of-equity/terminal assumptions are required",
      "margin_of_safety": {
       "model": "residual_income",
       "status": "unavailable",
@@ -9851,8 +10485,10 @@
         "missing_inputs": ["shares_outstanding", "residual_income"]
        }
       ],
-      "execution_allowed": false
-     }
+      "execution_allowed": false,
+      "score_eligible": false
+     },
+     "score_eligibility_reasons": ["model unavailable", "residual income is not fully evidenced", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: assumptions carry no as_of or expires_at date"]
     },
     "margin_of_safety": {
      "status": "unavailable",
@@ -9885,7 +10521,8 @@
          "missing_inputs": ["shares_outstanding", "residual_income"]
         }
        ],
-       "execution_allowed": false
+       "execution_allowed": false,
+       "score_eligible": false
       }
      },
      "execution_allowed": false
@@ -9907,12 +10544,99 @@
      "financial_projection_status": "not_applicable",
      "metrics": {}
     },
+    "driver_dcf": {
+     "cash_flow_claim_type": "fcff",
+     "label": "driver_dcf",
+     "score_eligible": false,
+     "execution_allowed": false,
+     "status": "unavailable",
+     "confidence": "low",
+     "reason": "explicit driver_dcf assumptions (growth, margin, tax, incremental ROIC) are required",
+     "score_eligibility_reasons": ["model unavailable", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: assumptions carry no as_of or expires_at date"]
+    },
     "model_disagreement": {
      "status": "unavailable",
      "range": [],
      "confidence": "low",
+     "models": {},
+     "deltas": {},
+     "averaged": false,
+     "note": "Methods are compared per share under their own claim; incompatible numbers are never averaged.",
      "execution_allowed": false
     },
+    "cost_of_capital": {
+     "risk_free_rate": null,
+     "equity_risk_premium": null,
+     "beta": null,
+     "beta_source": "",
+     "risk_free_source": "",
+     "equity_risk_premium_source": "",
+     "cost_of_equity": null,
+     "wacc": null,
+     "basis": "scenario",
+     "conflicts": [],
+     "immutable": true,
+     "execution_allowed": false,
+     "sensitivity": {
+      "status": "unavailable",
+      "reason": "Both a cost of equity and a WACC are required for the k_e/WACC grid.",
+      "cells": [],
+      "execution_allowed": false
+     }
+    },
+    "score_eligibility": {
+     "models": {
+      "driver_dcf": {
+       "score_eligible": false,
+       "reasons": ["model unavailable", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: assumptions carry no as_of or expires_at date"]
+      },
+      "residual_income": {
+       "score_eligible": false,
+       "reasons": ["model unavailable", "residual income is not fully evidenced", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: assumptions carry no as_of or expires_at date"]
+      },
+      "intrinsic_value": {
+       "score_eligible": false,
+       "reasons": ["model unavailable", "flat-growth DCF is a labelled diagnostic", "proxy cash-flow claim is descriptive only", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: assumptions carry no as_of or expires_at date"]
+      }
+     },
+     "any_eligible": false,
+     "execution_allowed": false
+    },
+    "expiry": {
+     "status": "provisional",
+     "expires_at": "2027-07-02T00:00:00+00:00",
+     "refresh_reason": "assumptions carry no as_of or expires_at date",
+     "components": {
+      "statements": {
+       "basis": "2025-12-31",
+       "oldest_input": "revenue",
+       "inputs": {
+        "equity": "2025-12-31",
+        "free_cash_flow": "2025-12-31",
+        "net_income": "2025-12-31",
+        "revenue": "2025-12-31"
+       },
+       "expires_at": "2027-07-02T00:00:00+00:00"
+      }
+     },
+     "consumed_inputs": ["revenue", "free_cash_flow", "equity", "net_income"],
+     "reference_time": "2026-06-30T00:00:00+00:00",
+     "defaults": {
+      "statement_max_age_days": 548,
+      "fx_max_age_days": 7,
+      "assumption_max_age_days": 365
+     },
+     "execution_allowed": false
+    },
+    "valuation_status": "provisional",
+    "expires_at": "2027-07-02T00:00:00+00:00",
+    "refresh_reason": "assumptions carry no as_of or expires_at date",
+    "operator_weights": {
+     "status": "not_supplied",
+     "label": null,
+     "is_probability": false
+    },
+    "comparability_mode": "strict",
     "assumptions": {},
     "market_evidence": {
      "market_cap": 300.0,
@@ -11827,6 +12551,7 @@
       "tax_rate": null,
       "tax_rate_basis": "unavailable",
       "cost_of_capital": null,
+      "cost_of_capital_conflicts": [],
       "cost_of_capital_basis": "unavailable",
       "profitability_basis": {
        "status": "unavailable",
@@ -12411,19 +13136,80 @@
        "stressed_operating_income": 21.6,
        "stressed_interest": 2.0,
        "interest_coverage": 10.8,
+       "kind": "sensitivity",
+       "is_probability": false,
        "execution_allowed": false
       },
-      "refinance_rate_up_200bp": {
+      "baseline": {
        "status": "available",
        "confidence": "scenario_only",
        "assumptions": {
         "revenue_factor": 1.0,
-        "rate_add": 0.02
+        "fixed_cost_share": 0.5,
+        "operating_leverage": true
        },
        "stressed_revenue": 120.0,
        "stressed_operating_income": 27.0,
-       "stressed_interest": 2.6,
-       "interest_coverage": 10.384615384615385,
+       "stressed_interest": 2.0,
+       "interest_coverage": 13.5,
+       "kind": "sensitivity",
+       "is_probability": false,
+       "execution_allowed": false
+      },
+      "favourable": {
+       "status": "available",
+       "confidence": "scenario_only",
+       "assumptions": {
+        "revenue_factor": 1.1,
+        "fixed_cost_share": 0.5,
+        "operating_leverage": true
+       },
+       "stressed_revenue": 132.0,
+       "stressed_operating_income": 34.349999999999994,
+       "stressed_interest": 2.0,
+       "interest_coverage": 17.174999999999997,
+       "kind": "sensitivity",
+       "is_probability": false,
+       "execution_allowed": false
+      },
+      "recession_operating_leverage": {
+       "status": "available",
+       "confidence": "scenario_only",
+       "assumptions": {
+        "revenue_factor": 0.8,
+        "fixed_cost_share": 0.5,
+        "operating_leverage": true
+       },
+       "stressed_revenue": 96.0,
+       "stressed_operating_income": 12.299999999999997,
+       "stressed_interest": 2.0,
+       "interest_coverage": 6.149999999999999,
+       "kind": "sensitivity",
+       "is_probability": false,
+       "execution_allowed": false
+      },
+      "refinancing_shock": {
+       "status": "unavailable",
+       "confidence": "low",
+       "reason": "No debt maturity schedule is available; the shock applies only to repricing debt and total debt is never repriced.",
+       "assumptions": {
+        "rate_add": 0.02,
+        "applies_to": "debt_due_1y (repricing within one year)"
+       },
+       "kind": "sensitivity",
+       "is_probability": false,
+       "execution_allowed": false
+      },
+      "dilution_insolvency": {
+       "status": "unavailable",
+       "confidence": "low",
+       "reason": "Debt due within one year, cash and free cash flow are required.",
+       "assumptions": {
+        "cash_buffer": "reported cash",
+        "funding": "equity issued at the decision-time market cap"
+       },
+       "kind": "sensitivity",
+       "is_probability": false,
        "execution_allowed": false
       }
      },
@@ -12736,16 +13522,38 @@
       "execution_allowed": false
      },
      "intrinsic_value": {
+      "cash_flow_claim_type": "proxy",
+      "claim_type_source": "default_proxy",
+      "discount_rate_kind": "unlabelled_discount_rate",
+      "label": "diagnostic_flat_growth",
+      "score_eligible": false,
+      "score_eligibility_reason": "proxy cash flow: descriptive value only",
+      "bridge": {
+       "status": "complete",
+       "items": {
+        "net_debt": {
+         "value": 18.0,
+         "evidence": "reported"
+        }
+       },
+       "missing": [],
+       "total_claims": -18.0,
+       "reason": "",
+       "formula": "equity = EV - net debt - leases - minorities - preferreds - pensions + non-operating assets"
+      },
       "status": "unavailable",
       "confidence": "low",
-      "reason": "free cash flow, share count, net debt, forecast and explicit scenario assumptions are required",
+      "reason": "free cash flow, share count, net debt (not for FCFE), a claim-matched discount rate, forecast and explicit scenario assumptions are required",
       "scenarios": {},
-      "execution_allowed": false
+      "execution_allowed": false,
+      "score_eligibility_reasons": ["model unavailable", "flat-growth DCF is a labelled diagnostic", "proxy cash-flow claim is descriptive only", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: assumptions carry no as_of or expires_at date"]
      },
      "reverse_dcf": {
+      "cash_flow_claim_type": "proxy",
+      "score_eligible": false,
       "status": "unavailable",
       "confidence": "low",
-      "reason": "positive FCF, market value, diluted share count, net debt and explicit bounded assumptions are required",
+      "reason": "positive FCF, market value, diluted share count, net debt, a valid claim label, bridge evidence and explicit bounded assumptions are required",
       "execution_allowed": false,
       "source_provenance": [
        {
@@ -12795,8 +13603,9 @@
      "residual_income": {
       "status": "unavailable",
       "confidence": "low",
-      "reason": "book equity, net income, diluted share count and explicit cost-of-equity/terminal assumptions are required",
+      "score_eligible": false,
       "execution_allowed": false,
+      "reason": "book equity, net income, diluted share count and explicit cost-of-equity/terminal assumptions are required",
       "margin_of_safety": {
        "model": "residual_income",
        "status": "unavailable",
@@ -12831,8 +13640,10 @@
          "missing_inputs": ["residual_income"]
         }
        ],
-       "execution_allowed": false
-      }
+       "execution_allowed": false,
+       "score_eligible": false
+      },
+      "score_eligibility_reasons": ["model unavailable", "residual income is not fully evidenced", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: assumptions carry no as_of or expires_at date"]
      },
      "margin_of_safety": {
       "status": "unavailable",
@@ -12871,7 +13682,8 @@
           "missing_inputs": ["residual_income"]
          }
         ],
-        "execution_allowed": false
+        "execution_allowed": false,
+        "score_eligible": false
        }
       },
       "execution_allowed": false
@@ -12893,12 +13705,101 @@
       "financial_projection_status": "not_applicable",
       "metrics": {}
      },
+     "driver_dcf": {
+      "cash_flow_claim_type": "fcff",
+      "label": "driver_dcf",
+      "score_eligible": false,
+      "execution_allowed": false,
+      "status": "unavailable",
+      "confidence": "low",
+      "reason": "explicit driver_dcf assumptions (growth, margin, tax, incremental ROIC) are required",
+      "score_eligibility_reasons": ["model unavailable", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: assumptions carry no as_of or expires_at date"]
+     },
      "model_disagreement": {
       "status": "unavailable",
       "range": [],
       "confidence": "low",
+      "models": {},
+      "deltas": {},
+      "averaged": false,
+      "note": "Methods are compared per share under their own claim; incompatible numbers are never averaged.",
       "execution_allowed": false
      },
+     "cost_of_capital": {
+      "risk_free_rate": null,
+      "equity_risk_premium": null,
+      "beta": null,
+      "beta_source": "",
+      "risk_free_source": "",
+      "equity_risk_premium_source": "",
+      "cost_of_equity": null,
+      "wacc": null,
+      "basis": "scenario",
+      "conflicts": [],
+      "immutable": true,
+      "execution_allowed": false,
+      "sensitivity": {
+       "status": "unavailable",
+       "reason": "Both a cost of equity and a WACC are required for the k_e/WACC grid.",
+       "cells": [],
+       "execution_allowed": false
+      }
+     },
+     "score_eligibility": {
+      "models": {
+       "driver_dcf": {
+        "score_eligible": false,
+        "reasons": ["model unavailable", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: assumptions carry no as_of or expires_at date"]
+       },
+       "residual_income": {
+        "score_eligible": false,
+        "reasons": ["model unavailable", "residual income is not fully evidenced", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: assumptions carry no as_of or expires_at date"]
+       },
+       "intrinsic_value": {
+        "score_eligible": false,
+        "reasons": ["model unavailable", "flat-growth DCF is a labelled diagnostic", "proxy cash-flow claim is descriptive only", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: assumptions carry no as_of or expires_at date"]
+       }
+      },
+      "any_eligible": false,
+      "execution_allowed": false
+     },
+     "expiry": {
+      "status": "provisional",
+      "expires_at": "2028-07-01T00:00:00+00:00",
+      "refresh_reason": "assumptions carry no as_of or expires_at date",
+      "components": {
+       "statements": {
+        "basis": "2026-12-31",
+        "oldest_input": "revenue",
+        "inputs": {
+         "cash": "2026-12-31",
+         "debt": "2026-12-31",
+         "equity": "2026-12-31",
+         "free_cash_flow": "2026-12-31",
+         "net_income": "2026-12-31",
+         "revenue": "2026-12-31"
+        },
+        "expires_at": "2028-07-01T00:00:00+00:00"
+       }
+      },
+      "consumed_inputs": ["revenue", "free_cash_flow", "equity", "net_income", "debt", "cash"],
+      "reference_time": "2027-01-02T00:00:00+00:00",
+      "defaults": {
+       "statement_max_age_days": 548,
+       "fx_max_age_days": 7,
+       "assumption_max_age_days": 365
+      },
+      "execution_allowed": false
+     },
+     "valuation_status": "provisional",
+     "expires_at": "2028-07-01T00:00:00+00:00",
+     "refresh_reason": "assumptions carry no as_of or expires_at date",
+     "operator_weights": {
+      "status": "not_supplied",
+      "label": null,
+      "is_probability": false
+     },
+     "comparability_mode": "strict",
      "assumptions": {},
      "market_evidence": {},
      "provider_reported_multiples": {

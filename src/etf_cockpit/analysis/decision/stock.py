@@ -973,19 +973,53 @@ def _valuation_components(stock_research: Mapping[str, object]) -> dict[str, obj
         "relative_metrics": raw.get("relative_metrics", {}),
         "dcf": raw.get("intrinsic_value", {}),
         "residual_income": raw.get("residual_income", {}),
+        "driver_dcf": raw.get("driver_dcf", {}),
         "reverse_dcf": raw.get("reverse_dcf", {}),
         "reverse_dcf_gap": raw.get("reverse_dcf_gap", {"status": "unavailable"}),
         "normalized_mid_cycle": raw.get("normalized_mid_cycle", {"status": "unavailable"}),
         "model_disagreement": raw.get("model_disagreement", {"status": "unavailable"}),
         "margin_of_safety": raw.get("margin_of_safety", {"status": "unavailable"}),
     }
-    available = any(_has_valuation_evidence(value) for value in components.values())
+    bearing = _score_bearing_components(raw, components)
+    available = any(_has_valuation_evidence(value) for name, value in components.items() if name in bearing)
+    descriptive = any(_has_valuation_evidence(value) for value in components.values())
+    reason = "AVAILABLE" if available else "NO_SCORE_ELIGIBLE_VALUATION_COMPONENT" if descriptive else "NO_DEFENSIBLE_VALUATION_COMPONENT"
     return {
         "status": "AVAILABLE" if available else "INSUFFICIENT_EVIDENCE",
-        "reason_code": "AVAILABLE" if available else "NO_DEFENSIBLE_VALUATION_COMPONENT",
+        "reason_code": reason,
         **components,
+        "descriptive_only_components": sorted(set(components) - bearing),
         "execution_allowed": False,
     }
+
+
+def _score_bearing_components(raw: Mapping[str, object], components: Mapping[str, object]) -> set[str]:
+    """Components allowed to make the valuation score-bearing; producer-labelled ineligible models are descriptive only."""
+
+    eligibility = raw.get("score_eligibility")
+    if not isinstance(eligibility, Mapping):
+        return set(components)  # producer output without eligibility labels (native adapters): unchanged behaviour
+    models = eligibility.get("models")
+    models = models if isinstance(models, Mapping) else {}
+
+    def eligible(name: str) -> bool:
+        item = models.get(name)
+        return isinstance(item, Mapping) and item.get("score_eligible") is True
+
+    bearing: set[str] = set()
+    if raw.get("comparability_mode") != "diagnostic_only" and "relative_metrics" in components:
+        bearing.add("relative_metrics")
+    if eligible("intrinsic_value"):
+        bearing.add("dcf")
+    if eligible("residual_income"):
+        bearing.add("residual_income")
+    if eligible("driver_dcf"):
+        bearing.add("driver_dcf")
+    mos = raw.get("margin_of_safety")
+    mos_models = mos.get("models") if isinstance(mos, Mapping) else None
+    if isinstance(mos_models, Mapping) and any(isinstance(item, Mapping) and item.get("score_eligible") is True for item in mos_models.values()):
+        bearing.add("margin_of_safety")
+    return bearing
 
 
 def _has_valuation_evidence(value: object) -> bool:

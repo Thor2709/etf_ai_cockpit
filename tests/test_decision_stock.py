@@ -373,6 +373,7 @@ def test_margin_of_safety_is_per_model_and_uses_canonical_price_provenance() -> 
         instrument_id="ACME",
         market_inputs=market,
         assumptions=assumptions,
+        strict_comparability=False,
     )
     mos = result["margin_of_safety"]["models"]
 
@@ -394,7 +395,50 @@ def test_margin_of_safety_is_per_model_and_uses_canonical_price_provenance() -> 
         DECISION_TIME,
         {"valuation": result},
     )
-    assert composed["valuation"]["status"] == "AVAILABLE"
+    # every model here is diagnostic/proxy (non-strict, scenario ledger): descriptive only, never score-bearing
+    assert not result["score_eligibility"]["any_eligible"]
+    assert composed["valuation"]["status"] == "INSUFFICIENT_EVIDENCE"
+    assert composed["valuation"]["reason_code"] == "NO_SCORE_ELIGIBLE_VALUATION_COMPONENT"
+    assert "dcf" in composed["valuation"]["descriptive_only_components"]
+
+
+def test_composition_counts_only_score_eligible_valuation_models() -> None:
+    def valuation(eligible: bool) -> dict[str, object]:
+        return {
+            "comparability_mode": "strict",
+            "residual_income": {"status": "available", "per_share": 5.0, "score_eligible": eligible},
+            "score_eligibility": {"models": {"residual_income": {"score_eligible": eligible, "reasons": []}}},
+        }
+
+    ineligible = compose_stock_decision("ACME", _context("ACME"), DECISION_TIME, {"valuation": valuation(False)})
+    assert ineligible["valuation"]["status"] == "INSUFFICIENT_EVIDENCE"
+    assert "residual_income" in ineligible["valuation"]["descriptive_only_components"]
+    eligible = compose_stock_decision("ACME", _context("ACME"), DECISION_TIME, {"valuation": valuation(True)})
+    assert eligible["valuation"]["status"] == "AVAILABLE"
+
+
+def test_eligible_driver_dcf_alone_makes_the_valuation_score_bearing() -> None:
+    def valuation(driver_eligible: bool) -> dict[str, object]:
+        return {
+            "comparability_mode": "strict",
+            "driver_dcf": {"status": "available", "per_share": 12.0, "score_eligible": driver_eligible},
+            "residual_income": {"status": "unavailable"},
+            "intrinsic_value": {"status": "unavailable", "scenarios": {}},
+            "margin_of_safety": {"status": "unavailable", "models": {}},  # no share price: nothing else can carry the valuation
+            "score_eligibility": {"models": {
+                "driver_dcf": {"score_eligible": driver_eligible, "reasons": []},
+                "residual_income": {"score_eligible": False, "reasons": ["model unavailable"]},
+                "intrinsic_value": {"score_eligible": False, "reasons": ["model unavailable"]},
+            }},
+        }
+
+    eligible = compose_stock_decision("ACME", _context("ACME"), DECISION_TIME, {"valuation": valuation(True)})
+    assert eligible["valuation"]["status"] == "AVAILABLE" and eligible["valuation"]["driver_dcf"]["per_share"] == 12.0
+    assert "driver_dcf" not in eligible["valuation"]["descriptive_only_components"]
+    ineligible = compose_stock_decision("ACME", _context("ACME"), DECISION_TIME, {"valuation": valuation(False)})
+    assert ineligible["valuation"]["status"] == "INSUFFICIENT_EVIDENCE"
+    assert ineligible["valuation"]["reason_code"] == "NO_SCORE_ELIGIBLE_VALUATION_COMPONENT"
+    assert "driver_dcf" in ineligible["valuation"]["descriptive_only_components"]
 
 
 def test_margin_of_safety_fails_closed_for_missing_price_timing_or_nonpositive_price() -> None:
@@ -404,6 +448,7 @@ def test_margin_of_safety_fails_closed_for_missing_price_timing_or_nonpositive_p
         instrument_id="ACME",
         market_inputs=market,
         assumptions=assumptions,
+        strict_comparability=False,
     )
     market["share_price"] = 0.0
     nonpositive = valuation_analysis(
@@ -411,6 +456,7 @@ def test_margin_of_safety_fails_closed_for_missing_price_timing_or_nonpositive_p
         instrument_id="ACME",
         market_inputs=market,
         assumptions=assumptions,
+        strict_comparability=False,
     )
 
     assert missing_timing["margin_of_safety"]["models"]["dcf:base"]["status"] == "unavailable"

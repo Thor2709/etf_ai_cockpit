@@ -724,6 +724,9 @@ class _Builder:
         elif net.available and net.currency != self.reporting_currency:
             ev = None
             ev_reason = "currency_mismatch between market cap and net debt"
+        elif net.available and net.as_of != minority.period_end.isoformat():
+            ev = None
+            ev_reason = f"period_mismatch between net debt ({net.as_of}) and minority interest ({minority.period_end.isoformat()}); an enterprise value never combines claims from different balance sheets"
         else:
             ev = sm.enterprise_value(mcap, net.value if net.available else None, minority.values["minority_interest"])
             ev_reason = f"needs net debt: {net.reason}"

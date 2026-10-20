@@ -144,7 +144,8 @@ def test_reverse_valuation_is_unavailable_until_cost_of_equity_is_configured() -
     configured = {**CONFIG, "valuation": {**CONFIG["valuation"], "cost_of_equity": 0.09, "terminal_growth": 0.02}}
     ev = build_stock_evidence("T", [_period(y) for y in (2022, 2023, 2024, 2025)], DECISION, _market(), None, configured)
     pe, payout = ev.metrics["pe"].value, 30.0 / (100.0 * 1.1**3)
-    assert ev.metrics["implied_growth_pe"].value == pytest.approx(0.09 - payout / pe)
+    # trailing P/E Gordon contract (#940 B106-N003, flagged for Opus): g = (r * P/E - payout) / (P/E + payout)
+    assert ev.metrics["implied_growth_pe"].value == pytest.approx((0.09 * pe - payout) / (pe + payout))
     assert ev.metrics["implied_growth_dcf"].status == sm.OK
 
 
@@ -263,3 +264,13 @@ def test_disabled_delisted_stock_keeps_historical_fundamentals_and_peer_contribu
     assert evidence.evidence["OLD"].metrics["revenue_cagr"].available
     assert evidence.peers["T"][0].instrument_id == "OLD"
     assert evidence.evidence["T"].peer_stats["revenue_cagr"].count == 1
+
+
+def test_ev_never_combines_net_debt_and_minority_interest_from_different_balance_sheets() -> None:
+    # B03-C2-N002: the latest balance carries debt/cash but its minority interest was only reported a year earlier.
+    periods = [_period(y) for y in (2022, 2023, 2024, 2025)]
+    latest = periods[-1]
+    periods[-1] = replace(latest, values={key: value for key, value in latest.values.items() if key != "minority_interest"})
+    ev = _evidence(periods=periods).metrics["ev"]
+    assert ev.value is None and "period_mismatch" in ev.reason
+    assert _evidence().metrics["ev"].value == pytest.approx(730.0)
