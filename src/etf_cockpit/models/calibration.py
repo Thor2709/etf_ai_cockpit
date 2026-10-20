@@ -171,6 +171,10 @@ def calibrate_forecast_distribution(
     if not forecast_columns.issubset(forecasts.columns):
         metadata["reason"] = "Historical forecasts are missing out-of-fold model and prediction provenance."
         return output
+    known_columns = [column for column in ("created_at", "known_at") if column in forecasts.columns]
+    if not known_columns:
+        metadata["reason"] = "Historical forecasts are missing a verifiable knowledge timestamp."
+        return output
     price_columns = {"etf_id", "date", "adjusted_close"}
     if not isinstance(prices, pd.DataFrame) or prices.empty or not price_columns.issubset(prices.columns):
         metadata["reason"] = "A dated adjusted-close price snapshot is unavailable."
@@ -202,6 +206,11 @@ def calibrate_forecast_distribution(
         & forecasts["model_allowed_in_score"].astype(str).str.lower().isin({"true", "1", "yes"})
     ].copy()
     history["forecast_date"] = pd.to_datetime(history["forecast_date"], errors="coerce", utc=True, format="mixed").dt.normalize()
+    # A row written (or first known) after the decision time cannot have been available then, even
+    # when its origin and outcome dates precede it (backfills, late reruns); an unreadable stamp fails closed.
+    for known_column in known_columns:
+        known = pd.to_datetime(history[known_column], errors="coerce", utc=True, format="mixed")
+        history = history.loc[known.notna() & known.le(cutoff)].copy()
     history["expected_return"] = pd.to_numeric(history["expected_return"], errors="coerce")
     history["q10_return"] = pd.to_numeric(history["q10_return"], errors="coerce")
     history["q90_return"] = pd.to_numeric(history["q90_return"], errors="coerce")
@@ -603,7 +612,7 @@ def evaluate_forecast_calibration(forecasts: pd.DataFrame, prices: pd.DataFrame)
         (forecast_frame["status"].astype(str).str.lower() == "ok")
         & allowed
         & forecast_frame["forecast_date"].notna()
-        & forecast_frame["horizon_days"].notna()
+        & forecast_frame["horizon_days"].map(lambda value: _whole_positive_horizon(value))
         & forecast_frame["expected_return"].notna()
     ].copy()
     if forecast_frame.empty:
@@ -654,7 +663,10 @@ def evaluate_forecast_calibration(forecasts: pd.DataFrame, prices: pd.DataFrame)
         directional = float(eval_frame["direction_hit"].mean())
         interval_rows = eval_frame[eval_frame["has_interval"] > 0]
         coverage = float(interval_rows["covered"].mean()) if not interval_rows.empty else None
-        score, status, label = _calibration_score_and_label(len(eval_frame), mase, directional, coverage)
+        # Coverage is measured on interval-bearing rows only; it may support a grade of the whole
+        # matured sample only when both denominators are the same rows.
+        grade_coverage = coverage if len(interval_rows) == len(eval_frame) else None
+        score, status, label = _calibration_score_and_label(len(eval_frame), mase, directional, grade_coverage)
         rows.append(
             {
                 "instrument_id": str(instrument_id),
@@ -724,6 +736,13 @@ def _actual_horizon_return(series: pd.Series, forecast_date: pd.Timestamp, horiz
         return None
     # Forecasts are log returns (see models.base): keep the outcome in log units.
     return float(np.log(target_price / start_price))
+
+
+def _whole_positive_horizon(value: object) -> bool:
+    """A horizon is a whole, finite, positive count of sessions; 5.7 is never truncated to 5."""
+
+    number = _finite_number(value)
+    return number is not None and number > 0 and number == int(number)
 
 
 def realised_horizon_return(series: pd.Series, forecast_date: pd.Timestamp, horizon_days: int) -> float | None:

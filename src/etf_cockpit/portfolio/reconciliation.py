@@ -190,6 +190,10 @@ def load_account_mappings(
     return {key: value[1] for key, value in latest.items()}
 
 
+# Market-price and account-metadata facts never produce journal postings.
+_NON_LEDGER_RECORDS = frozenset({"price", "account"})
+
+
 def reconcile_imports(
     connection: sqlite3.Connection,
     source_rows: Sequence[Mapping[str, Any]],
@@ -298,6 +302,8 @@ def reconcile_imports(
         if row_status not in {"accepted", "correction"}:
             continue
         visible.append(row)
+        if record_type in _NON_LEDGER_RECORDS:
+            continue
         mapping = mappings.get(str(row.get("account_id") or ""))
         if mapping is None:
             discrepancies.append(

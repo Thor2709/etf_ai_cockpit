@@ -17,7 +17,24 @@ DECISION = datetime(2026, 10, 9, 12, tzinfo=UTC)
 def _evidence(analyst: AnalystInputs | None = None):
     periods = [_period(year) for year in (2022, 2023, 2024, 2025)]
     market = MarketInputs(price=50.0, price_currency="EUR", price_date=date(2026, 10, 8))
-    return build_stock_evidence("T", periods, DECISION, market, analyst, load_stock_config())
+    cohort_values = {
+        "sector": {
+            metric: {"P1": low, "P2": median, "P3": high}
+            for metric, low, median, high in (
+                ("roe", 0.05, 0.10, 0.15),
+                ("roic", 0.04, 0.08, 0.12),
+                ("ebit_margin", 0.10, 0.15, 0.20),
+                ("fcf_conversion", 0.80, 1.00, 1.20),
+                ("revenue_cagr", 0.00, 0.05, 0.10),
+                ("net_debt_to_ebitda", 0.5, 1.0, 2.0),
+                ("earnings_yield", 0.01, 0.03, 0.05),
+                ("fcf_yield", 0.01, 0.03, 0.05),
+                ("ebit_ev_yield", 0.04, 0.08, 0.12),
+                ("pe", 10.0, 15.0, 20.0),
+            )
+        }
+    }
+    return build_stock_evidence("T", periods, DECISION, market, analyst, load_stock_config(), cohort_values=cohort_values)
 
 
 def test_stock_components_are_score_eligible_with_filing_provenance() -> None:

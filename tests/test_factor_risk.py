@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import numpy as np
 import pandas as pd
+import pytest
 
 from etf_cockpit.portfolio.factor_risk import (
     FACTOR_MODEL_VERSION,
@@ -67,7 +68,11 @@ def test_factor_exposures_use_full_lookthrough_weights_and_report_coverage() -> 
 
     assert set(industry["factor"]) == {"industry:Healthcare", "industry:Technology"}
     assert abs(industry["exposure"].sum() - 1.0) < 1e-12
-    assert lookthrough["dimensions"]["industry"]["full_coverage"] is True
+    # Only ETF0 of eight positive-weight holdings is mapped: coverage is NOT full (D.C3.S04.N002).
+    assert lookthrough["dimensions"]["industry"]["full_coverage"] is False
+    assert lookthrough["dimensions"]["industry"]["instrument_count"] == 1
+    assert lookthrough["dimensions"]["industry"]["expected_instrument_count"] == 8
+    assert lookthrough["dimensions"]["industry"]["mean_coverage"] == pytest.approx(1.0 / 8.0)
 
 
 def test_lookthrough_rejects_boolean_and_nonfinite_weights() -> None:

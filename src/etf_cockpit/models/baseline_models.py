@@ -18,6 +18,12 @@ from etf_cockpit.models.distribution_store import (
 MIN_BASELINE_OBSERVATIONS = 20
 MAX_MISSING_SESSION_SHARE = 0.10
 MAX_OBSERVED_GAP_DAYS = 7
+# Excess return needs the asset and benchmark means over the dates both traded: at least this many
+# of them and at least this share of the asset's 180-return window (a few cross-exchange holidays
+# pass; a benchmark that mostly misses the window does not).
+MIN_BENCHMARK_OVERLAP_OBSERVATIONS = MIN_BASELINE_OBSERVATIONS
+MIN_BENCHMARK_OVERLAP_SHARE = 0.75
+BENCHMARK_OVERLAP_REASON = "benchmark_overlap_insufficient_for_excess_return"
 
 
 def observed_history_is_sparse(series: pd.Series) -> bool:
@@ -70,24 +76,33 @@ def baseline_forecast(
     coverage = history_coverage_ratio(len(log_returns))
     results: list[ForecastResult] = []
     # No benchmark supplied keeps the legacy zero-benchmark contract (the service nulls relative
-    # fields itself); a supplied benchmark that cannot be aligned to the training window gives None.
+    # fields itself); a supplied benchmark without enough overlap with the training window gives None.
     benchmark_mean: float | None = 0.0
+    asset_mean = mean
+    overlap_reason: str | None = None
     if benchmark_returns is not None and not benchmark_returns.empty:
         benchmark_mean = None
         if isinstance(benchmark_returns.index, pd.DatetimeIndex):
             benchmark_returns = benchmark_returns.loc[benchmark_returns.index.date <= forecast_date]
-            aligned = (
-                benchmark_returns.reindex(log_returns.tail(180).index)
-                if benchmark_returns.index.is_unique else None
-            )
-            if aligned is not None and np.isfinite(aligned.to_numpy(dtype=float)).all():
-                benchmark_mean = float(aligned.mean() * 0.35)
+            window = log_returns.tail(180)
+            if benchmark_returns.index.is_unique:
+                common = window.index.intersection(benchmark_returns.index)
+                paired = benchmark_returns.reindex(common).to_numpy(dtype=float)
+                finite = np.isfinite(paired)
+                common = common[finite]
+                if len(common) >= max(MIN_BENCHMARK_OVERLAP_OBSERVATIONS, MIN_BENCHMARK_OVERLAP_SHARE * len(window)):
+                    # Both means use the same dates, so a holiday on one calendar cannot bias the excess.
+                    if len(common) < len(window):
+                        asset_mean = float(window.reindex(common).mean() * 0.35)
+                    benchmark_mean = float(benchmark_returns.reindex(common).mean() * 0.35)
+            if benchmark_mean is None:
+                overlap_reason = BENCHMARK_OVERLAP_REASON
         else:
             # Explicit ordinal return vectors retain their legacy input contract.
             benchmark_mean = float(benchmark_returns.tail(min(180, len(log_returns))).mean() * 0.35)
     for horizon in horizons:
         expected = mean * horizon
-        expected_excess = expected - benchmark_mean * horizon if benchmark_mean is not None else None
+        expected_excess = asset_mean * horizon - benchmark_mean * horizon if benchmark_mean is not None else None
         horizon_vol = vol * np.sqrt(horizon / 252) if vol else 0.0
         # A zero/NaN horizon volatility cannot support a relative-strength score: fail closed.
         beat_vol_ok = bool(np.isfinite(horizon_vol) and horizon_vol > 0)
@@ -120,6 +135,7 @@ def baseline_forecast(
                     if expected_excess is not None and beat_vol_ok else None
                 ),
                 status="ok",
+                reason_unavailable=overlap_reason,
             )
         )
     return results
