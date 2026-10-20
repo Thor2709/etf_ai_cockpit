@@ -225,7 +225,7 @@ def checkpoint_content_sha(configured_path: str | Path | None) -> str | None:
     weights = _weight_files(root)
     if not weights:
         return None
-    base = root if root.is_dir() else root.parent
+    base = root  # _weight_files only lists weights of a directory checkpoint
     config = base / "config.json"
     files = sorted({*weights, *([config] if config.is_file() else [])})
     try:

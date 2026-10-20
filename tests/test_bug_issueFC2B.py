@@ -27,6 +27,7 @@ from etf_cockpit.models.calibration import (
     adjusted_log_return_target,
     calibrate_forecast_distribution,
     evaluate_forecast_calibration,
+    load_forecast_history,
     log_to_simple_return,
 )
 from etf_cockpit.models.forecast_scores import (
@@ -332,6 +333,29 @@ def test_c2_s09_n002_calibration_ignores_rows_created_after_the_decision_time() 
     unreadable = created.copy()
     unreadable.loc[[0], "created_at"] = "not-a-time"
     assert calibration(unreadable)["conformal_calibration"]["sample_count"] == 4  # an unreadable stamp fails closed
+
+
+def test_stored_forecast_history_carries_the_knowledge_timestamp_the_pit_gate_needs(tmp_path) -> None:
+    prices, forecasts, distribution, dates = _calibration_inputs()
+    settings = {"minimum_matured_samples": 2, "coverage_tolerance": 0.05}
+
+    def calibration(frame: pd.DataFrame) -> dict[str, object]:
+        return calibrate_forecast_distribution(frame, prices, distribution, instrument_id="AAA", decision_time=dates[6], settings=settings)
+
+    legacy, stamped = tmp_path / "legacy", tmp_path / "stamped"
+    legacy.mkdir()
+    stamped.mkdir()
+    forecasts.drop(columns="created_at").to_csv(legacy / "run.csv", index=False)
+    forecasts.to_csv(stamped / "run.csv", index=False)
+
+    # A legacy file without a row stamp gets its write time: a conservative stamp, so the gate is not
+    # "missing" for stored history, and the late stamp keeps such rows out of an earlier decision.
+    history = load_forecast_history(legacy)
+    assert "created_at" in history and history["created_at"].notna().all()
+    outcome = calibration(history)["conformal_calibration"]
+    assert "knowledge timestamp" not in str(outcome.get("reason", "")) and outcome["sample_count"] == 0
+    # A supplied row stamp takes precedence and admits the rows known before the decision.
+    assert calibration(load_forecast_history(stamped))["conformal_calibration"]["sample_count"] == 5
 
 
 def _family_rows(older: str, newer: str, *, family_first: bool = True) -> pd.DataFrame:
