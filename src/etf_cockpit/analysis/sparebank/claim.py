@@ -52,7 +52,7 @@ def routing(evidence: object) -> SparebankRoutingResult:
     instrument = instrument_values[0] if instrument_values else None
     if not jurisdiction:
         no_reason = "JURISDICTION_EVIDENCE_MISSING"
-    elif len({_normal(item) for item in jurisdiction_values}) > 1:
+    elif len({"no" if _normal(item) in _NO_TOKENS else _normal(item) for item in jurisdiction_values}) > 1:
         no_reason = "JURISDICTION_EVIDENCE_CONFLICT"
     elif _normal(jurisdiction) not in {_normal(item) for item in _NO_TOKENS}:
         no_reason = "JURISDICTION_NOT_NORWEGIAN"
@@ -153,6 +153,22 @@ def build_claim_state(
                 reasons.append("CLAIM_KNOWN_AT_INVALID")
                 values = {}
 
+    if _invalid_unit_scale(values):
+        reasons.append("CLAIM_UNIT_SCALE_INVALID")
+    periods = set()
+    for name in (*_OWNER_FACTS, "owner_attributable_book", "ec_attributable_result",
+                 "period_end_ec_count", "outstanding_ec_count", "registered_ec_count",
+                 "treasury_ec_count", "weighted_average_ec_count"):
+        if _fact_number(values, name) is None:
+            continue
+        item = values[name]
+        period = (item.get("period") or item.get("effective_at") or effective_at) if isinstance(item, Mapping) else effective_at
+        try:
+            periods.add(_parse_time(period).date().isoformat())
+        except (ValueError, TypeError, OverflowError):
+            reasons.append("CLAIM_STATEMENT_PERIOD_MISSING")
+    if len(periods) > 1 or (periods and effective_at and periods != {effective_at[:10]}):
+        reasons.append("CLAIM_STATEMENT_PERIOD_CONFLICT")
     owner_pools = _available_pool_values(values, _OWNER_FACTS)
     self_owned_pools = _available_pool_values(values, _SELF_FACTS)
     reported = _fact_number(values, "eierbrok")
@@ -190,6 +206,19 @@ def build_claim_state(
     voting_share = _fact_number(values, "voting_share")
     accounting_equity = _fact_number(values, "accounting_equity")
     count_reasons = _count_reconciliation_reasons(registered, outstanding, treasury, foundation_count)
+    expected_count = outstanding if outstanding is not None else (
+        registered - treasury if registered is not None and treasury is not None else None
+    )
+    if period_end is not None and (period_end <= 0 or (
+        expected_count is not None and not math.isclose(period_end, expected_count, rel_tol=0.0, abs_tol=1e-9)
+    )):
+        count_reasons = (*count_reasons, "EC_COUNT_RECONCILIATION_CONTRADICTION")
+    if period_end is not None and expected_count is None:
+        count_reasons = (*count_reasons, "EC_COUNT_RECONCILIATION_EVIDENCE_MISSING")
+    if any(reason in reasons for reason in (
+        "CLAIM_STATEMENT_PERIOD_CONFLICT", "CLAIM_STATEMENT_PERIOD_MISSING", "CLAIM_UNIT_SCALE_INVALID",
+    )):
+        owner_book = owner_earnings = None
     if compensation_not_reported:
         reasons.append("KOMPENSASJONSFOND_NOT_REPORTED")
     if not gavefond_reported and not (reported is not None and 0.0 <= reported <= 1.0):
@@ -237,6 +266,10 @@ def build_claim_state(
             "POOL_COMPONENT_EVIDENCE_MISSING",
             "CLAIM_REVISION_IDENTITY_MISSING",
             "EC_COUNT_RECONCILIATION_CONTRADICTION",
+            "EC_COUNT_RECONCILIATION_EVIDENCE_MISSING",
+            "CLAIM_UNIT_SCALE_INVALID",
+            "CLAIM_STATEMENT_PERIOD_CONFLICT",
+            "CLAIM_STATEMENT_PERIOD_MISSING",
         }
         for reason in reasons
     )
@@ -527,9 +560,33 @@ def _missing_pool_components(values: Mapping[str, object]) -> tuple[str, ...]:
     for name in (*_OWNER_FACTS, *_SELF_FACTS):
         if name in _OPTIONAL_SELF_FACTS:
             continue
-        if name in values and _fact_number(values, name) is None:
+        if _fact_number(values, name) is None:
+            # A reported eierbrok can stand in for an unreported gift pool, as
+            # handled by build_claim_state; mandatory owner keys cannot vanish.
             missing.append(name)
     return tuple(missing)
+
+
+def _invalid_unit_scale(values: Mapping[str, object]) -> bool:
+    """Amounts must already be canonical NOK, counts individual certificates.
+
+    Legacy scalar facts carry no metadata; explicit noncanonical or conflicting
+    metadata is never silently converted or mixed with canonical amounts.
+    """
+    names = (*_OWNER_FACTS, *_SELF_FACTS, "owner_attributable_book", "ec_attributable_result",
+             "registered_ec_count", "outstanding_ec_count", "treasury_ec_count",
+             "period_end_ec_count", "weighted_average_ec_count")
+    for name in names:
+        item = values.get(name)
+        if not isinstance(item, Mapping) or _fact_number(values, name) is None:
+            continue
+        units = {"shares", "ec", "count"} if "count" in name else {"nok"}
+        if item.get("unit") and str(item["unit"]).strip().casefold() not in units:
+            return True
+        for key, canonical in (("unit_scale", 1), ("scale", 0)):
+            if key in item and _number(item, key) != canonical:
+                return True
+    return False
 
 
 def _count_reconciliation_reasons(
