@@ -48,6 +48,7 @@ page under `docs/architecture/` or `docs/sdd/` is missing from this index.
 
 - [Canonical score engine v3](../architecture/canonical-score-engine-v3.md) - the score groups and their formulas.
 - [Decision architecture v1](../architecture/decision-architecture-v1.md) - how evidence, gates and states combine.
+- [Score lineage](../architecture/score-lineage.md) - one versioned lineage per visible score field.
 - [Execution-cost model](../architecture/execution-cost-model.md), [factor risk](../architecture/factor-risk.md), [robust risk](../architecture/robust-risk.md) and [performance attribution](../architecture/performance-attribution.md).
 - [Analysis depth scheduling](../sdd/analysis-depth-scheduling.md).
 

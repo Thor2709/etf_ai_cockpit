@@ -43,8 +43,8 @@ def _prices() -> pd.DataFrame:
 def test_subgroup_metrics_and_authority_do_not_inherit_from_aggregate() -> None:
     forecasts = pd.DataFrame(
         [
-            {"etf_id": "A", "model_name": "baseline", "forecast_date": "2024-01-01", "horizon_days": 1, "expected_return": 0.02, "q10_return": 0.0, "q90_return": 0.04, "status": "ok"},
-            {"etf_id": "B", "model_name": "baseline", "forecast_date": "2024-01-01", "horizon_days": 1, "expected_return": -0.01, "q10_return": -0.03, "q90_return": 0.01, "status": "ok"},
+            {"etf_id": "A", "model_name": "baseline", "target_id": "adj_close_log_return_5d", "forecast_date": "2023-12-28", "horizon_days": 5, "expected_return": 0.02, "q10_return": 0.0, "q90_return": 0.04, "status": "ok"},
+            {"etf_id": "B", "model_name": "baseline", "target_id": "adj_close_log_return_5d", "forecast_date": "2023-12-28", "horizon_days": 5, "expected_return": -0.01, "q10_return": -0.03, "q90_return": 0.01, "status": "ok"},
         ]
     )
     report = build_coverage_audit(
