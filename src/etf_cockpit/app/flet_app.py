@@ -13,10 +13,14 @@ import webbrowser
 from itertools import count
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from etf_cockpit.application.runtime import atomic_write_json, pid_is_alive
 from etf_cockpit.core.paths import LOG_DIR, WEB_INSTANCE_PATH
 from etf_cockpit.core.runtime import configure_runtime_environment
+
+if TYPE_CHECKING:
+    from etf_cockpit.app.state import AppState
 
 _RUNTIME_TEMP = configure_runtime_environment()
 
@@ -49,6 +53,11 @@ class _FletStaticTempfile:
         path = base / f"static_{os.getpid()}_{next(_FLET_STATIC_TEMP_COUNTER)}"
         path.mkdir(parents=True, exist_ok=True)
         return str(path)
+
+
+# Short on purpose: a directory from a process that just crashed must go at the next start;
+# a live decrypt holds its directory for seconds.
+_STARTUP_PLAINTEXT_SWEEP_AGE_SECONDS = 300.0
 
 
 def _log_dir() -> Path:
@@ -325,7 +334,21 @@ def _normalise_port(value: str) -> int:
     return port
 
 
+def _sweep_decrypted_backup_temp() -> None:
+    """Remove decrypted-backup temp directories a crashed earlier process left behind."""
+
+    try:
+        from etf_cockpit.data.backup_restore import sweep_stale_plaintext_temp
+
+        removed = sweep_stale_plaintext_temp(max_age_seconds=_STARTUP_PLAINTEXT_SWEEP_AGE_SECONDS)
+        if removed:
+            _startup_log(f"removed {removed} stale decrypted backup temp director{'y' if removed == 1 else 'ies'}")
+    except Exception:
+        _startup_log("decrypted backup temp sweep failed\n" + traceback.format_exc())
+
+
 def run() -> None:
+    _sweep_decrypted_backup_temp()
     _patch_flet_static_temp_dir()
     view_setting = os.getenv("ETF_COCKPIT_VIEW", "web").strip().lower()
     port = _normalise_port(os.getenv("ETF_COCKPIT_PORT", "8550"))

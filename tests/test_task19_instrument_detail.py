@@ -690,7 +690,7 @@ def test_instrument_detail_route_and_legacy_etf_compatibility(monkeypatch) -> No
     assert instrument_detail_route("VWCE") == "/instrument/VWCE"
     assert _page_route("/instrument/VWCE") == "/instrument"
     assert PAGES["/etf"][0] == "Instrument Detail"
-    assert PAGES["/etf"][1] is instrument_detail_page
+    assert PAGES["/etf"][1].resolve() is instrument_detail_page
 
     class Page:
         route = "/"

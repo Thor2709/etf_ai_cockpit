@@ -43,7 +43,8 @@ def test_stress_lab_exposes_stable_controls_route_and_disabled_authority() -> No
     keys = {str(control.key) for control in _walk(root) if getattr(control, "key", None)}
 
     assert {"stress-lab.scenario-id", "stress-lab.run", "stress-lab.save", "stress-lab.load", "stress-lab.reverse"} <= keys
-    assert PAGES["/stress-lab"] == ("Stress Lab", stress_lab.stress_lab_page)
+    assert PAGES["/stress-lab"][0] == "Stress Lab"
+    assert PAGES["/stress-lab"][1].resolve() is stress_lab.stress_lab_page
     assert workspace_for_route("/stress-lab") == "Portfolio"
     assert "execution_allowed=false" in _text(root)
     assert "Probability" in _text(root)

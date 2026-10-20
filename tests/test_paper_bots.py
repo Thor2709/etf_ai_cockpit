@@ -14,6 +14,7 @@ import pytest
 from etf_cockpit.data.local_storage import TransactionalStore
 from etf_cockpit.application import scoreboard_publication
 from etf_cockpit.portfolio import paper_bots
+from etf_cockpit.signals.canonical_scoring import load_score_policy
 
 
 # Fixed recorder clock: the forward recorder only accepts the current UTC day, so tests that build
@@ -25,7 +26,8 @@ def _time(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _rows(known_at: datetime, *, run_id: str = "score-run", version: str = "score-engine-v3.0.0", snapshot: str = "a") -> list[dict[str, object]]:
+def _rows(known_at: datetime, *, run_id: str = "score-run", version: str | None = None, snapshot: str = "a") -> list[dict[str, object]]:
+    version = version or load_score_policy().formula_version
     snapshot_hash = snapshot * 64
     instruments = (
         ("AAA", "STOCK", 1, 8.5, "add_candidate", "strong_evidence_candidate", "a" * 64),
@@ -779,3 +781,18 @@ def test_top_n_with_fewer_eligible_is_equal_weight_with_a_recorded_reason(monkey
     assert "fewer_than_top_n_eligible" in str(top_n["reason"])
     benchmark = next(record for record in result.records if record["bot_family"] == "B0")
     assert benchmark["reason"] is None
+
+
+def test_the_shipped_baseline_version_is_read_from_the_score_policy_and_a_literal_conflict_is_rejected(tmp_path: Path) -> None:
+    _, config = paper_bots._load_config(paper_bots.PAPER_BOTS_CONFIG_PATH)
+    assert "score-engine" in config["baseline_score_version"]
+    assert config["baseline_score_version"] == load_score_policy().formula_version
+    text = paper_bots.PAPER_BOTS_CONFIG_PATH.read_text(encoding="utf-8")
+    conflicting = tmp_path / "conflict.yaml"
+    conflicting.write_text(text + "baseline_score_version: score-engine-v0.0.0\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        paper_bots._load_config(conflicting)
+    unknown = tmp_path / "unknown.yaml"
+    unknown.write_text(text.replace("score_engine_v3.formula_version", "other.thing"), encoding="utf-8")
+    with pytest.raises(ValueError):
+        paper_bots._load_config(unknown)

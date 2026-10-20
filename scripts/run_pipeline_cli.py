@@ -42,6 +42,18 @@ def run_cli(main: Callable[[], int], *, record_paper_bots: bool = False) -> int:
                         + ": "
                         + (paper_result.reason or "one or more decision records are unavailable.")
                     )
+                from etf_cockpit.portfolio.paper_bots_execution import run_paper_bot_execution
+
+                execution_result = run_paper_bot_execution(datetime.now(timezone.utc), root=recorder_root)
+                for warning in execution_result.warnings:
+                    print(f"Paper bot execution warning: {warning}")
+                if execution_result.status != "available":
+                    print(
+                        "Paper bot execution "
+                        + execution_result.status
+                        + ": "
+                        + (execution_result.reason or "one or more executions are unavailable.")
+                    )
             except Exception as exc:
                 print(f"Paper bots unavailable: {type(exc).__name__}.")
         return result
