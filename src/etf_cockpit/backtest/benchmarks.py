@@ -25,11 +25,8 @@ def momentum_weights(price_history: pd.DataFrame, columns: list[str]) -> pd.Seri
     mom = 0.4 * (price_history.iloc[-1] / price_history.iloc[-60] - 1)
     mom += 0.4 * (price_history.iloc[-1] / price_history.iloc[-120] - 1)
     mom += 0.2 * (price_history.iloc[-1] / price_history.iloc[-180] - 1)
-    ranked = mom.sort_values(ascending=False)
-    keep = ranked.head(max(1, len(columns) // 2)).index
-    weights = pd.Series(0.0, index=columns)
-    weights.loc[keep] = 1 / len(keep)
-    return weights
+    # The top half by blended momentum, equal weight, long only.
+    return long_only_top_n_weights(mom.reindex(columns), max(1, len(columns) // 2))
 
 
 def trend_weights(config: AppConfig, price_history: pd.DataFrame, columns: list[str]) -> pd.Series:
@@ -106,18 +103,38 @@ def investable_comparison(
     }
 
 
+# Fixed baselines compared in every report: QV and QVM are the quality(-momentum)
+# strategies, v3 is the live signal pipeline, top-N is the long-only momentum book.
+FIXED_BASELINE_STRATEGIES = {
+    "QV": "quality_only",
+    "QVM": "quality_momentum",
+    "v3": "signal_strategy",
+    "top_n_long_only": "momentum_only",
+}
+
+
 def investable_comparator_summary(
-    final_values: Mapping[str, float],
+    strategy_results: Mapping[str, Mapping[str, float]],
     *,
     initial_value_eur: float,
-    benchmark_final_value: float | None,
+    vwce: Mapping[str, object] | None,
     universe: list[str],
     start: object,
     end: object,
     cost_regime: str,
+    cost_model_id: str,
 ) -> dict[str, object]:
-    """Long-only strategies vs VWCE and cash on one universe, date range and cost regime."""
+    """Long-only strategies vs VWCE and cash on one universe, date range and cost path.
 
+    Every entry in ``strategy_results`` and the VWCE row come from the same cost
+    machinery (``cost_eur``); the fixed baselines are named by identity.
+    """
+
+    baselines = {
+        label: {"strategy": name, **strategy_results[name]}
+        for label, name in FIXED_BASELINE_STRATEGIES.items()
+        if name in strategy_results
+    }
     return {
         "long_only": True,
         "short_legs_excluded": True,
@@ -125,7 +142,9 @@ def investable_comparator_summary(
         "start_date": str(start),
         "end_date": str(end),
         "cost_regime": cost_regime,
-        "strategies": {name: float(value) for name, value in final_values.items()},
-        "benchmark_vwce": None if benchmark_final_value is None else float(benchmark_final_value),
+        "cost_model_id": cost_model_id,
+        "strategies": {name: dict(values) for name, values in strategy_results.items()},
+        "baselines": baselines,
+        "vwce": dict(vwce) if vwce is not None else {"status": "unavailable", "reason": "no canonical benchmark"},
         "cash": float(initial_value_eur),
     }

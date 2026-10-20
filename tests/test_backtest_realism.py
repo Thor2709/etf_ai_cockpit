@@ -151,10 +151,13 @@ def test_zero_volume_day_gives_no_fill_and_thin_ec_needs_a_manual_quote(config, 
     zero = prices.copy()
     zero.loc[zero["etf_id"].isin(eur_ids), "volume"] = 0.0
     report = run_backtest(config, zero, rebalance_frequency_days=42, enforce_capacity=True)
-    log = report.trade_log
     assert report.metadata["capacity_enforcement"] == "enforced"
-    assert log["capacity_fill_status"].str.contains("no_fill_zero_volume").any()
-    assert (log["unfilled_eur"] > 0).any()
+    # The initial allocation is a capacity-checked purchase too: nothing fills, so
+    # the EUR listings carry no simulated exposure (the rest is unfillable without FX).
+    initial = report.metadata["initial_allocation"]["equal_weight"]
+    assert "no_fill_zero_volume" in initial["fill_status"] and initial["unfilled_eur"] > 0
+    assert np.allclose(report.equity_curves["equal_weight"].dropna(), 10_000.0)
+    assert (report.trade_log.get("unfilled_eur", pd.Series(dtype=float)) >= 0).all()
 
 
 def test_flat_override_run_is_flagged_non_qualifying(config, prices, regimes) -> None:
@@ -201,10 +204,13 @@ def test_c018_n002_capacity_is_enforced_in_the_vector_backtest(config, prices) -
     assert capped.trade_log["capacity_fill_status"].str.contains("partial_fill|no_fill").any()
     assert (capped.trade_log["unfilled_eur"] > 0).any()
     assert (capped.trade_log["max_days_to_fill"] >= 1).all()
-    # Unfilled orders cut turnover and fees against the unconstrained run.
-    capped_turnover = capped.results.set_index("strategy_name")["turnover"]
-    free_turnover = free.results.set_index("strategy_name")["turnover"]
-    assert capped_turnover["equal_weight"] < free_turnover["equal_weight"]
+    # Unfilled orders cut the traded turnover against the unconstrained run.
+    def traded(report) -> float:
+        log = report.trade_log
+        return float(log.loc[log["strategy"] == "equal_weight", "turnover"].sum())
+
+    assert traded(capped) < traded(free)
+    assert (capped.trade_log["remainder_policy"] == "cancelled_at_session_end").all()
 
 
 def test_c018_n003_trade_cost_uses_execution_notional_not_signal_day_equity(config, prices) -> None:
@@ -344,9 +350,203 @@ def test_signals_are_executed_after_the_decision_never_on_the_same_close(regimes
         assert report.metadata["same_bar_execution_count"] == 0
 
 
-def test_investable_comparators_share_universe_dates_and_costs(regimes) -> None:
-    summary = regimes.reports[COST_REGIME_MODELLED].metadata["investable_comparators"]
+def test_investable_comparators_share_universe_dates_and_costs(regimes, prices) -> None:
+    report = regimes.reports[COST_REGIME_MODELLED]
+    summary = report.metadata["investable_comparators"]
     assert summary["long_only"] is True and summary["short_legs_excluded"] is True
     assert {"buy_and_hold", "quality_only", "quality_momentum", "signal_strategy"} <= set(summary["strategies"])
     assert summary["cash"] == 10_000.0 and summary["cost_regime"] == COST_REGIME_MODELLED
-    assert all(math.isfinite(value) for value in summary["strategies"].values())
+    assert summary["cost_model_id"] == "execution-cost-v1"
+    assert all(math.isfinite(value["final_value_eur"]) for value in summary["strategies"].values())
+    # Fixed baselines are named by identity and read from the same simulated books.
+    assert {label: item["strategy"] for label, item in summary["baselines"].items()} == {
+        "QV": "quality_only", "QVM": "quality_momentum", "v3": "signal_strategy", "top_n_long_only": "momentum_only"
+    }
+    results = report.results.set_index("strategy_name")["final_value_eur"]
+    for item in summary["baselines"].values():
+        assert item["final_value_eur"] == pytest.approx(results[item["strategy"]])
+    # VWCE pays the same modelled acquisition cost a trading strategy would, over the same window.
+    vwce = summary["vwce"]
+    assert vwce["status"] == "available" and vwce["cost_eur"] > 0 and vwce["cost_regime"] == COST_REGIME_MODELLED
+    assert vwce["instrument_id"] == report.results["benchmark_id"].iloc[0]
+    legacy_vwce = regimes.reports[COST_REGIME_LEGACY].metadata["investable_comparators"]["vwce"]
+    stress_vwce = regimes.reports[COST_REGIME_STRESS].metadata["investable_comparators"]["vwce"]
+    assert legacy_vwce["cost_bps"] == pytest.approx(13.0)
+    assert stress_vwce["cost_eur"] > vwce["cost_eur"]
+    series = prices[prices["etf_id"] == vwce["instrument_id"]].assign(date=lambda frame: pd.to_datetime(frame["date"]))
+    series = series.set_index("date")["adjusted_close"]
+    ratio = float(series[report.equity_curves.index.max()] / series[report.equity_curves.index.min()])
+    assert vwce["fill_status"] == "full_fill"
+    assert vwce["final_value_eur"] == pytest.approx((10_000.0 - vwce["cost_eur"]) * ratio)
+
+
+# --- correction pass 1 ----------------------------------------------------
+
+
+def test_capacity_fails_closed_for_fx_unavailable_and_missing_volume(config, prices) -> None:
+    from etf_cockpit.backtest.engine import _apply_capacity_limits
+
+    columns = ["EURX", "NOKX"]
+    current = pd.Series(0.0, index=columns)
+    target = pd.Series({"EURX": 0.5, "NOKX": 0.5})
+    executed, info = _apply_capacity_limits(
+        current, target, notional_eur=10_000.0,
+        volume_row=pd.Series({"EURX": 1e9, "NOKX": 1e9}), price_row=pd.Series({"EURX": 10.0, "NOKX": 10.0}),
+        adv_by_instrument={"EURX": 1e9}, participation=0.1, manual_quote_ids=set(), checked_ids={"EURX"},
+    )
+    assert executed["EURX"] == 0.5 and executed["NOKX"] == 0.0  # no FX evidence: no fill
+    assert info["fx_unavailable"] == ["NOKX"] and info["statuses"]["NOKX"] == "no_fill_fx_unavailable"
+    assert info["unfilled_eur"] == pytest.approx(5_000.0)
+    # Missing volume for a checked instrument is a no fill, not an unrestricted one.
+    executed, info = _apply_capacity_limits(
+        current, target, notional_eur=10_000.0,
+        volume_row=pd.Series({"EURX": float("nan"), "NOKX": 1e9}), price_row=pd.Series({"EURX": 10.0, "NOKX": 10.0}),
+        adv_by_instrument={}, participation=0.1, manual_quote_ids=set(), checked_ids={"EURX"},
+    )
+    assert executed["EURX"] == 0.0 and info["statuses"]["EURX"] == "no_fill_zero_volume"
+    # No volume column at all: nothing fills, the result is flagged and cannot qualify.
+    report = run_backtest(config, prices.drop(columns=["volume"]), rebalance_frequency_days=42, enforce_capacity=True)
+    assert report.metadata["capacity_enforcement"] == "unavailable_no_volume_data"
+    assert report.metadata["qualifying_cost_regime"] is False
+    assert "liquidity_evidence_unavailable" in report.metadata["qualification_blockers"]
+    assert np.allclose(report.equity_curves.dropna(), 10_000.0)
+
+
+def test_initial_holdings_and_buy_and_hold_are_capacity_checked_and_costed(config, prices) -> None:
+    thin = prices.copy()
+    thin["volume"] = 2.0
+    free = run_backtest(config, thin, rebalance_frequency_days=42)
+    capped = run_backtest(config, thin, rebalance_frequency_days=42, enforce_capacity=True)
+    assert free.metadata["initial_allocation"] == {}
+    initial = capped.metadata["initial_allocation"]
+    assert set(initial) == set(capped.metadata["strategies"])
+    assert initial["buy_and_hold"]["unfilled_eur"] > 0
+    assert initial["buy_and_hold"]["remainder_policy"] == "cancelled_at_session_end"
+    # A buy-and-hold book that could not be bought is mostly cash, so it moves less than the unconstrained one.
+    assert capped.equity_curves["buy_and_hold"].pct_change().std() < free.equity_curves["buy_and_hold"].pct_change().std()
+    # A fully fillable initial purchase is costed: equity starts below the notional.
+    deep = prices.copy()
+    deep["volume"] = 1e9
+    liquid = run_backtest(config, deep, rebalance_frequency_days=42, enforce_capacity=True)
+    allocation = liquid.metadata["initial_allocation"]["buy_and_hold"]
+    assert allocation["cost_eur"] > 0
+    assert liquid.equity_curves["buy_and_hold"].dropna().iloc[0] == pytest.approx(10_000.0 - allocation["cost_eur"])
+
+
+def test_execution_day_turnover_uses_the_drifted_book_not_signal_day_weights(config, prices) -> None:
+    from etf_cockpit.backtest.engine import _drift_to_execution
+
+    signal = pd.Series({"A": 0.5, "B": 0.5})
+    drifted, session_return = _drift_to_execution(signal, pd.Series({"A": 1.0, "B": 0.0}))  # A doubles
+    assert session_return == pytest.approx(0.5)
+    assert drifted.to_dict() == pytest.approx({"A": 2 / 3, "B": 1 / 3})
+    assert float((signal - drifted).abs().sum()) == pytest.approx(1 / 3)
+    # Engine: a next-session price jump on one holding creates equal-weight turnover.
+    base = run_backtest(config, prices, rebalance_frequency_days=42)
+    first_execution = pd.Timestamp(base.trade_log["execution_date"].min())
+    jumped = prices.copy()
+    after_mask = (jumped["etf_id"] == "VWCE") & (pd.to_datetime(jumped["date"]) >= first_execution)
+    assert after_mask.any()
+    for column in ("adjusted_close", "close", "open", "high", "low"):
+        if column in jumped.columns:
+            jumped.loc[after_mask, column] *= 1.5
+    after = run_backtest(config, jumped, rebalance_frequency_days=42)
+
+    def first_turnover(report) -> float:
+        log = report.trade_log
+        row = log[(log["strategy"] == "equal_weight") & (pd.to_datetime(log["execution_date"]) == first_execution)]
+        return float(row["turnover"].sum())
+
+    assert first_turnover(after) > first_turnover(base)
+
+
+def test_non_broker_calibration_never_sets_spread_or_slippage(config) -> None:
+    kwargs = dict(adv_eur=1_000_000.0, daily_volatility=0.01)
+    base = estimate_execution_cost(config, "VWCE", 5_000.0, **kwargs)
+    for evidence_class in ("configured_assumption", "unclassified_local_calibration", "mystery", None):
+        calibration = {"spread_bps": 0.0, "slippage_bps": 0.0}
+        if evidence_class is not None:
+            calibration["evidence_class"] = evidence_class
+        estimate = estimate_execution_cost(config, "VWCE", 5_000.0, calibration=calibration, **kwargs)
+        assert estimate.spread_bps == base.spread_bps > 0 and estimate.slippage_bps == base.slippage_bps > 0
+        assert estimate.precise_alpha_claims_blocked is True
+        assert estimate.evidence_class != EVIDENCE_BROKER_FILL
+    # Broker spread alone does not clear the claim restriction while slippage is still assumed.
+    spread_only = estimate_execution_cost(
+        config, "VWCE", 5_000.0, calibration={"spread_bps": 0.5, "evidence_class": "imported_broker_fill"}, **kwargs
+    )
+    assert spread_only.spread_bps == 0.5 and spread_only.slippage_bps == base.slippage_bps
+    assert spread_only.precise_alpha_claims_blocked is True
+    assert "partial_broker_calibration_remaining_component_assumed" in spread_only.assumptions
+
+
+def test_reports_qualify_only_with_modelled_costs_and_enforced_capacity(config, prices, regimes) -> None:
+    direct = run_backtest(config, prices, rebalance_frequency_days=42)
+    assert direct.metadata["qualifying_cost_regime"] is False
+    assert "capacity_not_enforced" in direct.metadata["qualification_blockers"]
+    qualified = regimes.reports[COST_REGIME_MODELLED]
+    assert qualified.metadata["qualifying_cost_regime"] is True and qualified.metadata["qualification_blockers"] == []
+    # The three-regime workflow runs all three through the supplied runner, side by side.
+    calls: list[dict[str, object]] = []
+
+    def runner(selected_config, selected_prices, **kwargs):
+        calls.append(kwargs)
+        return run_backtest(selected_config, selected_prices, rebalance_frequency_days=42, **kwargs)
+
+    routed = run_backtest_cost_regimes(config, prices, runner=runner)
+    assert len(calls) == 3 and all(call["enforce_capacity"] is True for call in calls)
+    assert set(routed.comparison["cost_regime"]) == {COST_REGIME_MODELLED, COST_REGIME_LEGACY, COST_REGIME_STRESS}
+    assert routed.comparison.groupby("cost_regime")["qualifying_cost_regime"].first().to_dict() == {
+        COST_REGIME_MODELLED: True, COST_REGIME_LEGACY: False, COST_REGIME_STRESS: False,
+    }
+
+
+def test_future_known_fundamentals_are_excluded_from_the_decision(prices) -> None:
+    from etf_cockpit.signals.quality_momentum import build_quality_momentum_frame
+
+    ids = sorted(prices["etf_id"].unique())[:3]
+    panel = prices[prices["etf_id"].isin(ids)]
+    decision = pd.Timestamp(panel["date"].max()).date()
+
+    def fundamentals(available_at: object) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "instrument_id": ids,
+                "as_of_date": [str(decision - pd.Timedelta(days=100))] * len(ids),
+                "available_at": [str(available_at)] * len(ids),
+                "source_id": ["official"] * len(ids),
+                "source_authority": ["official_filing"] * len(ids),
+                "sector": ["s"] * len(ids),
+            }
+        )
+
+    future = build_quality_momentum_frame(panel, fundamentals(decision + pd.Timedelta(days=30)), as_of_date=decision)
+    known = build_quality_momentum_frame(panel, fundamentals(decision - pd.Timedelta(days=30)), as_of_date=decision)
+    assert (future["status"] == "unavailable").all()
+    assert future["reason"].eq("unavailable_missing_official_availability_timestamp").all()
+    assert future["quality_score"].isna().all() and future["composite_score"].isna().all()
+    # The same rows, once known, are no longer excluded for availability.
+    assert not known["reason"].eq("unavailable_missing_official_availability_timestamp").any()
+
+
+def test_d011_adv_participation_capacity_is_derived_from_eur_adv(config) -> None:
+    """D011 (summary-only): the re-derivable part is ADV participation capacity.
+
+    The estimate reports capacity against the configured participation of the
+    EUR ADV; an unavailable ADV is reported, never assumed; a multi-day fill
+    needs as many sessions as the order exceeds one session's capped value.
+    """
+
+    cap = config.costs.cost_model.max_participation_rate
+    adv = 100_000.0
+    within = estimate_execution_cost(config, "VWCE", adv * cap * 0.5, adv_eur=adv, daily_volatility=0.01)
+    beyond = estimate_execution_cost(config, "VWCE", adv * cap * 2.0, adv_eur=adv, daily_volatility=0.01)
+    missing = estimate_execution_cost(config, "VWCE", 5_000.0, daily_volatility=0.01)
+    assert within.capacity_status == "within_configured_participation"
+    assert beyond.capacity_status == "exceeds_configured_participation"
+    assert beyond.capacity_eur == pytest.approx(adv * cap)
+    assert missing.capacity_status == "unavailable_missing_adv"
+    partial = fill_feasibility(
+        adv * cap * 2.0, day_volume_shares=adv / 10.0, price_eur=10.0, adv_eur=adv, participation_rate=cap
+    )
+    assert partial.status == "partial_fill" and partial.days_to_fill == 2

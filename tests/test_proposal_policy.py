@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 import etf_cockpit.portfolio.proposal_policy as proposal_policy
+from etf_cockpit.signals.friction_edge import evaluate_friction_gate
 
 from etf_cockpit.portfolio.proposal_policy import (
     REQUIRED_GATES,
@@ -74,6 +75,7 @@ def _request(**changes: object) -> ProposalRequest:
         "expires_at": datetime(2026, 7, 20, 0, 0, tzinfo=timezone.utc),
         "authority_policy_checksum": "a" * 64,
         "gate_evidence": gates,
+        "friction_gate": evaluate_friction_gate(100.0, order_value_eur=1000.0, cost_estimate={"order_value_eur": 1000.0, "total_cost_bps": 20.0, "spread_bps": 5.0}),
         "rationale": "Target tracks the approved local optimiser output.",
         "approvals": ("paper_simulation_review",),
     }
@@ -94,7 +96,7 @@ def test_complete_inputs_create_deterministic_non_executable_proposal() -> None:
     assert first.gate_policy_version == "2026-07-12"
     assert len(first.gate_policy_checksum) == 64
     assert {item.name for item in first.alternatives} == {"no_trade", "defer", "reduce", "manual_review"}
-    assert {item.gate_id for item in first.gates} == {*REQUIRED_GATES, "event_risk"}
+    assert {item.gate_id for item in first.gates} == {*REQUIRED_GATES, "event_risk", "friction_edge"}
 
 
 def test_event_gate_is_internal_and_explicit_missing_policy_evidence_blocks(tmp_path):
@@ -322,3 +324,14 @@ def test_naive_as_of_without_event_policy_is_interpreted_as_utc(tmp_path) -> Non
     assert naive.input_material["event_control"]["status"] == "context_only"
     save_proposal_decision(naive, directory=tmp_path)
     assert load_proposal_records(directory=tmp_path)[0]["proposal_id"] == naive.proposal_id
+
+
+def test_friction_unavailable_or_insufficient_suppresses_actual_proposal():
+    missing = evaluate_friction_gate(None, order_value_eur=1000.0, cost_estimate=None)
+    insufficient = evaluate_friction_gate(10.0, order_value_eur=1000.0, cost_estimate={"order_value_eur": 1000.0, "total_cost_bps": 20.0, "spread_bps": 5.0})
+    for evidence in (None, missing, insufficient):
+        decision = build_proposal_decision(_request(friction_gate=evidence))
+        assert not decision.proposal_allowed and decision.quantity_delta == 0.0
+        assert not next(gate for gate in decision.gates if gate.gate_id == "friction_edge").passed
+        assert decision.execution_allowed is False
+    assert build_proposal_decision(_request()).proposal_allowed

@@ -196,8 +196,10 @@ def estimate_execution_cost(
     quoted_spread = _valid_quote(quoted_spread_bps)
     realised_slippage = _valid_quote(realised_slippage_bps)
     calibration_class = str((calibration or {}).get("evidence_class") or "").strip().lower() if calibration else ""
-    # Paper fills are kept apart: they never calibrate spread or slippage.
-    microstructure_calibration = None if calibration_class == EVIDENCE_PAPER_FILL else calibration
+    # Only verified imported broker fills may calibrate spread or slippage.
+    # Paper fills, configured assumptions and unclassified calibrations are kept
+    # apart: the conservative configured/quoted assumption stays in force.
+    microstructure_calibration = calibration if calibration_class == EVIDENCE_BROKER_FILL else None
     spread, spread_calibrated = _calibration_value(
         microstructure_calibration, "spread_bps", quoted_spread if quoted_spread is not None else configured_spread
     )
@@ -255,12 +257,13 @@ def estimate_execution_cost(
     else:
         quality = "configured_assumptions"
     spread_known = spread_configured_for_instrument or quoted_spread is not None or spread_calibrated
-    if spread_calibrated and calibration_class == EVIDENCE_BROKER_FILL:
+    if spread_calibrated or slippage_calibrated:
+        # Only imported broker fills reach here; a missing component stays a conservative assumption.
         evidence_class = EVIDENCE_BROKER_FILL
-    elif spread_calibrated or slippage_calibrated:
-        evidence_class = EVIDENCE_UNCLASSIFIED
     elif calibration_class == EVIDENCE_PAPER_FILL:
         evidence_class = EVIDENCE_PAPER_FILL
+    elif calibration_class and calibration_class != EVIDENCE_CONFIGURED:
+        evidence_class = EVIDENCE_UNCLASSIFIED
     else:
         evidence_class = EVIDENCE_CONFIGURED
     effective_spread = spread_cost_bps(spread, order_type=order_type)
@@ -276,8 +279,10 @@ def estimate_execution_cost(
         assumptions.append("missing_microstructure_widens_estimate")
     if calibration:
         assumptions.append("completed_local_calibration_inputs_only")
-    if calibration_class == EVIDENCE_PAPER_FILL:
-        assumptions.append("paper_fill_calibration_not_applied_to_spread_or_slippage")
+    if calibration and calibration_class != EVIDENCE_BROKER_FILL:
+        assumptions.append("non_broker_calibration_not_applied_to_spread_or_slippage")
+    elif calibration and not (spread_calibrated and slippage_calibrated):
+        assumptions.append("partial_broker_calibration_remaining_component_assumed")
     if not spread_known:
         assumptions.append("spread_unknown_conservative_range")
     if side == "sell":
@@ -329,7 +334,7 @@ def estimate_execution_cost(
         side=side,
         evidence_class=evidence_class,
         spread_range_bps=(round(spread_range[0], 8), round(spread_range[1], 8)),
-        precise_alpha_claims_blocked=evidence_class != EVIDENCE_BROKER_FILL or not spread_known,
+        precise_alpha_claims_blocked=not (spread_calibrated and slippage_calibrated and spread_known),
     )
 
 

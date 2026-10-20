@@ -17,9 +17,11 @@ import pandas as pd
 from etf_cockpit.backtest.engine import (
     BacktestDataUnavailableError,
     BacktestReport,
+    COST_REGIME_MODELLED,
     backtest_input_checksum,
     quality_momentum_evidence_checksum,
     run_backtest,
+    run_backtest_cost_regimes,
 )
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.atomic_io import (
@@ -320,11 +322,18 @@ class BacktestService:
                 structure_holdings=(structure_evidence.holdings if structure_evidence else None),
                 calendar_identity_resolver=calendar_identity_resolver,
             )
-            report = _run_backtest_compatibly(
+            # Every report carries the modelled default (the only regime that can
+            # qualify), the 13 bp legacy override and the conservative stress side by side.
+            cost_regimes = run_backtest_cost_regimes(
                 self.config,
                 prices,
+                runner=lambda config, panel, **kwargs: _run_backtest_compatibly(config, panel, **kwargs),
+                comparison_runner=lambda config, panel, **kwargs: run_backtest(config, panel, **kwargs),
                 **runner_kwargs,
             )
+            report = cost_regimes.reports[COST_REGIME_MODELLED]
+            report.metadata["cost_regime_comparison"] = cost_regimes.comparison.to_dict("records")
+            report.metadata["qualifying_regime"] = cost_regimes.qualifying_regime
             # Bind every runner result to the freshly resolved readback context
             # before publication, including older local runner seams.
             reference_binding = _reference_binding(reference_context)
