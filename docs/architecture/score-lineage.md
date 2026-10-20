@@ -30,7 +30,7 @@ Display annotations (`display_adjusted_score_10`, the missing-data penalty) are 
    with the same penalty.
 2. **Forecasts are a separate `expected_return` domain.** `canonical_scoring.rank_domain_weights()` returns 0.0 for it
    unless a promotion record has `promoted: true`, the paired `test_id` (#928) and a finite weight in (0, 1].
-   `score_engine_v3.yaml` changes only with a `formula_version` bump (NS1: 3.0.0 -> 3.1.0 when the yaml became the single weight source; the pinned checksum moved with it). A comment edit would change `formula_checksum` (pinned in
+   `score_engine_v3.yaml` changes only with a `formula_version` bump (NS1: 3.0.0 -> 3.1.0 when the yaml became the single weight source; PSF: 3.1.0 -> 3.2.0 when momentum+trend became one price-strength family capped at 30% of each weight table, relative_strength went to weight 0, and risk became a centred volatility-only term; the pinned checksum moved with each). A comment edit would change `formula_checksum` (pinned in
    `tests/test_decision_domains.py` and stamped into history), so the "not a rank weight" statement lives here and in
    `canonical_scoring.py`.
 3. **History is append-only.** A formula version bump adds rows with the new `formula_version`/`formula_checksum`;

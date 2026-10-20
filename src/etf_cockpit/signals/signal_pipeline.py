@@ -31,8 +31,11 @@ from etf_cockpit.models.uncertainty import (
     unavailable_decomposition,
 )
 from etf_cockpit.models.calibration import calibrate_forecast_distribution
+from etf_cockpit.models.ensemble import BASELINE_SOURCE_FORECAST
 
 BASELINE_MODEL_VERSION = "momentum_shrunk_v1"
+EDGE_SOURCE_FORECAST = "forecast_q50_return"
+EDGE_SOURCE_HEURISTIC = "heuristic_extrapolated_momentum"
 # Dataset kinds and freshness that count as verified price evidence for the evidence gate.
 _EVIDENCE_SOURCE_TYPES = frozenset({"prices"})
 _EVIDENCE_FRESH_STATUSES = frozenset({"ok"})
@@ -79,13 +82,20 @@ def generate_signals(
     # deterministic baseline signal path.  The fallback is an action-policy
     # input only; the published return-distribution fields remain N/A.
     fallback_edge = _technical_expected_edge(scored)
+    # The fallback re-uses momentum and relative strength, so it is labelled a heuristic (extrapolated momentum) and
+    # is never presented as, or weighted like, a forecast expected edge.
     if forecast_distributions is None:
         scored["expected_edge_60d"] = fallback_edge
+        scored["expected_edge_source"] = EDGE_SOURCE_HEURISTIC
     else:
         scored["expected_edge_60d"] = scored["etf_id"].map(
             lambda etf_id: _primary_horizon_distribution_value(forecast_distributions.get(str(etf_id)), "q50_return")
         )
-        scored["expected_edge_60d"] = pd.to_numeric(scored["expected_edge_60d"], errors="coerce").fillna(fallback_edge)
+        scored["expected_edge_60d"] = pd.to_numeric(scored["expected_edge_60d"], errors="coerce")
+        scored["expected_edge_source"] = scored["expected_edge_60d"].notna().map(
+            {True: EDGE_SOURCE_FORECAST, False: EDGE_SOURCE_HEURISTIC}
+        )
+        scored["expected_edge_60d"] = scored["expected_edge_60d"].fillna(fallback_edge)
 
     total_value = portfolio_value(holdings)
     cash_weight = max(0.0, 1.0 - float(holdings["current_weight"].sum()))
@@ -315,6 +325,8 @@ def generate_signals(
                 "drift_eur": drift_eur,
                 "drift_percent": drift_percent,
                 "expected_edge_bps": expected_edge_bps,
+                "expected_edge_source": str(row.get("expected_edge_source") or EDGE_SOURCE_HEURISTIC),
+                "baseline_score_source": str(row.get("score_baseline_source") or BASELINE_SOURCE_FORECAST),
                 "gross_expected_return": _distribution_value(distribution, "q50_return"),
                 "q10_expected_return": _distribution_value(distribution, "q10_return"),
                 "q50_expected_return": _distribution_value(distribution, "q50_return"),

@@ -31,14 +31,16 @@ REPO = Path(__file__).resolve().parents[1]
 CONFIGS = REPO / "configs"
 V3 = CONFIGS / "score_engine_v3.yaml"
 
-# The hard-coded tables NS1 moved into the yaml (values must be identical: this train changes no weight value).
+# The tables NS1 moved into the yaml. NS1 kept the original values (ETF 0.22/0.18/0.14/0.14/0.10/0.10; STOCK
+# 0.18/0.13/0.12/0.12/0.10/0.12/0.13/0.05); PSF (score-engine-v3.2.0) capped momentum+trend at 30% and zeroed relative_strength,
+# the freed weight going proportionally to the non-price families. The names are kept: they pin "yaml == every consumer".
 ORIGINAL_ETF_TABLE = {
-    "momentum": 0.22, "trend": 0.18, "relative_strength": 0.14, "risk": 0.14, "liquidity_cost": 0.10,
-    "etf_exposure": 0.10, "baseline": 0.0, "timesfm": 0.0, "toto": 0.0,
+    "momentum": 0.165, "trend": 0.135, "relative_strength": 0.0, "risk": 0.2882, "liquidity_cost": 0.2059,
+    "etf_exposure": 0.2059, "baseline": 0.0, "timesfm": 0.0, "toto": 0.0,
 }
 ORIGINAL_STOCK_TABLE = {
-    "momentum": 0.18, "trend": 0.13, "relative_strength": 0.12, "risk": 0.12, "liquidity_cost": 0.10,
-    "stock_value": 0.12, "stock_quality": 0.13, "analyst_revision": 0.05, "baseline": 0.0, "timesfm": 0.0, "toto": 0.0,
+    "momentum": 0.1742, "trend": 0.1258, "relative_strength": 0.0, "risk": 0.1615, "liquidity_cost": 0.1346,
+    "stock_value": 0.1615, "stock_quality": 0.175, "analyst_revision": 0.0674, "baseline": 0.0, "timesfm": 0.0, "toto": 0.0,
 }
 
 
@@ -62,8 +64,8 @@ def test_headline_actions_and_tuner_read_the_same_v3_yaml_weights(tmp_path: Path
     config = load_config()
     assert config.models.ensemble["weights"] == document["action_composite"]["weights"]
     assert config.models.ensemble["weights"] == {
-        "momentum": 0.20, "trend": 0.15, "risk": 0.10, "relative_strength": 0.10, "toto": 0.15, "timesfm": 0.10,
-        "baseline_ml": 0.05, "chatgpt_thesis": 0.05,
+        "momentum": 0.155, "trend": 0.115, "risk": 0.14, "relative_strength": 0.0, "toto": 0.21, "timesfm": 0.14,
+        "baseline_ml": 0.07, "chatgpt_thesis": 0.07,
     }
     # tuner: every knob reads this file and its current value is the yaml leaf
     registry = load_tuning_registry()
@@ -84,12 +86,12 @@ def test_headline_actions_and_tuner_read_the_same_v3_yaml_weights(tmp_path: Path
     copy = tmp_path / "configs"
     shutil.copytree(CONFIGS, copy)
     edited = yaml.safe_load((copy / "score_engine_v3.yaml").read_text(encoding="utf-8"))
-    edited["asset_policies"]["ETF"]["headline_evidence"]["momentum"] = 0.25
-    edited["action_composite"]["weights"]["momentum"] = 0.25
+    edited["asset_policies"]["ETF"]["headline_evidence"]["momentum"] = 0.15
+    edited["action_composite"]["weights"]["momentum"] = 0.15
     (copy / "score_engine_v3.yaml").write_text(yaml.safe_dump(edited, sort_keys=False), encoding="utf-8")
-    assert headline_evidence_weights("ETF", path=copy / "score_engine_v3.yaml")["momentum"] == 0.25
-    assert load_config(copy).models.ensemble["weights"]["momentum"] == 0.25
-    assert load_tuning_registry(copy / "tuning_v1.yaml").current_values()["ensemble.momentum"] == 0.25
+    assert headline_evidence_weights("ETF", path=copy / "score_engine_v3.yaml")["momentum"] == 0.15
+    assert load_config(copy).models.ensemble["weights"]["momentum"] == 0.15
+    assert load_tuning_registry(copy / "tuning_v1.yaml").current_values()["ensemble.momentum"] == 0.15
 
 
 def test_weights_fail_closed_when_the_yaml_does_not_carry_them(tmp_path: Path) -> None:
@@ -156,14 +158,21 @@ def test_missing_chatgpt_thesis_lowers_coverage_and_never_contributes_zero() -> 
     assert without["score_chatgpt_thesis"].isna().all()  # never fillna(0.0)
     assert (supplied["score_chatgpt_thesis"] == 0.0).all()  # an explicit 0.0 opinion is a real value
     weights = config.models.ensemble["weights"]
-    assert (supplied["composite_coverage"] == 1.0).all()
-    assert (without["composite_coverage"] < 1.0).all()
+    # PSF: an unavailable model keeps its weight and lowers coverage, so full coverage needs every model forecast too
+    every_model = {name: {"AAA": 0.1, "BBB": 0.2, "CCC": 0.3} for name in ("toto", "timesfm", "baseline")}
+    full = dict(toto_available=True, timesfm_available=True, forecast_scores=every_model)
+    supplied_full = component_scores(_features(), base["allocation"], config, chatgpt_scores={"AAA": 0.0, "BBB": 0.0, "CCC": 0.0}, **full)
+    without_full = component_scores(_features(), base["allocation"], config, **full)
+    assert (supplied_full["composite_coverage"] == 1.0).all()
+    assert (without_full["composite_coverage"] < 1.0).all()
+    assert (without["composite_coverage"] < without_full["composite_coverage"]).all()
     # missing != 0: the unscored thesis is excluded from the numerator AND the denominator, not averaged in as zero
     row = without.iloc[0]
     from etf_cockpit.models.ensemble import effective_ensemble_weights
 
     effective = effective_ensemble_weights(weights, toto_available=False, timesfm_available=False)
-    retained = {k: w for k, w in effective.items() if w > 0 and k != "chatgpt_thesis"}
+    # PSF: unavailable models and the heuristic baseline keep their weight in the table but contribute no score
+    retained = {k: w for k, w in effective.items() if w > 0 and k not in {"chatgpt_thesis", "toto", "timesfm", "baseline_ml"}}
     numerator = sum(w * row["score_" + k] for k, w in retained.items())
     assert row["total_score"] == pytest.approx(numerator / sum(retained.values()) - row["cost_penalty"])
     assert row["composite_coverage"] == pytest.approx(sum(retained.values()) / sum(w for w in effective.values() if w > 0))

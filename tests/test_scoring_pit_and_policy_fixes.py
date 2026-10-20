@@ -70,7 +70,7 @@ def test_candidate_peer_reference_ignores_future_and_undated_peers() -> None:
     assert s._candidate_relative_reference(frame, date(2025, 1, 1)) is None
 
 
-def test_baseline_weight_is_redistributed_from_unavailable_models() -> None:
+def test_baseline_weight_is_not_redistributed_from_unavailable_models() -> None:
     config = N(models=N(ensemble={"weights": {"momentum": 0.5, "baseline_ml": 0.25, "timesfm": 0.25}}))
     row = {
         "etf_id": "X", "score_momentum": 0.0, "score_baseline_ml": 1.0,
@@ -80,9 +80,9 @@ def test_baseline_weight_is_redistributed_from_unavailable_models() -> None:
     }
     unknown = canonical_score_from_signal_row(row, config, "2026-01-01")
     score = canonical_score_from_signal_row({**row, "price_freshness": "ok"}, config, "2026-01-01")
-    # P04-N012 blocks unknown freshness; with fresh evidence, unavailable
-    # timesfm's 0.25 still splits 50/50 into momentum and baseline.
-    assert (unknown.legacy_composite_raw, score.legacy_composite_raw) == (None, pytest.approx(0.375))
+    # P04-N012 blocks unknown freshness; with fresh evidence, unavailable timesfm's 0.25 is NOT moved to momentum/baseline
+    # (PSF: that re-counted price strength): the composite is the configured 0.5/0.25 blend of what is available.
+    assert (unknown.legacy_composite_raw, score.legacy_composite_raw) == (None, pytest.approx(0.25 / 0.75, abs=1e-4))
 
 
 @pytest.mark.parametrize(
