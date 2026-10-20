@@ -6,14 +6,24 @@ from datetime import date, datetime, time, timedelta, timezone
 from collections.abc import Callable, Mapping
 import hashlib
 import json
+import math
 from itertools import combinations
+from pathlib import Path
 from statistics import NormalDist
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import numpy as np
 import pandas as pd
+import yaml
 
-from etf_cockpit.backtest.benchmarks import equal_weights, momentum_weights, target_weights, trend_weights
+from etf_cockpit.backtest.benchmarks import (
+    assert_long_only,
+    equal_weights,
+    investable_comparator_summary,
+    momentum_weights,
+    target_weights,
+    trend_weights,
+)
 from etf_cockpit.backtest.metrics import performance_metrics
 from etf_cockpit.portfolio.benchmark_reference import (
     clip_to_decision_window,
@@ -34,7 +44,13 @@ from etf_cockpit.data.market_calendar import (
 )
 from etf_cockpit.data.etf_structure import structure_cap_scope, structure_confidence_caps, structure_input_checksum
 from etf_cockpit.features.feature_pipeline import compute_features, latest_features
-from etf_cockpit.portfolio.costs import COST_MODEL_ID, CostEstimate, estimate_rebalance_cost
+from etf_cockpit.portfolio.costs import (
+    COST_MODEL_ID,
+    CostEstimate,
+    average_daily_value_eur,
+    estimate_rebalance_cost,
+    fill_feasibility,
+)
 from etf_cockpit.portfolio.benchmark_reference_contract import (
     CanonicalBenchmarkRegistry,
     unavailable_reference_projection,
@@ -164,25 +180,199 @@ MIN_INSTRUMENT_HISTORY_SESSIONS = 260
 def _exclude_late_listed_short_history(pivot: pd.DataFrame, columns: list[str]) -> tuple[list[str], tuple[str, ...]]:
     """Leave out instruments that started trading late and lack one year of sessions.
 
-    Only late listings are dropped: an instrument whose history starts with the
-    window but stops early (for example a delisting) stays in, so the complete-
-    session rule still fails closed instead of hiding survivorship gaps.
+    Only late listings that are still trading at the window end are dropped.
+    An instrument whose history stops early (a delisting) stays in, whether it
+    started with the window or late, so the complete-session rule still fails
+    closed instead of hiding a delisted loser (survivorship).
     """
     if not columns:
         return columns, ()
     observed = pivot[columns].notna()
     counts = observed.sum()
     first_seen = observed.idxmax()
+    last_seen = observed.iloc[::-1].idxmax()
     window_start = first_seen.min()
+    window_end = last_seen.max()
     short = [
         column
         for column in columns
-        if int(counts[column]) < MIN_INSTRUMENT_HISTORY_SESSIONS and first_seen[column] > window_start
+        if int(counts[column]) < MIN_INSTRUMENT_HISTORY_SESSIONS
+        and first_seen[column] > window_start
+        and last_seen[column] >= window_end
     ]
     if len(short) == len(columns):
         return columns, ()
     kept = [column for column in columns if column not in short]
     return kept, tuple(short)
+
+
+COST_REGIME_MODELLED = "modelled_default"
+COST_REGIME_LEGACY = "legacy_flat_override"
+COST_REGIME_STRESS = "conservative_stress"
+_BACKTEST_DEFAULT_PATH = CONFIG_DIR / "backtest_default.yaml"
+_FLAT_COST_NOT_EVIDENCE = (
+    "A flat basis-point override is a legacy assumption, not execution evidence, and never qualifies a backtest."
+)
+SURVIVORSHIP_CONDITIONAL = "conditional_historical_simulation"
+SURVIVORSHIP_FULL = "full_history_simulation"
+_REMAINDER_POLICY = "cancelled_at_session_end"
+
+
+@dataclass(frozen=True)
+class CostRegimeReport:
+    """The same strategy run under the modelled default, the legacy flat override and a stress."""
+
+    reports: dict[str, BacktestReport]
+    comparison: pd.DataFrame
+    qualifying_regime: str = COST_REGIME_MODELLED
+    execution_allowed: bool = False
+
+
+def load_backtest_realism_settings(path: Path | None = None) -> dict[str, object]:
+    """Read the additive cost-realism flags of ``configs/backtest_default.yaml`` with safe defaults."""
+
+    try:
+        payload = yaml.safe_load((path or _BACKTEST_DEFAULT_PATH).read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        payload = {}
+    if not isinstance(payload, Mapping):
+        payload = {}
+    legacy = finite_float_or_none(payload.get("transaction_cost_bps"))
+    stress = finite_float_or_none(payload.get("stress_cost_multiplier"))
+    return {
+        "legacy_override_bps": 13.0 if legacy is None or legacy < 0 else legacy,
+        "stress_cost_multiplier": 2.0 if stress is None or stress < 1.0 else stress,
+        "enforce_capacity": payload.get("enforce_capacity") is not False,
+        "legacy_override_qualifies": False,
+    }
+
+
+def _apply_capacity_limits(
+    current: pd.Series,
+    target: pd.Series,
+    *,
+    notional_eur: float,
+    volume_row: pd.Series,
+    price_row: pd.Series,
+    adv_by_instrument: Mapping[str, float],
+    participation: float,
+    manual_quote_ids: set[str],
+    checked_ids: set[str],
+) -> tuple[pd.Series, dict[str, object]]:
+    """Clip the executed weights to what the participation cap lets fill.
+
+    Fails closed: an order in an instrument whose liquidity cannot be verified
+    (non-EUR listing without an FX series, missing volume or price, thin
+    certificate without a manual quote) does not fill.  Unfilled sells never
+    fund buys (buys are scaled down by the sell shortfall), so the executed book
+    can never exceed 100 percent.  An unfilled remainder is cancelled at the
+    session end (``remainder_policy``); ``days_to_fill`` reports how many
+    sessions it would have needed.
+    """
+
+    executed = target.copy()
+    statuses: dict[str, str] = {}
+    unfilled_eur = 0.0
+    max_days = 1
+    sell_shortfall = 0.0
+    fx_unavailable: list[str] = []
+    if notional_eur <= 0.0:
+        return current.copy(), {
+            "unfilled_eur": 0.0,
+            "statuses": statuses,
+            "max_days_to_fill": 0,
+            "fx_unavailable": [],
+            "remainder_policy": _REMAINDER_POLICY,
+        }
+    for instrument_id, delta in (target - current).items():
+        if abs(float(delta)) <= 1e-12:
+            continue
+        key = str(instrument_id)
+        order_eur = notional_eur * abs(float(delta))
+        if key not in checked_ids:
+            fx_unavailable.append(key)
+            status, fillable_eur, days = "no_fill_fx_unavailable", 0.0, None
+        else:
+            feasibility = fill_feasibility(
+                order_eur,
+                day_volume_shares=volume_row.get(instrument_id),
+                price_eur=price_row.get(instrument_id),
+                adv_eur=adv_by_instrument.get(key),
+                participation_rate=participation,
+                manual_quote_required=key in manual_quote_ids,
+            )
+            if feasibility.status == "full_fill":
+                continue
+            status, fillable_eur, days = feasibility.status, feasibility.fillable_eur, feasibility.days_to_fill
+        statuses[key] = status
+        unfilled_eur += order_eur - fillable_eur
+        if days is not None:
+            max_days = max(max_days, days)
+        filled_weight = fillable_eur / notional_eur
+        executed[instrument_id] = float(current[instrument_id]) + math.copysign(filled_weight, float(delta))
+        if delta < 0:
+            sell_shortfall += abs(float(delta)) - filled_weight
+    if sell_shortfall > 0.0:
+        buys = (executed - current).clip(lower=0.0)
+        total_buy = float(buys.sum())
+        if total_buy > 0.0:
+            keep = max(0.0, total_buy - sell_shortfall) / total_buy
+            executed = executed - buys * (1.0 - keep)
+    return executed, {
+        "unfilled_eur": unfilled_eur,
+        "statuses": statuses,
+        "max_days_to_fill": max_days,
+        "fx_unavailable": fx_unavailable,
+        "remainder_policy": _REMAINDER_POLICY,
+    }
+
+
+def _drift_to_execution(signal_weights: pd.Series, execution_returns: pd.Series) -> tuple[pd.Series, float]:
+    """Value-weighted holdings after the execution session's returns, and that session's portfolio return.
+
+    Orders fill at the execution close, so the target is compared with this
+    drifted book, never with the signal-day weights.
+    """
+
+    execution_return = float((signal_weights * execution_returns).sum())
+    if execution_return <= -1.0:
+        return signal_weights.copy(), execution_return
+    return signal_weights * (1.0 + execution_returns) / (1.0 + execution_return), execution_return
+
+
+def _adv_by_instrument(
+    volume_pivot: pd.DataFrame, raw_close_pivot: pd.DataFrame, checked_ids: set[str], upto: int
+) -> dict[str, float]:
+    """20-session EUR ADV per instrument from history up to position ``upto`` (point-in-time)."""
+
+    result: dict[str, float] = {}
+    for column in sorted(checked_ids):
+        value = average_daily_value_eur(volume_pivot[column].iloc[: upto + 1], raw_close_pivot[column].iloc[: upto + 1])
+        if value is not None:
+            result[column] = value
+    return result
+
+
+def _volume_pivot(prices: pd.DataFrame, index: pd.DatetimeIndex, columns: list[str]) -> pd.DataFrame | None:
+    """Share volume and unadjusted close by session, or None when the panel has no volume."""
+
+    if not isinstance(prices, pd.DataFrame) or not {"date", "etf_id", "volume"}.issubset(prices.columns):
+        return None
+    frame = prices.copy()
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce").dt.normalize()
+    frame = frame.dropna(subset=["date"]).drop_duplicates(["date", "etf_id"], keep="last")
+    volume = frame.pivot(index="date", columns="etf_id", values="volume")
+    return volume.reindex(index=index.normalize(), columns=columns).set_axis(index)
+
+
+def _raw_close_pivot(prices: pd.DataFrame, index: pd.DatetimeIndex, columns: list[str], fallback: pd.DataFrame) -> pd.DataFrame:
+    if not isinstance(prices, pd.DataFrame) or "close" not in prices.columns:
+        return fallback
+    frame = prices.copy()
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce").dt.normalize()
+    frame = frame.dropna(subset=["date"]).drop_duplicates(["date", "etf_id"], keep="last")
+    close = frame.pivot(index="date", columns="etf_id", values="close")
+    return close.reindex(index=index.normalize(), columns=columns).set_axis(index)
 
 
 def _price_pivot(prices: pd.DataFrame) -> pd.DataFrame:
@@ -779,6 +969,42 @@ def _execution_evidence(
     }
 
 
+_TRADE_LOG_BASE_COLUMNS = (
+    "date",
+    "signal_date",
+    "execution_date",
+    "strategy",
+    "turnover",
+    "cost_eur",
+    "estimated_cost_bps",
+    "cost_model_id",
+    "cost_data_quality",
+    "capacity_eur",
+)
+_TRADE_LOG_CAPACITY_COLUMNS = (
+    "capacity_enforced",
+    "unfilled_eur",
+    "capacity_fill_status",
+    "max_days_to_fill",
+    "capacity_fx_unavailable",
+    "remainder_policy",
+)
+
+
+def _trade_log_columns(capacity_active: bool) -> list[str]:
+    """Fixed trade-log schema, so a run with no rows at all still serialises with its columns."""
+
+    evidence = _execution_evidence(
+        current_prices=pd.Series(dtype=float),
+        next_adjusted_close=pd.Series(dtype=float),
+        next_open=pd.Series(dtype=float),
+        next_high=pd.Series(dtype=float),
+        next_low=pd.Series(dtype=float),
+        changed_weights=pd.Series(dtype=float),
+    )
+    return list(dict.fromkeys([*_TRADE_LOG_BASE_COLUMNS, *(_TRADE_LOG_CAPACITY_COLUMNS if capacity_active else ()), *evidence]))
+
+
 def _open_gap_warning(gap: float | None, threshold: float | None) -> bool | None:
     """Flag a large close-to-next-open gap; unknown stays unknown."""
 
@@ -1085,6 +1311,8 @@ def run_backtest(
     reference_identity: Mapping[str, object] | None = None,
     benchmark_registry: CanonicalBenchmarkRegistry | None = None,
     calendar_identity_resolver: Callable[[str, object], Mapping[str, object] | None] | None = None,
+    cost_stress_multiplier: float = 1.0,
+    enforce_capacity: bool = False,
 ) -> BacktestReport:
     if isinstance(rebalance_frequency_days, bool) or not isinstance(rebalance_frequency_days, int) or rebalance_frequency_days < 1:
         raise ValueError("rebalance_frequency_days must be an integer of at least 1")
@@ -1094,6 +1322,9 @@ def run_backtest(
     transaction_cost = finite_float_or_none(transaction_cost_bps)
     if transaction_cost_bps is not None and (transaction_cost is None or transaction_cost < 0):
         raise ValueError("transaction_cost_bps must be finite and non-negative")
+    stress_multiplier = finite_float_or_none(cost_stress_multiplier)
+    if stress_multiplier is None or stress_multiplier < 1.0:
+        raise ValueError("cost_stress_multiplier must be finite and at least 1")
     validate_execution_disabled(benchmark_reference or unavailable_reference_projection())
     validate_execution_disabled(reference_identity or {})
     calculation_window = _declared_calculation_window(reference_identity)
@@ -1118,8 +1349,14 @@ def run_backtest(
     columns = [column for column in config.universe.enabled_ids if column in pivot_raw.columns]
     if not columns:
         raise BacktestDataUnavailableError("not_enough_data: no configured instruments have adjusted-close history")
+    universe_without_history = [column for column in config.universe.enabled_ids if column not in pivot_raw.columns]
     columns, short_history_ids = _exclude_late_listed_short_history(pivot_raw, columns)
     selected_raw = pivot_raw.reindex(columns=columns)
+    observed_flags = selected_raw.notna()
+    panel_end = selected_raw.index.max()
+    delisted_ids = sorted(
+        column for column in columns if observed_flags[column].iloc[::-1].idxmax() < panel_end
+    )
     column_set = set(columns)
     complete_mask = selected_raw.notna().all(axis=1)
     missing_observation_rows = int((~complete_mask).sum())
@@ -1188,6 +1425,76 @@ def run_backtest(
     if missing_observation_rows:
         metadata["data_warning"] = "Incomplete adjusted-price rows were excluded; no forward-fill was applied."
     metadata["excluded_short_history_instruments"] = list(short_history_ids)
+    survivorship_reasons = []
+    if universe_without_history:
+        survivorship_reasons.append("universe_instruments_without_price_history: " + ", ".join(universe_without_history))
+    if short_history_ids:
+        survivorship_reasons.append("late_listed_short_history_excluded: " + ", ".join(short_history_ids))
+    if missing_observation_rows:
+        survivorship_reasons.append(
+            f"incomplete_price_rows_excluded_never_zero_filled: {missing_observation_rows}"
+        )
+    metadata["delisted_instruments"] = delisted_ids
+    metadata["survivorship_label"] = SURVIVORSHIP_CONDITIONAL if survivorship_reasons else SURVIVORSHIP_FULL
+    metadata["survivorship_reasons"] = survivorship_reasons
+    metadata["missing_prices_zero_filled"] = False
+    if transaction_cost_bps is not None:
+        cost_regime = COST_REGIME_LEGACY
+    elif stress_multiplier > 1.0:
+        cost_regime = COST_REGIME_STRESS
+    else:
+        cost_regime = COST_REGIME_MODELLED
+    metadata["cost_regime"] = cost_regime
+    metadata["cost_stress_multiplier"] = stress_multiplier
+    metadata["is_execution_evidence"] = False
+    metadata["cost_regime_note"] = (
+        _FLAT_COST_NOT_EVIDENCE
+        if cost_regime == COST_REGIME_LEGACY
+        else "Detailed modelled costs are local research estimates, not execution evidence."
+    )
+    participation_cap = min(1.0, max(0.0, float(config.costs.cost_model.max_participation_rate)))
+    volume_pivot = _volume_pivot(prices, pivot.index, columns) if enforce_capacity else None
+    volume_evidence = volume_pivot is not None and bool(volume_pivot.notna().any().any())
+    if enforce_capacity and volume_pivot is None:
+        # No volume column at all: liquidity cannot be verified, so no order fills (fail closed).
+        volume_pivot = pd.DataFrame(np.nan, index=pivot.index, columns=columns)
+    raw_close_pivot = _raw_close_pivot(prices, pivot.index, columns, pivot) if enforce_capacity else None
+    capacity_active = enforce_capacity and volume_pivot is not None and raw_close_pivot is not None
+    instrument_currency = {item.id: str(item.currency or "EUR").upper() for item in config.universe.etfs}
+    # Non-EUR listings have no FX series here, so their capacity is unchecked, never a local-currency figure read as EUR.
+    capacity_checked_ids = {column for column in columns if instrument_currency.get(column, "EUR") == "EUR"}
+    manual_quote_ids = {
+        item.id
+        for item in config.universe.etfs
+        if item.id in column_set and str(item.instrument_type or "").casefold() == "equity_certificate"
+    }
+    if not enforce_capacity:
+        metadata["capacity_enforcement"] = "not_enforced"
+    elif not volume_evidence:
+        metadata["capacity_enforcement"] = "unavailable_no_volume_data"
+    else:
+        metadata["capacity_enforcement"] = "enforced"
+    metadata["participation_cap"] = participation_cap
+    metadata["capacity_remainder_policy"] = _REMAINDER_POLICY
+    metadata["capacity_fx_unavailable_instruments"] = sorted(set(columns) - capacity_checked_ids)
+    # A report qualifies only with the detailed cost model AND verified liquidity evidence.
+    qualification_blockers = []
+    if cost_regime != COST_REGIME_MODELLED:
+        qualification_blockers.append(f"cost_regime_{cost_regime}_is_not_the_qualifying_regime")
+    if not enforce_capacity:
+        qualification_blockers.append("capacity_not_enforced")
+    elif not volume_evidence or any(
+        not bool(volume_pivot[column].notna().any()) for column in sorted(capacity_checked_ids)
+    ):
+        qualification_blockers.append("liquidity_evidence_unavailable")
+    if enforce_capacity and metadata["capacity_fx_unavailable_instruments"]:
+        # Instruments without FX evidence can never fill: the universe would silently shrink to cash for them.
+        qualification_blockers.append("fx_unavailable_instruments_unfillable")
+    if enforce_capacity and manual_quote_ids & column_set:
+        # The engine never supplies a manual quote, so an equity certificate listing can never fill under capacity checks.
+        qualification_blockers.append("manual_quote_instruments_unfillable")
+    metadata["qualification_blockers"] = qualification_blockers
+    metadata["qualifying_cost_regime"] = not qualification_blockers
     if short_history_ids:
         metadata["data_status"] = "warning"
         metadata["short_history_warning"] = (
@@ -1268,6 +1575,71 @@ def run_backtest(
     index_values = [pivot.index[start_index]]
     turnover = {name: 0.0 for name in strategies}
     cost_drag = {name: 0.0 for name in strategies}
+
+    def trade_cost(
+        notional: float, changes: pd.Series, adv: Mapping[str, float] | None
+    ) -> tuple[float, float, str, float | None, dict[str, list[CostEstimate]]]:
+        """One cost path for every fill: modelled execution cost, or the flat legacy override."""
+
+        if transaction_cost_bps is None:
+            estimate = estimate_rebalance_cost(
+                config, notional, changes.to_dict(), stress_multiplier=stress_multiplier, adv_eur_by_instrument=adv
+            )
+            by_instrument: dict[str, list[CostEstimate]] = {}
+            for item in estimate.estimates:
+                by_instrument.setdefault(item.instrument_id, []).append(item)
+            quality = ", ".join(sorted({item.data_quality for item in estimate.estimates})) or "no_trade"
+            return estimate.total_cost_eur, estimate.weighted_cost_bps, quality, estimate.capacity_eur, by_instrument
+        flat = max(0.0, transaction_cost_bps)
+        return notional * float(changes.sum()) * flat / 10_000, flat, "legacy_explicit_override", None, {}
+
+    def capacity_limits(
+        current: pd.Series, target: pd.Series, notional: float, session: pd.Timestamp, adv: Mapping[str, float]
+    ) -> tuple[pd.Series, dict[str, object]]:
+        return _apply_capacity_limits(
+            current,
+            target,
+            notional_eur=notional,
+            volume_row=volume_pivot.loc[session],
+            price_row=raw_close_pivot.loc[session],
+            adv_by_instrument=adv,
+            participation=participation_cap,
+            manual_quote_ids=manual_quote_ids,
+            checked_ids=set(capacity_checked_ids),
+        )
+
+    # Initial holdings are a purchase like any other: with capacity enforced they
+    # are checked against the first session's liquidity and costed, never assumed.
+    initial_allocation: dict[str, dict[str, object]] = {}
+    if capacity_active:
+        start_session = pivot.index[start_index]
+        start_adv = _adv_by_instrument(volume_pivot, raw_close_pivot, capacity_checked_ids, start_index)
+        for name in strategies:
+            held, info = capacity_limits(
+                pd.Series(0.0, index=columns),
+                actual_weights[name].reindex(columns).fillna(0.0),
+                initial_value,
+                start_session,
+                start_adv,
+            )
+            purchase = held.abs()
+            cost = trade_cost(initial_value, purchase, start_adv)[0]
+            scale = initial_value / max(initial_value - cost, 1e-12)
+            total_held = float(held.sum())
+            if total_held * scale > 1.0:
+                scale = 1.0 / total_held
+            actual_weights[name] = held * scale
+            equity[name] = [max(initial_value - cost, 0.0)]
+            turnover[name] += float(purchase.sum())
+            cost_drag[name] += cost
+            initial_allocation[name] = {
+                "cost_eur": float(cost),
+                "unfilled_eur": float(info["unfilled_eur"]),
+                "fill_status": ", ".join(f"{key}={value}" for key, value in sorted(info["statuses"].items()))
+                or "full_fill",
+                "remainder_policy": _REMAINDER_POLICY,
+            }
+    metadata["initial_allocation"] = initial_allocation
     pending_weights: dict[str, pd.Series] = {}
     pending_costs: dict[str, float] = {}
     pending_traded: set[str] = set()
@@ -1486,31 +1858,42 @@ def run_backtest(
             pending_weights = {}
             pending_costs = {}
             pending_traded = set()
+            adv_by_instrument = (
+                _adv_by_instrument(volume_pivot, raw_close_pivot, capacity_checked_ids, i) if capacity_active else {}
+            )
+            execution_returns = simple_returns.loc[execution_dt, columns]
             for name, new_weight in new_weights.items():
-                diff = (new_weight.reindex(columns).fillna(0) - actual_weights[name].reindex(columns).fillna(0)).abs()
+                signal_weight_row = actual_weights[name].reindex(columns).fillna(0)
+                # Orders fill at the next close: the held weights first drift through the
+                # execution session, and both the target difference and the notional use
+                # that drifted book, not the signal-day weights.
+                current_weight_row, execution_return = _drift_to_execution(signal_weight_row, execution_returns)
+                trade_notional = equity[name][-1] * max(0.0, 1.0 + execution_return)
+                # Buy-and-hold never trades: its target is whatever it holds at execution.
+                target_weight_row = (
+                    current_weight_row.copy() if name == "buy_and_hold" else new_weight.reindex(columns).fillna(0)
+                )
+                capacity_info: dict[str, object] | None = None
+                if capacity_active:
+                    target_weight_row, capacity_info = capacity_limits(
+                        current_weight_row, target_weight_row, trade_notional, execution_dt, adv_by_instrument
+                    )
+                new_weight = target_weight_row
+                diff = (target_weight_row - current_weight_row).abs()
                 step_turnover = float(diff.sum())
-                if transaction_cost_bps is None:
-                    portfolio_cost = estimate_rebalance_cost(config, equity[name][-1], diff.to_dict())
-                    step_cost = portfolio_cost.total_cost_eur
-                    step_cost_bps = portfolio_cost.weighted_cost_bps
-                    step_cost_quality = ", ".join(sorted({item.data_quality for item in portfolio_cost.estimates})) or "no_trade"
-                    step_capacity_eur = portfolio_cost.capacity_eur
-                    instrument_costs: dict[str, list[CostEstimate]] = {}
-                    for item in portfolio_cost.estimates:
-                        instrument_costs.setdefault(item.instrument_id, []).append(item)
-                else:
-                    step_cost = equity[name][-1] * step_turnover * max(0.0, transaction_cost_bps) / 10_000
-                    step_cost_bps = max(0.0, transaction_cost_bps)
-                    step_cost_quality = "legacy_explicit_override"
-                    step_capacity_eur = None
-                    instrument_costs = {}
+                step_cost, step_cost_bps, step_cost_quality, step_capacity_eur, instrument_costs = trade_cost(
+                    trade_notional, diff, adv_by_instrument if capacity_active else None
+                )
                 turnover[name] += step_turnover
                 cost_drag[name] += step_cost
                 pending_weights[name] = new_weight.reindex(columns).fillna(0)
                 pending_costs[name] = step_cost
                 if step_turnover > 0:
                     pending_traded.add(name)
-                if step_turnover > 0:
+                # A fully blocked order has no turnover but still owns unfilled
+                # accounting, so it is logged (turnover 0, no reference prices).
+                order_blocked = capacity_info is not None and float(capacity_info["unfilled_eur"]) > 0.0
+                if step_turnover > 0 or order_blocked:
                     empty_reference = pd.Series(index=columns, dtype=float)
                     execution_evidence = _execution_evidence(
                         current_prices=pivot.iloc[i].reindex(columns),
@@ -1524,7 +1907,7 @@ def run_backtest(
                         next_low=adjusted_low_pivot.loc[execution_dt].reindex(columns)
                         if execution_dt in adjusted_low_pivot.index
                         else empty_reference,
-                        changed_weights=diff,
+                        changed_weights=diff if step_turnover > 0 else pd.Series(dtype=float),
                         signal_timestamp=pd.Timestamp(dt).isoformat(),
                         execution_timestamp=pd.Timestamp(execution_dt).isoformat(),
                         cost_spread_assumption_bps=None,
@@ -1656,6 +2039,21 @@ def run_backtest(
                             "cost_model_id": COST_MODEL_ID if transaction_cost_bps is None else "explicit_transaction_cost_bps",
                             "cost_data_quality": step_cost_quality,
                             "capacity_eur": step_capacity_eur,
+                            **(
+                                {
+                                    "capacity_enforced": True,
+                                    "unfilled_eur": float(capacity_info["unfilled_eur"]),
+                                    "capacity_fill_status": ", ".join(
+                                        f"{key}={value}" for key, value in sorted(capacity_info["statuses"].items())
+                                    )
+                                    or "full_fill",
+                                    "max_days_to_fill": int(capacity_info["max_days_to_fill"]),
+                                    "capacity_fx_unavailable": ", ".join(capacity_info["fx_unavailable"]),
+                                    "remainder_policy": capacity_info["remainder_policy"],
+                                }
+                                if capacity_info is not None
+                                else {}
+                            ),
                             **execution_evidence,
                         }
                     )
@@ -1686,6 +2084,8 @@ def run_backtest(
     metadata["quality_momentum_evidence_checksum"] = quality_momentum_evidence_checksum(quality_evidence_frame)
     metadata["operational_evidence_rows"] = operational_evidence_rows
     for name in strategies:
+        assert_long_only(weights[name])
+    for name in strategies:
         metrics = performance_metrics(equity_curves[name], benchmark=benchmark, turnover=turnover[name], cost_drag=cost_drag[name])
         metrics["benchmark_id"] = canonical_benchmark_id
         metrics["benchmark_status"] = "available" if canonical_benchmark_id else "unavailable"
@@ -1697,8 +2097,9 @@ def run_backtest(
         metrics["train_periods"] = start_index
         metrics["validation_periods"] = 0
         metrics["test_periods"] = max(0, len(pivot) - start_index)
-        metrics["trade_count"] = len(strategy_trades)
-        metrics["average_trade_eur"] = float(initial_value_eur * (sum(float(row["turnover"]) for row in strategy_trades) / max(len(strategy_trades), 1)))
+        filled_trades = [row for row in strategy_trades if float(row["turnover"]) > 0.0]
+        metrics["trade_count"] = len(filled_trades)
+        metrics["average_trade_eur"] = float(initial_value_eur * (sum(float(row["turnover"]) for row in filled_trades) / max(len(filled_trades), 1)))
         metrics["median_holding_period_days"] = float(rebalance_frequency_days)
         metrics["turnover_annualised"] = float(turnover[name] / years)
         metrics["worst_12m_return"] = float(returns_252d.min()) if returns_252d.notna().any() else 0.0
@@ -1724,13 +2125,89 @@ def run_backtest(
         metrics["final_value_eur"] = float(equity_curves[name].iloc[-1])
         result_rows.append(metrics)
     results = pd.DataFrame(result_rows)
+    def vwce_comparator() -> dict[str, object]:
+        """VWCE bought on the first session through the same capacity and cost path as the strategies."""
+
+        if canonical_benchmark_id is None or benchmark is None:
+            return {"status": "unavailable", "reason": "no canonical benchmark"}
+        bench = benchmark.dropna()
+        if len(bench) < 2 or float(bench.iloc[0]) <= 0.0:
+            return {"status": "unavailable", "reason": "benchmark price history is missing"}
+        weight = pd.Series({canonical_benchmark_id: 1.0})
+        adv: dict[str, float] | None = None
+        info: dict[str, object] = {"unfilled_eur": 0.0, "statuses": {}}
+        if capacity_active:
+            if canonical_benchmark_id not in columns:
+                return {"status": "unavailable", "reason": "benchmark liquidity cannot be verified outside the universe"}
+            adv = _adv_by_instrument(volume_pivot, raw_close_pivot, capacity_checked_ids, start_index)
+            weight, info = capacity_limits(
+                pd.Series(0.0, index=columns),
+                pd.Series({column: float(column == canonical_benchmark_id) for column in columns}),
+                initial_value,
+                pivot.index[start_index],
+                adv,
+            )
+        if float(weight.sum()) <= 0.0:
+            return {
+                "status": "unavailable",
+                "reason": "no capacity-checked fill: the benchmark purchase did not fill",
+            }
+        cost, cost_bps, _, _, _ = trade_cost(initial_value, weight.abs(), adv)
+        scale = initial_value / max(initial_value - cost, 1e-12)
+        held = float(weight.sum())
+        if held * scale > 1.0:
+            scale = 1.0 / held if held > 0.0 else 1.0
+        after_fee = max(initial_value - cost, 0.0)
+        invested = held * scale * after_fee
+        final_value = invested * float(bench.iloc[-1] / bench.iloc[0]) + (after_fee - invested)
+        return {
+            "status": "available",
+            "instrument_id": canonical_benchmark_id,
+            "final_value_eur": float(final_value),
+            "cost_eur": float(cost),
+            "cost_bps": float(cost_bps),
+            "unfilled_eur": float(info["unfilled_eur"]),
+            "fill_status": ", ".join(f"{key}={value}" for key, value in sorted(info["statuses"].items())) or "full_fill",
+            "cost_regime": cost_regime,
+        }
+
+    unavailable_baselines: dict[str, str] = {}
+    for name in strategies:
+        if name in {"quality_only", "quality_momentum"} and metadata["quality_momentum_evidence_available_rows"] == 0:
+            unavailable_baselines[name] = "no point-in-time quality evidence was available in the run"
+        elif turnover[name] <= 0.0 and float(weights[name].abs().sum()) <= 0.0:
+            unavailable_baselines[name] = "the strategy never held a position"
+        elif (
+            capacity_active
+            and turnover[name] <= 0.0
+            and float(initial_allocation.get(name, {}).get("unfilled_eur", 0.0)) > 0.0
+        ):
+            unavailable_baselines[name] = "no capacity-checked fill: the strategy never traded and its initial order was unfilled"
+    metadata["investable_comparators"] = investable_comparator_summary(
+        {
+            name: {
+                "final_value_eur": float(equity_curves[name].iloc[-1]),
+                "cost_eur": float(cost_drag[name]),
+                "turnover": float(turnover[name]),
+            }
+            for name in strategies
+        },
+        initial_value_eur=initial_value,
+        vwce=vwce_comparator(),
+        universe=columns,
+        start=equity_curves.index.min().date(),
+        end=equity_curves.index.max().date(),
+        cost_regime=cost_regime,
+        cost_model_id=COST_MODEL_ID if transaction_cost_bps is None else "explicit_transaction_cost_bps",
+        unavailable_strategies=unavailable_baselines,
+    )
     no_ai = results.loc[results["strategy_name"] == "momentum_only", "calmar"].iloc[0]
     signal_calmar = results.loc[results["strategy_name"] == "signal_strategy", "calmar"].iloc[0]
     ai_added_value = bool(signal_calmar > no_ai * 1.03)
     return BacktestReport(
         results=results,
         equity_curves=equity_curves,
-        trade_log=pd.DataFrame(trade_rows),
+        trade_log=pd.DataFrame(trade_rows, columns=_trade_log_columns(capacity_active)),
         signal_log=pd.DataFrame(signal_rows),
         ai_added_value=ai_added_value,
         quality_label=_overall_quality_label(results),
@@ -1744,6 +2221,57 @@ def run_backtest(
         metadata=metadata,
         quality_momentum_evidence=quality_evidence_frame,
     )
+
+
+_REGIME_COMPARISON_COLUMNS = ("strategy_name", "final_value_eur", "cagr", "sharpe", "max_drawdown", "turnover", "cost_drag")
+
+
+def run_backtest_cost_regimes(
+    config: AppConfig,
+    prices: pd.DataFrame,
+    *,
+    settings: Mapping[str, object] | None = None,
+    runner: Callable[..., BacktestReport] | None = None,
+    comparison_runner: Callable[..., BacktestReport] | None = None,
+    **kwargs: object,
+) -> CostRegimeReport:
+    """Run the same strategy under three cost regimes and report them side by side.
+
+    ``modelled_default`` (detailed cost model with capacity enforced) is the only
+    regime that can qualify; ``legacy_flat_override`` (the flat basis-point
+    override) and ``conservative_stress`` (modelled costs times the stress
+    multiplier) are shown for comparison.  No regime is execution evidence.
+    ``runner`` runs the modelled report and ``comparison_runner`` (default: the
+    same callable) the two comparison regimes, so the application service keeps
+    its compatibility seam.
+    """
+
+    run = runner or run_backtest
+    compare = comparison_runner or run
+    resolved = dict(settings if settings is not None else load_backtest_realism_settings())
+    capacity = bool(resolved.get("enforce_capacity", True))
+    legacy_bps = float(resolved.get("legacy_override_bps", 13.0))  # type: ignore[arg-type]
+    stress = float(resolved.get("stress_cost_multiplier", 2.0))  # type: ignore[arg-type]
+    for forbidden in ("transaction_cost_bps", "cost_stress_multiplier", "enforce_capacity"):
+        kwargs.pop(forbidden, None)
+    reports = {
+        COST_REGIME_MODELLED: run(config, prices, enforce_capacity=capacity, **kwargs),
+        COST_REGIME_LEGACY: compare(
+            config, prices, transaction_cost_bps=legacy_bps, enforce_capacity=capacity, **kwargs
+        ),
+        COST_REGIME_STRESS: compare(
+            config, prices, cost_stress_multiplier=max(stress, 1.0 + 1e-9), enforce_capacity=capacity, **kwargs
+        ),
+    }
+    frames = []
+    for regime, report in reports.items():
+        columns = [name for name in _REGIME_COMPARISON_COLUMNS if name in report.results.columns]
+        frame = report.results[columns].copy()
+        frame.insert(0, "cost_regime", regime)
+        frame["qualifying_cost_regime"] = bool(report.metadata.get("qualifying_cost_regime", False))
+        frame["is_execution_evidence"] = False
+        frames.append(frame)
+    return CostRegimeReport(reports=reports, comparison=pd.concat(frames, ignore_index=True))
 
 
 def _log_equity_returns(equity: pd.Series) -> pd.Series:
