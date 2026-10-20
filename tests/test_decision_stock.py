@@ -417,6 +417,30 @@ def test_composition_counts_only_score_eligible_valuation_models() -> None:
     assert eligible["valuation"]["status"] == "AVAILABLE"
 
 
+def test_eligible_driver_dcf_alone_makes_the_valuation_score_bearing() -> None:
+    def valuation(driver_eligible: bool) -> dict[str, object]:
+        return {
+            "comparability_mode": "strict",
+            "driver_dcf": {"status": "available", "per_share": 12.0, "score_eligible": driver_eligible},
+            "residual_income": {"status": "unavailable"},
+            "intrinsic_value": {"status": "unavailable", "scenarios": {}},
+            "margin_of_safety": {"status": "unavailable", "models": {}},  # no share price: nothing else can carry the valuation
+            "score_eligibility": {"models": {
+                "driver_dcf": {"score_eligible": driver_eligible, "reasons": []},
+                "residual_income": {"score_eligible": False, "reasons": ["model unavailable"]},
+                "intrinsic_value": {"score_eligible": False, "reasons": ["model unavailable"]},
+            }},
+        }
+
+    eligible = compose_stock_decision("ACME", _context("ACME"), DECISION_TIME, {"valuation": valuation(True)})
+    assert eligible["valuation"]["status"] == "AVAILABLE" and eligible["valuation"]["driver_dcf"]["per_share"] == 12.0
+    assert "driver_dcf" not in eligible["valuation"]["descriptive_only_components"]
+    ineligible = compose_stock_decision("ACME", _context("ACME"), DECISION_TIME, {"valuation": valuation(False)})
+    assert ineligible["valuation"]["status"] == "INSUFFICIENT_EVIDENCE"
+    assert ineligible["valuation"]["reason_code"] == "NO_SCORE_ELIGIBLE_VALUATION_COMPONENT"
+    assert "driver_dcf" in ineligible["valuation"]["descriptive_only_components"]
+
+
 def test_margin_of_safety_fails_closed_for_missing_price_timing_or_nonpositive_price() -> None:
     market, assumptions = _valuation_inputs(price_known_at=None)
     missing_timing = valuation_analysis(

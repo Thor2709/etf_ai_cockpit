@@ -470,16 +470,29 @@ def valuation_analysis(
         instrument_id=instrument_id,
         bank_route=bank_route,
     )
-    intrinsic = _not_applicable_valuation("Industrial FCF DCF is not applicable to financial institutions.") if bank_route else _intrinsic_value(values, assumption_values)
-    reverse = _not_applicable_valuation("Industrial reverse DCF is not applicable to financial institutions.") if bank_route else _reverse_dcf(values, assumption_values)
-    driver = _not_applicable_valuation("Industrial driver DCF is not applicable to financial institutions.") if bank_route else _driver_dcf(values, assumption_values)
+    # Future-dated assumption or FX evidence is rejected before any model or sensitivity consumes it.
+    future_evidence = _future_dated_evidence(market_inputs or {}, assumption_values, as_known_at)
+    rejection = "; ".join(future_evidence.values())
+    intrinsic = (
+        _not_applicable_valuation("Industrial FCF DCF is not applicable to financial institutions.") if bank_route
+        else {**_rejected_valuation(rejection), "scenarios": {}} if rejection else _intrinsic_value(values, assumption_values)
+    )
+    reverse = (
+        _not_applicable_valuation("Industrial reverse DCF is not applicable to financial institutions.") if bank_route
+        else _rejected_valuation(rejection) if rejection else _reverse_dcf(values, assumption_values)
+    )
+    driver = (
+        _not_applicable_valuation("Industrial driver DCF is not applicable to financial institutions.") if bank_route
+        else _rejected_valuation(rejection) if rejection else _driver_dcf(values, assumption_values)
+    )
     ledger = build_cost_of_capital_ledger(assumption_values)
     residual_assumptions = assumption_values
     if bank_route and "cost_of_equity" not in assumption_values:
         residual_assumptions = {**assumption_values, "cost_of_equity": None}
     adapter_status = str(_projection_member(financial_projection, "status", "unavailable")) if bank_route else "not_applicable"
     residual = (
-        _residual_income(values, residual_assumptions)
+        _rejected_valuation(rejection) if rejection
+        else _residual_income(values, residual_assumptions)
         if not bank_route or adapter_status == "available"
         else {"status": "unavailable", "confidence": "low", "reason": "Financial-institution evidence from ISSUE-0099_fundamental_release is unavailable.", "execution_allowed": False}
     )
@@ -491,9 +504,9 @@ def valuation_analysis(
         )
         dcf_facts = ("free_cash_flow", "revenue") if margin_scenario else ("free_cash_flow",)
         dcf_facts += _bridge_statement_metrics(frame, values, market)
-        dcf_basis = _valuation_inputs_comparable(frame, dcf_facts, market_inputs or {}, net_debt=True)
+        dcf_basis = _valuation_inputs_comparable(frame, dcf_facts, market_inputs or {}, net_debt=True, market_bridge=_market_bridge_metrics(values, market, _claim_context(assumption_values).get("claim")))
         # The driver chain consumes revenue (margins and ROIC are assumptions) and the bridge, never free cash flow.
-        driver_basis = _valuation_inputs_comparable(frame, ("revenue",) + _bridge_statement_metrics(frame, values, market), market_inputs or {}, net_debt=True)
+        driver_basis = _valuation_inputs_comparable(frame, ("revenue",) + _bridge_statement_metrics(frame, values, market), market_inputs or {}, net_debt=True, market_bridge=_market_bridge_metrics(values, market, "fcff"))
         if bank_route:
             sustainable_roe = _float(assumption_values.get("sustainable_roe"))
             sustainable_rote = _float(assumption_values.get("sustainable_rote"))
@@ -519,7 +532,11 @@ def valuation_analysis(
             driver = {"status": "unavailable", "confidence": "low", "reason": str(driver_basis["reason"]), "score_eligible": False, "execution_allowed": False}
         if residual_basis["status"] != "available":
             residual = {"status": "unavailable", "confidence": "low", "reason": str(residual_basis["reason"]), "score_eligible": False, "execution_allowed": False}
-    sensitivity = _residual_income_sensitivity(values, assumption_values) if bank_route else _valuation_sensitivity(values, assumption_values)
+    sensitivity = (
+        {"status": "unavailable", "reason": rejection, "grid": {}, "execution_allowed": False} if rejection
+        else _residual_income_sensitivity(values, assumption_values) if bank_route
+        else _valuation_sensitivity(values, assumption_values)
+    )
     price_provenance = _market_input_provenance(
         market_inputs or {}, "share_price"
     )
@@ -602,16 +619,27 @@ def valuation_analysis(
     margin_scenario = isinstance(raw_scenarios, Mapping) and any(isinstance(item, Mapping) and _float(item.get("margin")) is not None for item in raw_scenarios.values())
     bridge_inputs = _bridge_statement_metrics(frame, values, market)
     consumed: list[str] = []
+
+    def from_statements(*names: str) -> list[str]:
+        """Inputs a model consumed from the statements; a value replaced by a market input is judged by that input, not here."""
+
+        return [name for name in names if market.get(name) is None]
+
     if driver.get("status") == "available":
-        consumed += ["revenue", *bridge_inputs]
+        consumed += from_statements("revenue", "shares_outstanding") + list(bridge_inputs)
     if intrinsic.get("status") == "available":
-        consumed += ["free_cash_flow", *(["revenue"] if margin_scenario else []), *bridge_inputs]
+        consumed += from_statements("free_cash_flow", *(["revenue"] if margin_scenario else []), "shares_outstanding") + list(bridge_inputs)
+    if reverse.get("status") == "available":
+        consumed += from_statements("free_cash_flow", "shares_outstanding") + list(bridge_inputs)
     if residual.get("status") == "available":
-        consumed += ["equity", "net_income"]
+        clean_surplus = residual.get("clean_surplus") if isinstance(residual.get("clean_surplus"), Mapping) else {}
+        dividend_used = clean_surplus.get("dividend_basis") == "reported_dividend_per_share"  # an explicit payout ratio replaces the reported dividend
+        consumed += from_statements("equity", "net_income", "shares_outstanding", *(["dividend_per_share"] if dividend_used else []))
+    any_model_available = any(item.get("status") == "available" for item in (driver, intrinsic, reverse, residual))
     if bank_route:  # bank inputs come from the financial-institution projection; judge only the statement rows that exist
         in_frame = set(frame["canonical_metric"].astype(str)) if not frame.empty and "canonical_metric" in frame else set()
         consumed = [name for name in consumed if name in in_frame] or sorted(in_frame)
-    elif not consumed:
+    elif not consumed and not any_model_available:
         consumed = ["revenue", "free_cash_flow", "equity", "net_income", *bridge_inputs]  # nothing resolved: judge the full input set
     expiry = _valuation_expiry(frame, market, market_inputs or {}, assumption_values, as_known_at, consumed)
     eligibility = _score_eligibility(
@@ -661,7 +689,7 @@ def valuation_analysis(
         "bank_route": {"status": "available" if bank_route and adapter_status == "available" else "unavailable" if bank_route else "not_applicable", "path": "ISSUE-0099_fundamental_release" if bank_route else "industrial_dcf", "financial_projection_status": adapter_status, "metrics": bank_metrics},
         "driver_dcf": driver,
         "model_disagreement": disagreement,
-        "cost_of_capital": {**ledger.to_dict(), "sensitivity": cost_of_capital_sensitivity_grid(ledger)},
+        "cost_of_capital": {"status": "unavailable", "reason": future_evidence["assumptions"], "execution_allowed": False} if "assumptions" in future_evidence else {**ledger.to_dict(), "sensitivity": cost_of_capital_sensitivity_grid(ledger)},
         "score_eligibility": eligibility,
         "expiry": expiry,
         "valuation_status": "provisional" if expiry["status"] == "provisional" else "current",
@@ -2595,6 +2623,30 @@ def _stress_unavailable(reason: str, assumptions: Mapping[str, object]) -> dict[
     return {"status": "unavailable", "confidence": "low", "reason": reason, "assumptions": dict(assumptions), **_STRESS_LABEL}
 
 
+# Domain of each stress parameter: (inclusive upper bound or None); all are finite and non-negative.
+_STRESS_PARAMETER_UPPER: dict[str, float | None] = {
+    "refinancing_rate_add": None,
+    "cre_haircut": 1.0,
+    "impairment_rate": 1.0,
+    "funding_spread_add": None,
+    "deposit_outflow_fraction": 1.0,
+}
+
+
+def _stress_parameter(params: Mapping[str, object], key: str) -> tuple[float | None, str | None]:
+    """A missing (or None) parameter takes its documented default; an explicit 0 is honoured; an invalid value is an error."""
+
+    raw = params.get(key)
+    if raw is None:
+        return _STRESS_DEFAULTS[key], None
+    value = None if isinstance(raw, bool) else _float(raw)
+    upper = _STRESS_PARAMETER_UPPER[key]
+    if value is None or value < 0.0 or (upper is not None and value > upper):
+        domain = "a finite number >= 0" if upper is None else f"a finite number between 0 and {upper:g}"
+        return None, f"invalid stress parameter {key}={raw!r}: must be {domain}"
+    return value, None
+
+
 def _stress_scenarios(values: Mapping[str, float], frame: pd.DataFrame, assumptions: Mapping[str, object] | None = None, *, maturity: Mapping[str, object] | None = None) -> dict[str, dict[str, object]]:
     """Deterministic sensitivities, never probabilities. Defaults (documented): recession revenue -20 %, favourable +10 %,
     50 % of the cost base fixed (operating leverage), +200 bp on debt that reprices within one year."""
@@ -2608,7 +2660,7 @@ def _stress_scenarios(values: Mapping[str, float], frame: pd.DataFrame, assumpti
     margin = None if revenue in (None, 0) or operating_income is None else operating_income / revenue
     fixed_share = _float(params.get("fixed_cost_share"))
     fixed_share = 0.5 if fixed_share is None or not 0.0 <= fixed_share <= 1.0 else fixed_share
-    rate_add = _float(params.get("refinancing_rate_add")) or 0.02
+    rate_add, rate_error = _stress_parameter(params, "refinancing_rate_add")
     scenarios: dict[str, dict[str, object]] = {}
     assumed_flat = {"revenue_factor": 0.8, "rate_add": 0.0}
     if revenue is None or margin is None or interest is None or debt is None:
@@ -2634,8 +2686,10 @@ def _stress_scenarios(values: Mapping[str, float], frame: pd.DataFrame, assumpti
 
     buckets = maturity.get("buckets") if isinstance(maturity, Mapping) else None
     due_1y = _float(buckets.get("debt_due_1y")) if isinstance(buckets, Mapping) else values.get("debt_due_1y")  # same source as the maturity timeline
-    refinance_assumed = {"rate_add": rate_add, "applies_to": "debt_due_1y (repricing within one year)"}
-    if due_1y is None:
+    refinance_assumed = {"rate_add": params.get("refinancing_rate_add") if rate_error else rate_add, "applies_to": "debt_due_1y (repricing within one year)"}
+    if rate_error is not None:
+        scenarios["refinancing_shock"] = _stress_unavailable(rate_error, refinance_assumed)
+    elif due_1y is None:
         scenarios["refinancing_shock"] = _stress_unavailable("No debt maturity schedule is available; the shock applies only to repricing debt and total debt is never repriced.", refinance_assumed)
     elif operating_income is None or interest is None or due_1y < 0 or (debt is not None and due_1y > debt * 1.0000001):
         scenarios["refinancing_shock"] = _stress_unavailable("Maturity bucket, operating income or interest expense is missing or inconsistent with total debt.", refinance_assumed)
@@ -2673,20 +2727,27 @@ def _bank_stress_scenarios(values: Mapping[str, float], assumptions: Mapping[str
     deposits = values.get("deposits")
     wholesale = values.get("wholesale_funding")
     requirement = _float(params.get("cet1_requirement"))
-    cre_haircut = _float(params.get("cre_haircut")) or 0.20
-    impairment_rate = _float(params.get("impairment_rate")) or 0.02
-    funding_spread = _float(params.get("funding_spread_add")) or 0.01
-    deposit_outflow = _float(params.get("deposit_outflow_fraction")) or 0.10
+    cre_haircut, haircut_error = _stress_parameter(params, "cre_haircut")
+    impairment_rate, impairment_error = _stress_parameter(params, "impairment_rate")
+    funding_spread, spread_error = _stress_parameter(params, "funding_spread_add")
+    deposit_outflow, outflow_error = _stress_parameter(params, "deposit_outflow_fraction")
+    parameter_errors = [error for error in (haircut_error, impairment_error, spread_error, outflow_error) if error]
     scenarios: dict[str, dict[str, object]] = {}
     scenarios["cre_property_stress"] = (
+        _stress_unavailable(haircut_error, {"cre_haircut": params.get("cre_haircut")})
+        if haircut_error else
         _stress_unavailable("CRE/property exposure is not evidenced; input not mapped: cre_exposure.", {"cre_haircut": cre_haircut})
         if cre is None else {"status": "available", "confidence": "scenario_only", "assumptions": {"cre_haircut": cre_haircut}, "loss": cre * cre_haircut, **_STRESS_LABEL}
     )
     scenarios["funding_shift"] = (
+        _stress_unavailable(spread_error or str(outflow_error), {"deposit_outflow_fraction": params.get("deposit_outflow_fraction"), "funding_spread_add": params.get("funding_spread_add")})
+        if spread_error or outflow_error else
         _stress_unavailable("Deposits and wholesale funding are not evidenced; input not mapped: " + ", ".join(name for name in ("deposits", "wholesale_funding") if name in unmapped) + ".", {"deposit_outflow_fraction": deposit_outflow, "funding_spread_add": funding_spread})
         if deposits is None or wholesale is None else {"status": "available", "confidence": "scenario_only", "assumptions": {"deposit_outflow_fraction": deposit_outflow, "funding_spread_add": funding_spread}, "replacement_funding": deposits * deposit_outflow, "extra_funding_cost": (wholesale + deposits * deposit_outflow) * funding_spread, **_STRESS_LABEL}
     )
     scenarios["impairment_stress"] = (
+        _stress_unavailable(impairment_error, {"impairment_rate": params.get("impairment_rate")})
+        if impairment_error else
         _stress_unavailable("Gross loans are not evidenced; input not mapped: gross_loans.", {"impairment_rate": impairment_rate})
         if loans is None else {"status": "available", "confidence": "scenario_only", "assumptions": {"impairment_rate": impairment_rate}, "loss": loans * impairment_rate, **_STRESS_LABEL}
     )
@@ -2696,7 +2757,7 @@ def _bank_stress_scenarios(values: Mapping[str, float], assumptions: Mapping[str
     assumed = {"cet1_requirement": requirement}
     if cet1 is None or rwa is None or rwa <= 0 or requirement is None or None in (cre_loss, impairment_loss, funding_cost):
         gaps = [name for name in ("cet1_capital", "risk_weighted_assets") if name in unmapped] + ([] if requirement is not None else ["cet1_requirement (assumption)"])
-        scenarios["capital_breach"] = _stress_unavailable("CET1 capital, risk-weighted assets, the stated CET1 requirement and all three loss legs are required" + (f"; input not mapped: {', '.join(gaps)}" if gaps else "") + ".", assumed)
+        scenarios["capital_breach"] = _stress_unavailable("CET1 capital, risk-weighted assets, the stated CET1 requirement and all three loss legs are required" + (f"; input not mapped: {', '.join(gaps)}" if gaps else "") + ("; " + "; ".join(parameter_errors) if parameter_errors else "") + ".", assumed)
     else:
         stressed_ratio = (cet1 - float(cre_loss) - float(impairment_loss) - float(funding_cost)) / rwa
         scenarios["capital_breach"] = {"status": "available", "confidence": "scenario_only", "assumptions": assumed, "stressed_cet1_ratio": stressed_ratio, "breach": stressed_ratio < requirement, **_STRESS_LABEL}
@@ -2805,6 +2866,19 @@ def _bridge_statement_metrics(frame: pd.DataFrame, values: Mapping[str, float], 
             used.append(alias)
         elif name == "net_debt":
             used.extend(item for item in ("debt", "cash") if item in present)  # net debt derived from debt - cash
+    return tuple(used)
+
+
+def _market_bridge_metrics(values: Mapping[str, float], market: Mapping[str, object], claim: str | None) -> tuple[str, ...]:
+    """Market-supplied bridge items the ``claim`` actually consumes; strict mode requires their period, currency and scope."""
+
+    if claim == "fcfe":
+        return ()
+    used: list[str] = []
+    for name, aliases, _sign in (_BRIDGE_ITEMS if claim == "fcff" else _BRIDGE_ITEMS[:1]):
+        alias = next((item for item in aliases if values.get(item) is not None), None)
+        if alias is not None and market.get(alias) is not None:
+            used.append(alias)
     return tuple(used)
 
 
@@ -3116,6 +3190,7 @@ def _valuation_inputs_comparable(
     market_inputs: Mapping[str, object],
     *,
     net_debt: bool = False,
+    market_bridge: tuple[str, ...] = (),
 ) -> dict[str, str]:
     if frame.empty or not {"canonical_metric", "period_end", "currency"}.issubset(frame.columns):
         return {"status": "unavailable", "reason": "Statement period, currency and accounting-scope lineage are required for comparable valuation."}
@@ -3155,6 +3230,18 @@ def _valuation_inputs_comparable(
         adjustment_status = market_inputs.get("enterprise_value_adjustments", {})
         if isinstance(adjustment_status, Mapping) and adjustment_status.get("status") != "available":
             return {"status": "unavailable", "reason": "Enterprise-value adjustment coverage is incomplete."}
+    for alias in market_bridge:
+        # A market-supplied bridge item must carry its own period, currency and scope. Net debt keeps its established
+        # contract (period vintage above); its currency and scope are checked whenever they are supplied.
+        supplied_scope = _text(_first_present(market_inputs.get(f"{alias}_accounting_scope"), market_inputs.get(f"{alias}_consolidation_scope"))).strip()
+        supplied_currency = _text(market_inputs.get(f"{alias}_currency")).strip().upper()
+        required = alias != "net_debt"
+        if required and _text(market_inputs.get(f"{alias}_period_end")) != statement_period:
+            return {"status": "unavailable", "reason": f"Market-supplied {alias} period is missing or does not match the selected statement period."}
+        if (required and not supplied_currency) or (supplied_currency and supplied_currency not in currencies):
+            return {"status": "unavailable", "reason": f"Market-supplied {alias} currency is missing or does not match the statement currency."}
+        if (required and not supplied_scope) or (supplied_scope and supplied_scope not in scopes):
+            return {"status": "unavailable", "reason": f"Market-supplied {alias} accounting scope is missing or does not match the statement scope."}
     return {"status": "available", "reason": "Selected values share a period, reporting currency and accounting scope."}
 
 
@@ -3557,6 +3644,26 @@ def _parse_utc(value: object) -> pd.Timestamp | None:
     return None if pd.isna(parsed) else parsed
 
 
+def _future_dated_evidence(market_inputs: Mapping[str, object], assumptions: Mapping[str, object], as_known_at: str | date | None) -> dict[str, str]:
+    """Assumption or FX evidence dated after the decision cutoff, keyed by source. It is rejected before any model runs."""
+
+    reference = _parse_utc(as_known_at if as_known_at is not None else market_inputs.get("decision_time"))
+    rejected: dict[str, str] = {}
+    if reference is None:
+        return rejected
+    fx_stamp = _parse_utc(market_inputs.get("currency_conversion_timestamp"))
+    if fx_stamp is not None and fx_stamp > reference:
+        rejected["fx"] = f"FX conversion timestamp {fx_stamp.isoformat()} is after the decision cutoff and is rejected"
+    assumption_as_of = _parse_utc(assumptions.get("as_of"))
+    if assumption_as_of is not None and assumption_as_of > reference:
+        rejected["assumptions"] = f"assumptions as_of {assumption_as_of.isoformat()} is after the decision cutoff and is rejected"
+    return rejected
+
+
+def _rejected_valuation(reason: str, **extra: object) -> dict[str, object]:
+    return {"status": "unavailable", "confidence": "low", "reason": reason, "score_eligible": False, "execution_allowed": False, **extra}
+
+
 def _valuation_expiry(
     frame: pd.DataFrame,
     market: Mapping[str, object],
@@ -3589,15 +3696,16 @@ def _valuation_expiry(
     if metric_periods:
         oldest_metric, oldest = min(metric_periods.items(), key=lambda item: item[1])
         components["statements"] = {"basis": str(oldest.date()), "oldest_input": oldest_metric, "inputs": {name: str(period.date()) for name, period in sorted(metric_periods.items())}, "expires_at": (oldest + pd.Timedelta(days=_STATEMENT_MAX_AGE_DAYS)).isoformat()}
+    rejected = _future_dated_evidence(market_inputs, assumptions, as_known_at)
     fx_stamp = _parse_utc(market_inputs.get("currency_conversion_timestamp"))
-    if fx_stamp is not None and reference is not None and fx_stamp > reference:
-        reasons.append(f"FX conversion timestamp {fx_stamp.isoformat()} is after the decision cutoff and is rejected")
+    if "fx" in rejected:
+        reasons.append(rejected["fx"])
     elif fx_stamp is not None:
         components["fx"] = {"basis": fx_stamp.isoformat(), "expires_at": (fx_stamp + pd.Timedelta(days=_FX_MAX_AGE_DAYS)).isoformat()}
     explicit = _parse_utc(assumptions.get("expires_at"))
     assumption_as_of = _parse_utc(assumptions.get("as_of"))
-    if assumption_as_of is not None and reference is not None and assumption_as_of > reference:
-        reasons.append(f"assumptions as_of {assumption_as_of.isoformat()} is after the decision cutoff and is rejected")
+    if "assumptions" in rejected:
+        reasons.append(rejected["assumptions"])
     elif explicit is not None:
         components["assumptions"] = {"basis": "explicit expires_at", "expires_at": explicit.isoformat()}
     elif assumption_as_of is not None:

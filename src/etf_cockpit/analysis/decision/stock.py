@@ -973,6 +973,7 @@ def _valuation_components(stock_research: Mapping[str, object]) -> dict[str, obj
         "relative_metrics": raw.get("relative_metrics", {}),
         "dcf": raw.get("intrinsic_value", {}),
         "residual_income": raw.get("residual_income", {}),
+        "driver_dcf": raw.get("driver_dcf", {}),
         "reverse_dcf": raw.get("reverse_dcf", {}),
         "reverse_dcf_gap": raw.get("reverse_dcf_gap", {"status": "unavailable"}),
         "normalized_mid_cycle": raw.get("normalized_mid_cycle", {"status": "unavailable"}),
@@ -1012,6 +1013,8 @@ def _score_bearing_components(raw: Mapping[str, object], components: Mapping[str
         bearing.add("dcf")
     if eligible("residual_income"):
         bearing.add("residual_income")
+    if eligible("driver_dcf"):
+        bearing.add("driver_dcf")
     mos = raw.get("margin_of_safety")
     mos_models = mos.get("models") if isinstance(mos, Mapping) else None
     if isinstance(mos_models, Mapping) and any(isinstance(item, Mapping) and item.get("score_eligible") is True for item in mos_models.values()):

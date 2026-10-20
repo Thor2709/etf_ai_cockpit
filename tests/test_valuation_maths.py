@@ -413,3 +413,128 @@ def test_model_disagreement_range_and_status_include_driver_and_peer_values() ->
     assert result["status"] == "available" and result["range"] == [15.0, 20.0]
     lone = sr._model_disagreement({"status": "unavailable", "scenarios": {}}, {"status": "unavailable"}, driver={"per_share": 20.0})
     assert lone["status"] == "unavailable"
+
+
+# --- final review fixes (fix4) -------------------------------------------------------------------------------
+
+
+def _fresh_frame(**period_overrides: str) -> pd.DataFrame:
+    """Current FY2025 statements for every input the models consume; ``period_overrides`` moves one metric to another year."""
+
+    metrics = (("free_cash_flow", 92.0), ("revenue", 1000.0), ("net_debt", 400.0), ("shares_outstanding", 100.0), ("equity", 500.0), ("net_income", 80.0), ("dividend_per_share", 0.4))
+    rows = []
+    for metric, value in metrics:
+        year = period_overrides.get(metric, "2025")
+        rows.append({"instrument_id": "ACME", "canonical_metric": metric, "value": value, "currency": "USD", "start": f"{year}-01-01", "end": f"{year}-12-31", "period_end": f"{year}-12-31", "filed": f"{int(year) + 1}-02-01", "available_at": f"{int(year) + 1}-02-01T00:00:00Z", "source_id": f"f-{metric}", "consolidation_scope": "consolidated"})
+    return pd.DataFrame(rows)
+
+
+_FULL_ASSUMPTIONS: dict[str, object] = {
+    "forecast_years": 5, "terminal_growth": 0.0, "cash_flow_claim_type": "fcff", "wacc": 0.092, "cost_of_equity": 0.09, "net_issuance": 0.0, "tax_rate": 0.25,
+    "scenarios": {"base": {"growth": 0.0}}, "bridge_not_applicable": NIL_BRIDGE, "as_of": "2026-01-01T00:00:00Z",
+    "driver_dcf": {"revenue_growth": 0.02, "operating_margin": 0.2, "incremental_roic": 0.12},
+    "sensitivity": {"discount_rates": [0.08, 0.10], "terminal_growth_rates": [0.0, 0.01]},
+}
+_CUTOFF = "2026-06-30T00:00:00Z"
+
+
+def _full_run(frame: pd.DataFrame | None = None, *, market: dict[str, object] | None = None, strict: bool = True, **assumptions: object) -> dict[str, object]:
+    merged = {**_FULL_ASSUMPTIONS, "payout_ratio": 0.5, **assumptions}
+    merged = {key: value for key, value in merged.items() if value is not None}  # None removes the key
+    return sr.valuation_analysis(_fresh_frame() if frame is None else frame, instrument_id="ACME", market_inputs=market or {}, assumptions=merged, as_known_at=_CUTOFF, strict_comparability=strict)
+
+
+@pytest.mark.parametrize("source", ["assumptions", "fx"])
+def test_future_dated_assumption_or_fx_evidence_is_rejected_before_models_and_sensitivities(source: str) -> None:
+    baseline = _full_run()
+    for name in ("intrinsic_value", "driver_dcf", "residual_income"):
+        assert baseline[name]["status"] == "available", name
+    assert baseline["sensitivity"]["status"] == "available" and baseline["expiry"]["status"] == "current"
+    if source == "fx":
+        rejected = _full_run(market={"currency_conversion_timestamp": "2026-07-15T00:00:00Z"})
+    else:
+        rejected = _full_run(as_of="2026-09-01T00:00:00Z")
+    for name in ("intrinsic_value", "driver_dcf", "residual_income", "sensitivity"):
+        assert rejected[name]["status"] == "unavailable", name
+        assert "after the decision cutoff and is rejected" in rejected[name]["reason"], name
+    assert rejected["driver_dcf"].get("per_share") is None and rejected["residual_income"].get("per_share") is None
+    assert rejected["intrinsic_value"]["scenarios"] == {} and rejected["sensitivity"]["grid"] == {}
+    assert rejected["reverse_dcf"]["status"] == "unavailable"
+    assert rejected["margin_of_safety"]["status"] == "unavailable" and rejected["score_eligibility"]["any_eligible"] is False
+    assert rejected["expiry"]["status"] == "provisional" and rejected["valuation_status"] == "provisional"
+    if source == "assumptions":
+        assert rejected["cost_of_capital"]["status"] == "unavailable"  # the ledger built from future-dated assumptions is not published
+
+
+def _stress_frame(**metrics: float) -> pd.DataFrame:
+    base = {"instrument_id": "ACME", "currency": "USD", "start": "2025-01-01", "end": "2025-12-31", "period_end": "2025-12-31", "period_type": "annual", "period_key": "FY2025", "filed": "2026-02-01", "available_at": "2026-02-01T00:00:00Z", "consolidation_scope": "consolidated"}
+    return pd.DataFrame([{**base, "canonical_metric": name, "value": value, "source_id": f"f-{name}"} for name, value in metrics.items()])
+
+
+def test_explicit_zero_stress_parameters_are_honoured_and_invalid_ones_make_the_case_unavailable() -> None:
+    industrial = _stress_frame(revenue=1000.0, operating_income=100.0, interest_expense=20.0, debt=400.0, cash=50.0, debt_due_1y=100.0, free_cash_flow=30.0)
+    bank = _stress_frame(cet1_capital=100.0, risk_weighted_assets=1000.0, gross_loans=800.0, cre_exposure=200.0, deposits=900.0, wholesale_funding=100.0)
+
+    def run(frame: pd.DataFrame, sector: str, **assumptions: object) -> dict[str, dict[str, object]]:
+        return sr.balance_sheet_analysis(frame, instrument_id="ACME", sector=sector, assumptions=assumptions or None)["stress_scenarios"]
+
+    zero = run(industrial, "industrials", refinancing_rate_add=0.0)["refinancing_shock"]
+    assert zero["status"] == "available" and zero["stressed_interest"] == pytest.approx(20.0) and zero["assumptions"]["rate_add"] == 0.0
+    flat = run(bank, "banks", cet1_requirement=0.09, cre_haircut=0.0, impairment_rate=0.0, funding_spread_add=0.0, deposit_outflow_fraction=0.0)
+    assert flat["cre_property_stress"]["loss"] == 0.0 and flat["impairment_stress"]["loss"] == 0.0
+    assert flat["funding_shift"]["extra_funding_cost"] == 0.0 and flat["funding_shift"]["replacement_funding"] == 0.0
+    assert flat["capital_breach"]["stressed_cet1_ratio"] == pytest.approx(0.1) and flat["capital_breach"]["breach"] is False
+    default = run(bank, "banks", cet1_requirement=0.09)  # missing parameters still take the documented defaults
+    assert default["impairment_stress"]["loss"] == pytest.approx(800.0 * 0.02) and default["cre_property_stress"]["loss"] == pytest.approx(200.0 * 0.20)
+
+    for bad in (-0.01, "abc", True, float("inf")):
+        shock = run(industrial, "industrials", refinancing_rate_add=bad)["refinancing_shock"]
+        assert shock["status"] == "unavailable" and "refinancing_rate_add" in shock["reason"]
+    for name, case, bad in (("impairment_rate", "impairment_stress", -0.05), ("cre_haircut", "cre_property_stress", 1.5), ("funding_spread_add", "funding_shift", -0.01), ("deposit_outflow_fraction", "funding_shift", 2.0)):
+        stressed = run(bank, "banks", cet1_requirement=0.09, **{name: bad})
+        assert stressed[case]["status"] == "unavailable" and name in stressed[case]["reason"], name
+        assert stressed["capital_breach"]["status"] == "unavailable" and name in stressed["capital_breach"]["reason"], name  # a negative loss never lifts CET1
+
+
+def test_market_supplied_bridge_items_need_matching_period_currency_and_scope_in_strict_mode() -> None:
+    nil = {key: value for key, value in NIL_BRIDGE.items() if key != "minority_interest"}
+    matching = {"minority_interest": 30.0, "minority_interest_period_end": "2025-12-31", "minority_interest_currency": "USD", "minority_interest_accounting_scope": "consolidated"}
+    assert _full_run(market=matching, bridge_not_applicable=nil)["driver_dcf"]["status"] == "available"
+    for label, changes in (
+        ("period", {"minority_interest_period_end": "2024-12-31"}),
+        ("period", {"minority_interest_period_end": None}),
+        ("currency", {"minority_interest_currency": "EUR"}),
+        ("currency", {"minority_interest_currency": None}),
+        ("accounting scope", {"minority_interest_accounting_scope": "parent_only"}),
+        ("accounting scope", {"minority_interest_accounting_scope": None}),
+    ):
+        market = {key: value for key, value in {**matching, **changes}.items() if value is not None}
+        result = _full_run(market=market, bridge_not_applicable=nil)
+        for model in ("driver_dcf", "intrinsic_value"):
+            assert result[model]["status"] == "unavailable" and f"minority_interest {label}" in result[model]["reason"], (label, model)
+        assert result["driver_dcf"]["score_eligible"] is False
+    diagnostic = _full_run(market={"minority_interest": 30.0}, bridge_not_applicable=nil, strict=False)
+    assert diagnostic["driver_dcf"]["status"] == "available" and diagnostic["comparability_mode"] == "diagnostic_only"
+
+
+def test_freshness_is_derived_from_the_inputs_each_model_consumed() -> None:
+    def run(frame: pd.DataFrame, market: dict[str, object] | None = None, **assumptions: object) -> dict[str, object]:
+        return _full_run(frame, market=market, strict=False, **assumptions)
+
+    # residual income with the reported dividend: current equity/income plus a stale dividend row is not "current"
+    stale_dividend = run(_fresh_frame(dividend_per_share="2022"), payout_ratio=None)
+    assert stale_dividend["residual_income"]["clean_surplus"]["dividend_basis"] == "reported_dividend_per_share"
+    assert "dividend_per_share" in stale_dividend["expiry"]["consumed_inputs"]
+    assert stale_dividend["expiry"]["status"] == "provisional" and stale_dividend["expiry"]["components"]["statements"]["oldest_input"] == "dividend_per_share"
+    assert run(_fresh_frame(), payout_ratio=None)["expiry"]["status"] == "current"
+    # an explicit payout ratio or a market dividend replaces the stale statement row
+    explicit = run(_fresh_frame(dividend_per_share="2022"), payout_ratio=0.5)
+    assert "dividend_per_share" not in explicit["expiry"]["consumed_inputs"] and explicit["expiry"]["status"] == "current"
+    assert "dividend_per_share" not in run(_fresh_frame(dividend_per_share="2022"), {"dividend_per_share": 0.4}, payout_ratio=None)["expiry"]["consumed_inputs"]
+    # statement-sourced shares are consumed by residual income, the driver DCF and the flat DCF
+    stale_shares = run(_fresh_frame(shares_outstanding="2022"))
+    assert all(stale_shares[name]["status"] == "available" for name in ("driver_dcf", "intrinsic_value", "residual_income"))
+    assert "shares_outstanding" in stale_shares["expiry"]["consumed_inputs"]
+    assert stale_shares["expiry"]["status"] == "provisional" and stale_shares["expiry"]["components"]["statements"]["oldest_input"] == "shares_outstanding"
+    market_shares = run(_fresh_frame(shares_outstanding="2022"), {"shares_outstanding": 100.0})
+    assert "shares_outstanding" not in market_shares["expiry"]["consumed_inputs"] and market_shares["expiry"]["status"] == "current"
