@@ -342,7 +342,7 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/data_providers.yaml | providers | — |
 | configs/data_source_policy.yaml | mandatory_tiers, policy_version, quota_failure, schema_version, sources | policy_version="2026-07-17"; schema_version="data-source-policy.v1" |
 | configs/decision_cutover_v1.yaml | monitoring, rankers, replay, schema_version, validation, version | schema_version=1; version=decision-cutover-v1.0.0 |
-| configs/decision_domains_v1.yaml | etf_decision_graph, hash_scheme, metrics, rank_cutover, schema_version, stock_decision, version | schema_version=1; version=decision-domains-v1.0.0 |
+| configs/decision_domains_v1.yaml | critical_evidence, etf_decision_graph, hash_scheme, metrics, rank_cutover, schema_version, stock_decision, version | schema_version=1; version=decision-domains-v1.0.0 |
 | configs/decision_opportunity_v1.yaml | labels, minimum_exposure_peer_sector_share, minimum_peer_support, minimum_universe_support, schema_version, timing, version | schema_version=1; version=opportunity-v1.0.0 |
 | configs/esef_extension_concepts.yaml | equity_member_rules, issuers | — |
 | configs/etf_tax_assumptions_v1.yaml | hedge_enabled, hedge_ratio, hedge_target_currency, known_at, source_withholding_label, source_withholding_rate, tax_enabled, tax_residence_country, version | version=1 |

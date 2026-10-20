@@ -105,8 +105,8 @@ def test_coverage_audit_history_appends_dated_versioned_drift(tmp_path) -> None:
         [
             {"etf_id": "A", "date": day, "adjusted_close": value}
             for day, value in zip(
-                ("2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"),
-                (100.0, 101.0, 102.0, 103.0, 104.0),
+                ("2023-12-29", "2023-12-30", "2023-12-31", "2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"),
+                (100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0),
             )
         ]
     )
@@ -117,8 +117,8 @@ def test_coverage_audit_history_appends_dated_versioned_drift(tmp_path) -> None:
                 [
                     {"etf_id": "B", "date": day, "adjusted_close": value}
                     for day, value in zip(
-                        ("2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"),
-                        (100.0, 101.0, 102.0, 103.0, 104.0),
+                        ("2023-12-29", "2023-12-30", "2023-12-31", "2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"),
+                        (100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0),
                     )
                 ]
             ),
@@ -127,7 +127,7 @@ def test_coverage_audit_history_appends_dated_versioned_drift(tmp_path) -> None:
     )
     first_forecasts = pd.DataFrame(
         [
-            {"etf_id": "A", "model_name": "baseline", "forecast_date": "2024-01-01", "horizon_days": 1, "expected_return": 0.02, "q10_return": 0.0, "q90_return": 0.04, "status": "ok"}
+            {"etf_id": "A", "model_name": "baseline", "target_id": "adj_close_log_return_5d", "forecast_date": "2023-12-29", "horizon_days": 5, "expected_return": 0.02, "q10_return": 0.0, "q90_return": 0.04, "status": "ok"}
         ]
     )
     complete_forecasts = pd.concat(
@@ -135,7 +135,7 @@ def test_coverage_audit_history_appends_dated_versioned_drift(tmp_path) -> None:
             first_forecasts,
             pd.DataFrame(
                 [
-                    {"etf_id": "B", "model_name": "baseline", "forecast_date": "2024-01-01", "horizon_days": 1, "expected_return": -0.01, "q10_return": -0.03, "q90_return": 0.01, "status": "ok"}
+                    {"etf_id": "B", "model_name": "baseline", "target_id": "adj_close_log_return_5d", "forecast_date": "2023-12-29", "horizon_days": 5, "expected_return": -0.01, "q10_return": -0.03, "q90_return": 0.01, "status": "ok"}
                 ]
             ),
         ],
