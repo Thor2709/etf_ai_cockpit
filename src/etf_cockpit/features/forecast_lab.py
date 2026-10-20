@@ -1030,10 +1030,16 @@ def _horizon_diagnostics(
     outcomes: pd.DataFrame,
     configured_horizons: list[int],
 ) -> tuple[list[int], list[dict[str, object]]]:
-    observed = sorted({int(value) for value in pd.to_numeric(group["horizon_days"], errors="coerce").dropna()})
+    horizons = pd.to_numeric(group["horizon_days"], errors="coerce")
+    ok_rows = group["status"].eq("ok") if "status" in group.columns else pd.Series(True, index=group.index)
+    # A horizon whose rows all failed is not covered: it is reported as skipped with the stored failure reason.
+    observed = sorted({int(value) for value in horizons[ok_rows].dropna()})
     skipped_reasons: dict[int, set[str]] = {
         horizon: {"no_forecast_row"} for horizon in configured_horizons if horizon not in observed
     }
+    for horizon in sorted({int(value) for value in horizons.dropna()} - set(observed)):
+        failed = group.loc[horizons.eq(horizon) & ~ok_rows]
+        skipped_reasons[horizon] = {f"forecast_failed: {_forecast_row_reason(row)}" for _, row in failed.iterrows()}
     for row in outcomes.itertuples(index=False):
         if row.outcome_status == "matured":
             continue
