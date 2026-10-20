@@ -235,6 +235,14 @@ def test_two_concurrent_partial_refreshes_keep_both_updates(tmp_path, monkeypatc
     monkeypatch.setattr(data_service, "CLEAN_DIR", clean.parent)
     monkeypatch.setattr(data_service, "ROOT", tmp_path)
     monkeypatch.setattr(data_service, "_refresh_stock_fundamentals", lambda *_: "")
+    # Freeze the refresh clock one day after the fake provider's last bar: against the real date the
+    # staleness gate would (correctly) block these fixed 2026-10-08 prices once they age.
+    class _FrozenDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 10, 9)
+
+    monkeypatch.setattr(data_service, "date", _FrozenDate)
     real_commit = data_service.commit_price_import
     monkeypatch.setattr(
         data_service,

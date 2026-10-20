@@ -2,6 +2,7 @@
 # supported Python/runtime profile changes and review the resulting SBOM.
 flet==0.85.3
 flet-web==0.85.3
+fastapi==0.142.1
 pandas==2.3.3
 numpy==2.4.4
 pyarrow==25.0.0

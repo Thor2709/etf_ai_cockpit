@@ -90,9 +90,9 @@ def _calibration_tag(row: pd.Series) -> ft.Control:
         tag = Tag("n/a", "mute", dense=True)
         tag.tooltip = f"Pending: not enough matured samples. {_CALIBRATION_NOTE}"
         return tag
-    inside = float(low) <= lab_view.CONFORMAL_TARGET <= float(high)
-    tag = Tag("Good" if inside else "Poor", "ok" if inside else "bad", dense=True)
-    tag.tooltip = _CALIBRATION_NOTE
+    label, tone, why = lab_view.calibration_label(coverage, low, high)
+    tag = Tag(label, tone, dense=True)
+    tag.tooltip = f"{why} {_CALIBRATION_NOTE}"
     return tag
 
 
@@ -373,7 +373,7 @@ def _table_or_empty(columns: list[TableColumn], rows: list[dict[str, object]], e
 def _runs_card(layout: common.GridLayout, runs: pd.DataFrame, evaluation: pd.DataFrame) -> ft.Control:
     run_rows = [
         {"run": str(row["run_id"]), "asof": str(row["as_of_date"]), "models": str(row["models"]), "promotion": str(row["promotion_state"])}
-        for _, row in runs.head(20).iterrows()
+        for _, row in lab_view.recent_runs(runs, 20).iterrows()
     ]
     fold_rows = [
         {"fold": str(r["split_id"]), "model": str(r["model_name"]), "matured": str(int(r["matured_rows"])), "mae": _metric(r["mae"]), "direction": _metric(r["directional_accuracy"]), "net": _net_value(r)}
@@ -439,12 +439,9 @@ def _governance_card(layout: common.GridLayout, state: AppState, report: dict, i
     for index, model_id in enumerate(ids):
         card_rows = catalogue.loc[catalogue["model_id"] == model_id] if not catalogue.empty else catalogue
         optional_row = optional_rows.get(model_id)
-        available = (
-            True if lab_view.is_baseline(model_id)
-            else bool(optional_row.artefact_available) if optional_row is not None
-            else bool(status.get(model_id, model_id in stored))
-        )
-        reason = (str(card_rows.iloc[0]["state_reason"]) if not card_rows.empty else "Not in the model zoo.") if not available else "Local rows are stored for this model."
+        available = lab_view.model_available(model_id, models, status, None if optional_row is None else bool(optional_row.artefact_available))
+        unavailable_reason = "Stored rows for this model are all failed forecasts." if model_id in stored else "Not in the model zoo."
+        reason = (str(card_rows.iloc[0]["state_reason"]) if not card_rows.empty else unavailable_reason) if not available else "Local rows are stored for this model."
         if optional_row is not None:
             installed = optional_row.runtime_installed
             reason += f" Artefact as of {optional_row.as_of_date or 'latest'}; runtime {'installed' if installed is True else 'not installed' if installed is False else 'unknown'}."

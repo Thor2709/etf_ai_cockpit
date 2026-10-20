@@ -98,12 +98,26 @@ def month_end_returns(frame: pd.DataFrame, months: int = 12) -> pd.Series:
     return (monthly / monthly.shift(months) - 1.0).dropna()
 
 
+def trading_session_date(origin: pd.Timestamp, sessions: int) -> pd.Timestamp:
+    """Date ``sessions`` trading sessions after ``origin``; forecast ``horizon_days`` count sessions, not calendar days.
+
+    The future exchange calendar is not stored, so weekdays stand in for sessions (holidays are not modelled).
+    """
+    return pd.Timestamp(origin) + pd.offsets.BDay(int(sessions))
+
+
 def _forecast_lines(forecasts: pd.DataFrame, instrument_id: str, last_date: pd.Timestamp, prices: pd.DataFrame) -> tuple[list[ForecastLine], bool]:
-    """Pass-through of stored quantile rows; a row with a missing or unordered q10/q50/q90 is skipped."""
+    """Pass-through of stored quantile rows; a row with a missing or unordered q10/q50/q90 is skipped.
+
+    Quantiles are stored adjusted log returns, so the price band is the adjusted close at the forecast date times
+    ``exp(q)`` (the basis of the return tiles). A horizon stored twice with different values is dropped.
+    """
     needed = {"etf_id", "model_name", "forecast_date", "horizon_days", "q10_return", "q50_return", "q90_return"}
     if forecasts is None or forecasts.empty or not needed.issubset(forecasts.columns):
         return [], False
     rows = forecasts[forecasts["etf_id"].astype(str) == str(instrument_id)]
+    if "status" in rows.columns:
+        rows = rows[rows["status"].astype(str).str.casefold().eq("ok")]  # a failed or unavailable row never draws a fan
     if rows.empty:
         return [], False
     dates = pd.to_datetime(rows["forecast_date"], errors="coerce", utc=True)
@@ -113,22 +127,27 @@ def _forecast_lines(forecasts: pd.DataFrame, instrument_id: str, last_date: pd.T
     rows["__forecast_date"] = pd.to_datetime(rows["forecast_date"], errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
     latest_vintage = rows["__forecast_date"].max()
     rows = rows.loc[rows["__forecast_date"].eq(latest_vintage)]
-    if "date" not in prices.columns or "close" not in prices.columns:
+    if "date" not in prices.columns or not ({"adjusted_close", "close"} & set(prices.columns)):
         return [], False
     price_dates = pd.to_datetime(prices["date"], errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
-    price_closes = pd.to_numeric(prices["close"], errors="coerce")
+    price_closes = adjusted_close(prices)
     close_by_date = {day: finite(close) for day, close in zip(price_dates, price_closes, strict=True) if pd.notna(day)}
     lines: list[ForecastLine] = []
     stale = False
     for model, group in rows.groupby("model_name", sort=True):
         line = ForecastLine(str(model), [], [], [], [], [], [])
-        for _, row in group.sort_values("horizon_days").iterrows():
+        conflicted = _conflicting_horizons(group)
+        for _, row in group.sort_values("horizon_days", kind="stable").iterrows():
             horizon = finite(row.get("horizon_days"))
             q10, q50, q90 = (finite(row.get(name)) for name in ("q10_return", "q50_return", "q90_return"))
             if horizon is None or horizon <= 0 or q10 is None or q50 is None or q90 is None or not q10 <= q50 <= q90:
                 continue
             forecast_date = row["__forecast_date"]
-            target_date = forecast_date + pd.Timedelta(days=int(horizon))
+            if horizon in conflicted:
+                continue
+            target_date = trading_session_date(forecast_date, int(horizon))
+            if line.dates and target_date <= line.dates[-1]:
+                continue  # an identical duplicate or a non-increasing date never reaches the chart
             if target_date <= last_date:
                 stale = True
                 continue
@@ -139,14 +158,25 @@ def _forecast_lines(forecasts: pd.DataFrame, instrument_id: str, last_date: pd.T
             if q25 is None or q75 is None or not q10 <= q25 <= q50 <= q75 <= q90:
                 q25 = q75 = None  # never interpolated: the 50% fan is simply not drawn
             line.dates.append(target_date)
-            line.q10.append(forecast_close * (1 + q10))
-            line.q50.append(forecast_close * (1 + q50))
-            line.q90.append(forecast_close * (1 + q90))
-            line.q25.append(None if q25 is None else forecast_close * (1 + q25))
-            line.q75.append(None if q75 is None else forecast_close * (1 + q75))
+            line.q10.append(forecast_close * math.exp(q10))
+            line.q50.append(forecast_close * math.exp(q50))
+            line.q90.append(forecast_close * math.exp(q90))
+            line.q25.append(None if q25 is None else forecast_close * math.exp(q25))
+            line.q75.append(None if q75 is None else forecast_close * math.exp(q75))
         if line.dates:
             lines.append(line)
     return lines, stale
+
+
+def _conflicting_horizons(group: pd.DataFrame) -> set[float]:
+    """Horizons stored more than once with different quantiles; they are not drawn rather than picked arbitrarily."""
+    names = [name for name in ("q10_return", "q25_return", "q50_return", "q75_return", "q90_return") if name in group.columns]
+    conflicted: set[float] = set()
+    for horizon, rows in group.assign(__horizon=pd.to_numeric(group["horizon_days"], errors="coerce")).groupby("__horizon"):
+        values = rows[names].apply(pd.to_numeric, errors="coerce").round(12).drop_duplicates()
+        if len(values) > 1:
+            conflicted.add(float(horizon))
+    return conflicted
 
 
 def build_stock_view(
@@ -173,7 +203,7 @@ def build_stock_view(
     adj = adjusted_close(window)
     raw = pd.to_numeric(window["close"], errors="coerce") if "close" in window else adj
     view.dates = list(window["date"])
-    view.close = [finite(v) for v in raw]
+    view.close = [finite(v) for v in adj]  # one basis with the return tiles and the forecast fan: adjusted close
     if len(window) < 2:
         view.unavailable_price = "Fewer than two stored prices in this range."
     view.drawdown = [finite(v) for v in (adj / adj.cummax() - 1.0) * 100.0]

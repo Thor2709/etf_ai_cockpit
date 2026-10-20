@@ -1,5 +1,6 @@
 flet>=0.28,<1.0
 flet-web>=0.85,<1.0
+fastapi<0.145  # flet-web 0.85 passes openapi_prefix, removed in fastapi 0.145
 pandas>=2.2
 numpy>=1.26
 pyarrow>=15
