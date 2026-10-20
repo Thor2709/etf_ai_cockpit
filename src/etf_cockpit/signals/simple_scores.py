@@ -2194,7 +2194,7 @@ def _with_score_band(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
         boundaries = label_boundaries_from(load_stock_config().get("scoring", {}).get("uncertainty", {}))
     except Exception:  # noqa: BLE001 - the band is informational; no weights or config means no band
         return score
-    band = headline_score_band(score.components, weights, score.evidence_score_10 if score.evidence_score_10 is not None else score.final_score_10, boundaries)
+    band = headline_score_band(score.components, weights, score.final_score_10, boundaries)
     if band is None:
         return score
     return replace(score, score_band_low=band[0], score_band_high=band[1], label_stable=band[2], score_band_basis=band[3])

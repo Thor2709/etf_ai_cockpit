@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, timezone
 
 import pytest
@@ -188,6 +189,9 @@ def test_stock_component_and_headline_bands_reach_the_scoreboard() -> None:
     assert row["stock_quality_band_low"] == quality.band_low
     assert row["stock_quality_band_high"] == quality.band_high
     assert row["stock_quality_label_stable"] == quality.label_stable
+    capped = ss._with_score_band(replace(score, final_score_10=3.2))
+    assert capped.score_band_low <= 3.2 <= capped.score_band_high
+    assert capped.score_band_basis == published.score_band_basis
 
 
 def test_legacy_callers_without_cohorts_fail_closed_for_shrinkable_inputs() -> None:
