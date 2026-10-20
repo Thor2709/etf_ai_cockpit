@@ -5,7 +5,7 @@
   "timestamps": "ingested_at / created_at / signal_timestamp values and any run id derived from the clock",
   "paths": "absolute paths (isolated root differs per run)",
   "hashes_in_run_id": "the __s<12 hex> settings suffix of run ids is kept: it is derived from committed config only",
-  "feature_price_digest": "the _p<12 hex> price-binding digest in feature manifest filenames is masked: price float text is not bit-stable across platforms; dates and settings suffixes are kept"
+  "feature_price_digest": "the _p<12 hex> price-binding digest and the optional _x<12 hex> FX-binding digest in feature manifest filenames are masked: price/FX float text is not bit-stable across platforms; dates and settings suffixes are kept"
  },
  "files": {
   "data/backtests/backtest_metadata.json": {
@@ -1380,7 +1380,7 @@
    ],
    "run_id_pattern": "backtest__s<12hex>"
   },
-  "data/derived/run_manifests/features_2026-09-30_p50feb083c593_xd7a3c565b08f__s5307f54f8af7.json": {
+  "data/derived/run_manifests/features_2026-09-30_p<12hex>_x<12hex>__s5307f54f8af7.json": {
    "kind": "json",
    "structure": {
     "dataset_bindings": {
