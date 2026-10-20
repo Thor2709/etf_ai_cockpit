@@ -101,7 +101,7 @@ class FeatureService:
         reference_context: CanonicalReferenceContext | None = None,
     ) -> pd.DataFrame:
         settings_identity = current_settings_identity()
-        frame = (prices if prices is not None else load_prices()).copy()
+        frame = (prices if prices is not None else load_prices(config=self.config)).copy()
         if "volume" not in frame.columns:
             frame["volume"] = float("nan")
         context = reference_context if reference_context is not None else self.reference_context

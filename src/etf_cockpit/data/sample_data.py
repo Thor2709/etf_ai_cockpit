@@ -109,7 +109,7 @@ def generate_sample_prices(config: AppConfig, periods: int = 900, end_date: date
                         "calendar_source_version": "sample-calendar-identities.v1",
                     },
                 }],
-                "identity_history": [{"source_id": f"sample_generator:calendar:{etf.id}"}],
+                "identity_history": [{"source_id": f"synthetic_sample:calendar:{etf.id}"}],
                 "execution_allowed": False,
             }
 
@@ -126,7 +126,7 @@ def generate_sample_prices(config: AppConfig, periods: int = 900, end_date: date
                     "adjusted_close": float(cls),
                     "volume": float(volm),
                     "currency": etf.currency,
-                    "source": "sample_generator",
+                    "source": "synthetic_sample",
                     "is_adjusted": True,
                     "ingested_at": pd.Timestamp.now(tz="UTC").isoformat(),
                     "calendar_identity": calendar_identity,
@@ -166,7 +166,7 @@ def generate_sample_holdings(config: AppConfig, prices: pd.DataFrame, portfolio_
                 "average_cost_eur": average_cost,
                 "unrealised_gain_eur": gain,
                 "unrealised_gain_pct": (market_price / average_cost - 1) if average_cost else 0.0,
-                "source": "sample_generator",
+                "source": "synthetic_sample",
             }
         )
     return pd.DataFrame(rows)
@@ -176,10 +176,14 @@ def ensure_sample_files(
     config: AppConfig,
     force: bool = False,
     *,
+    allow_synthetic: bool = False,
     publish_guard: PublicationScopeFactory | None = None,
 ) -> tuple[Path, Path]:
     price_path = RAW_DIR / "prices" / "sample_prices.csv"
     holdings_path = PORTFOLIOS_DIR / "current_holdings.csv"
+    # Force controls replacement only; it must never bypass the explicit opt-in.
+    if not allow_synthetic:
+        return price_path, holdings_path
     if force or not price_path.exists() or not holdings_path.exists():
         prices = generate_sample_prices(config) if force or not price_path.exists() else pd.read_csv(price_path)
         write_prices = force or not price_path.exists()

@@ -7,8 +7,8 @@ from etf_cockpit.application import data_service as ds
 
 def test_candidate_fetch_failure_does_not_fail_configured_forecasts(tmp_path, monkeypatch):
     prices = pd.DataFrame({"etf_id": ["VWCE"], "date": ["2026-10-08"], "adjusted_close": [1.0]})
-    monkeypatch.setattr(ds, "load_prices", lambda: prices)
-    monkeypatch.setattr(ds, "load_holdings", lambda: pd.DataFrame())
+    monkeypatch.setattr(ds, "load_prices", lambda **_kwargs: prices)
+    monkeypatch.setattr(ds, "load_holdings", lambda **_kwargs: pd.DataFrame())
     monkeypatch.setattr(ds, "_benchmark_reference_snapshot_inputs", lambda *a, **k: {})
     monkeypatch.setattr(ds, "_reference_context_from_inputs", lambda *a, **k: SimpleNamespace(identity={}))
     monkeypatch.setattr(ds, "_calculation_window", lambda *a, **k: {"start": None})
