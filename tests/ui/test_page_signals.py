@@ -77,3 +77,24 @@ def test_empty_data_shows_unavailable(monkeypatch) -> None:
                 str(getattr(item, "value", "") or "") != "0"
                 for item in _walk(control)
             )
+
+
+def test_score_table_shows_informational_headline_band() -> None:
+    score = SimpleNamespace(
+        final_score_10=6.0,
+        score_band_low=4.7,
+        score_band_high=6.8,
+        label_stable=False,
+        final_label="watchlist",
+        final_action="no_trade",
+        source_group="Primary",
+        display_id="T",
+        name="Test Co",
+        components=[],
+        evidence_component_counts=(0, 0),
+        warnings=[],
+    )
+    row = signals._score_rows([score])[0]
+    text = _text(row["score"])
+
+    assert "Band 4.7–6.8/10 · label may change" in text
