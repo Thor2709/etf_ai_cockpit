@@ -645,15 +645,22 @@ def sort_fundamental_evidence(frame: pd.DataFrame) -> pd.DataFrame:
         errors="coerce",
         format="mixed",
     )
+    # Known-time ordering: of several vintages of one period the one published last sorts last.
+    result["_known_sort"] = pd.to_datetime(
+        result.get("available_at", pd.Series(index=result.index)),
+        errors="coerce",
+        format="mixed",
+        utc=True,
+    )
     result["_instrument_sort"] = result.get("instrument_id", pd.Series(index=result.index)).astype(str)
     result["_checksum_sort"] = result.get("evidence_checksum", pd.Series(index=result.index)).astype(str)
     result["_row_sort"] = result.apply(_stable_row_digest, axis=1)
     result = result.sort_values(
-        ["_as_of_sort", "_instrument_sort", "_checksum_sort", "_row_sort"],
+        ["_as_of_sort", "_known_sort", "_instrument_sort", "_checksum_sort", "_row_sort"],
         kind="stable",
         na_position="first",
     )
-    return result.drop(columns=["_as_of_sort", "_instrument_sort", "_checksum_sort", "_row_sort"]).reset_index(drop=True)
+    return result.drop(columns=["_as_of_sort", "_known_sort", "_instrument_sort", "_checksum_sort", "_row_sort"]).reset_index(drop=True)
 
 
 def latest_fundamental_rows(frame: pd.DataFrame) -> pd.DataFrame:

@@ -885,7 +885,13 @@ def apply_total_return_adjustments(
     frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
     if frame["date"].isna().any() or not np.isfinite(frame["close"]).all() or frame["close"].lt(0).any():
         raise MarketAdjustmentError("raw prices contain invalid dates or non-finite/negative close values")
-    frame = frame.sort_values("date", kind="stable").reset_index(drop=True)
+    if "known_at" in frame.columns:
+        # Same-day vintages order by knowledge time so the last row of a day is its latest vintage.
+        frame["_vintage_order"] = pd.to_datetime(frame["known_at"], errors="coerce", utc=True)
+        frame = frame.sort_values(["date", "_vintage_order"], kind="stable", na_position="first").drop(columns="_vintage_order")
+    else:
+        frame = frame.sort_values("date", kind="stable")
+    frame = frame.reset_index(drop=True)
     frame["raw_close"] = frame["close"].astype(float)
 
     warnings: list[str] = []
@@ -976,26 +982,40 @@ def apply_total_return_adjustments(
     income: list[float] = [0.0]
     principal: list[float] = [0.0]
     action_ids: list[str] = [""]
-    applied_days: set[pd.Timestamp] = {first_day}
+    # Several rows of one day are alternative vintages of that day's close: each is measured against the
+    # previous day's final close (never against another vintage) and the day's actions apply to every vintage.
+    row_days = [pd.Timestamp(value).normalize() for value in frame["date"]]
+    reference_close = float(frame.loc[0, "raw_close"])
     for index in range(1, len(frame)):
-        previous = float(frame.loc[index - 1, "raw_close"])
         current = float(frame.loc[index, "raw_close"])
-        row_day = pd.Timestamp(frame.loc[index, "date"]).normalize()
-        # A day's actions are applied on its first row only (revision rows never repeat them).
-        day_actions = events.get(row_day, []) if row_day not in applied_days else []
-        applied_days.add(row_day)
+        row_day = row_days[index]
+        if row_day != row_days[index - 1]:
+            reference_close = float(frame.loc[index - 1, "raw_close"])
+        if row_day == first_day:
+            # A revision of the first day has no prior close to be measured against.
+            price_returns.append(math.nan)
+            local_returns.append(math.nan)
+            quantities.append(1.0)
+            cashflows.append(0.0)
+            income.append(0.0)
+            principal.append(0.0)
+            action_ids.append("")
+            continue
+        day_actions = events.get(row_day, [])
         quantity_factor = math.prod(item.quantity_factor for item in day_actions)
         net_cash = sum(item.net_cash_amount for item in day_actions)
         income_cash = sum(item.net_cash_amount for item in day_actions if item.cash_flow_classification == "investment_income")
         principal_cash = sum(item.net_cash_amount for item in day_actions if item.cash_flow_classification == "security_principal")
         # Price return is quantity-adjusted only: cash distributions never enter it.
-        price_returns.append(current * quantity_factor / previous - 1.0)
-        local_returns.append((current * quantity_factor + net_cash) / previous - 1.0)
+        price_returns.append(current * quantity_factor / reference_close - 1.0)
+        local_returns.append((current * quantity_factor + net_cash) / reference_close - 1.0)
         quantities.append(quantity_factor)
         cashflows.append(net_cash)
         income.append(income_cash)
         principal.append(principal_cash)
         action_ids.append(",".join(sorted(item.action_id for item in day_actions)))
+    # Each day counts once in cumulative figures: its last (latest-vintage) row.
+    day_is_final = [index + 1 == len(row_days) or row_days[index + 1] != day for index, day in enumerate(row_days)]
     first_raw = float(frame["raw_close"].iloc[0])
     last_raw = float(frame["raw_close"].iloc[-1])
 
@@ -1007,7 +1027,7 @@ def apply_total_return_adjustments(
         return index * last_raw / last_index
 
     frame["price_return"] = price_returns
-    frame["price_return_index"] = 100.0 * (1.0 + frame["price_return"].fillna(0.0)).cumprod()
+    frame["price_return_index"] = _chain_index_by_day(frame["price_return"], row_days)
     frame["price_adjusted_close"] = _anchored(frame["price_return_index"])
     frame["local_total_return"] = local_returns
     frame["quantity_factor"] = quantities
@@ -1016,7 +1036,7 @@ def apply_total_return_adjustments(
     frame["security_principal"] = principal
     frame["external_flow"] = 0.0
     frame["action_ids"] = action_ids
-    frame["total_return_index"] = 100.0 * (1.0 + frame["local_total_return"].fillna(0.0)).cumprod()
+    frame["total_return_index"] = _chain_index_by_day(frame["local_total_return"], row_days)
     # adjusted_close is the total-return-adjusted close (cash reinvested); price_adjusted_close excludes cash.
     frame["adjusted_close"] = _anchored(frame["total_return_index"])
     frame["adjusted_close_basis"] = "total_return"
@@ -1025,7 +1045,7 @@ def apply_total_return_adjustments(
 
     price_result: float | None = float(frame["price_return_index"].iloc[-1]) / 100.0 - 1.0
     total_result: float | None = float(frame["total_return_index"].iloc[-1]) / 100.0 - 1.0
-    income_result: float | None = float(sum(income)) / first_raw
+    income_result: float | None = float(sum(value for value, final in zip(income, day_is_final, strict=True) if final)) / first_raw
     if price_blocked:
         for column in ("price_return", "price_return_index", "price_adjusted_close", "quantity_factor"):
             frame[column] = math.nan
@@ -1049,6 +1069,19 @@ def apply_total_return_adjustments(
             applied_ratio=math.prod(item.quantity_factor for item in resolved.selected if item.action_type == "split"),
         )
     )
+
+
+def _chain_index_by_day(returns: pd.Series, row_days: Sequence[pd.Timestamp]) -> pd.Series:
+    """Chain daily returns to an index; every vintage row of one day starts from the previous day's final level."""
+
+    values = [100.0] * len(row_days)
+    day_start = 100.0
+    for index in range(1, len(row_days)):
+        if row_days[index] != row_days[index - 1]:
+            day_start = values[index - 1]
+        step = returns.iloc[index]
+        values[index] = day_start * (1.0 + (0.0 if pd.isna(step) else float(step)))
+    return pd.Series(values, index=returns.index, dtype=float)
 
 
 def _unavailable_adjustment_frame(frame: pd.DataFrame) -> pd.DataFrame:
@@ -1106,9 +1139,15 @@ def reconcile_adjustments(
     if not required.issubset(frame.columns):
         return AdjustmentReconciliation("unavailable", None, 0, ("missing_adjustment_columns",))
     residuals: list[float] = []
+    days = [pd.Timestamp(value).normalize() for value in frame["date"]] if "date" in frame.columns else list(range(len(frame)))
+    reference_close = float(frame.iloc[0]["raw_close"]) if len(frame) else math.nan
     for index in range(1, len(frame)):
+        if days[index] != days[index - 1]:
+            reference_close = float(frame.iloc[index - 1]["raw_close"])
+        elif days[index] == days[0]:
+            continue  # a revision of the first day has no prior close
         observed = float(frame.iloc[index]["local_total_return"])
-        expected_return = (float(frame.iloc[index]["raw_close"]) * float(frame.iloc[index]["quantity_factor"]) + float(frame.iloc[index]["security_cash_flow"])) / float(frame.iloc[index - 1]["raw_close"]) - 1.0
+        expected_return = (float(frame.iloc[index]["raw_close"]) * float(frame.iloc[index]["quantity_factor"]) + float(frame.iloc[index]["security_cash_flow"])) / reference_close - 1.0
         residuals.append(abs(observed - expected_return))
     maximum = max(residuals, default=0.0)
     discrepancies = () if maximum <= tolerance else (f"adjustment_identity_residual={maximum:.12g}",)
@@ -1173,6 +1212,21 @@ def _select_fx_edge(candidates: Sequence[FXObservation], *, tolerance: float) ->
     return reference, ranked, (), label
 
 
+def _current_fx_lineage(observations: Sequence[FXObservation], known_at: str | datetime) -> list[FXObservation]:
+    """Keep the latest revision known at the cutoff per lineage so revisions never act as rival sources."""
+
+    cutoff = pd.Timestamp(_utc(known_at, "decision_time"))
+    latest: dict[tuple[str, str], FXObservation] = {}
+    for item in observations:
+        if pd.Timestamp(item.known_at) > cutoff:
+            continue
+        key = (item.observation_id, item.source_id)
+        held = latest.get(key)
+        if held is None or (item.revision, item.known_at) > (held.revision, held.known_at):
+            latest[key] = item
+    return list(latest.values())
+
+
 def derive_fx_cross(
     observations: Sequence[FXObservation] | FXObservationStore,
     base_currency: str,
@@ -1191,6 +1245,8 @@ def derive_fx_cross(
         raise MarketAdjustmentError("as_of is required")
     if isinstance(observations, FXObservationStore):
         observations = observations.snapshot(known_at=decision_time or target_value)
+    else:
+        observations = _current_fx_lineage(observations, decision_time or target_value)
     base = _currency(base_currency, required=True) or ""
     quote = _currency(quote_currency, required=True) or ""
     target = _utc(target_value, "valuation_at")
@@ -1239,10 +1295,10 @@ def derive_fx_cross(
     if not paths:
         status = "quarantined" if any("conflicted" in item for item in discrepancies) else "unavailable"
         return FXRateResult(status, None, base, quote, target, (), (), (), None, tuple(sorted(set(discrepancies or ["missing_or_stale_fx"]))))
-    shortest = min(len(item[1]) for item in paths)
-    comparable = [item for item in paths if len(item[1]) <= shortest + 1]
+    # Every enumerated path must agree: a longer path is still evidence about the same pair.
+    comparable = paths
     chosen = sorted(comparable, key=lambda item: (len(item[1]), item[1]))[0]
-    if any(not math.isclose(item[0], chosen[0], rel_tol=tolerance, abs_tol=0.0) for item in comparable[1:]):
+    if any(not math.isclose(item[0], chosen[0], rel_tol=tolerance, abs_tol=0.0) for item in comparable if item is not chosen):
         return FXRateResult("quarantined", None, base, quote, target, (), (), (), None, ("triangular_inconsistency",))
     used = chosen[2]
     return FXRateResult(

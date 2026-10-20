@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass
 from datetime import date, datetime
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 from typing import Literal
@@ -87,6 +88,10 @@ class TargetDefinition:
             raise FeatureStoreError(f"unsupported target kind: {self.kind}")
         if self.kind == "event" and self.event_threshold is None:
             raise FeatureStoreError("event targets require an event threshold")
+        if self.event_threshold is not None and (
+            isinstance(self.event_threshold, bool) or not math.isfinite(float(self.event_threshold))
+        ):
+            raise FeatureStoreError("event threshold must be a finite number")
 
 
 @dataclass(frozen=True)
@@ -123,18 +128,12 @@ class LocalFeatureStore:
         builtin = next((item for item in BUILTIN_FEATURES if item.feature_id == definition.feature_id), None)
         if builtin is not None and _definition_payload(builtin) != payload:
             raise FeatureStoreError(f"builtin feature identifiers cannot be shadowed: {definition.feature_id}")
-        existing = self.get(_ENTITY_TYPE, definition.feature_id)
-        if existing is not None and existing != payload:
-            raise FeatureStoreError(f"feature definition already exists with different content: {definition.feature_id}")
-        self._put(_ENTITY_TYPE, definition.feature_id, payload)
+        self._put_unless_conflicting(_ENTITY_TYPE, definition.feature_id, payload, "feature")
         return definition
 
     def register_target(self, definition: TargetDefinition) -> TargetDefinition:
         payload = _definition_payload(definition)
-        existing = self.get(_TARGET_TYPE, definition.target_id)
-        if existing is not None and existing != payload:
-            raise FeatureStoreError(f"target definition already exists with different content: {definition.target_id}")
-        self._put(_TARGET_TYPE, definition.target_id, payload)
+        self._put_unless_conflicting(_TARGET_TYPE, definition.target_id, payload, "target")
         return definition
 
     def feature_catalogue(self, *, include_builtins: bool = True) -> tuple[FeatureDefinition, ...]:
@@ -351,7 +350,7 @@ class LocalFeatureStore:
             left_mean, right_mean = float(left.mean()), float(right.mean())
             left_std, right_std = float(left.std(ddof=0)), float(right.std(ddof=0))
             scale = max(abs(left_std), abs(left_mean), 1e-9)
-            result[feature_id] = {"reference_mean": left_mean, "current_mean": right_mean, "mean_delta": right_mean - left_mean, "std_delta": right_std - left_std, "missing_rate_delta": float(right.isna().mean() - left.isna().mean()), "drifted": abs(right_mean - left_mean) / scale > 0.25}
+            result[feature_id] = {"reference_mean": left_mean, "current_mean": right_mean, "mean_delta": right_mean - left_mean, "std_delta": right_std - left_std, "missing_rate_delta": float(right.isna().mean() - left.isna().mean()), "drifted": _drifted(right_mean - left_mean, right_std - left_std, float(right.isna().mean() - left.isna().mean()), scale)}
         return {"features": result, "feature_count": len(result)}
 
     def get(self, entity_type: str, entity_id: str) -> dict[str, object] | None:
@@ -363,9 +362,14 @@ class LocalFeatureStore:
         with TransactionalStore(self.root) as store:
             return tuple(record.payload for record in store.list(entity_type))
 
-    def _put(self, entity_type: str, entity_id: str, payload: Mapping[str, object]) -> None:
-        with TransactionalStore(self.root) as store:
-            store.put(entity_type, entity_id, payload)
+    def _put_unless_conflicting(self, entity_type: str, entity_id: str, payload: Mapping[str, object], label: str) -> None:
+        """Check and write in ONE write transaction so a concurrent registration cannot be overwritten."""
+
+        with TransactionalStore(self.root) as store, store.transaction() as connection:
+            record = store.get(entity_type, entity_id)
+            if record is not None and record.payload != payload:
+                raise FeatureStoreError(f"{label} definition already exists with different content: {entity_id}")
+            store.put_in_transaction(connection, entity_type, entity_id, payload)
 
     def _selected_definitions(self, feature_ids: Sequence[str] | None) -> tuple[FeatureDefinition, ...]:
         definitions = self.feature_catalogue(include_builtins=feature_ids is None)
@@ -386,6 +390,24 @@ class LocalFeatureStore:
         if len(selected) != len(wanted):
             raise FeatureStoreError("unknown target definition requested")
         return selected
+
+
+_DRIFT_THRESHOLD = 0.25
+
+
+def _drifted(mean_delta: float, std_delta: float, missing_rate_delta: float, scale: float) -> bool:
+    """Mean and std shifts are relative to the reference scale; the missing-rate shift is absolute.
+
+    An unmeasurable statistic (all values missing on one side) is drift, never "no drift".
+    """
+
+    if not all(math.isfinite(value) for value in (mean_delta, std_delta, missing_rate_delta)):
+        return True
+    return (
+        abs(mean_delta) / scale > _DRIFT_THRESHOLD
+        or abs(std_delta) / scale > _DRIFT_THRESHOLD
+        or abs(missing_rate_delta) > _DRIFT_THRESHOLD
+    )
 
 
 def _definition_payload(value: FeatureDefinition | TargetDefinition) -> dict[str, object]:
