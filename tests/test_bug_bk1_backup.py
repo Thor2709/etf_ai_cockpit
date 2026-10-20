@@ -304,6 +304,31 @@ def test_decrypted_temp_removed_and_private(tmp_path: Path, _private_system_temp
     assert not list(_private_system_temp.iterdir())
 
 
+def test_startup_removes_stale_decrypted_temp_without_decrypt(_private_system_temp: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # A119-N002
+    from etf_cockpit.app import flet_app
+
+    stale = _private_system_temp / "etf-cockpit-plain-crashed"
+    stale.mkdir()
+    (stale / "decrypted.backup").write_bytes(b"plaintext")
+    old = time.time() - 600  # older than the startup window, younger than the lazy 1h sweep
+    os.utime(stale, (old, old))
+    fresh = _private_system_temp / "etf-cockpit-plain-live"
+    fresh.mkdir()
+
+    class _Stop(Exception):
+        pass
+
+    def stop() -> None:
+        raise _Stop
+
+    monkeypatch.setattr(flet_app, "_patch_flet_static_temp_dir", stop)  # first step after the sweep in run()
+    with pytest.raises(_Stop):
+        flet_app.run()
+    assert not stale.exists()
+    assert fresh.exists()
+    shutil.rmtree(fresh)
+
+
 def test_stale_decrypted_temp_is_swept(tmp_path: Path, _private_system_temp: Path) -> None:  # A119-N002
     stale = _private_system_temp / "etf-cockpit-plain-stale"
     stale.mkdir()

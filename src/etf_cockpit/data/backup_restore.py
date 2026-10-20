@@ -1034,9 +1034,11 @@ def _validate_config_payloads(
             missing = _missing_required_config(root, name)
             if missing:
                 # The loader would silently fall back to defaults for a vanished companion file.
-                return f"settings_consistency_invalid:required_config_deleted:{missing}"
-        step = "load_settings_bundle"
-        load_settings_bundle(root)
+                result = f"settings_consistency_invalid:required_config_deleted:{missing}"
+                break
+        if not result:
+            step = "load_settings_bundle"
+            load_settings_bundle(root)
     except SettingsError as exc:
         reason = str(exc)
         if "revision" in reason.casefold():
