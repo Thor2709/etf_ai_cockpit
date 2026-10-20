@@ -81,7 +81,11 @@ def test_cagr_percentile_median_and_currency() -> None:
 
 
 def test_reverse_valuation_needs_a_configured_cost_of_equity() -> None:
-    assert sm.implied_growth_from_pe(20.0, 0.4, 0.08).value == pytest.approx(0.06)  # 0.08 - 0.4 / 20
+    # trailing P/E contract (#940 B106-N003): P/E = payout * (1 + g) / (r - g)  =>  g = (r * P/E - payout) / (P/E + payout)
+    # (previously pinned the forward form g = r - payout / (P/E) = 0.06; flagged for Opus review)
+    implied = sm.implied_growth_from_pe(20.0, 0.4, 0.08).value
+    assert implied == pytest.approx((0.08 * 20.0 - 0.4) / 20.4)
+    assert 0.4 * (1.0 + implied) / (0.08 - implied) == pytest.approx(20.0)
     missing = sm.implied_growth_from_pe(20.0, 0.4, None)
     assert missing.status == sm.UNAVAILABLE and "cost of equity" in missing.reason
     assert sm.implied_growth_from_pe(20.0, 0.0, 0.08).status == sm.UNAVAILABLE

@@ -58,7 +58,7 @@ def _claim(**overrides: object):
         "ec_attributable_result": {"available": True, "value": 48.0},
     }
     facts.update(overrides)  # type: ignore[arg-type]
-    return build_claim_state({"facts": facts, "known_at": "2025-03-01T00:00:00Z", "source_url": "synthetic"})
+    return build_claim_state({"facts": facts, "effective_at": "2024-12-31", "known_at": "2025-03-01T00:00:00Z", "source_url": "synthetic"})
 
 
 def test_owner_normalisation_haircuts_only_a_benign_loss_year_and_tax_effects_it() -> None:
@@ -176,7 +176,7 @@ def test_display_only_inputs_do_not_count_toward_coverage_and_carry_a_reason() -
 
 
 def _facts_payload() -> dict[str, object]:
-    return {
+    facts = {
         "ec_capital": {"available": True, "value": 100.0},
         "overkursfond": {"available": True, "value": 50.0},
         "utjevningsfond": {"available": True, "value": 250.0},
@@ -184,6 +184,7 @@ def _facts_payload() -> dict[str, object]:
         "registered_ec_count": {"available": True, "value": 4.0},
         "ec_attributable_result": {"available": True, "value": 48.0},
     }
+    return {name: {**item, "period": "2024-12-31"} for name, item in facts.items()}
 
 
 def _rows(tmp_path: Path) -> list[dict[str, object]]:

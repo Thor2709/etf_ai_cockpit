@@ -1161,7 +1161,7 @@
     ["calibration_label", "null"]
    ]
   },
-  "data/derived/run_manifests/backtest__s2e451e324e57.json": {
+  "data/derived/run_manifests/backtest__s5307f54f8af7.json": {
    "kind": "json",
    "structure": {
     "dependencies": {
@@ -1205,7 +1205,7 @@
    },
    "dataset_tuples": [
     ["dataset:prices", "dataset", "1.0.0"],
-    ["formula:score-engine-v3", "formula", "3.0.0"],
+    ["formula:score-engine-v3", "formula", "3.1.0"],
     ["model:baseline", "model", "1.0.0"],
     ["policy:costs", "policy", "1.0.0"],
     ["policy:portfolio-targets", "policy", "1.0.0"],
@@ -1214,7 +1214,7 @@
    ],
    "run_id_pattern": "backtest__s<12hex>"
   },
-  "data/derived/run_manifests/features_2026-09-30_p50feb083c593_xd7a3c565b08f__s2e451e324e57.json": {
+  "data/derived/run_manifests/features_2026-09-30_p50feb083c593_xd7a3c565b08f__s5307f54f8af7.json": {
    "kind": "json",
    "structure": {
     "dataset_bindings": {
@@ -1279,7 +1279,7 @@
    ],
    "run_id_pattern": "features_2026-09-30_p<12hex>_x<12hex>__s<12hex>"
   },
-  "data/derived/run_manifests/forecast_20260930__s2e451e324e57.json": {
+  "data/derived/run_manifests/forecast_20260930__s5307f54f8af7.json": {
    "kind": "json",
    "structure": {
     "dependencies": {
@@ -1323,7 +1323,7 @@
    },
    "dataset_tuples": [
     ["dataset:prices", "dataset", "1.0.0"],
-    ["formula:score-engine-v3", "formula", "3.0.0"],
+    ["formula:score-engine-v3", "formula", "3.1.0"],
     ["model:baseline", "model", "1.0.0"],
     ["model:timesfm", "model", "1.0.0"],
     ["model:toto", "model", "1.0.0"],
@@ -1377,7 +1377,7 @@
    "dataset_tuples": [
     ["dataset:universe", "dataset", "1.0.0"],
     ["feature:feature-registry", "feature", "1.0.0"],
-    ["formula:score-engine-v3", "formula", "3.0.0"],
+    ["formula:score-engine-v3", "formula", "3.1.0"],
     ["model:baseline", "model", "1.0.0"],
     ["policy:costs", "policy", "1.0.0"],
     ["policy:gate-policy", "policy", "1.0.0"],
@@ -1419,7 +1419,7 @@
     ["score_eligible", "bool"],
     ["driver_text", "string"],
     ["canonical_score_role", "string"],
-    ["canonical_contribution_raw", "null"],
+    ["canonical_contribution_raw", "double"],
     ["peer_group", "string"],
     ["uncertainty", "string"],
     ["formula_version", "string"],
@@ -1432,14 +1432,14 @@
    "kind": "json",
    "structure": {
     "execution_allowed": false,
-    "formula_version": "score-engine-v3.0.0",
+    "formula_version": "score-engine-v3.1.0",
     "immutable_after_run": true,
     "policies": {
      "ETF": {
       "asset_type": "str",
       "execution_allowed": false,
       "formula_checksum": "str",
-      "formula_version": "score-engine-v3.0.0",
+      "formula_version": "score-engine-v3.1.0",
       "groups": {
        "attractiveness": {
         "etf_exposure": "float",
@@ -1455,7 +1455,6 @@
        "risk_implementation": {
         "concentration": "float",
         "liquidity_cost": "float",
-        "rebalance": "float",
         "risk": "float"
        }
       },
@@ -1466,7 +1465,7 @@
       "asset_type": "str",
       "execution_allowed": false,
       "formula_checksum": "str",
-      "formula_version": "score-engine-v3.0.0",
+      "formula_version": "score-engine-v3.1.0",
       "groups": {
        "attractiveness": {
         "momentum": "float",
@@ -1483,7 +1482,6 @@
        "risk_implementation": {
         "concentration": "float",
         "liquidity_cost": "float",
-        "rebalance": "float",
         "risk": "float"
        }
       },
@@ -1560,8 +1558,8 @@
     ["score_schema_version", "string"],
     ["canonical_attractiveness_10", "null"],
     ["canonical_expected_return_10", "null"],
-    ["canonical_risk_implementation_10", "null"],
-    ["canonical_evidence_confidence_10", "null"],
+    ["canonical_risk_implementation_10", "double"],
+    ["canonical_evidence_confidence_10", "double"],
     ["canonical_coverage", "double"],
     ["coverage", "double"],
     ["missing_components", "string"],
@@ -2003,8 +2001,8 @@
     ["classification_dependency_status", "string"],
     ["canonical_attractiveness_10", "null"],
     ["canonical_expected_return_10", "null"],
-    ["canonical_risk_implementation_10", "null"],
-    ["canonical_evidence_confidence_10", "null"],
+    ["canonical_risk_implementation_10", "double"],
+    ["canonical_evidence_confidence_10", "double"],
     ["canonical_coverage", "double"],
     ["canonical_warnings", "string"],
     ["valid_components", "int64"],
@@ -2498,10 +2496,10 @@
      "max": null
     }
    },
-   "non_float_digest": "e2429872470cd7c6be440cb16db7a97961efff214e2059ebd018e8f26d16d352",
+   "non_float_digest": "fc933dedd39377c7805fa9f9384c693bb72196ff285c308ebbdca7beb33f5b01",
    "first_rows": [
     {
-     "run_id": "forecast_20260930__s2e451e324e57",
+     "run_id": "forecast_20260930__s5307f54f8af7",
      "model_name": "baseline",
      "model_version": "momentum_shrunk_v1",
      "etf_id": "VWCE",
@@ -2553,7 +2551,7 @@
      "execution_allowed": "<NaN>"
     },
     {
-     "run_id": "forecast_20260930__s2e451e324e57",
+     "run_id": "forecast_20260930__s5307f54f8af7",
      "model_name": "baseline",
      "model_version": "momentum_shrunk_v1",
      "etf_id": "VWCE",
@@ -2605,7 +2603,7 @@
      "execution_allowed": "<NaN>"
     },
     {
-     "run_id": "forecast_20260930__s2e451e324e57",
+     "run_id": "forecast_20260930__s5307f54f8af7",
      "model_name": "baseline",
      "model_version": "momentum_shrunk_v1",
      "etf_id": "VWCE",
@@ -2659,7 +2657,7 @@
    ],
    "last_rows": [
     {
-     "run_id": "forecast_20260930__s2e451e324e57",
+     "run_id": "forecast_20260930__s5307f54f8af7",
      "model_name": "toto",
      "model_version": "toto_2_0_optional",
      "etf_id": "SPOG",
@@ -2711,7 +2709,7 @@
      "execution_allowed": false
     },
     {
-     "run_id": "forecast_20260930__s2e451e324e57",
+     "run_id": "forecast_20260930__s5307f54f8af7",
      "model_name": "toto",
      "model_version": "toto_2_0_optional",
      "etf_id": "SPOG",
@@ -2763,7 +2761,7 @@
      "execution_allowed": false
     },
     {
-     "run_id": "forecast_20260930__s2e451e324e57",
+     "run_id": "forecast_20260930__s5307f54f8af7",
      "model_name": "toto",
      "model_version": "toto_2_0_optional",
      "etf_id": "SPOG",

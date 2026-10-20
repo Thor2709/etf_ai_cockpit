@@ -86,7 +86,7 @@ from etf_cockpit.core.research_states import (
 )
 from etf_cockpit.signals.strategy_templates import strategy_template_frame, strategy_template_labels, template_description
 from etf_cockpit.signals.friction_edge import estimate_friction_adjusted_return, estimate_friction_edge
-from etf_cockpit.signals.canonical_scoring import CanonicalScore, canonical_score_from_simple_components
+from etf_cockpit.signals.canonical_scoring import CanonicalScore, canonical_score_from_simple_components, headline_evidence_weights
 
 
 SCORE_LEGEND = (
@@ -108,35 +108,16 @@ PENDING_WORKFLOW_REASON = "Run Refresh yfinance data, then Run algorithms, then 
 CASH_MACRO_ROOT = ROOT
 _CASH_COMPARISON_RETURN_WINDOW = 120
 
-ETF_EVIDENCE_WEIGHTS = {
-    "momentum": 0.22,
-    "trend": 0.18,
-    "relative_strength": 0.14,
-    "risk": 0.14,
-    "liquidity_cost": 0.10,
-    "etf_exposure": 0.10,
-    # Owner rule F5: forecasts stay separate from scores. The forecast components are still
-    # shown with their evidence but carry no weight in the composite.
-    "baseline": 0.0,
-    "timesfm": 0.0,
-    "toto": 0.0,
-}
 
-STOCK_EVIDENCE_WEIGHTS = {
-    "momentum": 0.18,
-    "trend": 0.13,
-    "relative_strength": 0.12,
-    "risk": 0.12,
-    "liquidity_cost": 0.10,
-    "stock_value": 0.12,
-    "stock_quality": 0.13,
-    "analyst_revision": 0.05,
-    # Owner rule F5: forecasts stay separate from scores. The forecast components are still
-    # shown with their evidence but carry no weight in the composite.
-    "baseline": 0.0,
-    "timesfm": 0.0,
-    "toto": 0.0,
-}
+def headline_weights(asset_type: str) -> dict[str, float]:
+    """Headline evidence-composite weights for an instrument type, read from ``configs/score_engine_v3.yaml``.
+
+    The versioned yaml (``asset_policies.<ETF|STOCK>.headline_evidence``) is the only weight source; owner rule F5
+    keeps the forecast components at weight 0 there.
+    """
+
+    return headline_evidence_weights("STOCK" if _is_stock_like_asset_type(asset_type) else "ETF")
+
 
 COMPONENT_LABELS = {
     "data_quality": "Data quality",
@@ -575,7 +556,7 @@ class SimpleInstrumentScore:
 
     @property
     def score_coverage(self) -> float:
-        weights = STOCK_EVIDENCE_WEIGHTS if _is_stock_like_asset_type(self.asset_type) else ETF_EVIDENCE_WEIGHTS
+        weights = headline_weights(self.asset_type)
         configured_weight = sum(weights.values())
         active_weight = sum(
             float(weights.get(component.key, 0.0))
@@ -586,7 +567,7 @@ class SimpleInstrumentScore:
 
     @property
     def missing_components(self) -> tuple[str, ...]:
-        weights = STOCK_EVIDENCE_WEIGHTS if _is_stock_like_asset_type(self.asset_type) else ETF_EVIDENCE_WEIGHTS
+        weights = headline_weights(self.asset_type)
         eligible_keys = {component.key for component in self.components if component.score_eligible}
         return tuple(key for key, weight in weights.items() if weight > 0 and key not in eligible_keys)
 
@@ -671,7 +652,7 @@ def combine_component_scores(
     components: Iterable[SimpleScoreComponent],
     weights: dict[str, float] | None = None,
 ) -> tuple[float | None, float | None]:
-    weight_map = weights or ETF_EVIDENCE_WEIGHTS
+    weight_map = weights or headline_weights("ETF")
     weighted = 0.0
     total_weight = 0.0
     for component in components:
@@ -1709,7 +1690,7 @@ def build_universe_simple_scores(
             signal.signal_date,
         )
         _raw_final, evidence_score = combine_component_scores(
-            components, STOCK_EVIDENCE_WEIGHTS if stock_like else ETF_EVIDENCE_WEIGHTS
+            components, headline_evidence_weights("STOCK" if stock_like else "ETF")
         )
         quality_score = _evidence_quality_score(
             components,
@@ -2054,7 +2035,7 @@ def build_candidate_simple_scores(
             ]
         )
         components = _attach_component_provenance(component_rows, as_of_date, decision_date)
-        weight_map = ETF_EVIDENCE_WEIGHTS if asset_type == "ETF" else STOCK_EVIDENCE_WEIGHTS
+        weight_map = headline_evidence_weights("ETF" if asset_type == "ETF" else "STOCK")
         _raw_final, evidence_score = combine_component_scores(components, weight_map)
         quality_score = _evidence_quality_score(components, warnings=blocked, asset_type=asset_type)
         risk_friction = _risk_friction_score(components, warnings=blocked)
@@ -4410,7 +4391,7 @@ def _unique_strings(values: Iterable[str]) -> list[str]:
 
 
 def _evidence_component_counts(asset_type: str, components: Iterable[SimpleScoreComponent]) -> tuple[int, int]:
-    weights = STOCK_EVIDENCE_WEIGHTS if _is_stock_like_asset_type(asset_type) else ETF_EVIDENCE_WEIGHTS
+    weights = headline_weights(asset_type)
     configured = [key for key, weight in weights.items() if weight > 0]
     eligible = {component.key for component in components if component.score_eligible}
     return sum(key in eligible for key in configured), len(configured)

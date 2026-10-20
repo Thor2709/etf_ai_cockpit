@@ -2747,7 +2747,7 @@ def _valuation_panel(instrument_id: str, asset_type: object, decision_time: obje
     if result["status"] != "available":
         return _unavailable(result["message"])
     metric_fields = ("name", "value", "status", "formula", "period", "source_ids", "confidence", "applicability", "limitation")
-    model_fields = ("status", "confidence", "reason", "execution_allowed", "forecast_years", "discount_rate", "terminal_growth", "implied_growth", "target_equity_value", "equity_value", "per_share", "range")
+    model_fields = ("status", "confidence", "reason", "execution_allowed", "forecast_years", "discount_rate", "terminal_growth", "implied_growth", "target_equity_value", "equity_value", "per_share", "range", "cash_flow_claim_type", "score_eligible", "label", "averaged", "deltas")
     context = result.get("assumption_context", {})
     assumption_context = {field: context.get(field) for field in ("kind", "instrument_id", "decision_time", "session_preview_only", "score_authority", "execution_allowed")} if context else {}
     if context:
@@ -2769,6 +2769,8 @@ def _valuation_panel(instrument_id: str, asset_type: object, decision_time: obje
             for name in ("ev_to_sales", "ev_to_ebitda", "price_to_earnings", "price_to_book", "dividend_yield")
         },
         **models,
+        **{field: result.get(field) for field in ("operator_weights", "valuation_status", "expires_at", "refresh_reason", "comparability_mode")},
+        "cost_of_capital": {field: (result.get("cost_of_capital") or {}).get(field) for field in ("basis", "cost_of_equity", "wacc", "conflicts")},
         "assumption_context": assumption_context,
         "scenario_status": models["intrinsic_value"]["status"] if context else "unavailable: explicit scenario assumptions required",
         "source_lineage": {field: result["source_lineage"].get(field) for field in ("statement_view", "as_known_at", "source_ids", "knowledge_precision", "cutoff_policy")},

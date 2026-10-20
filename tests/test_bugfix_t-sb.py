@@ -46,12 +46,15 @@ def _claim(**overrides: object):
         "ec_attributable_result": {"available": True, "value": 48.0},
     }
     facts.update(overrides)  # type: ignore[arg-type]
-    return build_claim_state({"facts": facts, "known_at": "2025-03-01T00:00:00Z", "source_url": "synthetic"})
+    return build_claim_state({"facts": facts, "effective_at": "2024-12-31", "known_at": "2025-03-01T00:00:00Z", "source_url": "synthetic"})
 
 
 def test_chat_p03_n003() -> None:
     kwargs = {"gross_benefit": 100.0, "recurring_added_capability": 10.0, "lost_customer_contribution": 5.0}
-    assert merger_bridge(10.0, integration_costs=(10, 20), tax_rate=0.25, **kwargs)["status"] != "unavailable"
+    # Issue 969: total NOK cannot become per-EC value without count/allocation.
+    assert merger_bridge(10.0, integration_costs=(10, 20), tax_rate=0.25, **kwargs)["status"] == "unavailable"
+    assert merger_bridge(10.0, integration_costs=(10, 20), tax_rate=0.25,
+                         allocation_weight=0.4, legacy_ec_count=4, **kwargs)["status"] == "resolved"
     bad_cost = merger_bridge(10.0, integration_costs=(10, "invalid"), tax_rate=0.25, **kwargs)
     assert bad_cost["status"] == "unavailable" and bad_cost["reason_code"] == "INVALID_MERGER_INPUT"
     for tax in (1.5, -0.1):

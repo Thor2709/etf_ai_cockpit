@@ -42,8 +42,8 @@ def test_composite_uses_available_components_and_reports_coverage() -> None:
     base = [ss.replace(c, as_of_date="2026-10-08", freshness_status="ok") for c in base]
     with_fundamentals = [*base, *ss._stock_fundamental_components(_evidence())]
     without = [*base, *ss._stock_fundamental_components(None)]
-    score_with = ss.combine_component_scores(with_fundamentals, ss.STOCK_EVIDENCE_WEIGHTS)[1]
-    score_without = ss.combine_component_scores(without, ss.STOCK_EVIDENCE_WEIGHTS)[1]
+    score_with = ss.combine_component_scores(with_fundamentals, ss.headline_weights("Stock"))[1]
+    score_without = ss.combine_component_scores(without, ss.headline_weights("Stock"))[1]
     assert score_without is not None and score_with is not None and score_with != score_without
     eligible = [c for c in with_fundamentals if c.score_eligible]
     assert {"stock_value", "stock_quality"} <= {c.key for c in eligible}
