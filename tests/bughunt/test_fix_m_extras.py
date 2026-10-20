@@ -27,7 +27,7 @@ def test_s6_01_missing_holdings_does_not_rewrite_existing_prices(tmp_path, monke
     writes = []
     monkeypatch.setattr(pd.DataFrame, "to_csv", lambda self, path, **kwargs: writes.append(Path(path)))
 
-    sample_data.ensure_sample_files(object())
+    sample_data.ensure_sample_files(object(), allow_synthetic=True)
 
     assert writes == [portfolios_dir / "current_holdings.csv"]
 

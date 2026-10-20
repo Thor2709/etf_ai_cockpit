@@ -668,6 +668,7 @@ def test_unavailable_models_are_not_allowed_in_score() -> None:
 
 def test_forecast_service_runs_optional_model_rows_when_enabled(tmp_path, monkeypatch) -> None:
     config = load_config()
+    config.data.allow_synthetic_sample_data = True
     # Checkpoint identity is the hash of the local weights, so the mock run needs a fixture checkpoint.
     checkpoint = tmp_path / "checkpoint"
     checkpoint.mkdir()

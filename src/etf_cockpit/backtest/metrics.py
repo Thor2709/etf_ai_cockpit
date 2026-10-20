@@ -372,26 +372,19 @@ def performance_metrics(
     raw_equity = _normalise_series(equity)
     equity = _clean_series(raw_equity)
     if len(equity) < 3:
-        return {
-            "cagr": 0.0,
-            "volatility": 0.0,
-            "sharpe": 0.0,
-            "sortino": 0.0,
-            "max_drawdown": max_drawdown(raw_equity),
-            "calmar": 0.0,
-            "turnover": turnover,
-            "cost_drag": cost_drag,
-            "information_ratio": 0.0,
-            **_payoff_diagnostics(pd.Series(dtype=float)),
-            **tail_event_diagnostics(raw_equity, benchmark=benchmark),
-        }
-    returns = np.log(equity / equity.shift(1)).replace([np.inf, -np.inf], np.nan).dropna()
-    years = len(returns) / TRADING_DAYS_PER_YEAR
+        return _insufficient_metrics(raw_equity, benchmark, turnover, cost_drag)
+    returns = _adjacent_log_returns(raw_equity)
+    if len(returns) < 2:
+        return _insufficient_metrics(raw_equity, benchmark, turnover, cost_drag)
+    # The annualisation span covers the elapsed sessions, gaps included.
+    valid_positions = np.flatnonzero((raw_equity.notna() & (raw_equity > 0)).to_numpy())
+    years = max(int(valid_positions[-1] - valid_positions[0]), len(returns)) / TRADING_DAYS_PER_YEAR
     cagr = float((equity.iloc[-1] / equity.iloc[0]) ** (1 / max(years, 1e-9)) - 1)
     vol = float(returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR))
     sharpe = float((returns.mean() * TRADING_DAYS_PER_YEAR) / vol) if vol > 0 else 0.0
-    downside = returns[returns < 0].std() * np.sqrt(TRADING_DAYS_PER_YEAR)
-    sortino = float((returns.mean() * TRADING_DAYS_PER_YEAR) / downside) if downside and downside > 0 else 0.0
+    # Downside deviation against a zero target over ALL observations (root mean square of the shortfall).
+    downside = float(np.sqrt(np.mean(np.minimum(returns.to_numpy(dtype=float), 0.0) ** 2))) * np.sqrt(TRADING_DAYS_PER_YEAR)
+    sortino = float((returns.mean() * TRADING_DAYS_PER_YEAR) / downside) if downside > 0 else 0.0
     mdd = max_drawdown(raw_equity)
     calmar = float(cagr / abs(mdd)) if mdd < 0 else 0.0
     information = 0.0
@@ -414,6 +407,32 @@ def performance_metrics(
         **_payoff_diagnostics(returns),
         **tail_event_diagnostics(raw_equity, benchmark=benchmark),
     }
+
+
+def _insufficient_metrics(
+    raw_equity: pd.Series, benchmark: pd.Series | None, turnover: float, cost_drag: float
+) -> dict[str, object]:
+    return {
+        "cagr": 0.0,
+        "volatility": 0.0,
+        "sharpe": 0.0,
+        "sortino": 0.0,
+        "max_drawdown": max_drawdown(raw_equity),
+        "calmar": 0.0,
+        "turnover": turnover,
+        "cost_drag": cost_drag,
+        "information_ratio": 0.0,
+        **_payoff_diagnostics(pd.Series(dtype=float)),
+        **tail_event_diagnostics(raw_equity, benchmark=benchmark),
+    }
+
+
+def _adjacent_log_returns(values: pd.Series) -> pd.Series:
+    """Log returns between consecutive observations that are both valid; a gap is never bridged."""
+
+    valid = values.notna() & (values > 0)
+    adjacent = valid & valid.shift(1, fill_value=False)
+    return np.log(values / values.shift(1)).where(adjacent).replace([np.inf, -np.inf], np.nan).dropna()
 
 
 def _payoff_diagnostics(returns: pd.Series) -> dict[str, object]:

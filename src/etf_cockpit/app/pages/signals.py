@@ -181,7 +181,7 @@ def _score_rows(scores: Sequence[object], on_scorecard_click=None) -> list[dict[
                 stability = "label stable" if stable is True else "label may change" if stable is False else "label stability unavailable"
                 score_cell = ft.Column(
                     [score_cell, Note(f"Band {band_low:.1f}–{band_high:.1f}/10 · {stability}")],
-                    spacing=2,
+                    spacing=4,
                 )
         rows.append(
             {

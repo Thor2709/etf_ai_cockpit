@@ -83,6 +83,20 @@ def _texts(control: object) -> list[str]:
     return values
 
 
+@pytest.fixture(autouse=True)
+def _synthetic_demo_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests exercise the demo pipeline, which is an explicit opt-in (default off in committed settings)."""
+    import etf_cockpit.application.snapshot_builder as snapshot_builder
+    from etf_cockpit.core.config import load_config as real_load_config
+
+    def opted_in(*args, **kwargs):
+        config = real_load_config(*args, **kwargs)
+        config.data.allow_synthetic_sample_data = True
+        return config
+
+    monkeypatch.setattr(snapshot_builder, "load_config", opted_in)
+
+
 @lru_cache(maxsize=1)
 def _snapshot():
     return build_snapshot()
@@ -405,7 +419,8 @@ def test_concurrent_begin_activity_creates_exactly_one_controller_record(tmp_pat
         worker.start()
     barrier.wait()
     for worker in workers:
-        worker.join(timeout=2)
+        worker.join(timeout=_WAIT_S)
+        assert not worker.is_alive()
 
     assert len(started) == 1
     assert len(rejected) == 1 and isinstance(rejected[0], WorkflowTransitionError)
@@ -446,8 +461,10 @@ def test_update_activity_cancellation_race_leaves_cancelled_terminal_unchanged(t
     updater = threading.Thread(target=late_update)
     updater.start()
     release_cancel.set()
-    canceller.join(timeout=2)
-    updater.join(timeout=2)
+    canceller.join(timeout=_WAIT_S)
+    assert not canceller.is_alive()
+    updater.join(timeout=_WAIT_S)
+    assert not updater.is_alive()
 
     entry = state.current_activity
     assert entry is not None
@@ -1320,9 +1337,11 @@ def test_holdings_publication_scope_serialises_cancellation_and_rejects_later_wr
     canceller.start()
     assert not cancellation_returned.wait(0.1)
     release_write.set()
-    worker.join(timeout=2)
+    worker.join(timeout=_WAIT_S)
+    assert not worker.is_alive()
     assert cancellation_returned.wait(_WAIT_S)
-    canceller.join(timeout=2)
+    canceller.join(timeout=_WAIT_S)
+    assert not canceller.is_alive()
     assert not worker_errors
     assert writes == [1]
 
@@ -1514,6 +1533,7 @@ def test_restart_recovers_canonical_workflow_terminal_without_activity_terminal(
 
 def test_sample_publication_scope_serialises_cancel_and_rejects_clean_store_write(tmp_path, monkeypatch) -> None:
     state = _state()
+    state.snapshot.config.data.allow_synthetic_sample_data = True
     action_id = state.begin_activity("Refresh sample data", "Publishing sample files").action_id
     raw_dir = tmp_path / "raw"
     portfolios_dir = tmp_path / "portfolios"
@@ -1563,8 +1583,10 @@ def test_sample_publication_scope_serialises_cancel_and_rejects_clean_store_writ
     assert not cancelled.wait(0.1)
     release.set()
     assert cancelled.wait(_WAIT_S)
-    worker.join(timeout=2)
-    canceller.join(timeout=2)
+    worker.join(timeout=_WAIT_S)
+    assert not worker.is_alive()
+    canceller.join(timeout=_WAIT_S)
+    assert not canceller.is_alive()
 
     assert writes == ["sample_prices.csv", "current_holdings.csv"]
     assert not (tmp_path / "clean" / "prices.parquet").exists()
@@ -1612,9 +1634,11 @@ def test_rollback_publication_scope_serialises_cancel_and_rejects_later_restore(
     canceller.start()
     assert not cancelled.wait(0.1)
     release.set()
-    worker.join(timeout=2)
+    worker.join(timeout=_WAIT_S)
+    assert not worker.is_alive()
     assert cancelled.wait(_WAIT_S)
-    canceller.join(timeout=2)
+    canceller.join(timeout=_WAIT_S)
+    assert not canceller.is_alive()
     assert writes == 1
     with pytest.raises(WorkflowTransitionError):
         restore()
@@ -1677,7 +1701,9 @@ def test_api_status_publication_scope_serialises_cancel_and_redacts_unavailable(
     release.set()
     assert cancelled.wait(_WAIT_S)
     worker.join(timeout=_WAIT_S)
-    canceller.join(timeout=2)
+    assert not worker.is_alive()
+    canceller.join(timeout=_WAIT_S)
+    assert not canceller.is_alive()
     assert any(isinstance(exc, WorkflowTransitionError) for exc in worker_errors)
     assert state.recent_activity[-1].status == "cancelled"
 
@@ -1744,7 +1770,8 @@ def test_official_filing_helper_shares_owner_and_redacts_failed_terminal(tmp_pat
         successful_action,
     )
     assert worker is not None
-    worker.join(timeout=2)
+    worker.join(timeout=_WAIT_S)
+    assert not worker.is_alive()
 
     assert observed == [state.recent_activity[-1].action_id]
     assert state.recent_activity[-1].status == "success"
@@ -1762,7 +1789,8 @@ def test_official_filing_helper_shares_owner_and_redacts_failed_terminal(tmp_pat
         lambda _action_id: (_ for _ in ()).throw(RuntimeError("api_key=raw-filing-secret")),
     )
     assert worker is not None
-    worker.join(timeout=2)
+    worker.join(timeout=_WAIT_S)
+    assert not worker.is_alive()
 
     assert failed_state.recent_activity[-1].status == "failed"
     assert "raw-filing-secret" not in failed_result.value
@@ -1798,7 +1826,8 @@ def test_official_filing_visible_cancel_stops_late_publication(tmp_path, monkeyp
     cancel = next(control for control in _walk(shell) if getattr(control, "key", None) == "activity.cancel")
     cancel.on_click(SimpleNamespace(control=cancel))
     release.set()
-    worker.join(timeout=2)
+    worker.join(timeout=_WAIT_S)
+    assert not worker.is_alive()
 
     assert not writes
     assert state.recent_activity[-1].status == "cancelled"
@@ -2033,7 +2062,8 @@ def test_cancel_after_final_publication_restores_canonical_message(monkeypatch) 
     action_id = state.current_activity.action_id
     state.cancel_activity(expected_action_id=action_id)
     release.set()
-    worker.join(timeout=2)
+    worker.join(timeout=_WAIT_S)
+    assert not worker.is_alive()
 
     assert state.last_message == "Cancelled by user"
     assert result.value == "Cancelled by user"
@@ -2060,7 +2090,8 @@ def test_official_filing_retry_reenters_background_lifecycle(tmp_path, monkeypat
         page, state, result, "Fetch SEC companyfacts", "Fetching", action
     )
     assert worker is not None
-    worker.join(timeout=2)
+    worker.join(timeout=_WAIT_S)
+    assert not worker.is_alive()
     error = state.error_store.recent()[0]
     errors_recovery_module._retry(SimpleNamespace(), state, error.error_id)
     for _ in range(100):
@@ -2108,7 +2139,8 @@ def test_esef_discovery_cancel_does_not_publish_in_memory_success(tmp_path, monk
     assert entered.wait(_WAIT_S)
     state.cancel_activity(expected_action_id=action_id)
     release.set()
-    worker.join(timeout=2)
+    worker.join(timeout=_WAIT_S)
+    assert not worker.is_alive()
 
     assert any(isinstance(exc, WorkflowTransitionError) for exc in errors)
     assert state._esef_provider == "existing-provider"
@@ -2142,7 +2174,8 @@ def test_disclosure_import_concurrent_loser_is_readably_blocked(label) -> None:
     for worker in workers:
         worker.start()
     for worker in workers:
-        worker.join(timeout=2)
+        worker.join(timeout=_WAIT_S)
+        assert not worker.is_alive()
 
     assert sum(thread is not None for thread in background) == 1
     assert any("blocked:" in result.value and "already running" in result.value for result in results)
@@ -2150,6 +2183,7 @@ def test_disclosure_import_concurrent_loser_is_readably_blocked(label) -> None:
     for thread in background:
         if thread is not None:
             thread.join(timeout=_WAIT_S)
+            assert not thread.is_alive()
 
 
 def test_tracked_retry_reenters_canonical_wrapper(tmp_path, monkeypatch) -> None:
@@ -2259,7 +2293,8 @@ def test_official_filing_normal_unavailable_result_is_failed_and_redacted(
         action,
     )
     assert worker is not None
-    worker.join(timeout=2)
+    worker.join(timeout=_WAIT_S)
+    assert not worker.is_alive()
 
     assert state.recent_activity[-1].status == "failed"
     assert "raw-esef-secret" not in result_control.value
@@ -2320,9 +2355,11 @@ def test_sec_companyfacts_publication_scope_serialises_cancellation(tmp_path, mo
     canceller.start()
     assert not cancelled.wait(0.1)
     release.set()
-    worker.join(timeout=2)
+    worker.join(timeout=_WAIT_S)
+    assert not worker.is_alive()
     assert cancelled.wait(_WAIT_S)
-    canceller.join(timeout=2)
+    canceller.join(timeout=_WAIT_S)
+    assert not canceller.is_alive()
 
     assert writes == 1
     assert any(isinstance(exc, WorkflowTransitionError) for exc in worker_errors)

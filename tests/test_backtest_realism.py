@@ -132,8 +132,10 @@ def test_delisted_asset_missing_prices_gives_conditional_label_never_zero_pnl(co
     # Rows without a price are dropped, not valued at zero P&L.
     assert report.metadata["date_range_end"] <= pd.Timestamp(cutoff).date()
     assert np.isfinite(report.equity_curves.dropna().to_numpy()).all()
-    # Complete history keeps the unconditional label.
-    full = run_backtest(config, prices, rebalance_frequency_days=42)
+    # Complete history keeps the unconditional label only with explicit point-in-time membership evidence.
+    evidence = {"status": "point_in_time_verified", "source_id": "membership-fixture"}
+    enabled_panel = prices[prices["etf_id"].isin(config.universe.enabled_ids)]
+    full = run_backtest(config, enabled_panel, rebalance_frequency_days=42, point_in_time_membership_evidence=evidence)
     assert full.metadata["survivorship_label"] != SURVIVORSHIP_CONDITIONAL
 
 
@@ -155,14 +157,12 @@ def test_zero_volume_day_gives_no_fill_and_thin_ec_needs_a_manual_quote(config, 
     )
     assert quoted.status == "full_fill"
 
-    # Engine: with zero volume on every EUR listing, no order fills.
-    eur_ids = {item.id for item in config.universe.etfs if item.currency == "EUR"}
-    zero = prices.copy()
-    zero.loc[zero["etf_id"].isin(eur_ids), "volume"] = 0.0
+    # Engine: with zero volume on every listing, no order fills.
+    zero = prices.assign(volume=0.0)
     report = run_backtest(config, zero, rebalance_frequency_days=42, enforce_capacity=True)
     assert report.metadata["capacity_enforcement"] == "enforced"
     # The initial allocation is a capacity-checked purchase too: nothing fills, so
-    # the EUR listings carry no simulated exposure (the rest is unfillable without FX).
+    # the book carries no simulated exposure.
     initial = report.metadata["initial_allocation"]["equal_weight"]
     assert "no_fill_zero_volume" in initial["fill_status"] and initial["unfilled_eur"] > 0
     assert np.allclose(report.equity_curves["equal_weight"].dropna(), 10_000.0)
@@ -177,11 +177,15 @@ def test_flat_override_run_is_flagged_non_qualifying(config, prices, regimes, eu
     assert "not execution evidence" in legacy.metadata["cost_regime_note"]
     assert eur_regimes.reports[COST_REGIME_MODELLED].metadata["qualifying_cost_regime"] is True
     assert eur_regimes.reports[COST_REGIME_STRESS].metadata["qualifying_cost_regime"] is False
-    # Instruments without FX evidence can never fill, so a universe containing them cannot qualify.
+    # Non-EUR listings fill whenever canonical FX exists, so the mixed universe is not blocked on FX ...
     mixed = regimes.reports[COST_REGIME_MODELLED]
-    assert mixed.metadata["capacity_fx_unavailable_instruments"]
-    assert mixed.metadata["qualifying_cost_regime"] is False
-    assert "fx_unavailable_instruments_unfillable" in mixed.metadata["qualification_blockers"]
+    assert mixed.metadata["capacity_fx_unavailable_instruments"] == []
+    assert "fx_unavailable_instruments_unfillable" not in mixed.metadata["qualification_blockers"]
+    # ... but instruments without any FX evidence can never fill, so a universe containing them cannot qualify.
+    no_fx = run_backtest(config, prices, rebalance_frequency_days=42, enforce_capacity=True, fx_rates=pd.DataFrame())
+    assert no_fx.metadata["capacity_fx_unavailable_instruments"]
+    assert no_fx.metadata["qualifying_cost_regime"] is False
+    assert "fx_unavailable_instruments_unfillable" in no_fx.metadata["qualification_blockers"]
     assert load_backtest_realism_settings()["legacy_override_qualifies"] is False
     assert run_backtest(config, prices, rebalance_frequency_days=42, transaction_cost_bps=13).metadata[
         "qualifying_cost_regime"
@@ -208,8 +212,7 @@ def test_c018_n001_cost_gate_is_size_aware(config) -> None:
 
 def test_c018_n002_capacity_is_enforced_in_the_vector_backtest(config, prices) -> None:
     thin = prices.copy()
-    eur_ids = [item.id for item in config.universe.etfs if item.currency == "EUR" and item.id in set(prices["etf_id"])]
-    thin.loc[thin["etf_id"].isin(eur_ids), "volume"] = 2.0  # a few shares a day: the participation cap binds
+    thin["volume"] = 2.0  # a few shares a day: the participation cap binds
     free = run_backtest(config, thin, rebalance_frequency_days=42)
     capped = run_backtest(config, thin, rebalance_frequency_days=42, enforce_capacity=True)
     assert "capacity_enforced" not in free.trade_log.columns
@@ -674,12 +677,14 @@ def _eur_universe_with_equity_certificate(config, prices):
     return patched, prices[prices["etf_id"].isin(eur_ids | {certificate.id})], certificate.id
 
 
-def test_eur_equity_certificate_blocks_qualification_because_it_can_never_fill(config, prices) -> None:
+def test_equity_certificate_without_quote_fills_flagged_cost_estimated_not_held_as_cash(config, prices) -> None:
     patched, panel, certificate_id = _eur_universe_with_equity_certificate(config, prices)
     report = run_backtest(patched, panel, rebalance_frequency_days=42, enforce_capacity=True)
     assert "fx_unavailable_instruments_unfillable" not in report.metadata["qualification_blockers"]
-    assert "manual_quote_instruments_unfillable" in report.metadata["qualification_blockers"]
-    assert report.metadata["qualifying_cost_regime"] is False
+    assert "manual_quote_instruments_unfillable" not in report.metadata["qualification_blockers"]
+    assert report.metadata["cost_estimated_instruments"] == [certificate_id]
+    assert "manual_quote_required" not in report.metadata["initial_allocation"]["equal_weight"]["fill_status"]
+    assert report.trade_log["cost_estimated"].any()
     # Without the certificate in the universe the same EUR run still qualifies.
     clean = panel[panel["etf_id"] != certificate_id]
     assert run_backtest(config, clean, rebalance_frequency_days=42, enforce_capacity=True).metadata[

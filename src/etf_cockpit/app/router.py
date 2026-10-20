@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import contextmanager
+from importlib import import_module
 from itertools import count
 import threading
 
@@ -23,98 +24,81 @@ from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, Seg
 from etf_cockpit.app.components.shell.search import Search, build_search
 from etf_cockpit.app.components.shell.status import footer_values, material_change_count
 from etf_cockpit.app.components.shell.topbar import build_topbar
-from etf_cockpit.app.pages.backtests import backtests_page
-from etf_cockpit.app.pages.catalogue import catalogue_page
-from etf_cockpit.app.pages.comparison import comparison_page
-from etf_cockpit.app.pages.chatgpt_audit import chatgpt_audit_page
-from etf_cockpit.app.pages.dashboard import dashboard_page
-from etf_cockpit.app.pages.data_models import data_models_page
-from etf_cockpit.app.pages.forecast_lab import forecast_lab_page
-from etf_cockpit.app.pages.training_centre import training_centre_page
-from etf_cockpit.app.pages.feature_catalogue import feature_catalogue_page
-from etf_cockpit.app.pages.macro_factors import macro_factors_page
-from etf_cockpit.app.pages.diagnostics import diagnostics_page
-from etf_cockpit.app.pages.data_health import data_health_page
-from etf_cockpit.app.pages.errors_recovery import errors_recovery_page
-from etf_cockpit.app.pages.onboarding import onboarding_page
-from etf_cockpit.app.pages.operations import operations_page
-from etf_cockpit.app.pages.universe_manager import universe_manager_page
-from etf_cockpit.app.pages.what_changed import what_changed_page
-from etf_cockpit.app.pages.instrument_detail import instrument_detail_page
-from etf_cockpit.app.pages.import_export import import_export_page
-from etf_cockpit.app.pages.system_map import system_map_page
-from etf_cockpit.app.pages.help_glossary import help_glossary_page
-from etf_cockpit.app.pages.decision_journal import decision_journal_page
-from etf_cockpit.app.pages.forward_evidence import forward_evidence_page
-from etf_cockpit.app.pages.paper_bots import paper_bots_page
-from etf_cockpit.app.pages.jobs import jobs_page
-from etf_cockpit.app.pages.portfolio import portfolio_page
-from etf_cockpit.app.pages.portfolio_optimiser import portfolio_optimiser_page
-from etf_cockpit.app.pages.risk import risk_page
-from etf_cockpit.app.pages.stress_lab import stress_lab_page
-from etf_cockpit.app.pages.settings import settings_page
-from etf_cockpit.app.pages.screener import screener_page
-from etf_cockpit.app.pages.stock_research import stock_research_page
-from etf_cockpit.app.pages.signals import signals_page
-from etf_cockpit.app.pages.strategy_builder import strategy_builder_page
-from etf_cockpit.app.pages.trust_evidence import (
-    etf_disclosures_page,
-    evidence_ledger_page,
-    filings_page,
-    news_context_page,
-    provider_status_page,
-)
-from etf_cockpit.app.pages.sectors import sectors_page
-from etf_cockpit.app.pages.release_readiness import release_readiness_page
-from etf_cockpit.app.pages.programme_map import programme_map_page
 from etf_cockpit.app.state import AppState
 from etf_cockpit.core.navigation import ROUTE_TITLES, WORKSPACE_GROUPS, WORKSPACE_ICONS
 from etf_cockpit.core.session_log import log_event
 
+
+class _LazyPage:
+    """Route page factory resolved on first use, so importing the router does not import every page module.
+
+    An import or lookup failure is raised from the call, i.e. inside ``build_page``'s existing error handling
+    (route-failure control); nothing is cached until the factory resolved successfully.
+    """
+
+    __slots__ = ("module_path", "factory_name", "_factory")
+
+    def __init__(self, module_path: str, factory_name: str) -> None:
+        self.module_path = module_path
+        self.factory_name = factory_name
+        self._factory: Callable[..., object] | None = None
+
+    def resolve(self) -> Callable[..., object]:
+        factory = self._factory
+        if factory is None:
+            factory = getattr(import_module(self.module_path), self.factory_name)
+            if not callable(factory):
+                raise TypeError(f"{self.module_path}.{self.factory_name} is not callable")
+            self._factory = factory
+        return factory
+
+    def __call__(self, page: object, state: object) -> object:
+        return self.resolve()(page, state)
+
 _PAGE_RENDERERS = {
-    "/": dashboard_page,
-    "/portfolio": portfolio_page,
-    "/portfolio-optimiser": portfolio_optimiser_page,
-    "/signals": signals_page,
-    "/strategy-builder": strategy_builder_page,
-    "/screener": screener_page,
-    "/comparison": comparison_page,
-    "/stock-research": stock_research_page,
-    "/risk": risk_page,
-    "/stress-lab": stress_lab_page,
-    "/etf": instrument_detail_page,
-    "/backtests": backtests_page,
-    "/chatgpt": chatgpt_audit_page,
-    "/providers": provider_status_page,
-    "/evidence": evidence_ledger_page,
-    "/filings": filings_page,
-    "/etf-disclosures": etf_disclosures_page,
-    "/news-context": news_context_page,
-    "/data-models": data_models_page,
-    "/forecasts": forecast_lab_page,
-    "/training-centre": training_centre_page,
-    "/feature-catalogue": feature_catalogue_page,
-    "/catalogue": catalogue_page,
-    "/macro": macro_factors_page,
-    "/settings": settings_page,
-    "/diagnostics": diagnostics_page,
-    "/errors": errors_recovery_page,
-    "/data-health": data_health_page,
-    "/universe": universe_manager_page,
-    "/onboarding": onboarding_page,
-    "/what-changed": what_changed_page,
-    "/instrument": instrument_detail_page,
-    "/import-export": import_export_page,
-    "/system-map": system_map_page,
-    "/help": help_glossary_page,
-    "/decision-journal": decision_journal_page,
-    "/forward-evidence": forward_evidence_page,
-    "/paper-bots": paper_bots_page,
-    "/jobs": jobs_page,
-    "/operations": operations_page,
-    "/release-readiness": release_readiness_page,
-    "/roadmap": programme_map_page,
-    "/sectors": sectors_page,
+    "/": _LazyPage("etf_cockpit.app.pages.dashboard", "dashboard_page"),
+    "/portfolio": _LazyPage("etf_cockpit.app.pages.portfolio", "portfolio_page"),
+    "/portfolio-optimiser": _LazyPage("etf_cockpit.app.pages.portfolio_optimiser", "portfolio_optimiser_page"),
+    "/signals": _LazyPage("etf_cockpit.app.pages.signals", "signals_page"),
+    "/strategy-builder": _LazyPage("etf_cockpit.app.pages.strategy_builder", "strategy_builder_page"),
+    "/screener": _LazyPage("etf_cockpit.app.pages.screener", "screener_page"),
+    "/comparison": _LazyPage("etf_cockpit.app.pages.comparison", "comparison_page"),
+    "/stock-research": _LazyPage("etf_cockpit.app.pages.stock_research", "stock_research_page"),
+    "/risk": _LazyPage("etf_cockpit.app.pages.risk", "risk_page"),
+    "/stress-lab": _LazyPage("etf_cockpit.app.pages.stress_lab", "stress_lab_page"),
+    "/etf": _LazyPage("etf_cockpit.app.pages.instrument_detail", "instrument_detail_page"),
+    "/backtests": _LazyPage("etf_cockpit.app.pages.backtests", "backtests_page"),
+    "/chatgpt": _LazyPage("etf_cockpit.app.pages.chatgpt_audit", "chatgpt_audit_page"),
+    "/providers": _LazyPage("etf_cockpit.app.pages.trust_evidence", "provider_status_page"),
+    "/evidence": _LazyPage("etf_cockpit.app.pages.trust_evidence", "evidence_ledger_page"),
+    "/filings": _LazyPage("etf_cockpit.app.pages.trust_evidence", "filings_page"),
+    "/etf-disclosures": _LazyPage("etf_cockpit.app.pages.trust_evidence", "etf_disclosures_page"),
+    "/news-context": _LazyPage("etf_cockpit.app.pages.trust_evidence", "news_context_page"),
+    "/data-models": _LazyPage("etf_cockpit.app.pages.data_models", "data_models_page"),
+    "/forecasts": _LazyPage("etf_cockpit.app.pages.forecast_lab", "forecast_lab_page"),
+    "/training-centre": _LazyPage("etf_cockpit.app.pages.training_centre", "training_centre_page"),
+    "/feature-catalogue": _LazyPage("etf_cockpit.app.pages.feature_catalogue", "feature_catalogue_page"),
+    "/catalogue": _LazyPage("etf_cockpit.app.pages.catalogue", "catalogue_page"),
+    "/macro": _LazyPage("etf_cockpit.app.pages.macro_factors", "macro_factors_page"),
+    "/settings": _LazyPage("etf_cockpit.app.pages.settings", "settings_page"),
+    "/diagnostics": _LazyPage("etf_cockpit.app.pages.diagnostics", "diagnostics_page"),
+    "/errors": _LazyPage("etf_cockpit.app.pages.errors_recovery", "errors_recovery_page"),
+    "/data-health": _LazyPage("etf_cockpit.app.pages.data_health", "data_health_page"),
+    "/universe": _LazyPage("etf_cockpit.app.pages.universe_manager", "universe_manager_page"),
+    "/onboarding": _LazyPage("etf_cockpit.app.pages.onboarding", "onboarding_page"),
+    "/what-changed": _LazyPage("etf_cockpit.app.pages.what_changed", "what_changed_page"),
+    "/instrument": _LazyPage("etf_cockpit.app.pages.instrument_detail", "instrument_detail_page"),
+    "/import-export": _LazyPage("etf_cockpit.app.pages.import_export", "import_export_page"),
+    "/system-map": _LazyPage("etf_cockpit.app.pages.system_map", "system_map_page"),
+    "/help": _LazyPage("etf_cockpit.app.pages.help_glossary", "help_glossary_page"),
+    "/decision-journal": _LazyPage("etf_cockpit.app.pages.decision_journal", "decision_journal_page"),
+    "/forward-evidence": _LazyPage("etf_cockpit.app.pages.forward_evidence", "forward_evidence_page"),
+    "/paper-bots": _LazyPage("etf_cockpit.app.pages.paper_bots", "paper_bots_page"),
+    "/jobs": _LazyPage("etf_cockpit.app.pages.jobs", "jobs_page"),
+    "/operations": _LazyPage("etf_cockpit.app.pages.operations", "operations_page"),
+    "/release-readiness": _LazyPage("etf_cockpit.app.pages.release_readiness", "release_readiness_page"),
+    "/roadmap": _LazyPage("etf_cockpit.app.pages.programme_map", "programme_map_page"),
+    "/sectors": _LazyPage("etf_cockpit.app.pages.sectors", "sectors_page"),
 }
 if set(_PAGE_RENDERERS) != {route for route, _title in ROUTE_TITLES}:
     raise RuntimeError("router renderers and core.navigation.ROUTE_TITLES disagree")
