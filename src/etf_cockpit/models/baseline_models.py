@@ -16,6 +16,25 @@ from etf_cockpit.models.distribution_store import (
 )
 
 MIN_BASELINE_OBSERVATIONS = 20
+MAX_MISSING_SESSION_SHARE = 0.10
+MAX_OBSERVED_GAP_DAYS = 7
+
+
+def observed_history_is_sparse(series: pd.Series) -> bool:
+    """True when observed dates are too gappy to be read as consecutive-session returns.
+
+    Measured on non-NaN observations only: a gap over 7 calendar days or fewer than 90% of the
+    weekdays between the first and last observation present.
+    """
+    days = pd.DatetimeIndex(series.dropna().index)
+    if len(days) < 2:
+        return False
+    days = (days.tz_convert("UTC").tz_localize(None) if days.tz is not None else days).normalize()
+    weekdays = len(pd.bdate_range(days[0], days[-1]))
+    return bool(
+        int(pd.Series(days).diff().dt.days.max()) > MAX_OBSERVED_GAP_DAYS
+        or (weekdays > 1 and len(days) / weekdays < 1 - MAX_MISSING_SESSION_SHARE)
+    )
 
 
 def baseline_forecast(
@@ -35,7 +54,10 @@ def baseline_forecast(
         # Legacy direct callers have no certified listing calendar. A week without
         # an endpoint is never accepted as current history; service callers apply
         # the stricter certified-session freshness check before this boundary.
-        if (forecast_date - adjusted_close.index[-1].date()).days > 7:
+        if (forecast_date - adjusted_close.index[-1].date()).days > MAX_OBSERVED_GAP_DAYS:
+            return []
+        # Sparse (e.g. weekly) observations would be read as daily returns and overscale horizons.
+        if observed_history_is_sparse(adjusted_close):
             return []
         forecast_date = adjusted_close.index[-1].date()
     log_returns = daily_log_returns(adjusted_close)

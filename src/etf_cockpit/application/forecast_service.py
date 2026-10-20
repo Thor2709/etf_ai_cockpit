@@ -31,7 +31,12 @@ from etf_cockpit.core.versioning import (
 from etf_cockpit.data.duckdb_store import load_prices
 from etf_cockpit.features.forecast_lab import build_forecast_lab_workspace as _build_forecast_lab_workspace
 from etf_cockpit.features.returns import daily_log_returns
-from etf_cockpit.models.baseline_models import baseline_forecast
+from etf_cockpit.models.baseline_models import (
+    MAX_MISSING_SESSION_SHARE,
+    MAX_OBSERVED_GAP_DAYS,
+    baseline_forecast,
+    observed_history_is_sparse,
+)
 from etf_cockpit.models.calibration import adjusted_log_return_target, load_forecast_history, target_matches_evaluation, horizon_calibration_scores
 from etf_cockpit.models.forecast_scores import configured_forecast_request_identity as configured_forecast_request_identity, forecast_request_identity
 from etf_cockpit.models.model_promotion import (
@@ -736,9 +741,7 @@ def _forecast_price_window(prices: pd.DataFrame, window: Mapping[str, str]) -> p
     return prices.loc[selected].copy()
 
 
-_MAX_MISSING_SESSION_SHARE = 0.10
 _MAX_MISSING_SESSION_RUN = 5
-_MAX_OBSERVED_GAP_DAYS = 7
 
 
 def _baseline_price_series(
@@ -756,24 +759,17 @@ def _baseline_price_series(
         missing = series.isna()
         if missing.any():
             runs = missing.groupby((~missing).cumsum()).sum()
-            if missing.mean() > _MAX_MISSING_SESSION_SHARE or runs.max() > _MAX_MISSING_SESSION_RUN:
+            if missing.mean() > MAX_MISSING_SESSION_SHARE or runs.max() > _MAX_MISSING_SESSION_RUN:
                 raise ValueError("sparse_adjusted_price_session_history")
         return series
     series = pivot[etf_id].dropna() if etf_id in pivot else pd.Series(dtype=float)
     series = series.loc[pd.to_datetime(series.index, utc=True).date <= as_of_date].sort_index()
     if series.empty:
         return series
-    if (as_of_date - pd.Timestamp(series.index[-1]).date()).days > _MAX_OBSERVED_GAP_DAYS:
+    if (as_of_date - pd.Timestamp(series.index[-1]).date()).days > MAX_OBSERVED_GAP_DAYS:
         raise ValueError("stale_adjusted_price_session_history")
-    if len(series) > 1:
-        days = pd.DatetimeIndex(series.index)
-        days = (days.tz_localize(None) if days.tz is not None else days).normalize()
-        weekdays = len(pd.bdate_range(days[0], days[-1]))
-        if (
-            int(pd.Series(days).diff().dt.days.max()) > _MAX_OBSERVED_GAP_DAYS
-            or (weekdays > 1 and len(series) / weekdays < 1 - _MAX_MISSING_SESSION_SHARE)
-        ):
-            raise ValueError("sparse_adjusted_price_session_history")
+    if observed_history_is_sparse(series):
+        raise ValueError("sparse_adjusted_price_session_history")
     return series
 
 

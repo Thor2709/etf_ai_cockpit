@@ -52,7 +52,18 @@ def test_c011_n001_sparse_sessions_never_become_daily_returns(service):
     rows = service.run_forecasts(date(2026, 3, 6), ["AAA"], _frame(_series().iloc[::5]), horizons=[60])
     assert rows[0].status == "unavailable"
     assert rows[0].expected_return is None
-    assert rows[0].reason_unavailable
+    assert rows[0].reason_unavailable == "sparse_adjusted_price_session_history"
+
+
+def test_c011_n001_direct_baseline_rejects_sparse_history():
+    prices = _series()
+    last = prices.index[-1].date()
+    assert baseline_forecast("AAA", prices.iloc[::5], [60], last, "r") == []
+    assert baseline_forecast("AAA", prices, [60], last, "r")[0].status == "ok"
+    # Session-grid NaN holes (non-NaN density still above 90%) are not sparse.
+    holed = prices.copy()
+    holed.iloc[100] = np.nan
+    assert baseline_forecast("AAA", holed, [60], last, "r")[0].status == "ok"
 
 
 def test_plain_price_frame_without_calendar_evidence_keeps_ok_baselines(service):
