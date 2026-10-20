@@ -228,6 +228,10 @@ def test_p02_n010_score_cache_key_includes_formula_version(
         "missing_components",
         "data_as_of_date",
         "formula_version",
+        "formula_checksum",
+        "run_started_at",
+        "run_completed_at",
+        "known_at",
     ]
     monkeypatch.setattr(parquet, "read_schema", lambda _path: SimpleNamespace(names=columns))
     monkeypatch.setattr(
@@ -235,13 +239,14 @@ def test_p02_n010_score_cache_key_includes_formula_version(
         "read_parquet",
         lambda *_args, **_kwargs: pd.DataFrame(
             [
-                {"instrument_id": "ETF-A", "run_id": "sparebank:ETF-A:1", "final_combined_score_10": 1.0, "coverage": 1.0, "missing_components": [], "data_as_of_date": "2026-01-01", "formula_version": "formula-v1"},
-                {"instrument_id": "ETF-A", "run_id": "sparebank:ETF-A:2", "final_combined_score_10": 2.0, "coverage": 1.0, "missing_components": [], "data_as_of_date": "2026-01-02", "formula_version": "formula-v2"},
+                {"instrument_id": "ETF-A", "run_id": "sparebank:ETF-A:1", "final_combined_score_10": 1.0, "coverage": 1.0, "missing_components": [], "data_as_of_date": "2026-01-01", "formula_version": "formula-v1", "formula_checksum": "checksum", "run_started_at": "2026-01-01T00:00:00Z", "run_completed_at": "2026-01-01T00:00:00Z", "known_at": "2026-01-01T00:00:00Z"},
+                {"instrument_id": "ETF-A", "run_id": "sparebank:ETF-A:2", "final_combined_score_10": 2.0, "coverage": 1.0, "missing_components": [], "data_as_of_date": "2026-01-02", "formula_version": "formula-v2", "formula_checksum": "checksum", "run_started_at": "2026-01-02T00:00:00Z", "run_completed_at": "2026-01-02T00:00:00Z", "known_at": "2026-01-02T00:00:00Z"},
             ]
         ),
     )
     current = {"value": "formula-v1"}
     monkeypatch.setattr(score_history, "_current_sparebank_formula_version", lambda: current["value"])
+    monkeypatch.setattr(score_history, "_current_sparebank_formula_checksum", lambda: "checksum")
     score_history._SPAREBANK_CACHE.clear()
 
     first = score_history.latest_sparebank_scores(root=root)

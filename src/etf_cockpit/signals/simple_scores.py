@@ -1643,12 +1643,13 @@ def build_universe_simple_scores(
                 isin=identity.isin or "needs_verification",
                 data_policy=str(_config_extra(identity, "data_policy", "yfinance_now_multi_provider_later")),
                 latest=latest_prices.get(identity.id),
+                decision_time=signal.signal_date,
             )
             if native.final_score_10 is not None:
                 output.append(native)
                 continue
-            # Owner 2026-10-09: every instrument gets a score; below the scorecard evidence floor the
-            # generic stock score is shown, labelled as pending the Sparebank scorecard.
+            # Owner 2026-10-09 (binding, 2026-10-20): every instrument gets a score; below the scorecard evidence
+            # floor the canonical generic 0-10 stock score is shown, labelled as pending the Sparebank scorecard.
             pending_sparebank.add(identity.id)
         price_info = latest_prices.get(signal.etf_id, {})
         quality_info = price_quality.get(signal.etf_id, {})
@@ -1860,6 +1861,7 @@ def build_universe_simple_scores(
                     isin=identity.isin or "needs_verification",
                     data_policy=str(_config_extra(identity, "data_policy", "yfinance_now_multi_provider_later")),
                     latest=latest_prices.get(identity.id),
+                    decision_time=latest_prices.get(identity.id, {}).get("date"),
                 )
             )
         else:
@@ -1877,12 +1879,18 @@ def build_universe_simple_scores(
 
 
 def _as_sparebank_pending(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
-    """Generic stock score for a Sparebank EC whose native scorecard is below its evidence floor."""
+    """Canonical generic 0-10 stock score for a Sparebank EC whose native scorecard is below its evidence floor.
 
+    A value outside the canonical 0-10 range (a raw legacy score) is never shown.
+    """
+
+    value = score.final_score_10
+    canonical = value if value is not None and isfinite(float(value)) and 0 <= float(value) <= 10 else None
     return replace(
         score,
         source_group=SPAREBANKEN_TIER_LABEL,
         analysis_tier="sparebanken",
+        final_score_10=canonical,
         decision="Sparebank scorecard pending",
         one_line_reason=(
             "Generic stock score shown: the Sparebank scorecard is pending (not enough filing evidence for a "
@@ -1933,6 +1941,7 @@ def build_candidate_simple_scores(
             else source.iloc[:0]
         )
     relative_reference = _candidate_relative_reference(source, decision_date)
+    volatility_reference = _candidate_volatility_reference(source, decision_date)
     etf_exposure = _etf_exposure_lookup()
     calibration_by_id = calibration_by_id or {}
     regime = regime or {}
@@ -1957,6 +1966,7 @@ def build_candidate_simple_scores(
                     isin=_noneable_str(row.get("isin")),
                     data_policy=_noneable_str(row.get("data_policy")) or "yfinance_only",
                     latest={"date": _noneable_str(row.get("latest_date")), "price": row.get("latest_price")},
+                    decision_time=decision_date or _noneable_str(row.get("latest_date")),
                 )
             )
             continue
@@ -1980,7 +1990,7 @@ def build_candidate_simple_scores(
             _candidate_data_quality_component(row, blocked, decision_date),
             _component("momentum", _candidate_momentum_raw(row), _candidate_momentum_why(row), authority="high"),
             _component("trend", _candidate_trend_raw(row), _candidate_trend_why(row), authority="high"),
-            _component("risk", _candidate_risk_raw(row), _candidate_risk_why(row), authority="high", role="risk_friction"),
+            _component("risk", _candidate_risk_raw(row, volatility_reference), _candidate_risk_why(row), authority="high", role="risk_friction"),
             _component(
                 "relative_strength",
                 _candidate_relative_strength_raw(row, relative_reference),
@@ -2291,16 +2301,16 @@ def _pending_configured_score(
     )
 
 
-def _native_sparebank_score(display_id: str) -> tuple[float | None, str]:
+def _native_sparebank_score(display_id: str, *, decision_time: object = None) -> tuple[float | None, str]:
     """Read the stored native scorecard result (computed by the Sparebank refresh), never recompute here."""
 
-    row = latest_sparebank_scores().get(str(display_id))
+    row = latest_sparebank_scores(decision_time=decision_time).get(str(display_id))
     value = None if row is None else row.get("final_combined_score_10")
     try:
         score = float(value) if value is not None and isfinite(float(value)) else None
     except (TypeError, ValueError):
         score = None
-    if score is None:
+    if score is None or not 0 <= score <= 10:
         return None, "Underwriting is determined by the Sparebank scorecard (pending: not enough filing evidence for a composite yet); tactical evidence is presented separately."
     coverage = row.get("coverage")
     try:
@@ -2322,8 +2332,9 @@ def _sparebank_scorecard_status(
     isin: str | None,
     data_policy: str,
     latest: dict[str, object] | None = None,
+    decision_time: object = None,
 ) -> SimpleInstrumentScore:
-    native_score, native_reason = _native_sparebank_score(display_id)
+    native_score, native_reason = _native_sparebank_score(display_id, decision_time=decision_time)
     latest = latest or {}
     return SimpleInstrumentScore(
         instrument_key=instrument_key,
@@ -2592,7 +2603,7 @@ def _candidate_source_frame(report: pd.DataFrame, forecasts: pd.DataFrame) -> pd
     return pd.DataFrame({"instrument_id": ids, "name": ids, "yahoo_symbol": ids})
 
 
-def _candidate_relative_reference(frame: pd.DataFrame, decision_date: date | None = None) -> float | None:
+def _candidate_known_peers(frame: pd.DataFrame, decision_date: date | None = None) -> pd.DataFrame:
     if decision_date is not None and "latest_date" in frame:
         # Peers observed after the decision date (or undated) are not known
         # evidence and must not move a historical peer reference.
@@ -2600,6 +2611,19 @@ def _candidate_relative_reference(frame: pd.DataFrame, decision_date: date | Non
             lambda value: (parsed := _parse_date(value)) is not None and parsed <= decision_date
         )
         frame = frame.loc[known.astype(bool)]
+    return frame
+
+
+def _candidate_volatility_reference(frame: pd.DataFrame, decision_date: date | None = None) -> float | None:
+    if "volatility_60d_ann" not in frame:
+        return None
+    values = pd.to_numeric(_candidate_known_peers(frame, decision_date)["volatility_60d_ann"], errors="coerce")
+    values = values[values > 0].dropna()
+    return float(values.median()) if not values.empty else None
+
+
+def _candidate_relative_reference(frame: pd.DataFrame, decision_date: date | None = None) -> float | None:
+    frame = _candidate_known_peers(frame, decision_date)
     for column in ("return_6m", "return_12m", "return_3m"):
         if column not in frame:
             continue
@@ -4096,15 +4120,13 @@ def _candidate_trend_raw(row: pd.Series) -> float | None:
     return _weighted_values(parts)
 
 
-def _candidate_risk_raw(row: pd.Series) -> float | None:
+def _candidate_risk_raw(row: pd.Series, volatility_reference: float | None) -> float | None:
+    # Centred, volatility-only (B-08): a candidate at the peer-median volatility scores raw 0 (= 5/10) and drawdown is
+    # not a second term (it tracks volatility, rho ~ -0.79 in the #927 audit). No peer reference -> unavailable.
     vol = _safe_float(row.get("volatility_60d_ann"))
-    drawdown = _safe_float(row.get("current_drawdown"))
-    parts: list[tuple[float, float]] = []
-    if vol is not None:
-        parts.append((_clamp((0.30 - vol) / 0.30), 0.55))
-    if drawdown is not None:
-        parts.append((_clamp((drawdown + 0.25) / 0.25), 0.45))
-    return _weighted_values(parts)
+    if vol is None or vol <= 0 or volatility_reference is None or volatility_reference <= 0:
+        return None
+    return _clamp((volatility_reference - vol) / volatility_reference)
 
 
 def _candidate_relative_strength_raw(row: pd.Series, reference: float | None) -> float | None:
@@ -4132,6 +4154,9 @@ def _candidate_trend_why(row: pd.Series) -> str:
 
 
 def _candidate_risk_why(row: pd.Series) -> str:
+    vol = _safe_float(row.get("volatility_60d_ann"))
+    if vol is None or vol <= 0:
+        return "Unavailable: 60-day annualised volatility must be positive and finite."
     return f"Current drawdown {_fmt_pct(row.get('current_drawdown'))}; 60-day annualised volatility {_fmt_pct(row.get('volatility_60d_ann'))}."
 
 

@@ -10,6 +10,7 @@ import pandas as pd
 from etf_cockpit.data.fx_data import EurRateBook, major_currency
 from etf_cockpit.features.drawdown import drawdown, rolling_max_drawdown
 from etf_cockpit.features.liquidity import liquidity_score
+from etf_cockpit.features.momentum import momentum, weighted_momentum
 from etf_cockpit.features.returns import daily_log_returns, horizon_log_returns
 from etf_cockpit.features.trend import simple_moving_average
 from etf_cockpit.features.volatility import ewma_volatility, realised_volatility
@@ -22,7 +23,7 @@ RELATIVE_STRENGTH_FALLBACK_ANCHOR = "VWCE"
 
 # Bumped whenever a feature formula changes so derived feature caches written by an older
 # algorithm are never reused (the cache key binds this version).
-FEATURE_ALGORITHM_VERSION = "features-3"
+FEATURE_ALGORITHM_VERSION = "features-4"
 
 # Price features that feed the score are computed on an EUR total-return basis (adjusted close x the
 # session's FX rate to EUR); ``last_price`` stays in the listing currency for display only.
@@ -240,6 +241,8 @@ def compute_features(prices: pd.DataFrame, benchmark_etf_id: str | None = None) 
                 "momentum_60d": horizon_log_returns(price, 60).values,
                 "momentum_120d": horizon_log_returns(price, 120).values,
                 "momentum_180d": horizon_log_returns(price, 180).values,
+                # B-04 challengers only: no live score weight pending #811 evaluation.
+                "momentum_252d_skip_20d": momentum(price, 252, skip=20).values,
                 "sma_50": simple_moving_average(price, 50).values,
                 "sma_100": sma_100.values,
                 "sma_200": sma_200.values,
@@ -260,6 +263,7 @@ def compute_features(prices: pd.DataFrame, benchmark_etf_id: str | None = None) 
                 ).astype(float).values,
             }
         )
+        out["weighted_momentum_vol_scaled"] = weighted_momentum(out, volatility=out["vol_60d_ann"])
         if benchmark_prices is not None and etf_id == benchmark_etf_id:
             # The benchmark measured against itself carries no information: unavailable, not neutral.
             out["relative_strength_60d"] = float("nan")

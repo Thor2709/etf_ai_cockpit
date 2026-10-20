@@ -31,7 +31,9 @@ def test_vwce_recovers_numeric_score_from_etflive_prices():
     assert isinstance(score.final_score_10, float)
     assert 0 < score.score_coverage < 1
     assert score.missing_components
-    assert "relative_strength" in score.missing_components
+    # PSF: relative strength carries no weight (one global anchor), so it is no longer a missing scored component
+    assert "relative_strength" not in score.missing_components
+    assert "etf_exposure" in score.missing_components
     assert all(c.score_10 is None for c in score.components if c.key in score.missing_components)
 
 
