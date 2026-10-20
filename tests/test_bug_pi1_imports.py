@@ -93,11 +93,7 @@ def test_missing_source_id_is_rejected_not_stringified(tmp_path: Path) -> None:
 
 def test_event_key_delimiter_collision_is_impossible(tmp_path: Path) -> None:
     """D112-N002"""
-    rows = [_cash("a,b", "acct|a"), _cash("a|b", "acct")]
-    rows[0]["source_id"] = "b"
-    rows[1]["source_id"] = "a|b"
-    rows[0]["account_id"] = "acct|a"
-    rows[1]["account_id"] = "acct"
+    rows = [_cash("b", "acct|a"), _cash("a|b", "acct")]
     frame = PortfolioImportStore(tmp_path).preview(_write(tmp_path / "k.csv", rows)).frame
     assert frame["event_key"].nunique() == 2
     assert frame["staging_status"].tolist() == ["accepted", "accepted"]
@@ -141,11 +137,19 @@ def test_explicit_instrument_id_conflicting_with_isin_is_rejected(tmp_path: Path
         _trade(source_id="conflict", isin="US0000000002"),
         _trade(source_id="agree", isin="US0000000001"),
         _trade(source_id="id-only"),
+        _trade(source_id="unknown-isin", isin="US9999999999"),
     ]
     frame = PortfolioImportStore(tmp_path).preview(_write(tmp_path / "c.csv", rows)).frame
-    assert frame["staging_status"].tolist() == ["quarantined", "accepted", "accepted"]
+    assert frame["staging_status"].tolist() == [
+        "quarantined",
+        "accepted",
+        "accepted",
+        "quarantined",
+    ]
     assert frame.iloc[0]["quarantine_reason"] == "identity_id_isin_conflict"
     assert frame.iloc[0]["instrument_id"] == ""
+    assert frame.iloc[3]["quarantine_reason"] == "identity_id_isin_conflict"
+    assert frame.iloc[3]["instrument_id"] == ""
 
 
 def test_claim_effective_handles_naive_and_aware_timestamps() -> None:

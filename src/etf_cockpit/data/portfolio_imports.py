@@ -1349,7 +1349,7 @@ def _map_identity(
         )
     row["identity_candidates"] = "|".join(candidates)
     row["identity_mapping_method"] = method
-    if len(candidates) != 1:
+    if len(candidates) != 1 or method == "id_isin_conflict":
         row["instrument_id"] = ""
         return row
     canonical_id = candidates[0]
@@ -1436,6 +1436,18 @@ def _identity_candidates(
         supplied_isin = matches({"isin"}, row.get("isin"))
         if supplied_isin and explicit not in supplied_isin:
             return tuple(sorted(supplied_isin | {explicit})), "id_isin_conflict"
+        supplied_text = str(row.get("isin") or "").strip().casefold()
+        if supplied_text and not supplied_isin:
+            own_isins = {
+                str(claim.get("value", "")).strip().casefold()
+                for claim in claims
+                if str(claim.get("instrument_id")) == explicit
+                and str(claim.get("field", "")).casefold() == "isin"
+            }
+            if own_isins and supplied_text not in own_isins:
+                # Supplied ISIN is unknown to the master yet contradicts the
+                # explicit instrument's own ISIN claims: unverifiable, fail closed.
+                return (explicit,), "id_isin_conflict"
         return (explicit,), "canonical_id"
     isin = matches({"isin"}, row.get("isin"))
     if isin:
