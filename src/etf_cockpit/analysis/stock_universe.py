@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -326,14 +326,37 @@ def build_universe_evidence(
             level: {key: {pid: cohort_metrics[key][pid] for pid in ids if pid in cohort_metrics[key]} for key in COHORT_METRIC_KEYS}
             for level, ids in cohort_members(result.profiles[iid], candidates).items()
         }
-        result.evidence[iid] = build_stock_evidence(
+        result.evidence[iid] = with_sector_route(build_stock_evidence(
             iid, periods, decision_time, result.prices[iid], analyst_inputs(analysts[iid]), cfg,
             peer_values=scoped, cohort_values=cohorts, no_data_reason=store.no_data_reason(iid, snapshots, decision_time, bool(sm.known_periods(periods, decision_time))),
-        )
+        ), result.profiles[iid].sector)
     for pid, evidence in first.items():
         if pid.startswith("peer:"):
             result.evidence[pid] = evidence
     return result
+
+
+def with_sector_route(evidence: StockEvidence, sector: object) -> StockEvidence:
+    """Non-bank financials have no fundamentals route: value and quality are unavailable (analyst revision is sector-neutral)."""
+
+    if not is_non_bank_financial_sector(sector):
+        return evidence
+    unavailable = {}
+    for key in ("stock_value", "stock_quality"):
+        part = evidence.components[key]
+        unavailable[key] = replace(
+            part,
+            score_10=None,
+            inputs=(),
+            freshness="unavailable",
+            why=f"{part.label}: {SECTOR_ROUTE_MISSING}: non-bank financials have no dedicated fundamentals route yet, "
+            "and the generic industrial ratios (ROE, ROIC, net debt/EBITDA, EBIT margin) do not apply to them.",
+            band_low=None,
+            band_high=None,
+            label_stable=None,
+            band_basis=None,
+        )
+    return replace(evidence, components={**evidence.components, **unavailable})
 
 
 def _market_from_snapshot(snapshot: Mapping[str, Any] | None, decision_time: datetime) -> MarketInputs:

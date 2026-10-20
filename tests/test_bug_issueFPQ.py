@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import math
-from datetime import date
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
-from etf_cockpit.analysis.stock_universe import SECTOR_ROUTE_MISSING, is_non_bank_financial_sector
+from etf_cockpit.analysis.stock_evidence import Component, StockEvidence
+from etf_cockpit.analysis.stock_universe import SECTOR_ROUTE_MISSING, is_non_bank_financial_sector, with_sector_route
 from etf_cockpit.application.ui_views import stock_research as stock_research_view
 from etf_cockpit.data import stock_research as stock_research_data
 from etf_cockpit.features import etf_economics
@@ -81,6 +82,27 @@ def test_industrial_and_bank_sectors_keep_their_routes() -> None:
     assert industrial["stock_quality"].score_10 == 8.0 and industrial["stock_value"].score_10 == 8.0
     assert is_non_bank_financial_sector("Financials") and not is_non_bank_financial_sector("Banks")
     assert not is_non_bank_financial_sector("Savings banks") and not is_non_bank_financial_sector(None)
+
+
+def test_stock_evidence_route_blanks_value_and_quality_for_financials_only() -> None:
+    def component(key: str, score: float | None) -> Component:
+        return Component(key, key.replace("_", " ").title(), score, (), "yfinance:fundamentals", "2025-01-09", "ok", "generic ratios", 7.0, 9.0, True, "basis")
+
+    evidence = StockEvidence(
+        "BRK_B", datetime(2025, 1, 10, tzinfo=timezone.utc), "USD", {},
+        {"stock_value": component("stock_value", 8.0), "stock_quality": component("stock_quality", 8.0), "analyst_revision": component("analyst_revision", 6.0)},
+        0, {}, (), (), None,
+    )
+
+    routed = with_sector_route(evidence, "Financials")
+    for key in ("stock_value", "stock_quality"):
+        assert routed.components[key].score_10 is None
+        assert routed.components[key].status == "unavailable"
+        assert SECTOR_ROUTE_MISSING in routed.components[key].why
+        assert routed.components[key].band_low is None
+    assert routed.components["analyst_revision"] is evidence.components["analyst_revision"]
+    assert with_sector_route(evidence, "Industrials") is evidence
+    assert with_sector_route(evidence, "Banks") is evidence
 
 
 def test_non_bank_financial_candidate_row_has_no_generic_fundamentals() -> None:
