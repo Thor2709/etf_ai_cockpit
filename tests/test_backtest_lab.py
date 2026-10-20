@@ -1873,11 +1873,14 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
     monkeypatch.setattr(feature_service, "ensure_run_manifest", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(forecast_service, "ensure_run_manifest", lambda *_args, **_kwargs: {})
     def mixed_availability_report(selected_config, selected_prices, **kwargs):
+        # The service now also routes the legacy/stress regimes here; they bring their own cost override.
+        kwargs.setdefault("transaction_cost_bps", 100_000.0)
+        # A 1000x cost wipes the book at the first purchase under capacity enforcement, leaving no trades to log.
+        kwargs["enforce_capacity"] = False
         report = run_backtest(
             selected_config,
             selected_prices,
             rebalance_frequency_days=10,
-            transaction_cost_bps=100_000.0,
             **kwargs,
         )
         unavailable_strategy = "momentum_only"
