@@ -651,3 +651,86 @@ def test_quality_baselines_without_evidence_are_unavailable_not_all_cash_numbers
         cost_regime="modelled", cost_model_id="m", unavailable_strategies={"signal_strategy": "never held a position"},
     )
     assert summary["baselines"]["v3"]["status"] == "unavailable" and summary["baselines"]["QV"]["status"] == "available"
+
+
+# --- correction pass 3 ----------------------------------------------------
+
+
+def _eur_universe_with_equity_certificate(config, prices):
+    """EUR-only panel plus one equity certificate that is re-labelled EUR-quoted."""
+
+    certificate = next(
+        item for item in config.universe.etfs
+        if str(item.instrument_type or "").casefold() == "equity_certificate" and item.id in set(prices["etf_id"])
+    )
+    eur_ids = {
+        item.id for item in config.universe.etfs
+        if item.currency == "EUR" and str(item.instrument_type or "").casefold() != "equity_certificate"
+    }
+    etfs = [
+        item.model_copy(update={"currency": "EUR"}) if item.id == certificate.id else item for item in config.universe.etfs
+    ]
+    patched = config.model_copy(update={"universe": config.universe.model_copy(update={"etfs": etfs})})
+    return patched, prices[prices["etf_id"].isin(eur_ids | {certificate.id})], certificate.id
+
+
+def test_eur_equity_certificate_blocks_qualification_because_it_can_never_fill(config, prices) -> None:
+    patched, panel, certificate_id = _eur_universe_with_equity_certificate(config, prices)
+    report = run_backtest(patched, panel, rebalance_frequency_days=42, enforce_capacity=True)
+    assert "fx_unavailable_instruments_unfillable" not in report.metadata["qualification_blockers"]
+    assert "manual_quote_instruments_unfillable" in report.metadata["qualification_blockers"]
+    assert report.metadata["qualifying_cost_regime"] is False
+    # Without the certificate in the universe the same EUR run still qualifies.
+    clean = panel[panel["etf_id"] != certificate_id]
+    assert run_backtest(config, clean, rebalance_frequency_days=42, enforce_capacity=True).metadata[
+        "qualifying_cost_regime"
+    ] is True
+
+
+def test_never_filled_baselines_and_vwce_are_unavailable_not_all_cash_results(config, prices, monkeypatch) -> None:
+    from etf_cockpit.backtest import engine as engine_module
+
+    benchmark_id = str(prices["etf_id"].iloc[0])
+    monkeypatch.setattr(engine_module, "_validated_benchmark_data_id", lambda *_args, **_kwargs: benchmark_id)
+    zero = prices.assign(volume=0.0)
+    report = run_backtest(config, zero, rebalance_frequency_days=42, enforce_capacity=True)
+    assert (report.results["trade_count"] == 0).all()
+    comparators = report.metadata["investable_comparators"]
+    assert comparators["baselines"]["v3"]["status"] == "unavailable" and comparators["baselines"]["v3"]["reason"]
+    assert "final_value_eur" not in comparators["baselines"]["v3"]
+    assert comparators["baselines"]["top_n_long_only"]["status"] == "unavailable"
+    assert comparators["vwce"]["status"] == "unavailable" and comparators["vwce"]["reason"]
+    assert "final_value_eur" not in comparators["vwce"]
+    # A run that does fill keeps its comparators available.
+    filled = run_backtest(config, prices, rebalance_frequency_days=42, enforce_capacity=True)
+    assert filled.metadata["investable_comparators"]["baselines"]["v3"]["status"] == "available"
+
+
+def test_same_universe_dates_costs_is_derived_from_the_data_never_asserted() -> None:
+    def panel(with_cost: bool, with_cash: bool = True) -> pd.DataFrame:
+        rows = []
+        for day in (1, 2, 3):
+            for number in range(1, 8):
+                row = {
+                    "decision_time": f"2024-01-0{day}T23:59:59Z", "instrument_id": f"E{number}",
+                    "ranker": "balanced_challenger", "score": float(number), "net_return": 0.01 * number - 0.03,
+                    "benchmark_net_return": 0.0, "cash_net_return": 0.0 if with_cash else float("nan"),
+                    "sector": "s", "size_bucket": "b",
+                }
+                if with_cost:
+                    row["round_trip_cost_bps"] = 5.0
+                rows.append(row)
+        return pd.DataFrame(rows)
+
+    policy = replace(
+        load_rank_validation_policy(), minimum_universe_support=5, top_n=3, bottom_n=3, minimum_group_support=1
+    )
+
+    def flag(frame: pd.DataFrame):
+        return rank_validation_metrics(frame, "balanced_challenger", policy=policy)["investable_long_only"][
+            "same_universe_dates_costs"
+        ]
+
+    assert flag(panel(with_cost=True)) is True
+    assert flag(panel(with_cost=False)) is None  # costs are not evidenced on the rows
+    assert flag(panel(with_cost=True, with_cash=False)) is None  # cash comparator missing

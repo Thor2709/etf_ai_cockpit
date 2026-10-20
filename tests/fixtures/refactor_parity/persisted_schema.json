@@ -329,7 +329,7 @@
     "participation_cap": "float",
     "price_field": "str",
     "qualification_blockers": {
-     "list_length": 1,
+     "list_length": 2,
      "item": "str"
     },
     "qualifying_cost_regime": "bool",

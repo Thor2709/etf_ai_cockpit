@@ -1490,6 +1490,9 @@ def run_backtest(
     if enforce_capacity and metadata["capacity_fx_unavailable_instruments"]:
         # Instruments without FX evidence can never fill: the universe would silently shrink to cash for them.
         qualification_blockers.append("fx_unavailable_instruments_unfillable")
+    if enforce_capacity and manual_quote_ids & column_set:
+        # The engine never supplies a manual quote, so an equity certificate listing can never fill under capacity checks.
+        qualification_blockers.append("manual_quote_instruments_unfillable")
     metadata["qualification_blockers"] = qualification_blockers
     metadata["qualifying_cost_regime"] = not qualification_blockers
     if short_history_ids:
@@ -2144,6 +2147,11 @@ def run_backtest(
                 pivot.index[start_index],
                 adv,
             )
+        if float(weight.sum()) <= 0.0:
+            return {
+                "status": "unavailable",
+                "reason": "no capacity-checked fill: the benchmark purchase did not fill",
+            }
         cost, cost_bps, _, _, _ = trade_cost(initial_value, weight.abs(), adv)
         scale = initial_value / max(initial_value - cost, 1e-12)
         held = float(weight.sum())
@@ -2169,6 +2177,12 @@ def run_backtest(
             unavailable_baselines[name] = "no point-in-time quality evidence was available in the run"
         elif turnover[name] <= 0.0 and float(weights[name].abs().sum()) <= 0.0:
             unavailable_baselines[name] = "the strategy never held a position"
+        elif (
+            capacity_active
+            and turnover[name] <= 0.0
+            and float(initial_allocation.get(name, {}).get("unfilled_eur", 0.0)) > 0.0
+        ):
+            unavailable_baselines[name] = "no capacity-checked fill: the strategy never traded and its initial order was unfilled"
     metadata["investable_comparators"] = investable_comparator_summary(
         {
             name: {
