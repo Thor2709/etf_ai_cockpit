@@ -84,10 +84,16 @@ def _component_table(rows: Sequence[ComponentRow]) -> ft.Control:
     table_rows = []
     for row in rows:
         score_cell: Any = ScoreBar(row.score, expand=False, width=140) if row.eligible and row.score is not None else _DASH
+        if row.band_low is None or row.band_high is None:
+            uncertainty = "unavailable"
+        else:
+            stability = "label stable" if row.label_stable is True else "label may change" if row.label_stable is False else "label stability unavailable"
+            uncertainty = f"{row.band_low:.1f}–{row.band_high:.1f}/10 · {stability}"
         table_rows.append(
             {
                 "component": row.label,
                 "score": score_cell,
+                "uncertainty": uncertainty,
                 "weight": f"{row.weight_share:.0%}",
                 "note": _short(row.why, 160),
             }
@@ -96,6 +102,7 @@ def _component_table(rows: Sequence[ComponentRow]) -> ft.Control:
         [
             TableColumn("component", "Component", flex=2, sortable=False),
             TableColumn("score", "Score", width=170, sortable=False),
+            TableColumn("uncertainty", "Uncertainty band", width=220, sortable=False),
             TableColumn("weight", "Weight", width=80, numeric=True, sortable=False),
             TableColumn("note", "How it was calculated, or why it is missing", flex=5, sortable=False),
         ],
@@ -121,6 +128,11 @@ def score_card(model: StockPageModel, page: ft.Page | None = None) -> ft.Control
     else:
         coverage_sub = "the score row stores no coverage value" if has_row else "no score row for this instrument"
     label_reason = "no label: the evidence score is missing (see the missing steps below)" if has_row else "no score row for this instrument, so no label"
+    if model.score_band_low is None or model.score_band_high is None:
+        band_note = "Uncertainty band unavailable."
+    else:
+        stability = "label stable" if model.label_stable is True else "label may change" if model.label_stable is False else "label stability unavailable"
+        band_note = f"Uncertainty band {model.score_band_low:.1f}–{model.score_band_high:.1f}/10; {stability}."
     tiles = ft.ResponsiveRow(
         [
             placed(KpiTile("Coverage", coverage_text, coverage_sub), {"xs": 6}),
@@ -133,7 +145,7 @@ def score_card(model: StockPageModel, page: ft.Page | None = None) -> ft.Control
         ft.Row(
             [
                 ring,
-                ft.Column([_text(model.headline, size=15), tiles], spacing=12, expand=True),
+                ft.Column([_text(model.headline, size=15), Note(band_note), tiles], spacing=12, expand=True),
             ],
             spacing=24,
             vertical_alignment=ft.CrossAxisAlignment.START,

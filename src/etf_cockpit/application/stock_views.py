@@ -47,6 +47,9 @@ class ComponentRow:
     weight_share: float
     eligible: bool
     why: str
+    band_low: float | None = None
+    band_high: float | None = None
+    label_stable: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -83,6 +86,9 @@ class StockPageModel:
     notes: list[dict[str, Any]] = field(default_factory=list)
     identity: list[tuple[str, str, str | None]] = field(default_factory=list)  # label, value, reason
     sources: tuple[str, ...] = ()
+    score_band_low: float | None = None
+    score_band_high: float | None = None
+    label_stable: bool | None = None
 
 
 def short_reason(text: object, limit: int = _SHORT) -> str:
@@ -139,7 +145,24 @@ def _component_rows(score_row: Any) -> list[ComponentRow]:
         if component is None:
             rows.append(ComponentRow(key, key.replace("_", " ").title(), None, weight / total, False, "this component was not built for the instrument"))
             continue
-        rows.append(ComponentRow(key, component.label, component.score_10 if component.score_eligible else None, weight / total, bool(component.score_eligible), _reason_for(component)))
+        low = sm._finite(getattr(component, "band_low", None))
+        high = sm._finite(getattr(component, "band_high", None))
+        if low is None or high is None or not 0.0 <= low <= high <= 10.0:
+            low = high = None
+        stable = getattr(component, "label_stable", None)
+        rows.append(
+            ComponentRow(
+                key,
+                component.label,
+                component.score_10 if component.score_eligible else None,
+                weight / total,
+                bool(component.score_eligible),
+                _reason_for(component),
+                low,
+                high,
+                stable if isinstance(stable, bool) else None,
+            )
+        )
     return rows
 
 
@@ -225,6 +248,12 @@ def build_stock_page_model(snapshot: Any, instrument_id: str, score_row: Any | N
     if score_row is not None:
         score = getattr(score_row, "final_score_10", None)
         model.score = None if score is None else float(score)
+        low = sm._finite(getattr(score_row, "score_band_low", None))
+        high = sm._finite(getattr(score_row, "score_band_high", None))
+        if low is not None and high is not None and 0.0 <= low <= high <= 10.0:
+            model.score_band_low, model.score_band_high = low, high
+            stable = getattr(score_row, "label_stable", None)
+            model.label_stable = stable if isinstance(stable, bool) else None
         model.coverage = score_coverage(score_row)
         model.used, model.total = getattr(score_row, "evidence_component_counts", (0, len(model.components)))  # one pair for every page
         model.label = str(getattr(score_row, "final_label", "") or "")

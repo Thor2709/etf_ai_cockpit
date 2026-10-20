@@ -7,18 +7,28 @@ so every number has a single calculation path (definitions: ``stock_metrics``).
 
 from __future__ import annotations
 
+import zlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 
 from etf_cockpit.analysis import stock_metrics as sm
 from etf_cockpit.analysis import stock_text as tx
-from etf_cockpit.analysis.peer_cohorts import weighted_empirical_cdf
+from etf_cockpit.analysis.peer_cohorts import bootstrap_percentile_interval, weighted_empirical_cdf
 from etf_cockpit.analysis.stock_metrics import Metric, Period
 
 NO_PERIODS_REASON = "no fundamentals have been loaded for this instrument"
 # Cash roll-forward tolerance: the cash-flow statement may include restricted cash that the balance-sheet cash line excludes.
 ROLLFORWARD_TOLERANCE = 0.05
+DEFAULT_LABEL_BOUNDARIES = (4.0, 5.0, 6.5, 8.0)  # headline label steps (final_label_from_scores); scoring.uncertainty.label_boundaries overrides
+# annual statement fields behind each shrinkable input (observation count n = fiscal years carrying all of them)
+SHRINK_FIELDS: dict[str, tuple[str, ...]] = {
+    "roe": ("net_income_parent", "equity_parent"),
+    "roic": ("ebit", "income_tax", "pretax_income", "equity_parent", "ib_debt", "cash_sti"),
+    "ebit_margin": ("revenue", "ebit"),
+    "fcf_conversion": ("cfo", "capex", "net_income_parent"),
+    "revenue_cagr": ("revenue",),
+}
 ANALYST_MAX_AGE_DAYS = 120  # 90-day estimate lookback plus 30 days; scoring.analyst_revision.max_age_days overrides
 
 
@@ -60,6 +70,12 @@ class SubScore:
     reason: str | None = None
     cohort_level: str | None = None  # industry | sector | region | universe | absolute_unadjusted (no cohort context supplied)
     peer_count: int | None = None
+    raw_value: float | None = None  # unshrunk estimate (== value); set only when the input was shrunk
+    shrunk_value: float | None = None  # w * raw + (1 - w) * cohort median; the score uses this value
+    observations: int | None = None  # annual observations n behind the estimate
+    shrink_weight: float | None = None  # w = n / (n + k)
+    band_low: float | None = None  # informational p10 of the 0-10 score; never raises the score
+    band_high: float | None = None  # informational p90 of the 0-10 score
 
 
 @dataclass(frozen=True)
@@ -72,6 +88,10 @@ class Component:
     as_of: str | None
     freshness: str
     why: str
+    band_low: float | None = None  # informational uncertainty band of score_10 (weighted from the input bands)
+    band_high: float | None = None
+    label_stable: bool | None = None  # False when the band spans a label boundary; None = no band to assess
+    band_basis: str | None = None
 
     @property
     def used(self) -> tuple[SubScore, ...]:
@@ -962,26 +982,94 @@ class _Builder:
                 return level, values, len(values)
         return None, [], best
 
+    def _shrink_cfg(self) -> Mapping[str, object]:
+        cfg = self.scoring.get("shrinkage", {})
+        return cfg if isinstance(cfg, Mapping) else {}
+
+    def _uncertainty_cfg(self) -> Mapping[str, object]:
+        cfg = self.scoring.get("uncertainty", {})
+        return cfg if isinstance(cfg, Mapping) else {}
+
+    def _observations(self, metric_key: str) -> int:
+        """Fiscal years known at the decision time that carry every statement field behind ``metric_key`` (at least 1: a TTM window is one year)."""
+
+        fields = SHRINK_FIELDS[metric_key]
+        years = {p.period_end for p in self.known if p.period_type == "FY" and p.has(*fields)}
+        return max(1, len(years))
+
+    def _band(self, metric_key: str, values: Sequence[float], raw: float, shrunk: float, score: float, *, lower_is_better: bool, cap: float | None) -> tuple[float, float] | None:
+        """Bootstrap p10/p90 of the cohort percentile of the shrunk value, widened to the unshrunk position; informational only."""
+
+        cfg = self._uncertainty_cfg()
+        try:
+            lo_q, hi_q = float(cfg.get("lower_quantile", 0.10)), float(cfg.get("upper_quantile", 0.90))
+            samples = int(cfg.get("bootstrap_samples", 200))
+            ones = [1.0] * len(values)
+            seed = zlib.crc32(f"{self.id}|{metric_key}".encode())
+            low_p, high_p = bootstrap_percentile_interval(values, ones, shrunk, parent_percentile=0.5, shrinkage_strength=0.0, seed=seed, samples=samples, lower_quantile=lo_q, upper_quantile=hi_q)
+        except (TypeError, ValueError, ZeroDivisionError):
+            return None  # an unverifiable band is absent, never guessed
+        raw_p = weighted_empirical_cdf(values, ones, raw)
+        points = [10.0 * (1.0 - p if lower_is_better else p) for p in (low_p, high_p, raw_p)]
+        low, high = min(points + [score]), max(points + [score])
+        if cap is not None:
+            high = max(min(high, cap), score)
+        return round(low, 4), round(high, 4)
+
     def _cohort_sub(self, sub: SubScore, metric_key: str, group: str, *, lower_is_better: bool = False, yield_floor: bool = False) -> SubScore:
-        """Re-score a ladder-scored input as its percentile inside the narrowest sufficiently large cohort."""
+        """Re-score a ladder-scored input as its percentile inside the narrowest sufficiently large cohort.
+
+        Noisy fundamentals are first shrunk toward the cohort median with weight n/(n+k); both values are stored and
+        the percentile uses the shrunk one. Without a cohort median the input is unavailable.
+        """
 
         if sub.score is None or sub.value is None:
             return sub  # unavailable (kept unavailable) or an explicit forced score such as a known loss
+        shrinkable = metric_key in SHRINK_FIELDS
         if self.cohort_values is None:
+            if shrinkable:
+                return replace(
+                    sub,
+                    score=None,
+                    cohort_level=None,
+                    reason=f"no cohort median for {sub.label}; a short-history estimate is not scored without a prior",
+                )
             return replace(sub, cohort_level="absolute_unadjusted")
         level, values, count = self._pick_cohort(metric_key)
         if level is None:
             minimum = int(self._cohort_cfg().get("min_peers", 3))
             return replace(sub, score=None, cohort_level=None, peer_count=count, reason=f"needs {minimum} peers with {sub.label} in the industry, sector, region or stock universe cohort; best cohort has {count}; not scored")
-        percentile = weighted_empirical_cdf(values, [1.0] * len(values), float(sub.value))
+        raw = float(sub.value)
+        target = raw
+        extra: dict[str, object] = {}
+        shrink = self._shrink_cfg()
+        if shrinkable:
+            median = sm.median(values)
+            if median is None:
+                return replace(sub, score=None, cohort_level=level, peer_count=count, reason=f"no cohort median for {sub.label}; a short-history estimate is not scored without a prior")
+            n = self._observations(metric_key)
+            try:
+                k = float(shrink.get("k", 4))
+            except (TypeError, ValueError):
+                k = float("nan")
+            if sm._finite(k) is None or k < 0:
+                return replace(sub, score=None, cohort_level=level, peer_count=count, reason=f"shrinkage k is invalid for {sub.label}; not scored")
+            weight = n / (n + k)
+            target = weight * raw + (1.0 - weight) * median
+            extra = {"raw_value": raw, "shrunk_value": target, "observations": n, "shrink_weight": weight}
+        percentile = weighted_empirical_cdf(values, [1.0] * len(values), target)
         score = round(10.0 * ((1.0 - percentile) if lower_is_better else percentile), 4)
         reason = sub.reason
+        cap: float | None = None
         if yield_floor and sub.value <= 0:
             cap = float(self._cohort_cfg().get("negative_yield_score_cap", 0.0))
             if score > cap:
                 score = cap
                 reason = "non-positive yield capped: a loss-making or cash-burning stock is never scored as cheap"
-        return replace(sub, score=score, cohort_level=level, peer_count=count, reason=reason)
+        band = self._band(metric_key, values, raw, target, score, lower_is_better=lower_is_better, cap=cap)
+        if band is not None:
+            extra.update(band_low=band[0], band_high=band[1])
+        return replace(sub, score=score, cohort_level=level, peer_count=count, reason=reason, **extra)
 
     def _metric_freshness_reason(self, metric: Metric) -> str | None:
         return metric_freshness_reason(metric, self.decision_time, self.stale_days)
@@ -1015,9 +1103,22 @@ class _Builder:
         if len(used) >= min_inputs and total_weight > 0:
             score = round(sum(float(s.score) * weights.get(s.key, 1.0) for s in used) / total_weight, 2)  # type: ignore[arg-type]
         why = self._why(label, score, subs, min_inputs)
+        band_low = band_high = None
+        stable: bool | None = None
+        basis: str | None = None
+        if score is not None and any(s.band_low is not None for s in used):
+            lows = sum((s.band_low if s.band_low is not None else float(s.score)) * weights.get(s.key, 1.0) for s in used) / total_weight  # type: ignore[arg-type]
+            highs = sum((s.band_high if s.band_high is not None else float(s.score)) * weights.get(s.key, 1.0) for s in used) / total_weight  # type: ignore[arg-type]
+            band_low, band_high = round(min(lows, score), 2), round(max(highs, score), 2)
+            stable = band_is_label_stable(band_low, band_high, self.label_boundaries())
+            banded = sum(1 for s in used if s.band_low is not None)
+            basis = f"bootstrap p10/p90 of cohort percentiles for {banded} of {len(used)} inputs; the others are held at their point score"
         if freshness == "stale":
             why = f"Stale: the newest reporting evidence is older than {self.stale_days} days, so it is shown but not scored. {why}"
-        return Component(key, label, score, tuple(subs), source_id, as_of, freshness, why)
+        return Component(key, label, score, tuple(subs), source_id, as_of, freshness, why, band_low, band_high, stable, basis)
+
+    def label_boundaries(self) -> tuple[float, ...]:
+        return label_boundaries_from(self._uncertainty_cfg())
 
     def _why(self, label: str, score: float | None, subs: list[SubScore], min_inputs: int) -> str:
         used = [s for s in subs if s.score is not None]
@@ -1135,6 +1236,26 @@ class _Builder:
         as_of = a.known_at.date().isoformat() if known and a.known_at else None
         component = self._assemble("analyst_revision", "Analyst revision", subs, group, f"{(a.source if a else 'yfinance')}:analyst_estimates", as_of, "ok" if known else "unavailable")
         return component
+
+
+def label_boundaries_from(uncertainty_cfg: Mapping[str, object]) -> tuple[float, ...]:
+    raw = uncertainty_cfg.get("label_boundaries") if isinstance(uncertainty_cfg, Mapping) else None
+    values = (
+        sorted({value for item in raw if (value := sm._finite(item)) is not None and 0.0 <= value <= 10.0})
+        if isinstance(raw, Sequence) and not isinstance(raw, str) and raw
+        else []
+    )
+    return tuple(values) if values else DEFAULT_LABEL_BOUNDARIES
+
+
+def band_is_label_stable(low: float, high: float, boundaries: Sequence[float]) -> bool:
+    """False when the band spans a label boundary (a label is entered at ``score >= boundary``)."""
+
+    low_value, high_value = sm._finite(low), sm._finite(high)
+    if low_value is None or high_value is None or not 0.0 <= low_value <= high_value <= 10.0:
+        return False
+    valid_boundaries = [value for item in boundaries if (value := sm._finite(item)) is not None and 0.0 <= value <= 10.0]
+    return sum(1 for boundary in valid_boundaries if boundary <= low_value) == sum(1 for boundary in valid_boundaries if boundary <= high_value)
 
 
 def metric_freshness_reason(metric: Metric, decision_time: datetime, stale_days: int) -> str | None:

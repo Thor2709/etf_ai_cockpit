@@ -66,6 +66,20 @@ def test_score_card_leads_with_the_ring_and_names_every_missing_component() -> N
     assert "None" not in texts and "{" not in texts
 
 
+def test_score_card_and_components_show_uncertainty_bands() -> None:
+    model = _model(
+        score_band_low=6.9,
+        score_band_high=8.1,
+        label_stable=False,
+        components=[
+            ComponentRow("stock_quality", "Stock quality", 7.4, 0.5, True, "Quality evidence", 6.2, 8.3, False),
+        ],
+    )
+    texts = "\n".join(_texts(sp.score_card(model)))
+    assert "Uncertainty band 6.9–8.1/10; label may change." in texts
+    assert "6.2–8.3/10 · label may change" in texts
+
+
 def test_no_score_card_says_which_step_is_missing_instead_of_a_number() -> None:
     model = _model(score=None, coverage=None, used=0, total=0, label="", headline="No score: Momentum (no price history).", components=[])
     texts = "\n".join(_texts(sp.score_card(model)))
@@ -113,11 +127,13 @@ def test_page_model_is_built_from_shared_evidence_with_reasons(monkeypatch: pyte
         DECISION, evidence={"T": evidence}, names={"T": "Test Co"}, peers={"T": [PeerPick("P1", "Peer One", 3, ("same industry (X)",), "auto")]}, periods={"T": periods}, config=dict(CONFIG)
     )
     monkeypatch.setattr(sv, "snapshot_stock_evidence", lambda _snapshot: universe)
-    component = SimpleNamespace(key="momentum", label="Momentum", score_10=8.0, score_eligible=True, why="Momentum +10%.", source_id="yfinance", freshness_status="ok")
-    row = SimpleNamespace(final_score_10=6.5, final_label="watchlist", score_coverage=0.5, components=[component], yahoo_symbol="T", one_line_reason="")
+    component = SimpleNamespace(key="momentum", label="Momentum", score_10=8.0, score_eligible=True, why="Momentum +10%.", source_id="yfinance", freshness_status="ok", band_low=7.4, band_high=8.5, label_stable=True)
+    row = SimpleNamespace(final_score_10=6.5, final_label="watchlist", score_coverage=0.5, components=[component], yahoo_symbol="T", one_line_reason="", score_band_low=5.8, score_band_high=7.1, label_stable=False)
     model = sv.build_stock_page_model(object(), "T", row)
     assert model.available and model.score == 6.5 and model.coverage == 0.5
+    assert (model.score_band_low, model.score_band_high, model.label_stable) == (5.8, 7.1, False)
     assert [c.key for c in model.components][0] == "momentum"
+    assert (model.components[0].band_low, model.components[0].band_high, model.components[0].label_stable) == (7.4, 8.5, True)
     missing = {c.key: c.why for c in model.components if not c.eligible}
     assert missing and all(reason for reason in missing.values())  # nothing is silently dropped
     unavailable = [r for _t, group in model.numbers for r in group if not r.available]
