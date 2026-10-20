@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -19,7 +20,14 @@ from etf_cockpit.analysis.decision.contracts import (
     DecisionDriver,
     OpportunityBenchmarkRank,
     OpportunityResult,
+    ScoreAuthorityFlags,
 )
+from etf_cockpit.portfolio.benchmark_reference_contract import (
+    BenchmarkDefinition,
+    CanonicalBenchmarkRegistry,
+    load_canonical_benchmark_registry,
+)
+from etf_cockpit.portfolio.proposal_policy import map_opportunity_decision_state
 
 
 _DEFAULT_CONFIG = CONFIG_DIR / "decision_opportunity_v1.yaml"
@@ -39,6 +47,14 @@ class OpportunityPolicy:
     low_percentile: float
     supportive_momentum_percentile: float
     adverse_momentum_percentile: float
+    benchmark_id: str
+    benchmark_instrument_id: str
+    base_currency: str
+    tactical_horizons: tuple[str, ...]
+    valuation_horizons: tuple[str, ...]
+    uncertainty_hurdle: float
+    hysteresis_band: float
+    maximum_evidence_age_days: float
 
 
 def load_opportunity_policy(path: str | Path = _DEFAULT_CONFIG) -> OpportunityPolicy:
@@ -64,8 +80,13 @@ def _opportunity_policy_for_content(content: bytes) -> OpportunityPolicy:
         raise ValueError("opportunity policy requires schema_version 1")
     labels = parsed.get("labels")
     timing = parsed.get("timing")
-    if not isinstance(labels, Mapping) or not isinstance(timing, Mapping):
-        raise ValueError("opportunity policy requires labels and timing mappings")
+    absolute = parsed.get("absolute_merit")
+    if (
+        not isinstance(labels, Mapping)
+        or not isinstance(timing, Mapping)
+        or not isinstance(absolute, Mapping)
+    ):
+        raise ValueError("opportunity policy requires labels, timing and absolute_merit mappings")
     minimum_universe_support = _positive_int(parsed.get("minimum_universe_support"))
     minimum_peer_support = _positive_int(parsed.get("minimum_peer_support"))
     exposure_peer_sector_share = _fraction(
@@ -99,6 +120,30 @@ def _opportunity_policy_for_content(content: bytes) -> OpportunityPolicy:
         "adverse_momentum_percentile"
     ]:
         raise ValueError("supportive timing percentile must exceed adverse percentile")
+    tactical_horizons = _horizons(absolute.get("tactical_horizons"))
+    valuation_horizons = _horizons(absolute.get("valuation_horizons"))
+    if set(tactical_horizons) & set(valuation_horizons):
+        raise ValueError("tactical and valuation horizons must be separate")
+    if set(tactical_horizons) != {"20_sessions", "60_sessions"} or set(
+        valuation_horizons
+    ) != {"1_year", "2_years", "3_years"}:
+        raise ValueError("absolute merit horizons must preserve tactical and valuation ranges")
+    benchmark_id = str(absolute.get("benchmark_id", "")).strip()
+    benchmark_instrument_id = str(absolute.get("benchmark_instrument_id", "")).strip()
+    base_currency = str(absolute.get("base_currency", "")).strip()
+    if not benchmark_id or benchmark_instrument_id != "VWCE":
+        raise ValueError("absolute merit requires the canonical VWCE benchmark identity")
+    if base_currency != base_currency.upper() or not _currency_code(base_currency):
+        raise ValueError("absolute merit base_currency must be an ISO-4217 code")
+    uncertainty_hurdle = _fraction(absolute.get("uncertainty_hurdle"))
+    if uncertainty_hurdle <= 0.0:
+        raise ValueError("absolute merit uncertainty_hurdle must be positive")
+    hysteresis_band = _fraction(absolute.get("hysteresis_band"))
+    if hysteresis_band >= uncertainty_hurdle:
+        raise ValueError("absolute merit hysteresis_band must be below uncertainty_hurdle")
+    maximum_evidence_age_days = _positive_number(
+        absolute.get("maximum_evidence_age_days"), "maximum_evidence_age_days"
+    )
     checksum = hashlib.sha256(
         content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
     ).hexdigest()
@@ -113,6 +158,14 @@ def _opportunity_policy_for_content(content: bytes) -> OpportunityPolicy:
         exposure_peer_sector_share,
         **thresholds,
         **timing_thresholds,
+        benchmark_id=benchmark_id,
+        benchmark_instrument_id=benchmark_instrument_id,
+        base_currency=base_currency,
+        tactical_horizons=tactical_horizons,
+        valuation_horizons=valuation_horizons,
+        uncertainty_hurdle=uncertainty_hurdle,
+        hysteresis_band=hysteresis_band,
+        maximum_evidence_age_days=maximum_evidence_age_days,
     )
 
 
@@ -130,6 +183,8 @@ def build_opportunity_results(
 
     policy = load_opportunity_policy(config_path)
     _validate_decision_time(decision_time)
+    decision = _parse_datetime(decision_time)
+    vwce_anchor = _opportunity_benchmark_anchor(policy, decision=decision)
     states: dict[str, dict[str, object]] = {}
     for candidate in candidates:
         instrument = str(candidate.get("instrument", "")).strip()
@@ -209,6 +264,12 @@ def build_opportunity_results(
         else:
             label = _opportunity_label(percentile, policy)
             reason = "AVAILABLE"
+        absolute = _absolute_opportunity_decision(
+            state,
+            decision=decision,
+            policy=policy,
+            vwce_anchor=vwce_anchor,
+        )
 
         rankers: list[OpportunityBenchmarkRank] = []
         scores = benchmark_values.get(instrument, {})
@@ -284,6 +345,7 @@ def build_opportunity_results(
             source_vintage_hash=str(state.get("source_vintage_hash") or "unavailable"),
             reason_code=reason,
             execution_allowed=False,
+            **absolute,
         )
     return results
 
@@ -293,6 +355,412 @@ def opportunity_result_payload(result: OpportunityResult) -> dict[str, object]:
     payload["schema_version"] = 1
     payload["formula_version"] = load_opportunity_policy().version
     return payload
+
+
+def _opportunity_benchmark_anchor(
+    policy: OpportunityPolicy,
+    *,
+    decision: datetime,
+) -> BenchmarkDefinition | None:
+    try:
+        registry = load_canonical_benchmark_registry()
+    except (OSError, TypeError, ValueError, RecursionError):
+        return None
+    if not isinstance(registry, CanonicalBenchmarkRegistry):
+        return None
+    matches = [
+        item
+        for item in registry.benchmarks
+        if item.benchmark_id == policy.benchmark_id
+        and item.opportunity_anchor is True
+        and item.status == "available"
+        and policy.benchmark_instrument_id in item.constituents
+        and item.currency == policy.base_currency
+        and item.source_hashes
+        and (effective := _parse_optional_datetime(item.effective_at)) is not None
+        and (known := _parse_optional_datetime(item.known_at)) is not None
+        and effective <= decision
+        and known <= decision
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _absolute_opportunity_decision(
+    state: Mapping[str, object],
+    *,
+    decision: datetime,
+    policy: OpportunityPolicy,
+    vwce_anchor: BenchmarkDefinition | None,
+) -> dict[str, object]:
+    unavailable = {
+        "decision_state": "SOURCE_UNAVAILABLE",
+        "decision_reason_code": "ABSOLUTE_EVIDENCE_UNAVAILABLE",
+        "absolute_horizon": None,
+        "expected_net_excess_return": None,
+        "absolute_forecast_return": None,
+        "absolute_benchmark_total_return": None,
+        "absolute_candidate_acquisition_cost": None,
+        "absolute_benchmark_acquisition_cost": None,
+        "absolute_fx_return": None,
+        "absolute_uncertainty_margin": None,
+        "absolute_uncertainty_hurdle": policy.uncertainty_hurdle,
+    }
+    if state.get("gate_reason"):
+        return {
+            **unavailable,
+            "decision_state": "ECONOMIC_RISK_VETO",
+            "decision_reason_code": f"ECONOMIC_RISK_VETO:{state['gate_reason']}",
+        }
+    if state.get("status"):
+        return {
+            **unavailable,
+            "decision_reason_code": "RELATIVE_EVIDENCE_INSUFFICIENT",
+        }
+    if vwce_anchor is None:
+        return {
+            **unavailable,
+            "decision_reason_code": "VWCE_OPPORTUNITY_ANCHOR_UNAVAILABLE",
+        }
+    candidate = state.get("candidate")
+    evidence = _member(candidate, "absolute_merit_evidence")
+    if not isinstance(evidence, Mapping) or not _execution_disabled(evidence):
+        return unavailable
+    benchmark = evidence.get("benchmark_reference")
+    if not isinstance(benchmark, Mapping):
+        return {
+            **unavailable,
+            "decision_reason_code": "VWCE_TOTAL_RETURN_UNAVAILABLE",
+        }
+    if (
+        benchmark.get("status") != "available"
+        or benchmark.get("instrument_id") != policy.benchmark_instrument_id
+        or benchmark.get("benchmark_id") != vwce_anchor.benchmark_id
+        or benchmark.get("benchmark_version") != vwce_anchor.version
+        or benchmark.get("benchmark_digest") != vwce_anchor.digest()
+        or benchmark.get("source_hash") not in vwce_anchor.source_hashes
+        or benchmark.get("currency") != policy.base_currency
+        or not _valid_source_record(benchmark, decision, policy)
+    ):
+        return {
+            **unavailable,
+            "decision_reason_code": "VWCE_TOTAL_RETURN_UNVERIFIED",
+        }
+    benchmark_return = _finite(benchmark.get("total_return"))
+    horizon = benchmark.get("horizon")
+    if benchmark_return is None or benchmark_return <= -1.0:
+        return {
+            **unavailable,
+            "decision_reason_code": "VWCE_TOTAL_RETURN_UNAVAILABLE",
+        }
+    if not isinstance(horizon, str) or horizon not in _supported_horizons(policy):
+        return {
+            **unavailable,
+            "decision_reason_code": "VWCE_HORIZON_UNSUPPORTED",
+        }
+    horizon_years = _horizon_years(horizon)
+    if not (
+        vwce_anchor.minimum_horizon_years
+        <= horizon_years
+        <= vwce_anchor.maximum_horizon_years
+    ):
+        return {
+            **unavailable,
+            "decision_reason_code": "VWCE_HORIZON_OUTSIDE_REFERENCE_BOUNDS",
+        }
+    if benchmark.get("unit") != "decimal_fraction":
+        return {
+            **unavailable,
+            "decision_reason_code": "VWCE_TOTAL_RETURN_UNIT_UNSUPPORTED",
+            "absolute_horizon": horizon,
+        }
+
+    forecast = evidence.get("forecast")
+    assessment = state.get("assessment")
+    if not isinstance(forecast, Mapping) or forecast.get("status") != "available":
+        return {
+            **unavailable,
+            "decision_state": "RETURN_NOT_CALIBRATED",
+            "decision_reason_code": "CALIBRATED_FORECAST_UNAVAILABLE",
+            "absolute_horizon": horizon,
+            "absolute_benchmark_total_return": benchmark_return,
+        }
+    if forecast.get("horizon") != horizon:
+        return {
+            **unavailable,
+            "decision_reason_code": "FORECAST_HORIZON_MISMATCH",
+            "absolute_horizon": horizon,
+            "absolute_benchmark_total_return": benchmark_return,
+        }
+    score_authority = _member(
+        candidate,
+        "score_authority",
+        _member(assessment, "score_authority"),
+    )
+    forecast_return = _finite(forecast.get("expected_total_return"))
+    forecast_is_calibrated = (
+        isinstance(score_authority, ScoreAuthorityFlags)
+        and score_authority.forecast_calibrated is True
+        and forecast.get("calibration_status") == "calibrated"
+    )
+    if (
+        not forecast_is_calibrated
+        or forecast.get("unit") != "decimal_fraction"
+        or forecast_return is None
+        or forecast_return <= -1.0
+        or not _currency_code(forecast.get("currency"))
+        or not _valid_source_record(forecast, decision, policy)
+    ):
+        return {
+            **unavailable,
+            "decision_state": "RETURN_NOT_CALIBRATED",
+            "decision_reason_code": "CALIBRATED_FORECAST_UNAVAILABLE_OR_INVALID",
+            "absolute_horizon": horizon,
+            "absolute_benchmark_total_return": benchmark_return,
+        }
+    uncertainty_margin = _finite(forecast.get("uncertainty_margin"))
+    if uncertainty_margin is None or not 0.0 <= uncertainty_margin < 1.0:
+        return {
+            **unavailable,
+            "decision_state": "RETURN_NOT_CALIBRATED",
+            "decision_reason_code": "FORECAST_UNCERTAINTY_MARGIN_UNAVAILABLE",
+            "absolute_horizon": horizon,
+            "absolute_benchmark_total_return": benchmark_return,
+            "absolute_forecast_return": forecast_return,
+        }
+
+    cost_model = evidence.get("cost_model")
+    if (
+        not isinstance(cost_model, Mapping)
+        or cost_model.get("status") != "available"
+        or cost_model.get("currency") != policy.base_currency
+        or cost_model.get("horizon") != horizon
+        or cost_model.get("unit") != "decimal_fraction"
+        or not _valid_source_record(cost_model, decision, policy)
+    ):
+        return {
+            **unavailable,
+            "decision_reason_code": "ACQUISITION_COST_MODEL_UNAVAILABLE",
+            "absolute_horizon": horizon,
+            "absolute_benchmark_total_return": benchmark_return,
+            "absolute_forecast_return": forecast_return,
+        }
+    candidate_cost = _finite(cost_model.get("candidate_acquisition_cost"))
+    benchmark_cost = _finite(cost_model.get("benchmark_acquisition_cost"))
+    if (
+        candidate_cost is None
+        or benchmark_cost is None
+        or not 0.0 <= candidate_cost < 1.0
+        or not 0.0 <= benchmark_cost < 1.0
+    ):
+        return {
+            **unavailable,
+            "decision_reason_code": "ACQUISITION_COST_EVIDENCE_INVALID",
+            "absolute_horizon": horizon,
+        }
+
+    forecast_currency = str(forecast["currency"])
+    fx_return: float
+    if forecast_currency == policy.base_currency:
+        # No FX series is needed for a same-currency return; this is the identity conversion.
+        fx_return = 0.0
+    else:
+        fx = evidence.get("fx_conversion")
+        if (
+            not isinstance(fx, Mapping)
+            or fx.get("status") != "available"
+            or fx.get("from_currency") != forecast_currency
+            or fx.get("to_currency") != policy.base_currency
+            or fx.get("return_convention") != "eur_value_per_candidate_currency"
+            or fx.get("horizon") != horizon
+            or fx.get("unit") != "decimal_fraction"
+            or not _valid_source_record(fx, decision, policy)
+        ):
+            return {
+                **unavailable,
+                "decision_reason_code": "FX_CONVERSION_UNAVAILABLE",
+                "absolute_horizon": horizon,
+                "absolute_benchmark_total_return": benchmark_return,
+                "absolute_forecast_return": forecast_return,
+            }
+        converted_fx = _finite(fx.get("return"))
+        if converted_fx is None or converted_fx <= -1.0:
+            return {
+                **unavailable,
+                "decision_reason_code": "FX_CONVERSION_INVALID",
+                "absolute_horizon": horizon,
+            }
+        fx_return = converted_fx
+
+    candidate_net_return = (
+        (1.0 + forecast_return) * (1.0 + fx_return)
+        - 1.0
+        - candidate_cost
+        - uncertainty_margin
+    )
+    benchmark_net_return = benchmark_return - benchmark_cost
+    net_excess = candidate_net_return - benchmark_net_return
+    decision_state = _absolute_state_for_excess(net_excess, policy.uncertainty_hurdle)
+    prior = evidence.get("previous_decision")
+    if prior is not None:
+        if (
+            not isinstance(prior, Mapping)
+            or prior.get("status") != "available"
+            or prior.get("instrument_id") != state.get("instrument")
+            or prior.get("horizon") != horizon
+            or prior.get("config_hash") != policy.checksum
+            or not isinstance(prior.get("state"), str)
+            or prior.get("state") not in {
+                "SOURCE_UNAVAILABLE",
+                "ECONOMIC_RISK_VETO",
+                "RETURN_NOT_CALIBRATED",
+                "POSITIVE_BUT_INSUFFICIENT_MARGIN",
+                "CANDIDATE_BUY",
+                "HOLD_NO_TRADE",
+                "AVOID_REDUCE",
+            }
+            or not _valid_source_record(prior, decision, policy)
+        ):
+            return {
+                **unavailable,
+                "decision_reason_code": "PREVIOUS_DECISION_UNVERIFIED_OR_STALE",
+                "absolute_horizon": horizon,
+            }
+        prior_state = prior.get("state")
+        if (
+            prior_state == "CANDIDATE_BUY"
+            and net_excess >= max(policy.uncertainty_hurdle - policy.hysteresis_band, 0.0)
+        ):
+            decision_state = "CANDIDATE_BUY"
+        elif (
+            prior_state == "POSITIVE_BUT_INSUFFICIENT_MARGIN"
+            and 0.0 < net_excess <= policy.uncertainty_hurdle + policy.hysteresis_band
+        ):
+            decision_state = "POSITIVE_BUT_INSUFFICIENT_MARGIN"
+        elif (
+            prior_state == "HOLD_NO_TRADE"
+            and isinstance(evidence.get("position"), Mapping)
+            and evidence["position"].get("held") is True
+            and abs(net_excess - policy.uncertainty_hurdle) <= policy.hysteresis_band
+        ):
+            decision_state = "HOLD_NO_TRADE"
+
+    reason_code = {
+        "CANDIDATE_BUY": "NET_EXCESS_CLEARS_COST_AND_UNCERTAINTY_HURDLE",
+        "POSITIVE_BUT_INSUFFICIENT_MARGIN": "POSITIVE_EXCESS_WITHIN_NO_TRADE_BAND",
+        "AVOID_REDUCE": "EXPECTED_NET_EXCESS_NOT_POSITIVE",
+        "HOLD_NO_TRADE": "HELD_POSITION_NEAR_HURDLE_PRIOR_HOLD_RETAINED",
+    }[decision_state]
+    position = evidence.get("position")
+    if isinstance(position, Mapping):
+        if (
+            position.get("status") != "available"
+            or not isinstance(position.get("held"), bool)
+            or position.get("currency") != policy.base_currency
+            or not _valid_source_record(position, decision, policy)
+        ):
+            return {
+                **unavailable,
+                "decision_reason_code": "HELD_POSITION_EVIDENCE_UNAVAILABLE",
+                "absolute_horizon": horizon,
+            }
+        if position["held"] is True:
+            if position.get("friction_unit") != "decimal_fraction":
+                return {
+                    **unavailable,
+                    "decision_reason_code": "HELD_POSITION_FRICTION_UNIT_UNSUPPORTED",
+                    "absolute_horizon": horizon,
+                }
+            decision_state, reason_code = map_opportunity_decision_state(
+                decision_state,
+                expected_net_excess_return=net_excess,
+                uncertainty_hurdle=policy.uncertainty_hurdle,
+                hysteresis_band=policy.hysteresis_band,
+                held=True,
+                cost_basis=_finite(position.get("cost_basis")),
+                mark_price=_finite(position.get("mark_price")),
+                friction=_finite(position.get("friction")),
+            )
+    elif decision_state in {"CANDIDATE_BUY", "HOLD_NO_TRADE"}:
+        return {
+            **unavailable,
+            "decision_reason_code": "PORTFOLIO_POSITION_STATUS_UNAVAILABLE",
+            "absolute_horizon": horizon,
+        }
+    if decision_state == "HOLD_NO_TRADE" and not (
+        isinstance(position, Mapping) and position.get("held") is True
+    ):
+        return {
+            **unavailable,
+            "decision_reason_code": "HOLD_REQUIRES_CURRENT_POSITION_EVIDENCE",
+            "absolute_horizon": horizon,
+        }
+
+    return {
+        "decision_state": decision_state,
+        "decision_reason_code": reason_code,
+        "absolute_horizon": horizon,
+        "expected_net_excess_return": net_excess,
+        "absolute_forecast_return": forecast_return,
+        "absolute_benchmark_total_return": benchmark_return,
+        "absolute_candidate_acquisition_cost": candidate_cost,
+        "absolute_benchmark_acquisition_cost": benchmark_cost,
+        "absolute_fx_return": fx_return,
+        "absolute_uncertainty_margin": uncertainty_margin,
+        "absolute_uncertainty_hurdle": policy.uncertainty_hurdle,
+    }
+
+
+def _valid_source_record(
+    record: Mapping[str, object], decision: datetime, policy: OpportunityPolicy
+) -> bool:
+    if record.get("execution_allowed", False) is not False:
+        return False
+    source_hash = record.get("source_hash")
+    if not isinstance(source_hash, str) or re.fullmatch(r"[0-9a-f]{64}", source_hash) is None:
+        return False
+    effective = _parse_optional_datetime(record.get("effective_at"))
+    known = _parse_optional_datetime(record.get("known_at"))
+    if effective is None or known is None or effective > decision or known > decision:
+        return False
+    return decision - effective <= timedelta(days=policy.maximum_evidence_age_days)
+
+
+def _execution_disabled(value: object) -> bool:
+    if isinstance(value, Mapping):
+        return all(
+            item is False if key == "execution_allowed" else _execution_disabled(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (tuple, list)):
+        return all(_execution_disabled(item) for item in value)
+    return True
+
+
+def _absolute_state_for_excess(
+    net_excess: float, uncertainty_hurdle: float
+) -> str:
+    if net_excess <= 0.0:
+        return "AVOID_REDUCE"
+    if net_excess <= uncertainty_hurdle:
+        return "POSITIVE_BUT_INSUFFICIENT_MARGIN"
+    return "CANDIDATE_BUY"
+
+
+def _supported_horizons(policy: OpportunityPolicy) -> frozenset[str]:
+    return frozenset((*policy.tactical_horizons, *policy.valuation_horizons))
+
+
+def _horizon_years(horizon: str) -> float:
+    if horizon.endswith("_sessions"):
+        sessions = int(horizon.removesuffix("_sessions"))
+        return sessions / 252.0
+    if horizon == "1_year":
+        return 1.0
+    if horizon == "2_years":
+        return 2.0
+    if horizon == "3_years":
+        return 3.0
+    raise ValueError("unsupported absolute opportunity horizon")
 
 
 def _candidate_state(
@@ -387,7 +855,15 @@ def _candidate_state(
         "reason_code": reason_code,
         "baseline_z": baseline_z,
         "baseline_reason": baseline_reason,
-        "rankable": not status and baseline_z is not None,
+        # A safety veto blocks an action, not the descriptive relative rank.
+        # Missing critical domain evidence still keeps a candidate out of the cohort.
+        "rankable": (
+            baseline_z is not None
+            and bool(available_domains)
+            and not insufficient_domain
+            and baseline_reason == "AVAILABLE"
+        ),
+        "gate_reason": gate_reason,
         "peer_id": _peer_identity(candidate),
         "confidence": confidence,
         "coverage": coverage,
@@ -651,6 +1127,42 @@ def _fraction(value: object) -> float:
     if number is None or not 0.0 <= number <= 1.0:
         raise ValueError("opportunity fractions must be finite values in [0, 1]")
     return number
+
+
+def _positive_number(value: object, name: str) -> float:
+    number = _finite(value)
+    if number is None or number <= 0.0:
+        raise ValueError(f"{name} must be a finite positive value")
+    return number
+
+
+def _horizons(value: object) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)) or not value:
+        raise ValueError("absolute merit horizons must be non-empty lists")
+    horizons = tuple(str(item).strip() for item in value)
+    if any(not item for item in horizons) or len(set(horizons)) != len(horizons):
+        raise ValueError("absolute merit horizons must be unique non-empty strings")
+    return horizons
+
+
+def _currency_code(value: object) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[A-Z]{3}", value) is not None
+
+
+def _parse_datetime(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("timestamp requires an explicit timezone")
+    return parsed.astimezone(timezone.utc)
+
+
+def _parse_optional_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return _parse_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 def _validate_decision_time(value: str) -> None:

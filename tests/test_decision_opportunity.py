@@ -124,7 +124,8 @@ def test_blocked_and_critical_insufficient_gates_are_never_neutral() -> None:
 
     assert results["BLOCKED"].status == "Blocked"
     assert results["MISSING"].status == "Insufficient Evidence"
-    assert results["BLOCKED"].percentile is None
+    assert results["BLOCKED"].percentile is not None
+    assert results["BLOCKED"].universe_rank is not None
     assert results["MISSING"].percentile is None
 
 
@@ -287,3 +288,19 @@ def test_opportunity_card_renders_facade_assessment(tmp_path: Path) -> None:
 
     assert opportunity["status"] == "Attractive"
     assert card.content.key == "instrument-detail.opportunity"
+    assert opportunity["decision_state"] == "SOURCE_UNAVAILABLE"
+    visible_text = []
+    pending = [card]
+    while pending:
+        control = pending.pop()
+        value = getattr(control, "value", None)
+        if isinstance(value, str):
+            visible_text.append(value)
+        content = getattr(control, "content", None)
+        if content is not None:
+            pending.append(content)
+        pending.extend(getattr(control, "controls", ()) or ())
+    text = " ".join(visible_text)
+    assert "SOURCE_UNAVAILABLE" in text
+    assert "No active purchase" in text
+    assert "Percentile" in text
