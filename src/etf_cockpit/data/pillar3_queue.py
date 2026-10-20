@@ -47,7 +47,7 @@ def figure_id(metric: str, document_id: str, period: str, page: object, value: o
     return f"{metric}:{digest}"
 
 
-def load_queue(root: Path, instrument_id: str) -> dict[str, object]:
+def load_queue(root: Path, instrument_id: str, *, decision_time: object = None) -> dict[str, object]:
     """Read the queue for one instrument; a missing or unreadable file is an empty queue."""
 
     path = queue_path(root, instrument_id)
@@ -58,6 +58,30 @@ def load_queue(root: Path, instrument_id: str) -> dict[str, object]:
     if not isinstance(payload, dict) or not isinstance(payload.get("figures"), list):
         return {"schema_version": SCHEMA_VERSION, "instrument_id": str(instrument_id).upper(), "documents": [], "figures": []}
     payload.setdefault("documents", [])
+    if decision_time is not None:
+        cutoff = _parse(decision_time)
+        figures = []
+        for original in payload["figures"]:
+            if not isinstance(original, Mapping) or cutoff is None:
+                continue
+            extracted = _parse(original.get("extracted_at"))
+            if extracted is None or extracted > cutoff:
+                continue
+            item = dict(original)
+            decided = _parse(item.get("decided_at"))
+            if item.get("status") != "pending" and decided is None:
+                continue
+            if decided is not None and decided > cutoff:
+                item.update(status="pending", decided_at=None, decided_by=None, note=None)
+            superseded = _parse(item.get("superseded_at"))
+            if item.get("superseded_at") and superseded is None:
+                continue
+            if superseded is not None and superseded > cutoff:
+                item.pop("superseded_at", None)
+                item.pop("superseded_by", None)
+            figures.append(item)
+        document_ids = {item.get("document_id") for item in figures}
+        payload = {**payload, "figures": figures, "documents": [item for item in payload["documents"] if isinstance(item, Mapping) and item.get("document_id") in document_ids], "read_only": True}
     return payload
 
 

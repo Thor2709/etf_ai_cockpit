@@ -30,6 +30,7 @@ from etf_cockpit.app.components.kit import (
     field_input_style,
 )
 from etf_cockpit.application.sparebank_evidence import review_pillar3_figure
+from etf_cockpit.data.pillar3_queue import PILLAR3_METRICS
 from etf_cockpit.application.sparebank_peers import axis_evidence_groups, axis_evidence_notes, set_picked_peers
 
 # Plain-language copy for the scorecard's gate codes (the codes themselves come from the analysis).
@@ -351,7 +352,7 @@ def _valuation(workspace: Mapping[str, object]) -> ft.Control:
     owner_pb, justified = _number(standalone.get("owner_pb")), _number(central.get("justified_pb"))
     body: list[ft.Control] = []
     tiles = [
-        KpiTile("Price (decision)", None if last is None else f"{last:,.2f} NOK", str(price.get("date") or "") if last is not None else "No price at the decision time"),
+        KpiTile("Price (decision)", None if last is None else f"{last:,.2f} {price.get('currency') or 'currency unavailable'}", str(price.get("date") or "") if last is not None else "No price at the decision time"),
         KpiTile("P/B vs justified P/B", None if owner_pb is None else f"{owner_pb:.2f}x", f"justified {justified:.2f}x" if justified is not None else str(central.get("reason_code") or "Justified P/B needs a sustainable ROE and a cost of equity")),
         KpiTile("Owner value per EC", None if value_per_ec is None else f"{value_per_ec:,.0f} NOK", "" if value_per_ec is None else (f"{(value_per_ec / last - 1) * 100:+.0f} % vs price" if last else "")),
         KpiTile("Residual income per EC", None if _number(central.get("residual_income_per_ec_next_year")) is None else f"{_number(central.get('residual_income_per_ec_next_year')):,.2f} NOK", "next year, (ROE - COE) x opening book"),
@@ -559,7 +560,7 @@ def _pillar3(workspace: Mapping[str, object], root: object, page: object | None,
         state = str(item.get("status") or "pending")
         flags = ", ".join(str(flag).replace("_", " ") for flag in _sequence(item.get("flags")))
         actions: ft.Control
-        if state == "pending":
+        if state == "pending" and not queue.get("read_only"):
             actions = ft.Row(
                 [
                     Button.primary("Confirm", lambda _e, fid=figure_id: decide(fid, "confirmed"), key=f"instrument-detail.pillar3-confirm.{figure_id}"),
@@ -572,7 +573,7 @@ def _pillar3(workspace: Mapping[str, object], root: object, page: object | None,
         rows.append(
             {
                 "metric": (str(item.get("label") or item.get("metric")), str(item.get("metric"))),
-                "value": f"{_number(item.get('value')):g} %" if _number(item.get("value")) is not None else None,
+                "value": format_value(item.get("value"), PILLAR3_METRICS.get(str(item.get("metric")), ("", ""))[1].casefold()),
                 "period": str(item.get("period") or ""),
                 "source": (f"{document.get('title', 'document')} · page {item.get('page')}", str(item.get("printed_text") or "")[:90]),
                 "flags": _text(flags or "none", size=12, color=theme.AMBER if flags else theme.INK3),

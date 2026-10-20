@@ -69,6 +69,11 @@ def load_financial_institution_projection(
         payload = verify_financial_projection(projection)
         if payload.get("instrument_id") != str(instrument_id):
             raise FinancialAdapterError("financial projection identity mismatch")
+        if decision_time is not None:
+            cutoff = pd.to_datetime(decision_time, errors="coerce", utc=True)
+            projected = pd.to_datetime((payload.get("lineage") or {}).get("decision_time", payload.get("decision_time")), errors="coerce", utc=True)
+            if pd.isna(cutoff) or pd.isna(projected) or projected != cutoff:
+                return unavailable_financial_projection(instrument_id, "financial_projection_decision_time_mismatch")
         return payload
     except (FinancialAdapterError, TypeError, ValueError):
         return unavailable_financial_projection(

@@ -288,6 +288,7 @@ def capital_resilience(
     prior_rwa: float | None = None,
 ) -> CapitalResilience:
     c, p, loss, r, target = map(_number, (cet1, ppp, credit_loss, rwa, target_ratio))
+    r = r if r is not None and r > 0 else None
     # PPP and credit loss are additive capital inputs, not optional terms. A
     # missing component must not be interpreted as zero.
     closing = c + p - loss if None not in (c, p, loss) else None
@@ -482,6 +483,7 @@ def build_bank_economics(evidence: Mapping[str, object] | None = None, *, bank_m
     metrics: dict[str, object] = {}
     metric_sources: dict[str, str] = {}
     metric_evidence_ids: list[str] = []
+    metric_metadata: dict[str, dict[str, object]] = {}
     for item in bank_metrics:
         if isinstance(item, Mapping):
             name, value = item.get("metric"), item.get("value")
@@ -492,6 +494,12 @@ def build_bank_economics(evidence: Mapping[str, object] | None = None, *, bank_m
             metric_evidence_ids.extend(str(getattr(item, key)) for key in ("evidence_id", "source_id", "source_url") if getattr(item, key, None))
             source = getattr(item, "source", None) or getattr(item, "source_locator", None) or getattr(item, "source_id", None)
         if name:
+            field = item.get if isinstance(item, Mapping) else lambda key, default=None: getattr(item, key, default)
+            unit = str(field("unit", "ratio")).casefold()
+            if str(name) in {"liquidity_coverage_ratio", "net_stable_funding_ratio", "loan_deposit_ratio"}:
+                number = _number(value)
+                value = number / 100.0 if number is not None and unit in {"percent", "%", "pct"} else number if unit == "ratio" else None
+            metric_metadata[str(name)] = {"source_locator": source, "period": field("period"), "scope": field("scope")}
             metrics[str(name)] = value
             if source:
                 metric_sources[str(name)] = str(source)
@@ -500,6 +508,10 @@ def build_bank_economics(evidence: Mapping[str, object] | None = None, *, bank_m
     bridge = normalisation_bridge(reported_input, merged.get("normalisation_adjustments", ()), equity_denominator=merged.get("average_common_equity", merged.get("equity")), reported_pre_tax=merged.get("reported_pre_tax"), pre_tax_adjustments=merged.get("pre_tax_adjustments", ()), ec_share=merged.get("ec_share"), ec_count=merged.get("ec_count")) if reported_input is not None else None
     capital = capital_resilience(merged.get("cet1"), merged.get("ppp"), merged.get("credit_loss"), merged.get("rwa"), merged.get("target_ratio")) if any(key in merged for key in ("cet1", "ppp", "credit_loss", "rwa", "target_ratio")) else None
     resilience = dict(capital.__dict__) if capital else {}
+    supplied_provenance = merged.get("provenance", {})
+    supplied_provenance = supplied_provenance if isinstance(supplied_provenance, Mapping) else {}
+    if capital and all(supplied_provenance.get(key) for key in ("cet1", "ppp", "credit_loss", "rwa", "target_ratio")):
+        resilience["provenance"] = {"headroom_pp": " | ".join(str(supplied_provenance[key]) for key in ("cet1", "ppp", "credit_loss", "rwa", "target_ratio"))}
     cet1_ratio = _number(merged.get("cet1_ratio"))
     if cet1_ratio is not None:
         resilience["cet1_ratio"] = cet1_ratio
@@ -531,11 +543,19 @@ def build_bank_economics(evidence: Mapping[str, object] | None = None, *, bank_m
         credit["stage_3_coverage"] = stage3_coverage
     # Capital headroom is measured against the full requirement (book eq. 1.17, p. 10), never the headline ratio alone.
     requirement = _number(merged.get("cet1_requirement_ratio"))
-    headroom = book_calcs.cet1_headroom(cet1_ratio, requirement)
+    cet1_source = merged.get("cet1_ratio_provenance", metric_metadata.get("cet1_ratio", {}))
+    requirement_source = merged.get("cet1_requirement_provenance", {})
+    compatible = (
+        isinstance(cet1_source, Mapping) and isinstance(requirement_source, Mapping)
+        and all(cet1_source.get(key) and cet1_source.get(key) == requirement_source.get(key) for key in ("scope", "period"))
+    )
+    headroom = book_calcs.cet1_headroom(cet1_ratio, requirement) if compatible else None
     if headroom is not None:
         resilience["cet1_requirement_ratio"] = requirement
         resilience["headroom_pp"] = headroom * 100.0
-        surplus = book_calcs.surplus_cet1(headroom, _number(merged.get("rwa_nok")))
+        resilience.setdefault("provenance", {})["headroom_pp"] = {"source_locator": " | ".join(str(source.get("source_locator") or source.get("source_url") or "") for source in (cet1_source, requirement_source))}
+        rwa_nok = _number(merged.get("rwa_nok"))
+        surplus = book_calcs.surplus_cet1(headroom, rwa_nok) if rwa_nok is not None and rwa_nok > 0 else None
         if surplus is not None:
             resilience["surplus_cet1_nok"] = surplus
             resilience["rwa"] = _number(merged.get("rwa_nok"))
@@ -543,15 +563,21 @@ def build_bank_economics(evidence: Mapping[str, object] | None = None, *, bank_m
     if leverage_ratio is not None:
         resilience["leverage_ratio"] = leverage_ratio
     funding_input = merged.get("funding") if isinstance(merged.get("funding"), Mapping) else {}
+    funding_provenance = dict(funding_input.get("provenance", {}))
+    for target, metric in (("lcr", "liquidity_coverage_ratio"), ("nsfr", "net_stable_funding_ratio"), ("deposit_to_loan_ratio", "loan_deposit_ratio")):
+        if target not in funding_input and metric_sources.get(metric):
+            funding_provenance[target] = metric_metadata[metric]
+    loan_deposit = _number(metrics.get("loan_deposit_ratio"))
+    deposit_loan = 1.0 / loan_deposit if loan_deposit is not None and loan_deposit > 0 else UNAVAILABLE
     funding = {
         "deposit_beta": funding_input.get("deposit_beta", metrics.get("deposit_beta", UNAVAILABLE)),
-        "deposit_to_loan_ratio": funding_input.get("deposit_to_loan_ratio", UNAVAILABLE),
+        "deposit_to_loan_ratio": funding_input.get("deposit_to_loan_ratio", deposit_loan),
         "lcr": funding_input.get("lcr", metrics.get("liquidity_coverage_ratio", UNAVAILABLE)),
         "nsfr": funding_input.get("nsfr", metrics.get("net_stable_funding_ratio", UNAVAILABLE)),
         "reference_rate": funding_input.get("reference_rate", UNAVAILABLE),
         "window": funding_input.get("window", UNAVAILABLE),
         "population": funding_input.get("population", UNAVAILABLE),
-        "provenance": funding_input.get("provenance", {}),
+        "provenance": funding_provenance,
     }
     concentration = dict(merged.get("concentration")) if isinstance(merged.get("concentration"), Mapping) else {}
     if not concentration:
@@ -618,7 +644,7 @@ def build_bank_economics(evidence: Mapping[str, object] | None = None, *, bank_m
     if lending:
         calculation_ids = (*calculation_ids, "lending_economics")
     statement_sources = statements.get("sources", {}) if isinstance(statements, Mapping) else {}
-    provenance = {**metric_sources}
+    provenance = {**metric_sources, **supplied_provenance}
     if isinstance(statement_sources, Mapping):
         provenance.update({f"statement.{name}": str(source) for name, source in statement_sources.items() if source})
     return BankEconomics(status=status, reported={"metrics": metrics, "statements": statements or {}, "provenance": provenance}, normalised=bridge.__dict__ if bridge else {}, resilience=resilience, credit=credit, funding=funding, concentration=concentration, evidence_ids=evidence_ids, unavailable_fields=unavailable, coverage=(1.0 if complete else 0.5 if bridge or capital or credit else 0.0), calculation_ids=calculation_ids, lending=lending, allocation=allocation, reasons=reasons)

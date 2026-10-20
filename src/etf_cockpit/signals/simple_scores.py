@@ -1624,13 +1624,10 @@ def build_universe_simple_scores(
                 isin=identity.isin or "needs_verification",
                 data_policy=str(_config_extra(identity, "data_policy", "yfinance_now_multi_provider_later")),
                 latest=latest_prices.get(identity.id),
+                decision_time=signal.signal_date,
             )
-            if native.final_score_10 is not None:
-                output.append(native)
-                continue
-            # Owner 2026-10-09: every instrument gets a score; below the scorecard evidence floor the
-            # generic stock score is shown, labelled as pending the Sparebank scorecard.
-            pending_sparebank.add(identity.id)
+            output.append(native)
+            continue
         price_info = latest_prices.get(signal.etf_id, {})
         quality_info = price_quality.get(signal.etf_id, {})
         liquidity_info = liquidity.get(signal.etf_id, {})
@@ -1841,6 +1838,7 @@ def build_universe_simple_scores(
                     isin=identity.isin or "needs_verification",
                     data_policy=str(_config_extra(identity, "data_policy", "yfinance_now_multi_provider_later")),
                     latest=latest_prices.get(identity.id),
+                    decision_time=latest_prices.get(identity.id, {}).get("date"),
                 )
             )
         else:
@@ -1858,17 +1856,15 @@ def build_universe_simple_scores(
 
 
 def _as_sparebank_pending(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
-    """Generic stock score for a Sparebank EC whose native scorecard is below its evidence floor."""
+    """Withhold generic underwriting until native filing evidence is available."""
 
     return replace(
         score,
         source_group=SPAREBANKEN_TIER_LABEL,
         analysis_tier="sparebanken",
+        final_score_10=None,
         decision="Sparebank scorecard pending",
-        one_line_reason=(
-            "Generic stock score shown: the Sparebank scorecard is pending (not enough filing evidence for a "
-            f"composite yet). {score.one_line_reason}"
-        ).strip(),
+        one_line_reason="Sparebank scorecard pending: insufficient native filing evidence.",
     )
 
 
@@ -1938,6 +1934,7 @@ def build_candidate_simple_scores(
                     isin=_noneable_str(row.get("isin")),
                     data_policy=_noneable_str(row.get("data_policy")) or "yfinance_only",
                     latest={"date": _noneable_str(row.get("latest_date")), "price": row.get("latest_price")},
+                    decision_time=decision_date or _noneable_str(row.get("latest_date")),
                 )
             )
             continue
@@ -2209,16 +2206,16 @@ def _pending_configured_score(
     )
 
 
-def _native_sparebank_score(display_id: str) -> tuple[float | None, str]:
+def _native_sparebank_score(display_id: str, *, decision_time: object = None) -> tuple[float | None, str]:
     """Read the stored native scorecard result (computed by the Sparebank refresh), never recompute here."""
 
-    row = latest_sparebank_scores().get(str(display_id))
+    row = latest_sparebank_scores(decision_time=decision_time).get(str(display_id))
     value = None if row is None else row.get("final_combined_score_10")
     try:
         score = float(value) if value is not None and isfinite(float(value)) else None
     except (TypeError, ValueError):
         score = None
-    if score is None:
+    if score is None or not 0 <= score <= 10:
         return None, "Underwriting is determined by the Sparebank scorecard (pending: not enough filing evidence for a composite yet); tactical evidence is presented separately."
     coverage = row.get("coverage")
     try:
@@ -2240,8 +2237,9 @@ def _sparebank_scorecard_status(
     isin: str | None,
     data_policy: str,
     latest: dict[str, object] | None = None,
+    decision_time: object = None,
 ) -> SimpleInstrumentScore:
-    native_score, native_reason = _native_sparebank_score(display_id)
+    native_score, native_reason = _native_sparebank_score(display_id, decision_time=decision_time)
     latest = latest or {}
     return SimpleInstrumentScore(
         instrument_key=instrument_key,

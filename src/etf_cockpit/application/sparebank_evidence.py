@@ -201,6 +201,7 @@ def pillar3_evidence(
             "printed_text": item.get("printed_text"),
             "confirmed_at": item.get("decided_at"),
             "period": item.get("period"),
+            "scope": item.get("scope") or item.get("consolidation_scope"),
         }
 
     def ratio(metric: str) -> float | None:
@@ -241,7 +242,7 @@ def pillar3_evidence(
         credit["provenance"] = credit_provenance
         evidence["credit"] = credit
     rwa = figures.get("rwa_nok")
-    if rwa is not None and _number(rwa.get("value")) is not None:
+    if rwa is not None and _number(rwa.get("value")) is not None and _number(rwa.get("value")) > 0:
         evidence["rwa_nok"] = _number(rwa.get("value"))
     return evidence
 
@@ -254,7 +255,19 @@ def merge_bank_economics_evidence(
     """Curated filing evidence, then owner-confirmed Pillar 3 figures on top (field by field for nested blocks)."""
 
     merged: dict[str, object] = dict(curated or {})
+    def vintage(block: Mapping[str, object]) -> str | None:
+        provenance = block.get("provenance", {})
+        periods = {str(item.get("period")) for item in provenance.values() if isinstance(item, Mapping) and item.get("period")} if isinstance(provenance, Mapping) else set()
+        if block.get("period"):
+            periods.add(str(block["period"]))
+        return next(iter(periods)) if len(periods) == 1 else None
+
     for key, value in (pillar3 or {}).items():
+        if key in {"funding", "credit"} and isinstance(value, Mapping) and isinstance(merged.get(key), Mapping):
+            if not vintage(value) or vintage(value) != vintage(merged[key]):
+                merged[key] = dict(value)
+                merged.setdefault("unavailable_reasons", {})[key] = "EVIDENCE_VINTAGE_MISMATCH_OR_UNVERIFIED"
+                continue
         if isinstance(value, Mapping) and isinstance(merged.get(key), Mapping):
             block = dict(merged[key])  # type: ignore[arg-type]
             for inner_key, inner_value in value.items():
