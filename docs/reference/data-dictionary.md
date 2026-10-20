@@ -372,7 +372,7 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/sample_calendar_identities.yaml | identities, schema_version | schema_version=sample-calendar-identities.v1 |
 | configs/score_engine_v3.yaml | action_composite, asset_policies, formula_version, horizons, schema_version | formula_version=score-engine-v3.2.0; schema_version=1 |
 | configs/security_policy.yaml | credentials, network, parser_limits, schema_version, security_findings | schema_version="security-policy.v1" |
-| configs/settings.yaml | controls, execution_allowed, revision, schema_version, semantic_version, settings_version | schema_version=settings_bundle.v1; semantic_version=1.0.0; settings_version=0 |
+| configs/settings.yaml | controls, data, execution_allowed, revision, schema_version, semantic_version, settings_version | schema_version=settings_bundle.v1; semantic_version=1.0.0; settings_version=0 |
 | configs/settlement_v1.yaml | settlement_lags | — |
 | configs/sparebank_scorecard_v1.yaml | axes, formula_version, hard_gates, horizons, judgement, schema_version, scorecard, valuation_defaults | formula_version=sparebank-scorecard-v1.2.0; schema_version=1 |
 | configs/stock_fundamentals_v1.yaml | growth, peers, reporting, schema_version, scope, scoring, sec_edgar_concepts, sources, text, valuation, yfinance_labels | schema_version=1 |
