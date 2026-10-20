@@ -99,6 +99,7 @@ def test_signal_pipeline_removes_only_the_non_fund_structure_block(monkeypatch):
          "relative_strength_60d": 0.05, "price_freshness": "ok",
          "score_momentum": 0.8, "score_trend": 0.8, "score_risk": 0.8,
          "score_baseline_ml": 0.8, "score_toto": None, "score_timesfm": None,
+         "score_baseline_source": "forecast",
          "trend_200": 1.0, "drawdown_60d_max": -0.01, "ewma_vol_ann": 0.1}
         for instrument_id in ids
     ])

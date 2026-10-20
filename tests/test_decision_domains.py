@@ -506,10 +506,12 @@ def test_legacy_v3_hash_and_reference_score_are_unchanged() -> None:
 
     # NS1: score-engine-v3.1.0 made the yaml the single weight source (headline_evidence, action_composite; rebalance left the
     # risk group), so the pinned checksum moved with a formula version bump. v3.0.0 was a95569c117e14009c55da187ce67059a6670ff96fe90b97b80017cf53dc80a55;
-    # rows stored under that version keep it (history is append-only). The attractiveness reference score below is unchanged.
-    assert policy.formula_version == "score-engine-v3.1.0"
-    assert policy.formula_checksum == "c70b2bd1452a48b5a7eae5f4b11aa361cfc87c2ce103c2a95c22b38341a8293b"
-    assert score.attractiveness_10 == pytest.approx(7.5, abs=1e-12)
+    # v3.1.0 was c70b2bd1452a48b5a7eae5f4b11aa361cfc87c2ce103c2a95c22b38341a8293b (rows stored under those versions keep them: history
+    # is append-only). PSF: score-engine-v3.2.0 caps momentum+trend at 30% and drops relative_strength to weight 0, so the ETF
+    # attractiveness reference score is (0.1325*0.8 + 0.1135*0.4) / 0.246 -> 8.1 (it was 7.5 with RS weighted).
+    assert policy.formula_version == "score-engine-v3.2.0"
+    assert policy.formula_checksum == "786f3645f6461d7f8c663f202d8ff8dbd52b7b768d4e1619b2f8d110997bab34"
+    assert score.attractiveness_10 == pytest.approx(8.1, abs=1e-12)  # score_10 is rounded to 0.1
 
 
 def test_registry_hash_is_stable_across_crlf_and_lf() -> None:
