@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
 
 import pandas as pd
@@ -19,7 +20,14 @@ from etf_cockpit.data.duckdb_store import (
     write_features,
 )
 from etf_cockpit.features.feature_store import LocalFeatureStore as LocalFeatureStore
-from etf_cockpit.features.feature_pipeline import RELATIVE_STRENGTH_FALLBACK_ANCHOR, compute_features
+from etf_cockpit.data.fx_data import fx_rates_for_prices
+from etf_cockpit.features.feature_pipeline import (
+    RELATIVE_STRENGTH_FALLBACK_ANCHOR,
+    attach_eur_basis,
+    compute_features,
+    eur_basis_prices,
+    fx_basis_binding,
+)
 from etf_cockpit.portfolio.benchmark_reference_contract import CanonicalBenchmarkRegistry
 from etf_cockpit.portfolio.benchmark_reference import (
     CanonicalReferenceContext,
@@ -46,12 +54,41 @@ def relative_strength_anchor(context: object, available_ids: set[str]) -> str | 
     return RELATIVE_STRENGTH_FALLBACK_ANCHOR if RELATIVE_STRENGTH_FALLBACK_ANCHOR in available_ids else None
 
 class FeatureService:
-    def __init__(self, config: AppConfig, *, reference_context: CanonicalReferenceContext | None = None):
+    def __init__(
+        self,
+        config: AppConfig,
+        *,
+        reference_context: CanonicalReferenceContext | None = None,
+        fx_rates: pd.DataFrame | None = None,
+    ):
         self.config = config
+        self._fx_rates = fx_rates
         self.reference_context = reference_context or CanonicalReferenceContext(
             CanonicalBenchmarkRegistry(),
             None,
             unavailable_reference_projection(),
+        )
+
+    def _fx_frame(self, prices: pd.DataFrame | None = None) -> pd.DataFrame:
+        if self._fx_rates is not None:
+            return self._fx_rates
+        try:
+            return fx_rates_for_prices(prices)
+        except Exception:
+            return pd.DataFrame()
+
+    def _configured_currency(self) -> dict[str, str]:
+        return {etf.id: etf.currency for etf in self.config.universe.etfs}
+
+    def fx_binding(self, prices: pd.DataFrame, calculation_window: Mapping[str, str]) -> dict[str, object]:
+        """Currency basis and FX series identity the features of ``prices`` are bound to."""
+
+        window = {key: str(calculation_window[key]) for key in ("start_date", "end_date", "decision_time")}
+        return fx_basis_binding(
+            clip_to_decision_window(prices, **window),
+            self._fx_frame(prices),
+            configured_currency=self._configured_currency(),
+            known_by=window["decision_time"],
         )
 
     def compute_features(
@@ -84,7 +121,16 @@ class FeatureService:
             raise ValueError("adjusted-price snapshot identity is unavailable")
         available_ids = set(frame["etf_id"].astype(str)) if "etf_id" in frame.columns else set()
         benchmark = relative_strength_anchor(context, available_ids)
-        features = compute_features(frame, benchmark_etf_id=benchmark)
+        # Score price features are computed on an EUR total-return basis; a session without a
+        # usable FX rate has no EUR price and so no feature (reason ``fx_unavailable``).
+        eur_basis = eur_basis_prices(
+            frame,
+            self._fx_frame(frame),
+            configured_currency=self._configured_currency(),
+            known_by=calculation_window["decision_time"],
+        )
+        features = compute_features(eur_basis.frame, benchmark_etf_id=benchmark)
+        attach_eur_basis(features, eur_basis)
         features.attrs["relative_strength_anchor"] = benchmark
         if benchmark is None:
             for column in ("relative_strength_60d", "relative_strength_120d"):
@@ -101,7 +147,7 @@ class FeatureService:
         # One run identity: date + exact price snapshot + settings revision. A corrected price
         # state gets a new immutable manifest instead of reusing the old one.
         run_id = settings_bound_run_id(
-            price_bound_run_label(f"features_{effective_as_of.isoformat()}", price_binding),
+            price_bound_run_label(f"features_{effective_as_of.isoformat()}", price_binding, eur_basis.binding),
             settings_identity=settings_identity,
         )
         with publication_scope(publish_guard):
@@ -109,7 +155,7 @@ class FeatureService:
                 run_id,
                 ("schema:local-storage", "dataset:prices", "dataset:universe"),
                 settings_identity=settings_identity,
-                dataset_bindings={"dataset:prices": dict(price_binding)},
+                dataset_bindings={"dataset:prices": dict(price_binding), "dataset:fx": dict(eur_basis.binding)},
             )
         with publication_scope(publish_guard):
             write_features(
@@ -119,7 +165,7 @@ class FeatureService:
                     "settings_revision": str(settings_identity["settings_revision"]),
                     "reference_identity": context.identity,
                     **price_binding,
-                    **_feature_cache_binding(frame, calculation_window=calculation_window),
+                    **_feature_cache_binding(frame, calculation_window=calculation_window, fx_binding=eur_basis.binding),
                 },
             )
         return features

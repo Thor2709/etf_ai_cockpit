@@ -6,7 +6,7 @@ import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.types import ComponentScores
-from etf_cockpit.features.feature_pipeline import robust_zscore
+from etf_cockpit.features.feature_pipeline import robust_zscore, robust_zscore_by_group
 from etf_cockpit.models.ensemble import effective_ensemble_weights
 from etf_cockpit.portfolio.costs import estimated_cost_bps
 from etf_cockpit.portfolio.rebalancing import rebalance_score
@@ -22,14 +22,41 @@ def _clean_score(value: float | int | None) -> float | None:
     return float(max(-1.0, min(1.0, number)))
 
 
-def _cross_section_z(values: pd.Series) -> pd.Series:
+# Asset classes whose price inputs are normalised separately (stock / ETF / certificate); an
+# instrument the configuration does not know shares the "unclassified" class.
+_ASSET_CLASS_BY_INSTRUMENT_TYPE = {
+    "etf": "etf",
+    "stock": "stock",
+    "certificate": "certificate",
+    "equity_certificate": "certificate",
+}
+UNCLASSIFIED_ASSET_CLASS = "unclassified"
+
+
+def asset_class_labels(etf_ids: pd.Series, config: AppConfig) -> pd.Series:
+    """Asset class (etf / stock / certificate) of each instrument id from the universe configuration."""
+
+    instrument_types = {etf.id: str(etf.instrument_type).strip().casefold() for etf in config.universe.etfs}
+
+    def label(etf_id: object) -> str:
+        kind = instrument_types.get(str(etf_id))
+        if kind is None:
+            return UNCLASSIFIED_ASSET_CLASS
+        return _ASSET_CLASS_BY_INSTRUMENT_TYPE.get(kind, kind or UNCLASSIFIED_ASSET_CLASS)
+
+    return etf_ids.map(label)
+
+
+def _cross_section_z(values: pd.Series, groups: pd.Series | None = None) -> pd.Series:
     """Robust z-score of a score input; a present value with no cross-sectional dispersion is neutral (0).
 
     ``robust_zscore`` is unavailable for a constant series, but a present input among equal peers
-    (or a single instrument) is simply average. A missing input stays NaN.
+    (or a single instrument) is simply average. A missing input stays NaN. With ``groups`` the
+    normalisation runs inside each asset class, so another class never moves an instrument's z.
     """
 
-    return robust_zscore(values).fillna(0.0).where(values.notna())
+    z = robust_zscore(values) if groups is None else robust_zscore_by_group(values, groups)
+    return z.fillna(0.0).where(values.notna())
 
 
 def component_scores(
@@ -47,6 +74,7 @@ def component_scores(
         on="etf_id",
         how="left",
     )
+    asset_class = asset_class_labels(frame["etf_id"], config)
     frame["weighted_momentum"] = (
         0.15 * frame["momentum_20d"]
         + 0.35 * frame["momentum_60d"]
@@ -54,14 +82,14 @@ def component_scores(
         + 0.15 * frame["momentum_180d"]
     )
     frame["score_momentum"] = (
-        _cross_section_z(frame["weighted_momentum"]) / 3
+        _cross_section_z(frame["weighted_momentum"], asset_class) / 3
     ).clip(-1, 1)
-    slope_z = _cross_section_z(frame["trend_slope"]) / 3
+    slope_z = _cross_section_z(frame["trend_slope"], asset_class) / 3
     trend_inputs_available = frame[["trend_slope", "trend_100", "trend_200"]].notna().all(axis=1)
     binary_trend = (0.5 * frame["trend_100"] + 0.5 * frame["trend_200"]) * 2 - 1
     frame["score_trend"] = (0.70 * binary_trend + 0.30 * slope_z).where(trend_inputs_available).clip(-1, 1)
     annualised_volatility = frame["vol_60d_ann"].fillna(frame["ewma_vol_ann"])
-    vol_z = _cross_section_z(annualised_volatility) / 3
+    vol_z = _cross_section_z(annualised_volatility, asset_class) / 3
     drawdown = frame["drawdown_60d_max"]
     dd_penalty = drawdown.clip(-0.40, 0) / 0.40
     frame["score_risk"] = (-0.65 * vol_z + 0.35 * (1 + dd_penalty)).where(
@@ -72,7 +100,7 @@ def component_scores(
         axis=1,
     )
     frame["score_relative_strength"] = (
-        _cross_section_z(frame["relative_strength_60d"]) / 3
+        _cross_section_z(frame["relative_strength_60d"], asset_class) / 3
     ).clip(-1, 1)
     forecast_scores = forecast_scores or {}
     frame["score_toto"] = frame["etf_id"].map(forecast_scores.get("toto", {})).map(_clean_score).astype(float)

@@ -727,10 +727,10 @@
    "score": {
     "nan_count": 0,
     "count": 1824,
-    "sum": 217.38599999999997,
-    "mean": 0.11918092105263156,
-    "min": -0.6372,
-    "max": 0.8226
+    "sum": 210.0574,
+    "mean": 0.11516304824561403,
+    "min": -0.6766,
+    "max": 0.8512
    },
    "canonical_coverage": {
     "nan_count": 0,
@@ -749,14 +749,14 @@
     "max": 1.0
    }
   },
-  "non_float_digest": "af74e7544d43bc6143d13e6dc6df14562ddb215a9afe6d50fd5ae457df104eaa",
+  "non_float_digest": "68d159c3602010fa36c1ec0fc8bcbd284968dcf0bccd416e766b184b5b5bfa2a",
   "first_rows": [
    {
     "date": "2024-03-22",
     "signal_timestamp": "2024-03-22T00:00:00",
     "etf_id": "MING",
     "action": "hold",
-    "score": 0.7153,
+    "score": 0.7028,
     "canonical_attractiveness_10": null,
     "canonical_expected_return_10": null,
     "canonical_risk_implementation_10": null,
@@ -773,7 +773,7 @@
     "signal_timestamp": "2024-03-22T00:00:00",
     "etf_id": "NONG",
     "action": "hold",
-    "score": 0.6536,
+    "score": 0.6412,
     "canonical_attractiveness_10": null,
     "canonical_expected_return_10": null,
     "canonical_risk_implementation_10": null,
@@ -790,7 +790,7 @@
     "signal_timestamp": "2024-03-22T00:00:00",
     "etf_id": "SKUE",
     "action": "hold",
-    "score": 0.6327,
+    "score": 0.6214,
     "canonical_attractiveness_10": null,
     "canonical_expected_return_10": null,
     "canonical_risk_implementation_10": null,
@@ -807,9 +807,9 @@
    {
     "date": "2026-09-21",
     "signal_timestamp": "2026-09-21T00:00:00",
-    "etf_id": "EXUS",
+    "etf_id": "SEC0",
     "action": "hold",
-    "score": -0.4034,
+    "score": -0.5793,
     "canonical_attractiveness_10": null,
     "canonical_expected_return_10": null,
     "canonical_risk_implementation_10": null,
@@ -824,9 +824,9 @@
    {
     "date": "2026-09-21",
     "signal_timestamp": "2026-09-21T00:00:00",
-    "etf_id": "SEC0",
+    "etf_id": "EXUS",
     "action": "hold",
-    "score": -0.4383,
+    "score": -0.5806,
     "canonical_attractiveness_10": null,
     "canonical_expected_return_10": null,
     "canonical_risk_implementation_10": null,
@@ -843,7 +843,7 @@
     "signal_timestamp": "2026-09-21T00:00:00",
     "etf_id": "EUDF",
     "action": "hold",
-    "score": -0.4483,
+    "score": -0.5832,
     "canonical_attractiveness_10": null,
     "canonical_expected_return_10": null,
     "canonical_risk_implementation_10": null,

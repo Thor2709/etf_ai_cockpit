@@ -350,7 +350,11 @@ def test_p04_n012_signal_adapter_uses_report_staleness_for_component_eligibility
     monkeypatch.setattr(service_module, "load_holdings", lambda: pd.DataFrame())
     monkeypatch.setattr(service_module, "_benchmark_reference_snapshot_inputs", lambda *_args: object())
     monkeypatch.setattr(service_module, "_reference_context_from_inputs", lambda *_args, **_kwargs: SimpleNamespace(identity={"id": "test"}))
-    monkeypatch.setattr(service_module, "_calculation_window", lambda *_args: object())
+    monkeypatch.setattr(
+        service_module,
+        "_calculation_window",
+        lambda *_args: {"start_date": "2026-01-02", "end_date": "2026-01-02", "decision_time": "2026-01-02T23:59:59+00:00"},
+    )
     monkeypatch.setattr(service_module, "_price_snapshot_binding", lambda *_args, **_kwargs: {"binding": "test"})
     monkeypatch.setattr(service_module, "_current_universe_revision", lambda: "revision")
     monkeypatch.setattr(service_module, "current_settings_revision", lambda: "settings")

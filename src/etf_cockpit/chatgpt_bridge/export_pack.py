@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import math
 import os
 import shutil
 import uuid
@@ -178,6 +179,18 @@ SIGNAL_TABLE_COLUMNS = [
 ]
 
 
+def _mean_of_available_pair(first: object, second: object) -> float | None:
+    """0.5 * first + 0.5 * second; unavailable (None) when either input is missing or not finite."""
+
+    try:
+        first_value, second_value = float(first), float(second)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(first_value) and math.isfinite(second_value)):
+        return None
+    return 0.5 * first_value + 0.5 * second_value
+
+
 def _signal_rows(signals: Iterable[SignalResult], config: AppConfig) -> list[dict[str, object]]:
     names = {etf.id: etf.name for etf in config.universe.etfs}
     rows = []
@@ -203,7 +216,7 @@ def _signal_rows(signals: Iterable[SignalResult], config: AppConfig) -> list[dic
                 "score_1w": signal.components.momentum,
                 "score_1m": signal.components.trend,
                 "score_3m": signal.total_score,
-                "score_6m": 0.5 * signal.components.momentum + 0.5 * signal.components.trend,
+                "score_6m": _mean_of_available_pair(signal.components.momentum, signal.components.trend),
                 "score_9m": signal.components.baseline_ml,
                 "blocked_by": "|".join(signal.blocked_by),
                 "reason_short": signal.reason_short,
