@@ -25,7 +25,7 @@ from etf_cockpit.analysis.cyclical_sector_adapters import (
     cyclical_family_from_labels,
     verify_cyclical_projection,
 )
-from etf_cockpit.analysis.stock_evidence import StockEvidence, linear_score
+from etf_cockpit.analysis.stock_evidence import StockEvidence, band_is_label_stable, label_boundaries_from, linear_score
 from etf_cockpit.analysis.stock_universe import get_universe_evidence, live_decision_time, records_from_config
 from etf_cockpit.data.stock_fundamentals import load_stock_config
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
@@ -208,6 +208,10 @@ class SimpleScoreComponent:
     inputs_used: tuple[str, ...] = ()
     inputs_configured: tuple[str, ...] = ()
     inputs_not_applicable: tuple[str, ...] = ()
+    # Informational uncertainty band of score_10 (never raises a score, never bypasses a gate); None = not assessed.
+    band_low: float | None = None
+    band_high: float | None = None
+    label_stable: bool | None = None
 
     def __post_init__(self) -> None:
         if self.source_id is None:
@@ -417,6 +421,11 @@ class SimpleInstrumentScore:
     schema_version: str = "2.0"
     authority_decision: AuthorityDecision | None = None
     canonical_score: CanonicalScore | None = None
+    # Informational headline uncertainty band (p10/p90 equivalent); None = not assessed. Never raises the score.
+    score_band_low: float | None = None
+    score_band_high: float | None = None
+    label_stable: bool | None = None
+    score_band_basis: str | None = None
     classification_version_id: str = "unavailable"
     classification_invalidation_hash: str = "unavailable"
     classification_dependency_status: str = "legacy_unbound"
@@ -1527,6 +1536,9 @@ def simple_scoreboard_frame(
             "canonical_evidence_confidence_10": score.canonical_score.evidence_confidence_10 if score.canonical_score else None,
             "canonical_coverage": score.canonical_score.coverage if score.canonical_score else 0.0,
             "canonical_warnings": " | ".join(score.canonical_score.warnings) if score.canonical_score else "canonical_score_unavailable",
+            "score_band_low": score.score_band_low,
+            "score_band_high": score.score_band_high,
+            "label_stable": score.label_stable,
             "valid_components": score.valid_component_count,
             "total_components": score.total_component_count,
             "source_quality": "research_grade_yfinance",
@@ -1537,6 +1549,9 @@ def simple_scoreboard_frame(
             row[f"{component.key}_score_10"] = component.score_10
             row[f"{component.key}_status"] = component.status
             row[f"{component.key}_authority"] = component.authority
+            row[f"{component.key}_band_low"] = component.band_low
+            row[f"{component.key}_band_high"] = component.band_high
+            row[f"{component.key}_label_stable"] = component.label_stable
         rows.append(row)
     frame = pd.DataFrame(rows)
     frame["cash_curve_revision"] = _strict_nullable_revision_array(revision_values)
@@ -1864,7 +1879,7 @@ def build_universe_simple_scores(
                 )
             output.append(_pending_configured_score(identity, symbol_map.get(etf_id, identity.ticker), reason=reason))
     output = [_as_sparebank_pending(score) if score.display_id in pending_sparebank else score for score in output]
-    return [_with_canonical_score(_with_critical_evidence(score)) for score in output]
+    return [_with_score_band(_with_canonical_score(_with_critical_evidence(score))) for score in output]
 
 
 def _as_sparebank_pending(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
@@ -2123,7 +2138,70 @@ def build_candidate_simple_scores(
                 ),
             )
         )
-    return [_with_canonical_score(_with_critical_evidence(score)) for score in output]
+    return [_with_score_band(_with_canonical_score(_with_critical_evidence(score))) for score in output]
+
+
+def headline_score_band(
+    components: Iterable[SimpleScoreComponent],
+    weights: Mapping[str, float],
+    headline: float | None,
+    boundaries: Iterable[float],
+) -> tuple[float, float, bool, str] | None:
+    """Weighted band of the headline from the eligible components' bands; components without a band are held at their point.
+
+    Informational only: the band never changes ``headline`` and never feeds a gate. None when no eligible component carries a band.
+    """
+
+    headline_value = _safe_float(headline)
+    if headline_value is None or not 0.0 <= headline_value <= 10.0:
+        return None
+    lows = highs = total = 0.0
+    banded = eligible = 0
+    for component in components:
+        weight_value = _safe_float(weights.get(component.key, 0.0))
+        if weight_value is None or weight_value < 0:
+            return None
+        if weight_value == 0 or not _component_is_score_eligible(component) or component.score_10 is None:
+            continue
+        weight = weight_value
+        point = float(component.score_10)
+        has_low, has_high = component.band_low is not None, component.band_high is not None
+        if has_low != has_high:
+            return None
+        has_band = has_low and has_high
+        if has_band:
+            low, high = _safe_float(component.band_low), _safe_float(component.band_high)
+            if low is None or high is None or not 0.0 <= low <= high <= 10.0:
+                return None
+            lows += min(low, point) * weight
+            highs += max(high, point) * weight
+        else:
+            lows += point * weight
+            highs += point * weight
+        total += weight
+        eligible += 1
+        banded += int(has_band)
+    if banded == 0 or total <= 0:
+        return None
+    low, high = round(min(lows / total, headline_value), 2), round(max(highs / total, headline_value), 2)
+    basis = f"weighted component bands ({banded} of {eligible} eligible components carry a band; the others are held at their point score)"
+    return low, high, band_is_label_stable(low, high, tuple(boundaries)), basis
+
+
+def _with_score_band(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
+    """Attach the informational headline uncertainty band; failures to derive it leave the band absent (never a guess)."""
+
+    if score.final_score_10 is None or score.identity_conflict_reason is not None:
+        return score
+    try:
+        weights = headline_evidence_weights("ETF" if score.asset_type == "ETF" else "STOCK")
+        boundaries = label_boundaries_from(load_stock_config().get("scoring", {}).get("uncertainty", {}))
+    except Exception:  # noqa: BLE001 - the band is informational; no weights or config means no band
+        return score
+    band = headline_score_band(score.components, weights, score.final_score_10, boundaries)
+    if band is None:
+        return score
+    return replace(score, score_band_low=band[0], score_band_high=band[1], label_stable=band[2], score_band_basis=band[3])
 
 
 def _candidate_critical_inputs(row: pd.Series) -> tuple[str, ...]:
@@ -2912,7 +2990,18 @@ def _stock_fundamental_components(
                     else ()
                 ),
             }
-        output.append(replace(base, source_id=part.source_id, source_authority=None, as_of_date=part.as_of, freshness_status=part.freshness, **inputs))
+        bands = {}
+        if base.score_10 is not None and part.band_low is not None and part.band_high is not None:
+            # The publication component score is rounded to one decimal; keep it inside the published band.
+            band_low = min(part.band_low, base.score_10)
+            band_high = max(part.band_high, base.score_10)
+            uncertainty = load_stock_config().get("scoring", {}).get("uncertainty", {})
+            bands = {
+                "band_low": band_low,
+                "band_high": band_high,
+                "label_stable": band_is_label_stable(band_low, band_high, label_boundaries_from(uncertainty)),
+            }
+        output.append(replace(base, source_id=part.source_id, source_authority=None, as_of_date=part.as_of, freshness_status=part.freshness, **inputs, **bands))
     return output
 
 

@@ -88,8 +88,10 @@ def test_minimum_profile_runs_without_foundation_models(monkeypatch: pytest.Monk
         requested_profile="minimum",
         snapshot=HardwareSnapshot("test", 1, 2_048, 1_536, 5_000, False, "cpu-only"),
     )
+    prices = _prices()
+    # The implicit as-of is the latest forecast date, so later prices cannot mature the last forecast.
     report = forecast_lab.build_forecast_lab_workspace(
-        config, _forecasts(), _prices(), profile_id="minimum"
+        config, _forecasts(), prices, as_of_date=prices["date"].max(), profile_id="minimum"
     )
 
     assert estimate["profile"] == "minimum"

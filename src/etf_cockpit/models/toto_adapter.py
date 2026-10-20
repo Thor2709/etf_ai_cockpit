@@ -325,7 +325,7 @@ class TotoAdapter:
                     distribution_status="available",
                     coverage_ratio=coverage,
                     forecast_vol=horizon_vol,
-                    prob_positive_return=float(1 / (1 + np.exp(-expected / max(horizon_vol, 1e-6)))),
+                    heuristic_probability_positive=float(1 / (1 + np.exp(-expected / max(horizon_vol, 1e-6)))),
                     status="ok",
                     calibration_status="mock_not_for_live_scoring",
                 )
@@ -350,7 +350,7 @@ class TotoAdapter:
                 point_statistic=POINT_STATISTIC_TOTO,
                 distribution_status="available",
                 forecast_vol=0.0,
-                prob_positive_return=0.5,
+                heuristic_probability_positive=0.5,
                 status="ok",
                 is_fallback=True,
                 fallback_model="zero_return_mock",
@@ -465,7 +465,7 @@ def toto_quantiles_to_log_return_results(
                 distribution_status="available",
                 coverage_ratio=coverage,
                 forecast_vol=_quantile_vol_proxy(q10, q90, horizon),
-                prob_positive_return=__import__(
+                heuristic_probability_positive=__import__(
                     "etf_cockpit.models.timesfm_adapter", fromlist=["probability_positive_return"]
                 ).probability_positive_return(q10, q50, q90, completed),
                 status="ok",

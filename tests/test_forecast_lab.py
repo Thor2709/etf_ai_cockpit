@@ -61,7 +61,8 @@ def _forecasts() -> pd.DataFrame:
 
 
 def test_forecast_lab_reports_maturity_walk_forward_and_shadow_only_governance() -> None:
-    report = build_forecast_lab_report(_forecasts(), _prices())
+    prices = _prices()
+    report = build_forecast_lab_report(_forecasts(), prices, as_of_date=prices["date"].max())
 
     assert report["status"] == "ok"
     assert report["execution_allowed"] is False
@@ -158,7 +159,8 @@ def test_historical_as_of_matures_only_on_prices_known_at_that_date() -> None:
 
 
 def test_walk_forward_folds_are_evaluated_per_model() -> None:
-    report = build_forecast_lab_report(_forecasts(), _prices(), round_trip_cost_bps={"AAA": 20.0})
+    prices = _prices()
+    report = build_forecast_lab_report(_forecasts(), prices, as_of_date=prices["date"].max(), round_trip_cost_bps={"AAA": 20.0})
 
     evaluation = report["walk_forward_evaluation"]
     assert list(evaluation["split_id"]) == ["wf-01", "wf-02", "wf-03"]
@@ -231,7 +233,8 @@ def test_conformal_calibration_uses_only_residuals_whose_target_has_passed() -> 
         }
     )
 
-    report = build_forecast_lab_report(forecasts, _prices())
+    prices = _prices()
+    report = build_forecast_lab_report(forecasts, prices, as_of_date=prices["date"].max())
 
     baseline = report["models"].set_index("model_name").loc["baseline"]
     # All seven overlapping 5-day forecasts mature, but at the last forecast
@@ -300,7 +303,8 @@ def test_drift_is_chronological_and_independent_of_forecast_row_order() -> None:
 
 
 def test_forecast_horizon_report_includes_latest_configured_observed_and_skipped_data() -> None:
-    report = build_forecast_lab_report(_forecasts(), _prices(), configured_horizons=[1, 3, 5])
+    prices = _prices()
+    report = build_forecast_lab_report(_forecasts(), prices, as_of_date=prices["date"].max(), configured_horizons=[1, 3, 5])
     baseline = report["models"].set_index("model_name").loc["baseline"]
 
     assert baseline["latest_forecast_value"] == pytest.approx(0.01)
@@ -382,7 +386,7 @@ def test_stale_origin_or_target_session_is_explicitly_unavailable(stale_date: st
         }
     )
 
-    report = build_forecast_lab_report(forecasts, prices)
+    report = build_forecast_lab_report(forecasts, prices, as_of_date=prices["date"].max())
 
     assert report["forecast_outcomes"].iloc[0]["outcome_status"] == "unavailable"
     assert report["forecast_outcomes"].iloc[0]["outcome_reason"] == expected_reason
