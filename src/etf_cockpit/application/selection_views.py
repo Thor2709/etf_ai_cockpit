@@ -57,6 +57,28 @@ from etf_cockpit.application.portfolio_views import (
 from etf_cockpit.application.decision_views import load_opportunity_assessment
 
 
+def ordered_winners(candidates: Sequence[Mapping[str, object]], selected_ids: object) -> list[Mapping[str, object]]:
+    """The selected candidates in rank order: utility_rank first (unranked last), then utility score, then id.
+
+    The candidate table is keyed by instrument id, so its own order is alphabetical, not the Top-N order.
+    """
+
+    chosen = set(selected_ids) if isinstance(selected_ids, (set, frozenset, list, tuple)) else set()
+
+    def number(value: object) -> float | None:
+        try:
+            result = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        return result if result == result and result not in (float("inf"), float("-inf")) else None
+
+    def order(item: Mapping[str, object]) -> tuple[bool, float, bool, float, str]:
+        rank, score = number(item.get("utility_rank")), number(item.get("utility_score"))
+        return (rank is None, rank or 0.0, score is None, -(score or 0.0), str(item.get("instrument_id")))
+
+    return sorted((item for item in candidates if isinstance(item, Mapping) and item.get("instrument_id") in chosen), key=order)
+
+
 def load_top_n_selection(
     *,
     candidates: Sequence[SelectionCandidate] | None = None,

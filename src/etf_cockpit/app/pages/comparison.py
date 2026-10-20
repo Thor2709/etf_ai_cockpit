@@ -18,7 +18,7 @@ from etf_cockpit.app.components.kit import (
     Tag,
 )
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
-from etf_cockpit.app.formatting import format_currency, format_date, format_number, format_percent
+from etf_cockpit.app.formatting import format_date, format_number, format_percent, format_quote_price
 from etf_cockpit.app.pages import _p3_common as common
 from etf_cockpit.app.state import AppState
 from etf_cockpit.app.workspaces import save_workspace
@@ -40,7 +40,7 @@ def _comparison_fields() -> tuple[tuple[str, object], ...]:
     return (
         ("Instrument", lambda score: score.display_id),
         ("Name", lambda score: score.name),
-        ("Latest price", lambda score: format_currency(score.latest_price)),
+        ("Latest price", lambda score: format_quote_price(score.latest_price, getattr(score, "instrument_currency", None))),
         ("Final score", lambda score: format_number(score.final_score_10, decimals=1, unavailable="Unavailable")),
         ("Evidence quality", lambda score: format_number(score.evidence_quality_10, decimals=1, unavailable="Unavailable")),
         ("Risk/friction", lambda score: format_number(score.risk_friction_10, decimals=1, unavailable="Unavailable")),

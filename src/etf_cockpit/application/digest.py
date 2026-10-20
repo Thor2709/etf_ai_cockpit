@@ -104,6 +104,22 @@ def _contradiction_evidence_text(value: object) -> str:
     if not isinstance(value, Mapping) or not value:
         return "unavailable"
     return "; ".join(f"{key}={value[key]}" for key in sorted(value))
+def news_rows_as_of(news: pd.DataFrame, cutoff: object) -> pd.DataFrame:
+    """News rows published (and ingested) at or before ``cutoff``; no decision time or no usable timestamp means no row."""
+
+    if not isinstance(news, pd.DataFrame) or news.empty:
+        return news if isinstance(news, pd.DataFrame) else pd.DataFrame()
+    cutoff_ts = _aware_utc(cutoff)
+    if cutoff_ts is None or "published_at" not in news.columns:
+        return news.iloc[0:0]
+    published = news["published_at"].map(_aware_utc)
+    keep = published.notna() & (published <= cutoff_ts)
+    if "ingested_at" in news.columns:
+        ingested = news["ingested_at"].map(_aware_utc)
+        keep &= ingested.isna() | (ingested <= cutoff_ts)
+    return news.loc[keep]
+
+
 def score_run_pair_as_of(
     history: pd.DataFrame,
     cutoff: object,
@@ -474,5 +490,6 @@ __all__ = [
     "build_digest",
     "contradiction_digest_records",
     "filter_news_contradiction_inputs",
+    "news_rows_as_of",
     "score_run_pair_as_of",
 ]

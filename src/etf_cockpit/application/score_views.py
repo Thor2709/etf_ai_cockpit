@@ -33,9 +33,19 @@ def snapshot_scores(snapshot: object, universe_revision: str = "", *, penalise_m
         return []
     penalise = missing_data_penalty() if penalise_missing is None else bool(penalise_missing)
     revision = str(getattr(snapshot, "universe_revision", "") or universe_revision or "")
-    key = f"{revision}:{len(getattr(snapshot, 'signals', ()) or ())}"
+    signals = tuple(getattr(snapshot, "signals", ()) or ())
+    key = f"{revision}:{len(signals)}"
     with _LOCK:
-        if _CACHE.get("snapshot") is snapshot and _CACHE.get("key") == key:
+        # Same snapshot object and same count is not enough: a replaced signal (same length) must rebuild the scores.
+        # The cache keeps the signal objects themselves, so an identity match cannot come from a recycled object id.
+        cached_signals = _CACHE.get("signals")
+        if (
+            _CACHE.get("snapshot") is snapshot
+            and _CACHE.get("key") == key
+            and isinstance(cached_signals, tuple)
+            and len(cached_signals) == len(signals)
+            and all(old is new for old, new in zip(cached_signals, signals, strict=True))
+        ):
             return _presented(_CACHE["scores"], penalise)  # type: ignore[arg-type]
         try:
             reference = context_from_snapshot(snapshot, purpose="comparison", analysis_id=f"scores:{revision or 'unknown'}")
@@ -55,8 +65,17 @@ def snapshot_scores(snapshot: object, universe_revision: str = "", *, penalise_m
             cash_observation_time=getattr(snapshot, "benchmark_reference_decision_time", None),
         )
         scores = _without_superseded_candidates(scores)
-        _CACHE.update(snapshot=snapshot, key=key, scores=scores)
+        _CACHE.update(snapshot=snapshot, key=key, signals=signals, scores=scores)
         return _presented(scores, penalise)
+
+
+def visible_top_score(scores: list[object]) -> object | None:
+    """The row shown first by the visible ranking (highest displayed score); the list order is not the rank order."""
+
+    if not scores:
+        return None
+    top = min(scores, key=_rank_sort_key)
+    return top if not _rank_sort_key(top)[0] else scores[0]
 
 
 def published_scores(snapshot: object, universe_revision: str = "") -> list[object]:
