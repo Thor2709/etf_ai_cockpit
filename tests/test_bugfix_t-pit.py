@@ -407,7 +407,8 @@ def test_p07_n011_stale_forecast_vintage_is_anchored_and_marked_stale() -> None:
         [{"etf_id": "A", "model_name": "baseline", "forecast_date": dates[0], "horizon_days": 30, "q10_return": -0.1, "q50_return": 0.0, "q90_return": 0.1}]
     )
 
-    view = build_stock_view(prices, forecasts, "A", "1M")
+    # 15 trading sessions after 2026-01-01 is 2026-01-22, before the last price: stale (horizons count sessions)
+    view = build_stock_view(prices, forecasts.assign(horizon_days=15), "A", "1M")
 
     assert view.baseline is None
     assert view.forecasts == []
@@ -416,7 +417,7 @@ def test_p07_n011_stale_forecast_vintage_is_anchored_and_marked_stale() -> None:
     fresh = forecasts.assign(forecast_date=dates[-5])
     fresh_view = build_stock_view(prices, fresh, "A", "1M")
     assert fresh_view.baseline is not None
-    assert fresh_view.baseline.dates == [dates[-5] + pd.Timedelta(days=30)]
+    assert fresh_view.baseline.dates == [dates[-5] + pd.offsets.BDay(30)]  # horizon_days are trading sessions, not calendar days
     assert fresh_view.baseline.q50 == [126.0]
 
 
