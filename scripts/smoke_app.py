@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import time
@@ -32,6 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode", choices=SMOKE_MODES, default="source")
     parser.add_argument("--port", default=os.getenv("ETF_COCKPIT_PORT", "8550"))
     parser.add_argument("--timeout", type=int, default=60)
+    parser.add_argument("--exe", type=Path, default=None, help="Native executable to smoke (native modes only).")
+    parser.add_argument("--run-setup", action="store_true", help="first-run: also execute scripts/first_run_setup.bat (needs network).")
     parser.add_argument("--keep-running", action="store_true", help="Keep a source process started by this smoke check running.")
     return parser
 
@@ -57,12 +60,12 @@ def main(argv: list[str] | None = None) -> int:
             if args.mode in {"source", "offline"}:
                 process = _ensure_source_ready(port, args.timeout, offline=args.mode == "offline")
             elif args.mode == "first-run":
-                _verify_first_run_setup()
+                _verify_first_run_setup(run_setup=args.run_setup)
                 process = _ensure_source_ready(port, args.timeout)
             elif args.mode == "launcher":
                 process = _ensure_mode_ready("source", port, args.timeout)
             else:
-                process = _ensure_mode_ready(args.mode, port, args.timeout)
+                process = _ensure_mode_ready(args.mode, port, args.timeout, exe_path=args.exe)
         except RuntimeError as exc:
             print(f"ERROR: requested smoke mode could not start: {exc}", file=sys.stderr)
             return 1
@@ -104,8 +107,15 @@ def _ensure_source_ready(
         raise
 
 
-def _ensure_mode_ready(mode: str, port: int, timeout: int, *, already_ready: bool = False) -> subprocess.Popen | None:
-    command, cwd = launcher_core._launch_command(ROOT, mode, exe_path=None)
+def _ensure_mode_ready(
+    mode: str,
+    port: int,
+    timeout: int,
+    *,
+    already_ready: bool = False,
+    exe_path: Path | None = None,
+) -> subprocess.Popen | None:
+    command, cwd = launcher_core._launch_command(ROOT, mode, exe_path=exe_path)
     env = os.environ.copy()
     env["ETF_COCKPIT_ROOT"] = str(_runtime_root())
     env["ETF_COCKPIT_VIEW"] = "web"
@@ -152,12 +162,37 @@ def _validate_smoke_args(args: argparse.Namespace) -> None:
         raise ValueError("--timeout must be greater than zero")
     if args.keep_running and args.mode not in {"source", "offline", "first-run"}:
         raise ValueError("--keep-running is only supported for source-backed smoke modes")
+    if args.exe is not None and args.mode not in {"native", "portable-native"}:
+        raise ValueError("--exe is only supported for native smoke modes")
+    if args.run_setup and args.mode != "first-run":
+        raise ValueError("--run-setup is only supported for the first-run smoke mode")
 
 
-def _verify_first_run_setup() -> None:
+def _verify_first_run_setup(*, run_setup: bool = False) -> None:
+    """Check the batch's own contract: what it installs and runs must exist and ship in the package."""
     setup_script = ROOT / "scripts" / "first_run_setup.bat"
     if not setup_script.exists():
         raise RuntimeError(f"First-run setup script was not found: {setup_script}")
+    text = setup_script.read_text(encoding="utf-8")
+    requirements = re.findall(r"install\s+-r\s+(\S+)", text)
+    scripts = re.findall(r"(scripts\\[\w.]+\.py)", text)
+    if not requirements or not scripts:
+        raise RuntimeError("First-run setup script installs no requirements or runs no app script")
+    build_text = (ROOT / "scripts" / "build_windows.bat").read_text(encoding="utf-8") if (ROOT / "scripts" / "build_windows.bat").exists() else ""
+    for name in requirements:
+        if not (ROOT / name).is_file():
+            raise RuntimeError(f"First-run setup requires a missing file: {name}")
+        if build_text and name not in build_text:
+            raise RuntimeError(f"First-run setup requires {name}, which the portable package does not copy")
+    for name in scripts:
+        if not (ROOT / name.replace("\\", "/")).is_file():
+            raise RuntimeError(f"First-run setup runs a missing script: {name}")
+    if run_setup:
+        if os.name != "nt":
+            raise RuntimeError("--run-setup needs Windows cmd")
+        result = subprocess.run(["cmd", "/c", str(setup_script)], cwd=str(ROOT), check=False, timeout=1800)
+        if result.returncode != 0:
+            raise RuntimeError(f"first_run_setup.bat failed with exit code {result.returncode}")
 
 
 def verify_expected_title() -> None:
