@@ -113,11 +113,15 @@
     },
     "capacity_enforcement": "str",
     "capacity_fx_unavailable_instruments": {
-     "list_length": 24,
-     "item": "str"
+     "list_length": 0,
+     "item": null
     },
     "capacity_remainder_policy": "str",
     "complete_price_rows": "int",
+    "cost_estimated_instruments": {
+     "list_length": 15,
+     "item": "str"
+    },
     "cost_model_execution_allowed": "bool",
     "cost_model_id": "str",
     "cost_model_mode": "str",
@@ -196,6 +200,7 @@
       "unfilled_eur": "float"
      }
     },
+    "initial_purchase_cost_eur": {},
     "input_checksum": "str",
     "investable_comparators": {
      "baselines": {
@@ -219,6 +224,7 @@
       "v3": {
        "cost_eur": "float",
        "final_value_eur": "float",
+       "formula_version": "score-engine-v3.2.0",
        "status": "str",
        "strategy": "str",
        "turnover": "float"
@@ -284,7 +290,7 @@
     "not_enough_data_policy": "str",
     "operational_evidence_input_binding": "str",
     "operational_evidence_rows": {
-     "list_length": 3497,
+     "list_length": 5996,
      "item": {
       "arrival_price_assumption": "str",
       "auction_state": "null",
@@ -329,8 +335,8 @@
     "participation_cap": "float",
     "price_field": "str",
     "qualification_blockers": {
-     "list_length": 2,
-     "item": "str"
+     "list_length": 0,
+     "item": null
     },
     "qualifying_cost_regime": "bool",
     "qualifying_regime": "str",
@@ -375,8 +381,12 @@
     "strategy": "str",
     "survivorship_label": "str",
     "survivorship_reasons": {
-     "list_length": 0,
-     "item": null
+     "list_length": 3,
+     "item": "str"
+    },
+    "universe_ids": {
+     "list_length": 57,
+     "item": "str"
     },
     "walk_forward_periods": "int"
    }
@@ -539,7 +549,7 @@
   "data/backtests/signal_log.csv": {
    "kind": "csv",
    "rows": 1824,
-   "columns": ["date", "signal_timestamp", "etf_id", "action", "score", "canonical_attractiveness_10", "canonical_expected_return_10", "canonical_risk_implementation_10", "canonical_evidence_confidence_10", "canonical_coverage", "formula_version", "formula_checksum", "source_vintage_hash", "structural_confidence_cap", "structural_provenance_hash"]
+   "columns": ["date", "signal_timestamp", "etf_id", "action", "score", "momentum_60d", "momentum_120d", "currency_basis", "canonical_attractiveness_10", "canonical_expected_return_10", "canonical_risk_implementation_10", "canonical_evidence_confidence_10", "canonical_coverage", "formula_version", "formula_checksum", "source_vintage_hash", "structural_confidence_cap", "structural_provenance_hash"]
   },
   "data/backtests/signal_log.csv.meta.json": {
    "kind": "json",
@@ -579,7 +589,7 @@
   "data/backtests/trade_log.csv": {
    "kind": "csv",
    "rows": 128,
-   "columns": ["date", "signal_date", "execution_date", "strategy", "turnover", "cost_eur", "estimated_cost_bps", "cost_model_id", "cost_data_quality", "capacity_eur", "capacity_enforced", "unfilled_eur", "capacity_fill_status", "max_days_to_fill", "capacity_fx_unavailable", "remainder_policy", "decision_price", "next_open_reference_price", "next_period_reference_price", "decision_price_basis", "next_open_reference_basis", "next_period_reference_basis", "price_provenance", "close_to_next_open_gap", "open_gap_warning", "open_gap_warning_threshold", "arrival_price_assumption", "spread_proxy", "observed_range_spread_proxy", "cost_spread_assumption_bps", "cost_spread_assumption_source", "estimated_cost_bps_source", "execution_delay_sessions", "same_bar_execution_avoided", "signal_timestamp", "execution_timestamp", "fill_source", "session_state", "auction_state", "expiry_state", "order_lifecycle", "execution_allowed"]
+   "columns": ["date", "signal_date", "execution_date", "strategy", "turnover", "cost_eur", "estimated_cost_bps", "cost_model_id", "cost_data_quality", "cost_estimated", "capacity_eur", "capacity_enforced", "unfilled_eur", "capacity_fill_status", "max_days_to_fill", "capacity_fx_unavailable", "remainder_policy", "decision_price", "next_open_reference_price", "next_period_reference_price", "decision_price_basis", "next_open_reference_basis", "next_period_reference_basis", "price_provenance", "close_to_next_open_gap", "open_gap_warning", "open_gap_warning_threshold", "arrival_price_assumption", "spread_proxy", "observed_range_spread_proxy", "cost_spread_assumption_bps", "cost_spread_assumption_source", "estimated_cost_bps_source", "execution_delay_sessions", "same_bar_execution_avoided", "signal_timestamp", "execution_timestamp", "fill_source", "session_state", "auction_state", "expiry_state", "order_lifecycle", "execution_allowed"]
   },
   "data/backtests/trade_log.csv.meta.json": {
    "kind": "json",
