@@ -612,3 +612,64 @@ def test_active_config_blocks_synthetic_fallback_even_when_default_allows_it(tmp
         service.run_yfinance_forecasts()
     assert not (tmp_path / "raw").exists()
     assert not (tmp_path / "portfolios").exists()
+
+
+def test_active_config_reaches_non_data_service_fallback_reads(tmp_path, monkeypatch) -> None:
+    import contextlib
+
+    from etf_cockpit.application import snapshot_builder
+    from etf_cockpit.application.feature_service import FeatureService
+    from etf_cockpit.application.signal_service import SignalService
+    from etf_cockpit.core.config import load_config
+    from etf_cockpit.data import duckdb_store, sample_data
+
+    config = load_config()
+    config.data.allow_synthetic_sample_data = False
+    default = config.model_copy(deep=True)
+    default.data.allow_synthetic_sample_data = True
+    monkeypatch.setattr(duckdb_store, "load_config", lambda: default)
+    monkeypatch.setattr(sample_data, "RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr(sample_data, "PORTFOLIOS_DIR", tmp_path / "portfolios")
+    monkeypatch.setattr(duckdb_store, "PRICE_PARQUET", tmp_path / "prices.parquet")
+    monkeypatch.setattr(duckdb_store, "HOLDINGS_CSV", tmp_path / "portfolios" / "current_holdings.csv")
+    attempts: list[str] = []
+
+    def generation_attempted(*_args):
+        attempts.append("synthetic")
+        raise RuntimeError("synthetic fallback attempted")
+
+    monkeypatch.setattr(sample_data, "generate_sample_prices", generation_attempted)
+    with contextlib.suppress(Exception):
+        SignalService(config).generate_signals()
+    with contextlib.suppress(Exception):
+        FeatureService(config).compute_features()
+    assert attempts == []
+    assert not (tmp_path / "raw").exists()
+    assert not (tmp_path / "portfolios").exists()
+
+    class _Stub:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def update_prices(self, **_kwargs) -> None:
+            pass
+
+        def load_prices(self, *_args, **_kwargs) -> pd.DataFrame:
+            return pd.DataFrame()
+
+    seen: list[object] = []
+
+    def holdings_spy(*_args, **kwargs):
+        seen.append(kwargs.get("config"))
+        raise RuntimeError("holdings read")
+
+    monkeypatch.setattr(snapshot_builder, "load_config", lambda: config)
+    monkeypatch.setattr(snapshot_builder, "configure_logging", lambda: None)
+    monkeypatch.setattr(snapshot_builder, "ensure_project_dirs", lambda: None)
+    monkeypatch.setattr(snapshot_builder, "_current_universe_revision", lambda: "rev")
+    monkeypatch.setattr(snapshot_builder, "DataService", _Stub)
+    monkeypatch.setattr(snapshot_builder, "load_candidate_price_snapshot", pd.DataFrame)
+    monkeypatch.setattr(snapshot_builder, "load_holdings", holdings_spy)
+    with pytest.raises(RuntimeError, match="holdings read"):
+        snapshot_builder._build_snapshot()
+    assert seen == [config]

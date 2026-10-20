@@ -100,7 +100,7 @@ class ForecastService:
         promotion_prices: pd.DataFrame | None = None,
     ) -> list[ForecastResult]:
         settings_identity = current_settings_identity()
-        price_frame = prices if prices is not None else load_prices()
+        price_frame = prices if prices is not None else load_prices(config=self.config)
         price_frame = price_frame.copy()
         # Promotion evidence is graded on the full stored history, not the shorter forecast calculation window.
         evidence_prices = price_frame

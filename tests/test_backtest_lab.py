@@ -1665,11 +1665,11 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
     monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", tmp_path)
-    monkeypatch.setattr(signal_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(signal_service, "load_prices", lambda **_kwargs: prices.copy())
     monkeypatch.setattr(data_service, "load_prices", lambda **_kwargs: prices.copy())
-    monkeypatch.setattr(backtest_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(feature_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(forecast_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(feature_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(forecast_service, "load_prices", lambda **_kwargs: prices.copy())
     monkeypatch.setattr(backtest_service, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
         backtest_service,
@@ -1854,11 +1854,11 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
     monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
     monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", tmp_path)
-    monkeypatch.setattr(signal_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(signal_service, "load_prices", lambda **_kwargs: prices.copy())
     monkeypatch.setattr(data_service, "load_prices", lambda **_kwargs: prices.copy())
-    monkeypatch.setattr(backtest_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(feature_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(forecast_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(feature_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(forecast_service, "load_prices", lambda **_kwargs: prices.copy())
     monkeypatch.setattr(backtest_service, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
         backtest_service,
@@ -1943,11 +1943,11 @@ def test_backtest_service_round_trips_genuinely_unavailable_operational_rows(
     identity_path = tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet"
     monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
-    monkeypatch.setattr(signal_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(signal_service, "load_prices", lambda **_kwargs: prices.copy())
     monkeypatch.setattr(data_service, "load_prices", lambda **_kwargs: prices.copy())
-    monkeypatch.setattr(backtest_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(feature_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(forecast_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(feature_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(forecast_service, "load_prices", lambda **_kwargs: prices.copy())
     monkeypatch.setattr(backtest_service, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
         backtest_service,
@@ -1984,11 +1984,11 @@ def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
     identity_path = tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet"
     monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
-    monkeypatch.setattr(signal_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(signal_service, "load_prices", lambda **_kwargs: prices.copy())
     monkeypatch.setattr(data_service, "load_prices", lambda **_kwargs: prices.copy())
-    monkeypatch.setattr(backtest_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(feature_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(forecast_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(feature_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(forecast_service, "load_prices", lambda **_kwargs: prices.copy())
     monkeypatch.setattr(backtest_service, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
         backtest_service,
