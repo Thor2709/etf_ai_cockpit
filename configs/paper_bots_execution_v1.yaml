@@ -1,0 +1,41 @@
+schema_version: paper_bots_execution.v1
+# Stage B: paper execution of the frozen stage A decisions. Paper only; execution_allowed stays false.
+base_currency: EUR
+# Fills happen at the open of the first benchmark-calendar session strictly after the decision date (never the same close).
+fill_rule: next_session_open
+# Simulated clock of a fill inside its session (after every EUR listing has opened).
+fill_time_utc: "09:30"
+# Smallest tradable step; whole units are the conservative retail default.
+lot_size: 1
+# Costs come from configs/costs.yaml (commission, spread, slippage, FX, gap): the combined spread/slippage/FX/gap
+# basis points of an instrument-neutral order at the opening-auction session multiplier are charged against every fill.
+cost_model:
+  reference_instrument: __default__
+  reference_order_value_eur: 1000.0
+  session: open
+# A bot trades a position only when its value differs from the target by more than this share of the portfolio value
+# (a position leaving the target set is always sold in full).
+rebalance_tolerance_weight: 0.01
+min_trade_value_eur: 50.0
+# A buy that cannot be funded because sale proceeds are unsettled is retried on the following sessions, then it is missed.
+max_buy_retry_sessions: 3
+# No session data this many calendar days after the decision is a provider outage: the orders are logged as missed.
+missed_fill_grace_calendar_days: 5
+# Decision-time prices (last close known at the decision date) size the orders; older closes are unusable.
+sizing_price_max_age_days: 5
+# A held position is valued with its last close for at most this many sessions without a new bar.
+max_stale_mark_sessions: 5
+proposal_validity_days: 7
+# Review approval a paper proposal needs under strategy:paper_portfolio; the owner's request to run the bots stands for it.
+paper_approvals: [paper_simulation_review]
+strategy_id: "strategy:paper_portfolio"
+model_id: "model:paper"
+account_capability: "broker:paper_portfolio"
+uncertainty:
+  confidence: 0.95
+  # Fewer calendar months of paired relative returns than this never confirm an advantage.
+  minimum_months: 6
+replay:
+  label: conditional historical simulation
+  # Fundamentals are not point-in-time and the universe is not survivor-free (Part 4 stop rule 2).
+  caveat: Fundamentals are not point-in-time and there is no survivor-free universe; this is never forward evidence.

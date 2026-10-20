@@ -342,7 +342,7 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/data_providers.yaml | providers | — |
 | configs/data_source_policy.yaml | mandatory_tiers, policy_version, quota_failure, schema_version, sources | policy_version="2026-07-17"; schema_version="data-source-policy.v1" |
 | configs/decision_cutover_v1.yaml | monitoring, rankers, replay, schema_version, validation, version | schema_version=1; version=decision-cutover-v1.0.0 |
-| configs/decision_domains_v1.yaml | etf_decision_graph, hash_scheme, metrics, rank_cutover, schema_version, stock_decision, version | schema_version=1; version=decision-domains-v1.0.0 |
+| configs/decision_domains_v1.yaml | critical_evidence, etf_decision_graph, hash_scheme, metrics, rank_cutover, schema_version, stock_decision, version | schema_version=1; version=decision-domains-v1.0.0 |
 | configs/decision_opportunity_v1.yaml | labels, minimum_exposure_peer_sector_share, minimum_peer_support, minimum_universe_support, schema_version, timing, version | schema_version=1; version=opportunity-v1.0.0 |
 | configs/esef_extension_concepts.yaml | equity_member_rules, issuers | — |
 | configs/etf_tax_assumptions_v1.yaml | hedge_enabled, hedge_ratio, hedge_target_currency, known_at, source_withholding_label, source_withholding_rate, tax_enabled, tax_residence_country, version | version=1 |
@@ -357,6 +357,7 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/market_calendar_corrections.yaml | corrections, ledger_version, schema_version | ledger_version="2026-07-22"; schema_version=market-calendar-corrections.v1 |
 | configs/model_settings.yaml | ensemble, forecast_horizons_trading_days, models, promotion | — |
 | configs/mutation_thresholds_v1.yaml | critical_mutants, required_kill_rate, scope, version | version=1 |
+| configs/paper_bots_execution_v1.yaml | account_capability, base_currency, cost_model, fill_rule, fill_time_utc, lot_size, max_buy_retry_sessions, max_stale_mark_sessions, min_trade_value_eur, missed_fill_grace_calendar_days, model_id, paper_approvals, proposal_validity_days, rebalance_tolerance_weight, replay, schema_version, sizing_price_max_age_days, strategy_id, uncertainty | schema_version=paper_bots_execution.v1 |
 | configs/paper_bots_v1.yaml | baseline_score_version, benchmark, bots, decision_period, eligibility, initial_virtual_cash_eur, max_snapshot_age_hours, monthly_contribution_eur, schema_version | baseline_score_version=score-engine-v3.0.0; schema_version=paper_bots.v1 |
 | configs/performance_budgets.yaml | budgets, policy_version, regression_tolerance_pct, schema_version | policy_version="2026-07-17"; schema_version="performance-budgets.v1" |
 | configs/plugin_registry.yaml | allowlist, execution_allowed, schema_version | schema_version="plugin-registry.v1" |

@@ -46,6 +46,7 @@ from etf_cockpit.app.pages.system_map import system_map_page
 from etf_cockpit.app.pages.help_glossary import help_glossary_page
 from etf_cockpit.app.pages.decision_journal import decision_journal_page
 from etf_cockpit.app.pages.forward_evidence import forward_evidence_page
+from etf_cockpit.app.pages.paper_bots import paper_bots_page
 from etf_cockpit.app.pages.jobs import jobs_page
 from etf_cockpit.app.pages.portfolio import portfolio_page
 from etf_cockpit.app.pages.portfolio_optimiser import portfolio_optimiser_page
@@ -108,6 +109,7 @@ _PAGE_RENDERERS = {
     "/help": help_glossary_page,
     "/decision-journal": decision_journal_page,
     "/forward-evidence": forward_evidence_page,
+    "/paper-bots": paper_bots_page,
     "/jobs": jobs_page,
     "/operations": operations_page,
     "/release-readiness": release_readiness_page,

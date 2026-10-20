@@ -94,6 +94,7 @@ instrument ID.
 | `/stress-lab` | Stress Lab | Replay history or apply explicit shocks; save versioned scenarios. |
 | `/decision-journal` | Decision Journal | Record your own decision and rationale beside the evidence snapshot. |
 | `/forward-evidence` | Forward Evidence Diary | Record observations and update outcomes once their horizons mature. |
+| `/paper-bots` | Bots | Compare the frozen paper bots with the cash-flow-matched VWCE shadow account (read-only); a separate, labelled historical replay is never mixed in. |
 | `/operations` | Operations Centre | Review proposals and the local paper account and ledger. |
 
 ### Lab

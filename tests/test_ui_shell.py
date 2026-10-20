@@ -28,7 +28,7 @@ EXPECTED_WORKSPACES = (
     ("Research", ("/stock-research", "/instrument", "/etf", "/signals", "/screener", "/strategy-builder")),
     (
         "Portfolio",
-        ("/portfolio", "/risk", "/portfolio-optimiser", "/stress-lab", "/decision-journal", "/forward-evidence", "/operations"),
+        ("/portfolio", "/risk", "/portfolio-optimiser", "/stress-lab", "/decision-journal", "/forward-evidence", "/paper-bots", "/operations"),
     ),
     ("Compare", ("/comparison",)),
     ("Lab", ("/forecasts", "/backtests", "/training-centre", "/feature-catalogue", "/data-models")),
@@ -86,7 +86,7 @@ def _texts(control: ft.Control) -> list[str]:
 def test_workspaces_cover_every_route_once_in_dock_order() -> None:
     assert WORKSPACE_GROUPS == EXPECTED_WORKSPACES
     grouped_routes = [route for _workspace, routes in WORKSPACE_GROUPS for route in routes]
-    assert len(grouped_routes) == 42
+    assert len(grouped_routes) == 43
     assert len(grouped_routes) == len(router.PAGES) == len(set(grouped_routes))
     assert set(grouped_routes) == set(router.PAGES)
     assert router.workspace_for_route("/instrument/VWCE") == "Research"

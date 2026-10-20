@@ -307,6 +307,7 @@ from etf_cockpit.signals.feature_drivers import (  # noqa: F401
     _source_vintage_hash,
     normalise_bound_claim,
 )
+from etf_cockpit.application.paper_bots_view import load_paper_bots_view
 from etf_cockpit.application.paper_views import (
     load_paper_tca_view,
     load_paper_timeline,
@@ -503,6 +504,7 @@ __all__ = [
     "load_news_items",
     "load_opportunity_assessment",
     "load_optional_research_import",
+    "load_paper_bots_view",
     "load_paper_tca_view",
     "load_paper_timeline",
     "load_paper_trade_rows",
