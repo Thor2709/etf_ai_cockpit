@@ -1563,8 +1563,10 @@ def test_sample_publication_scope_serialises_cancel_and_rejects_clean_store_writ
     assert not cancelled.wait(0.1)
     release.set()
     assert cancelled.wait(_WAIT_S)
-    worker.join(timeout=2)
-    canceller.join(timeout=2)
+    worker.join(timeout=_WAIT_S)
+    canceller.join(timeout=_WAIT_S)
+    assert not worker.is_alive()
+    assert not canceller.is_alive()
 
     assert writes == ["sample_prices.csv", "current_holdings.csv"]
     assert not (tmp_path / "clean" / "prices.parquet").exists()
