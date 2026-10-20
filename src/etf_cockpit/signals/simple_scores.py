@@ -455,7 +455,8 @@ class SimpleInstrumentScore:
             # Direct compatibility construction remains fail-closed.
             object.__setattr__(self, "research_promotion_allowed", False)
             object.__setattr__(self, "portfolio_review_allowed", False)
-        if valid_analysis_status and self.analysis_status == "unavailable":
+        # A typed authority decision is final: its unavailable status is never re-derived into a better one.
+        if valid_analysis_status and self.analysis_status == "unavailable" and self.authority_decision is None:
             if self.final_score_10 is None:
                 derived: AnalysisStatus = "unavailable"
             elif self.warnings:
@@ -1286,10 +1287,13 @@ def _forecast_status_for_components(components: Iterable[SimpleScoreComponent]) 
 def _attach_authority(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
     """Publish the same typed authority envelope on scoreboard release rows."""
 
+    # The evidence gate needs a component that is itself score-eligible (dated, fresh, unconflicted, non-model) and
+    # from an allowed source; a stale, undated or conflicted component from an allowed source is not evidence.
     evidence_present = any(
         str(component.status or "").strip().lower() == "ok"
         and component.score_10 is not None
         and component.source_id in ALLOWED_EVIDENCE_SOURCE_IDS
+        and _component_is_score_eligible(component)
         for component in score.components
     )
     warning_text = " ".join(score.warnings).casefold()
@@ -1628,12 +1632,13 @@ def build_universe_simple_scores(
                 isin=identity.isin or "needs_verification",
                 data_policy=str(_config_extra(identity, "data_policy", "yfinance_now_multi_provider_later")),
                 latest=latest_prices.get(identity.id),
+                decision_time=signal.signal_date,
             )
             if native.final_score_10 is not None:
                 output.append(native)
                 continue
-            # Owner 2026-10-09: every instrument gets a score; below the scorecard evidence floor the
-            # generic stock score is shown, labelled as pending the Sparebank scorecard.
+            # Owner 2026-10-09 (binding, 2026-10-20): every instrument gets a score; below the scorecard evidence
+            # floor the canonical generic 0-10 stock score is shown, labelled as pending the Sparebank scorecard.
             pending_sparebank.add(identity.id)
         price_info = latest_prices.get(signal.etf_id, {})
         quality_info = price_quality.get(signal.etf_id, {})
@@ -1845,6 +1850,7 @@ def build_universe_simple_scores(
                     isin=identity.isin or "needs_verification",
                     data_policy=str(_config_extra(identity, "data_policy", "yfinance_now_multi_provider_later")),
                     latest=latest_prices.get(identity.id),
+                    decision_time=latest_prices.get(identity.id, {}).get("date"),
                 )
             )
         else:
@@ -1862,12 +1868,18 @@ def build_universe_simple_scores(
 
 
 def _as_sparebank_pending(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
-    """Generic stock score for a Sparebank EC whose native scorecard is below its evidence floor."""
+    """Canonical generic 0-10 stock score for a Sparebank EC whose native scorecard is below its evidence floor.
 
+    A value outside the canonical 0-10 range (a raw legacy score) is never shown.
+    """
+
+    value = score.final_score_10
+    canonical = value if value is not None and isfinite(float(value)) and 0 <= float(value) <= 10 else None
     return replace(
         score,
         source_group=SPAREBANKEN_TIER_LABEL,
         analysis_tier="sparebanken",
+        final_score_10=canonical,
         decision="Sparebank scorecard pending",
         one_line_reason=(
             "Generic stock score shown: the Sparebank scorecard is pending (not enough filing evidence for a "
@@ -1943,6 +1955,7 @@ def build_candidate_simple_scores(
                     isin=_noneable_str(row.get("isin")),
                     data_policy=_noneable_str(row.get("data_policy")) or "yfinance_only",
                     latest={"date": _noneable_str(row.get("latest_date")), "price": row.get("latest_price")},
+                    decision_time=decision_date or _noneable_str(row.get("latest_date")),
                 )
             )
             continue
@@ -2214,16 +2227,16 @@ def _pending_configured_score(
     )
 
 
-def _native_sparebank_score(display_id: str) -> tuple[float | None, str]:
+def _native_sparebank_score(display_id: str, *, decision_time: object = None) -> tuple[float | None, str]:
     """Read the stored native scorecard result (computed by the Sparebank refresh), never recompute here."""
 
-    row = latest_sparebank_scores().get(str(display_id))
+    row = latest_sparebank_scores(decision_time=decision_time).get(str(display_id))
     value = None if row is None else row.get("final_combined_score_10")
     try:
         score = float(value) if value is not None and isfinite(float(value)) else None
     except (TypeError, ValueError):
         score = None
-    if score is None:
+    if score is None or not 0 <= score <= 10:
         return None, "Underwriting is determined by the Sparebank scorecard (pending: not enough filing evidence for a composite yet); tactical evidence is presented separately."
     coverage = row.get("coverage")
     try:
@@ -2245,8 +2258,9 @@ def _sparebank_scorecard_status(
     isin: str | None,
     data_policy: str,
     latest: dict[str, object] | None = None,
+    decision_time: object = None,
 ) -> SimpleInstrumentScore:
-    native_score, native_reason = _native_sparebank_score(display_id)
+    native_score, native_reason = _native_sparebank_score(display_id, decision_time=decision_time)
     latest = latest or {}
     return SimpleInstrumentScore(
         instrument_key=instrument_key,
@@ -2424,13 +2438,14 @@ def _attach_component_provenance(
     freshness = _component_freshness_status(clean_date, decision_date)
 
     def component_freshness(component: SimpleScoreComponent) -> str:
-        if component.freshness_status:
-            return component.freshness_status
         # Evidence carrying its own date must itself be known at the decision
-        # date; the shared price date cannot vouch for evidence dated later.
+        # date; neither the shared price date nor a preset status can vouch for
+        # evidence dated later.
         own_date = _parse_date(component.as_of_date)
         if own_date is not None and decision_date is not None and own_date > decision_date:
             return "unavailable"
+        if component.freshness_status:
+            return component.freshness_status
         return freshness
 
     return [
@@ -3072,6 +3087,10 @@ def _simple_score_date(value: object) -> str | None:
 
 def _optional_score_component(key: str, score_10: object, why: str, *, authority: str) -> SimpleScoreComponent:
     score = _safe_float(score_10)
+    if score is not None and not 0.0 <= score <= 10.0:
+        # An out-of-range candidate value is corrupt input: unavailable, never silently clamped into range.
+        score = None
+        why = f"{why} (value outside the 0-10 range; treated as unavailable)"
     if score is None:
         return SimpleScoreComponent(
             key=key,
@@ -3085,7 +3104,6 @@ def _optional_score_component(key: str, score_10: object, why: str, *, authority
             authority=authority,
             score_role="evidence",
         )
-    score = _clamp_score_10(score)
     raw = _score_10_to_raw(score)
     return SimpleScoreComponent(
         key=key,

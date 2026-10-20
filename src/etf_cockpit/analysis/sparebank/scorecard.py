@@ -133,12 +133,20 @@ def build_sparebank_scorecard(
         for input_rule in axis.get("inputs", []):
             row = dict(input_rule)
             value = _input_value(row, context)
+            source = _input_source(row, context)
+            # Only bank-metric numeric evidence must carry its own provenance; events, market and valuation
+            # inputs have other source contracts.
+            missing_provenance = value is not None and source is None and str(row.get("source") or "").startswith("bank_economics.")
+            if missing_provenance:
+                value = None
             scored = not bool(row.get("display_only"))
             rating = None if value is None or not scored else _rating(value, row["anchors"])
             bank_reasons = _field(bank, "reasons", {})
             reason_text = None
             if value is None:
                 reason_text = (bank_reasons.get(str(row["id"])) if isinstance(bank_reasons, Mapping) else None) or row.get("missing_reason")
+            if missing_provenance:
+                reason_text = "Numeric evidence has no verifiable metric provenance."
             row.update(
                 value=value,
                 rating_10=rating,
@@ -146,7 +154,7 @@ def build_sparebank_scorecard(
                 status=("rated" if scored else "shown") if value is not None else "UNAVAILABLE",
                 reason_code=None if value is not None else "SCORECARD_INPUT_UNAVAILABLE",
                 reason=reason_text,
-                source_locator=_input_source(row, context),
+                source_locator=source,
             )
             rated_inputs.append(row)
             raw_values[str(row["id"])] = value
@@ -207,28 +215,27 @@ def build_sparebank_scorecard(
         else None
     )
     caps: list[tuple[float, str]] = []
-    if before_cap is not None:
-        headroom = raw_values.get("cet1_headroom_pp")
-        lcr = raw_values.get("lcr_pct")
-        nsfr = raw_values.get("nsfr_pct")
-        days = raw_values.get("days_to_trade")
-        gates = selected.hard_gates
-        if headroom is not None and headroom < float(gates["cet1_headroom_minimum_pp"]):
-            caps.append((float(gates["cap_headroom_below_requirement"]), "CET1_HEADROOM_BELOW_REQUIREMENT"))
-        if lcr is not None and lcr < float(gates["lcr_minimum_pct"]):
-            caps.append((float(gates["cap_lcr_below_minimum"]), "LCR_BELOW_MINIMUM"))
-        if nsfr is not None and nsfr < float(gates["nsfr_minimum_pct"]):
-            caps.append((float(gates["cap_nsfr_below_minimum"]), "NSFR_BELOW_MINIMUM"))
-        if days is not None and days > float(gates["days_to_trade_limit"]):
-            caps.append((float(gates["cap_days_to_trade_above_limit"]), "DAYS_TO_TRADE_ABOVE_LIMIT"))
-        for gate_name, reason in (
-            ("unresolved_claim", "OWNER_CLAIM_UNRESOLVED"),
-            ("failed_pit_check", "PIT_CHECK_FAILED"),
-            ("invalid_valuation_denominator", "INVALID_VALUATION_DENOMINATOR"),
-        ):
-            cap = _number(gates.get(gate_name))
-            if cap is not None:
-                caps.append((cap, reason))
+    headroom = raw_values.get("cet1_headroom_pp")
+    lcr = raw_values.get("lcr_pct")
+    nsfr = raw_values.get("nsfr_pct")
+    days = raw_values.get("days_to_trade")
+    gates = selected.hard_gates
+    if headroom is not None and headroom < float(gates["cet1_headroom_minimum_pp"]):
+        caps.append((float(gates["cap_headroom_below_requirement"]), "CET1_HEADROOM_BELOW_REQUIREMENT"))
+    if lcr is not None and lcr < float(gates["lcr_minimum_pct"]):
+        caps.append((float(gates["cap_lcr_below_minimum"]), "LCR_BELOW_MINIMUM"))
+    if nsfr is not None and nsfr < float(gates["nsfr_minimum_pct"]):
+        caps.append((float(gates["cap_nsfr_below_minimum"]), "NSFR_BELOW_MINIMUM"))
+    if days is not None and days > float(gates["days_to_trade_limit"]):
+        caps.append((float(gates["cap_days_to_trade_above_limit"]), "DAYS_TO_TRADE_ABOVE_LIMIT"))
+    for gate_name, reason in (
+        ("unresolved_claim", "OWNER_CLAIM_UNRESOLVED"),
+        ("failed_pit_check", "PIT_CHECK_FAILED"),
+        ("invalid_valuation_denominator", "INVALID_VALUATION_DENOMINATOR"),
+    ):
+        cap = _number(gates.get(gate_name))
+        if cap is not None and reason in reasons:
+            caps.append((cap, reason))
     selected_cap = min((cap for cap, _ in caps), default=None)
     final_composite = None if before_cap is None else round(min(before_cap, selected_cap) if selected_cap is not None else before_cap, 6)
     gate_reasons = tuple(dict.fromkeys((*reasons, *(reason for _, reason in caps))))
@@ -356,6 +363,8 @@ def _input_value(rule: Mapping[str, object], context: Mapping[str, object]) -> f
         assumptions = context.get("assumptions")
         cost_pct = _first_number(assumptions, "cost_of_equity_pct")
         cost_ratio = _first_number(assumptions, "cost_of_equity")
+        if cost_pct is not None and cost_ratio is not None and not math.isclose(cost_pct, cost_ratio * 100.0, abs_tol=1e-9):
+            return None
         if roe is None:
             return None
         if cost_pct is not None:
@@ -365,8 +374,14 @@ def _input_value(rule: Mapping[str, object], context: Mapping[str, object]) -> f
         owner_value = _number(_path(context, "valuation.central_owner_value_per_ec"))
         if owner_value is None:
             owner_value = _first_number(_path(context, "valuation.central_owner_value_per_ec"), "value", "value_per_ec")
+        assumed_value = _first_number(context.get("assumptions"), "central_owner_value_per_ec", "owner_value_per_ec")
+        if owner_value is not None and assumed_value is not None and not math.isclose(owner_value, assumed_value, abs_tol=1e-9):
+            return None
         if owner_value is None:
-            owner_value = _first_number(context.get("assumptions"), "central_owner_value_per_ec", "owner_value_per_ec")
+            canonical_value = _path(context, "valuation.central_owner_value_per_ec")
+            if isinstance(canonical_value, Mapping) and canonical_value.get("status") == "unavailable":
+                return None
+            owner_value = assumed_value
         price = _number(context.get("decision_price"))
         return None if owner_value is None or price is None or price == 0 else (owner_value / price - 1.0) * 100.0
     if transform == "event_value_accretion_percent":
@@ -442,38 +457,51 @@ def _input_source(rule: Mapping[str, object], context: Mapping[str, object]) -> 
     parent_provenance = _field(parent, "provenance", {})
     if isinstance(parent_provenance, Mapping):
         add(parent_provenance.get(leaf))
-        if not citations:
-            for item in parent_provenance.values():
-                add(item)
-    if not citations:
-        bank = _field(context, "bank_economics", {})
-        reported = _field(bank, "reported", {})
+    if path == "bank_economics.resilience":
+        provenance = _field(_path(context, path), "provenance", {})
+        if isinstance(provenance, Mapping):
+            add(provenance.get("headroom_pp"))
+    if not citations and path.startswith("bank_economics."):
+        reported = _field(_field(context, "bank_economics", {}), "reported", {})
         provenance = _field(reported, "provenance", {})
         if isinstance(provenance, Mapping):
-            direct = provenance.get(leaf)
-            if direct is not None:
-                add(direct)
-            elif ".lending." in path or ".normalised." in path:
-                for item in provenance.values():
-                    add(item)
-    if not citations:
-        claim = _field(context, "claim_state", {})
-        provenance = _field(claim, "provenance", {})
+            add(provenance.get(leaf))
+            dependencies = {
+                "loan_minus_deposit_growth": ("loan_growth", "deposit_growth"),
+                "risk_adjusted_margin": ("net_interest_margin", "cost_of_risk"),
+                "nii_minus_loan_growth": ("statement.net_interest_income", "loan_growth"),
+                "cost_to_average_assets": ("statement.operating_expenses", "statement.total_assets"),
+                "capital_self_funding_gap": ("statement.equity", "statement.total_assets"),
+            }.get(leaf, ())
+            if dependencies and all(provenance.get(key) for key in dependencies):
+                for key in dependencies:
+                    add(provenance[key])
+    if path.startswith("claim_state."):
+        provenance = _field(context.get("claim_state"), "provenance", {})
         if isinstance(provenance, Mapping):
-            direct = provenance.get(leaf)
-            if direct is not None:
-                add(direct)
-            elif path.startswith("claim_state.") or ".normalised." in path:
+            if leaf == "coverage":
                 for item in provenance.values():
                     add(item)
-    elif ".normalised." in path:
-        claim = _field(context, "claim_state", {})
-        provenance = _field(claim, "provenance", {})
+            else:
+                add(provenance.get(leaf))
+    if path.startswith("valuation."):
+        value = _path(context, path)
+        add(_field(value, "assumption_source"))
+        if not citations:
+            add(_field(context.get("valuation"), "assumption_source"))
+        if not citations:
+            add(_field(context.get("assumptions"), "assumption_source"))
+    if path == "analysis.coverage":
+        provenance = _field(context.get("analysis"), "provenance", {})
         if isinstance(provenance, Mapping):
             for item in provenance.values():
                 add(item)
-    if not citations and path.startswith("valuation."):
-        add(_field(_field(context, "valuation", {}), "assumption_source"))
+    if not citations and not path.startswith("bank_economics."):
+        # Non-bank inputs (events, market and valuation inputs) keep the general fallback: their source is a
+        # citation when one is recorded, never a reason to withhold the value.
+        if isinstance(parent_provenance, Mapping):
+            for item in parent_provenance.values():
+                add(item)
     unique = tuple(dict.fromkeys(item for item in citations if item))
     return " | ".join(unique) or None
 

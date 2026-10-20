@@ -4,6 +4,7 @@ import hashlib
 import json
 import threading
 from dataclasses import dataclass
+from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Literal
@@ -29,6 +30,24 @@ class ScoreHistoryWriteResult:
     run_id: str
     snapshot_hash: str
     schema_version: str = "2.0"
+    # Run completeness: rows offered by the caller versus rows persisted. Invalid rows are dropped, never
+    # repaired, so a partial run is visible to the caller instead of looking like a complete snapshot.
+    rows_submitted: int = 0
+    rows_dropped: int = 0
+
+    @property
+    def complete(self) -> bool:
+        return self.rows_dropped == 0
+
+
+SCORE_MIN = 0.0
+SCORE_MAX = 10.0
+
+
+def _valid_score_mask(scores: pd.Series) -> pd.Series:
+    """Finite scores inside the 0-10 range (NaN counts as not valid)."""
+
+    return scores.between(SCORE_MIN, SCORE_MAX)
 
 
 _COLUMNS = [
@@ -194,7 +213,18 @@ def append_score_run(
     if "instrument_id" not in frame.columns or "final_combined_score_10" not in frame.columns:
         raise ValueError("score history requires instrument_id and final_combined_score_10")
     frame["final_combined_score_10"] = pd.to_numeric(frame["final_combined_score_10"], errors="coerce")
+    # Missing/unparseable scores are dropped (reported below); a parsed but non-finite or out-of-range score is a
+    # corrupt producer value and is rejected for the whole run, never persisted or clamped.
+    parsed = frame["final_combined_score_10"].dropna()
+    invalid = parsed.loc[~_valid_score_mask(parsed)]
+    if not invalid.empty:
+        raise ValueError(
+            f"score history rejects {len(invalid)} non-finite or out-of-range final_combined_score_10 value(s) "
+            f"(allowed {SCORE_MIN:g}-{SCORE_MAX:g})"
+        )
+    rows_submitted = len(frame)
     frame = frame.dropna(subset=["instrument_id", "final_combined_score_10"])
+    rows_dropped = rows_submitted - len(frame)
     frame["run_id"] = run_id
     frame["run_started_at"] = created_at
     frame["run_completed_at"] = created_at
@@ -297,7 +327,7 @@ def append_score_run(
             else pd.DataFrame()
         )
         if not duplicate.empty:
-            return ScoreHistoryWriteResult(path, 0, run_id, snapshot_hash)
+            return ScoreHistoryWriteResult(path, 0, run_id, snapshot_hash, rows_submitted=rows_submitted, rows_dropped=rows_dropped)
         # A changed hash replaces the complete run snapshot, preventing stale
         # instruments from surviving a deterministic retry with a narrower frame.
         if not existing.empty and "run_id" in existing.columns:
@@ -311,7 +341,7 @@ def append_score_run(
         # Keep parquet and the legacy CSV mirror within one repository atomic
         # write-group. Readers never observe one format from a newer generation.
         _write_history_group(combined, path)
-    return ScoreHistoryWriteResult(path, len(frame), run_id, snapshot_hash)
+    return ScoreHistoryWriteResult(path, len(frame), run_id, snapshot_hash, rows_submitted=rows_submitted, rows_dropped=rows_dropped)
 
 
 _FRAME_CACHE: dict[str, object] = {}
@@ -609,7 +639,8 @@ def _normalise_history_frame(frame: pd.DataFrame) -> pd.DataFrame:
     if "instrument_id" not in result.columns:
         result["instrument_id"] = None
     result["instrument_id"] = result["instrument_id"].map(_clean_optional_text)
-    result = result.loc[result["instrument_id"].notna() & result["final_combined_score_10"].notna()].copy()
+    # Stored rows with a missing, non-finite or out-of-range score are malformed audit residue: dropped on read.
+    result = result.loc[result["instrument_id"].notna() & _valid_score_mask(result["final_combined_score_10"])].copy()
     if result.empty:
         return pd.DataFrame(columns=_COLUMNS)
     if "run_id" not in result.columns:
@@ -710,17 +741,43 @@ def _current_sparebank_formula_version() -> str | None:
         return None
 
 
-def latest_sparebank_scores(*, root: Path | None = None) -> dict[str, dict[str, object]]:
+def _current_sparebank_formula_checksum() -> str | None:
+    try:
+        from etf_cockpit.analysis.sparebank import load_sparebank_scorecard_policy
+
+        return str(load_sparebank_scorecard_policy().formula_checksum)
+    except Exception:  # the checksum cannot be verified: no stored native score is shown
+        return None
+
+
+def _decision_cutoff(value: object) -> pd.Timestamp | None:
+    """UTC cutoff for a decision time; ``None`` is the live view and a date-only value is the whole day (inclusive)."""
+
+    if value is None:
+        return None
+    date_only = (isinstance(value, date) and not isinstance(value, datetime)) or (isinstance(value, str) and len(value.strip()) == 10)
+    stamp = pd.to_datetime(value, errors="coerce", utc=True)
+    if date_only and not pd.isna(stamp):
+        return stamp.normalize() + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+    return stamp
+
+
+def latest_sparebank_scores(*, root: Path | None = None, decision_time: object = None) -> dict[str, dict[str, object]]:
     """Latest native Sparebank scorecard row per instrument (run ids ``sparebank:<id>:<time>``)."""
 
     path = (Path(root) if root is not None else ROOT) / "data" / "derived" / "score_history.parquet"
-    formula_version = _current_sparebank_formula_version()
-    key = (str(path), path.stat().st_mtime_ns if path.exists() else None, formula_version)
+    formula_version, checksum = _current_sparebank_formula_version(), _current_sparebank_formula_checksum()
+    if not formula_version or not checksum:
+        return {}
+    cutoff = _decision_cutoff(decision_time)
+    if cutoff is not None and pd.isna(cutoff):
+        return {}
+    key = (str(path), path.stat().st_mtime_ns if path.exists() else None, formula_version, checksum, None if cutoff is None else str(cutoff))
     if _SPAREBANK_CACHE.get("key") == key:
         return _SPAREBANK_CACHE["value"]  # type: ignore[return-value]
     if not path.exists():
         return {}
-    wanted = ["instrument_id", "run_id", "final_combined_score_10", "coverage", "missing_components", "data_as_of_date", "formula_version"]
+    wanted = ["instrument_id", "run_id", "final_combined_score_10", "coverage", "missing_components", "data_as_of_date", "formula_version", "formula_checksum", "run_started_at", "run_completed_at", "known_at"]
     try:
         import pyarrow.parquet as pq
 
@@ -731,11 +788,19 @@ def latest_sparebank_scores(*, root: Path | None = None) -> dict[str, dict[str, 
     if frame.empty or "run_id" not in frame.columns:
         return {}
     native = frame[frame["run_id"].astype(str).str.startswith("sparebank:")]
-    if formula_version and "formula_version" in native.columns:
-        # A score from an older scorecard formula is superseded, never shown as current.
-        native = native[native["formula_version"].astype(str).eq(formula_version)]
+    required = {"formula_version", "formula_checksum", "run_started_at", "run_completed_at", "instrument_id"}
+    if not required.issubset(native.columns):
+        return {}
+    native = native.loc[native["formula_version"].eq(formula_version) & native["formula_checksum"].eq(checksum)].copy()
+    for column in ("run_started_at", "run_completed_at"):
+        stamps = pd.to_datetime(native[column], errors="coerce", utc=True)
+        native = native.loc[stamps.notna() & (stamps.le(cutoff) if cutoff is not None else True)].copy()
+    if "known_at" in native.columns:
+        stamps = pd.to_datetime(native["known_at"], errors="coerce", utc=True)
+        native = native.loc[stamps.notna() & (stamps.le(cutoff) if cutoff is not None else True)].copy()
+    native["_completed"] = pd.to_datetime(native["run_completed_at"], utc=True)
     latest: dict[str, dict[str, object]] = {}
-    for row in native.sort_values("run_id", kind="stable").to_dict("records"):
+    for row in native.sort_values(["_completed", "run_id"], kind="stable").drop(columns="_completed").to_dict("records"):
         latest[str(row["instrument_id"])] = row
     _SPAREBANK_CACHE.update(key=key, value=latest)
     return latest
