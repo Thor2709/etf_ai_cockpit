@@ -55,6 +55,19 @@ def test_c011_n001_sparse_sessions_never_become_daily_returns(service):
     assert rows[0].reason_unavailable
 
 
+def test_plain_price_frame_without_calendar_evidence_keeps_ok_baselines(service):
+    plain = _frame(_series()).drop(columns="calendar_identity")
+    rows = service.run_forecasts(date(2026, 3, 6), ["AAA"], plain, horizons=[5])
+    assert rows[0].status == "ok" and rows[0].forecast_date == date(2026, 3, 6)
+    sparse = service.run_forecasts(date(2026, 3, 6), ["AAA"], plain.iloc[::5], horizons=[5])
+    assert sparse[0].status == "unavailable" and sparse[0].reason_unavailable == "sparse_adjusted_price_session_history"
+    stale = service.run_forecasts(date(2026, 4, 6), ["AAA"], plain, horizons=[5])
+    assert stale[0].status == "unavailable"
+    # One missing certified session is a gap in the series, not a reason to blank the instrument.
+    holed = service.run_forecasts(date(2026, 3, 6), ["AAA"], _frame(_series()).drop(index=100), horizons=[5])
+    assert holed[0].status == "ok"
+
+
 def test_c011_n002_weekend_origin_is_last_price(service):
     rows = service.run_forecasts(date(2026, 3, 8), ["AAA"], _frame(_series()), horizons=[1])
     assert rows[0].forecast_date == date(2026, 3, 6)
@@ -81,6 +94,13 @@ def test_c107_n001_research_forecasts_exclude_post_origin_prices():
     before = run_model_zoo(prices.iloc[:-19], [5], forecast_date=origin)
     after = run_model_zoo(prices, [5], forecast_date=origin)
     pd.testing.assert_frame_equal(before, after)
+
+
+def test_model_zoo_forecast_origin_requires_dated_prices():
+    undated = pd.Series(_series().to_numpy())
+    with pytest.raises(ValueError, match="dated adjusted_close"):
+        run_model_zoo(undated, [5], forecast_date=date(2026, 3, 6))
+    assert not run_model_zoo(undated, [5]).empty  # origin-less callers keep the ordinal contract
 
 
 def test_c107_n002_ar1_recurses_each_future_step():
@@ -124,11 +144,16 @@ def test_c111_n003_toto_keeps_target_return_across_union_holiday():
 def test_c022_n003_mase_uses_only_training_prices():
     series = _series(40)
     rows = pd.DataFrame({"etf_id": ["AAA"], "forecast_date": [series.index[25]], "horizon_days": [5], "absolute_error": [.1]})
-    prices = _frame(series)
+    prices = series.rename("adjusted_close").to_frame()
     before = _pooled_mase(rows, {"AAA": prices.iloc[:26]})
-    prices.loc[31:, "adjusted_close"] *= np.arange(1, 10)
+    revised = prices.copy()
+    revised.iloc[31:, 0] *= np.arange(1, 10)
     assert before is not None
-    assert _pooled_mase(rows, {"AAA": prices}) == pytest.approx(before)
+    assert _pooled_mase(rows, {"AAA": revised}) == pytest.approx(before)
+    # Rows without a usable scale are left out of the pool, not allowed to blank it.
+    mixed = pd.concat([rows, rows.assign(etf_id="ZZZ")], ignore_index=True)
+    assert _pooled_mase(mixed, {"AAA": prices.iloc[:26]}) == pytest.approx(before)
+    assert _pooled_mase(rows.assign(etf_id="ZZZ"), {"AAA": prices}) is None
 
 
 def test_c07_c2_n001_tiny_volatility_probability_saturates_safely():

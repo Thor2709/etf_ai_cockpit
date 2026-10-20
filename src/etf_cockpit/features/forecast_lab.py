@@ -989,8 +989,8 @@ def _pooled_mase(evaluated: pd.DataFrame, price_lookup: Mapping[str, pd.DataFram
         if key not in scales:
             prices = price_lookup.get(etf_id)
             if prices is not None and not prices.empty:
-                dates = pd.to_datetime(prices["date"], errors="coerce", utc=True)
-                prices = prices.loc[dates <= origin].assign(_date=dates).sort_values("_date")
+                # Training window only: sessions after the forecast origin never set the scale.
+                prices = prices.loc[pd.to_datetime(prices.index, errors="coerce", utc=True) <= origin]
             scales[key] = (
                 None
                 if prices is None or prices.empty
@@ -999,8 +999,6 @@ def _pooled_mase(evaluated: pd.DataFrame, price_lookup: Mapping[str, pd.DataFram
         scale = scales[key]
         if scale is not None and scale > 0 and np.isfinite(error):
             scaled.append(float(error) / scale)
-        else:
-            return None  # Never silently reweight the pooled diagnostic.
     return float(np.mean(scaled)) if scaled else None
 
 

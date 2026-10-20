@@ -146,14 +146,11 @@ class ForecastService:
                 reason = "insufficient_adjusted_price_history"
                 origin = as_of_date
                 try:
-                    series = _timesfm_price_series(
-                        pivot, etf_id, as_of_date, require_calendar=True,
-                        decision_time=calculation_window["decision_time"],
+                    series = _baseline_price_series(
+                        pivot, etf_id, as_of_date, decision_time=calculation_window["decision_time"],
                     )
                     if not series.dropna().empty:
                         origin = series.dropna().index[-1].date()
-                    if series.isna().any():
-                        raise ValueError("sparse_adjusted_price_session_history")
                     baseline_rows = baseline_forecast(
                         etf_id, series, horizons, origin, run_id=run_id, benchmark_returns=benchmark_returns,
                     )
@@ -739,6 +736,47 @@ def _forecast_price_window(prices: pd.DataFrame, window: Mapping[str, str]) -> p
     return prices.loc[selected].copy()
 
 
+_MAX_MISSING_SESSION_SHARE = 0.10
+_MAX_MISSING_SESSION_RUN = 5
+_MAX_OBSERVED_GAP_DAYS = 7
+
+
+def _baseline_price_series(
+    pivot: pd.DataFrame, etf_id: str, as_of_date: date, *, decision_time: str | None = None,
+) -> pd.Series:
+    """Session-calendar series for the baseline; observed rows only when no calendar evidence exists.
+
+    With certified listing evidence the series is laid on the instrument's sessions and a few
+    missing sessions stay NaN (never filled). Without it the observed rows are accepted only
+    when dense (no gap over 7 calendar days, at least 90% of weekdays present) and current.
+    """
+    rows = pivot.attrs.get("timesfm_price_rows", {}).get(etf_id)
+    if rows is not None and "calendar_identity" in rows and rows["calendar_identity"].notna().any():
+        series = _timesfm_price_series(pivot, etf_id, as_of_date, require_calendar=True, decision_time=decision_time)
+        missing = series.isna()
+        if missing.any():
+            runs = missing.groupby((~missing).cumsum()).sum()
+            if missing.mean() > _MAX_MISSING_SESSION_SHARE or runs.max() > _MAX_MISSING_SESSION_RUN:
+                raise ValueError("sparse_adjusted_price_session_history")
+        return series
+    series = pivot[etf_id].dropna() if etf_id in pivot else pd.Series(dtype=float)
+    series = series.loc[pd.to_datetime(series.index, utc=True).date <= as_of_date].sort_index()
+    if series.empty:
+        return series
+    if (as_of_date - pd.Timestamp(series.index[-1]).date()).days > _MAX_OBSERVED_GAP_DAYS:
+        raise ValueError("stale_adjusted_price_session_history")
+    if len(series) > 1:
+        days = pd.DatetimeIndex(series.index)
+        days = (days.tz_localize(None) if days.tz is not None else days).normalize()
+        weekdays = len(pd.bdate_range(days[0], days[-1]))
+        if (
+            int(pd.Series(days).diff().dt.days.max()) > _MAX_OBSERVED_GAP_DAYS
+            or (weekdays > 1 and len(series) / weekdays < 1 - _MAX_MISSING_SESSION_SHARE)
+        ):
+            raise ValueError("sparse_adjusted_price_session_history")
+    return series
+
+
 def _timesfm_price_series(
     pivot: pd.DataFrame, etf_id: str, as_of_date: date, *,
     require_calendar: bool = False, decision_time: str | None = None,
@@ -769,7 +807,9 @@ def _timesfm_price_series(
         calendar, listing = _forecast_calendar(rows, etf_id)
         days = pd.date_range(series.index.min().normalize(), pd.Timestamp(as_of_date, tz=series.index.tz), freq="D")
         sessions = days[[calendar.is_business_day(listing, day.date(), knowledge_cutoff=cutoff) for day in days]]
-        state = calendar.market_state(listing, ClockContext.at(cutoff))
+        # The origin session's own close: probe inside that local date, not at the cutoff instant,
+        # whose local date can already be the next session.
+        state = calendar.market_state(listing, ClockContext.at(datetime.combine(as_of_date, time(12), timezone.utc)))
         if not sessions.empty and sessions[-1].date() == as_of_date and (
             state.session_close is None or state.session_close > cutoff
         ):

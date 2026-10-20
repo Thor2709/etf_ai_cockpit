@@ -47,13 +47,19 @@ def baseline_forecast(
     vol = float(log_returns.tail(60).std() * np.sqrt(252))
     coverage = history_coverage_ratio(len(log_returns))
     results: list[ForecastResult] = []
-    benchmark_mean = None
+    # No benchmark supplied keeps the legacy zero-benchmark contract (the service nulls relative
+    # fields itself); a supplied benchmark that cannot be aligned to the training window gives None.
+    benchmark_mean: float | None = 0.0
     if benchmark_returns is not None and not benchmark_returns.empty:
+        benchmark_mean = None
         if isinstance(benchmark_returns.index, pd.DatetimeIndex):
             benchmark_returns = benchmark_returns.loc[benchmark_returns.index.date <= forecast_date]
-            common = pd.concat([log_returns.tail(180).rename("asset"), benchmark_returns.rename("benchmark")], axis=1).reindex(log_returns.tail(180).index)
-            if not common.empty and np.isfinite(common.to_numpy()).all():
-                benchmark_mean = float(common["benchmark"].mean() * 0.35)
+            aligned = (
+                benchmark_returns.reindex(log_returns.tail(180).index)
+                if benchmark_returns.index.is_unique else None
+            )
+            if aligned is not None and np.isfinite(aligned.to_numpy(dtype=float)).all():
+                benchmark_mean = float(aligned.mean() * 0.35)
         else:
             # Explicit ordinal return vectors retain their legacy input contract.
             benchmark_mean = float(benchmark_returns.tail(min(180, len(log_returns))).mean() * 0.35)
