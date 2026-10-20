@@ -33,6 +33,19 @@ def owner_valuation(
     """Value the claim with each available matched filing input."""
 
     state = _state(claim)
+    if any(reason in state.get("reason_codes", ()) for reason in (
+        "EC_COUNT_RECONCILIATION_CONTRADICTION", "EC_COUNT_RECONCILIATION_EVIDENCE_MISSING",
+        "CLAIM_UNIT_SCALE_INVALID", "CLAIM_STATEMENT_PERIOD_CONFLICT", "CLAIM_STATEMENT_PERIOD_MISSING",
+    )):
+        return {"status": "unavailable", "reason_code": "OWNER_VALUATION_CONFLICTING_EVIDENCE", "execution_allowed": False}
+    period, outstanding = _num(state.get("period_end_ec_count")), _num(state.get("outstanding_ec_count"))
+    if outstanding is None:
+        registered, treasury = _num(state.get("registered_ec_count")), _num(state.get("treasury_ec_count"))
+        outstanding = registered - treasury if registered is not None and treasury is not None else None
+    if period is not None and outstanding is None:
+        return {"status": "unavailable", "reason_code": "OWNER_VALUATION_RECONCILIATION_EVIDENCE_MISSING", "execution_allowed": False}
+    if period is not None and outstanding is not None and not math.isclose(period, outstanding, rel_tol=0.0, abs_tol=1e-9):
+        return {"status": "unavailable", "reason_code": "OWNER_VALUATION_CONFLICTING_EVIDENCE", "execution_allowed": False}
     resolved = state.get("claim_status") == "resolved"
     if not resolved and not allow_partial:
         return {"status": "unavailable", "reason_code": "OWNER_VALUATION_CLAIM_NOT_RESOLVED", "execution_allowed": False}

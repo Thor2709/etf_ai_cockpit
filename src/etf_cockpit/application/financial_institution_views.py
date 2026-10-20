@@ -160,7 +160,7 @@ def _build_financial_projection_from_evidence(
     ec_facts = ec_revision.get("facts", {}) if isinstance(ec_revision, Mapping) else {}
     statements = statement_series(rows, target_period=requested_period)
     if isinstance(ec_facts, Mapping) and ec_facts:
-        ec_facts = with_derived_owner_earnings(ec_facts, statements)
+        ec_facts = with_derived_owner_earnings(ec_facts, statements, effective_at=ec_revision.get("effective_at"))
     from etf_cockpit.analysis.sparebank import analyse_sparebank_ec
     route_evidence = {
         "facts": ec_facts,
@@ -260,6 +260,7 @@ def _build_financial_projection_from_evidence(
         route_evidence,
         decision_time=cutoff,
         price=decision_price,
+        payouts=(ec_revision.get("payouts", ()) if isinstance(ec_revision, Mapping) else ()),
         bank_metrics=result.metrics,
         bank_economics_evidence=bank_economics_evidence or None,
         events=(ec_revision.get("events", ()) if isinstance(ec_revision, Mapping) else ()),

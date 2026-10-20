@@ -286,7 +286,7 @@ def test_sustainable_roe_percent_and_ratio_value_identically():
         "gavefond": {"available": True, "value": 0.0}, "registered_ec_count": {"available": True, "value": 4.0},
         "ec_attributable_result": {"available": True, "value": 48.0},
     }
-    claim = build_claim_state({"facts": facts, "known_at": "2025-03-01T00:00:00Z", "source_url": "synthetic"})
+    claim = build_claim_state({"facts": facts, "effective_at": "2024-12-31", "known_at": "2025-03-01T00:00:00Z", "source_url": "synthetic"})
     base = {"cost_of_equity": 0.09, "long_run_growth": 0.03}
     ratio = valuation(claim, price=150.0, assumptions={**base, "sustainable_roe": 0.12})
     percent = valuation(claim, price=150.0, assumptions={**base, "sustainable_roe_pct": 12})
@@ -302,7 +302,7 @@ def test_sustainable_roe_percent_assumption_is_converted_before_the_owner_bridge
         "gavefond": {"available": True, "value": 0.0}, "registered_ec_count": {"available": True, "value": 4.0},
         "ec_attributable_result": {"available": True, "value": 48.0},
     }
-    evidence = {"facts": facts, "known_at": "2025-03-01T00:00:00Z", "source_url": "synthetic"}
+    evidence = {"facts": facts, "effective_at": "2024-12-31", "known_at": "2025-03-01T00:00:00Z", "source_url": "synthetic"}
     out = {}
     for key, raw in (("sustainable_roe", 0.12), ("sustainable_roe_pct", 12)):
         analysis = analyse_sparebank_ec(

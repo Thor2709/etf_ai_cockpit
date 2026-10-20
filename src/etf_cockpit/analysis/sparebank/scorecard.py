@@ -374,7 +374,21 @@ def _input_value(rule: Mapping[str, object], context: Mapping[str, object]) -> f
         event_rows = _field(event_analysis, "events", ())
         if not isinstance(event_rows, (tuple, list)):
             return None
+        dated = []
         for event in event_rows:
+            try:
+                effective = datetime.fromisoformat(str(_field(event, "effective_at")).replace("Z", "+00:00"))
+                effective = effective.replace(tzinfo=effective.tzinfo or timezone.utc).astimezone(timezone.utc)
+            except (ValueError, TypeError):
+                return None  # an unverifiable date cannot silently select an older event
+            dated.append((effective, event))
+        if not dated:
+            return None
+        latest = max(date for date, _ in dated)
+        candidates = [event for date, event in dated if date == latest]
+        if len(candidates) != 1:
+            return None  # conflicting simultaneous events require explicit reconciliation
+        for event in candidates:
             explicit = _first_number(event, "owner_value_accretion_pct", "value_accretion_pct")
             if explicit is not None:
                 return explicit
