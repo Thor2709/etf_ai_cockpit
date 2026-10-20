@@ -83,6 +83,20 @@ def _texts(control: object) -> list[str]:
     return values
 
 
+@pytest.fixture(autouse=True)
+def _synthetic_demo_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests exercise the demo pipeline, which is an explicit opt-in (default off in committed settings)."""
+    import etf_cockpit.application.snapshot_builder as snapshot_builder
+    from etf_cockpit.core.config import load_config as real_load_config
+
+    def opted_in(*args, **kwargs):
+        config = real_load_config(*args, **kwargs)
+        config.data.allow_synthetic_sample_data = True
+        return config
+
+    monkeypatch.setattr(snapshot_builder, "load_config", opted_in)
+
+
 @lru_cache(maxsize=1)
 def _snapshot():
     return build_snapshot()

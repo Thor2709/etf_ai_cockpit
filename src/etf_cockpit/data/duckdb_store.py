@@ -21,6 +21,21 @@ PRICE_PARQUET = VALIDATED_DIR / "prices" / "prices_daily.parquet"
 FEATURE_PARQUET = FEATURES_DIR / "features_daily.parquet"
 HOLDINGS_CSV = PORTFOLIOS_DIR / "current_holdings.csv"
 SYNTHETIC_DISABLED_REASON = "no price data; synthetic sample data disabled"
+SYNTHETIC_PRICE_SOURCES = frozenset({"synthetic_sample", "sample_generator"})
+
+
+def _unavailable_prices() -> pd.DataFrame:
+    frame = pd.DataFrame(columns=sorted(REQUIRED_PRICE_COLUMNS))
+    frame.attrs.update(status="unavailable", reason=SYNTHETIC_DISABLED_REASON, execution_allowed=False)
+    return frame
+
+
+def _without_synthetic(prices: pd.DataFrame, config: AppConfig | None) -> pd.DataFrame:
+    """Consumption-time provenance gate: synthetic rows are never real evidence unless opted in."""
+    cfg = config or load_config()
+    if cfg.data.allow_synthetic_sample_data or "source" not in prices.columns:
+        return prices
+    return prices[~prices["source"].astype(str).isin(SYNTHETIC_PRICE_SOURCES)].reset_index(drop=True)
 
 
 def read_price_csv(path: Path) -> pd.DataFrame:
@@ -73,7 +88,9 @@ def initialise_store(
     if not price_csv.exists():
         return
     if (force_sample and cfg.data.allow_synthetic_sample_data) or not PRICE_PARQUET.exists():
-        prices = read_price_csv(price_csv)
+        prices = _without_synthetic(read_price_csv(price_csv), cfg)
+        if prices.empty:
+            return
         report = validate_prices(prices)
         if report.status == "Blocked":
             blocked = ", ".join(sorted(report.blocked_etfs))
@@ -101,11 +118,13 @@ def load_prices(path: Path | None = None, *, config: AppConfig | None = None) ->
             raise FileNotFoundError(path)
         initialise_store(config)
         if not path.exists():
-            frame = pd.DataFrame(columns=sorted(REQUIRED_PRICE_COLUMNS))
-            frame.attrs.update(status="unavailable", reason=SYNTHETIC_DISABLED_REASON, execution_allowed=False)
-            return frame
+            return _unavailable_prices()
     wait_for_atomic_group(path)
     frame = pd.read_parquet(path)
+    if path == PRICE_PARQUET:
+        frame = _without_synthetic(frame, config)
+        if frame.empty:
+            return _unavailable_prices()
     frame["date"] = pd.to_datetime(frame["date"]).dt.date
     if "calendar_identity" in frame.columns:
         frame["calendar_identity"] = frame["calendar_identity"].map(

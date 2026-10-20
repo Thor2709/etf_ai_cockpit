@@ -146,7 +146,10 @@ def test_late_prior_close_revision_does_not_leak_into_historical_returns(cash_am
     for cutoff in prices["known_at"]:
         historical = apply_total_return_adjustments(prices.loc[prices["known_at"] <= cutoff], actions)
         selected = result.frame.loc[result.frame["known_at"] <= cutoff]
-        for column in ("price_return", "local_total_return", "price_return_index", "total_return_index"):
+        for column in (
+            "price_return", "local_total_return", "price_return_index", "total_return_index",
+            "price_adjusted_close", "adjusted_close",
+        ):
             pd.testing.assert_series_equal(selected[column].reset_index(drop=True), historical.frame[column])
     tampered = result.frame.copy()
     tampered.loc[2, "local_total_return"] = 110 / 120 - 1
@@ -213,7 +216,7 @@ def test_first_day_revision_is_shared_income_and_anchor_origin(terminal_close: f
         assert result.frame["adjusted_close"].iloc[1] == pytest.approx(120.0)
         assert result.frame["adjusted_close"].iloc[-1] == pytest.approx(1.0)
         no_income = apply_total_return_adjustments(prices, (), price_currency="USD")
-        assert no_income.frame["adjusted_close"].tolist() == pytest.approx([120.0, 120.0, 0.0])
+        assert no_income.frame["adjusted_close"].tolist() == pytest.approx([100.0, 120.0, 0.0])  # row 0 anchors on its own as-known snapshot
 
 
 # --- A.C4.S06.N002 filing publication date ------------------------------------------------------
@@ -527,6 +530,38 @@ def test_missing_sample_prices_default_disabled_reports_unavailable_without_writ
     assert prices.attrs["reason"] == service.last_operation_reason
     assert service.dry_run_update() == "unavailable: no price data; synthetic sample data disabled"
     assert duckdb_store.load_holdings().empty
+
+
+@pytest.mark.parametrize("source", ["synthetic_sample", "sample_generator"])
+def test_persisted_synthetic_prices_are_refused_at_consumption_when_disabled(tmp_path, monkeypatch, source) -> None:
+    from etf_cockpit.core.config import load_config
+    from etf_cockpit.data import duckdb_store, sample_data
+
+    config = load_config()
+    assert config.data.allow_synthetic_sample_data is False
+    prices = sample_data.generate_sample_prices(config, periods=30, end_date=date(2026, 6, 26)).assign(source=source)
+    raw = tmp_path / "raw"
+    (raw / "prices").mkdir(parents=True)
+    prices.to_csv(raw / "prices" / "sample_prices.csv", index=False)
+    monkeypatch.setattr(sample_data, "RAW_DIR", raw)
+    monkeypatch.setattr(sample_data, "PORTFOLIOS_DIR", tmp_path / "portfolios")
+    parquet = tmp_path / "validated" / "prices_daily.parquet"
+    monkeypatch.setattr(duckdb_store, "PRICE_PARQUET", parquet)
+    # Persisted CSV path: an existing synthetic CSV must not be promoted to the canonical store.
+    duckdb_store.initialise_store(config)
+    assert not parquet.exists()
+    csv_view = duckdb_store.load_prices(config=config)
+    assert csv_view.empty and csv_view.attrs["status"] == "unavailable"
+    assert csv_view.attrs["reason"] == "no price data; synthetic sample data disabled"
+    # Persisted parquet path: an existing synthetic canonical file must not be returned as evidence.
+    duckdb_store.write_prices(prices, parquet)
+    assert parquet.exists()
+    view = duckdb_store.load_prices(config=config)
+    assert view.empty and view.attrs["status"] == "unavailable"
+    assert view.attrs["reason"] == "no price data; synthetic sample data disabled"
+    opted_in = config.model_copy(deep=True)
+    opted_in.data.allow_synthetic_sample_data = True
+    assert not duckdb_store.load_prices(config=opted_in).empty
 
 
 def test_active_config_blocks_synthetic_fallback_even_when_default_allows_it(tmp_path, monkeypatch) -> None:

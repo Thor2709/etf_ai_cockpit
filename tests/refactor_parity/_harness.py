@@ -71,6 +71,13 @@ def build_capture_root(root: Path) -> Path:
             destination = root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
+    # The goldens exercise the synthetic demo pipeline, which is opt-in (default off) in committed settings.
+    settings = root / "configs" / "settings.yaml"
+    if settings.is_file():
+        text = settings.read_text(encoding="utf-8")
+        settings.write_text(
+            text.replace("allow_synthetic_sample_data: false", "allow_synthetic_sample_data: true"), encoding="utf-8",
+        )
     for name in _PRIVATE_DIRECTORIES:
         (root / name).mkdir(exist_ok=True)
     return root

@@ -307,7 +307,7 @@ def test_backtest_does_not_run_after_structural_evidence_load_failure(monkeypatc
     monkeypatch.setattr(feature_service, "current_settings_identity", lambda: "settings")
     monkeypatch.setattr(forecast_service, "current_settings_identity", lambda: "settings")
     monkeypatch.setattr(signal_service, "load_prices", pd.DataFrame)
-    monkeypatch.setattr(data_service, "load_prices", pd.DataFrame)
+    monkeypatch.setattr(data_service, "load_prices", lambda **_kwargs: pd.DataFrame())
     monkeypatch.setattr(backtest_service, "load_prices", pd.DataFrame)
     monkeypatch.setattr(feature_service, "load_prices", pd.DataFrame)
     monkeypatch.setattr(forecast_service, "load_prices", pd.DataFrame)

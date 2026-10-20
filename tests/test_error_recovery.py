@@ -166,7 +166,7 @@ def test_backtest_atomic_group_preserves_all_previous_outputs_on_failure(tmp_pat
     monkeypatch.setattr("etf_cockpit.application.backtest_service.BACKTESTS_DIR", tmp_path)
     monkeypatch.setattr("etf_cockpit.application.backtest_service.run_backtest", lambda *_args, **_kwargs: report)
     monkeypatch.setattr("etf_cockpit.application.signal_service.load_prices", lambda: pd.DataFrame())
-    monkeypatch.setattr("etf_cockpit.application.data_service.load_prices", lambda: pd.DataFrame())
+    monkeypatch.setattr("etf_cockpit.application.data_service.load_prices", lambda **_kwargs: pd.DataFrame())
     monkeypatch.setattr("etf_cockpit.application.backtest_service.load_prices", lambda: pd.DataFrame())
     monkeypatch.setattr("etf_cockpit.application.feature_service.load_prices", lambda: pd.DataFrame())
     monkeypatch.setattr("etf_cockpit.application.forecast_service.load_prices", lambda: pd.DataFrame())

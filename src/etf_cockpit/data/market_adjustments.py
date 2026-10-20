@@ -1023,15 +1023,13 @@ def apply_total_return_adjustments(
         action_ids.append(",".join(sorted(item.action_id for item in day_actions)))
     # Each day counts once in cumulative figures: its last (latest-vintage) row.
     day_is_final = [index + 1 == len(row_days) or row_days[index + 1] != day for index, day in enumerate(row_days)]
+    # Anchor each row on its own as-known snapshot (never on later publications): the snapshot's first
+    # close scaled by that row's index, so a historical adjusted close is stable as new rows arrive.
     first_raw = float(frame.loc[vintage_paths[-1][0], "raw_close"])
-    last_raw = float(frame["raw_close"].iloc[-1])
+    snapshot_first_raw = pd.Series([float(frame.loc[path[0], "raw_close"]) for path in vintage_paths], index=frame.index)
 
     def _anchored(index: pd.Series) -> pd.Series:
-        # Anchor to the last raw close; an exact total loss (raw close 0 or index 0) anchors to the first close instead.
-        last_index = float(index.iloc[-1])
-        if last_raw <= 0.0 or last_index == 0.0:
-            return index * first_raw / 100.0
-        return index * last_raw / last_index
+        return index * snapshot_first_raw / 100.0
 
     frame["price_return"] = price_returns
     frame["local_total_return"] = local_returns
