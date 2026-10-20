@@ -141,8 +141,8 @@ def record_peer_row(root: Path | None, row: Mapping[str, object]) -> None:
                 revisions.append(dict(candidate))
         history[identifier] = revisions
         valid = [item for item in revisions if not pd.isna(pd.to_datetime(item.get("as_of"), errors="coerce", utc=True))]
-        if valid:
-            rows[identifier] = max(valid, key=lambda item: pd.Timestamp(item["as_of"]))
+        # A row without a usable as_of cannot be ordered: the latest write stays the live row and is never replayed.
+        rows[identifier] = max(valid, key=lambda item: pd.Timestamp(item["as_of"])) if valid else dict(row)
         atomic_write_json(path, {"schema_version": SCHEMA_VERSION, "rows": rows, "history": history, "execution_allowed": False})
 
 
@@ -178,6 +178,8 @@ def load_peer_rows(
             stamp = pd.to_datetime(revision.get("as_of"), errors="coerce", utc=True)
             if not pd.isna(stamp) and (cutoff is None or stamp <= cutoff):
                 eligible.append((stamp, revision))
+        if not eligible and cutoff is None and isinstance(row, Mapping):
+            selected[key] = row  # live view: the stored current row, even when it carries no as_of
         if eligible:
             newest = max(stamp for stamp, _ in eligible)
             candidates = [revision for stamp, revision in eligible if stamp == newest]

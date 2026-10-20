@@ -476,6 +476,19 @@ def owner_normalisation(
     return replace(bank, normalised=normalised, reasons=reasons, calculation_ids=tuple(dict.fromkeys((*bank.calculation_ids, "normalisation_bridge"))))
 
 
+def _same_capital_basis(left: Mapping[str, object], right: Mapping[str, object]) -> bool:
+    """CET1 and its requirement must share a reporting period and scope.
+
+    A scope the figures do not state is verified only when both come from the same disclosure document.
+    """
+
+    if not left.get("period") or left.get("period") != right.get("period"):
+        return False
+    if left.get("scope") or right.get("scope"):
+        return bool(left.get("scope")) and left.get("scope") == right.get("scope")
+    return bool(left.get("document_id")) and left.get("document_id") == right.get("document_id")
+
+
 def build_bank_economics(evidence: Mapping[str, object] | None = None, *, bank_metrics: Iterable[object] = ()) -> BankEconomics:
     """Build the interpretation layer from EC facts and #705 metric objects."""
 
@@ -545,10 +558,7 @@ def build_bank_economics(evidence: Mapping[str, object] | None = None, *, bank_m
     requirement = _number(merged.get("cet1_requirement_ratio"))
     cet1_source = merged.get("cet1_ratio_provenance", metric_metadata.get("cet1_ratio", {}))
     requirement_source = merged.get("cet1_requirement_provenance", {})
-    compatible = (
-        isinstance(cet1_source, Mapping) and isinstance(requirement_source, Mapping)
-        and all(cet1_source.get(key) and cet1_source.get(key) == requirement_source.get(key) for key in ("scope", "period"))
-    )
+    compatible = isinstance(cet1_source, Mapping) and isinstance(requirement_source, Mapping) and _same_capital_basis(cet1_source, requirement_source)
     headroom = book_calcs.cet1_headroom(cet1_ratio, requirement) if compatible else None
     if headroom is not None:
         resilience["cet1_requirement_ratio"] = requirement

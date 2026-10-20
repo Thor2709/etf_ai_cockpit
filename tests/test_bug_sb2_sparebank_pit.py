@@ -15,9 +15,9 @@ from etf_cockpit.data import score_history
 from etf_cockpit.signals import simple_scores
 
 
-def _analysis(bank=None, metrics=()):
+def _analysis(bank=None, metrics=(), **extra):
     claim = json.loads((Path(__file__).parent / 'fixtures/sparebank/teaching_bank.json').read_text())
-    return analyse_sparebank_ec(claim, decision_time='2025-04-01T00:00:00Z', bank_economics_evidence=bank or {}, bank_metrics=metrics)
+    return analyse_sparebank_ec(claim, decision_time='2025-04-01T00:00:00Z', bank_economics_evidence=bank or {}, bank_metrics=metrics, **extra)
 
 
 def _input(card, name):
@@ -37,6 +37,17 @@ def test_b118_n002_no_cross_vintage_funding_merge():
     result = evidence.merge_bank_economics_evidence(old, None, new)
     assert result['funding'].get('lcr') is None
     assert result['funding']['nsfr'] == 1.1
+
+
+def test_vintage_mismatch_keeps_curated_reconciliation_fields():
+    curated = {'credit': {'opening_stage3': 100.0, 'closing_stage3': 90.0, 'stage_3_ratio_pct': .05,
+        'provenance': {'opening_stage3': {'period': '2024-12-31', 'source_locator': 'curated'}, 'stage_3_ratio_pct': {'period': '2024-12-31', 'source_locator': 'curated'}}}}
+    pillar3 = {'credit': {'stage_3_ratio_pct': .02, 'provenance': {'stage_3_ratio_pct': {'period': '2025-03-31', 'source_locator': 'p3'}}}}
+    result = evidence.merge_bank_economics_evidence(curated, None, pillar3)
+    assert result['credit']['opening_stage3'] == 100.0 and result['credit']['closing_stage3'] == 90.0
+    assert result['credit']['provenance']['opening_stage3']['source_locator'] == 'curated'
+    assert result['credit']['stage_3_ratio_pct'] == .02 and result['credit']['provenance']['stage_3_ratio_pct']['source_locator'] == 'p3'
+    assert result['unavailable_reasons']['credit'] == 'EVIDENCE_VINTAGE_MISMATCH_OR_UNVERIFIED'
 
 
 def test_b118_n003_reciprocal_deposit_ratio():
@@ -117,9 +128,14 @@ def test_b024_n003_history_checks_formula_checksum(tmp_path):
 
 
 def test_e101_n001_raw_score_cannot_replace_native(monkeypatch):
+    # Owner policy 2026-10-09 / Opus 2026-10-20: below the evidence floor the canonical 0-10 generic score is shown,
+    # labelled pending; a raw legacy value outside 0-10 is never shown.
     monkeypatch.setattr(simple_scores, 'latest_sparebank_scores', lambda **_: {})
     score = simple_scores._sparebank_scorecard_status(instrument_key='X', display_id='X', name='X', yahoo_symbol='X', asset_type='equity_certificate', instrument_currency='NOK', isin=None, data_policy='local')
+    assert score.final_score_10 is None and score.decision == 'Sparebank scorecard required'
     assert simple_scores._as_sparebank_pending(replace(score, final_score_10=99)).final_score_10 is None
+    pending = simple_scores._as_sparebank_pending(replace(score, final_score_10=6.1))
+    assert pending.final_score_10 == 6.1 and pending.decision == 'Sparebank scorecard pending'
 
 
 def test_c115_n003_screener_does_not_pair_tactical_forecast(monkeypatch):
@@ -165,7 +181,7 @@ def test_e03_c2_n003_rwa_display_is_nok(monkeypatch):
     import flet as ft
     captured = []
     monkeypatch.setattr(view, 'DataTable', lambda columns, rows, **kwargs: captured.extend(rows) or ft.Container())
-    view._pillar3({'pillar3': {'figures': [{'metric': 'rwa_nok', 'value': 1000, 'status': 'confirmed'}]}}, None, None, 'X')
+    view._pillar3({'pillar3': {'figures': [{'metric': 'rwa_nok', 'value': 1000, 'unit': 'NOK', 'status': 'confirmed'}]}}, None, None, 'X')
     assert captured[0]['value'] == '1,000 NOK'
 
 
@@ -232,7 +248,7 @@ def test_candidate_score_selection_forwards_replay_date(monkeypatch):
     from datetime import date
     received = []
     monkeypatch.setattr(simple_scores, 'latest_sparebank_scores', lambda **kwargs: received.append(kwargs) or {})
-    rows = pd.DataFrame([{'instrument_id': 'X', 'asset_type': 'equity_certificate', 'latest_date': '2025-06-01'}])
+    rows = pd.DataFrame([{'instrument_id': 'X', 'instrument_type': 'equity_certificate', 'latest_date': '2025-06-01'}])
     result = simple_scores.build_candidate_simple_scores(rows, None, decision_date=date(2025, 4, 1))
     assert len(result) == 1 and result[0].final_score_10 is None
     assert received == [{'decision_time': date(2025, 4, 1)}]
@@ -251,4 +267,71 @@ def test_instrument_detail_forwards_snapshot_cutoff(monkeypatch):
     monkeypatch.setattr(view, 'load_financial_institution_projection', capture)
     with pytest.raises(ProjectionReached):
         view.build_instrument_detail(snapshot, snapshot.config.universe.enabled_ids[0])
-    assert pd.Timestamp(received[0]) == pd.Timestamp(snapshot.data_report.as_of_date).tz_localize('UTC')
+    assert received[0] == f'{snapshot.data_report.as_of_date.isoformat()}T23:59:59Z'  # date-only as-of is the whole day
+
+
+def test_review_queue_supplies_metric_units_to_the_view(tmp_path):
+    from etf_cockpit.data import pillar3_queue
+    pillar3_queue.save_queue(tmp_path, 'X', {'documents': [], 'figures': [{'metric': 'rwa_nok', 'value': 5, 'status': 'pending'}, {'metric': 'lcr_pct', 'value': 90, 'status': 'pending'}]})
+    units = {item['metric']: item['unit'] for item in evidence.pillar3_review_queue(tmp_path, 'X')['figures']}
+    assert units == {'rwa_nok': 'NOK', 'lcr_pct': 'percent'}
+
+
+def test_cached_projection_without_decision_time_is_not_rejected(tmp_path, monkeypatch):
+    from etf_cockpit.application import financial_institution_views as views
+    monkeypatch.setattr(views, 'verify_financial_projection', lambda x: x)
+    projection = {'instrument_id': 'X', 'status': 'available'}
+    assert views.load_financial_institution_projection('X', projection=projection, decision_time='2025-01-01T00:00:00Z', storage_root=tmp_path) == projection
+    earlier = {**projection, 'decision_time': '2024-12-01T00:00:00Z'}
+    assert views.load_financial_institution_projection('X', projection=earlier, decision_time='2025-01-01T00:00:00Z', storage_root=tmp_path) == earlier
+
+
+def test_non_bank_inputs_keep_value_without_bank_provenance():
+    analysis = _analysis(valuation_assumptions={'marketability': {'days_to_trade': 21.0}})
+    row = _input(analysis.scorecard, 'days_to_trade')
+    assert row['value'] == 21.0 and row['rating_10'] is not None
+
+
+def _confirmed_p3(tmp_path, scope=None, requirement_document='doc1'):
+    from etf_cockpit.data import pillar3_queue
+    queue = {'documents': [{'document_id': 'doc1', 'source_url': 'u1', 'title': 'P3'}, {'document_id': 'doc2', 'source_url': 'u2', 'title': 'P3b'}], 'figures': [
+        {'metric': 'cet1_ratio_pct', 'value': 17, 'status': 'confirmed', 'period': '2024-12-31', 'document_id': 'doc1', 'page': 1, 'decided_at': '2025-02-01T00:00:00Z', 'extracted_at': '2025-01-01T00:00:00Z'},
+        {'metric': 'cet1_requirement_pct', 'value': 15, 'status': 'confirmed', 'period': '2024-12-31', 'document_id': requirement_document, 'page': 2, 'decided_at': '2025-02-01T00:00:00Z', 'extracted_at': '2025-01-01T00:00:00Z'},
+    ]}
+    if scope:
+        queue['figures'][1]['scope'] = scope
+    pillar3_queue.save_queue(tmp_path, 'X', queue)
+    p3 = evidence.pillar3_evidence(tmp_path, 'X', '2025-04-01', target_period='2024-12-31')
+    return build_bank_economics(evidence.merge_bank_economics_evidence({}, None, p3)).resilience
+
+
+def test_pillar3_requirement_provenance_verifies_same_document_headroom(tmp_path):
+    assert _confirmed_p3(tmp_path)['headroom_pp'] == pytest.approx(2)
+
+
+def test_pillar3_requirement_from_other_document_or_scope_withholds_headroom(tmp_path):
+    assert _confirmed_p3(tmp_path, requirement_document='doc2').get('headroom_pp') is None
+    assert _confirmed_p3(tmp_path / 'scoped', scope='parent').get('headroom_pp') is None
+
+
+def test_date_only_cutoff_is_inclusive_for_same_day_runs_and_queue(tmp_path):
+    from datetime import date
+    from etf_cockpit.data import pillar3_queue
+    _history(tmp_path, [('2025-04-01T10:00:00Z', 7, None)])
+    assert score_history.latest_sparebank_scores(root=tmp_path, decision_time=date(2025, 4, 1))['X']['final_combined_score_10'] == 7
+    assert score_history.latest_sparebank_scores(root=tmp_path, decision_time='2025-04-01')['X']['final_combined_score_10'] == 7
+    assert score_history.latest_sparebank_scores(root=tmp_path, decision_time='2025-03-31') == {}
+    pillar3_queue.save_queue(tmp_path, 'X', {'documents': [], 'figures': [{'metric': 'lcr_pct', 'value': 90, 'status': 'pending', 'extracted_at': '2025-04-01T10:00:00Z'}]})
+    live = pillar3_queue.load_queue(tmp_path, 'X', decision_time='2025-04-01')
+    assert len(live['figures']) == 1 and not live['read_only']
+    past = pillar3_queue.load_queue(tmp_path, 'X', decision_time='2025-03-31')
+    assert past['figures'] == [] and past['read_only']
+
+
+def test_date_only_cutoff_includes_same_day_decision_and_keeps_current_controls(tmp_path):
+    from etf_cockpit.data import pillar3_queue
+    pillar3_queue.save_queue(tmp_path, 'X', {'documents': [], 'figures': [{'metric': 'lcr_pct', 'value': 90, 'status': 'confirmed', 'period': '2024-12-31', 'extracted_at': '2025-04-01T08:00:00Z', 'decided_at': '2025-04-01T10:00:00Z'}]})
+    queue = evidence.pillar3_review_queue(tmp_path, 'X', decision_time='2025-04-01')
+    assert not queue['read_only'] and queue['figures'][0]['unit'] == 'percent'
+    assert [item['metric'] for item in pillar3_queue.confirmed_figures(queue, '2025-04-01')] == ['lcr_pct']
+    assert pillar3_queue.confirmed_figures(queue, '2025-03-31') == []

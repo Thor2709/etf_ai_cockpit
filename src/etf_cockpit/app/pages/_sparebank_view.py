@@ -30,7 +30,6 @@ from etf_cockpit.app.components.kit import (
     field_input_style,
 )
 from etf_cockpit.application.sparebank_evidence import review_pillar3_figure
-from etf_cockpit.data.pillar3_queue import PILLAR3_METRICS
 from etf_cockpit.application.sparebank_peers import axis_evidence_groups, axis_evidence_notes, set_picked_peers
 
 # Plain-language copy for the scorecard's gate codes (the codes themselves come from the analysis).
@@ -573,7 +572,7 @@ def _pillar3(workspace: Mapping[str, object], root: object, page: object | None,
         rows.append(
             {
                 "metric": (str(item.get("label") or item.get("metric")), str(item.get("metric"))),
-                "value": format_value(item.get("value"), PILLAR3_METRICS.get(str(item.get("metric")), ("", ""))[1].casefold()),
+                "value": format_value(item.get("value"), str(item.get("unit") or "").casefold()),
                 "period": str(item.get("period") or ""),
                 "source": (f"{document.get('title', 'document')} · page {item.get('page')}", str(item.get("printed_text") or "")[:90]),
                 "flags": _text(flags or "none", size=12, color=theme.AMBER if flags else theme.INK3),

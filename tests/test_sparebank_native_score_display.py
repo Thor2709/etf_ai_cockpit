@@ -56,11 +56,11 @@ def test_latest_sparebank_scores_takes_latest_native_run(tmp_path: Path) -> None
     assert float(latest["MING"]["final_combined_score_10"]) == 5.5
 
 
-def test_below_floor_bank_withholds_generic_score_labelled_pending(monkeypatch) -> None:
+def test_below_floor_bank_keeps_generic_score_labelled_pending(monkeypatch) -> None:
     _history(monkeypatch, {})
     generic = simple_scores.replace(_status("HELG"), final_score_10=6.1, source_group="Primary", one_line_reason="Momentum strong.")
     pending = simple_scores._as_sparebank_pending(generic)
-    assert pending.final_score_10 is None
+    assert pending.final_score_10 == 6.1
     assert pending.source_group == simple_scores.SPAREBANKEN_TIER_LABEL
     assert pending.decision == "Sparebank scorecard pending"
-    assert pending.one_line_reason.startswith("Sparebank scorecard pending") and "insufficient native filing evidence" in pending.one_line_reason
+    assert pending.one_line_reason.startswith("Generic stock score shown") and "Momentum strong." in pending.one_line_reason

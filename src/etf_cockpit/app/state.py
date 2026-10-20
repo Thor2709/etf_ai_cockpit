@@ -409,7 +409,9 @@ class AppState:
                 self.financial_projection = load_financial_institution_projection(
                     selected,
                     storage_root=ROOT,
-                    decision_time=None,  # live view decides as of now
+                    # Same cutoff as the detail view's loader call (whole snapshot day), so the cached projection never
+                    # carries evidence that is later than the snapshot it is shown with.
+                    decision_time=f"{cutoff_value}T23:59:59Z" if cutoff_value is not None else None,
                     effective_at=None,  # latest reported period; an as-of date is not a reporting period
                 )
             except Exception as exc:

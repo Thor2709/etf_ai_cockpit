@@ -134,7 +134,9 @@ def build_sparebank_scorecard(
             row = dict(input_rule)
             value = _input_value(row, context)
             source = _input_source(row, context)
-            missing_provenance = value is not None and source is None
+            # Only bank-metric numeric evidence must carry its own provenance; events, market and valuation
+            # inputs have other source contracts.
+            missing_provenance = value is not None and source is None and str(row.get("source") or "").startswith("bank_economics.")
             if missing_provenance:
                 value = None
             scored = not bool(row.get("display_only"))
@@ -493,6 +495,12 @@ def _input_source(rule: Mapping[str, object], context: Mapping[str, object]) -> 
         provenance = _field(context.get("analysis"), "provenance", {})
         if isinstance(provenance, Mapping):
             for item in provenance.values():
+                add(item)
+    if not citations and not path.startswith("bank_economics."):
+        # Non-bank inputs (events, market and valuation inputs) keep the general fallback: their source is a
+        # citation when one is recorded, never a reason to withhold the value.
+        if isinstance(parent_provenance, Mapping):
+            for item in parent_provenance.values():
                 add(item)
     unique = tuple(dict.fromkeys(item for item in citations if item))
     return " | ".join(unique) or None

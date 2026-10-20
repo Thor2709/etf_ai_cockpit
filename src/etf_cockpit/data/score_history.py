@@ -4,6 +4,7 @@ import hashlib
 import json
 import threading
 from dataclasses import dataclass
+from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Literal
@@ -710,20 +711,38 @@ def _current_sparebank_formula_version() -> str | None:
         return None
 
 
+def _current_sparebank_formula_checksum() -> str | None:
+    try:
+        from etf_cockpit.analysis.sparebank import load_sparebank_scorecard_policy
+
+        return str(load_sparebank_scorecard_policy().formula_checksum)
+    except Exception:  # the checksum cannot be verified: no stored native score is shown
+        return None
+
+
+def _decision_cutoff(value: object) -> pd.Timestamp | None:
+    """UTC cutoff for a decision time; ``None`` is the live view and a date-only value is the whole day (inclusive)."""
+
+    if value is None:
+        return None
+    date_only = (isinstance(value, date) and not isinstance(value, datetime)) or (isinstance(value, str) and len(value.strip()) == 10)
+    stamp = pd.to_datetime(value, errors="coerce", utc=True)
+    if date_only and not pd.isna(stamp):
+        return stamp.normalize() + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+    return stamp
+
+
 def latest_sparebank_scores(*, root: Path | None = None, decision_time: object = None) -> dict[str, dict[str, object]]:
     """Latest native Sparebank scorecard row per instrument (run ids ``sparebank:<id>:<time>``)."""
 
     path = (Path(root) if root is not None else ROOT) / "data" / "derived" / "score_history.parquet"
-    try:
-        from etf_cockpit.analysis.sparebank import load_sparebank_scorecard_policy
-        policy = load_sparebank_scorecard_policy()
-    except (OSError, ValueError):
+    formula_version, checksum = _current_sparebank_formula_version(), _current_sparebank_formula_checksum()
+    if not formula_version or not checksum:
         return {}
-    formula_version, checksum = policy.formula_version, policy.formula_checksum
-    cutoff = pd.to_datetime(decision_time, errors="coerce", utc=True) if decision_time is not None else pd.Timestamp.now(tz="UTC")
-    if pd.isna(cutoff):
+    cutoff = _decision_cutoff(decision_time)
+    if cutoff is not None and pd.isna(cutoff):
         return {}
-    key = (str(path), path.stat().st_mtime_ns if path.exists() else None, formula_version, checksum, str(cutoff))
+    key = (str(path), path.stat().st_mtime_ns if path.exists() else None, formula_version, checksum, None if cutoff is None else str(cutoff))
     if _SPAREBANK_CACHE.get("key") == key:
         return _SPAREBANK_CACHE["value"]  # type: ignore[return-value]
     if not path.exists():
@@ -745,10 +764,10 @@ def latest_sparebank_scores(*, root: Path | None = None, decision_time: object =
     native = native.loc[native["formula_version"].eq(formula_version) & native["formula_checksum"].eq(checksum)].copy()
     for column in ("run_started_at", "run_completed_at"):
         stamps = pd.to_datetime(native[column], errors="coerce", utc=True)
-        native = native.loc[stamps.notna() & stamps.le(cutoff)].copy()
+        native = native.loc[stamps.notna() & (stamps.le(cutoff) if cutoff is not None else True)].copy()
     if "known_at" in native.columns:
         stamps = pd.to_datetime(native["known_at"], errors="coerce", utc=True)
-        native = native.loc[stamps.notna() & stamps.le(cutoff)].copy()
+        native = native.loc[stamps.notna() & (stamps.le(cutoff) if cutoff is not None else True)].copy()
     native["_completed"] = pd.to_datetime(native["run_completed_at"], utc=True)
     latest: dict[str, dict[str, object]] = {}
     for row in native.sort_values(["_completed", "run_id"], kind="stable").drop(columns="_completed").to_dict("records"):

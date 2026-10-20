@@ -9,7 +9,7 @@ document, page and printed text. A figure is **pending** until the owner confirm
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -59,7 +59,7 @@ def load_queue(root: Path, instrument_id: str, *, decision_time: object = None) 
         return {"schema_version": SCHEMA_VERSION, "instrument_id": str(instrument_id).upper(), "documents": [], "figures": []}
     payload.setdefault("documents", [])
     if decision_time is not None:
-        cutoff = _parse(decision_time)
+        cutoff = _parse_cutoff(decision_time)
         figures = []
         for original in payload["figures"]:
             if not isinstance(original, Mapping) or cutoff is None:
@@ -81,7 +81,9 @@ def load_queue(root: Path, instrument_id: str, *, decision_time: object = None) 
                 item.pop("superseded_by", None)
             figures.append(item)
         document_ids = {item.get("document_id") for item in figures}
-        payload = {**payload, "figures": figures, "documents": [item for item in payload["documents"] if isinstance(item, Mapping) and item.get("document_id") in document_ids], "read_only": True}
+        # Owner decisions apply to the live queue: the view is read-only only when the cutoff changed what it shows.
+        historical = figures != list(payload["figures"])
+        payload = {**payload, "figures": figures, "documents": [item for item in payload["documents"] if isinstance(item, Mapping) and item.get("document_id") in document_ids], "read_only": historical}
     return payload
 
 
@@ -171,7 +173,7 @@ def pending_count(root: Path, instrument_id: str) -> int:
 def confirmed_figures(queue: Mapping[str, object], decision_time: str | None) -> list[Mapping[str, object]]:
     """Active confirmed figures at ``decision_time``, including retained historical states."""
 
-    cutoff = _parse(decision_time) if decision_time else None
+    cutoff = _parse_cutoff(decision_time) if decision_time else None
     best: dict[tuple[str, str], Mapping[str, object]] = {}
     for item in queue.get("figures", ()):
         if not isinstance(item, Mapping) or item.get("status") != "confirmed":
@@ -201,3 +203,12 @@ def _parse(value: object) -> datetime | None:
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _parse_cutoff(value: object) -> datetime | None:
+    """A date-only cutoff covers the whole day (inclusive), like every other decision date in the product."""
+
+    parsed = _parse(value)
+    if parsed is not None and len(str(value).strip()) == 10:
+        return parsed + timedelta(days=1) - timedelta(microseconds=1)
+    return parsed

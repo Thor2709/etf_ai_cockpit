@@ -1626,8 +1626,12 @@ def build_universe_simple_scores(
                 latest=latest_prices.get(identity.id),
                 decision_time=signal.signal_date,
             )
-            output.append(native)
-            continue
+            if native.final_score_10 is not None:
+                output.append(native)
+                continue
+            # Owner 2026-10-09 (binding, 2026-10-20): every instrument gets a score; below the scorecard evidence
+            # floor the canonical generic 0-10 stock score is shown, labelled as pending the Sparebank scorecard.
+            pending_sparebank.add(identity.id)
         price_info = latest_prices.get(signal.etf_id, {})
         quality_info = price_quality.get(signal.etf_id, {})
         liquidity_info = liquidity.get(signal.etf_id, {})
@@ -1856,15 +1860,23 @@ def build_universe_simple_scores(
 
 
 def _as_sparebank_pending(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
-    """Withhold generic underwriting until native filing evidence is available."""
+    """Canonical generic 0-10 stock score for a Sparebank EC whose native scorecard is below its evidence floor.
 
+    A value outside the canonical 0-10 range (a raw legacy score) is never shown.
+    """
+
+    value = score.final_score_10
+    canonical = value if value is not None and isfinite(float(value)) and 0 <= float(value) <= 10 else None
     return replace(
         score,
         source_group=SPAREBANKEN_TIER_LABEL,
         analysis_tier="sparebanken",
-        final_score_10=None,
+        final_score_10=canonical,
         decision="Sparebank scorecard pending",
-        one_line_reason="Sparebank scorecard pending: insufficient native filing evidence.",
+        one_line_reason=(
+            "Generic stock score shown: the Sparebank scorecard is pending (not enough filing evidence for a "
+            f"composite yet). {score.one_line_reason}"
+        ).strip(),
     )
 
 

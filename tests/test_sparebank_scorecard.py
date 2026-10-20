@@ -41,7 +41,6 @@ def _complete_scorecard(*, price: float = 100.0, tactical: dict[str, object] | N
         },
         valuation_assumptions={
             "central_owner_value_per_ec": 130.0,
-            "assumption_source": "fixture:owner valuation assumptions",
             "cost_of_equity": 0.05,
             "marketability": {"days_to_trade": 21.0},
         },
