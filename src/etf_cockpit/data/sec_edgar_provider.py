@@ -15,6 +15,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import threading
 import time
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -58,6 +59,10 @@ class _SessionGeneration:
     media_type: str
     http_status: int
     revalidated: bool = False
+
+
+_RATE_LOCK = threading.RLock()
+_SHARED_LAST_REQUEST: dict[Callable[[], float], float] = {}
 
 
 class SecEdgarProvider:
@@ -444,13 +449,18 @@ class SecEdgarProvider:
             raise
 
     def _respect_rate_limit(self) -> None:
-        now = self._monotonic()
-        if self._last_request_at is not None:
-            remaining = self.rate_limit_seconds - (now - self._last_request_at)
-            if remaining > 0:
-                self._sleep(remaining)
-                now = self._monotonic()
-        self._last_request_at = now
+        # SEC limits per client, not per provider object: every instance on the same clock shares
+        # one last-request time, and the check-and-sleep is serialised across threads.
+        with _RATE_LOCK:
+            now = self._monotonic()
+            last = _SHARED_LAST_REQUEST.get(self._monotonic, self._last_request_at)
+            if last is not None:
+                remaining = self.rate_limit_seconds - (now - last)
+                if remaining > 0:
+                    self._sleep(remaining)
+                    now = self._monotonic()
+            self._last_request_at = now
+            _SHARED_LAST_REQUEST[self._monotonic] = now
 
 
 def _normalise_cik(value: object) -> str:
@@ -509,13 +519,16 @@ def _parse_json(payload: bytes) -> dict[str, Any]:
 
 
 def _validate_identity(payload: dict[str, Any], expected_cik: str) -> None:
-    actual = payload.get("cik", payload.get("cik_str"))
-    if actual is None:
+    supplied = [payload[key] for key in ("cik", "cik_str") if key in payload and payload[key] is not None]
+    if not supplied:
         raise ValueError("SEC response is missing CIK identity")
     try:
-        actual_cik = _normalise_cik(actual)
+        normalised = {_normalise_cik(value) for value in supplied}
     except ValueError as exc:
         raise ValueError("SEC response contains an invalid CIK identity") from exc
+    if len(normalised) > 1:
+        raise ValueError("SEC response cik and cik_str disagree")
+    actual_cik = next(iter(normalised))
     if actual_cik != expected_cik:
         raise ValueError(f"SEC response CIK {actual_cik} does not match requested CIK {expected_cik}")
 

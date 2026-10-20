@@ -42,13 +42,13 @@ def test_s3_01_valid_score_evidence_passes_authority():
 
 def test_s3_02_log_forecast_units_are_respected():
     p = pd.DataFrame({
-        "etf_id": ["X"] * 5,
-        "date": pd.date_range("2026-01-01", periods=5),
-        "adjusted_close": [100, 110, 110, 110, 110],
+        "etf_id": ["X"] * 8,
+        "date": pd.date_range("2026-01-01", periods=8),
+        "adjusted_close": [100, 100, 100, 100, 100, 110, 110, 110],
     })
     f = pd.DataFrame([dict(
-        etf_id="X", model_name="baseline", forecast_date="2026-01-01", horizon_days=1,
-        expected_return=math.log(1.1), q10_return=math.log(1.099), q90_return=math.log(1.101),
+        etf_id="X", model_name="baseline", forecast_date="2026-01-01", horizon_days=5,
+        target_id="adj_close_log_return_5d", expected_return=math.log(1.1), q10_return=math.log(1.099), q90_return=math.log(1.101),
         status="ok", model_allowed_in_score=True,
     )])
     c = evaluate_forecast_calibration(f, p).iloc[0]
@@ -146,7 +146,11 @@ def test_s3_06_drawdown_is_peak_to_trough_inside_window():
 
 def test_s3_07_baseline_ensemble_weight_is_preserved():
     config = N(models=N(ensemble={"weights": {"momentum": 0.5, "baseline_ml": 0.5}}))
-    row = {"etf_id": "X", "score_momentum": 0.0, "score_baseline_ml": 1.0}
+    # #939: a score below 0.50 coverage is unavailable, so the row carries the other (unweighted) evidence as well.
+    row = {
+        "etf_id": "X", "score_momentum": 0.0, "score_baseline_ml": 1.0, "score_trend": 0.0, "score_relative_strength": 0.0,
+        "score_risk": 0.0, "score_rebalance": 0.0, "cost_penalty": 0.0, "score_etf_exposure": 0.0,
+    }
     unknown = canonical_score_from_signal_row(row, config, "2026-01-01")
     score = canonical_score_from_signal_row({**row, "price_freshness": "ok"}, config, "2026-01-01")
     # P04-N012: a decision date alone does not establish price freshness.

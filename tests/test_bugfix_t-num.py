@@ -491,7 +491,8 @@ def test_int_num_3_undated_forecasts_never_select_as_latest(invalid_date) -> Non
 
     dated = {"etf_id": "ETF-A", "model_name": "baseline", "forecast_date": "2026-09-01T16:00:00Z",
              "horizon_days": 60, "expected_return": 0.1, "q10_return": -0.1, "q50_return": 0.1,
-             "q90_return": 0.2, "status": "ok", "model_allowed_in_score": True, "run_id": "run-a"}
+             "q90_return": 0.2, "status": "ok", "model_allowed_in_score": True, "run_id": "run-a",
+             "target_id": "adj_close_log_return_60d"}
     undated = {**dated, "forecast_date": invalid_date, "expected_return": 0.9, "q50_return": 0.9,
                "q90_return": 1.0, "run_id": "run-b"}
     frame = pd.DataFrame([dated, undated])

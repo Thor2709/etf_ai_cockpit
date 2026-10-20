@@ -82,11 +82,11 @@ def test_sixty_day_baseline_and_timesfm_have_identical_units_and_benchmark_proba
     assert timesfm.forecast_vol == pytest.approx(baseline.forecast_vol, abs=1e-14)
     assert baseline.forecast_vol == pytest.approx((baseline.q90_return - baseline.q10_return) / 2 / 1.2816)
     processed = _postprocess_forecast_benchmark_fields([timesfm, baseline], pd.Series([0.001] * 100))
-    assert processed[0].prob_beat_benchmark == pytest.approx(processed[1].prob_beat_benchmark, abs=1e-14)
+    assert processed[0].heuristic_probability_beat_benchmark == pytest.approx(processed[1].heuristic_probability_beat_benchmark, abs=1e-14)
     assert _quantile_vol_proxy(np.nan, 0.1, 60) is None
     assert _quantile_vol_proxy(0.1, -0.1, 60) is None
     # A very adverse benchmark must saturate safely without exp overflow.
-    assert _postprocess_forecast_benchmark_fields([timesfm], pd.Series([1e6]))[0].prob_beat_benchmark == 0
+    assert _postprocess_forecast_benchmark_fields([timesfm], pd.Series([1e6]))[0].heuristic_probability_beat_benchmark == 0
 
 
 @pytest.mark.parametrize("bad_level", [-1.0, 0.0, np.nan, np.inf])

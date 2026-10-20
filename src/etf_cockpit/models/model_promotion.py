@@ -21,8 +21,11 @@ from etf_cockpit.core.config import ModelPromotionSettings
 from etf_cockpit.core.values import finite_float_or_none
 from etf_cockpit.models.calibration import (
     calibration_grade,
+    PROBABILITY_UNAVAILABLE,
     evaluate_forecast_calibration,
+    probability_admission,
     realised_horizon_return,
+    target_matches_evaluation,
 )
 
 OPTIONAL_MODELS = ("timesfm", "timesfm3", "toto")
@@ -32,6 +35,135 @@ BASELINE_MODEL = "baseline"
 # Every optional model also requires evidence after its first verified local run.
 PRETRAINING_CUTOFFS: dict[str, date] = {"timesfm3": date(2023, 11, 30)}
 PRETRAINING_SOURCES: dict[str, str] = {"timesfm3": "Partial: Wikipedia through Nov 2023; Google Trends through Dec 2022; other corpora have no verified cutoff"}
+
+
+@dataclass(frozen=True)
+class CheckpointProvenance:
+    """Identity, licence and leakage evidence of one model checkpoint. Nothing is inherited from another."""
+
+    model_name: str
+    model_sha: str | None
+    config: Mapping[str, object]
+    licence: str
+    pretraining_cutoff: date | None
+    cutoff_scope: str
+    note: str = ""
+
+    def as_row(self) -> dict[str, object]:
+        return {
+            "model_name": self.model_name,
+            "checkpoint_sha": self.model_sha or "unknown",
+            "checkpoint_config": dict(self.config),
+            "checkpoint_licence": self.licence,
+            "pretraining_cutoff": self.pretraining_cutoff.isoformat() if self.pretraining_cutoff else "unknown",
+            "cutoff_scope": self.cutoff_scope,
+            "checkpoint_note": self.note,
+        }
+
+    def leakage_flag(self, origin: date) -> str:
+        """``possibly_leaked`` unless this checkpoint's own cutoff is declared and the origin follows it.
+
+        Even then a published cutoff is partial evidence only, never proof of no leakage.
+        """
+
+        if self.pretraining_cutoff is None or origin <= self.pretraining_cutoff:
+            return "possibly_leaked"
+        return "after_declared_cutoff"
+
+
+# Declared licence facts only; an unrecorded fact is "unknown", never copied from another checkpoint.
+_CHECKPOINT_LICENCES: dict[str, tuple[str, str]] = {
+    "timesfm3": ("non-commercial", "Owner-approved for personal use only; not wired for commercial use."),
+}
+
+
+def checkpoint_provenance(
+    model_name: str,
+    *,
+    model_sha: str | None = None,
+    config: Mapping[str, object] | None = None,
+) -> CheckpointProvenance:
+    """Provenance of ``model_name``; the cutoff comes from ``PRETRAINING_CUTOFFS`` for that model alone.
+
+    ``model_sha`` is supplied by the caller from the checkpoint's recorded revision (weights are
+    never opened here); a blank value stays unknown.
+    """
+
+    licence, note = _CHECKPOINT_LICENCES.get(model_name, ("unknown", ""))
+    cutoff = PRETRAINING_CUTOFFS.get(model_name)
+    return CheckpointProvenance(
+        model_name=model_name,
+        model_sha=(model_sha.strip() or None) if isinstance(model_sha, str) else None,
+        config=dict(config or {}),
+        licence=licence,
+        pretraining_cutoff=cutoff,
+        cutoff_scope="partial" if cutoff is not None else "unknown",
+        note=note,
+    )
+
+
+def matured_probability_frame(
+    history: pd.DataFrame,
+    prices: pd.DataFrame,
+    model_name: str,
+    as_of: date,
+    *, model_version: str | None = None, target_id: str | None = None, horizon_days: int | None = None,
+) -> pd.DataFrame:
+    """Matured (forecast_date, probability, outcome) rows of one model's P(up) forecasts.
+
+    The probability is ``prob_positive_return`` when present, else ``heuristic_probability_positive``:
+    unadmitted models store their value only in the heuristic column, and admission is what decides
+    whether it may ever become a user-facing probability.
+
+    Only provenance-verified forecasts made on or before ``as_of`` whose target session exists in the
+    prices known at ``as_of`` qualify; the outcome is 1 when the realised adjusted-close log return is
+    positive. Rows with a mismatched registered target or an out-of-range probability are dropped.
+    """
+
+    columns = ["forecast_date", "probability", "outcome", "actual", "horizon_days", "q10_return", "q50_return", "q90_return"]
+    if not model_version or horizon_days is None or not target_matches_evaluation(target_id, horizon_days):
+        return pd.DataFrame(columns=columns)
+    diagnostic_history = history.copy()
+    if "reason_unavailable" in diagnostic_history and "status" in diagnostic_history:
+        diagnostic_only = diagnostic_history["status"].eq("unavailable") & diagnostic_history["reason_unavailable"].eq(
+            "Insufficient finite per-horizon calibration metrics or effective dates."
+        )
+        # These rows remain unavailable in storage/publication; only matured diagnostics may
+        # establish future evidence after their original target and lineage are verified below.
+        diagnostic_history.loc[diagnostic_only, "status"] = "ok"
+    forecasts = _normalised_history(diagnostic_history, as_of)
+    own = forecasts.loc[forecasts["model_name"].eq(model_name.lower()) & forecasts["provenance_verified"]]
+    own = own.loc[own["model_version"].eq(model_version) & own["target_id"].eq(target_id) & own["horizon_days"].eq(horizon_days)]
+    price_series = _price_series(prices, as_of)
+    rows: list[dict[str, object]] = []
+    for row in own.itertuples():
+        probability = finite_float_or_none(row.prob_positive_return)
+        if probability is None:
+            probability = finite_float_or_none(row.heuristic_probability_positive)
+        series = price_series.get(row.etf_id)
+        if probability is None or not 0.0 <= probability <= 1.0 or series is None or len(series) < 5:
+            continue
+        if not target_matches_evaluation(row.target_id, int(row.horizon_days)):
+            continue
+        actual = realised_horizon_return(series, row.forecast_date, int(row.horizon_days))
+        if actual is not None:
+            rows.append({"forecast_date": row.forecast_date, "probability": probability, "outcome": int(actual > 0), "actual": actual, "horizon_days": row.horizon_days, "q10_return": row.q10_return, "q50_return": row.q50_return, "q90_return": row.q90_return})
+    return pd.DataFrame(rows, columns=columns)
+
+
+def positive_probability_status(history: pd.DataFrame, prices: pd.DataFrame, model_name: str, as_of: date, **scope: object) -> str:
+    """``calibrated`` only when the model's matured probabilities pass chronological admission, else ``unavailable``."""
+
+    from etf_cockpit.models.calibration import horizon_calibration_scores
+
+    evidence = matured_probability_frame(history, prices, model_name, as_of, **scope)
+    metrics = horizon_calibration_scores(evidence)
+    if metrics.empty or not metrics["status"].eq("ok").all():
+        return PROBABILITY_UNAVAILABLE
+    admission = probability_admission(evidence)
+    return str(admission.get("status") or PROBABILITY_UNAVAILABLE)
+
+
 COUNTING = "counting"
 NOT_PROVEN = "not_proven"
 PROMOTION_COLUMNS = [
@@ -172,7 +304,7 @@ def _decide(
     common["excluded_pre_cutoff"] = excluded
     eligible = at_horizon.loc[at_horizon["forecast_date"] > pd.Timestamp(start)]
     pairs = eligible.merge(
-        baseline.loc[baseline["provenance_verified"], ["etf_id", "forecast_date", "expected_return"]].drop_duplicates(["etf_id", "forecast_date"], keep="last").rename(columns={"expected_return": "baseline_return"}),
+        baseline.loc[baseline["provenance_verified"], ["etf_id", "forecast_date", "expected_return", "target_id"]].drop_duplicates(["etf_id", "forecast_date"], keep="last").rename(columns={"expected_return": "baseline_return", "target_id": "baseline_target_id"}),
         on=["etf_id", "forecast_date"],
         how="inner",
     )
@@ -232,8 +364,11 @@ def _matured_pairs(pairs: pd.DataFrame, price_series: dict[str, pd.Series], hori
 
     if pairs.empty:
         return pairs
+    # A registered target of another horizon or return space cannot count as evidence for this one.
     keep = [
-        realised_horizon_return(series, row.forecast_date, horizon) is not None
+        target_matches_evaluation(row.target_id, horizon)
+        and target_matches_evaluation(row.baseline_target_id, horizon)
+        and realised_horizon_return(series, row.forecast_date, horizon) is not None
         if (series := price_series.get(row.etf_id)) is not None and len(series) >= 5
         else False
         for row in pairs.itertuples()
@@ -244,8 +379,10 @@ def _matured_pairs(pairs: pd.DataFrame, price_series: dict[str, pd.Series], hori
 def _paired_scores(matured: pd.DataFrame, price_series: dict[str, pd.Series]) -> dict[str, object]:
     """Pool per-instrument oos_mase / oos_directional_accuracy for the model and baseline on identical pairs."""
 
-    base = matured[["etf_id", "forecast_date", "horizon_days", "baseline_return"]].rename(columns={"baseline_return": "expected_return"})
-    model_columns = ["etf_id", "forecast_date", "horizon_days", "expected_return", *[name for name in ("q10_return", "q90_return") if name in matured]]
+    base = matured[["etf_id", "forecast_date", "horizon_days", "baseline_return", "baseline_target_id"]].rename(
+        columns={"baseline_return": "expected_return", "baseline_target_id": "target_id"}
+    )
+    model_columns = ["etf_id", "forecast_date", "horizon_days", "target_id", "expected_return", *[name for name in ("q10_return", "q90_return") if name in matured]]
     frame = pd.concat(
         [
             matured[model_columns].assign(model_name="model"),
@@ -292,7 +429,7 @@ def _pool(rows: pd.DataFrame) -> tuple[float | None, float | None, int]:
 
 def _normalised_history(history: pd.DataFrame, as_of: date) -> pd.DataFrame:
     columns = ["model_name", "etf_id", "forecast_date", "horizon_days", "expected_return"]
-    lineage = ["model_version", "created_at", "run_id", "q10_return", "q90_return"]
+    lineage = ["model_version", "created_at", "run_id", "q10_return", "q50_return", "q90_return", "target_id", "prob_positive_return", "heuristic_probability_positive"]
     empty = pd.DataFrame(columns=[*columns, "status", *lineage, "provenance_verified"])
     if history is None or history.empty or not {*columns, "status"}.issubset(history.columns):
         return empty
@@ -303,7 +440,7 @@ def _normalised_history(history: pd.DataFrame, as_of: date) -> pd.DataFrame:
         frame[name] = frame[name].astype("string").str.strip().replace({"": pd.NA, "nan": pd.NA, "None": pd.NA})
     frame["forecast_date"] = pd.to_datetime(frame["forecast_date"], errors="coerce", utc=True, format="mixed").dt.tz_convert(None).dt.normalize()
     frame["created_at"] = pd.to_datetime(frame["created_at"], errors="coerce", utc=True, format="mixed").dt.tz_convert(None)
-    for name in ("horizon_days", "expected_return", "q10_return", "q90_return"):
+    for name in ("horizon_days", "expected_return", "q10_return", "q90_return", "prob_positive_return", "heuristic_probability_positive"):
         frame[name] = pd.to_numeric(frame[name], errors="coerce")
     # Date-only forecast artefacts use the end of the UTC origin day. A timestamp
     # after that boundary cannot establish a forecast made at the origin.

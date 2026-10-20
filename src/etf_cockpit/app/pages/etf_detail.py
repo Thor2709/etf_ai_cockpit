@@ -19,6 +19,7 @@ from etf_cockpit.application.ui_facade import (
     load_fundamental_evidence,
     load_market_series_projection,
     load_news_items,
+    log_to_simple_return,
     raw_to_score_10,
     sort_news_items,
 )
@@ -295,6 +296,13 @@ def _news_panel(instrument_id: str) -> ft.Control:
     return panel(ft.Column([section_header("News & context", "Source URL, published/ingested time, mapping and availability are shown; context cannot alter final action."), *rows]))
 
 
+def _log_return_label(log_return: object) -> str:
+    """Forecast expected returns are log returns; show the equivalent simple return exp(y) - 1."""
+
+    simple = log_to_simple_return(log_return)
+    return "N/A" if simple is None else f"{simple:+.1%}"
+
+
 def _forecast_table(frame) -> ft.Control:
     if frame.empty:
         return ft.Text("No valid forecast rows are loaded for this instrument. Run scripts/run_forecasts.py to refresh baseline, Toto and TimesFM outputs.", color=theme.MUTED)
@@ -305,7 +313,7 @@ def _forecast_table(frame) -> ft.Control:
                 cells=[
                     ft.DataCell(ft.Text(str(row["model_name"]).title(), color=theme.TEXT, size=12)),
                     ft.DataCell(ft.Text(str(row["horizon_days"]), color=theme.MUTED, size=12)),
-                    ft.DataCell(ft.Text(f"{float(row['expected_return']):+.1%}", color=theme.TEXT, size=12)),
+                    ft.DataCell(ft.Text(_log_return_label(row["expected_return"]), color=theme.TEXT, size=12)),
                     ft.DataCell(ft.Text(_score_label(float(row["score"])), color=score_colour(raw_to_score_10(float(row["score"]))), size=12, weight=ft.FontWeight.BOLD)),
                 ]
             )

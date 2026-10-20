@@ -31,6 +31,7 @@ from etf_cockpit.app.components.kit import (
     field_input_style,
 )
 from etf_cockpit.application import stock_service as service
+from etf_cockpit.application.ui_facade import log_to_simple_return
 from etf_cockpit.application.stock_views import (
     PEER_COLUMNS,
     ComponentRow,
@@ -433,6 +434,13 @@ def _clean(value: object) -> str:
     return _DASH if text.casefold() in {"", "unverified", "unavailable", "none", "nan"} else text
 
 
+def _log_percent(log_return: object) -> str:
+    """Forecast quantiles are log returns; show the equivalent simple return exp(y) - 1."""
+
+    simple = log_to_simple_return(log_return)
+    return _DASH if simple is None else f"{simple * 100:.1f}%"
+
+
 def _percent(value: object) -> str:
     try:
         return f"{float(value) * 100:.1f}%"  # type: ignore[arg-type]
@@ -471,7 +479,7 @@ def risk_cards(snapshot: Any, instrument_id: str) -> list[ft.Control]:
                 {
                     "model": str(row.get("model_name")),
                     "horizon": f"{int(row.get('horizon_days'))} days" if row.get("horizon_days") == row.get("horizon_days") else _DASH,
-                    "range": f"{_percent(row.get('q10_return'))} / {_percent(row.get('q50_return'))} / {_percent(row.get('q90_return'))}" if ok else _DASH,
+                    "range": f"{_log_percent(row.get('q10_return'))} / {_log_percent(row.get('q50_return'))} / {_log_percent(row.get('q90_return'))}" if ok else _DASH,
                     "why": "" if ok else _short(str(row.get("reason_unavailable") or row.get("error_message") or row.get("status")), 140),
                 }
             )

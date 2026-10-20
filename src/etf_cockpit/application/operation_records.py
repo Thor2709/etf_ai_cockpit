@@ -17,6 +17,7 @@ from etf_cockpit.portfolio.event_controls import EventBlockPolicy, evaluate_even
 
 OperationEnvironment = Literal["paper", "live"]
 OperationStatus = Literal["preview", "queued", "running", "completed", "cancelled", "failed", "blocked"]
+TERMINAL_OPERATION_STATUSES = frozenset({"completed", "cancelled", "failed"})
 
 
 @dataclass(frozen=True)
@@ -102,23 +103,54 @@ def build_operation_preview(
         quantity=float(quantity),
         currency=str(currency).strip().upper() or "EUR",
         status=status,
-        preview={
-            "instrument_id": instrument,
-            "quantity": float(quantity),
-            "currency": str(currency).strip().upper() or "EUR",
-            "estimated_notional": None,
-            "assumptions": ["No live quote or broker fill is requested.", "Paper preview is evidence, not an order."],
-        },
+        preview=_bound_preview(
+            {
+                "instrument_id": instrument,
+                "quantity": float(quantity),
+                "currency": str(currency).strip().upper() or "EUR",
+                "estimated_notional": None,
+                "assumptions": ["No live quote or broker fill is requested.", "Paper preview is evidence, not an order."],
+            },
+            operation_id,
+        ),
         authority=authority,
         result={"status": status, "message": message},
         audit={"record_id": operation_id, "workflow_id": None, "event_chain": "local_durable_scheduler", "event_control": event_decision.to_payload()},
     )
 
 
+def terminal_operation_record(operation_id: str, *, directory: Path = OPERATIONS_DIR) -> dict[str, object] | None:
+    """Return the stored record of ``operation_id`` when it already reached a terminal status."""
+
+    try:
+        stored = json.loads((directory / f"{operation_id}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if isinstance(stored, dict) and stored.get("status") in TERMINAL_OPERATION_STATUSES:
+        return stored
+    return None
+
+
 def save_operation_record(record: OperationRecord, *, directory: Path = OPERATIONS_DIR) -> Path:
+    """Persist ``record``; a completed, cancelled or failed audit record is never overwritten."""
+
     path = directory / f"{record.operation_id}.json"
+    if terminal_operation_record(record.operation_id, directory=directory) is not None:
+        return path
     atomic_write_json(path, record.to_payload())
     return path
+
+
+def _bound_preview(content: dict[str, object], operation_id: str) -> dict[str, object]:
+    """Bind the descriptive preview content to the operation identity (the hash of its inputs)."""
+
+    bound = {**content, "inputs_hash": operation_id}
+    return {**bound, "content_hash": _content_hash(bound)}
+
+
+def _content_hash(preview: Mapping[str, object]) -> str:
+    body = {key: value for key, value in preview.items() if key != "content_hash"}
+    return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def _preview_id(environment: str, instrument: str, quantity: float, currency: str, event_control: dict) -> str:
@@ -160,6 +192,21 @@ def validate_operation_record(payload: Mapping[str, object], *, for_submission: 
         decision = verify_event_control(event, target="order_preview", instrument_id=instrument)
         if payload.get("operation_id") != _preview_id(environment, instrument, quantity, currency, event):
             raise ValueError("Operation identity does not match event evidence")
+        preview = payload.get("preview")
+        if isinstance(preview, Mapping) and "content_hash" in preview:
+            if (
+                preview.get("inputs_hash") != payload.get("operation_id")
+                or preview.get("content_hash") != _content_hash(preview)
+                or (preview.get("instrument_id"), preview.get("quantity"), preview.get("currency")) != (instrument, quantity, currency)
+            ):
+                raise ValueError("Operation preview content is not bound to its inputs")
+        elif for_submission:
+            raise ValueError("Operation preview content is unbound; create a fresh preview")
+        elif isinstance(preview, Mapping) and any(
+            key in preview and preview[key] != value
+            for key, value in (("instrument_id", instrument), ("quantity", quantity), ("currency", currency))
+        ):
+            raise ValueError("Operation preview content does not match its inputs")
         blocked = blocked or decision.blocks
     else:
         # Original v1 IDs hashed these exact fields before quantity was stored
@@ -204,4 +251,7 @@ def load_operation_records(*, directory: Path = OPERATIONS_DIR) -> tuple[dict[st
     return tuple(records)
 
 
-__all__ = ["OperationRecord", "build_operation_preview", "load_operation_records", "save_operation_record", "validate_operation_record"]
+__all__ = [
+    "OperationRecord", "TERMINAL_OPERATION_STATUSES", "build_operation_preview", "load_operation_records",
+    "save_operation_record", "terminal_operation_record", "validate_operation_record",
+]

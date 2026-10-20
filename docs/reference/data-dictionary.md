@@ -342,7 +342,7 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/data_providers.yaml | providers | — |
 | configs/data_source_policy.yaml | mandatory_tiers, policy_version, quota_failure, schema_version, sources | policy_version="2026-07-17"; schema_version="data-source-policy.v1" |
 | configs/decision_cutover_v1.yaml | monitoring, rankers, replay, schema_version, validation, version | schema_version=1; version=decision-cutover-v1.0.0 |
-| configs/decision_domains_v1.yaml | etf_decision_graph, hash_scheme, metrics, rank_cutover, schema_version, stock_decision, version | schema_version=1; version=decision-domains-v1.0.0 |
+| configs/decision_domains_v1.yaml | critical_evidence, etf_decision_graph, hash_scheme, metrics, rank_cutover, schema_version, stock_decision, version | schema_version=1; version=decision-domains-v1.0.0 |
 | configs/decision_opportunity_v1.yaml | labels, minimum_exposure_peer_sector_share, minimum_peer_support, minimum_universe_support, schema_version, timing, version | schema_version=1; version=opportunity-v1.0.0 |
 | configs/esef_extension_concepts.yaml | equity_member_rules, issuers | — |
 | configs/etf_tax_assumptions_v1.yaml | hedge_enabled, hedge_ratio, hedge_target_currency, known_at, source_withholding_label, source_withholding_rate, tax_enabled, tax_residence_country, version | version=1 |
@@ -361,6 +361,7 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/performance_budgets.yaml | budgets, policy_version, regression_tolerance_pct, schema_version | policy_version="2026-07-17"; schema_version="performance-budgets.v1" |
 | configs/plugin_registry.yaml | allowlist, execution_allowed, schema_version | schema_version="plugin-registry.v1" |
 | configs/portfolio_forecast_v1.yaml | scenario_count, scenario_seed, schema_version, stress_correlation | schema_version=portfolio_forecast.v1 |
+| configs/portfolio_policy_v1.yaml | approval, execution_allowed, historical_targets, passive_default, policy_id, schema_version, version | schema_version=portfolio-policy.v1; version=1.0.0 |
 | configs/portfolio_targets.yaml | base_currency, cash_min_weight, cash_target_weight, portfolio, positions | — |
 | configs/pre_trade_limits_v1.yaml | allowed_instruments, cancel_open_paper_orders_on_kill_switch, max_daily_turnover, max_order_value, max_override_ttl_seconds, max_position_exposure, schema_version | schema_version=pre_trade_limits.v1 |
 | configs/product_governance.yaml | authority, default_portfolio_review_state, default_research_state, executable_authority, execution_allowed, policy_id, policy_version, product, prohibited_claims, required_disclosures, schema_version | policy_version="2026-07-12"; schema_version="1.0" |

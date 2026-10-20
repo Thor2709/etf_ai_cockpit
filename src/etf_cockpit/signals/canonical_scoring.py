@@ -16,7 +16,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Mapping
 
 import yaml
 
@@ -24,6 +24,9 @@ from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.core.values import finite_float_or_none
 from etf_cockpit.models.ensemble import effective_ensemble_weights
+
+if TYPE_CHECKING:
+    from etf_cockpit.analysis.decision.contracts import CriticalGateResult, ScoreAuthorityFlags
 
 
 FORMULA_PATH = CONFIG_DIR / "score_engine_v3.yaml"
@@ -34,6 +37,34 @@ _LEGACY_WEIGHT_KEYS = {"baseline_ml": "baseline"}
 
 class CanonicalScoreError(ValueError):
     """Raised when the versioned canonical score policy is invalid."""
+
+
+# S3-02: model forecasts are a separate ``expected_return`` domain. Its weight in any rank is 0 until the #811
+# promotion (with the paired #928 test) records an explicit finite weight; the ``expected_return`` group weights in
+# ``score_engine_v3.yaml`` size that separate domain's own 0-10 value and are never rank weights.
+RANK_DOMAINS = ("attractiveness", "risk_implementation")
+FORECAST_DOMAIN = "expected_return"
+
+
+def rank_domain_weights(
+    policy: "ScorePolicy",
+    *,
+    forecast_promotion: Mapping[str, object] | None = None,
+) -> dict[str, float]:
+    """Rank weight per domain: the forecast domain is 0.0 unless a promotion record carries an explicit weight.
+
+    Fails closed: a promotion without ``promoted is True``, the paired ``test_id`` and a finite ``weight`` in (0, 1]
+    leaves the forecast weight at 0.0. The ranked domains are the policy's own group sums, unchanged.
+    """
+
+    weights = {group: float(sum(policy.groups.get(group, {}).values())) for group in RANK_DOMAINS}
+    weight = 0.0
+    if isinstance(forecast_promotion, Mapping) and forecast_promotion.get("promoted") is True and forecast_promotion.get("test_id"):
+        candidate = finite_float_or_none(forecast_promotion.get("weight"))
+        if candidate is not None and 0.0 < candidate <= 1.0:
+            weight = candidate
+    weights[FORECAST_DOMAIN] = weight
+    return weights
 
 
 @dataclass(frozen=True)
@@ -70,6 +101,7 @@ class CanonicalComponent:
     explanation: str
     source_vintage_hash: str | None = None
     conflict_id: str | None = None
+    as_of_date: str | None = None  # evidence date; the critical-evidence gates compare it with the decision date
 
     @property
     def eligible(self) -> bool:
@@ -123,6 +155,15 @@ class CanonicalScore:
     contributions: tuple[dict[str, object], ...]
     warnings: tuple[str, ...]
     explanations: tuple[str, ...]
+    # Critical-evidence gating (#939); empty/None when the caller did not request gate evaluation.
+    critical_gates: tuple["CriticalGateResult", ...] = ()
+    insufficient_groups: tuple[str, ...] = ()
+    authority: "ScoreAuthorityFlags | None" = None
+    unavailable_reason: str | None = None  # "critical_domain_insufficient" | "insufficient_coverage": no 0-10 value shown
+
+    @property
+    def gate_failed(self) -> bool:
+        return self.unavailable_reason is not None or any(not gate.passed for gate in self.critical_gates)
 
     @property
     def legacy_composite_10(self) -> float | None:
@@ -143,6 +184,18 @@ class CanonicalScore:
         }
 
     def as_dict(self) -> dict[str, object]:
+        payload = self._base_dict()
+        if self.critical_gates:
+            payload["critical_gates"] = [
+                {"gate_id": gate.gate_id, "status": gate.status, "missing": list(gate.missing), "reason_code": gate.reason_code}
+                for gate in self.critical_gates
+            ]
+            payload["insufficient_groups"] = list(self.insufficient_groups)
+            payload["unavailable_reason"] = self.unavailable_reason
+            payload["authority"] = None if self.authority is None else self.authority.as_dict()
+        return payload
+
+    def _base_dict(self) -> dict[str, object]:
         return {
             "schema_version": 3,
             "instrument_id": self.instrument_id,
@@ -241,7 +294,23 @@ def build_canonical_score(
     source_vintage_hash: str | None = None,
     structure_confidence_cap: float | None = None,
     structure_provenance: Mapping[str, object] | None = None,
+    critical_evidence: Iterable[str] | Mapping[str, object] | None = None,
+    business_model: str | None = None,
+    quality_status: str | None = None,
+    forecast_calibrated: bool = False,
+    benchmark_eligible: bool = False,
 ) -> CanonicalScore:
+    """Build the canonical score.
+
+    ``critical_evidence`` opts into the score gate (#939; ``None`` is the ungated calculation primitive, every
+    score entry point passes it): ids of evidence the caller holds beyond the eligible component keys (for example
+    ``market_cap`` or ``identity``), as a mapping to their as-of dates. A group tied to a failed gate is
+    ``insufficient_evidence`` (no score), never averaged up from its other inputs; stale or invalid critical
+    evidence, coverage below the policy minimum, or no non-price component makes the whole score unavailable. A
+    component reported not applicable leaves the group denominator only when the ``business_model`` definition
+    forbids it. A ``quality_status`` other than ``complete`` makes ``stock_quality`` partial and score-ineligible.
+    """
+
     if _is_sparebank_ec_asset_type(asset_type):
         raise CanonicalScoreError("EC instruments must use the native Sparebank scorecard")
     selected_policy = policy or load_score_policy(asset_type)
@@ -259,16 +328,52 @@ def build_canonical_score(
             continue
         seen_components.add(identity)
         source_components_list.append(component)
+    if quality_status is not None and quality_status != "complete":
+        # Below the minimum input count the quality component is partial: it adds no active weight and no coverage.
+        source_components_list = [
+            replace(component, status="partial")
+            if component.key == "stock_quality" and component.status.casefold() == "ok"
+            else component
+            for component in source_components_list
+        ]
     source_components = tuple(source_components_list)
+    gates_module = _gates() if (critical_evidence is not None or business_model) else None
+    forbidden_inapplicable: frozenset[str] = frozenset()
+    if gates_module is not None and business_model:
+        forbidden_inapplicable = gates_module.inapplicable_inputs(gates_module.critical_asset_class(asset_type, business_model))
+    critical_gates: tuple[Any, ...] = ()
+    insufficient: dict[str, tuple[str, ...]] = {}
+    unavailable_reason: str | None = None
+    if gates_module is not None and critical_evidence is not None:
+        held: dict[str, object] = {component.key: component.as_of_date for component in source_components if component.eligible}
+        for item, as_of in gates_module.evidence_as_of(critical_evidence).items():
+            if as_of is not None or item not in held:
+                held[item] = as_of
+        decision = gates_module.evaluate_score_gate(
+            gates_module.critical_asset_class(asset_type, business_model),
+            held,
+            decision_time=timestamp,
+            coverage=_eligible_coverage(selected_policy, source_components, forbidden_inapplicable, gates_module),
+            eligible_components=[component.key for component in source_components if component.eligible],
+        )
+        critical_gates = decision.gates
+        unavailable_reason = decision.unavailable_reason
+        insufficient = gates_module.failed_gate_groups(critical_gates)
+        for gate in gates_module.failed_gates(critical_gates):
+            warnings.append(f"critical_gate:{gate.gate_id}:{gate.reason_code}")
+        if unavailable_reason is not None:
+            warnings.append(f"score_unavailable:{unavailable_reason}")
     group_results: dict[str, tuple[float | None, float, list[dict[str, object]], list[dict[str, object]]]] = {}
     all_component_rows: list[dict[str, object]] = []
     contributions: list[dict[str, object]] = []
     explanations: list[str] = []
     total_configured = 0.0
     total_active = 0.0
+    discarded_keys: set[str] = set()
     for group, weights in selected_policy.groups.items():
         configured = sum(weights.values())
         active_weight = 0.0
+        exempt_weight = 0.0
         weighted = 0.0
         group_rows: list[dict[str, object]] = []
         group_contributions: list[dict[str, object]] = []
@@ -279,6 +384,17 @@ def build_canonical_score(
             if weight <= 0:
                 continue
             contribution = None
+            if (
+                not component.eligible
+                and component.key in forbidden_inapplicable
+                and gates_module is not None
+                and gates_module.is_not_applicable(component.status)
+            ):
+                # The sector definition forbids this metric: it leaves the denominator instead of lowering coverage.
+                exempt_weight += weight
+                warnings.append(f"not_applicable:{component.key}")
+                group_rows.append(component.as_dict(weight=weight, contribution_raw=None))
+                continue
             if component.eligible:
                 active_weight += weight
                 contribution = _clamp(float(component.raw_metric)) * weight
@@ -286,8 +402,20 @@ def build_canonical_score(
                 group_contributions.append({"key": component.key, "group": group, "contribution_raw": contribution})
                 explanations.append(f"{component.key}: {component.explanation}")
             group_rows.append(component.as_dict(weight=weight, contribution_raw=contribution))
+        configured -= exempt_weight
         score = None if active_weight <= 0 else _score_10(weighted / active_weight)
-        coverage = active_weight / configured if configured else 0.0
+        if group in insufficient:
+            # A failed critical gate: the remaining inputs are never averaged up into an attractive score, and the
+            # discarded group's evidence counts neither toward coverage/confidence nor as a contribution.
+            score = None
+            active_weight = 0.0
+            group_contributions = []
+            for row in group_rows:
+                row["contribution_raw"] = None
+                row["score_counted"] = False
+            discarded_keys.update(str(row["key"]) for row in group_rows)
+            warnings.append(f"{group}_insufficient_evidence:{','.join(insufficient[group])}")
+        coverage = active_weight / configured if configured > 0 else 0.0
         if coverage < 1.0:
             warnings.append(f"{group}_coverage:{coverage:.3f}")
         total_configured += configured
@@ -298,20 +426,39 @@ def build_canonical_score(
         all_component_rows.extend(group_rows)
         contributions.extend(group_contributions)
     overall_coverage = total_active / total_configured if total_configured else 0.0
-    confidence = _confidence_score(source_components, overall_coverage)
+    confidence = _confidence_score([c for c in source_components if c.key not in discarded_keys], overall_coverage)
+    if unavailable_reason is not None:
+        # An unavailable score shows no 0-10 value, confidence or contribution (never a guessed or shrunk number).
+        confidence = None
+        contributions = []
+        for row in all_component_rows:
+            row["contribution_raw"] = None
+            row["score_counted"] = False
+        group_results = {name: (None, *rest) for name, (_, *rest) in group_results.items()}
     structure_identity = dict(structure_provenance or {})
     if structure_confidence_cap is not None:
         cap = _bounded_structure_cap(structure_confidence_cap)
         confidence = None if confidence is None else round(min(confidence, 10.0 * cap), 1)
         warnings.append(f"structure_confidence_cap:{cap:.3f}")
         structure_identity["structure_confidence_cap"] = cap
-    legacy_raw = _legacy_composite(source_components, legacy_component_weights, legacy_penalties)
+    legacy_raw = None if unavailable_reason is not None else _legacy_composite(source_components, legacy_component_weights, legacy_penalties)
     vintage_hash = source_vintage_fingerprint(
         source_components,
         timestamp,
         source_vintage_hash=source_vintage_hash,
         structure_provenance=structure_identity or None,
     )
+    authority = None
+    if gates_module is not None and critical_gates:
+        authority = gates_module.score_authority_flags(
+            critical_gates,
+            score_present=any(group_results[name][0] is not None for name in group_results)
+            and not insufficient
+            and unavailable_reason is None,
+            quality_status=quality_status,
+            forecast_calibrated=forecast_calibrated,
+            benchmark_eligible=benchmark_eligible,
+        )
     return CanonicalScore(
         instrument_id=str(instrument_id),
         asset_type=str(asset_type).upper(),
@@ -330,6 +477,10 @@ def build_canonical_score(
         contributions=tuple(contributions),
         warnings=tuple(dict.fromkeys(warnings)),
         explanations=tuple(dict.fromkeys(explanations)),
+        critical_gates=critical_gates,
+        insufficient_groups=tuple(insufficient),
+        authority=authority,
+        unavailable_reason=unavailable_reason,
     )
 
 
@@ -347,10 +498,16 @@ def canonical_score_from_simple_components(
     asset_type: str,
     decision_time: str,
     components: Iterable[Any],
+    *,
+    critical_evidence: Iterable[str] | Mapping[str, object] | None = None,
+    business_model: str | None = None,
 ) -> CanonicalScore:
+    """Canonical score of simple-score components, always through the score gate (extra ``critical_evidence`` optional)."""
+
     if _is_sparebank_ec_asset_type(asset_type):
         raise CanonicalScoreError("EC instruments must use the native Sparebank scorecard")
-    converted = (
+    source = tuple(components)
+    converted = tuple(
         CanonicalComponent(
             key=str(getattr(component, "key", "")),
             raw_metric=_number(getattr(component, "raw_score", None)),
@@ -364,10 +521,48 @@ def canonical_score_from_simple_components(
             explanation=str(getattr(component, "why", "") or getattr(component, "explanation", "") or "Score component evidence."),
             source_vintage_hash=str(getattr(component, "source_vintage_hash", "") or "") or None,
             conflict_id=str(getattr(component, "conflict_id", "") or "") or None,
+            as_of_date=str(getattr(component, "as_of_date", "") or "") or None,
         )
-        for component in components
+        for component in source
     )
-    return build_canonical_score(instrument_id=instrument_id, asset_type=asset_type, decision_time=decision_time, components=converted)
+    evidence: dict[str, object] = {}
+    for original in source:
+        for item in getattr(original, "inputs_used", ()) or ():
+            if getattr(original, "as_of_date", None) is not None or str(item) not in evidence:
+                evidence[str(item)] = getattr(original, "as_of_date", None)
+    for item, as_of in _gates().evidence_as_of(critical_evidence or ()).items():
+        if as_of is not None or item not in evidence:
+            evidence[item] = as_of
+    return build_canonical_score(
+        instrument_id=instrument_id,
+        asset_type=asset_type,
+        decision_time=decision_time,
+        components=converted,
+        critical_evidence=evidence,
+        business_model=business_model,
+        quality_status=simple_quality_status(source, asset_type, business_model),
+    )
+
+
+def simple_quality_status(components: Iterable[Any], asset_type: str, business_model: str | None = None) -> str | None:
+    """``complete`` / ``partial`` / ``unavailable`` for the stock quality component; ``None`` when there is none (ETFs)."""
+
+    quality = next((component for component in components if getattr(component, "key", None) == "stock_quality"), None)
+    if quality is None:
+        return None
+    gates = _gates()
+    configured = tuple(getattr(quality, "inputs_configured", ()) or ())
+    if not configured:
+        # No per-input detail: completeness cannot be verified, so a numeric quality score is only partial.
+        return "partial" if _number(getattr(quality, "raw_score", None)) is not None else "unavailable"
+    asset_class = gates.critical_asset_class(asset_type, business_model)
+    result = gates.input_completeness(
+        configured,
+        tuple(getattr(quality, "inputs_used", ()) or ()),
+        not_applicable=tuple(getattr(quality, "inputs_not_applicable", ()) or ()),
+        asset_class=asset_class,
+    )
+    return result.status
 
 
 def canonical_score_from_signal_row(
@@ -395,6 +590,7 @@ def canonical_score_from_signal_row(
         _signal_component("momentum", row.get("score_momentum"), "attractiveness", source, price_freshness, "Momentum evidence."),
         _signal_component("trend", row.get("score_trend"), "attractiveness", source, price_freshness, "Trend evidence."),
         _signal_component("relative_strength", row.get("score_relative_strength"), "attractiveness", source, price_freshness, "Relative-strength evidence."),
+        _signal_component("etf_exposure", row.get("score_etf_exposure"), "attractiveness", "yfinance:holdings", price_freshness, "ETF exposure evidence."),
         _signal_component("risk", row.get("score_risk"), "risk_implementation", source, price_freshness, "Risk quality evidence."),
         _signal_component("rebalance", row.get("score_rebalance"), "risk_implementation", "local:allocation", price_freshness, "Allocation drift evidence."),
         _signal_component("liquidity_cost", _liquidity_quality(row.get("cost_penalty")), "risk_implementation", source, price_freshness, "Configured cost quality."),
@@ -402,6 +598,9 @@ def canonical_score_from_signal_row(
         _signal_component("timesfm", row.get("score_timesfm"), "expected_return", "model:timesfm", price_freshness, "TimesFM challenger expected-return evidence.", authority="model_advisory", status="ok" if timesfm_available else "unavailable"),
         _signal_component("toto", row.get("score_toto"), "expected_return", "model:toto", price_freshness, "Toto challenger expected-return evidence.", authority="model_advisory", status="ok" if toto_available else "unavailable"),
     ]
+    # The row is computed at the signal date: its evidence is dated with it while the price freshness is ok.
+    signal_day = str(decision_time.isoformat() if isinstance(decision_time, date) else decision_time)[:10]
+    components = [replace(component, as_of_date=signal_day if price_freshness == "ok" else None) for component in components]
     weights = effective_ensemble_weights(
         config.models.ensemble.get("weights", {}),
         toto_available=toto_available,
@@ -419,6 +618,7 @@ def canonical_score_from_signal_row(
         },
         structure_confidence_cap=structure_confidence_cap,
         structure_provenance=structure_provenance,
+        critical_evidence={"identity": None} if instrument_id != "unknown" else (),
     )
 
 
@@ -448,6 +648,39 @@ def source_vintage_fingerprint(
     if structure_provenance:
         payload["structure_provenance"] = dict(structure_provenance)
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _eligible_coverage(
+    policy: ScorePolicy,
+    components: Iterable[CanonicalComponent],
+    forbidden_inapplicable: frozenset[str],
+    gates_module: Any,
+) -> float:
+    """Share of the configured weight held by eligible components, before any gate discards a group."""
+
+    components = tuple(components)
+    configured_total = 0.0
+    active_total = 0.0
+    for group, weights in policy.groups.items():
+        configured = sum(weights.values())
+        for component in components:
+            weight = float(weights.get(component.key, 0.0))
+            if _component_group(component) != group or weight <= 0:
+                continue
+            if component.eligible:
+                active_total += weight
+            elif component.key in forbidden_inapplicable and gates_module.is_not_applicable(component.status):
+                configured -= weight
+        configured_total += configured
+    return active_total / configured_total if configured_total > 0 else 0.0
+
+
+def _gates():
+    """Late import: the decision package is heavy and imports signal modules."""
+
+    from etf_cockpit.analysis.decision import gates
+
+    return gates
 
 
 def _component_group(component: CanonicalComponent) -> str:

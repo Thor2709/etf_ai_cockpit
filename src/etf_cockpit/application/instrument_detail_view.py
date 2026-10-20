@@ -1782,6 +1782,25 @@ def _scoreboard_lookup(
     return rows.iloc[-1].to_dict(), None
 
 
+def _scoreboard_matches_live(scoreboard: Mapping[str, Any], live_score: object) -> bool:
+    """True when the stored scoreboard row was built from the same canonical evidence as the live score row.
+
+    A stored row whose source vintage or formula differs (or cannot be verified) is stale: its technical evidence
+    must not be shown beside the live headline.
+    """
+
+    canonical = getattr(live_score, "canonical_score", None)
+    live_vintage = _safe_text(getattr(canonical, "source_vintage_hash", None))
+    stored_vintage = _safe_text(scoreboard.get("source_vintage_hash"))
+    if canonical is None or live_vintage in {None, "unavailable"}:
+        return True  # nothing live to compare against
+    if stored_vintage in {None, "unavailable"} or stored_vintage != live_vintage:
+        return False
+    live_checksum = _safe_text(getattr(canonical, "formula_checksum", None))
+    stored_checksum = _safe_text(scoreboard.get("formula_checksum"))
+    return stored_checksum in {None, "unavailable"} or live_checksum in {None, "unavailable"} or stored_checksum == live_checksum
+
+
 def _score_panel(
     signal: Any,
     scoreboard: Mapping[str, Any],
@@ -2571,7 +2590,10 @@ def _history_panel(instrument_id: str, history: pd.DataFrame | None = None) -> d
         source = history if isinstance(history, pd.DataFrame) else score_history_frame()
     except Exception:
         source = pd.DataFrame()
-    rows = _instrument_rows(source, instrument_id)
+    from etf_cockpit.application.score_views import evidence_ordered_history
+
+    # Latest/previous follow the evidence date, not run completion: a late backfill never becomes "Latest".
+    rows = evidence_ordered_history(_instrument_rows(source, instrument_id))
     if rows.empty:
         return _unavailable("Score history unavailable; a second local score run is required.") | {"rows": []}
     return {"status": "available", "rows": rows.where(pd.notna(rows), None).to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
@@ -2580,7 +2602,9 @@ def _history_panel(instrument_id: str, history: pd.DataFrame | None = None) -> d
 def _run_changes_panel(instrument_id: str, history: pd.DataFrame | None = None) -> dict[str, Any]:
     try:
         source = history if isinstance(history, pd.DataFrame) else score_history_frame()
-        source = _instrument_rows(source, instrument_id)
+        from etf_cockpit.application.score_views import evidence_ordered_history
+
+        source = evidence_ordered_history(_instrument_rows(source, instrument_id))
         if not isinstance(source, pd.DataFrame) or source.empty or "run_id" not in source.columns:
             raise ValueError("no score history")
         runs = list(dict.fromkeys(source["run_id"].astype(str).tolist()))
@@ -2809,7 +2833,7 @@ def _sparebank_workspace(
         context = {
             "instrument_id": instrument_id,
             "history": quarterly_score_history(score_history, instrument_id, decision_time),
-            "peers": load_peer_rows(ROOT, instrument_id, decision_time),
+            "peers": load_peer_rows(ROOT, instrument_id, decision_time, scorecard.get("formula_version")),
             "picked_peers": picked_peers(ROOT, instrument_id),
             "pillar3": load_queue(ROOT, instrument_id),
         }
@@ -2868,6 +2892,7 @@ def build_instrument_detail(
     journal: pd.DataFrame | None = None,
     thesis_diary_root: Path | None = None,
     candidate_score: SimpleInstrumentScore | None = None,
+    live_score: SimpleInstrumentScore | None = None,
     financial_projection: Mapping[str, object] | None = None,
     real_asset_projection: Mapping[str, object] | None = None,
     cyclical_projection: Mapping[str, object] | None = None,
@@ -2889,7 +2914,13 @@ def build_instrument_detail(
     candidate = candidate_score if identity is None and _candidate_score_matches(candidate_score, instrument_id) else None
     if identity is None and candidate is None:
         return InstrumentDetailViewModel(instrument_id, instrument_id, "unavailable", {"instrument_id": instrument_id}, {name: "unavailable" for name in _SECTION_NAMES})
-    signal = next((item for item in getattr(snapshot, "signals", ()) if item.etf_id == instrument_id), None)
+    from etf_cockpit.application.score_views import latest_signal_per_instrument
+
+    # Latest signal, independent of row order; same-date signals that disagree leave the signal unavailable.
+    latest_signal, signal_conflict = latest_signal_per_instrument(
+        [item for item in getattr(snapshot, "signals", ()) if item.etf_id == instrument_id]
+    ).get(instrument_id, (None, False))
+    signal = None if signal_conflict else latest_signal
     features = _instrument_rows(getattr(snapshot, "latest_features", None), instrument_id)
     if features.empty:
         all_features = _instrument_rows(getattr(snapshot, "features", None), instrument_id)
@@ -2903,6 +2934,17 @@ def build_instrument_detail(
     derived = _derived_evidence_panel(instrument_id, expected_currency=canonical_currency)
     friction = _friction_panel(instrument_id, candidate_score=candidate)
     scoreboard, scoreboard_reason_code = _scoreboard_lookup(instrument_id, candidate_score=candidate)
+    if signal_conflict and not scoreboard:
+        scoreboard_reason_code = "conflicting_same_date_signals"
+    if (
+        live_score is not None
+        and candidate is None
+        and scoreboard
+        and _candidate_score_matches(live_score, instrument_id)
+        and not _scoreboard_matches_live(scoreboard, live_score)
+    ):
+        # One lineage: the headline is the live canonical row, so a stale stored row never supplies its evidence.
+        scoreboard, scoreboard_reason_code = _candidate_scoreboard(live_score), None
     decision_time = getattr(getattr(snapshot, "data_report", None), "as_of_date", None)
     projection_time = str(decision_time or "").strip()
     if len(projection_time) == 10:

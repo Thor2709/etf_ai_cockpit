@@ -71,9 +71,10 @@ def test_forecast_lab_reports_maturity_walk_forward_and_shadow_only_governance()
     baseline = report["models"].set_index("model_name").loc["baseline"]
     assert baseline["forecast_rows"] == 6
     assert baseline["matured_rows"] == 6
-    assert baseline["calibration_status"] == "conformal_diagnostic"
+    # Six rows leave at most five prior errors: below the n >= 9 a 90% finite-sample conformal rank needs.
+    assert baseline["calibration_status"] == "conformal_pending"
     assert baseline["promotion_state"] == "shadow_only"
-    assert baseline["conformal_coverage"] is not None
+    assert baseline["conformal_coverage"] is None
     assert len(report["walk_forward_splits"]) == 3
     assert "cannot rescue or upgrade weak deterministic evidence" in " ".join(report["notes"])
 

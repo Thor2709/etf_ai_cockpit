@@ -103,10 +103,19 @@ def test_probabilities_require_matching_horizon_calibration() -> None:
     calibrated = forecast_return_distributions(pd.DataFrame([_forecast_row(
         calibration_status="good",
         calibration_horizon_days=60,
+        probability_calibration_status="calibrated",
+    )]), decision_time=DECISION_TIME)["SYNTHETIC-ETF"]
+    # The MASE/coverage grade alone never admits a probability: out-of-sample probability calibration is required.
+    grade_only = forecast_return_distributions(pd.DataFrame([_forecast_row(
+        calibration_status="good",
+        calibration_horizon_days=60,
     )]), decision_time=DECISION_TIME)["SYNTHETIC-ETF"]
 
     assert uncalibrated["probability_loss"] is None
     assert uncalibrated["probability_beat_cash"] is None
+    assert grade_only["probability_loss"] is None and grade_only["probability_beat_benchmark"] is None
+    assert "probability calibration status is unavailable" in grade_only["probability_reason"]
+    assert calibrated["probability_reason"] is None
     assert calibrated["probability_loss"] == 0.4
     assert calibrated["probability_beat_cash"] == 0.55
     assert calibrated["probability_beat_benchmark"] == 0.52
@@ -117,6 +126,7 @@ def test_probabilities_are_unavailable_for_mixed_calibration() -> None:
         _forecast_row(
             calibration_status="good",
             calibration_horizon_days=60,
+            probability_calibration_status="calibrated",
         ),
         _forecast_row(
             model_name="challenger",

@@ -13,14 +13,17 @@ from datetime import datetime, timezone
 import json
 import math
 from pathlib import Path
+import threading
 
 import pandas as pd
 
 from etf_cockpit.core.atomic_io import atomic_write_json
+from etf_cockpit.core.file_guard import persistent_file_guard
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.core.ui_preferences import SPAREBANK_PEERS, load_preferences, save_preference
 
 SCHEMA_VERSION = "sparebank_peers.v1"
+_UPSERT_LOCK = threading.Lock()
 # scorecard input ids copied into the peer row (the scorecard stays the one place that computes them)
 _INPUT_FIELDS = {
     "cost_income_pct": "cost_income_pct",
@@ -122,18 +125,29 @@ def record_peer_row(root: Path | None, row: Mapping[str, object]) -> None:
     """Upsert one bank's row (atomic file replace)."""
 
     path = _path(root)
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        payload = {}
-    rows = payload.get("rows") if isinstance(payload, dict) and isinstance(payload.get("rows"), dict) else {}
-    rows[str(row["instrument_id"])] = dict(row)
     path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(path, {"schema_version": SCHEMA_VERSION, "rows": rows, "execution_allowed": False})
+    with _UPSERT_LOCK, persistent_file_guard(path.with_name(path.name + ".guard")):  # read-modify-write: concurrent upserts must not lose rows
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            payload = {}
+        rows = payload.get("rows") if isinstance(payload, dict) and isinstance(payload.get("rows"), dict) else {}
+        rows[str(row["instrument_id"])] = dict(row)
+        atomic_write_json(path, {"schema_version": SCHEMA_VERSION, "rows": rows, "execution_allowed": False})
 
 
-def load_peer_rows(root: Path | None, instrument_id: str, decision_time: object = None) -> list[dict[str, object]]:
-    """Other certificates, owner-picked first, then by composite; rows after the decision time are dropped."""
+def load_peer_rows(
+    root: Path | None,
+    instrument_id: str,
+    decision_time: object = None,
+    formula_version: object = None,
+) -> list[dict[str, object]]:
+    """Other certificates, owner-picked first, then by composite; rows after the decision time are dropped.
+
+    Composites are ranked only within one scorecard formula version (the viewed bank's, from ``formula_version`` or its
+    stored row). A peer scored with another version keeps its row but gets ``composite`` None and
+    ``formula_mismatch`` True, and sorts after the comparable peers: scores of different formulas are not comparable.
+    """
 
     try:
         payload = json.loads(_path(root).read_text(encoding="utf-8"))
@@ -142,6 +156,8 @@ def load_peer_rows(root: Path | None, instrument_id: str, decision_time: object 
     rows = payload.get("rows") if isinstance(payload, dict) and isinstance(payload.get("rows"), dict) else {}
     cutoff = pd.to_datetime(decision_time, errors="coerce", utc=True) if decision_time else None
     picked = set(picked_peers(root, instrument_id))
+    own = rows.get(str(instrument_id))
+    reference = str(formula_version or "").strip() or (str(own.get("formula_version") or "").strip() if isinstance(own, Mapping) else "")
     result: list[dict[str, object]] = []
     for key, row in rows.items():
         if key == instrument_id or not isinstance(row, Mapping):
@@ -149,8 +165,11 @@ def load_peer_rows(root: Path | None, instrument_id: str, decision_time: object 
         stamp = pd.to_datetime(row.get("as_of"), errors="coerce", utc=True)
         if cutoff is not None and not pd.isna(cutoff) and (pd.isna(stamp) or stamp > cutoff):
             continue
-        result.append({**row, "picked": key in picked})
-    return sorted(result, key=lambda row: (not row["picked"], -(_number(row.get("composite")) or -1.0), str(row.get("instrument_id"))))
+        entry = {**row, "picked": key in picked, "formula_mismatch": str(row.get("formula_version") or "").strip() != reference}
+        if entry["formula_mismatch"]:
+            entry["composite"] = None
+        result.append(entry)
+    return sorted(result, key=lambda row: (not row["picked"], bool(row["formula_mismatch"]), -(_number(row.get("composite")) or -1.0), str(row.get("instrument_id"))))
 
 
 def load_peer_row(root: Path | None, instrument_id: str) -> dict[str, object] | None:

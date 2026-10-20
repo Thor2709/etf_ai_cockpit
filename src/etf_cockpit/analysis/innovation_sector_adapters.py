@@ -428,7 +428,12 @@ def _derived_sector_metrics(model: str, rows: list[InnovationMetricResult], limi
         return rows
     by_metric = {row.metric: row for row in rows}
     cash, burn, runway = by_metric["cash_balance"], by_metric["operating_cash_burn"], by_metric["cash_runway_months"]
-    if cash.status == "available" and burn.status == "available" and isinstance(cash.value, (int, float)) and isinstance(burn.value, (int, float)) and float(burn.value) > 0:
+    if cash.status == "available" and burn.status == "available" and cash.period != burn.period:
+        # Cash and burn from different reporting periods cannot give a consistent runway.
+        limitations.add("cash_runway_reconciliation:period_mismatch")
+        if runway.status == "available":
+            rows[rows.index(runway)] = replace(runway, status="unavailable", value=None, limitations=tuple(sorted({*runway.limitations, "period_mismatch"})))
+    elif cash.status == "available" and burn.status == "available" and isinstance(cash.value, (int, float)) and isinstance(burn.value, (int, float)) and float(burn.value) > 0:
         monthly = float(burn.value) if burn.unit == "currency_per_month" else float(burn.value) / 12
         derived = float(cash.value) / monthly
         if runway.status == "available" and isinstance(runway.value, (int, float)) and not math.isclose(float(runway.value), derived, rel_tol=0.1, abs_tol=0.25):

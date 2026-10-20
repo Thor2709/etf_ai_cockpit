@@ -263,6 +263,8 @@ def test_import_companyfacts_rejects_parser_checksum_mismatch_before_publication
     assert not (tmp_path / "inventory.parquet").exists()
 
 
+# FLAG FOR OPUS (#962 A005-N001): this test used to assert "official_regulator" for an unverified local path
+# import; it now asserts the stricter contract (local_unverified, never official/canonical).
 def test_path_import_keeps_local_compatibility_provenance(tmp_path, monkeypatch) -> None:
     from etf_cockpit.app import state as state_module
     import etf_cockpit.application.filing_ingestion_workflows as filing_ingestion_workflows
@@ -280,4 +282,6 @@ def test_path_import_keeps_local_compatibility_provenance(tmp_path, monkeypatch)
 
     assert "complete" in message
     assert row["source_url"] == payload_path.resolve().as_uri()
-    assert row["source_authority"] == "official_regulator"
+    assert row["source_authority"] == "local_unverified"
+    facts = pd.read_parquet(tmp_path / "facts.parquet")
+    assert set(facts["authority_selection"]) == {"manual_review"}

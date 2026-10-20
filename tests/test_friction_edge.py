@@ -120,16 +120,17 @@ def test_friction_adjusted_return_rejects_mismatched_cost_basis_and_fractional_h
 def test_forecast_return_distribution_aggregates_allowed_model_quantiles() -> None:
     forecasts = pd.DataFrame(
         [
-            {"forecast_date": "2026-01-02", "model_name": "baseline", "etf_id": "VWCE", "horizon_days": 60, "expected_return": 0.05, "q10_return": -0.03, "q50_return": 0.05, "q90_return": 0.13, "status": "ok", "model_allowed_in_score": True},
-            {"forecast_date": "2026-01-02", "model_name": "timesfm", "etf_id": "VWCE", "horizon_days": 60, "expected_return": 0.07, "q10_return": -0.01, "q50_return": 0.07, "q90_return": 0.15, "status": "ok", "model_allowed_in_score": True},
-            {"forecast_date": "2026-01-02", "model_name": "toto", "etf_id": "VWCE", "horizon_days": 60, "expected_return": 0.50, "q10_return": 0.40, "q50_return": 0.50, "q90_return": 0.60, "status": "ok", "model_allowed_in_score": False},
+            {"forecast_date": "2026-01-02", "model_name": "baseline", "etf_id": "VWCE", "horizon_days": 60, "target_id": "adj_close_log_return_60d", "expected_return": 0.05, "q10_return": -0.03, "q50_return": 0.05, "q90_return": 0.13, "status": "ok", "model_allowed_in_score": True},
+            {"forecast_date": "2026-01-02", "model_name": "timesfm", "etf_id": "VWCE", "horizon_days": 60, "target_id": "adj_close_log_return_60d", "expected_return": 0.07, "q10_return": -0.01, "q50_return": 0.07, "q90_return": 0.15, "status": "ok", "model_allowed_in_score": True},
+            {"forecast_date": "2026-01-02", "model_name": "toto", "etf_id": "VWCE", "horizon_days": 60, "target_id": "adj_close_log_return_60d", "expected_return": 0.50, "q10_return": 0.40, "q50_return": 0.50, "q90_return": 0.60, "status": "ok", "model_allowed_in_score": False},
         ]
     )
 
     distribution = forecast_return_distributions(forecasts)["VWCE"]
 
     assert distribution["status"] == "available"
-    assert distribution["q10_return"] == -0.02
-    assert distribution["q50_return"] == 0.06
-    assert distribution["q90_return"] == 0.14
+    # Mixture-CDF quantiles, not the median of the models' quantiles (-0.02 / 0.06 / 0.14).
+    assert distribution["q10_return"] == pytest.approx(-0.022845335734, abs=1e-9)
+    assert distribution["q50_return"] == pytest.approx(0.06, abs=1e-9)
+    assert distribution["q90_return"] == pytest.approx(0.142845335734, abs=1e-9)
     assert distribution["model_count"] == 2

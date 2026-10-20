@@ -425,6 +425,7 @@ def normalise_valuation_assumptions(
     aliases = (
         ("cost_of_equity", ("cost_of_equity", "k", "cost_of_equity_pct"), "COST_OF_EQUITY_ALIAS_CONFLICT"),
         ("long_run_growth", ("long_run_growth", "g", "long_run_growth_pct"), "GROWTH_ALIAS_CONFLICT"),
+        ("sustainable_roe", ("sustainable_roe", "sustainable_roe_pct"), "SUSTAINABLE_ROE_ALIAS_CONFLICT"),
     )
     default_values = defaults or {}
     for canonical, names, conflict_code in aliases:
@@ -456,15 +457,16 @@ def normalise_valuation_assumptions(
 def valuation(claim: ECClaimState | Mapping[str, object], *, price: float | None = None, assumptions: Mapping[str, object] | None = None) -> dict[str, object]:
     """Build the explicit valuation section used by the suite entry point."""
 
+    certification = _certification(claim)
     standalone = owner_valuation(claim, price=price, allow_partial=True)
     if standalone.get("status") not in {"resolved", "partial"}:
-        return {"status": "unavailable", "standalone": standalone, "reverse": {"status": "unavailable"}, "execution_allowed": False}
+        return {"status": "unavailable", "standalone": standalone, "reverse": {"status": "unavailable"}, "certified": False, "certification": certification, "execution_allowed": False}
     assumptions = assumptions or {}
     if not isinstance(assumptions, Mapping):
-        return {"status": "unavailable", "standalone": standalone, "reason_code": "VALUATION_ASSUMPTIONS_INVALID", "execution_allowed": False}
+        return {"status": "unavailable", "standalone": standalone, "reason_code": "VALUATION_ASSUMPTIONS_INVALID", "certified": False, "certification": certification, "execution_allowed": False}
     assumptions = normalise_valuation_assumptions(assumptions)
     if assumptions.get("assumption_errors"):
-        return {"status": "unavailable", "standalone": standalone, "reverse": {"status": "unavailable", "reason_code": "VALUATION_ASSUMPTIONS_INVALID"}, "reason_code": "VALUATION_ASSUMPTIONS_INVALID", "assumption_errors": assumptions["assumption_errors"], "execution_allowed": False}
+        return {"status": "unavailable", "standalone": standalone, "reverse": {"status": "unavailable", "reason_code": "VALUATION_ASSUMPTIONS_INVALID"}, "reason_code": "VALUATION_ASSUMPTIONS_INVALID", "assumption_errors": assumptions["assumption_errors"], "certified": False, "certification": certification, "execution_allowed": False}
     reverse = None
     if "price_to_book" in assumptions and "k" in assumptions and "g" in assumptions:
         reverse = reverse_valuation(float(assumptions["price_to_book"]), k=float(assumptions["k"]), g=float(assumptions["g"]))
@@ -568,7 +570,25 @@ def valuation(claim: ECClaimState | Mapping[str, object], *, price: float | None
         "currency": assumptions.get("currency", assumptions.get("output_currency", UNAVAILABLE)),
         "quantity": _num(assumptions.get("quantity", assumptions.get("position_quantity"))) if ("quantity" in assumptions or "position_quantity" in assumptions) else None,
         "implementation_shortfall": implementation,
+        # Partial values stay visible, but a valuation is certified only with a confirmed eierbrøk / owner claim.
+        "certified": bool(certification["certified"]),
+        "certification": certification,
         "execution_allowed": False,
+    }
+
+
+def _certification(claim: ECClaimState | Mapping[str, object]) -> dict[str, object]:
+    """Owner-claim gate result for one claim: no confirmed eierbrøk means no certified valuation."""
+
+    from etf_cockpit.analysis.decision.gates import owner_claim_gate  # late import: the decision package imports claim.py
+
+    gate = owner_claim_gate(claim)
+    return {
+        "certified": gate.passed,
+        "gate_id": gate.gate_id,
+        "status": gate.status,
+        "reason_code": None if gate.passed else gate.reason_code,
+        "missing": list(gate.missing),
     }
 
 
