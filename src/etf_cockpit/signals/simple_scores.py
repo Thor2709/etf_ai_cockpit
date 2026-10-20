@@ -1918,6 +1918,7 @@ def build_candidate_simple_scores(
             else source.iloc[:0]
         )
     relative_reference = _candidate_relative_reference(source, decision_date)
+    volatility_reference = _candidate_volatility_reference(source, decision_date)
     etf_exposure = _etf_exposure_lookup()
     calibration_by_id = calibration_by_id or {}
     regime = regime or {}
@@ -1965,7 +1966,7 @@ def build_candidate_simple_scores(
             _candidate_data_quality_component(row, blocked, decision_date),
             _component("momentum", _candidate_momentum_raw(row), _candidate_momentum_why(row), authority="high"),
             _component("trend", _candidate_trend_raw(row), _candidate_trend_why(row), authority="high"),
-            _component("risk", _candidate_risk_raw(row), _candidate_risk_why(row), authority="high", role="risk_friction"),
+            _component("risk", _candidate_risk_raw(row, volatility_reference), _candidate_risk_why(row), authority="high", role="risk_friction"),
             _component(
                 "relative_strength",
                 _candidate_relative_strength_raw(row, relative_reference),
@@ -2514,7 +2515,7 @@ def _candidate_source_frame(report: pd.DataFrame, forecasts: pd.DataFrame) -> pd
     return pd.DataFrame({"instrument_id": ids, "name": ids, "yahoo_symbol": ids})
 
 
-def _candidate_relative_reference(frame: pd.DataFrame, decision_date: date | None = None) -> float | None:
+def _candidate_known_peers(frame: pd.DataFrame, decision_date: date | None = None) -> pd.DataFrame:
     if decision_date is not None and "latest_date" in frame:
         # Peers observed after the decision date (or undated) are not known
         # evidence and must not move a historical peer reference.
@@ -2522,6 +2523,19 @@ def _candidate_relative_reference(frame: pd.DataFrame, decision_date: date | Non
             lambda value: (parsed := _parse_date(value)) is not None and parsed <= decision_date
         )
         frame = frame.loc[known.astype(bool)]
+    return frame
+
+
+def _candidate_volatility_reference(frame: pd.DataFrame, decision_date: date | None = None) -> float | None:
+    if "volatility_60d_ann" not in frame:
+        return None
+    values = pd.to_numeric(_candidate_known_peers(frame, decision_date)["volatility_60d_ann"], errors="coerce")
+    values = values[values > 0].dropna()
+    return float(values.median()) if not values.empty else None
+
+
+def _candidate_relative_reference(frame: pd.DataFrame, decision_date: date | None = None) -> float | None:
+    frame = _candidate_known_peers(frame, decision_date)
     for column in ("return_6m", "return_12m", "return_3m"):
         if column not in frame:
             continue
@@ -4007,15 +4021,13 @@ def _candidate_trend_raw(row: pd.Series) -> float | None:
     return _weighted_values(parts)
 
 
-def _candidate_risk_raw(row: pd.Series) -> float | None:
+def _candidate_risk_raw(row: pd.Series, volatility_reference: float | None) -> float | None:
+    # Centred, volatility-only (B-08): a candidate at the peer-median volatility scores raw 0 (= 5/10) and drawdown is
+    # not a second term (it tracks volatility, rho ~ -0.79 in the #927 audit). No peer reference -> unavailable.
     vol = _safe_float(row.get("volatility_60d_ann"))
-    drawdown = _safe_float(row.get("current_drawdown"))
-    parts: list[tuple[float, float]] = []
-    if vol is not None:
-        parts.append((_clamp((0.30 - vol) / 0.30), 0.55))
-    if drawdown is not None:
-        parts.append((_clamp((drawdown + 0.25) / 0.25), 0.45))
-    return _weighted_values(parts)
+    if vol is None or volatility_reference is None or volatility_reference <= 0:
+        return None
+    return _clamp((volatility_reference - vol) / volatility_reference)
 
 
 def _candidate_relative_strength_raw(row: pd.Series, reference: float | None) -> float | None:

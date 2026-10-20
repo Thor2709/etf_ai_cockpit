@@ -31,7 +31,7 @@ from etf_cockpit.models.uncertainty import (
     unavailable_decomposition,
 )
 from etf_cockpit.models.calibration import calibrate_forecast_distribution
-from etf_cockpit.models.ensemble import BASELINE_SOURCE_FORECAST
+from etf_cockpit.models.ensemble import BASELINE_SOURCE_HEURISTIC
 
 BASELINE_MODEL_VERSION = "momentum_shrunk_v1"
 EDGE_SOURCE_FORECAST = "forecast_q50_return"
@@ -326,7 +326,7 @@ def generate_signals(
                 "drift_percent": drift_percent,
                 "expected_edge_bps": expected_edge_bps,
                 "expected_edge_source": str(row.get("expected_edge_source") or EDGE_SOURCE_HEURISTIC),
-                "baseline_score_source": str(row.get("score_baseline_source") or BASELINE_SOURCE_FORECAST),
+                "baseline_score_source": str(row.get("score_baseline_source") or BASELINE_SOURCE_HEURISTIC),  # fail closed: an unlabelled baseline is the price heuristic
                 "gross_expected_return": _distribution_value(distribution, "q50_return"),
                 "q10_expected_return": _distribution_value(distribution, "q10_return"),
                 "q50_expected_return": _distribution_value(distribution, "q50_return"),

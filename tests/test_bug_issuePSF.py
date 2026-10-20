@@ -221,3 +221,42 @@ def test_expected_edge_and_baseline_fallbacks_are_labelled_heuristics(monkeypatc
     forecast = _signal_with_edge(monkeypatch, {"AAA": {"horizon_days": 60, "q50_return": 0.02}})
     assert forecast.supporting_metrics["expected_edge_source"] == signal_pipeline.EDGE_SOURCE_FORECAST
     assert forecast.supporting_metrics["expected_edge_bps"] == pytest.approx(200.0)
+
+
+def test_candidate_screening_risk_is_centred_and_volatility_only() -> None:
+    peers = pd.DataFrame({"volatility_60d_ann": [0.10, 0.20, 0.40], "current_drawdown": [-0.30, -0.02, -0.15]})
+    reference = ss._candidate_volatility_reference(peers)
+    assert reference == pytest.approx(0.20)
+    neutral = pd.Series({"volatility_60d_ann": 0.20, "current_drawdown": -0.10})
+    assert ss._candidate_risk_raw(neutral, reference) == 0.0
+    assert raw_to_score_10(ss._candidate_risk_raw(neutral, reference)) == 5.0
+    # drawdown is not a second term: any drawdown gives the same risk at equal volatility
+    deep = neutral.copy()
+    deep["current_drawdown"] = -0.60
+    assert ss._candidate_risk_raw(deep, reference) == 0.0
+    # lower volatility than peers scores above neutral, higher below; the range is clamped to -1..1
+    assert ss._candidate_risk_raw(pd.Series({"volatility_60d_ann": 0.10}), reference) == pytest.approx(0.5)
+    assert ss._candidate_risk_raw(pd.Series({"volatility_60d_ann": 0.90}), reference) == -1.0
+    # no volatility or no peer reference -> unavailable, never zero-filled to neutral
+    assert ss._candidate_risk_raw(pd.Series({"current_drawdown": -0.10}), reference) is None
+    assert ss._candidate_risk_raw(neutral, None) is None
+    assert ss._candidate_volatility_reference(pd.DataFrame({"current_drawdown": [-0.1]})) is None
+
+
+def test_b05_horizon_map_is_published_with_the_tactical_and_underwriting_split() -> None:
+    lineage = (Path(__file__).resolve().parents[1] / "docs" / "architecture" / "score-lineage.md").read_text(encoding="utf-8")
+    section = lineage.split("## Horizon map (B-05)", 1)[1]
+    for component in ("momentum", "trend", "risk", "liquidity_cost", "stock_value", "stock_quality", "analyst_revision", "forecasts", "Sparebank EC"):
+        assert f"| {component} |" in section, component
+    assert "separate output" in section
+    assert _document()["horizons"]["primary"] == "1-3 months"
+
+
+def test_b04_probe_momentum_construction_has_no_skip_window_or_volatility_scaling() -> None:
+    from etf_cockpit.features.momentum import weighted_momentum
+
+    frame = pd.DataFrame({"momentum_20d": [1.0], "momentum_60d": [0.0], "momentum_120d": [0.0], "momentum_180d": [0.0]})
+    assert weighted_momentum(frame).iloc[0] == pytest.approx(0.15)  # the 20-day window enters unskipped, weight 0.15
+    scaled = frame.assign(vol_60d_ann=[0.5])
+    assert weighted_momentum(scaled).iloc[0] == pytest.approx(0.15)  # unscaled by volatility
+    assert not hasattr(__import__("etf_cockpit.features.momentum", fromlist=["x"]), "skip_momentum")  # no challenger variants yet

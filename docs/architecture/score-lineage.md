@@ -46,3 +46,23 @@ Display annotations (`display_adjusted_score_10`, the missing-data penalty) are 
    `source_vintage_hash` / `formula_checksum` differs (or cannot be verified) is replaced by the live row's evidence.
 8. **Price freshness.** A score history row is `ok` only if its price row is dated, finite and positive, not after the
    run and not older than 10 days; component labels cannot override that.
+
+## Horizon map (B-05)
+
+Components do not share one horizon; the policy horizon `1-3 months` (`score_engine_v3.yaml: horizons.primary`) holds
+only for the price, analyst-revision and forecast components. Do not average the others into a tactical number
+without this label.
+
+| Component | Window used | Economic horizon |
+|---|---|---|
+| momentum | 20/60/120/180 sessions | 1-9 months |
+| trend | SMA100/SMA200 state + slope | 5-10 months |
+| relative_strength | 60/120 sessions (weight 0) | 3-6 months |
+| risk | 60-session volatility | 3 months, backward |
+| liquidity_cost | last 20 sessions | 1 month |
+| etf_exposure | latest holdings snapshot | static, undated |
+| stock_value | TTM yields; 5-year P/E percentile | trailing 12 months vs 5 years |
+| stock_quality | TTM ROE/ROIC/margin; 3-year CAGR | 1-3 years |
+| analyst_revision | 30/90-day revisions | 1-3 months |
+| forecasts | 60 sessions (fallback horizons are labelled) | 3 months |
+| Sparebank EC | multi-year owner economics | multi-year underwriting, a separate output (not tactical) |
