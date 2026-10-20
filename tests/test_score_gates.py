@@ -615,6 +615,7 @@ def test_every_score_path_applies_the_gate() -> None:
             "cost_penalty": 0.01,
             "turnover_penalty": 0.0,
             "score_baseline_ml": 0.2,
+            "score_baseline_source": "forecast",
             "score_etf_exposure": 0.3,
         }
     )

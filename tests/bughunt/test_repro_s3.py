@@ -149,6 +149,7 @@ def test_s3_07_baseline_ensemble_weight_is_preserved():
     # #939: a score below 0.50 coverage is unavailable, so the row carries the other (unweighted) evidence as well.
     row = {
         "etf_id": "X", "score_momentum": 0.0, "score_baseline_ml": 1.0, "score_trend": 0.0, "score_relative_strength": 0.0,
+        "score_baseline_source": "forecast",
         "score_risk": 0.0, "score_rebalance": 0.0, "cost_penalty": 0.0, "score_etf_exposure": 0.0,
     }
     unknown = canonical_score_from_signal_row(row, config, "2026-01-01")

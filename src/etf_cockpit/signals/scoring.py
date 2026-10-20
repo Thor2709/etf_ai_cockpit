@@ -8,6 +8,7 @@ from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.exceptions import ConfigError
 from etf_cockpit.core.types import ComponentScores
 from etf_cockpit.features.feature_pipeline import robust_zscore, robust_zscore_by_group
+from etf_cockpit.features.momentum import weighted_momentum
 from etf_cockpit.models.ensemble import BASELINE_SOURCE_FORECAST, BASELINE_SOURCE_HEURISTIC, effective_ensemble_weights
 from etf_cockpit.portfolio.costs import estimated_cost_bps
 from etf_cockpit.portfolio.rebalancing import rebalance_score
@@ -76,12 +77,7 @@ def component_scores(
         how="left",
     )
     asset_class = asset_class_labels(frame["etf_id"], config)
-    frame["weighted_momentum"] = (
-        0.15 * frame["momentum_20d"]
-        + 0.35 * frame["momentum_60d"]
-        + 0.35 * frame["momentum_120d"]
-        + 0.15 * frame["momentum_180d"]
-    )
+    frame["weighted_momentum"] = weighted_momentum(frame)
     frame["score_momentum"] = (
         _cross_section_z(frame["weighted_momentum"], asset_class) / 3
     ).clip(-1, 1)

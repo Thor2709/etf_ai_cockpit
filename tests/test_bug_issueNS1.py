@@ -208,6 +208,7 @@ def test_signal_row_and_simple_component_builders_agree_on_the_v3_value() -> Non
         "etf_id": "AAA", "asset_type": "ETF", "price_freshness": "ok", "score_momentum": values["momentum"],
         "score_trend": values["trend"], "score_relative_strength": values["relative_strength"],
         "score_etf_exposure": values["etf_exposure"], "score_risk": values["risk"], "score_baseline_ml": values["baseline"],
+        "score_baseline_source": "forecast",
         "cost_penalty": cost_penalty,
         "score_rebalance": 0.9,  # portfolio drift is not an input of the instrument score
     }

@@ -74,6 +74,7 @@ def test_baseline_weight_is_not_redistributed_from_unavailable_models() -> None:
     config = N(models=N(ensemble={"weights": {"momentum": 0.5, "baseline_ml": 0.25, "timesfm": 0.25}}))
     row = {
         "etf_id": "X", "score_momentum": 0.0, "score_baseline_ml": 1.0,
+        "score_baseline_source": "forecast",
         # #939: below 0.50 coverage the score is unavailable, so the row also carries other (unweighted) evidence.
         "score_trend": 0.0, "score_relative_strength": 0.0, "score_risk": 0.0, "score_rebalance": 0.0,
         "cost_penalty": 0.0, "score_etf_exposure": 0.0,

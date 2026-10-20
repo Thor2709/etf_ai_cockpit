@@ -4025,7 +4025,7 @@ def _candidate_risk_raw(row: pd.Series, volatility_reference: float | None) -> f
     # Centred, volatility-only (B-08): a candidate at the peer-median volatility scores raw 0 (= 5/10) and drawdown is
     # not a second term (it tracks volatility, rho ~ -0.79 in the #927 audit). No peer reference -> unavailable.
     vol = _safe_float(row.get("volatility_60d_ann"))
-    if vol is None or volatility_reference is None or volatility_reference <= 0:
+    if vol is None or vol <= 0 or volatility_reference is None or volatility_reference <= 0:
         return None
     return _clamp((volatility_reference - vol) / volatility_reference)
 
@@ -4055,6 +4055,9 @@ def _candidate_trend_why(row: pd.Series) -> str:
 
 
 def _candidate_risk_why(row: pd.Series) -> str:
+    vol = _safe_float(row.get("volatility_60d_ann"))
+    if vol is None or vol <= 0:
+        return "Unavailable: 60-day annualised volatility must be positive and finite."
     return f"Current drawdown {_fmt_pct(row.get('current_drawdown'))}; 60-day annualised volatility {_fmt_pct(row.get('volatility_60d_ann'))}."
 
 

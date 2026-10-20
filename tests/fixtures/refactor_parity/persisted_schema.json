@@ -2282,6 +2282,7 @@
     ["momentum_60d", "double"],
     ["momentum_120d", "double"],
     ["momentum_180d", "double"],
+    ["momentum_252d_skip_20d", "double"],
     ["sma_50", "double"],
     ["sma_100", "double"],
     ["sma_200", "double"],
@@ -2297,6 +2298,7 @@
     ["drawdown_120d_max", "double"],
     ["liquidity_score", "double"],
     ["last_price", "double"],
+    ["weighted_momentum_vol_scaled", "double"],
     ["relative_strength_60d", "double"],
     ["relative_strength_120d", "double"]
    ]

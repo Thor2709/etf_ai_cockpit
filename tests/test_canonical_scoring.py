@@ -155,6 +155,7 @@ def test_signal_adapter_reconciles_legacy_total_and_retains_vintage_metadata() -
             "score_risk": 0.4,
             "score_rebalance": 0.0,
             "score_baseline_ml": 0.2,
+            "score_baseline_source": "forecast",
             "score_timesfm": 0.0,
             "score_toto": 0.0,
             "cost_penalty": 0.01,

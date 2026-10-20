@@ -393,8 +393,8 @@
   },
   "features": {
    "excluded_columns": [],
-   "shape": [14934, 27],
-   "columns": ["date", "etf_id", "return_1d_log", "return_5d_log", "return_20d_log", "return_60d_log", "momentum_20d", "momentum_60d", "momentum_120d", "momentum_180d", "sma_50", "sma_100", "sma_200", "trend_100", "trend_200", "trend_slope", "vol_20d_ann", "vol_60d_ann", "vol_120d_ann", "ewma_vol_ann", "drawdown_current", "drawdown_60d_max", "drawdown_120d_max", "liquidity_score", "last_price", "relative_strength_60d", "relative_strength_120d"],
+   "shape": [14934, 29],
+   "columns": ["date", "etf_id", "return_1d_log", "return_5d_log", "return_20d_log", "return_60d_log", "momentum_20d", "momentum_60d", "momentum_120d", "momentum_180d", "momentum_252d_skip_20d", "sma_50", "sma_100", "sma_200", "trend_100", "trend_200", "trend_slope", "vol_20d_ann", "vol_60d_ann", "vol_120d_ann", "ewma_vol_ann", "drawdown_current", "drawdown_60d_max", "drawdown_120d_max", "liquidity_score", "last_price", "weighted_momentum_vol_scaled", "relative_strength_60d", "relative_strength_120d"],
    "dtypes": {
     "date": "object",
     "etf_id": "object",
@@ -406,6 +406,7 @@
     "momentum_60d": "float64",
     "momentum_120d": "float64",
     "momentum_180d": "float64",
+    "momentum_252d_skip_20d": "float64",
     "sma_50": "float64",
     "sma_100": "float64",
     "sma_200": "float64",
@@ -421,6 +422,7 @@
     "drawdown_120d_max": "float64",
     "liquidity_score": "float64",
     "last_price": "float64",
+    "weighted_momentum_vol_scaled": "float64",
     "relative_strength_60d": "float64",
     "relative_strength_120d": "float64"
    },
@@ -488,6 +490,14 @@
      "mean": 0.07320283736568102,
      "min": -0.33430658288776477,
      "max": 0.45291801655127856
+    },
+    "momentum_252d_skip_20d": {
+     "nan_count": 14364,
+     "count": 570,
+     "sum": 45.35432412539644,
+     "mean": 0.07956898969367796,
+     "min": -0.40837872142684023,
+     "max": 0.42599467039655
     },
     "sma_50": {
      "nan_count": 2793,
@@ -609,6 +619,14 @@
      "min": 22.312935644859063,
      "max": 296.6088854776807
     },
+    "weighted_momentum_vol_scaled": {
+     "nan_count": 10260,
+     "count": 4674,
+     "sum": 400.4492586056819,
+     "mean": 0.08567592182406544,
+     "min": -1.2698065507680767,
+     "max": 1.4632114886295164
+    },
     "relative_strength_60d": {
      "nan_count": 3622,
      "count": 11312,
@@ -639,6 +657,7 @@
      "momentum_60d": "<NaN>",
      "momentum_120d": "<NaN>",
      "momentum_180d": "<NaN>",
+     "momentum_252d_skip_20d": "<NaN>",
      "sma_50": "<NaN>",
      "sma_100": "<NaN>",
      "sma_200": "<NaN>",
@@ -654,6 +673,7 @@
      "drawdown_120d_max": "<NaN>",
      "liquidity_score": "<NaN>",
      "last_price": 87.3449379432836,
+     "weighted_momentum_vol_scaled": "<NaN>",
      "relative_strength_60d": "<NaN>",
      "relative_strength_120d": "<NaN>"
     },
@@ -668,6 +688,7 @@
      "momentum_60d": "<NaN>",
      "momentum_120d": "<NaN>",
      "momentum_180d": "<NaN>",
+     "momentum_252d_skip_20d": "<NaN>",
      "sma_50": "<NaN>",
      "sma_100": "<NaN>",
      "sma_200": "<NaN>",
@@ -683,6 +704,7 @@
      "drawdown_120d_max": "<NaN>",
      "liquidity_score": "<NaN>",
      "last_price": 67.26107857303657,
+     "weighted_momentum_vol_scaled": "<NaN>",
      "relative_strength_60d": "<NaN>",
      "relative_strength_120d": "<NaN>"
     },
@@ -697,6 +719,7 @@
      "momentum_60d": "<NaN>",
      "momentum_120d": "<NaN>",
      "momentum_180d": "<NaN>",
+     "momentum_252d_skip_20d": "<NaN>",
      "sma_50": "<NaN>",
      "sma_100": "<NaN>",
      "sma_200": "<NaN>",
@@ -712,6 +735,7 @@
      "drawdown_120d_max": "<NaN>",
      "liquidity_score": "<NaN>",
      "last_price": 66.943296643591,
+     "weighted_momentum_vol_scaled": "<NaN>",
      "relative_strength_60d": "<NaN>",
      "relative_strength_120d": "<NaN>"
     }
@@ -728,6 +752,7 @@
      "momentum_60d": 0.013149881466160423,
      "momentum_120d": 0.05083153403367899,
      "momentum_180d": 0.24045466090115414,
+     "momentum_252d_skip_20d": 0.03210950871981002,
      "sma_50": 50.88886868952106,
      "sma_100": 50.75991028409616,
      "sma_200": 47.43248556351519,
@@ -743,6 +768,7 @@
      "drawdown_120d_max": -0.09247511193907054,
      "liquidity_score": 0.02895429420153543,
      "last_price": 49.925979782060914,
+     "weighted_momentum_vol_scaled": 0.3265301430998061,
      "relative_strength_60d": "<NaN>",
      "relative_strength_120d": "<NaN>"
     },
@@ -757,6 +783,7 @@
      "momentum_60d": 0.07351503565474772,
      "momentum_120d": -0.04253536670335556,
      "momentum_180d": 0.06608305966834213,
+     "momentum_252d_skip_20d": 0.01616749574170871,
      "sma_50": 131.4066554840628,
      "sma_100": 130.13676544788888,
      "sma_200": 130.95772083633062,
@@ -772,6 +799,7 @@
      "drawdown_120d_max": -0.1720503557387022,
      "liquidity_score": -0.022352419011488916,
      "last_price": 131.53482756934088,
+     "weighted_momentum_vol_scaled": 0.13818983033543938,
      "relative_strength_60d": 0.060365154188587296,
      "relative_strength_120d": -0.09336690073703455
     },
@@ -786,6 +814,7 @@
      "momentum_60d": 0.11205475601112785,
      "momentum_120d": 0.08028695557920966,
      "momentum_180d": 0.09777383222524186,
+     "momentum_252d_skip_20d": 0.1304262970008369,
      "sma_50": 75.39685798977027,
      "sma_100": 72.37679596033554,
      "sma_200": 71.81732246069589,
@@ -801,6 +830,7 @@
      "drawdown_120d_max": -0.09108398273144536,
      "liquidity_score": 0.05337475417525658,
      "last_price": 77.07136433166389,
+     "weighted_momentum_vol_scaled": 0.4943423073420765,
      "relative_strength_60d": 0.09890487454496744,
      "relative_strength_120d": 0.02945542154553067
     }
@@ -808,8 +838,8 @@
   },
   "latest_features": {
    "excluded_columns": [],
-   "shape": [57, 27],
-   "columns": ["date", "etf_id", "return_1d_log", "return_5d_log", "return_20d_log", "return_60d_log", "momentum_20d", "momentum_60d", "momentum_120d", "momentum_180d", "sma_50", "sma_100", "sma_200", "trend_100", "trend_200", "trend_slope", "vol_20d_ann", "vol_60d_ann", "vol_120d_ann", "ewma_vol_ann", "drawdown_current", "drawdown_60d_max", "drawdown_120d_max", "liquidity_score", "last_price", "relative_strength_60d", "relative_strength_120d"],
+   "shape": [57, 29],
+   "columns": ["date", "etf_id", "return_1d_log", "return_5d_log", "return_20d_log", "return_60d_log", "momentum_20d", "momentum_60d", "momentum_120d", "momentum_180d", "momentum_252d_skip_20d", "sma_50", "sma_100", "sma_200", "trend_100", "trend_200", "trend_slope", "vol_20d_ann", "vol_60d_ann", "vol_120d_ann", "ewma_vol_ann", "drawdown_current", "drawdown_60d_max", "drawdown_120d_max", "liquidity_score", "last_price", "weighted_momentum_vol_scaled", "relative_strength_60d", "relative_strength_120d"],
    "dtypes": {
     "date": "object",
     "etf_id": "object",
@@ -821,6 +851,7 @@
     "momentum_60d": "float64",
     "momentum_120d": "float64",
     "momentum_180d": "float64",
+    "momentum_252d_skip_20d": "float64",
     "sma_50": "float64",
     "sma_100": "float64",
     "sma_200": "float64",
@@ -836,6 +867,7 @@
     "drawdown_120d_max": "float64",
     "liquidity_score": "float64",
     "last_price": "float64",
+    "weighted_momentum_vol_scaled": "float64",
     "relative_strength_60d": "float64",
     "relative_strength_120d": "float64"
    },
@@ -903,6 +935,14 @@
      "mean": 0.013151113833392668,
      "min": -0.287425434898697,
      "max": 0.30177401022381034
+    },
+    "momentum_252d_skip_20d": {
+     "nan_count": 0,
+     "count": 57,
+     "sum": 3.5057988668343545,
+     "mean": 0.06150524327779569,
+     "min": -0.3707799041961763,
+     "max": 0.3983889903152149
     },
     "sma_50": {
      "nan_count": 0,
@@ -1024,6 +1064,14 @@
      "min": 27.090562744875328,
      "max": 250.24014878942032
     },
+    "weighted_momentum_vol_scaled": {
+     "nan_count": 0,
+     "count": 57,
+     "sum": -16.18151407384503,
+     "mean": -0.28388621182184265,
+     "min": -1.2698065507680767,
+     "max": 0.5395877823391296
+    },
     "relative_strength_60d": {
      "nan_count": 1,
      "count": 56,
@@ -1054,6 +1102,7 @@
      "momentum_60d": -0.08090278220834624,
      "momentum_120d": -0.036991193679075315,
      "momentum_180d": -0.024745027753267302,
+     "momentum_252d_skip_20d": 0.05808806334419438,
      "sma_50": 75.16449072026325,
      "sma_100": 76.37350125105198,
      "sma_200": 74.24016478449906,
@@ -1069,6 +1118,7 @@
      "drawdown_120d_max": -0.16578607429905468,
      "liquidity_score": -0.12997697975085623,
      "last_price": 69.77071745403329,
+     "weighted_momentum_vol_scaled": -0.32907506308246487,
      "relative_strength_60d": -0.09405266367450665,
      "relative_strength_120d": -0.0878227277127543
     },
@@ -1083,6 +1133,7 @@
      "momentum_60d": 0.08611037283299826,
      "momentum_120d": 0.0932752355961889,
      "momentum_180d": 0.06782069862521711,
+     "momentum_252d_skip_20d": -0.0747931228639396,
      "sma_50": 8.597461639801821,
      "sma_100": 8.342910215372193,
      "sma_200": 8.191517815644751,
@@ -1098,6 +1149,7 @@
      "drawdown_120d_max": -0.07004378112547638,
      "liquidity_score": 0.032613931255910465,
      "last_price": 86.14893774959219,
+     "weighted_momentum_vol_scaled": 0.36048689023591046,
      "relative_strength_60d": 0.07296049136683784,
      "relative_strength_120d": 0.042443701562509914
     },
@@ -1112,6 +1164,7 @@
      "momentum_60d": -0.021591181335576286,
      "momentum_120d": -0.1345137948475538,
      "momentum_180d": 0.06932346321990886,
+     "momentum_252d_skip_20d": -0.02707727858783119,
      "sma_50": 14.924508243657106,
      "sma_100": 15.154036851575846,
      "sma_200": 15.212960983133819,
@@ -1127,6 +1180,7 @@
      "drawdown_120d_max": -0.17679795977276014,
      "liquidity_score": 0.09918985050287077,
      "last_price": 145.00716820689365,
+     "weighted_momentum_vol_scaled": -0.24967323114942833,
      "relative_strength_60d": -0.03474106280173671,
      "relative_strength_120d": -0.18534532888123278
     }
@@ -1143,6 +1197,7 @@
      "momentum_60d": -0.12678615297331725,
      "momentum_120d": -0.24177233776307516,
      "momentum_180d": -0.15998995816891956,
+     "momentum_252d_skip_20d": -0.10322565495768689,
      "sma_50": 10.255728839974124,
      "sma_100": 10.672287454530371,
      "sma_200": 10.997581091703218,
@@ -1158,6 +1213,7 @@
      "drawdown_120d_max": -0.2416357593068601,
      "liquidity_score": -0.11874700727429754,
      "last_price": 91.12142810788356,
+     "weighted_momentum_vol_scaled": -0.8364435695552842,
      "relative_strength_60d": -0.13993603443947766,
      "relative_strength_120d": -0.2926038717967542
     },
@@ -1172,6 +1228,7 @@
      "momentum_60d": -0.02582519646124701,
      "momentum_120d": 0.04777224300646744,
      "momentum_180d": 0.16688165340387037,
+     "momentum_252d_skip_20d": 0.11260791642942763,
      "sma_50": 83.65614864252109,
      "sma_100": 83.46699165409103,
      "sma_200": 77.79399804359531,
@@ -1187,6 +1244,7 @@
      "drawdown_120d_max": -0.08720293530788625,
      "liquidity_score": -0.09689370780920943,
      "last_price": 80.35963341988567,
+     "weighted_momentum_vol_scaled": 0.21357043410379434,
      "relative_strength_60d": -0.03897507792740743,
      "relative_strength_120d": -0.003059291027211551
     },
@@ -1201,6 +1259,7 @@
      "momentum_60d": 0.11205475601112785,
      "momentum_120d": 0.08028695557920966,
      "momentum_180d": 0.09777383222524186,
+     "momentum_252d_skip_20d": 0.1304262970008369,
      "sma_50": 75.39685798977027,
      "sma_100": 72.37679596033554,
      "sma_200": 71.81732246069589,
@@ -1216,6 +1275,7 @@
      "drawdown_120d_max": -0.09108398273144536,
      "liquidity_score": 0.05337475417525658,
      "last_price": 77.07136433166389,
+     "weighted_momentum_vol_scaled": 0.4943423073420765,
      "relative_strength_60d": 0.09890487454496744,
      "relative_strength_120d": 0.02945542154553067
     }

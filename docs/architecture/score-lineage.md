@@ -49,6 +49,13 @@ Display annotations (`display_adjusted_score_10`, the missing-data penalty) are 
 
 ## Horizon map (B-05)
 
+B-04 research challengers are produced by `feature_pipeline.compute_features` from the same adjusted,
+EUR-basis price series as the live features: `momentum_252d_skip_20d` is the log return from t-252
+to t-20 (a 12-1 session approximation); `weighted_momentum_vol_scaled` divides the unchanged
+15/35/35/15 blend by positive finite 60-session annualised volatility. Missing history or invalid
+volatility remains unavailable (NaN). These columns are research inputs only, with no live score
+weight or automatic promotion; #811 must evaluate them before any weight change.
+
 Components do not share one horizon; the policy horizon `1-3 months` (`score_engine_v3.yaml: horizons.primary`) holds
 only for the price, analyst-revision and forecast components. Do not average the others into a tactical number
 without this label.

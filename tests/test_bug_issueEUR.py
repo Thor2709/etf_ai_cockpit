@@ -75,7 +75,7 @@ def test_flat_nok_price_with_moving_fx_has_nonzero_eur_momentum() -> None:
     assert last["last_price"] == pytest.approx(100.0)  # display-only listing-currency price
     assert features.attrs["currency_basis"] == CURRENCY_BASIS_EUR == "EUR"
     assert features.attrs["fx_unavailable"] == {}
-    assert FEATURE_ALGORITHM_VERSION == "features-3"
+    assert FEATURE_ALGORITHM_VERSION == "features-4"
 
 
 def test_eur_listing_is_untouched_and_needs_no_fx() -> None:

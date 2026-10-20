@@ -24,7 +24,7 @@ import yaml
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.core.values import finite_float_or_none
-from etf_cockpit.models.ensemble import BASELINE_SOURCE_HEURISTIC, effective_ensemble_weights
+from etf_cockpit.models.ensemble import BASELINE_SOURCE_FORECAST, BASELINE_SOURCE_HEURISTIC, effective_ensemble_weights
 
 if TYPE_CHECKING:
     from etf_cockpit.analysis.decision.contracts import CriticalGateResult, ScoreAuthorityFlags
@@ -642,12 +642,16 @@ def canonical_score_from_signal_row(
     signal_day = str(decision_time.isoformat() if isinstance(decision_time, date) else decision_time)[:10]
     as_of = signal_day if price_freshness == "ok" else None
     # Portfolio drift (score_rebalance) is not a component: an instrument's score never depends on the portfolio.
-    heuristic_baseline = row.get("score_baseline_source") == BASELINE_SOURCE_HEURISTIC
+    baseline_source = row.get("score_baseline_source")
+    forecast_baseline = isinstance(baseline_source, str) and baseline_source == BASELINE_SOURCE_FORECAST
+    heuristic_baseline = isinstance(baseline_source, str) and baseline_source == BASELINE_SOURCE_HEURISTIC
     baseline_explanation = (
         "Unavailable as a model: price heuristic (momentum/trend fallback, no forecast); shown for display only, "
         "carries no score weight and no coverage."
         if heuristic_baseline
         else "Baseline expected-return evidence."
+        if forecast_baseline
+        else "Unavailable: missing or unrecognised baseline provenance; explicit forecast provenance is required."
     )
     components = [
         _signal_component("momentum", row.get("score_momentum"), "attractiveness", source, price_freshness, "Momentum evidence.", as_of),
@@ -659,9 +663,9 @@ def canonical_score_from_signal_row(
         # A heuristic baseline re-uses price strength: unavailable as expected-return evidence (value kept for display).
         _signal_component(
             "baseline", row.get("score_baseline_ml"), "expected_return",
-            "heuristic:momentum_trend" if heuristic_baseline else "model:baseline",
+            "heuristic:momentum_trend" if heuristic_baseline else "model:baseline" if forecast_baseline else "",
             price_freshness, baseline_explanation, as_of, authority="model_advisory",
-            status="unavailable" if heuristic_baseline else "ok",
+            status="ok" if forecast_baseline else "unavailable",
         ),
         _signal_component("timesfm", row.get("score_timesfm"), "expected_return", "model:timesfm", price_freshness, "TimesFM challenger expected-return evidence.", as_of, authority="model_advisory", status="ok" if timesfm_available else "unavailable"),
         _signal_component("toto", row.get("score_toto"), "expected_return", "model:toto", price_freshness, "Toto challenger expected-return evidence.", as_of, authority="model_advisory", status="ok" if toto_available else "unavailable"),
@@ -673,9 +677,8 @@ def canonical_score_from_signal_row(
         toto_available=toto_available,
         timesfm_available=timesfm_available,
     )
-    if heuristic_baseline:
-        # The momentum/trend fallback re-uses price strength: it stays visible as a labelled heuristic component but
-        # carries no weight in the legacy action composite.
+    if not forecast_baseline:
+        # Only explicitly forecast-backed values carry legacy action-composite weight.
         weights = {key: value for key, value in weights.items() if key != "baseline_ml"}
     return canonical_score_from_simple_components(
         instrument_id,

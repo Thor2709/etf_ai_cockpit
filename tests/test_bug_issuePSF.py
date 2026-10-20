@@ -9,13 +9,14 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pandas as pd
+import numpy as np
 import pytest
 import yaml
 
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.types import DataQualityReport, DatasetMetadata
 from etf_cockpit.core.versioning import build_version_registry
-from etf_cockpit.models.ensemble import BASELINE_SOURCE_HEURISTIC, effective_ensemble_weights
+from etf_cockpit.models.ensemble import BASELINE_SOURCE_FORECAST, BASELINE_SOURCE_HEURISTIC, effective_ensemble_weights
 from etf_cockpit.signals import signal_pipeline
 from etf_cockpit.signals.canonical_scoring import canonical_score_from_signal_row, load_score_policy
 from etf_cockpit.signals.scoring import component_scores
@@ -177,6 +178,29 @@ def test_risk_is_centred_so_a_neutral_input_scores_five() -> None:
     assert component_scores(missing, _allocation(), config)["score_risk"].isna().all()
 
 
+def test_baseline_requires_explicit_forecast_provenance_for_weight_and_coverage() -> None:
+    config = load_config()
+    row = {
+        "etf_id": "AAA", "price_freshness": "ok", "score_momentum": 0.2, "score_trend": 0.3,
+        "score_risk": 0.0, "score_etf_exposure": 0.2, "cost_penalty": 0.0, "score_baseline_ml": 1.0,
+    }
+    def score(values):
+        return canonical_score_from_signal_row(values, config, "2026-01-06")
+
+    absent = score({**row, "score_baseline_ml": None})
+    backed = score({**row, "score_baseline_source": BASELINE_SOURCE_FORECAST})
+    for fields in ({}, {"score_baseline_source": "unknown"}, {"score_baseline_source": None}, {"score_baseline_source": pd.NA}):
+        unverified = score({**row, **fields})
+        component = next(item for item in unverified.components if item["key"] == "baseline")
+        assert component["status"] == "unavailable" and not component["score_eligible"]
+        assert "provenance" in component["explanation"] and component["source_id"] != "model:baseline"
+        assert component["raw_metric"] == 1.0 and not component["contribution_raw"]
+        assert unverified.expected_return_10 is None
+        assert unverified.coverage == absent.coverage < backed.coverage
+        assert unverified.evidence_confidence_10 == absent.evidence_confidence_10
+        assert unverified.legacy_composite_raw == absent.legacy_composite_raw
+
+
 def _signal_with_edge(monkeypatch: pytest.MonkeyPatch, distributions: dict | None):
     config = load_config()
     scores = pd.DataFrame([{
@@ -260,6 +284,26 @@ def test_b05_horizon_map_is_published_with_the_tactical_and_underwriting_split()
     assert _document()["horizons"]["primary"] == "1-3 months"
 
 
+def test_candidate_nonpositive_volatility_is_unavailable_instead_of_favourable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ss, "_etf_exposure_lookup", dict)
+    rows = [
+        {"instrument_id": str(index), "asset_type": "ETF", "latest_date": "2026-01-06", "latest_price": 100.0,
+         "rows": 504, "volatility_60d_ann": vol}
+        for index, vol in enumerate((-0.10, 0.0, 0.20))
+    ]
+    scores = ss.build_candidate_simple_scores(pd.DataFrame(rows), pd.DataFrame(), decision_date=date(2026, 1, 6))
+    for result in scores:
+        risk = next(item for item in result.components if item.key == "risk")
+        if result.display_id in {"0", "1"}:
+            assert risk.status == "N/A" and risk.raw_score is None and risk.score_10 is None
+            assert not risk.score_eligible and "positive and finite" in risk.why
+        else:
+            assert risk.raw_score == 0.0 and risk.score_10 == 5.0
+    assert len(scores) == 3
+    for vol in (-0.1, 0.0):
+        assert ss._candidate_risk_raw(pd.Series({"volatility_60d_ann": vol}), 0.2) is None
+
+
 def test_b04_probe_momentum_construction_has_no_skip_window_or_volatility_scaling() -> None:
     from etf_cockpit.features.momentum import weighted_momentum
 
@@ -267,4 +311,34 @@ def test_b04_probe_momentum_construction_has_no_skip_window_or_volatility_scalin
     assert weighted_momentum(frame).iloc[0] == pytest.approx(0.15)  # the 20-day window enters unskipped, weight 0.15
     scaled = frame.assign(vol_60d_ann=[0.5])
     assert weighted_momentum(scaled).iloc[0] == pytest.approx(0.15)  # unscaled by volatility
-    assert not hasattr(__import__("etf_cockpit.features.momentum", fromlist=["x"]), "skip_momentum")  # no challenger variants yet
+    assert not hasattr(__import__("etf_cockpit.features.momentum", fromlist=["x"]), "skip_momentum")  # skip uses the existing momentum path
+
+
+def test_b04_research_challengers_skip_recent_prices_scale_valid_volatility_and_preserve_live_blend() -> None:
+    from etf_cockpit.features.feature_pipeline import compute_features
+    from etf_cockpit.features.momentum import weighted_momentum
+
+    prices = pd.DataFrame({
+        "etf_id": "AAA", "date": pd.bdate_range("2025-01-01", periods=280),
+        "adjusted_close": np.exp(np.arange(280) * 0.001 + np.sin(np.arange(280)) * 0.01), "volume": 1000.0,
+    })
+    features = compute_features(prices)
+    skip = "momentum_252d_skip_20d"
+    scaled = "weighted_momentum_vol_scaled"
+    assert features[skip].iloc[:252].isna().all()
+    assert features[skip].iloc[252] == pytest.approx(np.log(prices.adjusted_close.iloc[232] / prices.adjusted_close.iloc[0]))
+    changed = prices.copy()
+    changed.loc[260:, "adjusted_close"] *= 1.5
+    assert compute_features(changed)[skip].iloc[-1] == features[skip].iloc[-1]
+    assert features[scaled].iloc[-1] == pytest.approx(weighted_momentum(features).iloc[-1] / features.vol_60d_ann.iloc[-1])
+    prefix = compute_features(prices.iloc[:270])
+    pd.testing.assert_frame_equal(prefix[[skip, scaled]], features.loc[:269, [skip, scaled]])
+    for vol in (None, 0.0, -0.1, float("inf"), float("nan")):
+        invalid = features.assign(vol_60d_ann=vol)
+        assert weighted_momentum(invalid, volatility=invalid.vol_60d_ann).isna().all()
+    live = features.tail(1).copy()
+    corrupted = live.assign(**{skip: 1e6, scaled: -1e6})
+    config = load_config()
+    base = component_scores(live, _allocation(), config)
+    assert base.weighted_momentum.iloc[0] == weighted_momentum(live).iloc[0]
+    pd.testing.assert_series_equal(base.total_score, component_scores(corrupted, _allocation(), config).total_score)
