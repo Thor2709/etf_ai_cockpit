@@ -524,6 +524,50 @@ def _underlying_holdings_card(holdings: pd.DataFrame, allocation: pd.DataFrame) 
     )
 
 
+def _finite_or_none(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _tail_metric_tiles(report: dict[str, object]) -> list[ft.Control]:
+    """Computed tail metrics from the robust-risk report; unavailable only with the reported reason."""
+
+    tail = report.get("tail_risk") if isinstance(report, dict) else None
+    tail = tail if isinstance(tail, dict) else {}
+
+    def section(name: str) -> dict[str, object]:
+        value = tail.get(name)
+        return value if isinstance(value, dict) else {}
+
+    portfolio, dependence, liquidity = section("portfolio"), section("tail_dependence"), section("liquidity_adjusted")
+    base_reason = str((report or {}).get("message") or "Tail-risk evidence is unavailable.") if tail.get("status") != "available" else ""
+
+    def tile(label: str, value: float | None, text: str, sub: str, reason: str) -> ft.Control:
+        if value is None:
+            return KpiTile(label, None, sub=base_reason or reason)
+        return KpiTile(label, text, sub=sub)
+
+    var_95 = _finite_or_none(portfolio.get("var_95"))
+    shortfall = _finite_or_none(portfolio.get("expected_shortfall_95"))
+    downside = _finite_or_none(portfolio.get("downside_vol_ann"))
+    drawdown = _finite_or_none(portfolio.get("max_drawdown"))
+    lower_tail = _finite_or_none(dependence.get("mean_lower_tail_dependence"))
+    multiplier = _finite_or_none(liquidity.get("multiplier"))
+    return [
+        tile("Tail VaR 95%", var_95, format_percent(var_95, decimals=2), "1-day loss, 5% tail quantile", "Too few return observations for a tail quantile."),
+        tile("Expected shortfall 95%", shortfall, format_percent(shortfall, decimals=2), "Mean 1-day loss beyond VaR", "Too few return observations for expected shortfall."),
+        tile("Downside volatility", downside, format_percent(downside, decimals=2), "Annualised, zero target, all observations", "At least two joint return observations are required."),
+        tile("Maximum drawdown", drawdown, format_percent(drawdown, decimals=2), "From initial wealth", "No joint return history is available."),
+        tile("Lower-tail dependence", lower_tail, format_percent(lower_tail, decimals=1), "Mean pairwise 5% joint tail events", "Pairwise tail dependence is unavailable."),
+        tile("Liquidity multiplier", multiplier, f"{multiplier:.2f}x" if multiplier is not None else "", "Volatility multiplier from traded-value proxy", str(liquidity.get("message") or "Volume evidence is unavailable.")),
+    ]
+
+
 def _robust_estimator_panel(report: dict[str, object]) -> ft.Control:
     frame = report.get("estimator_comparison")
     frame = frame if isinstance(frame, pd.DataFrame) else pd.DataFrame()
@@ -975,17 +1019,7 @@ def risk_page(page: ft.Page | None, state: AppState, *, _deferred: bool = False)
         ),
     )
 
-    tail_tiles = [
-        KpiTile(label, None, sub="No existing result provides this measure")
-        for label in (
-            "Tail VaR 95%",
-            "Expected shortfall 95%",
-            "Downside volatility",
-            "Maximum drawdown",
-            "Lower-tail dependence",
-            "Liquidity multiplier",
-        )
-    ]
+    tail_tiles = _tail_metric_tiles(robust_risk)
     regimes_chart = ck.grouped_bar_chart(
         [],
         [],

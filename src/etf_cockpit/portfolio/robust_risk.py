@@ -14,6 +14,7 @@ from etf_cockpit.portfolio.factor_risk import _condition_number
 ROBUST_RISK_MODEL_VERSION = "robust_risk.v1"
 ANNUALISATION_FACTOR = 252.0
 EQUAL_WEIGHT_FALLBACK_BASIS = "equal_weight_illustrative_fallback_no_allocation_evidence"
+FACTOR_MODEL_VALIDATION_NOTE = "factor_model_excluded_from_oos_selection_fit_window_not_training_only"
 ESTIMATOR_NAMES = ("sample", "ewma", "shrinkage", "robust", "diagonal", "factor_model")
 
 
@@ -36,8 +37,21 @@ def build_robust_risk_report(
     fixed_income = integrate_fixed_income_risk(fixed_income_records)
     ids = list(returns.columns)
     weights, weights_basis = _weights(allocation, ids)
+    invalid_weight_ids = _invalid_weight_ids(allocation)
+    if invalid_weight_ids:
+        report = _unavailable_report(
+            "invalid_allocation_weight: explicit allocation weights must be finite numbers "
+            f"(invalid: {', '.join(invalid_weight_ids)}).",
+            returns,
+            weights,
+        )
+        report["reason_code"] = "invalid_allocation_weight"
+        report["fixed_income_risk"] = fixed_income
+        return report
+    coverage = _weight_coverage(allocation, ids, weights_basis)
     if returns.empty or len(ids) < 2:
         report = _unavailable_report("At least two instruments with adjusted-price returns are required.", returns, weights)
+        report["portfolio"].update(coverage)
         report["fixed_income_risk"] = fixed_income
         return report
     if len(returns.dropna(how="any")) < 2:
@@ -46,6 +60,7 @@ def build_robust_risk_report(
             returns,
             weights,
         )
+        report["portfolio"].update(coverage)
         report["fixed_income_risk"] = fixed_income
         report["reason_code"] = "shared_return_history_unavailable"
         return report
@@ -58,6 +73,12 @@ def build_robust_risk_report(
         validation_warnings.append("selected_estimator_unavailable_fallback_sample")
     contribution, portfolio = _portfolio_contributions(selected_covariance, weights)
     portfolio["weights_basis"] = weights_basis
+    portfolio.update(coverage)
+    if coverage["unpriced_instruments"]:
+        # Unpriced holdings carry risk that cannot be measured: the headline volatility is withheld
+        # (never the priced-subset figure presented as the whole portfolio) and the report is partial.
+        portfolio["priced_annualised_volatility"] = portfolio.get("annualised_volatility")
+        portfolio["annualised_volatility"] = None
     bootstrap = _bootstrap_uncertainty(returns, weights, block_size=block_size, repetitions=bootstrap_reps, seed=seed)
     regimes = _regime_report(returns, weights)
     tail_risk = _tail_risk_report(returns, weights, prices, allocation)
@@ -72,9 +93,13 @@ def build_robust_risk_report(
         "out_of_sample": comparison.to_dict("records"),
         "selection_method": "lowest validation covariance Frobenius error; sample baseline if validation is unavailable",
         "weights_basis": weights_basis,
+        "weight_coverage": coverage,
+        "factor_model_validation": FACTOR_MODEL_VALIDATION_NOTE if not covariances["factor_model"].empty else None,
         "warnings": validation_warnings,
     }
     warnings = [*validation_warnings]
+    if coverage["unpriced_instruments"]:
+        warnings.append("unpriced_holdings_excluded")
     if weights_basis == EQUAL_WEIGHT_FALLBACK_BASIS:
         warnings.append(EQUAL_WEIGHT_FALLBACK_BASIS)
     if bootstrap.get("status") != "available":
@@ -178,9 +203,14 @@ def integrate_fixed_income_risk(
                 for name in row.unknown_components
             }
         )
-        known = sum(
-            (row.known_component_total for _, row in matched if row is not None),
-            Decimal("0"),
+        # Known P&L is only summable inside one unit; mixed units stay unknown, never added.
+        known = (
+            sum(
+                (row.known_component_total for _, row in matched if row is not None),
+                Decimal("0"),
+            )
+            if len(units) == 1
+            else None
         )
         reconciled = not missing and not unknown and len(units) == 1
         scenarios.append(
@@ -189,7 +219,11 @@ def integrate_fixed_income_risk(
                 "known_component_total": known,
                 "total_pnl": known if reconciled else None,
                 "unit": next(iter(units)) if len(units) == 1 else None,
-                "coverage": Decimal(len(records) - len(missing)) / Decimal(len(records)),
+                # Component coverage (missing instruments count as zero), not instrument presence.
+                "coverage": sum(
+                    (row.coverage for _, row in matched if row is not None), Decimal("0")
+                )
+                / Decimal(len(records)),
                 "missing_instruments": missing,
                 "unknown_components": unknown,
                 "reconciled": reconciled,
@@ -280,6 +314,8 @@ def _covariance_estimators(
     for name, details in repair_metadata.items():
         if name in meta:
             meta[name].update(details)
+    if "ewma" in meta:
+        meta["ewma"]["effective_sample"] = _ewma_effective_sample(len(complete), ewma_lambda)
     return matrices, meta
 
 
@@ -294,6 +330,15 @@ def _ewma_covariance(returns: pd.DataFrame, lambda_: float) -> pd.DataFrame:
     demeaned = returns.to_numpy(float) - centre
     covariance = (demeaned * weights[:, None]).T @ demeaned
     return pd.DataFrame(covariance, index=returns.columns, columns=returns.columns)
+
+
+def _ewma_effective_sample(observations: int, lambda_: float) -> float:
+    """Kish effective sample size (sum w)^2 / sum w^2 of the EWMA weights actually applied."""
+
+    value = float(np.clip(lambda_, 0.0, 0.9999))
+    weights = value ** np.arange(max(int(observations), 0) - 1, -1, -1)
+    squares = float((weights**2).sum())
+    return float(weights.sum() ** 2 / squares) if squares > 0 else 0.0
 
 
 def _winsorise(returns: pd.DataFrame) -> pd.DataFrame:
@@ -376,7 +421,10 @@ def _out_of_sample_selection(returns: pd.DataFrame, factor_report: dict[str, obj
     unavailable = (pd.DataFrame(columns=["estimator", "validation_error", "validation_observations", "selected"]), "sample", ["out_of_sample_validation_unavailable"])
     if len(validation.dropna(how="any")) < 2:
         return unavailable
-    train_matrices, _ = _covariance_estimators(train, factor_report, ewma_lambda=ewma_lambda, shrinkage_alpha=shrinkage_alpha)
+    # The factor report is fitted on the full window supplied by the caller, so its covariance
+    # and specific risk already contain the validation observations. Scoring it against that same
+    # validation window would be look-ahead: only estimators fitted on ``train`` are compared.
+    train_matrices, _ = _covariance_estimators(train, None, ewma_lambda=ewma_lambda, shrinkage_alpha=shrinkage_alpha)
     realised = validation.dropna(how="any").cov() * ANNUALISATION_FACTOR
     realised, _ = _psd_repair(realised, list(returns.columns))
     if realised.empty:
@@ -413,6 +461,14 @@ def _bootstrap_uncertainty(returns: pd.DataFrame, weights: pd.Series, *, block_s
     clean = returns.dropna(how="any")
     if len(clean) < max(20, block_size * 2) or repetitions <= 0:
         return {"status": "unavailable", "observations": int(len(clean)), "repetitions": int(repetitions)}
+    if repetitions < 2:
+        return {
+            "status": "unavailable",
+            "reason_code": "bootstrap_repetitions_insufficient",
+            "message": "At least two bootstrap repetitions are required for a standard deviation.",
+            "observations": int(len(clean)),
+            "repetitions": int(repetitions),
+        }
     vector = weights.reindex(clean.columns).fillna(0.0).to_numpy(float)
     rng = np.random.default_rng(seed)
     block = max(1, min(int(block_size), len(clean)))
@@ -426,6 +482,8 @@ def _bootstrap_uncertainty(returns: pd.DataFrame, weights: pd.Series, *, block_s
         covariance = sample.cov().to_numpy(float) * ANNUALISATION_FACTOR
         values.append(float(np.sqrt(max(0.0, vector @ covariance @ vector))))
     distribution = np.asarray(values, dtype=float)
+    if not np.isfinite(distribution).all() or not np.isfinite(distribution.std(ddof=1)):
+        return {"status": "unavailable", "reason_code": "bootstrap_distribution_non_finite", "observations": int(len(clean)), "repetitions": int(repetitions)}
     return {"status": "available", "observations": int(len(clean)), "repetitions": int(repetitions), "seed": int(seed), "block_size": int(block), "mean": float(distribution.mean()), "lower_5": float(np.quantile(distribution, 0.05)), "upper_95": float(np.quantile(distribution, 0.95)), "standard_deviation": float(distribution.std(ddof=1))}
 
 
@@ -452,17 +510,25 @@ def _tail_risk_report(returns: pd.DataFrame, weights: pd.Series, prices: pd.Data
     portfolio = clean @ vector
     threshold = float(portfolio.quantile(0.05))
     losses = portfolio[portfolio <= threshold]
-    cumulative = np.exp(portfolio.cumsum())
-    drawdown = cumulative / cumulative.cummax() - 1.0
+    # Wealth starts at 1.0 before the first return so an immediate loss is a drawdown.
+    cumulative = np.concatenate([[1.0], np.exp(portfolio.cumsum().to_numpy(float))])
+    drawdown = cumulative / np.maximum.accumulate(cumulative) - 1.0
+    # Loss-positive convention: VaR/ES are loss magnitudes floored at 0; the raw signed 5% quantile
+    # return stays visible so a positive-only sample is not reported as a negative "loss".
+    expected_shortfall = float(max(0.0, -losses.mean())) if not losses.empty else None
     tail_dependence = _tail_dependence(clean)
     liquidity = _liquidity_adjusted_risk(prices, allocation, clean, vector)
     return {
         "status": "available",
         "portfolio": {
             "observations": int(len(portfolio)),
-            "downside_vol_ann": float(portfolio[portfolio < 0].std(ddof=1) * np.sqrt(ANNUALISATION_FACTOR)) if (portfolio < 0).sum() >= 2 else None,
-            "var_95": float(-threshold),
-            "expected_shortfall_95": float(-losses.mean()) if not losses.empty else None,
+            # Downside deviation against a zero target over ALL observations (non-losses contribute 0).
+            "downside_vol_ann": float(np.sqrt(np.mean(np.minimum(portfolio.to_numpy(float), 0.0) ** 2) * ANNUALISATION_FACTOR)) if len(portfolio) >= 2 else None,
+            "downside_target": 0.0,
+            "var_sign_convention": "loss_positive_floored_at_zero",
+            "var_95": float(max(0.0, -threshold)),
+            "return_quantile_05": float(threshold),
+            "expected_shortfall_95": expected_shortfall,
             "max_drawdown": float(drawdown.min()),
         },
         "tail_dependence": tail_dependence,
@@ -473,13 +539,14 @@ def _tail_risk_report(returns: pd.DataFrame, weights: pd.Series, prices: pd.Data
 def _tail_dependence(returns: pd.DataFrame) -> dict[str, object]:
     if returns.shape[1] < 2:
         return {"status": "unavailable", "mean_lower_tail_dependence": None, "pairs": 0}
-    threshold = returns.quantile(0.05)
-    events = returns.le(threshold)
+    # Exactly k tail events per asset (rank-based, ties broken by time order), so both conditioning
+    # denominators are equal and the estimate does not depend on column order or tied quantiles.
+    tail_count = max(1, int(np.ceil(0.05 * len(returns))))
+    events = returns.rank(method="first").le(tail_count)
     values: list[float] = []
     for left_index, left in enumerate(returns.columns):
         for right in returns.columns[left_index + 1 :]:
-            denominator = int(events[left].sum())
-            values.append(float((events[left] & events[right]).sum() / denominator) if denominator else float("nan"))
+            values.append(float((events[left] & events[right]).sum() / tail_count))
     values = [value for value in values if np.isfinite(value)]
     return {"status": "available" if values else "unavailable", "mean_lower_tail_dependence": float(np.mean(values)) if values else None, "pairs": len(values), "quantile": 0.05}
 
@@ -489,15 +556,21 @@ def _liquidity_adjusted_risk(prices: pd.DataFrame, allocation: pd.DataFrame | No
     if prices is None or prices.empty or not required.issubset(prices.columns):
         return {"status": "unavailable", "message": "Volume and adjusted-price fields are required for the transparent liquidity proxy."}
     frame = prices.copy()
+    # Same lookback as the return window: only price rows on the dates the returns cover.
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+    if returns.empty:
+        return {"status": "unavailable", "message": "No return window is available to bound the liquidity proxy."}
+    frame = frame[frame["date"].between(pd.Timestamp(returns.index.min()), pd.Timestamp(returns.index.max()))]
     frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce")
     frame["volume"] = pd.to_numeric(frame["volume"], errors="coerce")
     frame["dollar_volume"] = frame["adjusted_close"] * frame["volume"]
     average = frame.groupby("etf_id")["dollar_volume"].mean().reindex(returns.columns)
     if not np.isfinite(average.to_numpy(dtype=float)).all() or (average <= 0).any():
         return {"status": "unavailable", "message": "At least one instrument lacks a positive average traded-value proxy."}
-    pressure = weights / np.maximum(average.to_numpy(float), 1e-12)
+    # Short positions also need to be traded: pressure uses the absolute weight.
+    pressure = np.abs(weights) / np.maximum(average.to_numpy(float), 1e-12)
     multiplier = float(np.sqrt(1.0 + np.mean(np.clip(pressure * 10_000.0, 0.0, 100.0))))
-    return {"status": "available", "method": "sqrt(1 + mean(weight / average_traded_value * 10000))", "mean_pressure": float(np.mean(pressure)), "multiplier": multiplier, "portfolio_vol_multiplier": multiplier}
+    return {"status": "available", "method": "sqrt(1 + mean(abs(weight) / average_traded_value * 10000))", "mean_pressure": float(np.mean(pressure)), "multiplier": multiplier, "portfolio_vol_multiplier": multiplier}
 
 
 def _weights(allocation: pd.DataFrame | None, ids: list[str]) -> tuple[pd.Series, str]:
@@ -518,6 +591,40 @@ def _weights(allocation: pd.DataFrame | None, ids: list[str]) -> tuple[pd.Series
     frame[column] = pd.to_numeric(frame[column], errors="coerce").fillna(0.0)
     weights = frame.groupby("etf_id")[column].sum().reindex(ids).fillna(0.0)
     return weights.astype(float), "allocation_weights"
+
+
+def _invalid_weight_ids(allocation: pd.DataFrame | None) -> list[str]:
+    """Allocation rows whose explicit weight is missing, non-numeric or non-finite (never read as 0)."""
+
+    if allocation is None or allocation.empty or "etf_id" not in allocation.columns:
+        return []
+    column = "current_weight" if "current_weight" in allocation.columns else "target_weight" if "target_weight" in allocation.columns else None
+    if column is None:
+        return []
+    values = pd.to_numeric(allocation[column], errors="coerce")
+    invalid = ~np.isfinite(values.to_numpy(float))
+    return sorted({str(item) for item in allocation.loc[invalid, "etf_id"]})
+
+
+def _weight_coverage(allocation: pd.DataFrame | None, ids: list[str], weights_basis: str) -> dict[str, object]:
+    """Share of gross allocation weight that has an adjusted-price return series."""
+
+    empty: dict[str, object] = {"weight_coverage": 1.0, "unpriced_instruments": [], "unpriced_weight": 0.0}
+    if weights_basis != "allocation_weights" or allocation is None:
+        return empty
+    column = "current_weight" if "current_weight" in allocation.columns else "target_weight"
+    held = pd.to_numeric(allocation[column], errors="coerce").groupby(allocation["etf_id"].astype(str)).sum()
+    held = held[held.abs() > 0]
+    gross = float(held.abs().sum())
+    if gross <= 0:
+        return empty
+    unpriced = held[~held.index.isin([str(item) for item in ids])]
+    unpriced_weight = float(unpriced.abs().sum())
+    return {
+        "weight_coverage": float(1.0 - unpriced_weight / gross),
+        "unpriced_instruments": sorted(unpriced.index),
+        "unpriced_weight": unpriced_weight,
+    }
 
 
 def _unavailable_report(message: str, returns: pd.DataFrame, weights: pd.Series) -> dict[str, object]:
