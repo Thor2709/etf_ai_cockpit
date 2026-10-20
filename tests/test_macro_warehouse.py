@@ -1067,7 +1067,7 @@ def test_observations_as_of_decodes_only_cutoff_eligible_rows(
                 malformed_available_at,
                 malformed_available_at,
                 "2025-01-01T00:00:00.000000+00:00",
-                "2025-03-01T00:00:00.000000+00:00",
+                malformed_available_at,
                 None,
                 1,
                 "future-malformed-source",
