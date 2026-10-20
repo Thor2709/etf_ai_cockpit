@@ -25,6 +25,21 @@ from etf_cockpit.data import stock_fundamentals as store
 from etf_cockpit.data.stock_peer_picks import load_user_peers
 
 LIVE_GRACE_DAYS = 5
+SECTOR_ROUTE_MISSING = "sector_route_missing"
+# Insurers, exchanges and diversified financials have no dedicated fundamentals route yet. Banks are excluded from the
+# generic route by ``scope.excluded_sectors`` (the Sparebank scorecard owns them) and never match here.
+_NON_BANK_FINANCIAL_TOKENS = ("financ", "insur", "assurance")
+_BANK_TOKENS = ("bank", "savings")
+
+
+def is_non_bank_financial_sector(sector: object) -> bool:
+    """True for a Financials / Insurance / Financial exchanges classification (never for banks or blank labels)."""
+
+    text = "" if _blank(sector) else str(sector).strip().casefold()
+    if not text or any(token in text for token in _BANK_TOKENS):
+        return False
+    return any(token in text for token in _NON_BANK_FINANCIAL_TOKENS)
+
 PEER_METRIC_KEYS = ("pe", "ev_ebit", "ev_sales", "pb", "roe", "ebit_margin", "fcf_yield", "dividend_yield", "revenue_cagr")
 COHORT_METRIC_KEYS = ("pe", "earnings_yield", "fcf_yield", "ebit_ev_yield", "roe", "roic", "ebit_margin", "net_debt_to_ebitda", "fcf_conversion", "revenue_cagr")
 
@@ -293,7 +308,8 @@ def build_universe_evidence(
         }
         for key in COHORT_METRIC_KEYS
     }
-    candidates = [result.profiles[r.instrument_id] for r in records]
+    # Non-bank financials are not scored by the industrial ratios, so they must not shape industrial peer cohorts either.
+    candidates = [result.profiles[r.instrument_id] for r in records if not is_non_bank_financial_sector(result.profiles[r.instrument_id].sector)]
     for record in records:
         iid = record.instrument_id
         automatic = auto_peers(result.profiles[iid], candidates, cfg)

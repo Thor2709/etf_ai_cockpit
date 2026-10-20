@@ -79,3 +79,28 @@ action_composite:
     timesfm: 0.14
     baseline_ml: 0.07
     chatgpt_thesis: 0.07
+# FPQ: liquidity scoring. Turnover is scored as order size / average daily value (ADV); the ladder reproduces the former
+# absolute turnover bands at the default order size. The daily high-low range is a volatility proxy (range_proxy_bps),
+# not a spread; the Corwin-Schultz estimate is used where OHLC exists (its bps penalty thresholds are smaller).
+liquidity:
+  default_order_size_eur: 10000.0
+  participation_ladder:
+    - {max_participation: 0.001, score_10: 9.5}
+    - {max_participation: 0.005, score_10: 8.0}
+    - {max_participation: 0.02, score_10: 6.5}
+    - {max_participation: 0.10, score_10: 5.0}
+    - {max_participation: 0.40, score_10: 3.5}
+  floor_score_10: 2.0
+  corwin_schultz_min_pairs: 5
+  corwin_schultz_penalty_bps: {severe: 100.0, moderate: 50.0, tight: 15.0}
+# FPQ: ETF product-quality block. Peer group = same exposure/benchmark (universe theme). Lower cost, tracking
+# difference and premium-discount are better, ranked against the other peers. TER (or a KID ongoing cost) is required.
+# Documented component: it is displayed with its own provenance and carries NO headline weight (headline_weight 0.0,
+# no key in any weight table) until the owner calibrates one. It never replaces concentration (etf_exposure stays a
+# risk term in the existing v3 tables).
+etf_product_quality:
+  headline_weight: 0.0
+  min_peers: 2
+  max_evidence_age_days: 400
+  weights: {cost: 0.50, tracking_difference: 0.25, premium_discount: 0.15, structure: 0.10}
+  structure_scores: {physical_full: 9.0, physical_sampled: 7.0, synthetic: 4.5}

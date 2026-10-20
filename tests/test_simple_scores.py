@@ -237,6 +237,9 @@ def test_score_component_requires_as_of_and_freshness_provenance() -> None:
     assert combine_component_scores([valid_provenance], weights={"momentum": 1.0}) == (1.0, 10.0)
 
 
+_KID_PEER_COSTS_PCT = (0.10, 0.30, 0.60)
+
+
 def _kid_for_score(**changes: object) -> PriipsKidRecord:
     values: dict[str, object] = {
         "product": "Example ETF",
@@ -261,27 +264,34 @@ def _kid_for_score(**changes: object) -> PriipsKidRecord:
 def test_complete_fresh_kid_is_observable_as_issuer_cost_evidence() -> None:
     record = _kid_for_score(document_date="2025-01-06")
     assert hasattr(simple_scores_module, "build_priips_kid_cost_evidence")
-    component = simple_scores_module.build_priips_kid_cost_evidence(record, as_of_date=date(2025, 1, 10))
+    component = simple_scores_module.build_priips_kid_cost_evidence(
+        record, as_of_date=date(2025, 1, 10), peer_costs_pct=_KID_PEER_COSTS_PCT
+    )
 
     assert component is not None
-    assert component.key == "liquidity_cost"
+    assert component.key == "etf_product_quality"
     assert component.source_id == "priips_kid:" + "k" * 64
     assert component.source_authority == "issuer_document"
     assert component.as_of_date == record.document_date
     assert component.freshness_status == "ok"
     assert component.score_eligible is True
-    assert component.score_10 == pytest.approx(4.6)
-    assert component.raw_score == pytest.approx(-0.07)
+    # 0.07% is cheaper than all three peers (0.10/0.30/0.60%): top of the peer cost tier.
+    assert component.score_10 == pytest.approx(10.0)
+    assert component.raw_score == pytest.approx(1.0)
 
 
-def test_higher_disclosed_ongoing_cost_never_improves_liquidity_cost_score() -> None:
+def test_higher_disclosed_ongoing_cost_never_improves_product_quality_score() -> None:
     lower_cost = _kid_for_score(document_date="2025-01-01", cost_fields={"ongoing_costs": "0.05% of the value of your investment"})
     higher_cost = _kid_for_score(document_date="2025-01-01", cost_fields={"ongoing_costs": "0.50% of the value of your investment"})
 
-    lower_component = simple_scores_module.build_priips_kid_cost_evidence(lower_cost, as_of_date=date(2025, 1, 10))
-    higher_component = simple_scores_module.build_priips_kid_cost_evidence(higher_cost, as_of_date=date(2025, 1, 10))
+    lower_component = simple_scores_module.build_priips_kid_cost_evidence(
+        lower_cost, as_of_date=date(2025, 1, 10), peer_costs_pct=_KID_PEER_COSTS_PCT
+    )
+    higher_component = simple_scores_module.build_priips_kid_cost_evidence(
+        higher_cost, as_of_date=date(2025, 1, 10), peer_costs_pct=_KID_PEER_COSTS_PCT
+    )
 
-    assert lower_component.key == higher_component.key == "liquidity_cost"
+    assert lower_component.key == higher_component.key == "etf_product_quality"
     assert lower_component.freshness_status == higher_component.freshness_status == "ok"
     assert lower_component.score_10 is not None
     assert higher_component.score_10 is not None
@@ -299,10 +309,14 @@ def test_complete_kid_cost_fields_score_the_ongoing_cost_row() -> None:
     lower_cost = _kid_for_score(document_date="2025-01-01", cost_fields={**base_costs, "ongoing_costs": "0.05% of the value of your investment"})
     higher_cost = _kid_for_score(document_date="2025-01-01", cost_fields={**base_costs, "ongoing_costs": "0.50% of the value of your investment"})
 
-    lower_component = simple_scores_module.build_priips_kid_cost_evidence(lower_cost, as_of_date=date(2025, 1, 10))
-    higher_component = simple_scores_module.build_priips_kid_cost_evidence(higher_cost, as_of_date=date(2025, 1, 10))
+    lower_component = simple_scores_module.build_priips_kid_cost_evidence(
+        lower_cost, as_of_date=date(2025, 1, 10), peer_costs_pct=_KID_PEER_COSTS_PCT
+    )
+    higher_component = simple_scores_module.build_priips_kid_cost_evidence(
+        higher_cost, as_of_date=date(2025, 1, 10), peer_costs_pct=_KID_PEER_COSTS_PCT
+    )
 
-    assert lower_component.key == higher_component.key == "liquidity_cost"
+    assert lower_component.key == higher_component.key == "etf_product_quality"
     assert lower_component.freshness_status == higher_component.freshness_status == "ok"
     assert higher_component.score_10 < lower_component.score_10
     assert higher_component.raw_score < lower_component.raw_score
@@ -322,24 +336,24 @@ def test_kid_cost_evidence_without_numeric_ongoing_cost_is_unavailable() -> None
 
     component = simple_scores_module.build_priips_kid_cost_evidence(record)
 
-    assert component.key == "risk"
+    assert component.key != "risk"
     assert component.raw_score is None
     assert component.score_10 is None
     assert component.status == "N/A"
     assert component.score_eligible is False
 
 
-def test_higher_sri_never_improves_risk_score() -> None:
-    lower_sri = _kid_for_score(document_date="2025-01-01", cost_fields={}, sri=2)
-    higher_sri = _kid_for_score(document_date="2025-01-01", cost_fields={}, sri=6)
+@pytest.mark.parametrize("sri", [1, 4, 7])
+def test_sri_is_never_scored_as_cost_or_aliased_to_risk(sri: int) -> None:
+    record = _kid_for_score(document_date="2025-01-01", cost_fields={}, sri=sri)
 
-    lower_component = simple_scores_module.build_priips_kid_cost_evidence(lower_sri, as_of_date=date(2025, 1, 10))
-    higher_component = simple_scores_module.build_priips_kid_cost_evidence(higher_sri, as_of_date=date(2025, 1, 10))
+    component = simple_scores_module.build_priips_kid_cost_evidence(
+        record, as_of_date=date(2025, 1, 10), peer_costs_pct=_KID_PEER_COSTS_PCT
+    )
 
-    assert lower_component.key == higher_component.key == "risk"
-    assert lower_component.freshness_status == higher_component.freshness_status == "ok"
-    assert higher_component.score_10 < lower_component.score_10
-    assert higher_component.raw_score < lower_component.raw_score
+    assert component.key != "risk"
+    assert component.score_10 is None and component.raw_score is None
+    assert component.score_eligible is False
 
 
 @pytest.mark.parametrize(
