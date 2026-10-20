@@ -139,6 +139,8 @@ def _opportunity_policy_for_content(content: bytes) -> OpportunityPolicy:
     if uncertainty_hurdle <= 0.0:
         raise ValueError("absolute merit uncertainty_hurdle must be positive")
     hysteresis_band = _fraction(absolute.get("hysteresis_band"))
+    if hysteresis_band >= uncertainty_hurdle:
+        raise ValueError("absolute merit hysteresis_band must be below uncertainty_hurdle")
     maximum_evidence_age_days = _positive_number(
         absolute.get("maximum_evidence_age_days"), "maximum_evidence_age_days"
     )
@@ -625,7 +627,7 @@ def _absolute_opportunity_decision(
         prior_state = prior.get("state")
         if (
             prior_state == "CANDIDATE_BUY"
-            and net_excess >= policy.uncertainty_hurdle - policy.hysteresis_band
+            and net_excess >= max(policy.uncertainty_hurdle - policy.hysteresis_band, 0.0)
         ):
             decision_state = "CANDIDATE_BUY"
         elif (

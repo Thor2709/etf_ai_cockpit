@@ -357,6 +357,22 @@ def test_hysteresis_keeps_prior_buy_for_a_point_one_percentage_point_change(
     assert changed.decision_state == "CANDIDATE_BUY"
 
 
+@pytest.mark.parametrize("band", ["0.02", "0.5"])
+def test_policy_rejects_hysteresis_band_not_below_uncertainty_hurdle(
+    tmp_path, band: str
+) -> None:
+    default = opportunity_module._DEFAULT_CONFIG.read_text(encoding="utf-8")
+    assert "hysteresis_band: 0.002" in default
+    path = tmp_path / "decision_opportunity_bad_band.yaml"
+    path.write_text(
+        default.replace("hysteresis_band: 0.002", f"hysteresis_band: {band}"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="hysteresis_band"):
+        opportunity_module.load_opportunity_policy(path)
+
+
 def test_stale_prior_decision_does_not_silently_drive_hysteresis(
     available_vwce_registry: CanonicalBenchmarkRegistry,
 ) -> None:
