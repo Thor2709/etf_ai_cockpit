@@ -7,7 +7,8 @@ decision_period: utc_calendar_month
 benchmark:
   instrument_id: VWCE
   yahoo_symbol: VWCE.DE
-baseline_score_version: score-engine-v3.0.0
+# Read from configs/score_engine_v3.yaml at the first run (never a literal); the comparator is frozen from that run on.
+baseline_score_version_source: score_engine_v3.formula_version
 eligibility:
   gate: research_promotion_allowed
   required_analysis_status: complete

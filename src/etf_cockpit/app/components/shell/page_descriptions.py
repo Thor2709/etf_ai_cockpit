@@ -40,6 +40,7 @@ PAGE_DESCRIPTIONS: dict[str, str] = {
     '/help': 'Use the glossary for score, data and authority terms.',
     '/decision-journal': 'Record your own decision, alternatives and rationale beside the evidence snapshot.',
     '/forward-evidence': 'Review frozen decisions against outcomes only after their horizons mature.',
+    '/paper-bots': 'Compare frozen paper bots with the cash-flow-matched VWCE shadow account.',
     '/jobs': 'Check local job status, progress and recorded errors.',
     '/operations': 'Review proposal and local paper states separately.',
     '/release-readiness': 'Read the exact gate results and their evidence scope.',

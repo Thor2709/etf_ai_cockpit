@@ -236,6 +236,16 @@ class PaperLedger:
             self._append("external_flow_recorded", payload, occurred_at=effective)
             return payload
 
+    def external_flows(self) -> tuple[dict[str, object], ...]:
+        """Return the recorded external cash flows (oldest first) with the time each was recorded."""
+
+        with self._lock:
+            return tuple(
+                {**dict(event["payload"]), "recorded_at": str(event["occurred_at"])}
+                for event in self._read_events()
+                if event.get("event_type") == "external_flow_recorded" and isinstance(event.get("payload"), Mapping)
+            )
+
     def cash_balance(self, *, account_id: str, currency: str, as_of: datetime) -> Decimal:
         """Expose the simulated account cash projection to the reservation service."""
 
@@ -319,6 +329,7 @@ class PaperLedger:
         occurred_at: datetime | None = None,
         control_binding: object | None = None,
         quote_currency: str | None = None,
+        expiry_reference: datetime | None = None,
     ) -> dict[str, object]:
         """Accept one policy-approved proposal as a simulated open order.
 
@@ -329,6 +340,9 @@ class PaperLedger:
         ``fx_rate`` may be omitted only when the quote currency is the account base currency; a foreign
         quote currency requires an explicit rate. The quote currency is ``quote_currency``, else the
         proposal's ``currency``, else the configured instrument currency, else the account base currency.
+
+        ``expiry_reference`` is the clock the proposal expiry is checked against (default: the real UTC clock); a
+        simulation passes its own simulated time so a historical session is not refused as expired.
         """
 
         # Expiry is checked after the read-only idempotent lookup so a retry of an accepted order still returns it.
@@ -387,7 +401,7 @@ class PaperLedger:
                             occurred_at=occurred_at,
                         )
                 return dict(existing)
-            self._require_unexpired(proposal)
+            self._require_unexpired(proposal, expiry_reference)
             self._require_within_target(proposal, state, instrument_id, quantity_delta)
             if quantity_delta < 0 and state["positions"].get(instrument_id, {}).get("quantity", 0.0) + 1e-8 < quantity:
                 raise PaperLedgerError("A paper sell cannot exceed the current simulated position.")
@@ -748,6 +762,7 @@ class PaperLedger:
         fx_rate: float | None = None,
         occurred_at: datetime | None = None,
         quote_currency: str | None = None,
+        expiry_reference: datetime | None = None,
     ) -> dict[str, object]:
         """Record an explicitly selected automatic paper decision.
 
@@ -763,6 +778,7 @@ class PaperLedger:
             decision_mode="auto_paper",
             occurred_at=occurred_at,
             quote_currency=quote_currency,
+            expiry_reference=expiry_reference,
         )
 
     def record_fill(
@@ -837,8 +853,14 @@ class PaperLedger:
             policy_payload = state["cost_policy"]
             if policy_payload is not None:
                 policy = ShadowCostPolicy(**{key: Decimal(str(value)) for key, value in policy_payload.items()})
+                base_currency = str(state["base_currency"]).upper()
+                # A foreign-currency order keeps the explicit rate it was accepted with; a base-currency fill is unit-rate.
+                expected_fx = (
+                    Decimal(1) if str(order["currency"]).upper() == base_currency
+                    else _decimal_number(order.get("fx_rate"), "fx_rate", positive=True)
+                )
                 if (fill_quantity_decimal % policy.lot_size != 0 or fill_fee_decimal != policy.commission
-                        or fill_fx_decimal != 1 or order["currency"] != "EUR"):
+                        or fill_fx_decimal != expected_fx or base_currency != "EUR"):
                     raise PaperLedgerError("The active fill conflicts with the canonical cost, FX or lot policy.")
                 if reference_price is None:
                     raise PaperLedgerError("A canonical-policy fill requires its reference price.")
@@ -2443,13 +2465,15 @@ class PaperLedger:
             self._require_unexpired(proposal)
 
     @staticmethod
-    def _require_unexpired(proposal: Mapping[str, object]) -> None:
+    def _require_unexpired(proposal: Mapping[str, object], reference: datetime | None = None) -> None:
         expires_at = proposal.get("expires_at")
         if not isinstance(expires_at, str):
             raise PaperLedgerError("Proposal expiry is missing.")
+        if reference is not None and reference.tzinfo is None:
+            raise PaperLedgerError("The expiry reference time must be timezone-aware.")
         try:
             expiry = datetime.fromisoformat(expires_at)
-            expired = expiry <= datetime.now(timezone.utc)
+            expired = expiry <= (datetime.now(timezone.utc) if reference is None else reference)
         except ValueError as exc:
             raise PaperLedgerError("Proposal expiry is malformed.") from exc
         if expired:

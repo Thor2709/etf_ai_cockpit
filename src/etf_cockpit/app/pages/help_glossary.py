@@ -82,6 +82,7 @@ PAGE_HELP: dict[str, str] = {
     "/system-map": "Use the map to understand which policy and evidence gates control a capability. The map explains boundaries; it does not grant permission to cross them.",
     "/help": "Use the glossary for score, data and authority terms. The user guide explains methodology, adapters, licences, paper operations, incidents and reproducibility.",
     "/decision-journal": "Record your own decision, alternatives and rationale beside the evidence snapshot. Journal notes are user context, not model output or an order.",
+    "/paper-bots": "Compare frozen paper bots with the cash-flow-matched VWCE shadow account. Fills happen at the next session open with modelled costs; the historical replay is a conditional simulation and never forward evidence.",
     "/forward-evidence": "Review frozen decisions against outcomes only after their horizons mature. Keep observation-only proposals separate from manually accepted paper activity.",
     "/jobs": "Check local job status, progress and recorded errors. A failed or cancelled job is not a completed result; inspect its inputs before a deliberate retry.",
     "/operations": "Review proposal and local paper states separately. Paper is a simulation; broker connections, live accounts and order submission are disabled in this release.",

@@ -170,6 +170,7 @@ _LIVE_STAGE_KEYS = frozenset({
 _ROUTE_LANES = {
     "/training-centre": "training",
     "/forward-evidence": "paper",
+    "/paper-bots": "paper",
     "/operations": "live_stage",
     "/providers": "broker_read_only",
     "/errors": "recovery",
