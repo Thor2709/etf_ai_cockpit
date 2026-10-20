@@ -608,6 +608,7 @@ def _absolute_opportunity_decision(
             or prior.get("instrument_id") != state.get("instrument")
             or prior.get("horizon") != horizon
             or prior.get("config_hash") != policy.checksum
+            or not isinstance(prior.get("state"), str)
             or prior.get("state") not in {
                 "SOURCE_UNAVAILABLE",
                 "ECONOMIC_RISK_VETO",

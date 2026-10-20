@@ -392,6 +392,26 @@ def test_stale_prior_decision_does_not_silently_drive_hysteresis(
     assert result.decision_reason_code == "PREVIOUS_DECISION_UNVERIFIED_OR_STALE"
 
 
+@pytest.mark.parametrize("bad_state", [["CANDIDATE_BUY"], {}, None, 7])
+def test_malformed_prior_state_fails_closed_without_aborting_the_cohort(
+    available_vwce_registry: CanonicalBenchmarkRegistry,
+    bad_state: object,
+) -> None:
+    evidence = _absolute_evidence(
+        available_vwce_registry,
+        forecast_return=0.0525,
+        previous_state="CANDIDATE_BUY",
+    )
+    previous = evidence["previous_decision"]
+    assert isinstance(previous, dict)
+    previous["state"] = bad_state
+
+    result = _build([_candidate("ACME", 1.0, evidence=evidence)])["ACME"]
+
+    assert result.decision_state == "SOURCE_UNAVAILABLE"
+    assert result.decision_reason_code == "PREVIOUS_DECISION_UNVERIFIED_OR_STALE"
+
+
 def test_held_position_near_the_hurdle_maps_to_hold_no_trade(
     available_vwce_registry: CanonicalBenchmarkRegistry,
 ) -> None:
