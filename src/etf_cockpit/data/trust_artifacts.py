@@ -512,7 +512,7 @@ def write_score_formula_registry() -> Path:
     policies = {asset_type: load_score_policy(asset_type).as_dict() for asset_type in ("ETF", "STOCK")}
     unsigned = {
         "schema_version": 1,
-        "formula_version": "score-engine-v3.0.0",
+        "formula_version": load_score_policy("ETF").formula_version,
         "policies": policies,
         "execution_allowed": False,
         "immutable_after_run": True,
