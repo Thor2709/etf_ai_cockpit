@@ -1154,8 +1154,11 @@ def _redact_value(value: object) -> object:
     if isinstance(value, Mapping):
         entries = [(str(key), item) for key, item in value.items()]
         marker = None
-        if entries and entries[-1][0] == _TRUNCATION_KEY:  # already bounded once: keep the original digest
-            marker = entries.pop()[1]
+        for index, (key, item) in enumerate(entries):  # already bounded once (key order is not stable): keep the digest
+            if key == _TRUNCATION_KEY:
+                marker = item
+                del entries[index]
+                break
         result = {key: _redact_entry(key, item) for key, item in entries[:_ITEM_LIMIT]}
         if len(entries) > _ITEM_LIMIT:
             full = {key: _redact_entry(key, item) for key, item in entries}

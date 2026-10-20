@@ -192,6 +192,27 @@ def test_truncation_marker_is_stable_when_payload_is_rebounded(tmp_path) -> None
     twice = json.loads(_bounded_json(once))
     assert once == twice and len(once) == 101
 
+    # dicts: json.loads with sort_keys puts "__truncated__" before lowercase keys, so it is not last when re-bounded
+    big = {f"k{i}": i for i in range(150)}
+    dict_once = json.loads(_bounded_json(big))
+    assert len(dict_once) == 101 and dict_once["__truncated__"]["total"] == 150
+    assert next(iter(dict_once)) == "__truncated__"
+    assert json.loads(_bounded_json(dict_once)) == dict_once
+
+
+def test_checkpoint_event_keeps_the_true_total_of_a_large_checkpoint(tmp_path) -> None:
+    scheduler = DurableJobScheduler(tmp_path, worker_id="w")
+    wf = scheduler.submit("p", "P", (JobSpec("a", "A"),))
+    job = scheduler.claim_next()
+    assert job is not None
+    scheduler.checkpoint(job.job_id, {f"k{i}": i for i in range(150)})
+    stored = scheduler.get_job(job.job_id).checkpoint
+    events = [e for e in scheduler.list_events(wf.workflow_id) if e.event_type == "job_checkpoint"]
+    assert len(events) == 1
+    marker = events[0].payload["checkpoint"]["__truncated__"]
+    assert marker["total"] == 150 and marker == stored["__truncated__"]
+    assert "k99" in events[0].payload["checkpoint"] and "k100" not in events[0].payload["checkpoint"]
+
 
 def test_sensitive_field_names_are_redacted_regardless_of_value(tmp_path) -> None:
     scheduler = DurableJobScheduler(tmp_path)
