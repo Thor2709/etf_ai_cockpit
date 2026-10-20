@@ -34,9 +34,13 @@ def build_market_clock_diagnostics(
         calendar_service = service or MarketCalendarService.from_correction_ledger(
             CONFIG_DIR / "market_calendar_corrections.yaml"
         )
-        decision = _instant(decision_time)
         listing = calendar_service.listing_from_identity_projection(identity_projection)
-        context = ClockContext.at(decision)
+        exchange_zone = ZoneInfo(listing.timezone)
+        decision = _instant(decision_time, exchange_zone=exchange_zone)
+        context = ClockContext.at(
+            decision,
+            valuation_date=_date_only_local_date(decision_time),
+        )
         state = calendar_service.market_state(listing, context)
         payload = state.as_dict()
         payload.update(
@@ -83,7 +87,7 @@ def build_market_clock_diagnostics(
             try:
                 staleness = calendar_service.assess_staleness(
                     listing,
-                    observed_at=_instant(observed_at),
+                    observed_at=_instant(observed_at, exchange_zone=exchange_zone),
                     assessed_at=decision,
                     maximum_expected_sessions=maximum_expected_sessions,
                 )
@@ -253,22 +257,56 @@ def operational_calendar_record_is_canonical(
         return False
 
 
-def _instant(value: str | date | datetime) -> datetime:
+def _date_only_value(value: str | date | datetime) -> date | None:
+    """Return the calendar date when ``value`` is an explicit date-only input."""
+
+    if isinstance(value, datetime):
+        return None
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    if len(text) == 10 and text[4:5] == "-" and text[7:8] == "-":
+        try:
+            return date.fromisoformat(text)
+        except ValueError as exc:
+            raise MarketClockError("market-clock timestamp is invalid") from exc
+    return None
+
+
+def _date_only_local_date(value: str | date | datetime) -> date | None:
+    try:
+        return _date_only_value(value)
+    except MarketClockError:
+        return None
+
+
+def _instant(
+    value: str | date | datetime, *, exchange_zone: ZoneInfo | None = None
+) -> datetime:
+    """Resolve a market-clock input to one UTC instant.
+
+    A date-only input is an exchange-local calendar date (explicit contract): it
+    resolves to the final instant of that local day, so an end-of-day cutoff
+    includes the last fractional second and never becomes the previous local
+    date.  Without an exchange zone a date-only input is rejected.  A malformed
+    timestamp is an error and is never truncated to its date.
+    """
+
+    local_date = _date_only_value(value)
+    if local_date is not None:
+        if exchange_zone is None:
+            raise MarketClockError("date-only market-clock input requires an exchange time zone")
+        return datetime.combine(local_date, time.max, exchange_zone).astimezone(UTC)
     if isinstance(value, datetime):
         parsed = value
-    elif isinstance(value, date):
-        parsed = datetime.combine(value, time.min, UTC)
     else:
         text = str(value).strip()
         if not text:
             raise MarketClockError("market-clock timestamp is required")
         try:
             parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        except ValueError:
-            try:
-                parsed = datetime.combine(date.fromisoformat(text[:10]), time.min, UTC)
-            except ValueError as exc:
-                raise MarketClockError("market-clock timestamp is invalid") from exc
+        except ValueError as exc:
+            raise MarketClockError("market-clock timestamp is invalid") from exc
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)

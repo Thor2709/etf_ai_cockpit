@@ -61,6 +61,8 @@ _SCORE_RUN_NAME = re.compile(r"score_\d{8}T\d{6}_[0-9a-f]{8}")
 _SCORE_RUN_MASK = "score_<stamp>_<8hex>"
 # Price-bound feature manifests include a digest of platform-sensitive price values.
 _FEATURE_PRICE_DIGEST = re.compile(r"(features_\d{4}-\d{2}-\d{2}_p)[0-9a-f]{12}(?=__s[0-9a-f]{12}\.json$)")
+# The forecast run id embeds a 64-hex request/price digest (float text, not bit-stable across platforms).
+_FORECAST_REQUEST_DIGEST = re.compile(r"(forecast_\d{8}_)[0-9a-f]{64}(?=__s[0-9a-f]{12})")
 # Fields never recorded by value in the persisted-schema golden (listed in the fixture for transparency).
 EXCLUDED_FIELDS = {
     "digests": "every 64-hex sha256 value (payload_sha256, *_checksum, *_hash, content_hash, signatures) is masked: float text feeding them is not bit-stable across platforms",
@@ -331,7 +333,7 @@ def _describe_file(path: Path) -> dict[str, object]:
             description["dataset_tuples"] = [
                 [item.get("artifact_id"), item.get("kind"), item.get("version")] for item in payload["dependencies"]
             ]
-            description["run_id_pattern"] = _SCORE_RUN_NAME.sub(_SCORE_RUN_MASK, re.sub(r"[0-9a-f]{12}", "<12hex>", str(payload.get("run_id", ""))))
+            description["run_id_pattern"] = _SCORE_RUN_NAME.sub(_SCORE_RUN_MASK, re.sub(r"[0-9a-f]{12}", "<12hex>", _FORECAST_REQUEST_DIGEST.sub(r"\1<sha256>", str(payload.get("run_id", "")))))
         return description
     return {"kind": "other"}
 
@@ -344,6 +346,7 @@ def persisted_schema_section(root: Path) -> dict[str, object]:
             continue
         relative = _SCORE_RUN_NAME.sub(_SCORE_RUN_MASK, path.relative_to(root).as_posix())
         relative = _FEATURE_PRICE_DIGEST.sub(r"\1<12hex>", relative)
+        relative = _FORECAST_REQUEST_DIGEST.sub(r"\1<sha256>", relative)
         files[relative] = _describe_file(path)
     return {"excluded_fields": EXCLUDED_FIELDS, "files": files}
 

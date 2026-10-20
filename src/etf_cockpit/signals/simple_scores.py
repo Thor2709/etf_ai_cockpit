@@ -33,7 +33,14 @@ from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import BACKTESTS_DIR, DERIVED_DIR, FORECASTS_DIR, RAW_DIR, REPORTS_DIR, ROOT
 from etf_cockpit.core.types import SignalResult, latest_signal
 from etf_cockpit.data.classification import classification_score_state
-from etf_cockpit.data.fx_data import FxRateSnapshot, build_fx_rate_snapshot, fx_cross_rate, load_fx_rates
+from etf_cockpit.data.fx_data import (
+    MINOR_UNIT_MAJOR_CURRENCY,
+    FxRateSnapshot,
+    build_fx_rate_snapshot,
+    fx_cross_rate,
+    fx_rates_for_prices,
+    load_fx_rates,
+)
 from etf_cockpit.data.trade_candidate_analysis import load_candidate_price_binding
 from etf_cockpit.data.macro_warehouse import MacroWarehouse, load_risk_free_proxy_mappings
 from etf_cockpit.data.score_history import latest_sparebank_scores, project_classification_score_frame
@@ -79,7 +86,7 @@ from etf_cockpit.core.research_states import (
 )
 from etf_cockpit.signals.strategy_templates import strategy_template_frame, strategy_template_labels, template_description
 from etf_cockpit.signals.friction_edge import estimate_friction_adjusted_return, estimate_friction_edge
-from etf_cockpit.signals.canonical_scoring import CanonicalScore, canonical_score_from_simple_components
+from etf_cockpit.signals.canonical_scoring import CanonicalScore, canonical_score_from_simple_components, headline_evidence_weights
 
 
 SCORE_LEGEND = (
@@ -101,35 +108,16 @@ PENDING_WORKFLOW_REASON = "Run Refresh yfinance data, then Run algorithms, then 
 CASH_MACRO_ROOT = ROOT
 _CASH_COMPARISON_RETURN_WINDOW = 120
 
-ETF_EVIDENCE_WEIGHTS = {
-    "momentum": 0.22,
-    "trend": 0.18,
-    "relative_strength": 0.14,
-    "risk": 0.14,
-    "liquidity_cost": 0.10,
-    "etf_exposure": 0.10,
-    # Owner rule F5: forecasts stay separate from scores. The forecast components are still
-    # shown with their evidence but carry no weight in the composite.
-    "baseline": 0.0,
-    "timesfm": 0.0,
-    "toto": 0.0,
-}
 
-STOCK_EVIDENCE_WEIGHTS = {
-    "momentum": 0.18,
-    "trend": 0.13,
-    "relative_strength": 0.12,
-    "risk": 0.12,
-    "liquidity_cost": 0.10,
-    "stock_value": 0.12,
-    "stock_quality": 0.13,
-    "analyst_revision": 0.05,
-    # Owner rule F5: forecasts stay separate from scores. The forecast components are still
-    # shown with their evidence but carry no weight in the composite.
-    "baseline": 0.0,
-    "timesfm": 0.0,
-    "toto": 0.0,
-}
+def headline_weights(asset_type: str) -> dict[str, float]:
+    """Headline evidence-composite weights for an instrument type, read from ``configs/score_engine_v3.yaml``.
+
+    The versioned yaml (``asset_policies.<ETF|STOCK>.headline_evidence``) is the only weight source; owner rule F5
+    keeps the forecast components at weight 0 there.
+    """
+
+    return headline_evidence_weights("STOCK" if _is_stock_like_asset_type(asset_type) else "ETF")
+
 
 COMPONENT_LABELS = {
     "data_quality": "Data quality",
@@ -568,7 +556,7 @@ class SimpleInstrumentScore:
 
     @property
     def score_coverage(self) -> float:
-        weights = STOCK_EVIDENCE_WEIGHTS if _is_stock_like_asset_type(self.asset_type) else ETF_EVIDENCE_WEIGHTS
+        weights = headline_weights(self.asset_type)
         configured_weight = sum(weights.values())
         active_weight = sum(
             float(weights.get(component.key, 0.0))
@@ -579,7 +567,7 @@ class SimpleInstrumentScore:
 
     @property
     def missing_components(self) -> tuple[str, ...]:
-        weights = STOCK_EVIDENCE_WEIGHTS if _is_stock_like_asset_type(self.asset_type) else ETF_EVIDENCE_WEIGHTS
+        weights = headline_weights(self.asset_type)
         eligible_keys = {component.key for component in self.components if component.score_eligible}
         return tuple(key for key, weight in weights.items() if weight > 0 and key not in eligible_keys)
 
@@ -664,7 +652,7 @@ def combine_component_scores(
     components: Iterable[SimpleScoreComponent],
     weights: dict[str, float] | None = None,
 ) -> tuple[float | None, float | None]:
-    weight_map = weights or ETF_EVIDENCE_WEIGHTS
+    weight_map = weights or headline_weights("ETF")
     weighted = 0.0
     total_weight = 0.0
     for component in components:
@@ -751,10 +739,26 @@ def _generate_missing_price_signals(
         )
     try:
         from etf_cockpit.data.validation import validate_prices
-        from etf_cockpit.features.feature_pipeline import compute_features, latest_features
+        from etf_cockpit.features.feature_pipeline import (
+            attach_eur_basis,
+            compute_features,
+            eur_basis_prices,
+            latest_features,
+        )
         from etf_cockpit.signals.signal_pipeline import generate_signals
 
-        features = compute_features(frame, benchmark_etf_id=anchor)
+        # Same EUR total-return basis as the main feature path; a session without FX stays unavailable.
+        try:
+            fx_rates = fx_rates_for_prices(frame)
+        except Exception:
+            fx_rates = pd.DataFrame()
+        eur_basis = eur_basis_prices(
+            frame,
+            fx_rates,
+            configured_currency={etf.id: etf.currency for etf in config.universe.etfs},
+            known_by=f"{decision_date.isoformat()}T23:59:59+00:00",
+        )
+        features = attach_eur_basis(compute_features(eur_basis.frame, benchmark_etf_id=anchor), eur_basis)
         latest = latest_features(features, decision_date)
         latest = latest.loc[latest["etf_id"].astype(str).isin(missing_ids)]
         if latest.empty:
@@ -833,7 +837,7 @@ def build_simple_instrument_scores(
             price_binding=candidate_price_binding,
             forecast_request_identity=request_identity,
         )
-        if reference_identity is not None and candidate_price_binding is not None
+        if reference_identity is not None and price_binding is not None and candidate_price_binding is not None
         else pd.DataFrame()
     )
     forecast_history = load_forecast_history()
@@ -1687,7 +1691,7 @@ def build_universe_simple_scores(
             signal.signal_date,
         )
         _raw_final, evidence_score = combine_component_scores(
-            components, STOCK_EVIDENCE_WEIGHTS if stock_like else ETF_EVIDENCE_WEIGHTS
+            components, headline_evidence_weights("STOCK" if stock_like else "ETF")
         )
         quality_score = _evidence_quality_score(
             components,
@@ -1922,6 +1926,7 @@ def build_candidate_simple_scores(
             else source.iloc[:0]
         )
     relative_reference = _candidate_relative_reference(source, decision_date)
+    volatility_reference = _candidate_volatility_reference(source, decision_date)
     etf_exposure = _etf_exposure_lookup()
     calibration_by_id = calibration_by_id or {}
     regime = regime or {}
@@ -1970,7 +1975,7 @@ def build_candidate_simple_scores(
             _candidate_data_quality_component(row, blocked, decision_date),
             _component("momentum", _candidate_momentum_raw(row), _candidate_momentum_why(row), authority="high"),
             _component("trend", _candidate_trend_raw(row), _candidate_trend_why(row), authority="high"),
-            _component("risk", _candidate_risk_raw(row), _candidate_risk_why(row), authority="high", role="risk_friction"),
+            _component("risk", _candidate_risk_raw(row, volatility_reference), _candidate_risk_why(row), authority="high", role="risk_friction"),
             _component(
                 "relative_strength",
                 _candidate_relative_strength_raw(row, relative_reference),
@@ -2040,7 +2045,7 @@ def build_candidate_simple_scores(
             ]
         )
         components = _attach_component_provenance(component_rows, as_of_date, decision_date)
-        weight_map = ETF_EVIDENCE_WEIGHTS if asset_type == "ETF" else STOCK_EVIDENCE_WEIGHTS
+        weight_map = headline_evidence_weights("ETF" if asset_type == "ETF" else "STOCK")
         _raw_final, evidence_score = combine_component_scores(components, weight_map)
         quality_score = _evidence_quality_score(components, warnings=blocked, asset_type=asset_type)
         risk_friction = _risk_friction_score(components, warnings=blocked)
@@ -2520,7 +2525,7 @@ def _candidate_source_frame(report: pd.DataFrame, forecasts: pd.DataFrame) -> pd
     return pd.DataFrame({"instrument_id": ids, "name": ids, "yahoo_symbol": ids})
 
 
-def _candidate_relative_reference(frame: pd.DataFrame, decision_date: date | None = None) -> float | None:
+def _candidate_known_peers(frame: pd.DataFrame, decision_date: date | None = None) -> pd.DataFrame:
     if decision_date is not None and "latest_date" in frame:
         # Peers observed after the decision date (or undated) are not known
         # evidence and must not move a historical peer reference.
@@ -2528,6 +2533,19 @@ def _candidate_relative_reference(frame: pd.DataFrame, decision_date: date | Non
             lambda value: (parsed := _parse_date(value)) is not None and parsed <= decision_date
         )
         frame = frame.loc[known.astype(bool)]
+    return frame
+
+
+def _candidate_volatility_reference(frame: pd.DataFrame, decision_date: date | None = None) -> float | None:
+    if "volatility_60d_ann" not in frame:
+        return None
+    values = pd.to_numeric(_candidate_known_peers(frame, decision_date)["volatility_60d_ann"], errors="coerce")
+    values = values[values > 0].dropna()
+    return float(values.median()) if not values.empty else None
+
+
+def _candidate_relative_reference(frame: pd.DataFrame, decision_date: date | None = None) -> float | None:
+    frame = _candidate_known_peers(frame, decision_date)
     for column in ("return_6m", "return_12m", "return_3m"):
         if column not in frame:
             continue
@@ -4013,15 +4031,13 @@ def _candidate_trend_raw(row: pd.Series) -> float | None:
     return _weighted_values(parts)
 
 
-def _candidate_risk_raw(row: pd.Series) -> float | None:
+def _candidate_risk_raw(row: pd.Series, volatility_reference: float | None) -> float | None:
+    # Centred, volatility-only (B-08): a candidate at the peer-median volatility scores raw 0 (= 5/10) and drawdown is
+    # not a second term (it tracks volatility, rho ~ -0.79 in the #927 audit). No peer reference -> unavailable.
     vol = _safe_float(row.get("volatility_60d_ann"))
-    drawdown = _safe_float(row.get("current_drawdown"))
-    parts: list[tuple[float, float]] = []
-    if vol is not None:
-        parts.append((_clamp((0.30 - vol) / 0.30), 0.55))
-    if drawdown is not None:
-        parts.append((_clamp((drawdown + 0.25) / 0.25), 0.45))
-    return _weighted_values(parts)
+    if vol is None or vol <= 0 or volatility_reference is None or volatility_reference <= 0:
+        return None
+    return _clamp((volatility_reference - vol) / volatility_reference)
 
 
 def _candidate_relative_strength_raw(row: pd.Series, reference: float | None) -> float | None:
@@ -4049,6 +4065,9 @@ def _candidate_trend_why(row: pd.Series) -> str:
 
 
 def _candidate_risk_why(row: pd.Series) -> str:
+    vol = _safe_float(row.get("volatility_60d_ann"))
+    if vol is None or vol <= 0:
+        return "Unavailable: 60-day annualised volatility must be positive and finite."
     return f"Current drawdown {_fmt_pct(row.get('current_drawdown'))}; 60-day annualised volatility {_fmt_pct(row.get('volatility_60d_ann'))}."
 
 
@@ -4125,7 +4144,7 @@ def _price_quality_lookup(prices: pd.DataFrame) -> dict[str, dict[str, object]]:
 
 # Stored OHLCV is already in major units (the provider scales pence once), so a minor-unit label
 # only names the major currency and must never trigger a second /100.
-_MINOR_UNIT_MAJOR_CURRENCY = {"GBp": "GBP", "GBX": "GBP", "ILA": "ILS", "ZAc": "ZAR"}
+_MINOR_UNIT_MAJOR_CURRENCY = MINOR_UNIT_MAJOR_CURRENCY
 _LIQUIDITY_END_OF_DAY = pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
 
 
@@ -4397,7 +4416,7 @@ def _unique_strings(values: Iterable[str]) -> list[str]:
 
 
 def _evidence_component_counts(asset_type: str, components: Iterable[SimpleScoreComponent]) -> tuple[int, int]:
-    weights = STOCK_EVIDENCE_WEIGHTS if _is_stock_like_asset_type(asset_type) else ETF_EVIDENCE_WEIGHTS
+    weights = headline_weights(asset_type)
     configured = [key for key, weight in weights.items() if weight > 0]
     eligible = {component.key for component in components if component.score_eligible}
     return sum(key in eligible for key in configured), len(configured)

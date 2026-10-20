@@ -8,8 +8,11 @@ bond, cash or gold proxies remain explicit unavailable states.
 from __future__ import annotations
 
 from datetime import date
+from itertools import groupby
+from numbers import Integral
 from typing import Iterable, Mapping
 
+import numpy as np
 import pandas as pd
 
 from etf_cockpit.features.regime import build_market_regime
@@ -66,7 +69,7 @@ def build_macro_context(
         )
     if prices is None or prices.empty or not required.issubset(prices.columns):
         return _unavailable("No local adjusted-close price snapshot is available.")
-    if "is_adjusted" in prices.columns and not prices["is_adjusted"].fillna(False).astype(bool).all():
+    if "is_adjusted" in prices.columns and not prices["is_adjusted"].map(_adjusted_flag_is_true).all():
         return _unavailable("The local price snapshot contains a non-adjusted price series.")
 
     price_columns = ["date", "etf_id", "adjusted_close"]
@@ -103,6 +106,10 @@ def build_macro_context(
     frame = frame[(frame["etf_id"] != "") & (frame["adjusted_close"] > 0)]
     if frame.empty:
         return _unavailable("The local price snapshot has no usable adjusted-close rows.")
+    if "known_at" in frame.columns:
+        # Several revisions of one close: the pivot below keeps the last row, which
+        # must be the most recently known revision (never an input-order accident).
+        frame = frame.sort_values(["date", "etf_id", "known_at"], kind="stable")
     frame = _clip_to_reference_window(frame, reference)
     if frame.empty:
         return _unavailable(
@@ -170,6 +177,26 @@ def build_macro_context(
         "benchmark_data_id": benchmark_data_id,
         "benchmark_reference": reference,
     }
+
+
+_TRUE_FLAGS = {"true", "t", "yes", "y", "1"}
+
+
+def _adjusted_flag_is_true(value: object) -> bool:
+    """Strict flag parsing: only an explicit true counts; text "False" is false."""
+
+    if isinstance(value, str):
+        return value.strip().lower() in _TRUE_FLAGS
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, Integral):
+        return value == 1
+    return False
+
+
+def _utc_timestamp(value: object) -> pd.Timestamp:
+    parsed = pd.Timestamp(str(value))
+    return parsed.tz_localize("UTC") if parsed.tzinfo is None else parsed.tz_convert("UTC")
 
 
 def _metadata_by_id(instruments: Iterable[object]) -> dict[str, dict[str, str]]:
@@ -353,7 +380,7 @@ def _macro_observation_summary(observations: Iterable[object], *, decision_time:
         elif isinstance(observation, Mapping):
             raw = dict(observation)
         else:
-            raw = {name: getattr(observation, name, None) for name in ("series_id", "value", "unit", "source_id", "available_at", "observed_at")}
+            raw = {name: getattr(observation, name, None) for name in ("series_id", "value", "unit", "source_id", "available_at", "observed_at", "country", "currency", "period_start")}
         available_at = pd.to_datetime(raw.get("available_at"), errors="coerce", utc=True)
         observed_at = pd.to_datetime(raw.get("observed_at"), errors="coerce", utc=True)
         if (
@@ -377,12 +404,67 @@ def _macro_observation_summary(observations: Iterable[object], *, decision_time:
                 "unit": raw.get("unit"),
                 "source": raw.get("source_id") or "local macro warehouse",
                 "provenance": "local macro warehouse bitemporal as_of selection",
+                "country": raw.get("country"),
+                "currency": raw.get("currency"),
+                "period_start": raw.get("period_start"),
                 "available_at": raw.get("available_at"),
                 "observed_at": raw.get("observed_at"),
                 "freshness_status": "fresh" if (decision_time - available_at).days <= 7 else "stale",
             }
         )
-    return {"status": "available" if rows else "unavailable", "rows": rows[-12:], "reason": None if rows else "No local inflation or rates observations matched."}
+    selected, missing_jurisdiction = finalize_observation_rows(rows)
+    return observation_summary_payload(selected, missing_jurisdiction)
 
 
-__all__ = ["build_macro_context", "macro_status"]
+INFLATION_ROWS_PER_SERIES = 12
+
+
+def finalize_observation_rows(
+    rows: list[dict[str, object]],
+) -> tuple[list[dict[str, object]], int]:
+    """Canonical selection of inflation/rates rows for the macro context.
+
+    A row without a jurisdiction (country) is not usable context and is dropped (it is
+    counted so the reason stays explicit).  Rows are ordered by period (observed
+    time, then availability) within each series and jurisdiction, and the latest
+    ``INFLATION_ROWS_PER_SERIES`` periods of each are kept.
+    """
+
+    usable: list[dict[str, object]] = []
+    missing = 0
+    for row in rows:
+        country = str(row.get("country") or "").strip()
+        if not country:
+            missing += 1
+            continue
+        usable.append({**row, "country": country})
+    usable.sort(
+        key=lambda item: (
+            str(item.get("series_id")),
+            str(item["country"]),
+            _utc_timestamp(item.get("observed_at")),
+            _utc_timestamp(item.get("available_at")),
+        )
+    )
+    selected: list[dict[str, object]] = []
+    for _key, group in groupby(usable, key=lambda item: (item.get("series_id"), item["country"])):
+        selected.extend(list(group)[-INFLATION_ROWS_PER_SERIES:])
+    return selected, missing
+
+
+def observation_summary_payload(rows: list[dict[str, object]], missing_jurisdiction: int) -> dict[str, object]:
+    if rows:
+        reason = None
+    elif missing_jurisdiction:
+        reason = "Matching inflation or rates observations lack a country/jurisdiction."
+    else:
+        reason = "No local inflation or rates observations matched."
+    return {"status": "available" if rows else "unavailable", "rows": rows, "reason": reason}
+
+
+__all__ = [
+    "build_macro_context",
+    "finalize_observation_rows",
+    "macro_status",
+    "observation_summary_payload",
+]

@@ -979,14 +979,18 @@ def _pooled_mase(evaluated: pd.DataFrame, price_lookup: Mapping[str, pd.DataFram
 
     if evaluated.empty:
         return None
-    scales: dict[tuple[str, int], float | None] = {}
+    scales: dict[tuple[str, int, pd.Timestamp], float | None] = {}
     scaled: list[float] = []
-    for etf_id, horizon, error in zip(
-        evaluated["etf_id"].astype(str), evaluated["horizon_days"].astype(int), evaluated["absolute_error"], strict=True
+    for etf_id, horizon, error, origin in zip(
+        evaluated["etf_id"].astype(str), evaluated["horizon_days"].astype(int), evaluated["absolute_error"],
+        pd.to_datetime(evaluated["forecast_date"], utc=True), strict=True
     ):
-        key = (etf_id, horizon)
+        key = (etf_id, horizon, origin)
         if key not in scales:
             prices = price_lookup.get(etf_id)
+            if prices is not None and not prices.empty:
+                # Training window only: sessions after the forecast origin never set the scale.
+                prices = prices.loc[pd.to_datetime(prices.index, errors="coerce", utc=True) <= origin]
             scales[key] = (
                 None
                 if prices is None or prices.empty
@@ -1030,10 +1034,16 @@ def _horizon_diagnostics(
     outcomes: pd.DataFrame,
     configured_horizons: list[int],
 ) -> tuple[list[int], list[dict[str, object]]]:
-    observed = sorted({int(value) for value in pd.to_numeric(group["horizon_days"], errors="coerce").dropna()})
+    horizons = pd.to_numeric(group["horizon_days"], errors="coerce")
+    ok_rows = group["status"].eq("ok") if "status" in group.columns else pd.Series(True, index=group.index)
+    # A horizon whose rows all failed is not covered: it is reported as skipped with the stored failure reason.
+    observed = sorted({int(value) for value in horizons[ok_rows].dropna()})
     skipped_reasons: dict[int, set[str]] = {
         horizon: {"no_forecast_row"} for horizon in configured_horizons if horizon not in observed
     }
+    for horizon in sorted({int(value) for value in horizons.dropna()} - set(observed)):
+        failed = group.loc[horizons.eq(horizon) & ~ok_rows]
+        skipped_reasons[horizon] = {f"forecast_failed: {_forecast_row_reason(row)}" for _, row in failed.iterrows()}
     for row in outcomes.itertuples(index=False):
         if row.outcome_status == "matured":
             continue

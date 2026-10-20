@@ -22,6 +22,7 @@ import yaml
 
 from etf_cockpit.core.paths import OPERATIONS_DIR
 from etf_cockpit.data.event_calendar import EVENT_CLEAN_PATH
+from etf_cockpit.signals.friction_edge import FrictionGateResult
 from etf_cockpit.portfolio.event_controls import EventBlockPolicy, evaluate_event_control, verify_event_control
 from etf_cockpit.governance.models import AuthorityMatrixPolicy
 from etf_cockpit.governance.product_scope import AUTHORITY_MATRIX_PATH, load_authority_matrix, load_gate_policy
@@ -101,6 +102,10 @@ class ProposalRequest:
     approvals: tuple[str, ...] = ()
     event_policy: EventBlockPolicy | None = None
     event_calendar_path: Path = EVENT_CLEAN_PATH
+    # Expected net benefit versus turnover, spread and uncertainty cost (T3-19).
+    # When supplied it controls the proposal: a blocked or unavailable result
+    # suppresses it.  ``None`` means the friction edge was not evaluated.
+    friction_gate: FrictionGateResult | None = None
 
 
 @dataclass(frozen=True)
@@ -187,6 +192,8 @@ def build_proposal_decision(request: ProposalRequest) -> ProposalDecision:
     gates_by_id = {item.gate_id: item for item in request.gate_evidence}
     if "event_risk" in gates_by_id:
         raise ValueError("event_risk is reserved for internally evaluated event policy")
+    if "friction_edge" in gates_by_id:
+        raise ValueError("friction_edge is reserved for the friction gate result")
     if len(gates_by_id) != len(request.gate_evidence):
         raise ValueError("gate evidence IDs must be unique")
     # Same naive-as-UTC interpretation as the persisted `as_of` timestamp.
@@ -210,6 +217,14 @@ def build_proposal_decision(request: ProposalRequest) -> ProposalDecision:
             gates.append(gate)
     gates.extend(sorted((item for item in request.gate_evidence if item.gate_id not in REQUIRED_GATES), key=lambda item: item.gate_id))
     gates.append(gates_by_id["event_risk"])
+    friction = request.friction_gate
+    gates.append(
+        GateEvidence(
+            "friction_edge",
+            friction is not None and friction.status == "pass" and friction.propose is True,
+            friction.reason if friction is not None else "Friction evidence unavailable: proposal suppressed.",
+        )
+    )
 
     authority_stage = _lowest_stage(resolved_stages)
     quantity_delta = round(float(request.target_quantity - request.current_quantity), 8)

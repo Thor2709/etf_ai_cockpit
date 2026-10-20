@@ -12,6 +12,7 @@ authors = [{ name = "Local project" }]
 dependencies = [
   "flet>=0.28,<1.0",
   "flet-web>=0.85,<1.0",
+  "fastapi<0.145",
   "pandas>=2.2",
   "numpy>=1.26",
   "pyarrow>=15",

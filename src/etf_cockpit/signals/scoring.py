@@ -5,9 +5,11 @@ import math
 import pandas as pd
 
 from etf_cockpit.core.config import AppConfig
+from etf_cockpit.core.exceptions import ConfigError
 from etf_cockpit.core.types import ComponentScores
-from etf_cockpit.features.feature_pipeline import robust_zscore
-from etf_cockpit.models.ensemble import effective_ensemble_weights
+from etf_cockpit.features.feature_pipeline import robust_zscore, robust_zscore_by_group
+from etf_cockpit.features.momentum import weighted_momentum
+from etf_cockpit.models.ensemble import BASELINE_SOURCE_FORECAST, BASELINE_SOURCE_HEURISTIC, effective_ensemble_weights
 from etf_cockpit.portfolio.costs import estimated_cost_bps
 from etf_cockpit.portfolio.rebalancing import rebalance_score
 
@@ -22,14 +24,41 @@ def _clean_score(value: float | int | None) -> float | None:
     return float(max(-1.0, min(1.0, number)))
 
 
-def _cross_section_z(values: pd.Series) -> pd.Series:
+# Asset classes whose price inputs are normalised separately (stock / ETF / certificate); an
+# instrument the configuration does not know shares the "unclassified" class.
+_ASSET_CLASS_BY_INSTRUMENT_TYPE = {
+    "etf": "etf",
+    "stock": "stock",
+    "certificate": "certificate",
+    "equity_certificate": "certificate",
+}
+UNCLASSIFIED_ASSET_CLASS = "unclassified"
+
+
+def asset_class_labels(etf_ids: pd.Series, config: AppConfig) -> pd.Series:
+    """Asset class (etf / stock / certificate) of each instrument id from the universe configuration."""
+
+    instrument_types = {etf.id: str(etf.instrument_type).strip().casefold() for etf in config.universe.etfs}
+
+    def label(etf_id: object) -> str:
+        kind = instrument_types.get(str(etf_id))
+        if kind is None:
+            return UNCLASSIFIED_ASSET_CLASS
+        return _ASSET_CLASS_BY_INSTRUMENT_TYPE.get(kind, kind or UNCLASSIFIED_ASSET_CLASS)
+
+    return etf_ids.map(label)
+
+
+def _cross_section_z(values: pd.Series, groups: pd.Series | None = None) -> pd.Series:
     """Robust z-score of a score input; a present value with no cross-sectional dispersion is neutral (0).
 
     ``robust_zscore`` is unavailable for a constant series, but a present input among equal peers
-    (or a single instrument) is simply average. A missing input stays NaN.
+    (or a single instrument) is simply average. A missing input stays NaN. With ``groups`` the
+    normalisation runs inside each asset class, so another class never moves an instrument's z.
     """
 
-    return robust_zscore(values).fillna(0.0).where(values.notna())
+    z = robust_zscore(values) if groups is None else robust_zscore_by_group(values, groups)
+    return z.fillna(0.0).where(values.notna())
 
 
 def component_scores(
@@ -47,32 +76,28 @@ def component_scores(
         on="etf_id",
         how="left",
     )
-    frame["weighted_momentum"] = (
-        0.15 * frame["momentum_20d"]
-        + 0.35 * frame["momentum_60d"]
-        + 0.35 * frame["momentum_120d"]
-        + 0.15 * frame["momentum_180d"]
-    )
+    asset_class = asset_class_labels(frame["etf_id"], config)
+    frame["weighted_momentum"] = weighted_momentum(frame)
     frame["score_momentum"] = (
-        _cross_section_z(frame["weighted_momentum"]) / 3
+        _cross_section_z(frame["weighted_momentum"], asset_class) / 3
     ).clip(-1, 1)
-    slope_z = _cross_section_z(frame["trend_slope"]) / 3
+    slope_z = _cross_section_z(frame["trend_slope"], asset_class) / 3
     trend_inputs_available = frame[["trend_slope", "trend_100", "trend_200"]].notna().all(axis=1)
     binary_trend = (0.5 * frame["trend_100"] + 0.5 * frame["trend_200"]) * 2 - 1
     frame["score_trend"] = (0.70 * binary_trend + 0.30 * slope_z).where(trend_inputs_available).clip(-1, 1)
     annualised_volatility = frame["vol_60d_ann"].fillna(frame["ewma_vol_ann"])
-    vol_z = _cross_section_z(annualised_volatility) / 3
-    drawdown = frame["drawdown_60d_max"]
-    dd_penalty = drawdown.clip(-0.40, 0) / 0.40
-    frame["score_risk"] = (-0.65 * vol_z + 0.35 * (1 + dd_penalty)).where(
-        annualised_volatility.notna() & drawdown.notna()
-    ).clip(-1, 1)
+    vol_z = _cross_section_z(annualised_volatility, asset_class) / 3
+    # Centred risk term: an instrument with median volatility in its asset class scores raw 0 (= 5/10) and the term spans
+    # the full -1..1. Volatility is the only input: the 60-day drawdown tracks it too closely to be a separate measure
+    # (measured rho -0.79 in the #927 audit, above the 0.7 limit for adding a second term), so adding it would count the
+    # same risk twice and push neutral to ~6/10 (B-08).
+    frame["score_risk"] = (-vol_z).where(annualised_volatility.notna()).clip(-1, 1)
     frame["score_rebalance"] = frame.apply(
         lambda row: rebalance_score(float(row.get("current_weight", 0) or 0), float(row.get("target_weight", 0) or 0), float(row.get("hard_band", 0.05) or 0.05)),
         axis=1,
     )
     frame["score_relative_strength"] = (
-        _cross_section_z(frame["relative_strength_60d"]) / 3
+        _cross_section_z(frame["relative_strength_60d"], asset_class) / 3
     ).clip(-1, 1)
     forecast_scores = forecast_scores or {}
     frame["score_toto"] = frame["etf_id"].map(forecast_scores.get("toto", {})).map(_clean_score).astype(float)
@@ -82,27 +107,37 @@ def component_scores(
     frame["score_baseline_ml"] = baseline_forecast_score.clip(-1, 1).where(
         baseline_forecast_score.notna(), deterministic_baseline_score
     )
-    frame["score_chatgpt_thesis"] = frame["etf_id"].map(chatgpt_scores or {}).fillna(0.0).clip(-1, 1)
+    # The momentum/trend fallback is a labelled heuristic for display and agreement only: it re-uses price strength,
+    # so it carries no composite weight (a forecast-backed baseline does).
+    baseline_forecast_backed = baseline_forecast_score.notna()
+    frame["score_baseline_source"] = baseline_forecast_backed.map({True: BASELINE_SOURCE_FORECAST, False: BASELINE_SOURCE_HEURISTIC})
+    # Optional manual input: a missing thesis stays NaN (not eligible, never 0.0) and lowers the composite coverage.
+    frame["score_chatgpt_thesis"] = frame["etf_id"].map(chatgpt_scores or {}).map(_clean_score).astype(float)
     frame["cost_penalty"] = frame["etf_id"].map(lambda etf_id: estimated_cost_bps(config, str(etf_id)) / 1000).clip(0, 0.08)
     frame["turnover_penalty"] = 0.0
     max_cap = frame["max_weight"].fillna(config.risks.portfolio_limits.max_single_etf_weight)
     frame["concentration_penalty"] = ((frame["current_weight"].fillna(0) / max_cap) - 0.85).clip(lower=0, upper=0.25)
 
-    raw_weights = config.models.ensemble["weights"]
-    # A live model that no promoted forecast row backs (shadow or unproven) contributes no score; its weight
-    # is renormalised away instead of turning every composite score and confidence into NaN.
-    weights = effective_ensemble_weights(
-        raw_weights,
-        toto_available=bool(toto_available and forecast_scores.get("toto")),
-        timesfm_available=bool(timesfm_available and forecast_scores.get("timesfm")),
-    )
+    raw_weights = config.models.ensemble.get("weights")
+    if not raw_weights:
+        raise ConfigError("Score composite weights are unavailable: configs/score_engine_v3.yaml action_composite.weights.")
+    # A live model that no promoted forecast row backs (shadow or unproven) contributes no score. Its configured weight
+    # stays in the table (it is never moved to momentum/trend), so the composite coverage drops instead.
+    toto_backed = bool(toto_available and forecast_scores.get("toto"))
+    timesfm_backed = bool(timesfm_available and forecast_scores.get("timesfm"))
+    weights = effective_ensemble_weights(raw_weights, toto_available=toto_backed, timesfm_available=timesfm_backed)
+    unbacked = {
+        "toto": pd.Series(not toto_backed, index=frame.index),
+        "timesfm": pd.Series(not timesfm_backed, index=frame.index),
+        "baseline_ml": ~baseline_forecast_backed,
+    }
     active_components = [
         (key, column, weight)
         for key, column in (
             ("momentum", "score_momentum"),
             ("trend", "score_trend"),
             ("risk", "score_risk"),
-            ("rebalance", "score_rebalance"),
+            # Portfolio drift (score_rebalance) is a portfolio/rebalance view input, never part of the instrument score.
             ("relative_strength", "score_relative_strength"),
             ("toto", "score_toto"),
             ("timesfm", "score_timesfm"),
@@ -112,7 +147,9 @@ def component_scores(
         if (weight := weights.get(key, 0)) > 0
     ]
     finite_components = {
-        key: frame[column].map(lambda value: pd.notna(value) and math.isfinite(float(value)))
+        key: frame[column].map(lambda value: pd.notna(value) and math.isfinite(float(value))).astype(bool) & ~unbacked[key]
+        if key in unbacked
+        else frame[column].map(lambda value: pd.notna(value) and math.isfinite(float(value))).astype(bool)
         for key, column, _ in active_components
     }
     weighted_score = sum(
@@ -120,6 +157,9 @@ def component_scores(
         for key, column, weight in active_components
     )
     retained_weight = sum(weight * finite_components[key] for key, _, weight in active_components)
+    # Share of the configured composite weight that held an eligible input (missing inputs lower it; never zero-filled).
+    configured_weight = sum(weight for _, _, weight in active_components)
+    frame["composite_coverage"] = (retained_weight / configured_weight) if configured_weight > 0 else 0.0
     all_present = pd.Series(True, index=frame.index)
     for mask in finite_components.values():
         all_present &= mask

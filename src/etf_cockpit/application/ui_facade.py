@@ -209,7 +209,7 @@ from etf_cockpit.analysis.screening import (
     ScreenSort,
     run_screen,
 )
-from etf_cockpit.application.screening_data import query_for_snapshot
+from etf_cockpit.application.screening_data import query_for_snapshot, saved_lineage_notice
 from etf_cockpit.data.screen_store import (
     export_screen_csv,
     load_screen,
@@ -349,6 +349,7 @@ from etf_cockpit.application.diagnostics_views import (
 from etf_cockpit.application.selection_views import (
     load_portfolio_goals_projection,
     load_top_n_selection,
+    ordered_winners,
 )
 from etf_cockpit.application.market_views import (
     load_etf_structure_projection,
@@ -525,6 +526,7 @@ __all__ = [
     "load_stock_research_context",
     "load_tax_hedge_assumptions",
     "load_top_n_selection",
+    "ordered_winners",
     "load_universe",
     "load_valuation_evidence",
     "load_valuation_market_inputs",
@@ -556,6 +558,7 @@ __all__ = [
     "PROVIDER_PROBE_PATH",
     "ProviderRegistry",
     "query_for_snapshot",
+    "saved_lineage_notice",
     "raw_to_score_10",
     "read_document_registry",
     "read_etf_report_records",

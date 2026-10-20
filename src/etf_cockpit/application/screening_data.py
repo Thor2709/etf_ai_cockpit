@@ -158,6 +158,25 @@ def query_for_snapshot(snapshot: Any, frame: pd.DataFrame, **kwargs: object) -> 
     )
 
 
+def saved_lineage_notice(saved: ScreenQuery, current: ScreenQuery) -> str | None:
+    """Plain-language warning when a loaded saved screen is re-run on evidence other than the evidence it was saved on."""
+
+    fields = (
+        ("as of", saved.as_of, current.as_of),
+        ("universe revision", saved.universe_revision, current.universe_revision),
+        ("input checksum", saved.input_checksum, current.input_checksum),
+        ("formula version", saved.formula_version, current.formula_version),
+    )
+    changed = [(label, old, new) for label, old, new in fields if old != new]
+    if not changed:
+        return None
+    parts = "; ".join(f"{label} {str(old)[:24]} -> {str(new)[:24]}" for label, old, new in changed)
+    return (
+        "This saved screen was created on different evidence than the data it now runs on, so results can differ "
+        f"from the saved run ({parts})."
+    )
+
+
 def _metric(metrics: dict[str, object], key: str, fallback: object = None) -> object:
     value = metrics.get(key, fallback)
     return value if _present(value) else fallback

@@ -1905,7 +1905,7 @@
     },
     "sensitivity": {
      "status": "unavailable",
-     "reason": "explicit discount-rate and terminal-growth sensitivity ranges are required",
+     "reason": "free_cash_flow currency is unavailable; comparable valuation is withheld.",
      "grid": {},
      "execution_allowed": false
     },
@@ -5087,7 +5087,7 @@
     },
     "sensitivity": {
      "status": "unavailable",
-     "reason": "explicit discount-rate and terminal-growth sensitivity ranges are required",
+     "reason": "Enterprise-value adjustment coverage is incomplete.",
      "grid": {},
      "execution_allowed": false
     },
