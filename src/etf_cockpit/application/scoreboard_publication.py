@@ -30,9 +30,8 @@ from etf_cockpit.application.snapshot_builder import CockpitSnapshot
 from etf_cockpit.signals.canonical_scoring import FORECAST_DOMAIN, RANK_DOMAINS, load_score_policy, rank_domain_weights
 from etf_cockpit.signals.simple_scores import (
     COMPONENT_LABELS,
-    ETF_EVIDENCE_WEIGHTS,
-    STOCK_EVIDENCE_WEIGHTS,
     build_simple_instrument_scores as build_simple_instrument_scores,
+    headline_weights,
     load_latest_candidate_report,
     simple_scoreboard_frame,
     write_simple_scoreboard,
@@ -48,6 +47,7 @@ LINEAGE_SCHEMA_VERSION = "score_lineage.v1"
 SCORE_SURFACES = ("ui", "export", "scoreboard", "history", "api", "decision")  # "decision": DA-v1 / QV / QVM assessment
 AUTHORITIES = ("descriptive", "rank", "decision")
 _V3_CONFIG = "configs/score_engine_v3.yaml"
+_HEADLINE_CONFIG = _V3_CONFIG + "#asset_policies.*.headline_evidence"  # NS1: the legacy composite reads the v3 yaml
 _V3_CODE = "signals/canonical_scoring.py:build_canonical_score"
 _LEGACY_CODE = "signals/simple_scores.py:build_simple_instrument_scores (legacy evidence composite, forecast weight 0 by owner rule F5)"
 _ALL_PERSISTED = ("ui", "export", "scoreboard", "history")
@@ -239,16 +239,12 @@ def score_rank_authority(*, promotion_record: Mapping[str, object] | None = None
     }
 
 
-def _weights_digest(weights: Mapping[str, object]) -> str:
-    return hashlib.sha256(json.dumps(weights, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
-
-
 def _formula_version(row: ScoreLineageRow, policy: Any, cutover_policy: Any) -> str:
-    if row.weights_source == "v3_policy":
-        return str(policy.formula_version)
     if row.weights_source == _DA_POLICY:
         return str(cutover_policy.version)
-    return "legacy-evidence-composite"
+    if row.weights_source == "none":
+        return "not-weighted"
+    return str(policy.formula_version)  # v3 groups and the headline composite: the v3 yaml version
 
 
 def score_lineage_manifest(*, promotion_record: Mapping[str, object] | None = None) -> list[dict[str, object]]:
@@ -260,7 +256,7 @@ def score_lineage_manifest(*, promotion_record: Mapping[str, object] | None = No
     from etf_cockpit.analysis.decision.rank_validation import load_rank_validation_policy
 
     policy = load_score_policy("ETF")
-    legacy = {"ETF": dict(ETF_EVIDENCE_WEIGHTS), "STOCK": dict(STOCK_EVIDENCE_WEIGHTS)}
+    legacy = {"ETF": headline_weights("ETF"), "STOCK": headline_weights("Stock")}
     rank_authority = score_rank_authority(promotion_record=promotion_record)
     display_only_code = [_PATH_CODE[path] for path in rank_authority["display_only_paths"]]  # type: ignore[attr-defined]
     cutover_policy = load_rank_validation_policy()
@@ -268,7 +264,7 @@ def score_lineage_manifest(*, promotion_record: Mapping[str, object] | None = No
     sources: dict[str, tuple[object, str, str]] = {
         "v3_policy": (policy.groups, policy.formula_checksum, _V3_CONFIG),
         _DA_POLICY: (da_weights, cutover_policy.checksum, "configs/decision_cutover_v1.yaml"),
-        _LEGACY_WEIGHTS: (legacy, _weights_digest(legacy), "signals/simple_scores.py:ETF_EVIDENCE_WEIGHTS|STOCK_EVIDENCE_WEIGHTS"),
+        _LEGACY_WEIGHTS: (legacy, policy.formula_checksum, _HEADLINE_CONFIG),
         "none": ({}, "none", "none"),
     }
     forecast_weight = rank_domain_weights(policy)[FORECAST_DOMAIN]
@@ -296,6 +292,8 @@ def score_lineage_manifest(*, promotion_record: Mapping[str, object] | None = No
                     "weights_source": source,
                     "active_weights": weights,
                     "config_hash": digest,
+                    "score_engine_version": policy.formula_version,
+                    "score_engine_checksum": policy.formula_checksum,
                     "data_cutoff": row.data_cutoff,
                     "eligibility_rule": row.eligibility_rule,
                     "authority": authority,

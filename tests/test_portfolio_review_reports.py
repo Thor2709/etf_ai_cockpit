@@ -112,7 +112,7 @@ def test_review_rows_keep_the_canonical_score_when_present(tmp_path: Path) -> No
     report = create_portfolio_review_report([replace(_signal(), canonical_score=canonical)], _data_report(), run_id="run-1", report_dir=tmp_path)
 
     row = report["review_rows"][0]
-    assert row["canonical_score"]["formula_version"] == "score-engine-v3.0.0"
+    assert row["canonical_score"]["formula_version"] == "score-engine-v3.1.0"
 
 
 def test_signal_selectors_do_not_depend_on_list_position(tmp_path: Path) -> None:

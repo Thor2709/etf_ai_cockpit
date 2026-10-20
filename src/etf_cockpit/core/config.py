@@ -381,10 +381,37 @@ def load_settlement_config(config_dir: Path = CONFIG_DIR) -> SettlementConfig:
         raise ConfigError(f"Settlement config validation failed: {exc}") from exc
 
 
+def _inject_action_composite_weights(model_settings: dict[str, Any], config_dir: Path) -> dict[str, Any]:
+    """Set ``ensemble.weights`` from ``score_engine_v3.yaml`` (``action_composite.weights``), the one weight source.
+
+    ``model_settings.yaml`` must not carry weights (a second source is refused). A config directory without the
+    score-engine file keeps no weights, and the scoring entry points then fail closed.
+    """
+
+    ensemble = dict(model_settings.get("ensemble") or {})
+    if "weights" in ensemble:
+        raise ConfigError(
+            "model_settings.yaml ensemble.weights moved to score_engine_v3.yaml action_composite.weights; remove it here."
+        )
+    formula_path = config_dir / "score_engine_v3.yaml"
+    if not formula_path.exists():
+        return model_settings
+    composite = (_read_yaml(formula_path).get("action_composite") or {}).get("weights")
+    if not isinstance(composite, dict) or not composite:
+        raise ConfigError("score_engine_v3.yaml has no action_composite.weights.")
+    weights: dict[str, float] = {}
+    for key, value in composite.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0.0 <= float(value) < float("inf"):
+            raise ConfigError(f"score_engine_v3.yaml action_composite weight is not a finite non-negative number: {key}")
+        weights[str(key)] = float(value)
+    return {**model_settings, "ensemble": {**ensemble, "weights": weights}}
+
+
 def load_config(config_dir: Path = CONFIG_DIR) -> AppConfig:
     try:
         provider_path = config_dir / "data_providers.yaml"
         model_settings = _read_yaml(config_dir / "model_settings.yaml") if (config_dir / "model_settings.yaml").exists() else {}
+        model_settings = _inject_action_composite_weights(model_settings, config_dir)
         data_providers = DataProvidersConfig(**(_read_yaml(provider_path) if provider_path.exists() else {}))
         data_providers = _apply_provider_env(data_providers, config_dir)
         return AppConfig(

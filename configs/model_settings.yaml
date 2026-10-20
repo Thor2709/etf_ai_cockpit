@@ -58,15 +58,7 @@ promotion:
   minimum_matured_forecasts: 100
   minimum_forecast_origins: 5
   evidence_horizon_days: 60
+# The action/gate composite weights live in score_engine_v3.yaml (action_composite.weights); load_config injects
+# them as ensemble.weights. Carrying weights here is a configuration error.
 ensemble:
-  weights:
-    momentum: 0.20
-    trend: 0.15
-    risk: 0.10
-    rebalance: 0.10
-    relative_strength: 0.10
-    toto: 0.15
-    timesfm: 0.10
-    baseline_ml: 0.05
-    chatgpt_thesis: 0.05
   allow_dynamic_weights: false

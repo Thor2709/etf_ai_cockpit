@@ -504,7 +504,11 @@ def test_legacy_v3_hash_and_reference_score_are_unchanged() -> None:
         ],
     )
 
-    assert policy.formula_checksum == "a95569c117e14009c55da187ce67059a6670ff96fe90b97b80017cf53dc80a55"
+    # NS1: score-engine-v3.1.0 made the yaml the single weight source (headline_evidence, action_composite; rebalance left the
+    # risk group), so the pinned checksum moved with a formula version bump. v3.0.0 was a95569c117e14009c55da187ce67059a6670ff96fe90b97b80017cf53dc80a55;
+    # rows stored under that version keep it (history is append-only). The attractiveness reference score below is unchanged.
+    assert policy.formula_version == "score-engine-v3.1.0"
+    assert policy.formula_checksum == "c70b2bd1452a48b5a7eae5f4b11aa361cfc87c2ce103c2a95c22b38341a8293b"
     assert score.attractiveness_10 == pytest.approx(7.5, abs=1e-12)
 
 

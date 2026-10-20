@@ -230,6 +230,9 @@ def test_scoring_renormalises_per_instrument_and_preserves_complete_score(missin
     assert "model_missing:toto" in partial.iloc[1].score_unavailable_reason_codes
     assert "model_missing:toto" not in partial.iloc[0].score_unavailable_reason_codes
     weights = effective_ensemble_weights(config.models.ensemble["weights"], toto_available=True, timesfm_available=False)
-    expected = sum(weight * partial.iloc[1]["score_" + key] for key, weight in weights.items()
-                   if weight > 0 and key != "toto" and "score_" + key in partial)
-    assert partial.iloc[1].total_score == pytest.approx(expected / (1 - weights["toto"]) - partial.iloc[1].cost_penalty)
+    # NS1: the unsupplied manual thesis is NaN (not eligible), never 0.0, so it leaves the denominator as well.
+    retained = {key: weight for key, weight in weights.items()
+                if weight > 0 and key != "toto" and "score_" + key in partial and np.isfinite(partial.iloc[1]["score_" + key])}
+    assert "chatgpt_thesis" not in retained
+    expected = sum(weight * partial.iloc[1]["score_" + key] for key, weight in retained.items())
+    assert partial.iloc[1].total_score == pytest.approx(expected / sum(retained.values()) - partial.iloc[1].cost_penalty)
