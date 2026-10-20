@@ -451,6 +451,7 @@ def test_one_etf_has_one_final_score_and_consistent_views() -> None:
     row = pd.Series({
         "etf_id": "AAA", "price_freshness": "ok", "score_momentum": 0.4, "score_trend": 0.3, "score_relative_strength": 0.2, "score_risk": 0.1,
         "score_rebalance": 0.0, "cost_penalty": 0.01, "turnover_penalty": 0.0, "score_baseline_ml": 0.2,
+        "score_baseline_source": "forecast",
         "score_etf_exposure": 0.3,  # #939: exposure evidence keeps the ETF attractiveness group evaluable
     })
     first = canonical_score_from_signal_row(row, config, "2026-01-06")

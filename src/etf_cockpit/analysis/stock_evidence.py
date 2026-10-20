@@ -8,11 +8,12 @@ so every number has a single calculation path (definitions: ``stock_metrics``).
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 
 from etf_cockpit.analysis import stock_metrics as sm
 from etf_cockpit.analysis import stock_text as tx
+from etf_cockpit.analysis.peer_cohorts import weighted_empirical_cdf
 from etf_cockpit.analysis.stock_metrics import Metric, Period
 
 NO_PERIODS_REASON = "no fundamentals have been loaded for this instrument"
@@ -57,6 +58,8 @@ class SubScore:
     display: str
     score: float | None
     reason: str | None = None
+    cohort_level: str | None = None  # industry | sector | region | universe | absolute_unadjusted (no cohort context supplied)
+    peer_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -192,6 +195,7 @@ class _Builder:
         config: Mapping[str, object],
         peer_values: Mapping[str, Mapping[str, float]] | None,
         no_data_reason: str | None,
+        cohort_values: Mapping[str, Mapping[str, Mapping[str, float]]] | None = None,
     ) -> None:
         self.id = instrument_id
         self.all_periods = list(periods)
@@ -200,6 +204,7 @@ class _Builder:
         self.analyst = analyst
         self.config = config
         self.peer_values = peer_values or {}
+        self.cohort_values = cohort_values  # level -> metric -> {peer id: value}, narrowest level first; None = legacy ladder
         self.no_data_reason = no_data_reason
         self.known = sm.known_periods(self.all_periods, decision_time)
         reporting = config.get("reporting", {}) if isinstance(config.get("reporting"), Mapping) else {}
@@ -724,6 +729,9 @@ class _Builder:
         elif net.available and net.currency != self.reporting_currency:
             ev = None
             ev_reason = "currency_mismatch between market cap and net debt"
+        elif net.available and net.as_of != minority.period_end.isoformat():
+            ev = None
+            ev_reason = f"period_mismatch between net debt ({net.as_of}) and minority interest ({minority.period_end.isoformat()}); an enterprise value never combines claims from different balance sheets"
         else:
             ev = sm.enterprise_value(mcap, net.value if net.available else None, minority.values["minority_interest"])
             ev_reason = f"needs net debt: {net.reason}"
@@ -938,6 +946,43 @@ class _Builder:
             return SubScore(key, label, None, "loss", loss, f"{metric.reason}; scored {loss:g} (a known loss, not missing data)")
         return SubScore(key, label, None, "—", None, metric.reason or "unavailable")
 
+    def _cohort_cfg(self) -> Mapping[str, object]:
+        cfg = self.scoring.get("cohort", {})
+        return cfg if isinstance(cfg, Mapping) else {}
+
+    def _pick_cohort(self, metric_key: str) -> tuple[str | None, list[float], int]:
+        """First cohort level (industry -> sector -> region -> universe) with enough peers that report ``metric_key``."""
+
+        minimum = int(self._cohort_cfg().get("min_peers", 3))
+        best = 0
+        for level, metrics in (self.cohort_values or {}).items():
+            values = [float(v) for pid, v in (metrics.get(metric_key) or {}).items() if pid != self.id and sm._finite(v) is not None]
+            best = max(best, len(values))
+            if len(values) >= minimum:
+                return level, values, len(values)
+        return None, [], best
+
+    def _cohort_sub(self, sub: SubScore, metric_key: str, group: str, *, lower_is_better: bool = False, yield_floor: bool = False) -> SubScore:
+        """Re-score a ladder-scored input as its percentile inside the narrowest sufficiently large cohort."""
+
+        if sub.score is None or sub.value is None:
+            return sub  # unavailable (kept unavailable) or an explicit forced score such as a known loss
+        if self.cohort_values is None:
+            return replace(sub, cohort_level="absolute_unadjusted")
+        level, values, count = self._pick_cohort(metric_key)
+        if level is None:
+            minimum = int(self._cohort_cfg().get("min_peers", 3))
+            return replace(sub, score=None, cohort_level=None, peer_count=count, reason=f"needs {minimum} peers with {sub.label} in the industry, sector, region or stock universe cohort; best cohort has {count}; not scored")
+        percentile = weighted_empirical_cdf(values, [1.0] * len(values), float(sub.value))
+        score = round(10.0 * ((1.0 - percentile) if lower_is_better else percentile), 4)
+        reason = sub.reason
+        if yield_floor and sub.value <= 0:
+            cap = float(self._cohort_cfg().get("negative_yield_score_cap", 0.0))
+            if score > cap:
+                score = cap
+                reason = "non-positive yield capped: a loss-making or cash-burning stock is never scored as cheap"
+        return replace(sub, score=score, cohort_level=level, peer_count=count, reason=reason)
+
     def _metric_freshness_reason(self, metric: Metric) -> str | None:
         return metric_freshness_reason(metric, self.decision_time, self.stale_days)
 
@@ -1008,9 +1053,8 @@ class _Builder:
     def value_component(self) -> Component:
         group = "value"
         subs = [
-            self._metric_sub(group, "earnings_yield", "earnings_yield", "Earnings yield", tx.pct),
-            self._metric_sub(group, "fcf_yield", "fcf_yield", "FCF yield", tx.pct),
-            self._metric_sub(group, "ebit_ev_yield", "ebit_ev_yield", "EBIT/EV", tx.pct),
+            self._cohort_sub(self._metric_sub(group, key, key, label, tx.pct), key, group, yield_floor=True)
+            for key, label in (("earnings_yield", "Earnings yield"), ("fcf_yield", "FCF yield"), ("ebit_ev_yield", "EBIT/EV"))
         ]
         pct = self.metrics.get("pe_percentile")
         if pct is not None and pct.available:
@@ -1018,7 +1062,15 @@ class _Builder:
         else:
             subs.append(SubScore("pe_history_percentile", "P/E vs own history", None, "—", None, getattr(pct, "reason", None) or "not calculated"))
         rel = self.metrics.get("pe_vs_peers")
-        if rel is not None and rel.available:
+        pe = self.metrics.get("pe")
+        if self.cohort_values is not None:
+            if pe is not None and pe.available and self._metric_freshness_reason(pe) is None:
+                own_pe = float(pe.value)  # type: ignore[arg-type]
+                subs.append(self._cohort_sub(self._sub(group, "pe_vs_peers_discount", "P/E vs peers", own_pe, f"P/E {own_pe:.1f}"), "pe", group, lower_is_better=True))
+            else:
+                reason = (self._metric_freshness_reason(pe) if pe is not None else None) or getattr(pe, "reason", None) or "not calculated"
+                subs.append(SubScore("pe_vs_peers_discount", "P/E vs peers", None, "—", None, reason))
+        elif rel is not None and rel.available:
             subs.append(self._sub(group, "pe_vs_peers_discount", "P/E vs peers", -rel.value, f"{-rel.value * 100:+.0f}% discount"))
         else:
             subs.append(SubScore("pe_vs_peers_discount", "P/E vs peers", None, "—", None, getattr(rel, "reason", None) or "not calculated"))
@@ -1028,14 +1080,13 @@ class _Builder:
     def quality_component(self) -> Component:
         group = "quality"
         subs = [
-            self._metric_sub(group, "roe", "roe", "ROE", tx.pct),
-            self._metric_sub(group, "roic", "roic", "ROIC", tx.pct),
-            self._metric_sub(group, "ebit_margin", "ebit_margin", "EBIT margin", tx.pct),
+            self._cohort_sub(self._metric_sub(group, key, key, label, tx.pct), key, group)
+            for key, label in (("roe", "ROE"), ("roic", "ROIC"), ("ebit_margin", "EBIT margin"))
         ]
         leverage = self.metrics.get("net_debt_to_ebitda")
         net = self.metrics.get("net_debt")
         if leverage is not None and leverage.available:
-            subs.append(self._sub(group, "net_debt_to_ebitda", "Net debt/EBITDA", leverage.value, tx.times(leverage.value)))
+            subs.append(self._cohort_sub(self._sub(group, "net_debt_to_ebitda", "Net debt/EBITDA", leverage.value, tx.times(leverage.value)), "net_debt_to_ebitda", group, lower_is_better=True))
         elif leverage is not None and leverage.status == sm.NOT_MEANINGFUL and net is not None and net.available:
             if net.value <= 0:
                 subs.append(SubScore("net_debt_to_ebitda", "Net debt/EBITDA", None, "net cash", 10.0, "EBITDA is not positive but the company holds net cash"))
@@ -1043,8 +1094,8 @@ class _Builder:
                 subs.append(SubScore("net_debt_to_ebitda", "Net debt/EBITDA", None, "n/m", 0.0, "EBITDA is not positive while net debt is positive"))
         else:
             subs.append(SubScore("net_debt_to_ebitda", "Net debt/EBITDA", None, "—", None, getattr(leverage, "reason", None) or "not calculated"))
-        subs.append(self._metric_sub(group, "fcf_conversion", "fcf_conversion", "FCF/net income", tx.pct))
-        subs.append(self._metric_sub(group, "revenue_cagr", "revenue_cagr", "Revenue growth", tx.pct))
+        subs.append(self._cohort_sub(self._metric_sub(group, "fcf_conversion", "fcf_conversion", "FCF/net income", tx.pct), "fcf_conversion", group))
+        subs.append(self._cohort_sub(self._metric_sub(group, "revenue_cagr", "revenue_cagr", "Revenue growth", tx.pct), "revenue_cagr", group))
         as_of, freshness = self._freshness()
         return self._assemble("stock_quality", "Stock quality", subs, group, f"{self._dataset()}:fundamentals", as_of, freshness)
 
@@ -1115,8 +1166,9 @@ def build_stock_evidence(
     config: Mapping[str, object],
     *,
     peer_values: Mapping[str, Mapping[str, float]] | None = None,
+    cohort_values: Mapping[str, Mapping[str, Mapping[str, float]]] | None = None,
     no_data_reason: str | None = None,
 ) -> StockEvidence:
     """Metrics, peer context and the three score components for one stock at ``decision_time``."""
 
-    return _Builder(instrument_id, periods, decision_time, market, analyst, config, peer_values, no_data_reason).build()
+    return _Builder(instrument_id, periods, decision_time, market, analyst, config, peer_values, no_data_reason, cohort_values).build()

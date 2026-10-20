@@ -337,7 +337,7 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/analysis_parity_v1.yaml | numeric_analysis_fields, numeric_tolerances, portfolio_artifacts, required_core_surfaces, schema_version, version | schema_version=1; version=analysis-parity-v1 |
 | configs/audit_manifest.yaml | governance, required, version | version=1 |
 | configs/authority_matrix.yaml | adr_id, adr_path, authority_stages, capabilities, completion_contract, executable_authority, execution_allowed, mandatory_core, optional_enrichment, policy_id, policy_version, schema_version | policy_version="2026-07-21"; schema_version="1.0" |
-| configs/backtest_default.yaml | end_date, initial_value_eur, rebalance_frequency_days, start_date, strategies, transaction_cost_bps | — |
+| configs/backtest_default.yaml | end_date, enforce_capacity, initial_value_eur, legacy_override_qualifies, qualification_cost_regime, rebalance_frequency_days, start_date, strategies, stress_cost_multiplier, transaction_cost_bps | — |
 | configs/costs.yaml | base_currency, broker, cost_model, per_etf | — |
 | configs/data_providers.yaml | providers | — |
 | configs/data_source_policy.yaml | mandatory_tiers, policy_version, quota_failure, schema_version, sources | policy_version="2026-07-17"; schema_version="data-source-policy.v1" |
@@ -371,7 +371,7 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/risk_limits.yaml | portfolio_limits, signal_limits | — |
 | configs/risk_profiles_v1.yaml | default_profile_id, preset_version, profiles, schema_version | preset_version=1; schema_version=risk_profiles.v1 |
 | configs/sample_calendar_identities.yaml | identities, schema_version | schema_version=sample-calendar-identities.v1 |
-| configs/score_engine_v3.yaml | asset_policies, formula_version, horizons, schema_version | formula_version=score-engine-v3.0.0; schema_version=1 |
+| configs/score_engine_v3.yaml | action_composite, asset_policies, formula_version, horizons, schema_version | formula_version=score-engine-v3.0.0; schema_version=1 |
 | configs/security_policy.yaml | credentials, network, parser_limits, schema_version, security_findings | schema_version="security-policy.v1" |
 | configs/settings.yaml | controls, execution_allowed, revision, schema_version, semantic_version, settings_version | schema_version=settings_bundle.v1; semantic_version=1.0.0; settings_version=0 |
 | configs/settlement_v1.yaml | settlement_lags | — |

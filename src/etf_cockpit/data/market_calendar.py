@@ -29,6 +29,12 @@ CALENDAR_LIBRARY = "exchange_calendars"
 CALENDAR_LIBRARY_VERSION = str(getattr(xcals, "__version__", "unavailable"))
 UTC = timezone.utc
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+# Conservative upper bound for an opening/closing auction call period.  A larger
+# declared window would swallow regular continuous trading into an auction phase.
+MAX_AUCTION_MINUTES = 60
+# Calendar years the staleness lookback may span; a longer lookback is unavailable
+# rather than silently truncated to the default calendar window.
+MAX_STALENESS_LOOKBACK_YEARS = 15
 
 
 class MarketClockError(ValueError):
@@ -95,6 +101,13 @@ class ListingCalendarEvidence:
         _check_calendar_evidence(self, "listing", ("listing_id", "instrument_id", "mic"))
         if self.opening_auction_minutes < 0 or self.closing_auction_minutes < 0:
             raise MarketClockError("listing auction windows cannot be negative")
+        if (
+            self.opening_auction_minutes > MAX_AUCTION_MINUTES
+            or self.closing_auction_minutes > MAX_AUCTION_MINUTES
+        ):
+            raise MarketClockError(
+                f"listing auction windows cannot exceed {MAX_AUCTION_MINUTES} minutes"
+            )
         _check_calendar_timezone(self.timezone, "listing")
 
     @property
@@ -503,8 +516,16 @@ class MarketCalendarService:
             raise MarketClockError("assessed_at cannot precede observed_at")
         context = ClockContext.at(assessed_at, knowledge_cutoff=knowledge_cutoff)
         reason = self._identity_reason(listing, context)
+        if reason is None and (
+            assessed_at.year - observed_at.year > MAX_STALENESS_LOOKBACK_YEARS
+        ):
+            reason = "observation_outside_calendar_window"
         calendar = (
-            self._calendar(listing, assessed_at.date()) if reason is None else None
+            self._calendar(
+                listing, assessed_at.date(), earliest=observed_at.astimezone(UTC).date()
+            )
+            if reason is None
+            else None
         )
         if calendar is None:
             lineage = _hash(
@@ -1055,10 +1076,17 @@ class MarketCalendarService:
         )
 
     @staticmethod
-    def _calendar(listing: ListingCalendarEvidence, around: date) -> Any | None:
-        mic_calendar = MarketCalendarService._raw_calendar(listing.mic, around)
+    def _calendar(
+        listing: ListingCalendarEvidence,
+        around: date,
+        *,
+        earliest: date | None = None,
+    ) -> Any | None:
+        mic_calendar = MarketCalendarService._raw_calendar(
+            listing.mic, around, earliest=earliest
+        )
         declared_calendar = MarketCalendarService._raw_calendar(
-            listing.calendar_id, around
+            listing.calendar_id, around, earliest=earliest
         )
         if mic_calendar is None or declared_calendar is None:
             return None
@@ -1082,13 +1110,19 @@ class MarketCalendarService:
         )
 
     @staticmethod
-    def _raw_calendar(calendar_id: str, around: date) -> Any | None:
+    def _raw_calendar(
+        calendar_id: str, around: date, *, earliest: date | None = None
+    ) -> Any | None:
         if calendar_id.upper() not in xcals.get_calendar_names():
             return None
+        start_year = around.year - 3
+        if earliest is not None:
+            # The lookback must be covered; never truncate it to the default window.
+            start_year = min(start_year, earliest.year)
         try:
             return xcals.get_calendar(
                 calendar_id.upper(),
-                start=f"{around.year - 3}-01-01",
+                start=f"{start_year}-01-01",
                 end=f"{around.year + 3}-12-31",
             )
         except (KeyError, ValueError, TypeError):

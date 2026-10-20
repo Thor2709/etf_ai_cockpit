@@ -47,6 +47,7 @@ def build_screen_rows(snapshot: Any, fundamentals: pd.DataFrame) -> pd.DataFrame
     for instrument in snapshot.config.universe.etfs:
         instrument_id = str(instrument.id)
         signal = signals.get(instrument_id)
+        native_bank = str(instrument.instrument_type).casefold().replace(" ", "_") in {"equity_certificate", "equity_certificates"} or str(instrument.analysis_tier).casefold() == "sparebanken"
         metrics = getattr(signal, "supporting_metrics", {}) if signal is not None else {}
         fundamental = fundamentals.loc[instrument_id] if instrument_id in fundamentals.index else pd.Series(dtype=object)
         fundamental_eligible = _fundamental_score_eligible(fundamental, assessment_date=_as_of_date(snapshot))
@@ -73,8 +74,9 @@ def build_screen_rows(snapshot: Any, fundamentals: pd.DataFrame) -> pd.DataFrame
                 "score": _canonical_field(canonical, instrument_id, "final_score_10"),
                 "attractiveness": _metric(metrics, "canonical_attractiveness_10"),
                 "evidence_quality": _canonical_field(canonical, instrument_id, "evidence_quality_10"),
-                "expected_return": _metric(metrics, "canonical_expected_return_10"),
-                "confidence": _metric(metrics, "canonical_evidence_confidence_10", getattr(signal, "confidence", None)),
+                "expected_return": None if native_bank else _metric(metrics, "canonical_expected_return_10"),
+                "confidence": None if native_bank else _metric(metrics, "canonical_evidence_confidence_10", getattr(signal, "confidence", None)),
+                "return_confidence_reason": "Native Sparebank return/confidence evidence unavailable" if native_bank else None,
                 "coverage": _metric(metrics, "canonical_coverage"),
                 "risk_friction": _canonical_field(canonical, instrument_id, "risk_friction_10"),
                 "risk_implementation": _metric(metrics, "canonical_risk_implementation_10"),
@@ -153,6 +155,25 @@ def query_for_snapshot(snapshot: Any, frame: pd.DataFrame, **kwargs: object) -> 
         dataset_checksums=(("local_screen_rows", input_checksum),),
         input_checksum=input_checksum,
         **kwargs,  # type: ignore[arg-type]
+    )
+
+
+def saved_lineage_notice(saved: ScreenQuery, current: ScreenQuery) -> str | None:
+    """Plain-language warning when a loaded saved screen is re-run on evidence other than the evidence it was saved on."""
+
+    fields = (
+        ("as of", saved.as_of, current.as_of),
+        ("universe revision", saved.universe_revision, current.universe_revision),
+        ("input checksum", saved.input_checksum, current.input_checksum),
+        ("formula version", saved.formula_version, current.formula_version),
+    )
+    changed = [(label, old, new) for label, old, new in fields if old != new]
+    if not changed:
+        return None
+    parts = "; ".join(f"{label} {str(old)[:24]} -> {str(new)[:24]}" for label, old, new in changed)
+    return (
+        "This saved screen was created on different evidence than the data it now runs on, so results can differ "
+        f"from the saved run ({parts})."
     )
 
 

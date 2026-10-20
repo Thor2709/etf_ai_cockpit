@@ -53,7 +53,9 @@ def _complete_analysis(evidence: dict[str, object] | None = None):
             "credit_loss": 0.0,
             "rwa": 1000.0,
             "target_ratio": 0.1,
-            "funding": {"lcr": 2.0, "nsfr": 1.2},
+            "funding": {"lcr": 2.0, "nsfr": 1.2, "provenance": {"lcr": "fixture:lcr", "nsfr": "fixture:nsfr"}},
+            # Bank-metric numeric evidence needs its own provenance (issue 970, B023-N001).
+            "provenance": {name: f"fixture:{name}" for name in ("cet1", "ppp", "credit_loss", "rwa", "target_ratio")},
         },
         valuation_assumptions={
             "central_owner_value_per_ec": 130.0,

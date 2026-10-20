@@ -3,70 +3,65 @@
  "ensemble_effective_weights": {
   "configured_default": {
    "input": {
-    "momentum": 0.2,
-    "trend": 0.15,
-    "risk": 0.1,
-    "rebalance": 0.1,
-    "relative_strength": 0.1,
-    "toto": 0.15,
-    "timesfm": 0.1,
-    "baseline_ml": 0.05,
-    "chatgpt_thesis": 0.05
+    "momentum": 0.155,
+    "trend": 0.115,
+    "risk": 0.14,
+    "relative_strength": 0.0,
+    "toto": 0.21,
+    "timesfm": 0.14,
+    "baseline_ml": 0.07,
+    "chatgpt_thesis": 0.07
    },
    "combinations": {
     "toto=True,timesfm=True": {
      "weights": {
-      "momentum": 0.2,
-      "trend": 0.15,
-      "risk": 0.1,
-      "rebalance": 0.1,
-      "relative_strength": 0.1,
-      "toto": 0.15,
-      "timesfm": 0.1,
-      "baseline_ml": 0.05,
-      "chatgpt_thesis": 0.05
+      "momentum": 0.17222222222222222,
+      "trend": 0.12777777777777777,
+      "risk": 0.15555555555555556,
+      "relative_strength": 0.0,
+      "toto": 0.2333333333333333,
+      "timesfm": 0.15555555555555556,
+      "baseline_ml": 0.07777777777777778,
+      "chatgpt_thesis": 0.07777777777777778
      },
      "non_penalty_sum": 1.0
     },
     "toto=True,timesfm=False": {
      "weights": {
-      "momentum": 0.25,
-      "trend": 0.15,
-      "risk": 0.1,
-      "rebalance": 0.1,
-      "relative_strength": 0.1,
-      "toto": 0.15,
-      "timesfm": 0.0,
-      "baseline_ml": 0.1,
-      "chatgpt_thesis": 0.05
+      "momentum": 0.17222222222222222,
+      "trend": 0.12777777777777777,
+      "risk": 0.15555555555555556,
+      "relative_strength": 0.0,
+      "toto": 0.2333333333333333,
+      "timesfm": 0.15555555555555556,
+      "baseline_ml": 0.07777777777777778,
+      "chatgpt_thesis": 0.07777777777777778
      },
      "non_penalty_sum": 1.0
     },
     "toto=False,timesfm=True": {
      "weights": {
-      "momentum": 0.2705,
-      "trend": 0.1905,
-      "risk": 0.1,
-      "rebalance": 0.1,
-      "relative_strength": 0.1,
-      "toto": 0.0,
-      "timesfm": 0.1,
-      "baseline_ml": 0.089,
-      "chatgpt_thesis": 0.05
+      "momentum": 0.17222222222222222,
+      "trend": 0.12777777777777777,
+      "risk": 0.15555555555555556,
+      "relative_strength": 0.0,
+      "toto": 0.2333333333333333,
+      "timesfm": 0.15555555555555556,
+      "baseline_ml": 0.07777777777777778,
+      "chatgpt_thesis": 0.07777777777777778
      },
      "non_penalty_sum": 1.0
     },
     "toto=False,timesfm=False": {
      "weights": {
-      "momentum": 0.3205,
-      "trend": 0.1905,
-      "risk": 0.1,
-      "rebalance": 0.1,
-      "relative_strength": 0.1,
-      "toto": 0.0,
-      "timesfm": 0.0,
-      "baseline_ml": 0.139,
-      "chatgpt_thesis": 0.05
+      "momentum": 0.17222222222222222,
+      "trend": 0.12777777777777777,
+      "risk": 0.15555555555555556,
+      "relative_strength": 0.0,
+      "toto": 0.2333333333333333,
+      "timesfm": 0.15555555555555556,
+      "baseline_ml": 0.07777777777777778,
+      "chatgpt_thesis": 0.07777777777777778
      },
      "non_penalty_sum": 1.0
     }
@@ -85,29 +80,19 @@
     },
     "toto=True,timesfm=False": {
      "weights": {
-      "toto": 1.0,
-      "timesfm": 0.0,
-      "momentum": 0.0,
-      "baseline_ml": 0.0
+      "toto": 1.0
      },
      "non_penalty_sum": 1.0
     },
     "toto=False,timesfm=True": {
      "weights": {
-      "toto": 0.0,
-      "momentum": 0.47,
-      "trend": 0.27,
-      "baseline_ml": 0.26
+      "toto": 1.0
      },
      "non_penalty_sum": 1.0
     },
     "toto=False,timesfm=False": {
      "weights": {
-      "toto": 0.0,
-      "momentum": 0.47,
-      "trend": 0.27,
-      "baseline_ml": 0.26,
-      "timesfm": 0.0
+      "toto": 1.0
      },
      "non_penalty_sum": 1.0
     }
@@ -132,8 +117,7 @@
      "weights": {
       "momentum": 0.5,
       "trend": 0.3,
-      "baseline_ml": 0.2,
-      "timesfm": 0.0
+      "baseline_ml": 0.2
      },
      "non_penalty_sum": 1.0
     },
@@ -141,8 +125,7 @@
      "weights": {
       "momentum": 0.5,
       "trend": 0.3,
-      "baseline_ml": 0.2,
-      "toto": 0.0
+      "baseline_ml": 0.2
      },
      "non_penalty_sum": 1.0
     },
@@ -150,9 +133,7 @@
      "weights": {
       "momentum": 0.5,
       "trend": 0.3,
-      "baseline_ml": 0.2,
-      "toto": 0.0,
-      "timesfm": 0.0
+      "baseline_ml": 0.2
      },
      "non_penalty_sum": 1.0
     }
@@ -187,12 +168,12 @@
     },
     "toto=True,timesfm=False": {
      "weights": {
-      "momentum": 0.30000000000000004,
+      "momentum": 0.2,
       "trend": 0.15,
       "risk": 0.1,
       "toto": 0.25,
-      "timesfm": 0.0,
-      "baseline_ml": 0.2,
+      "timesfm": 0.2,
+      "baseline_ml": 0.1,
       "cost_penalty": 0.05,
       "turnover_penalty": 0.02,
       "concentration_penalty": 0.01
@@ -201,12 +182,12 @@
     },
     "toto=False,timesfm=True": {
      "weights": {
-      "momentum": 0.3175,
-      "trend": 0.2175,
+      "momentum": 0.2,
+      "trend": 0.15,
       "risk": 0.1,
-      "toto": 0.0,
+      "toto": 0.25,
       "timesfm": 0.2,
-      "baseline_ml": 0.165,
+      "baseline_ml": 0.1,
       "cost_penalty": 0.05,
       "turnover_penalty": 0.02,
       "concentration_penalty": 0.01
@@ -215,12 +196,12 @@
     },
     "toto=False,timesfm=False": {
      "weights": {
-      "momentum": 0.4175,
-      "trend": 0.2175,
+      "momentum": 0.2,
+      "trend": 0.15,
       "risk": 0.1,
-      "toto": 0.0,
-      "timesfm": 0.0,
-      "baseline_ml": 0.265,
+      "toto": 0.25,
+      "timesfm": 0.2,
+      "baseline_ml": 0.1,
       "cost_penalty": 0.05,
       "turnover_penalty": 0.02,
       "concentration_penalty": 0.01

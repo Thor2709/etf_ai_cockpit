@@ -879,7 +879,7 @@ def _statement_panel_fields(evidence: Mapping[str, object]) -> dict[str, object]
     }
 
 
-def _news_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
+def _news_panel(instrument_id: str, frame: pd.DataFrame | None = None, *, decision_time: object = None) -> dict[str, Any]:
     source_error: str | None = None
     try:
         source = frame if isinstance(frame, pd.DataFrame) else load_news_items(NEWS_CLEAN_PATH)
@@ -898,6 +898,10 @@ def _news_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[s
         manual = load_manual_news(MANUAL_NEWS_CLEAN_PATH)
         if not manual.empty and "etf_id" in manual.columns:
             manual_scoped = manual.loc[manual["etf_id"].astype(str).eq(str(instrument_id))]
+            cutoff = normalise_event_decision_time(decision_time) if decision_time not in (None, "") else None
+            if cutoff is not None:  # historical context: a note dated after the decision time did not exist yet
+                note_dates = pd.to_datetime(manual_scoped["as_of_date"], errors="coerce", utc=True)
+                manual_scoped = manual_scoped.loc[note_dates.notna() & (note_dates.dt.date <= cutoff.date())]
             manual_scoped = manual_scoped.sort_values("as_of_date", kind="stable").tail(20)
             items.extend(_manual_news_item_record(row) for row in manual_scoped.to_dict("records"))
     except Exception as exc:
@@ -1782,6 +1786,30 @@ def _scoreboard_lookup(
     return rows.iloc[-1].to_dict(), None
 
 
+def _scoreboard_matches_live(scoreboard: Mapping[str, Any], live_score: object) -> bool:
+    """True when the stored scoreboard row was built from the same canonical evidence as the live score row.
+
+    A stored row whose source vintage or formula differs (or cannot be verified) is stale: its technical evidence
+    must not be shown beside the live headline.
+    """
+
+    canonical = getattr(live_score, "canonical_score", None)
+    live_vintage = _safe_text(getattr(canonical, "source_vintage_hash", None))
+    stored_vintage = _safe_text(scoreboard.get("source_vintage_hash"))
+    if canonical is None or live_vintage in {None, "unavailable"}:
+        return True  # nothing live to compare against
+    if stored_vintage in {None, "unavailable"} or stored_vintage != live_vintage:
+        return False
+    live_checksum = _safe_text(getattr(canonical, "formula_checksum", None))
+    stored_checksum = _safe_text(scoreboard.get("formula_checksum"))
+    return stored_checksum in {None, "unavailable"} or live_checksum in {None, "unavailable"} or stored_checksum == live_checksum
+
+
+def _first_present(*values: float | None) -> float | None:
+    """First value that is not None: a valid 0.0 must win over a later fallback (no truthiness test)."""
+    return next((value for value in values if value is not None), None)
+
+
 def _score_panel(
     signal: Any,
     scoreboard: Mapping[str, Any],
@@ -1890,9 +1918,9 @@ def _score_panel(
             if isinstance(scoreboard.get("missing_components"), str)
             else list(_safe_sequence(scoreboard.get("missing_components")))
         ),
-        "canonical_attractiveness_10": _safe_float(scoreboard.get("canonical_attractiveness_10")) or _safe_float(canonical_payload.get("attractiveness_10")),
-        "canonical_expected_return_10": _safe_float(scoreboard.get("canonical_expected_return_10")) or _safe_float(canonical_payload.get("expected_return_10")),
-        "canonical_risk_implementation_10": _safe_float(scoreboard.get("canonical_risk_implementation_10")) or _safe_float(canonical_payload.get("risk_implementation_10")),
+        "canonical_attractiveness_10": _first_present(_safe_float(scoreboard.get("canonical_attractiveness_10")), _safe_float(canonical_payload.get("attractiveness_10"))),
+        "canonical_expected_return_10": _first_present(_safe_float(scoreboard.get("canonical_expected_return_10")), _safe_float(canonical_payload.get("expected_return_10"))),
+        "canonical_risk_implementation_10": _first_present(_safe_float(scoreboard.get("canonical_risk_implementation_10")), _safe_float(canonical_payload.get("risk_implementation_10"))),
         "canonical_evidence_confidence_10": (
             signal_confidence
             if signal_confidence is not None
@@ -1900,7 +1928,7 @@ def _score_panel(
             if canonical_confidence is not None
             else scoreboard_confidence
         ),
-        "canonical_coverage": _safe_float(scoreboard.get("canonical_coverage")) or _safe_float(canonical_payload.get("coverage")) or 0.0,
+        "canonical_coverage": _first_present(_safe_float(scoreboard.get("canonical_coverage")), _safe_float(canonical_payload.get("coverage")), 0.0),
         "formula_version": _safe_text(scoreboard.get("formula_version")) or _safe_text(canonical_payload.get("formula_version")) or "unavailable",
         "formula_checksum": _safe_text(scoreboard.get("formula_checksum")) or _safe_text(canonical_payload.get("formula_checksum")) or "unavailable",
         "source_vintage_hash": _safe_text(scoreboard.get("source_vintage_hash")) or _safe_text(canonical_payload.get("source_vintage_hash")) or "unavailable",
@@ -2571,7 +2599,10 @@ def _history_panel(instrument_id: str, history: pd.DataFrame | None = None) -> d
         source = history if isinstance(history, pd.DataFrame) else score_history_frame()
     except Exception:
         source = pd.DataFrame()
-    rows = _instrument_rows(source, instrument_id)
+    from etf_cockpit.application.score_views import evidence_ordered_history
+
+    # Latest/previous follow the evidence date, not run completion: a late backfill never becomes "Latest".
+    rows = evidence_ordered_history(_instrument_rows(source, instrument_id))
     if rows.empty:
         return _unavailable("Score history unavailable; a second local score run is required.") | {"rows": []}
     return {"status": "available", "rows": rows.where(pd.notna(rows), None).to_dict("records"), "execution_allowed": False, **_provenance_fields(rows.iloc[-1])}
@@ -2580,7 +2611,9 @@ def _history_panel(instrument_id: str, history: pd.DataFrame | None = None) -> d
 def _run_changes_panel(instrument_id: str, history: pd.DataFrame | None = None) -> dict[str, Any]:
     try:
         source = history if isinstance(history, pd.DataFrame) else score_history_frame()
-        source = _instrument_rows(source, instrument_id)
+        from etf_cockpit.application.score_views import evidence_ordered_history
+
+        source = evidence_ordered_history(_instrument_rows(source, instrument_id))
         if not isinstance(source, pd.DataFrame) or source.empty or "run_id" not in source.columns:
             raise ValueError("no score history")
         runs = list(dict.fromkeys(source["run_id"].astype(str).tolist()))
@@ -2723,7 +2756,7 @@ def _valuation_panel(instrument_id: str, asset_type: object, decision_time: obje
     if result["status"] != "available":
         return _unavailable(result["message"])
     metric_fields = ("name", "value", "status", "formula", "period", "source_ids", "confidence", "applicability", "limitation")
-    model_fields = ("status", "confidence", "reason", "execution_allowed", "forecast_years", "discount_rate", "terminal_growth", "implied_growth", "target_equity_value", "equity_value", "per_share", "range")
+    model_fields = ("status", "confidence", "reason", "execution_allowed", "forecast_years", "discount_rate", "terminal_growth", "implied_growth", "target_equity_value", "equity_value", "per_share", "range", "cash_flow_claim_type", "score_eligible", "label", "averaged", "deltas")
     context = result.get("assumption_context", {})
     assumption_context = {field: context.get(field) for field in ("kind", "instrument_id", "decision_time", "session_preview_only", "score_authority", "execution_allowed")} if context else {}
     if context:
@@ -2745,6 +2778,8 @@ def _valuation_panel(instrument_id: str, asset_type: object, decision_time: obje
             for name in ("ev_to_sales", "ev_to_ebitda", "price_to_earnings", "price_to_book", "dividend_yield")
         },
         **models,
+        **{field: result.get(field) for field in ("operator_weights", "valuation_status", "expires_at", "refresh_reason", "comparability_mode")},
+        "cost_of_capital": {field: (result.get("cost_of_capital") or {}).get(field) for field in ("basis", "cost_of_equity", "wacc", "conflicts")},
         "assumption_context": assumption_context,
         "scenario_status": models["intrinsic_value"]["status"] if context else "unavailable: explicit scenario assumptions required",
         "source_lineage": {field: result["source_lineage"].get(field) for field in ("statement_view", "as_known_at", "source_ids", "knowledge_precision", "cutoff_policy")},
@@ -2804,14 +2839,14 @@ def _sparebank_workspace(
     context: dict[str, object] = {}
     if instrument_id:
         from etf_cockpit.application.sparebank_peers import load_peer_rows, picked_peers, quarterly_score_history
-        from etf_cockpit.data.pillar3_queue import load_queue
+        from etf_cockpit.application.sparebank_evidence import pillar3_review_queue
 
         context = {
             "instrument_id": instrument_id,
             "history": quarterly_score_history(score_history, instrument_id, decision_time),
             "peers": load_peer_rows(ROOT, instrument_id, decision_time, scorecard.get("formula_version")),
             "picked_peers": picked_peers(ROOT, instrument_id),
-            "pillar3": load_queue(ROOT, instrument_id),
+            "pillar3": pillar3_review_queue(ROOT, instrument_id, decision_time=decision_time),
         }
     return {
         **context,
@@ -2868,6 +2903,7 @@ def build_instrument_detail(
     journal: pd.DataFrame | None = None,
     thesis_diary_root: Path | None = None,
     candidate_score: SimpleInstrumentScore | None = None,
+    live_score: SimpleInstrumentScore | None = None,
     financial_projection: Mapping[str, object] | None = None,
     real_asset_projection: Mapping[str, object] | None = None,
     cyclical_projection: Mapping[str, object] | None = None,
@@ -2889,7 +2925,13 @@ def build_instrument_detail(
     candidate = candidate_score if identity is None and _candidate_score_matches(candidate_score, instrument_id) else None
     if identity is None and candidate is None:
         return InstrumentDetailViewModel(instrument_id, instrument_id, "unavailable", {"instrument_id": instrument_id}, {name: "unavailable" for name in _SECTION_NAMES})
-    signal = next((item for item in getattr(snapshot, "signals", ()) if item.etf_id == instrument_id), None)
+    from etf_cockpit.application.score_views import latest_signal_per_instrument
+
+    # Latest signal, independent of row order; same-date signals that disagree leave the signal unavailable.
+    latest_signal, signal_conflict = latest_signal_per_instrument(
+        [item for item in getattr(snapshot, "signals", ()) if item.etf_id == instrument_id]
+    ).get(instrument_id, (None, False))
+    signal = None if signal_conflict else latest_signal
     features = _instrument_rows(getattr(snapshot, "latest_features", None), instrument_id)
     if features.empty:
         all_features = _instrument_rows(getattr(snapshot, "features", None), instrument_id)
@@ -2903,6 +2945,17 @@ def build_instrument_detail(
     derived = _derived_evidence_panel(instrument_id, expected_currency=canonical_currency)
     friction = _friction_panel(instrument_id, candidate_score=candidate)
     scoreboard, scoreboard_reason_code = _scoreboard_lookup(instrument_id, candidate_score=candidate)
+    if signal_conflict and not scoreboard:
+        scoreboard_reason_code = "conflicting_same_date_signals"
+    if (
+        live_score is not None
+        and candidate is None
+        and scoreboard
+        and _candidate_score_matches(live_score, instrument_id)
+        and not _scoreboard_matches_live(scoreboard, live_score)
+    ):
+        # One lineage: the headline is the live canonical row, so a stale stored row never supplies its evidence.
+        scoreboard, scoreboard_reason_code = _candidate_scoreboard(live_score), None
     decision_time = getattr(getattr(snapshot, "data_report", None), "as_of_date", None)
     projection_time = str(decision_time or "").strip()
     if len(projection_time) == 10:
@@ -3086,8 +3139,8 @@ def build_instrument_detail(
     financial_institutions = load_financial_institution_projection(
         instrument_id,
         projection=financial_projection,
-        # Live view: decide as of now on the latest reported period (an as-of date is not a reporting period).
-        decision_time=None,
+        # Use the same snapshot cutoff as the history and peer projections.
+        decision_time=projection_time or decision_time,
         effective_at=None,
         tactical_evidence=_tactical_scorecard_evidence(signal, candidate),
     )
@@ -3167,7 +3220,7 @@ def build_instrument_detail(
             "etf_structure": structure,
             "etf_holdings": disclosure.get("exposure", _unavailable("ETF holdings/exposure unavailable.")),
             "etf_overlap": direct_overlap_payload(overlap),
-            "news": _news_panel(instrument_id, news),
+            "news": _news_panel(instrument_id, news, decision_time=projection_time or decision_time),
             "events": _event_calendar_panel(
                 instrument_id,
                 events,

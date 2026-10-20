@@ -48,7 +48,14 @@ def _production_fixture(tmp_path: Path, *, price_rows: list[dict[str, object]] |
         "rwa": 1000.0,
         "target_ratio": 0.1,
         # v1.1 scores only bank axes: funding evidence keeps the fixture above the coverage floor.
-        "funding": {"lcr": 2.0, "nsfr": 1.2, "deposit_to_loan_ratio": 0.8},
+        "funding": {
+            "lcr": 2.0,
+            "nsfr": 1.2,
+            "deposit_to_loan_ratio": 0.8,
+            "provenance": {name: f"fixture:{name}" for name in ("lcr", "nsfr", "deposit_to_loan_ratio")},
+        },
+        # Bank-metric numeric evidence needs its own provenance (issue 970, B023-N001).
+        "provenance": {name: f"fixture:{name}" for name in ("cet1", "ppp", "credit_loss", "rwa", "target_ratio")},
     }
     ec_payload["valuation_assumptions"] = {
         "central_owner_value_per_ec": 130.0,

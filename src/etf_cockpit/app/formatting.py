@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re as _re
 from datetime import date, datetime
 from etf_cockpit.core.values import finite_float_or_none as _number
 
@@ -23,6 +24,17 @@ def format_currency(value: object, *, currency: str = "EUR", decimals: int = 2, 
     if number is None:
         return unavailable
     return f"{currency} {number:,.{max(0, int(decimals))}f}"
+
+
+def format_quote_price(value: object, currency: object, *, decimals: int = 2, unavailable: str = "N/A") -> str:
+    """Price in the instrument's own quote currency; an unknown currency is stated, never assumed to be EUR."""
+    number = _number(value)
+    if number is None:
+        return unavailable
+    code = str(currency or "").strip().upper()
+    if not code or code in {"NONE", "NAN", "UNAVAILABLE"}:
+        return f"{number:,.{max(0, int(decimals))}f} (currency unavailable)"
+    return format_currency(number, currency=code, decimals=decimals, unavailable=unavailable)
 
 
 def format_date(value: object, *, unavailable: str = "N/A") -> str:
@@ -74,8 +86,6 @@ def format_timestamp(value: object, *, unavailable: str = "N/A") -> str:
 
 
 # --- plain-language text (one formatter for every page that shows an error, reason code, URL or timestamp) ---
-
-import re as _re
 
 _EXCEPTION_PREFIX = _re.compile(r"^\s*(?:[A-Za-z_][\w.]*\.)?[A-Z]\w*(?:Error|Exception|Warning|Failure)\s*:\s*")
 _URL = _re.compile(r"https?://(?:www\.)?([^/\s)\]\"'<>]+)[^\s)\]\"'<>]*")

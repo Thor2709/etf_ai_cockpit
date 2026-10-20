@@ -514,18 +514,25 @@ def median(values: Iterable[float | None]) -> float | None:
 
 
 def implied_growth_from_pe(pe: float | None, payout: float | None, cost_of_equity: float | None) -> Metric:
-    """g in P/E = payout / (r - g)  =>  g = r - payout / (P/E). r must come from configuration."""
+    """Growth g implied by a trailing P/E under the Gordon model: P/E = payout * (1 + g) / (r - g).
 
-    key, label, formula = "implied_growth_pe", "Implied growth (P/E)", "g = r - payout / (P/E), from P/E = payout / (r - g)"
+    Solving gives g = (r * P/E - payout) / (P/E + payout).  The numerator carries (1 + g) because a trailing
+    P/E divides price by last year's earnings while the Gordon price discounts next year's dividend.  r must come
+    from configuration; g at or below -100 % (or r at or below -100 %) is never presented as an available value.
+    """
+
+    key, label, formula = "implied_growth_pe", "Implied growth (P/E)", "g = (r * P/E - payout) / (P/E + payout), from trailing P/E = payout * (1 + g) / (r - g)"
     if cost_of_equity is None:
         return _unavailable(key, label, "cost of equity is not configured (configs/stock_fundamentals_v1.yaml valuation.cost_of_equity)", formula=formula)
     if pe is None:
         return _unavailable(key, label, "needs a meaningful P/E", formula=formula)
     if payout is None or payout <= 0:
         return _unavailable(key, label, "needs a positive payout ratio (dividends / net income)", formula=formula)
-    g = cost_of_equity - payout / pe
-    if g >= cost_of_equity:
-        return _not_meaningful(key, label, "implied growth is not below the cost of equity", formula=formula)
+    if cost_of_equity <= -1.0 or pe <= 0:
+        return _not_meaningful(key, label, "cost of equity or P/E is outside the valid Gordon range", formula=formula)
+    g = (cost_of_equity * pe - payout) / (pe + payout)
+    if g <= -1.0 or g >= cost_of_equity:
+        return _not_meaningful(key, label, "implied growth is not between -100 % and the cost of equity", formula=formula)
     return Metric(key, label, g, "ratio", OK, formula=formula)
 
 
@@ -553,8 +560,8 @@ def implied_growth_from_dcf(
     if cost_of_equity is None or terminal_growth is None:
         missing = "cost of equity" if cost_of_equity is None else "terminal growth"
         return _unavailable(key, label, f"{missing} is not configured (configs/stock_fundamentals_v1.yaml valuation)", formula=formula)
-    if terminal_growth >= cost_of_equity:
-        return _unavailable(key, label, "terminal growth must be below the cost of equity", formula=formula)
+    if terminal_growth >= cost_of_equity or terminal_growth <= -1.0 or cost_of_equity <= -1.0:
+        return _unavailable(key, label, "terminal growth must be above -100 % and below the cost of equity", formula=formula)
     if mcap is None or fcf is None:
         return _unavailable(key, label, "needs market cap and free cash flow", formula=formula)
     if fcf <= 0 or mcap <= 0:

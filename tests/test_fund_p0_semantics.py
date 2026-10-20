@@ -314,6 +314,7 @@ def test_diluted_weighted_average_shares_do_not_replace_point_in_time_shares() -
             "forecast_years": 3,
             "scenarios": {"base": {"growth": 0.05}},
         },
+        strict_comparability=False,
     )
     base = report["intrinsic_value"]["scenarios"]["base"]
 

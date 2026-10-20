@@ -45,8 +45,11 @@ from etf_cockpit.application.ui_views.home import (
     ScoreRow,
     band_insight,
     build_checks,
+    combined_data_status,
     data_health_label,
+    eligible_model_names,
     filter_tier,
+    home_final_mode,
     rank_change_bars,
     rank_insight,
     score_bands,
@@ -76,6 +79,7 @@ from etf_cockpit.application.digest import (
     build_macro_context,
     contradiction_digest_records,
     filter_news_contradiction_inputs,
+    news_rows_as_of,
     score_run_pair_as_of,
 )
 from etf_cockpit.application.ui_facade import (
@@ -86,7 +90,7 @@ from etf_cockpit.application.ui_facade import (
     MacroWarehouseError,
     SimpleInstrumentScore,
     build_data_health,
-    build_simple_instrument_scores,
+    build_simple_instrument_scores as build_simple_instrument_scores,
     compare_runs,
     events_available_as_of,
     filter_forecasts_for_universe,
@@ -173,7 +177,7 @@ def _dashboard_action_message(
 
 def _home_view(state: AppState) -> tuple[HomeView, list[SimpleInstrumentScore]]:
     """Fetch the local evidence once and project it into the read-only Home view model."""
-    from etf_cockpit.application.score_views import snapshot_scores
+    from etf_cockpit.application.score_views import snapshot_scores, visible_top_score
 
     scores = snapshot_scores(state.snapshot, str(getattr(state, "universe_cache_revision", "") or ""))
     try:
@@ -184,6 +188,10 @@ def _home_view(state: AppState) -> tuple[HomeView, list[SimpleInstrumentScore]]:
         change.instrument_id: (change.previous_rank, change.current_rank)
         for change in (report.changes if report is not None else ())
     }
+    if report is not None:
+        from etf_cockpit.application.score_views import displayed_rank_info
+
+        rank_info = displayed_rank_info(rank_info, scores, _score_history_for_snapshot(state), report.previous_run_id)
     data_report = state.snapshot.data_report
     try:
         health_report = build_data_health(
@@ -195,21 +203,14 @@ def _home_view(state: AppState) -> tuple[HomeView, list[SimpleInstrumentScore]]:
     except Exception:
         status = "Unavailable"
     flagged = set(getattr(data_report, "blocked_etfs", ()) or ()) | set(getattr(data_report, "warning_etfs", ()) or ())
-    best = scores[0] if scores else None
-    mode = (
-        "Manual review"
-        if status == "Failed"
-        else "Caution"
-        if status == "Review"
-        else "Normal"
-        if status == "Clean"
-        else "Unavailable"
-    )
-    forecasts = getattr(state.snapshot, "forecasts", None)
-    extra_models: tuple[str, ...] = ()
-    if isinstance(forecasts, pd.DataFrame) and {"model_name", "status"} <= set(forecasts.columns):
-        names = forecasts.loc[forecasts["status"].astype(str).str.lower() == "ok", "model_name"].astype(str)
-        extra_models = tuple(sorted({n for n in names if "baseline" not in n.lower()}))
+    # The score was built on the snapshot's own data report: the disk re-read can only make the status worse.
+    status = combined_data_status(status, getattr(data_report, "status", None))
+    best = visible_top_score(scores)
+    mode = home_final_mode(status)
+    try:
+        extra_models = eligible_model_names(_cached_canonical_forecasts(state))
+    except Exception:  # unreadable forecast evidence: no model badge rather than an unfiltered one
+        extra_models = ()
     checks = build_checks(
         records,
         regime_label=None if best is None else best.market_regime_label,
@@ -797,7 +798,9 @@ def _digest_parts(state: AppState, scores: list[SimpleInstrumentScore] | None = 
     cache = _dashboard_render_cache(state)
     cached = cache.get("digest_parts")
     if isinstance(cached, tuple):
-        return cached
+        # The audit/export status is session state (exports happen while the snapshot is unchanged): never cached.
+        cached_as_of, cached_records, cached_report = cached
+        return cached_as_of, {**cached_records, "audit_export": _audit_export_record(state, as_of=cached_as_of)}, cached_report
     as_of = str(getattr(getattr(state.snapshot, "data_report", None), "as_of_date", "") or "") or None
     cutoff = normalise_event_decision_time(as_of)
     history = _score_history_for_snapshot(state)
@@ -954,6 +957,46 @@ def _stale_data_record(state: AppState, alerts: AlertReadback, *, as_of: str | N
     return [{"title": "Stale or non-clean data needs review", "detail": detail, "status": "manual_review", "severity": "warning", "as_of": as_of, "provenance": "data_report/local_alerts"}]
 
 
+def _contradiction_bindings(
+    state: AppState,
+    *,
+    as_of: str | None,
+    cutoff: object | None = None,
+    history: pd.DataFrame | None = None,
+) -> dict[str, object]:
+    """Macro, fundamentals, exposure and score-history inputs of the contradiction rules (one path for every panel)."""
+    prices = getattr(getattr(state, "snapshot", None), "prices", pd.DataFrame())
+    macro_prices = prices.copy() if isinstance(prices, pd.DataFrame) else pd.DataFrame()
+    decision_cutoff = cutoff if cutoff is not None else normalise_event_decision_time(as_of)
+    if isinstance(decision_cutoff, pd.Timestamp) and not macro_prices.empty and "date" in macro_prices.columns:
+        macro_dates = pd.to_datetime(macro_prices["date"], errors="coerce", utc=True)
+        macro_prices = macro_prices.loc[macro_dates.notna() & (macro_dates.dt.date <= decision_cutoff.date())].copy()
+    if "etf_id" not in macro_prices.columns and "instrument_id" in macro_prices.columns:
+        macro_prices["etf_id"] = macro_prices["instrument_id"]
+    instruments = getattr(getattr(getattr(state, "snapshot", None), "config", None), "universe", None)
+    instrument_rows = getattr(instruments, "etfs", ()) if instruments is not None else ()
+    macro_as_of_date = decision_cutoff.date() if isinstance(decision_cutoff, pd.Timestamp) else None
+    macro = build_macro_context(macro_prices, instrument_rows, as_of_date=macro_as_of_date)
+    try:
+        # Preserve the existing warehouse provenance when available; the
+        # feature-layer context remains the classification authority.
+        warehouse = MacroWarehouse().summary(root=ROOT, decision_time=as_of)
+        if str(macro.get("status", "unavailable")) == "unavailable" and isinstance(warehouse, Mapping):
+            macro = warehouse
+    except Exception:
+        pass
+    fundamentals = load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
+    history = _score_history_for_snapshot(state) if history is None else history
+    exposures = [
+        {
+            "instrument_id": getattr(item, "id", None),
+            "classification": " ".join(str(getattr(item, field, "") or "") for field in ("asset_class", "asset_type", "role", "sector", "theme")),
+        }
+        for item in instrument_rows
+    ]
+    return {"macro_context": macro, "fundamentals": fundamentals, "exposures": exposures, "score_history": history}
+
+
 def _contradiction_record(
     state: AppState,
     *,
@@ -973,34 +1016,7 @@ def _contradiction_record(
             prices,
             cutoff if cutoff is not None else normalise_event_decision_time(as_of),
         )
-        macro_prices = prices.copy() if isinstance(prices, pd.DataFrame) else pd.DataFrame()
-        decision_cutoff = cutoff if cutoff is not None else normalise_event_decision_time(as_of)
-        if isinstance(decision_cutoff, pd.Timestamp) and not macro_prices.empty and "date" in macro_prices.columns:
-            macro_dates = pd.to_datetime(macro_prices["date"], errors="coerce", utc=True)
-            macro_prices = macro_prices.loc[macro_dates.notna() & (macro_dates.dt.date <= decision_cutoff.date())].copy()
-        if "etf_id" not in macro_prices.columns and "instrument_id" in macro_prices.columns:
-            macro_prices["etf_id"] = macro_prices["instrument_id"]
-        instruments = getattr(getattr(getattr(state, "snapshot", None), "config", None), "universe", None)
-        instrument_rows = getattr(instruments, "etfs", ()) if instruments is not None else ()
-        macro_as_of_date = decision_cutoff.date() if isinstance(decision_cutoff, pd.Timestamp) else None
-        macro = build_macro_context(macro_prices, instrument_rows, as_of_date=macro_as_of_date)
-        try:
-            # Preserve the existing warehouse provenance when available; the
-            # feature-layer context remains the classification authority.
-            warehouse = MacroWarehouse().summary(root=ROOT, decision_time=as_of)
-            if str(macro.get("status", "unavailable")) == "unavailable" and isinstance(warehouse, Mapping):
-                macro = warehouse
-        except Exception:
-            pass
-        fundamentals = load_fundamental_evidence(FUNDAMENTAL_CLEAN_PATH)
-        history = _score_history_for_snapshot(state) if history is None else history
-        exposures = [
-            {
-                "instrument_id": getattr(item, "id", None),
-                "classification": " ".join(str(getattr(item, field, "") or "") for field in ("asset_class", "asset_type", "role", "sector", "theme")),
-            }
-            for item in instrument_rows
-        ]
+        bindings = _contradiction_bindings(state, as_of=as_of, cutoff=cutoff, history=history)
     except (MacroWarehouseError, OSError, TypeError, ValueError):
         return contradiction_digest_records(
             pd.DataFrame(),
@@ -1018,11 +1034,8 @@ def _contradiction_record(
     return contradiction_digest_records(
         filtered_news,
         prices=filtered_prices,
-        fundamentals=fundamentals,
-        macro_context=macro,
-        exposures=exposures,
-        score_history=history,
         cutoff=cutoff if cutoff is not None else normalise_event_decision_time(as_of),
+        **bindings,
     )
 
 
@@ -1089,11 +1102,14 @@ def _news_digest(page: ft.Page, state: AppState, scores: list[SimpleInstrumentSc
     if not isinstance(frame, pd.DataFrame):
         frame = sort_news_items(load_news_items(NEWS_CLEAN_PATH))
         cache["news_frame"] = frame
+    shown = news_rows_as_of(frame, _decision_cutoff(state))  # point in time: nothing published after the snapshot date
     if frame.empty:
         body: ft.Control = ft.Text("News unavailable; no timestamp-validated local context is registered.", color=theme.MUTED, selectable=True)
+    elif shown.empty:
+        body = ft.Text("News unavailable; no local news was published on or before the snapshot decision date.", color=theme.MUTED, selectable=True)
     else:
         rows = []
-        for _, row in frame.tail(4).iterrows():
+        for _, row in shown.tail(4).iterrows():
             rows.append(ft.Text(
                 f"{row.get('published_at', 'unavailable')} | {row.get('headline', 'Headline unavailable')} | {row.get('provider_name', 'provider unavailable')} | timestamp={row.get('timestamp_status', 'unavailable')} | context_only=true | executable_authority=false",
                 color=theme.MUTED,
@@ -1186,8 +1202,16 @@ def _alert_row(page: ft.Page | None, state: AppState, record: AlertRecord, *, ac
     return ft.Column([ft.Row(controls, spacing=8, wrap=True)], spacing=4)
 
 
+def _decision_cutoff(state: AppState) -> pd.Timestamp | None:
+    """The snapshot decision time every below-the-fold digest reads its evidence at."""
+    return normalise_event_decision_time(getattr(getattr(getattr(state, "snapshot", None), "data_report", None), "as_of_date", None))
+
+
 def _alerts_digest(page: ft.Page, state: AppState) -> ft.Control:
-    readback = _read_alerts()
+    cutoff = _decision_cutoff(state)
+    # Same decision time as the Home digest and no cap: the section lists every alert active at that time.
+    # Without a snapshot decision date there is nothing to cut at, so the currently active alerts are listed.
+    readback = _read_alerts(as_of=cutoff.to_pydatetime() if cutoff is not None else None, limit=None)
     if readback.status != "available":
         return state_panel(
             "error",
@@ -1589,10 +1613,18 @@ def _export_pack(page: ft.Page, state: AppState) -> None:
     threading.Thread(target=worker, daemon=True).start()
 
 
-def _valid_model_pairs(state: AppState) -> int:
+def _cached_canonical_forecasts(state: AppState) -> pd.DataFrame:
+    cache = _dashboard_render_cache(state)
+    if "canonical_forecasts" not in cache:
+        cache["canonical_forecasts"] = _canonical_forecasts(state)
+    return cache["canonical_forecasts"]  # type: ignore[return-value]
+
+
+def _canonical_forecasts(state: AppState) -> pd.DataFrame:
+    """Configured + candidate forecast rows after the universe/identity/price-binding filters (one canonical path)."""
     config = getattr(state.snapshot, "config", None)
     if config is None:
-        return 0
+        return pd.DataFrame()
     universe_revision = str(
         getattr(state.snapshot, "universe_revision", "")
         or getattr(state, "universe_cache_revision", "")
@@ -1632,7 +1664,11 @@ def _valid_model_pairs(state: AppState) -> int:
         price_binding=price_binding,
         forecast_request_identity=request_identity,
     )
-    forecasts = pd.concat([configured_forecasts, candidate_forecasts], ignore_index=True)
+    return pd.concat([configured_forecasts, candidate_forecasts], ignore_index=True)
+
+
+def _valid_model_pairs(state: AppState) -> int:
+    forecasts = _canonical_forecasts(state)
     if forecasts.empty or not {"status", "model_allowed_in_score", "model_name", "etf_id"}.issubset(forecasts.columns):
         return 0
     allowed = forecasts["model_allowed_in_score"].astype(str).str.lower().isin({"true", "1", "yes"})

@@ -90,7 +90,9 @@ def test_late_creation_and_other_versions_are_unverifiable():
     decision = evaluate_model_promotions(history, prices, prices.date.max().date(), SETTINGS)["timesfm3"]
     versions = {item["model_version"]: item for item in decision.version_evidence}
     assert versions["v"]["matured_forecasts"] == original.matured_forecasts - 8
-    assert versions["v"]["unverifiable_forecasts"] == 8
+    # C.C3.S08.N002: only the 4 late rows are unverifiable for "v"; the 4 verified "older" rows are that version's evidence.
+    assert versions["v"]["unverifiable_forecasts"] == 4
+    assert versions["older"]["unverifiable_forecasts"] == 0
     assert versions["older"]["matured_forecasts"] == 4
     assert not _apply_promotion(_row(), {"timesfm3": _promotion(model_version=None)}, False).model_allowed_in_score
     assert not _apply_promotion(_row(model_version="older"), {"timesfm3": _promotion()}, False).model_allowed_in_score

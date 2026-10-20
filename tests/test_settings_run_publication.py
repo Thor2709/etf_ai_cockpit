@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 import json
 import math
+import re
 from types import SimpleNamespace
 
 import pandas as pd
@@ -188,7 +189,10 @@ def test_forecast_output_is_published_only_after_settings_bound_manifest_reserva
 
     service.run_forecasts(date(2026, 7, 21), ["VWCE"], prices=prices)
 
-    assert events == [("manifest", "forecast_20260721__sbbbbbbbb:bbbbbbbb"), ("output", "forecasts:bbbbbbbb")]
+    # #972 C011-N003: the run id binds the request/price digest (64 hex) as well as the date and settings.
+    assert [kind for kind, _ in events] == ["manifest", "output"]
+    assert re.fullmatch(r"forecast_20260721_[0-9a-f]{64}__sbbbbbbbb:bbbbbbbb", events[0][1])
+    assert events[1] == ("output", "forecasts:bbbbbbbb")
 
 
 def test_forecast_service_does_not_use_first_enabled_instrument_as_benchmark(monkeypatch) -> None:

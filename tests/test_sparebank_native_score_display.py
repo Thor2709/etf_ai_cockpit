@@ -47,8 +47,10 @@ def test_latest_sparebank_scores_takes_latest_native_run(tmp_path: Path) -> None
             {"instrument_id": "VWCE", "run_id": "generic:2026-10-09", "final_combined_score_10": 7.9},
         ]
     )
+    from etf_cockpit.analysis.sparebank import load_sparebank_scorecard_policy
+    rows["formula_checksum"] = load_sparebank_scorecard_policy().formula_checksum
     for run_id, part in rows.groupby("run_id"):
-        score_history.append_score_run(part.reset_index(drop=True), run_id, run_id.split(":")[-1] if run_id.startswith("sparebank") else "2026-10-09", root=tmp_path)
+        score_history.append_score_run(part.reset_index(drop=True), run_id, run_id.split(":", 2)[-1] if run_id.startswith("sparebank") else "2026-10-09", root=tmp_path)
     latest = score_history.latest_sparebank_scores(root=tmp_path)
     assert set(latest) == {"MING"}
     assert float(latest["MING"]["final_combined_score_10"]) == 5.5

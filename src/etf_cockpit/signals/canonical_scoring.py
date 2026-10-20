@@ -9,13 +9,14 @@ move to the separated outputs.
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date
 from functools import lru_cache
 import hashlib
 import json
 import math
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Iterable, Mapping
 
 import yaml
@@ -23,7 +24,7 @@ import yaml
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.core.values import finite_float_or_none
-from etf_cockpit.models.ensemble import effective_ensemble_weights
+from etf_cockpit.models.ensemble import BASELINE_SOURCE_FORECAST, BASELINE_SOURCE_HEURISTIC, effective_ensemble_weights
 
 if TYPE_CHECKING:
     from etf_cockpit.analysis.decision.contracts import CriticalGateResult, ScoreAuthorityFlags
@@ -39,6 +40,34 @@ class CanonicalScoreError(ValueError):
     """Raised when the versioned canonical score policy is invalid."""
 
 
+# S3-02: model forecasts are a separate ``expected_return`` domain. Its weight in any rank is 0 until the #811
+# promotion (with the paired #928 test) records an explicit finite weight; the ``expected_return`` group weights in
+# ``score_engine_v3.yaml`` size that separate domain's own 0-10 value and are never rank weights.
+RANK_DOMAINS = ("attractiveness", "risk_implementation")
+FORECAST_DOMAIN = "expected_return"
+
+
+def rank_domain_weights(
+    policy: "ScorePolicy",
+    *,
+    forecast_promotion: Mapping[str, object] | None = None,
+) -> dict[str, float]:
+    """Rank weight per domain: the forecast domain is 0.0 unless a promotion record carries an explicit weight.
+
+    Fails closed: a promotion without ``promoted is True``, the paired ``test_id`` and a finite ``weight`` in (0, 1]
+    leaves the forecast weight at 0.0. The ranked domains are the policy's own group sums, unchanged.
+    """
+
+    weights = {group: float(sum(policy.groups.get(group, {}).values())) for group in RANK_DOMAINS}
+    weight = 0.0
+    if isinstance(forecast_promotion, Mapping) and forecast_promotion.get("promoted") is True and forecast_promotion.get("test_id"):
+        candidate = finite_float_or_none(forecast_promotion.get("weight"))
+        if candidate is not None and 0.0 < candidate <= 1.0:
+            weight = candidate
+    weights[FORECAST_DOMAIN] = weight
+    return weights
+
+
 @dataclass(frozen=True)
 class ScorePolicy:
     formula_version: str
@@ -46,6 +75,8 @@ class ScorePolicy:
     horizon: str
     asset_type: str
     groups: dict[str, dict[str, float]]
+    # Weights of the headline evidence composite (``headline_evidence`` in the yaml, zeros kept); empty when the file has none.
+    headline_weights: dict[str, float] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -247,11 +278,45 @@ def load_score_policy(asset_type: str = "ETF", *, path: Path = FORMULA_PATH) -> 
             groups[group] = group_weights
             if sum(groups[group].values()) <= 0:
                 raise CanonicalScoreError(f"score policy group has no positive weights: {group}")
-        return ScorePolicy(formula_version, hashlib.sha256(normalised_bytes).hexdigest(), horizon, policy_key, groups)
+        headline: dict[str, float] = {}
+        headline_block = selected.get("headline_evidence")
+        if headline_block is not None:
+            if not isinstance(headline_block, dict):
+                raise CanonicalScoreError("score policy headline_evidence must be a mapping")
+            for key, value in headline_block.items():
+                number = finite_float_or_none(value)
+                if number is None or number < 0 or isinstance(value, bool):
+                    raise CanonicalScoreError("score policy headline weights must be finite non-negative numbers")
+                headline[str(key)] = number
+            if sum(headline.values()) <= 0:
+                raise CanonicalScoreError("score policy headline_evidence has no positive weights")
+        return ScorePolicy(formula_version, hashlib.sha256(normalised_bytes).hexdigest(), horizon, policy_key, groups, headline)
     except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
         if isinstance(exc, CanonicalScoreError):
             raise
         raise CanonicalScoreError(f"could not load canonical score policy: {type(exc).__name__}") from exc
+
+
+def headline_evidence_weights(policy_key: str, *, path: Path | None = None) -> dict[str, float]:
+    """Headline evidence-composite weights of the ``ETF`` or ``STOCK`` policy from the versioned yaml (the only source).
+
+    Fails closed (``CanonicalScoreError``) when the yaml carries no ``headline_evidence`` for the policy.
+    """
+
+    key = str(policy_key).strip().upper()
+    if key not in {"ETF", "STOCK"}:
+        raise CanonicalScoreError(f"no headline weights for policy: {policy_key!r}")
+    policy_path = path or FORMULA_PATH
+    stat = policy_path.stat()
+    return dict(_headline_weights_cached(str(policy_path), stat.st_mtime_ns, stat.st_size, key))
+
+
+@lru_cache(maxsize=16)
+def _headline_weights_cached(path: str, mtime_ns: int, size: int, key: str) -> tuple[tuple[str, float], ...]:
+    weights = load_score_policy(key, path=Path(path)).headline_weights
+    if not weights:
+        raise CanonicalScoreError(f"score policy has no headline_evidence weights for {key}")
+    return tuple(weights.items())
 
 
 def build_canonical_score(
@@ -290,15 +355,20 @@ def build_canonical_score(
     raw_components = tuple(components)
     warnings: list[str] = []
     source_components_list: list[CanonicalComponent] = []
-    seen_components: set[tuple[str, str]] = set()
+    seen_components: dict[tuple[str, str], int] = {}
     for component in raw_components:
         identity = (_component_group(component), component.key)
         if identity in seen_components:
             warning = f"duplicate_component:{component.key}"
             if warning not in warnings:
                 warnings.append(warning)
+            position = seen_components[identity]
+            # Eligibility of both candidates is assessed before one is chosen: an eligible duplicate replaces an
+            # ineligible earlier one; between equals the first stays (deterministic).
+            if component.eligible and not source_components_list[position].eligible:
+                source_components_list[position] = component
             continue
-        seen_components.add(identity)
+        seen_components[identity] = len(source_components_list)
         source_components_list.append(component)
     if quality_status is not None and quality_status != "complete":
         # Below the minimum input count the quality component is partial: it adds no active weight and no coverage.
@@ -398,7 +468,11 @@ def build_canonical_score(
         all_component_rows.extend(group_rows)
         contributions.extend(group_contributions)
     overall_coverage = total_active / total_configured if total_configured else 0.0
-    confidence = _confidence_score([c for c in source_components if c.key not in discarded_keys], overall_coverage)
+    weighted_keys = {(group, key) for group, weights in selected_policy.groups.items() for key, weight in weights.items() if weight > 0}
+    confidence = _confidence_score(
+        [c for c in source_components if c.key not in discarded_keys and (_component_group(c), c.key) in weighted_keys],
+        overall_coverage,
+    )
     if unavailable_reason is not None:
         # An unavailable score shows no 0-10 value, confidence or contribution (never a guessed or shrunk number).
         confidence = None
@@ -465,6 +539,26 @@ def apply_structure_confidence_cap(score: CanonicalScore, cap: float) -> Canonic
     return replace(score, evidence_confidence_10=confidence, warnings=tuple(dict.fromkeys((*score.warnings, warning))))
 
 
+def _canonical_component_from_simple(component: Any) -> CanonicalComponent:
+    """The one conversion of a score-component record (simple or signal-row) into a canonical component."""
+
+    return CanonicalComponent(
+        key=str(getattr(component, "key", "")),
+        raw_metric=_number(getattr(component, "raw_score", None)),
+        score_role=_component_group_name(str(getattr(component, "score_role", "evidence"))),
+        peer_group=str(getattr(component, "peer_group", None) or "universe"),
+        source_id=str(getattr(component, "source_id", "") or "") or None,
+        source_authority=str(getattr(component, "source_authority", "unknown") or "unknown"),
+        freshness_status=str(getattr(component, "freshness_status", "unknown") or "unknown"),
+        uncertainty=_uncertainty(getattr(component, "evidence_quality", None)),
+        status="ok" if str(getattr(component, "status", "")).casefold() == "ok" else str(getattr(component, "status", "unavailable")),
+        explanation=str(getattr(component, "why", "") or getattr(component, "explanation", "") or "Score component evidence."),
+        source_vintage_hash=str(getattr(component, "source_vintage_hash", "") or "") or None,
+        conflict_id=str(getattr(component, "conflict_id", "") or "") or None,
+        as_of_date=str(getattr(component, "as_of_date", "") or "") or None,
+    )
+
+
 def canonical_score_from_simple_components(
     instrument_id: str,
     asset_type: str,
@@ -473,30 +567,21 @@ def canonical_score_from_simple_components(
     *,
     critical_evidence: Iterable[str] | Mapping[str, object] | None = None,
     business_model: str | None = None,
+    legacy_component_weights: Mapping[str, float] | None = None,
+    legacy_penalties: Mapping[str, float] | None = None,
+    structure_confidence_cap: float | None = None,
+    structure_provenance: Mapping[str, object] | None = None,
 ) -> CanonicalScore:
-    """Canonical score of simple-score components, always through the score gate (extra ``critical_evidence`` optional)."""
+    """Canonical score of score components, always through the score gate (extra ``critical_evidence`` optional).
+
+    The one shared v3 entry point: the simple-score builder and the signal-row builder
+    (:func:`canonical_score_from_signal_row`) both end here, so the same components give the same v3 value.
+    """
 
     if _is_sparebank_ec_asset_type(asset_type):
         raise CanonicalScoreError("EC instruments must use the native Sparebank scorecard")
     source = tuple(components)
-    converted = tuple(
-        CanonicalComponent(
-            key=str(getattr(component, "key", "")),
-            raw_metric=_number(getattr(component, "raw_score", None)),
-            score_role=_component_group_name(str(getattr(component, "score_role", "evidence"))),
-            peer_group=str(getattr(component, "peer_group", None) or "universe"),
-            source_id=str(getattr(component, "source_id", "") or "") or None,
-            source_authority=str(getattr(component, "source_authority", "unknown") or "unknown"),
-            freshness_status=str(getattr(component, "freshness_status", "unknown") or "unknown"),
-            uncertainty=_uncertainty(getattr(component, "evidence_quality", None)),
-            status="ok" if str(getattr(component, "status", "")).casefold() == "ok" else str(getattr(component, "status", "unavailable")),
-            explanation=str(getattr(component, "why", "") or getattr(component, "explanation", "") or "Score component evidence."),
-            source_vintage_hash=str(getattr(component, "source_vintage_hash", "") or "") or None,
-            conflict_id=str(getattr(component, "conflict_id", "") or "") or None,
-            as_of_date=str(getattr(component, "as_of_date", "") or "") or None,
-        )
-        for component in source
-    )
+    converted = tuple(_canonical_component_from_simple(component) for component in source)
     evidence: dict[str, object] = {}
     for original in source:
         for item in getattr(original, "inputs_used", ()) or ():
@@ -513,6 +598,10 @@ def canonical_score_from_simple_components(
         critical_evidence=evidence,
         business_model=business_model,
         quality_status=simple_quality_status(source, asset_type, business_model),
+        legacy_component_weights=legacy_component_weights,
+        legacy_penalties=legacy_penalties,
+        structure_confidence_cap=structure_confidence_cap,
+        structure_provenance=structure_provenance,
     )
 
 
@@ -558,31 +647,66 @@ def canonical_score_from_signal_row(
     if price_freshness in {"", "none", "nan", "<na>"}:
         price_freshness = "unknown"
     source = "yfinance:prices"
-    components = [
-        _signal_component("momentum", row.get("score_momentum"), "attractiveness", source, price_freshness, "Momentum evidence."),
-        _signal_component("trend", row.get("score_trend"), "attractiveness", source, price_freshness, "Trend evidence."),
-        _signal_component("relative_strength", row.get("score_relative_strength"), "attractiveness", source, price_freshness, "Relative-strength evidence."),
-        _signal_component("etf_exposure", row.get("score_etf_exposure"), "attractiveness", "yfinance:holdings", price_freshness, "ETF exposure evidence."),
-        _signal_component("risk", row.get("score_risk"), "risk_implementation", source, price_freshness, "Risk quality evidence."),
-        _signal_component("rebalance", row.get("score_rebalance"), "risk_implementation", "local:allocation", price_freshness, "Allocation drift evidence."),
-        _signal_component("liquidity_cost", _liquidity_quality(row.get("cost_penalty")), "risk_implementation", source, price_freshness, "Configured cost quality."),
-        _signal_component("baseline", row.get("score_baseline_ml"), "expected_return", "model:baseline", price_freshness, "Baseline expected-return evidence.", authority="model_advisory"),
-        _signal_component("timesfm", row.get("score_timesfm"), "expected_return", "model:timesfm", price_freshness, "TimesFM challenger expected-return evidence.", authority="model_advisory", status="ok" if timesfm_available else "unavailable"),
-        _signal_component("toto", row.get("score_toto"), "expected_return", "model:toto", price_freshness, "Toto challenger expected-return evidence.", authority="model_advisory", status="ok" if toto_available else "unavailable"),
-    ]
     # The row is computed at the signal date: its evidence is dated with it while the price freshness is ok.
     signal_day = str(decision_time.isoformat() if isinstance(decision_time, date) else decision_time)[:10]
-    components = [replace(component, as_of_date=signal_day if price_freshness == "ok" else None) for component in components]
+    as_of = signal_day if price_freshness == "ok" else None
+    # Portfolio drift (score_rebalance) is not a component: an instrument's score never depends on the portfolio.
+    baseline_source = row.get("score_baseline_source")
+    forecast_baseline = isinstance(baseline_source, str) and baseline_source == BASELINE_SOURCE_FORECAST
+    heuristic_baseline = isinstance(baseline_source, str) and baseline_source == BASELINE_SOURCE_HEURISTIC
+    baseline_explanation = (
+        "Unavailable as a model: price heuristic (momentum/trend fallback, no forecast); shown for display only, "
+        "carries no score weight and no coverage."
+        if heuristic_baseline
+        else "Baseline expected-return evidence."
+        if forecast_baseline
+        else "Unavailable: missing or unrecognised baseline provenance; explicit forecast provenance is required."
+    )
+    components = [
+        _signal_component("momentum", row.get("score_momentum"), "attractiveness", source, price_freshness, "Momentum evidence.", as_of),
+        _signal_component("trend", row.get("score_trend"), "attractiveness", source, price_freshness, "Trend evidence.", as_of),
+        _signal_component("relative_strength", row.get("score_relative_strength"), "attractiveness", source, price_freshness, "Relative-strength evidence.", as_of),
+        _signal_component("etf_exposure", row.get("score_etf_exposure"), "attractiveness", "yfinance:holdings", price_freshness, "ETF exposure evidence.", as_of),
+        _signal_component("risk", row.get("score_risk"), "risk_implementation", source, price_freshness, "Risk quality evidence.", as_of),
+        _signal_component("liquidity_cost", _liquidity_quality(row.get("cost_penalty")), "risk_implementation", source, price_freshness, "Configured cost quality.", as_of),
+        # A heuristic baseline re-uses price strength: unavailable as expected-return evidence (value kept for display).
+        _signal_component(
+            "baseline", row.get("score_baseline_ml"), "expected_return",
+            "heuristic:momentum_trend" if heuristic_baseline else "model:baseline" if forecast_baseline else "",
+            price_freshness, baseline_explanation, as_of, authority="model_advisory",
+            status="ok" if forecast_baseline else "unavailable",
+        ),
+        _signal_component("timesfm", row.get("score_timesfm"), "expected_return", "model:timesfm", price_freshness, "TimesFM challenger expected-return evidence.", as_of, authority="model_advisory", status="ok" if timesfm_available else "unavailable"),
+        _signal_component("toto", row.get("score_toto"), "expected_return", "model:toto", price_freshness, "Toto challenger expected-return evidence.", as_of, authority="model_advisory", status="ok" if toto_available else "unavailable"),
+        # Optional manual input (action composite only; no v3 group weight): eligible only when a value was supplied.
+        _signal_component("chatgpt_thesis", row.get("score_chatgpt_thesis"), "expected_return", "manual:chatgpt_thesis", price_freshness, "Manual ChatGPT thesis input.", as_of, authority="model_advisory"),
+    ]
+    policy_asset_type = _signal_asset_type(row, config, instrument_id)
+    if policy_asset_type == "STOCK":
+        # Stock value/quality are fundamentals the price-signal row only carries when a caller supplies them; an
+        # absent value is an explicit unavailable component (never zero-filled), so the STOCK policy weights are visible.
+        for key, column in (("stock_value", "score_stock_value"), ("stock_quality", "score_stock_quality")):
+            supplied = _number(row.get(column))
+            components.append(
+                _signal_component(
+                    key, supplied, "attractiveness", "yfinance:fundamentals", price_freshness,
+                    f"Stock {key.split('_', 1)[1]} evidence." if supplied is not None else f"Unavailable: the signal row carries no {column}.",
+                    as_of, status="ok" if supplied is not None else "unavailable",
+                )
+            )
     weights = effective_ensemble_weights(
         config.models.ensemble.get("weights", {}),
         toto_available=toto_available,
         timesfm_available=timesfm_available,
     )
-    return build_canonical_score(
-        instrument_id=instrument_id,
-        asset_type=_signal_asset_type(row, config, instrument_id),
-        decision_time=decision_time,
-        components=components,
+    if not forecast_baseline:
+        # Only explicitly forecast-backed values carry legacy action-composite weight.
+        weights = {key: value for key, value in weights.items() if key != "baseline_ml"}
+    return canonical_score_from_simple_components(
+        instrument_id,
+        policy_asset_type,
+        decision_time if isinstance(decision_time, str) else decision_time.isoformat(),
+        components,
         legacy_component_weights=_legacy_component_weights(weights),
         legacy_penalties={
             "cost_penalty": _number(row.get("cost_penalty")) or 0.0,
@@ -749,8 +873,14 @@ def _signal_asset_type(row: Mapping[str, object], config: object, instrument_id:
     return "ETF" if text.casefold() == "etf" else text
 
 
-def _signal_component(key: str, raw: object, role: str, source_id: str, freshness: str, explanation: str, *, authority: str = "vendor_unofficial", status: str = "ok") -> CanonicalComponent:
-    return CanonicalComponent(key, _number(raw), role, "configured-universe", source_id, authority, freshness, "medium", status, explanation)
+def _signal_component(key: str, raw: object, role: str, source_id: str, freshness: str, explanation: str, as_of: str | None, *, authority: str = "vendor_unofficial", status: str = "ok") -> SimpleNamespace:
+    """A signal-row score input in the record shape :func:`canonical_score_from_simple_components` converts."""
+
+    return SimpleNamespace(
+        key=key, raw_score=raw, score_role=role, peer_group="configured-universe", source_id=source_id,
+        source_authority=authority, freshness_status=freshness, evidence_quality=5.0, status=status,
+        why=explanation, as_of_date=as_of,
+    )
 
 
 def _liquidity_quality(value: object) -> float | None:

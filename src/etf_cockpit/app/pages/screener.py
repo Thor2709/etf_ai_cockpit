@@ -42,9 +42,11 @@ from etf_cockpit.application.ui_facade import (
     load_fundamental_evidence,
     load_screen,
     load_top_n_selection,
+    ordered_winners,
     query_for_snapshot,
     run_screen,
     save_screen,
+    saved_lineage_notice,
 )
 from etf_cockpit.core.paths import EXPORTS_DIR
 
@@ -196,18 +198,23 @@ def _distribution(result: object, field: str) -> ft.Control:
     return Well(chart, expand=True)
 
 
-def _quality_risk_chart(result: object) -> ft.Control:
+def quality_risk_points(result: object) -> list[ck.Bubble]:
+    """Chart points: risk friction vs. the canonical evidence quality (the table's own Quality column)."""
     records = _read(result, "rows", ())
-    points = [
+    return [
         ck.Bubble(
             _shown(_read(record, "instrument_id")),
             _number(_read(record, "risk_friction")),
-            _number(_read(record, "quality")),
+            _number(_read(record, "evidence_quality")),
         )
         for record in records if isinstance(records, (tuple, list))
         if _number(_read(record, "risk_friction")) is not None
-        and _number(_read(record, "quality")) is not None
+        and _number(_read(record, "evidence_quality")) is not None
     ]
+
+
+def _quality_risk_chart(result: object) -> ft.Control:
+    points = quality_risk_points(result)
     return Well(
         ck.scatter_bubble(
             points,
@@ -533,7 +540,7 @@ def _selection_view(page: ft.Page | None, decision_time: str, snapshot: object) 
         candidate_rows = result.get("candidate_table")
         candidates = [item for item in candidate_rows if isinstance(item, dict)] if isinstance(candidate_rows, (tuple, list)) else []
         selected_ids = set(selected_slice.get("selected_ids", ())) if selected_slice else set(result.get("selected_ids", ()))
-        selected = [item for item in candidates if item.get("instrument_id") in selected_ids]
+        selected = ordered_winners(candidates, selected_ids)  # rank order, not the alphabetical candidate table
         reason = str(result.get("reason") or "Saved selection evidence is unavailable.")
         has_result = bool(candidates) and not bool(result.get("reason"))
         status.value = (
@@ -602,6 +609,7 @@ def _selection_view(page: ft.Page | None, decision_time: str, snapshot: object) 
                 {
                     "instrument_id": _shown(item.get("instrument_id")),
                     "asset_family": _human(item.get("asset_family")),
+                    "utility_rank": _shown(item.get("utility_rank")),
                     "peer_rank": _shown(item.get("peer_rank")),
                     "utility_score": format_number(_number(item.get("utility_score")), unavailable="—"),
                     "selection_probability": format_percent(_number(item.get("selection_probability")), unavailable="—"),
@@ -612,6 +620,7 @@ def _selection_view(page: ft.Page | None, decision_time: str, snapshot: object) 
                 (
                     TableColumn("instrument_id", "Instrument Id"),
                     TableColumn("asset_family", "Asset family"),
+                    TableColumn("utility_rank", "Utility rank", numeric=True),
                     TableColumn("peer_rank", "Peer rank", numeric=True),
                     TableColumn("utility_score", "Utility score", numeric=True),
                     TableColumn("selection_probability", "Selection probability", numeric=True),
@@ -672,14 +681,22 @@ def _selection_slice_label(item: dict[str, object]) -> str:
     return "All candidates" if value is None else str(value)
 
 
-def _lineage(query: object) -> str:
+def _lineage(query: object, saved: object = None) -> str:
+    payload: dict[str, object] = {
+        "as_of": _read(query, "as_of"),
+        "universe_revision": _read(query, "universe_revision"),
+        "query_checksum": _read(query, "checksum"),
+        "execution_allowed": False,
+    }
+    if saved is not None:  # a loaded saved screen keeps its own lineage next to the current one
+        payload["saved_screen"] = {
+            "as_of": _read(saved, "as_of"),
+            "universe_revision": _read(saved, "universe_revision"),
+            "input_checksum": _read(saved, "input_checksum"),
+            "formula_version": _read(saved, "formula_version"),
+        }
     return json.dumps(
-        {
-            "as_of": _read(query, "as_of"),
-            "universe_revision": _read(query, "universe_revision"),
-            "query_checksum": _read(query, "checksum"),
-            "execution_allowed": False,
-        },
+        payload,
         default=str,
         ensure_ascii=False,
         indent=2,
@@ -746,6 +763,8 @@ def screener_page(page: ft.Page | None, state: AppState, *, _deferred: bool = Fa
     )
     direction_state = {"value": "Descending"}
     results_card_ref: dict[str, ft.Control | None] = {"card": None}
+    distribution_host = ft.Container()  # re-titled with the sort field on every render
+    loaded_query: list[object | None] = [None]  # lineage of a loaded saved screen until the user changes the screen
     saved_name_input = _text_field("Saved screen name", "screener.saved.name", columns=6)
 
     def render_screen() -> None:
@@ -785,9 +804,12 @@ def screener_page(page: ft.Page | None, state: AppState, *, _deferred: bool = Fa
                 else "Unavailable · no local instruments are present in the current evidence screen."
             ),
             _screen_table(result[0], sort_field, descending, sort_changed),
-            Disclosure("As-of, universe revision and query checksum", _lineage(query[0])),
+            Disclosure("As-of, universe revision and query checksum", _lineage(query[0], loaded_query[0])),
         ]
         distribution_holder.controls = [_distribution(result[0], sort_field)]
+        distribution_host.content = GlassCard(
+            f"Distribution of {_human(sort_field)}" if sort_field else "Distribution", body=[distribution_holder]
+        )
         quality_holder.controls = [_quality_risk_chart(result[0])]
         results_card = results_card_ref["card"]
         if results_card is not None:
@@ -802,6 +824,7 @@ def screener_page(page: ft.Page | None, state: AppState, *, _deferred: bool = Fa
             page.update()
 
     def sort_changed(field: str, descending: bool) -> None:
+        loaded_query[0] = None
         sort_control.value = field
         direction_state["value"] = "Descending" if descending else "Ascending"
         render_screen()
@@ -811,6 +834,7 @@ def screener_page(page: ft.Page | None, state: AppState, *, _deferred: bool = Fa
         raw_value = str(value_control.value or "").strip()
         try:
             filters.append(ScreenFilter(filter_field, str(operator_control.value or "eq"), raw_value))
+            loaded_query[0] = None
             value_control.value = ""
             render_screen()
         except ValueError as exc:
@@ -820,6 +844,7 @@ def screener_page(page: ft.Page | None, state: AppState, *, _deferred: bool = Fa
 
     def remove_filter(index: int) -> None:
         if 0 <= index < len(filters):
+            loaded_query[0] = None
             filters.pop(index)
             render_screen()
 
@@ -836,6 +861,7 @@ def screener_page(page: ft.Page | None, state: AppState, *, _deferred: bool = Fa
     )
 
     def clear_filters(_event: object) -> None:
+        loaded_query[0] = None
         filters.clear()
         render_screen()
 
@@ -854,13 +880,15 @@ def screener_page(page: ft.Page | None, state: AppState, *, _deferred: bool = Fa
     def load_query(_event: object) -> None:
         try:
             loaded = load_screen(str(saved_name_control.value or ""))
+            loaded_query[0] = loaded
             filters[:] = list(loaded.filters)
             if loaded.sort:
                 sort_control.value = loaded.sort[0].field
                 direction_state["value"] = "Descending" if loaded.sort[0].descending else "Ascending"
                 direction_control.value = direction_state["value"].casefold()
             render_screen()
-            status.value = "Loaded latest saved screen."
+            notice = saved_lineage_notice(loaded, query[0])
+            status.value = "Loaded latest saved screen." + (f" {notice}" if notice else " Same evidence as when it was saved.")
         except (OSError, ValueError):
             status.value = "Saved screen could not be loaded."
         if page is not None:
@@ -881,8 +909,14 @@ def screener_page(page: ft.Page | None, state: AppState, *, _deferred: bool = Fa
     value_control = next(control for control in _walk(value_input) if isinstance(control, ft.TextField))
     field_control.on_change = None
     operator_control.on_change = None
-    sort_control.on_change = lambda _event: render_screen()
+    def sort_field_changed(_event: object) -> None:
+        loaded_query[0] = None
+        render_screen()
+
+    sort_control.on_change = sort_field_changed
+
     def change_direction(value: str) -> None:
+        loaded_query[0] = None
         direction_state["value"] = value
         direction_control.value = value.casefold()
         render_screen()
@@ -949,7 +983,7 @@ def screener_page(page: ft.Page | None, state: AppState, *, _deferred: bool = Fa
         body=[results_holder],
     )
     results_card_ref["card"] = screen_results_card
-    distribution_card = GlassCard(f"Distribution of {_human(initial_sort)}", body=[distribution_holder])
+    distribution_card = distribution_host
     quality_card = GlassCard("Quality vs. risk friction", body=[quality_holder])
 
     fundamentals_card = GlassCard(

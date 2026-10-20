@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 from typing import Literal, Mapping
@@ -21,6 +22,7 @@ import yaml
 
 from etf_cockpit.core.paths import OPERATIONS_DIR
 from etf_cockpit.data.event_calendar import EVENT_CLEAN_PATH
+from etf_cockpit.signals.friction_edge import FrictionGateResult
 from etf_cockpit.portfolio.event_controls import EventBlockPolicy, evaluate_event_control, verify_event_control
 from etf_cockpit.governance.models import AuthorityMatrixPolicy
 from etf_cockpit.governance.product_scope import AUTHORITY_MATRIX_PATH, load_authority_matrix, load_gate_policy
@@ -100,6 +102,10 @@ class ProposalRequest:
     approvals: tuple[str, ...] = ()
     event_policy: EventBlockPolicy | None = None
     event_calendar_path: Path = EVENT_CLEAN_PATH
+    # Expected net benefit versus turnover, spread and uncertainty cost (T3-19).
+    # When supplied it controls the proposal: a blocked or unavailable result
+    # suppresses it.  ``None`` means the friction edge was not evaluated.
+    friction_gate: FrictionGateResult | None = None
 
 
 @dataclass(frozen=True)
@@ -186,6 +192,8 @@ def build_proposal_decision(request: ProposalRequest) -> ProposalDecision:
     gates_by_id = {item.gate_id: item for item in request.gate_evidence}
     if "event_risk" in gates_by_id:
         raise ValueError("event_risk is reserved for internally evaluated event policy")
+    if "friction_edge" in gates_by_id:
+        raise ValueError("friction_edge is reserved for the friction gate result")
     if len(gates_by_id) != len(request.gate_evidence):
         raise ValueError("gate evidence IDs must be unique")
     # Same naive-as-UTC interpretation as the persisted `as_of` timestamp.
@@ -209,6 +217,14 @@ def build_proposal_decision(request: ProposalRequest) -> ProposalDecision:
             gates.append(gate)
     gates.extend(sorted((item for item in request.gate_evidence if item.gate_id not in REQUIRED_GATES), key=lambda item: item.gate_id))
     gates.append(gates_by_id["event_risk"])
+    friction = request.friction_gate
+    gates.append(
+        GateEvidence(
+            "friction_edge",
+            friction is not None and friction.status == "pass" and friction.propose is True,
+            friction.reason if friction is not None else "Friction evidence unavailable: proposal suppressed.",
+        )
+    )
 
     authority_stage = _lowest_stage(resolved_stages)
     quantity_delta = round(float(request.target_quantity - request.current_quantity), 8)
@@ -420,6 +436,61 @@ def current_authority_policy_checksum() -> str:
     return checksum
 
 
+def map_opportunity_decision_state(
+    decision_state: str,
+    *,
+    expected_net_excess_return: float,
+    uncertainty_hurdle: float,
+    hysteresis_band: float,
+    held: bool,
+    cost_basis: float | None,
+    mark_price: float | None,
+    friction: float | None,
+) -> tuple[str, str]:
+    """Map a near-hurdle held-position decision using portfolio cost basis and friction.
+
+    This is a state mapping only. It cannot create a proposal or execution authority.
+    Missing or invalid held-position inputs fail closed as ``SOURCE_UNAVAILABLE``.
+    """
+
+    if not held:
+        return decision_state, "POSITION_NOT_HELD"
+    values = (expected_net_excess_return, uncertainty_hurdle, hysteresis_band)
+    if any(isinstance(value, bool) or not math.isfinite(value) for value in values):
+        return "SOURCE_UNAVAILABLE", "HELD_POSITION_DECISION_INPUT_INVALID"
+    if (
+        cost_basis is None
+        or mark_price is None
+        or friction is None
+        or any(
+            isinstance(value, bool) or not math.isfinite(value)
+            for value in (cost_basis, mark_price, friction)
+        )
+        or cost_basis <= 0.0
+        or mark_price <= 0.0
+        or not 0.0 <= friction < 1.0
+        or uncertainty_hurdle < 0.0
+        or hysteresis_band < 0.0
+    ):
+        return "SOURCE_UNAVAILABLE", "HELD_POSITION_COST_BASIS_OR_FRICTION_UNAVAILABLE"
+
+    position_return_after_friction = mark_price / cost_basis - 1.0 - friction
+    near_hurdle = abs(expected_net_excess_return - uncertainty_hurdle) <= max(
+        hysteresis_band, friction
+    )
+    if (
+        near_hurdle
+        and position_return_after_friction <= uncertainty_hurdle
+        and decision_state in {
+            "CANDIDATE_BUY",
+            "POSITIVE_BUT_INSUFFICIENT_MARGIN",
+            "HOLD_NO_TRADE",
+        }
+    ):
+        return "HOLD_NO_TRADE", "HELD_POSITION_NEAR_HURDLE_AFTER_COST_BASIS_FRICTION"
+    return decision_state, "HELD_POSITION_STATE_RETAINED"
+
+
 def _resolve_authority(
     request: ProposalRequest,
 ) -> tuple[str, tuple[AuthorityStage, AuthorityStage, AuthorityStage], float | None, tuple[str, ...]]:
@@ -523,5 +594,6 @@ __all__ = [
     "build_proposal_decision",
     "current_authority_policy_checksum",
     "load_proposal_records",
+    "map_opportunity_decision_state",
     "save_proposal_decision",
 ]

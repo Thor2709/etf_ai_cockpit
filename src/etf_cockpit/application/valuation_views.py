@@ -48,7 +48,7 @@ def _normalise_valuation_assumptions(value: object) -> dict[str, object]:
 
     discount = number(value["discount_rate"])
     terminal = number(value["terminal_growth"])
-    if not 0 < discount <= 1 or not -1 <= terminal < discount:
+    if not 0 < discount <= 1 or not -1 < terminal < discount:
         raise ValueError("Discount or terminal growth is outside the allowed range")
     scenarios = value["scenarios"]
     if not isinstance(scenarios, Mapping) or set(scenarios) != {"bear", "base", "bull"}:
@@ -154,7 +154,8 @@ def load_valuation_evidence(path: Path, *, instrument_id: str, decision_time: ob
         # the persisted facts or the disclosed decision cutoff.
         precisions = {"date_only_utc_end_of_day" if len(str(value).strip()) == 10 else "timestamp" for value in frame["available_at"]}
         frame["available_at"] = [normalise_event_decision_time(value).date().isoformat() for value in frame["available_at"]]
-        result = valuation_analysis(frame, instrument_id=instrument_id, as_known_at=cutoff.isoformat(), assumptions=assumptions)
+        # Session preview with no score authority: explicitly diagnostic (non-strict) and labelled so in the result.
+        result = valuation_analysis(frame, instrument_id=instrument_id, as_known_at=cutoff.isoformat(), assumptions=assumptions, strict_comparability=False)
         if not _finite_valuation_result(result):
             return unavailable("Nonfinite derived valuation evidence; valuation unavailable.")
         result["source_lineage"]["as_known_at"] = cutoff.isoformat()

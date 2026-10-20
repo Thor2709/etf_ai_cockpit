@@ -108,6 +108,33 @@ class _LedgerEntry:
     result: CommandResult
 
 
+def _friction_gate_for(request: ProposalReviewRequest):
+    """Size-aware friction verdict; ``None`` (proposal suppressed) unless benefit, price and uncertainty are supplied."""
+
+    from etf_cockpit.core.config import load_config
+    from etf_cockpit.portfolio.costs import estimate_execution_cost
+    from etf_cockpit.signals.friction_edge import evaluate_friction_gate
+
+    if request.expected_benefit_bps is None or request.reference_price_eur is None or request.uncertainty_bps is None:
+        return None
+    order_value = abs(request.target_quantity - request.current_quantity) * request.reference_price_eur
+    if order_value <= 0.0:
+        return None
+    estimate = estimate_execution_cost(
+        load_config(),
+        request.instrument_id,
+        order_value,
+        adv_eur=request.adv_eur,
+        daily_volatility=request.daily_volatility,
+    )
+    return evaluate_friction_gate(
+        request.expected_benefit_bps,
+        order_value_eur=order_value,
+        cost_estimate=estimate.as_dict(),
+        uncertainty_bps=request.uncertainty_bps,
+    )
+
+
 class LocalApplicationApi:
     """Typed, local-first query and command boundary.
 
@@ -406,25 +433,57 @@ class LocalApplicationApi:
             }
 
     def get_scores(self, page: PageRequest = PageRequest()) -> PageView[ScoreViewModel]:
+        """Typed scores on the canonical 0-10 scale: the same research score the UI, scoreboard and history carry.
+
+        Score-only instruments (no signal row) are included. A signal row never supplies the number (its raw value
+        is a different scale); same-date signals that disagree make the instrument unavailable, never order-dependent.
+        """
+
+        from etf_cockpit.application.score_views import latest_signal_per_instrument, published_scores
+
         snapshot = self._snapshot()
-        latest: dict[str, object] = {}
-        for signal in getattr(snapshot, "signals", ()):
-            instrument_id = str(getattr(signal, "etf_id", ""))
-            prior = latest.get(instrument_id)
-            if prior is None or str(getattr(signal, "signal_date", "")) >= str(getattr(prior, "signal_date", "")):
-                latest[instrument_id] = signal
-        rows = tuple(
-            ScoreViewModel(
+        signals = latest_signal_per_instrument(getattr(snapshot, "signals", ()))
+        try:
+            listed = published_scores(snapshot)
+        except (AttributeError, KeyError, OSError, TypeError, ValueError):
+            listed = []  # no canonical score rows: every value below is unavailable, never a rescaled signal
+        rows: dict[str, ScoreViewModel] = {}
+        conflicting_scores: set[str] = set()
+        for score in listed:
+            instrument_id = str(getattr(score, "display_id", ""))
+            signal, signal_conflict = signals.get(instrument_id, (None, False))
+            value = None if signal_conflict else _finite(getattr(score, "final_score_10", None))
+            if instrument_id in rows and rows[instrument_id].score != value:
+                conflicting_scores.add(instrument_id)
+            canonical_confidence = _finite(getattr(getattr(score, "canonical_score", None), "evidence_confidence_10", None))
+            confidence = (
+                _finite(getattr(signal, "confidence", None))
+                if signal is not None
+                else None if canonical_confidence is None else canonical_confidence / 10.0
+            )
+            research_state = getattr(score, "research_state", None)
+            rows[instrument_id] = ScoreViewModel(
                 instrument_id=instrument_id,
-                score=_finite(getattr(signal, "total_score", None)),
+                score=value,
+                state=str(getattr(research_state, "value", research_state) or "unavailable"),
+                confidence=confidence,
+                status="conflicting_same_date_signals" if signal_conflict else ("ok" if value is not None else str(getattr(score, "analysis_status", "") or "unavailable")),
+                as_of=_date_text(getattr(score, "latest_date", None)),
+            )
+        for instrument_id in conflicting_scores:
+            rows[instrument_id] = rows[instrument_id].model_copy(update={"score": None, "status": "conflicting_same_date_scores"})
+        for instrument_id, (signal, signal_conflict) in signals.items():
+            if instrument_id in rows:
+                continue
+            rows[instrument_id] = ScoreViewModel(
+                instrument_id=instrument_id,
+                score=None,  # the raw signal is not on the 0-10 scale; no canonical row means no value
                 state=str(getattr(signal, "research_state", "unavailable")),
                 confidence=_finite(getattr(signal, "confidence", None)),
-                status=str(getattr(signal, "status", "unavailable")),
+                status="conflicting_same_date_signals" if signal_conflict else str(getattr(signal, "status", "unavailable")),
                 as_of=_date_text(getattr(signal, "signal_date", None)),
             )
-            for instrument_id, signal in sorted(latest.items())
-        )
-        return _page(rows, page)
+        return _page(tuple(rows[key] for key in sorted(rows)), page)
 
     def get_forecasts(self, page: PageRequest = PageRequest()) -> PageView[ForecastViewModel]:
         frame = _frame(getattr(self._snapshot(), "forecasts", pd.DataFrame()))
@@ -673,6 +732,7 @@ class LocalApplicationApi:
 
         decision = build_proposal_decision(
             ProposalRequest(
+                friction_gate=_friction_gate_for(request),
                 instrument_id=request.instrument_id,
                 current_quantity=request.current_quantity,
                 target_quantity=request.target_quantity,

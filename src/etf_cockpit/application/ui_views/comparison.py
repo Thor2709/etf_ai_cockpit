@@ -100,15 +100,19 @@ def monthly_gap(prices: object, id_a: str, id_b: str, range_key: str) -> GapSeri
     if frame_a.empty or frame_b.empty:
         return GapSeries(reason=f"No stored price rows for {id_a if frame_a.empty else id_b}.")
     series = [pd.Series(adjusted_close(f).to_numpy(), index=pd.DatetimeIndex(f["date"])).resample("ME").last() for f in (frame_a, frame_b)]
-    both = pd.concat([series[0].rename("a"), series[1].rename("b")], axis=1, join="inner").dropna()
-    returns = both.pct_change().dropna() * 100.0
-    if returns.empty:
+    # A month without a stored price stays a NaN row: a return is only taken between two consecutive month-ends,
+    # so a missing month is shown as unavailable and never bridged (no 2-month change presented as a 1-month one).
+    both = pd.concat([series[0].rename("a"), series[1].rename("b")], axis=1, join="inner")
+    returns = both.pct_change(fill_method=None).iloc[1:] * 100.0
+    if returns.empty or not both.notna().all(axis=1).any():
         return GapSeries(reason="Needs at least two shared month-ends.")
     last = both.index[-1]
     returns = returns[returns.index > last - pd.Timedelta(days=RANGE_DAYS.get(range_key, 365))]
     if returns.empty:
         return GapSeries(reason="No complete month-end falls inside this range.")
     gap = returns["a"] - returns["b"]
+    if gap.isna().all():
+        return GapSeries(reason="No month in this range has consecutive month-end prices for both instruments.")
     return GapSeries([d.strftime("%b %y") for d in gap.index], [finite(v) for v in gap])
 
 

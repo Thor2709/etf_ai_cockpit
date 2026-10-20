@@ -717,6 +717,7 @@ def _model_for(state: object, selected: str) -> InstrumentDetailViewModel:
         snapshot,
         selected,
         candidate_score=getattr(state, "selected_instrument_score", None),
+        live_score=_listed_score(state, selected),
         financial_projection=getattr(state, "financial_projection", None),
         real_asset_projection=getattr(state, "real_asset_projection", None),
         cyclical_projection=getattr(state, "cyclical_projection", None),
@@ -1299,6 +1300,20 @@ def _render_opportunity_card(value: object) -> ft.Control:
     opportunity = value if isinstance(value, Mapping) else {}
     percentile = opportunity.get("percentile")
     percentile_text = f"{float(percentile):.1f}%" if isinstance(percentile, (int, float)) else "unavailable"
+    net_excess = opportunity.get("expected_net_excess_return")
+    net_excess_text = (
+        f"{float(net_excess):+.1%}"
+        if isinstance(net_excess, (int, float))
+        and not isinstance(net_excess, bool)
+        and math.isfinite(float(net_excess))
+        else "unavailable"
+    )
+    decision_state = str(opportunity.get("decision_state", "SOURCE_UNAVAILABLE"))
+    purchase_text = (
+        "Candidate only; no active purchase."
+        if decision_state == "CANDIDATE_BUY"
+        else "No active purchase."
+    )
     domain_scores = opportunity.get("domain_scores", ())
     domain_line = ", ".join(
         f"{row[0]}={row[1] if row[1] is not None else 'unavailable'}"
@@ -1318,6 +1333,7 @@ def _render_opportunity_card(value: object) -> ft.Control:
         [
             Tag(str(opportunity.get("status", "Insufficient Evidence")), "mute"),
             Note(f"Universe rank: {opportunity.get('universe_rank', 'unavailable')}/{opportunity.get('universe_support', 'unavailable')} | Percentile: {percentile_text}"),
+            Note(f"Decision: {decision_state} | Net excess vs VWCE ({opportunity.get('absolute_horizon') or 'horizon unavailable'}): {net_excess_text} | {purchase_text}"),
             Note(f"Peer: {opportunity.get('peer_id', 'unavailable')} | Peer rank: {opportunity.get('peer_rank', 'unavailable')}/{opportunity.get('peer_support', 'unavailable')} | Peer percentile: {opportunity.get('peer_percentile', 'unavailable')}"),
             Note(f"Domains: {domain_line}"),
             Note(f"Confidence: {opportunity.get('confidence', 'unavailable')} | Coverage: {opportunity.get('coverage', 'unavailable')}"),

@@ -134,7 +134,8 @@ def test_each_missing_trend_input_makes_trend_score_unavailable(missing_field: s
     assert "trend_inputs_unavailable" in row["score_unavailable_reason_codes"]
 
 
-def test_missing_drawdown_alone_makes_risk_score_unavailable() -> None:
+def test_missing_drawdown_no_longer_affects_the_volatility_only_risk_score() -> None:
+    # PSF (B-08): risk is centred and volatility-only; drawdown (rho -0.79 with volatility) is not a second input.
     features = pd.DataFrame(
         [
             {
@@ -160,8 +161,11 @@ def test_missing_drawdown_alone_makes_risk_score_unavailable() -> None:
     row = component_scores(features, allocation, load_config(), toto_available=True, timesfm_available=True).iloc[0]
 
     assert pd.notna(row["score_trend"])
-    assert pd.isna(row["score_risk"])
-    assert "risk_inputs_unavailable" in row["score_unavailable_reason_codes"]
+    assert row["score_risk"] == 0.0  # one instrument is its own median: neutral, available
+    assert "risk_inputs_unavailable" not in row["score_unavailable_reason_codes"]
+    features.loc[0, ["vol_60d_ann", "ewma_vol_ann"]] = None
+    missing = component_scores(features, allocation, load_config(), toto_available=True, timesfm_available=True).iloc[0]
+    assert pd.isna(missing["score_risk"]) and "risk_inputs_unavailable" in missing["score_unavailable_reason_codes"]
 
 
 def test_missing_relative_strength_alone_makes_relative_score_unavailable() -> None:
@@ -458,6 +462,7 @@ def test_macro_observations_exclude_effective_times_after_decision(monkeypatch: 
     observations = [
         {
             "series_id": "cpi_inflation",
+            "country": "US",
             "value": 3.0,
             "unit": "%",
             "source_id": "local",
@@ -468,6 +473,7 @@ def test_macro_observations_exclude_effective_times_after_decision(monkeypatch: 
         },
         {
             "series_id": "cpi_inflation",
+            "country": "US",
             "value": 4.0,
             "unit": "%",
             "source_id": "local",
@@ -478,6 +484,7 @@ def test_macro_observations_exclude_effective_times_after_decision(monkeypatch: 
         },
         {
             "series_id": "cpi_inflation",
+            "country": "US",
             "value": 5.0,
             "unit": "%",
             "source_id": "local",
@@ -559,6 +566,7 @@ def test_macro_observations_available_at_decision_time_are_excluded(monkeypatch:
     observations = [
         {
             "series_id": "cpi_inflation",
+            "country": "US",
             "value": 3.0,
             "unit": "%",
             "source_id": "local",
@@ -569,6 +577,7 @@ def test_macro_observations_available_at_decision_time_are_excluded(monkeypatch:
         },
         {
             "series_id": "cpi_inflation",
+            "country": "US",
             "value": 3.5,
             "unit": "%",
             "source_id": "local",
@@ -579,6 +588,7 @@ def test_macro_observations_available_at_decision_time_are_excluded(monkeypatch:
         },
         {
             "series_id": "cpi_inflation",
+            "country": "US",
             "value": 4.0,
             "unit": "%",
             "source_id": "local",
