@@ -879,7 +879,7 @@ def _statement_panel_fields(evidence: Mapping[str, object]) -> dict[str, object]
     }
 
 
-def _news_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[str, Any]:
+def _news_panel(instrument_id: str, frame: pd.DataFrame | None = None, *, decision_time: object = None) -> dict[str, Any]:
     source_error: str | None = None
     try:
         source = frame if isinstance(frame, pd.DataFrame) else load_news_items(NEWS_CLEAN_PATH)
@@ -898,6 +898,10 @@ def _news_panel(instrument_id: str, frame: pd.DataFrame | None = None) -> dict[s
         manual = load_manual_news(MANUAL_NEWS_CLEAN_PATH)
         if not manual.empty and "etf_id" in manual.columns:
             manual_scoped = manual.loc[manual["etf_id"].astype(str).eq(str(instrument_id))]
+            cutoff = normalise_event_decision_time(decision_time) if decision_time not in (None, "") else None
+            if cutoff is not None:  # historical context: a note dated after the decision time did not exist yet
+                note_dates = pd.to_datetime(manual_scoped["as_of_date"], errors="coerce", utc=True)
+                manual_scoped = manual_scoped.loc[note_dates.notna() & (note_dates.dt.date <= cutoff.date())]
             manual_scoped = manual_scoped.sort_values("as_of_date", kind="stable").tail(20)
             items.extend(_manual_news_item_record(row) for row in manual_scoped.to_dict("records"))
     except Exception as exc:
@@ -1801,6 +1805,11 @@ def _scoreboard_matches_live(scoreboard: Mapping[str, Any], live_score: object) 
     return stored_checksum in {None, "unavailable"} or live_checksum in {None, "unavailable"} or stored_checksum == live_checksum
 
 
+def _first_present(*values: float | None) -> float | None:
+    """First value that is not None: a valid 0.0 must win over a later fallback (no truthiness test)."""
+    return next((value for value in values if value is not None), None)
+
+
 def _score_panel(
     signal: Any,
     scoreboard: Mapping[str, Any],
@@ -1909,9 +1918,9 @@ def _score_panel(
             if isinstance(scoreboard.get("missing_components"), str)
             else list(_safe_sequence(scoreboard.get("missing_components")))
         ),
-        "canonical_attractiveness_10": _safe_float(scoreboard.get("canonical_attractiveness_10")) or _safe_float(canonical_payload.get("attractiveness_10")),
-        "canonical_expected_return_10": _safe_float(scoreboard.get("canonical_expected_return_10")) or _safe_float(canonical_payload.get("expected_return_10")),
-        "canonical_risk_implementation_10": _safe_float(scoreboard.get("canonical_risk_implementation_10")) or _safe_float(canonical_payload.get("risk_implementation_10")),
+        "canonical_attractiveness_10": _first_present(_safe_float(scoreboard.get("canonical_attractiveness_10")), _safe_float(canonical_payload.get("attractiveness_10"))),
+        "canonical_expected_return_10": _first_present(_safe_float(scoreboard.get("canonical_expected_return_10")), _safe_float(canonical_payload.get("expected_return_10"))),
+        "canonical_risk_implementation_10": _first_present(_safe_float(scoreboard.get("canonical_risk_implementation_10")), _safe_float(canonical_payload.get("risk_implementation_10"))),
         "canonical_evidence_confidence_10": (
             signal_confidence
             if signal_confidence is not None
@@ -1919,7 +1928,7 @@ def _score_panel(
             if canonical_confidence is not None
             else scoreboard_confidence
         ),
-        "canonical_coverage": _safe_float(scoreboard.get("canonical_coverage")) or _safe_float(canonical_payload.get("coverage")) or 0.0,
+        "canonical_coverage": _first_present(_safe_float(scoreboard.get("canonical_coverage")), _safe_float(canonical_payload.get("coverage")), 0.0),
         "formula_version": _safe_text(scoreboard.get("formula_version")) or _safe_text(canonical_payload.get("formula_version")) or "unavailable",
         "formula_checksum": _safe_text(scoreboard.get("formula_checksum")) or _safe_text(canonical_payload.get("formula_checksum")) or "unavailable",
         "source_vintage_hash": _safe_text(scoreboard.get("source_vintage_hash")) or _safe_text(canonical_payload.get("source_vintage_hash")) or "unavailable",
@@ -3211,7 +3220,7 @@ def build_instrument_detail(
             "etf_structure": structure,
             "etf_holdings": disclosure.get("exposure", _unavailable("ETF holdings/exposure unavailable.")),
             "etf_overlap": direct_overlap_payload(overlap),
-            "news": _news_panel(instrument_id, news),
+            "news": _news_panel(instrument_id, news, decision_time=projection_time or decision_time),
             "events": _event_calendar_panel(
                 instrument_id,
                 events,

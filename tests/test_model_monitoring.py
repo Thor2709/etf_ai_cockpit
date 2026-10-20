@@ -11,6 +11,7 @@ from etf_cockpit.core.config import ModelMonitoringSettings, ModelSettings
 from etf_cockpit.models.monitoring import DatedReturn, DatedValue, DriftAlert, assess_drift, compare_net_performance
 from etf_cockpit.models.registry import ModelScoringRejected, require_scoreable_model
 from etf_cockpit.models import registry as model_registry
+from tests.test_bug_mr1_promotion import approve_bound
 
 
 def _hash(value: str) -> str:
@@ -40,7 +41,7 @@ def _approved_model(registry: LocalTrainingRegistry, root: Path, name: str) -> d
         artifact_ids=[str(artifact["artifact_id"])],
         model_card={"method": "deterministic"},
     )
-    return registry.approve_model(str(model["model_id"]), reviewer="analyst", evaluation={"walk_forward": "passed"})
+    return approve_bound(registry, model)
 
 
 def test_drift_emits_alert_and_requests_review_without_changing_champion(tmp_path: Path) -> None:

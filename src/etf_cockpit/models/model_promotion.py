@@ -17,7 +17,11 @@ from datetime import date
 
 import pandas as pd
 
-from etf_cockpit.core.config import ModelPromotionSettings
+from etf_cockpit.core.config import (
+    PROMOTION_MINIMUM_FORECAST_ORIGINS,
+    PROMOTION_MINIMUM_MATURED_FORECASTS,
+    ModelPromotionSettings,
+)
 from etf_cockpit.core.values import finite_float_or_none
 from etf_cockpit.models.calibration import (
     calibration_grade,
@@ -279,18 +283,22 @@ def _decide(
     settings: ModelPromotionSettings,
 ) -> ModelPromotion:
     cutoff = PRETRAINING_CUTOFFS.get(model)
+    required_forecasts, required_origins = promotion_floors(settings)
     common = {
         "model_name": model,
         "model_version": version,
         "evidence_horizon_days": settings.evidence_horizon_days,
-        "required_forecasts": settings.minimum_matured_forecasts,
-        "required_origins": settings.minimum_forecast_origins,
+        "required_forecasts": required_forecasts,
+        "required_origins": required_origins,
         "pretraining_cutoff": cutoff.isoformat() if cutoff else "unknown",
     }
     own = forecasts.loc[forecasts["model_name"].eq(model)]
     verified = own["provenance_verified"] & own["model_version"].eq(version)
     at_horizon = own.loc[own["horizon_days"].eq(settings.evidence_horizon_days)]
-    common["unverifiable_forecasts"] = int((~(at_horizon["provenance_verified"] & at_horizon["model_version"].eq(version))).sum())
+    # Only rows that could belong to this version (its own or unversioned) can be unverifiable for it;
+    # rows of another version are that version's evidence, not this one's.
+    own_or_unversioned = at_horizon["model_version"].isna() | at_horizon["model_version"].eq(version)
+    common["unverifiable_forecasts"] = int((own_or_unversioned & ~at_horizon["provenance_verified"]).sum())
     own = own.loc[verified]
     first_run = own["created_at"].min() if not own.empty else pd.NaT
     first_local_run = None if pd.isna(first_run) else first_run.date()
@@ -315,12 +323,12 @@ def _decide(
     if count == 0:
         return ModelPromotion(
             state=NOT_PROVEN,
-            reason=f"0 of {settings.minimum_matured_forecasts} matured forecasts after {start.isoformat()}.",
+            reason=f"0 of {required_forecasts} matured forecasts after {start.isoformat()}.",
             **common,
         )
     scores = _paired_scores(matured, price_series)
     common.update(scores)
-    shortfall = _shortfall(count, origins, settings)
+    shortfall = _shortfall(count, origins, required_forecasts, required_origins)
     if shortfall:
         return ModelPromotion(state=NOT_PROVEN, reason=shortfall, **common)
     model_mase, base_mase = scores["model_mase"], scores["baseline_mase"]
@@ -351,11 +359,23 @@ def _decide(
     )
 
 
-def _shortfall(count: int, origins: int, settings: ModelPromotionSettings) -> str | None:
-    if count < settings.minimum_matured_forecasts:
-        return f"{count} of {settings.minimum_matured_forecasts} matured forecasts."
-    if origins < settings.minimum_forecast_origins:
-        return f"{origins} of {settings.minimum_forecast_origins} matured forecast dates."
+def promotion_floors(settings: ModelPromotionSettings) -> tuple[int, int]:
+    """(pairs, origins) required; configuration may raise the hard floors but never lower them.
+
+    Validation rejects lower values at load; this also holds for a settings object built without it.
+    """
+
+    return (
+        max(int(settings.minimum_matured_forecasts), PROMOTION_MINIMUM_MATURED_FORECASTS),
+        max(int(settings.minimum_forecast_origins), PROMOTION_MINIMUM_FORECAST_ORIGINS),
+    )
+
+
+def _shortfall(count: int, origins: int, required_forecasts: int, required_origins: int) -> str | None:
+    if count < required_forecasts:
+        return f"{count} of {required_forecasts} matured forecasts."
+    if origins < required_origins:
+        return f"{origins} of {required_origins} matured forecast dates."
     return None
 
 
@@ -430,30 +450,40 @@ def _pool(rows: pd.DataFrame) -> tuple[float | None, float | None, int]:
 def _normalised_history(history: pd.DataFrame, as_of: date) -> pd.DataFrame:
     columns = ["model_name", "etf_id", "forecast_date", "horizon_days", "expected_return"]
     lineage = ["model_version", "created_at", "run_id", "q10_return", "q50_return", "q90_return", "target_id", "prob_positive_return", "heuristic_probability_positive"]
+    optional_gates = [name for name in ("known_at", *_OOF_COLUMNS) if history is not None and name in history.columns]
     empty = pd.DataFrame(columns=[*columns, "status", *lineage, "provenance_verified"])
     if history is None or history.empty or not {*columns, "status"}.issubset(history.columns):
         return empty
-    frame = history.reindex(columns=[*columns, "status", *lineage]).copy()
+    frame = history.reindex(columns=[*columns, "status", *lineage, *optional_gates]).copy()
     frame["model_name"] = frame["model_name"].astype(str).str.lower()
     frame["etf_id"] = frame["etf_id"].astype(str)
     for name in ("model_version", "run_id"):
         frame[name] = frame[name].astype("string").str.strip().replace({"": pd.NA, "nan": pd.NA, "None": pd.NA})
-    frame["forecast_date"] = pd.to_datetime(frame["forecast_date"], errors="coerce", utc=True, format="mixed").dt.tz_convert(None).dt.normalize()
+    frame["forecast_date"] = _origin_dates(frame["forecast_date"])
     frame["created_at"] = pd.to_datetime(frame["created_at"], errors="coerce", utc=True, format="mixed").dt.tz_convert(None)
+    as_of_end = pd.Timestamp(as_of) + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
     for name in ("horizon_days", "expected_return", "q10_return", "q90_return", "prob_positive_return", "heuristic_probability_positive"):
         frame[name] = pd.to_numeric(frame[name], errors="coerce")
     # Date-only forecast artefacts use the end of the UTC origin day. A timestamp
     # after that boundary cannot establish a forecast made at the origin.
     session_end = frame["forecast_date"] + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
     frame["provenance_verified"] = (
-        frame["created_at"].notna() & frame["created_at"].le(session_end)
+        frame["created_at"].notna() & frame["created_at"].le(session_end) & frame["created_at"].le(as_of_end)
         & frame["model_version"].notna() & frame["run_id"].notna()
     )
+    # Point-in-time: a row not yet known at ``as_of`` (backfilled or late-created) and, when the
+    # history says so, a row that is not out-of-fold cannot be evidence for this decision.
+    if "known_at" in frame:
+        known_at = pd.to_datetime(frame["known_at"], errors="coerce", utc=True, format="mixed").dt.tz_convert(None)
+        frame["provenance_verified"] &= known_at.notna() & known_at.le(as_of_end)
+    for name in _OOF_COLUMNS:
+        if name in frame:
+            frame["provenance_verified"] &= frame[name].map(_truthy)
     frame = frame.loc[
         frame["status"].astype(str).str.lower().eq("ok")
         & frame["forecast_date"].notna()
         & (frame["forecast_date"] <= pd.Timestamp(as_of))
-        & frame["horizon_days"].notna()
+        & frame["horizon_days"].map(_whole_number)
         & frame["expected_return"].map(lambda value: finite_float_or_none(value) is not None)
     ].copy()
     frame["horizon_days"] = frame["horizon_days"].astype(int)
@@ -462,6 +492,33 @@ def _normalised_history(history: pd.DataFrame, as_of: date) -> pd.DataFrame:
     return frame.sort_values("created_at", na_position="first").drop_duplicates(
         ["model_name", "model_version", "etf_id", "forecast_date", "horizon_days", "provenance_verified"], keep="last"
     ).reset_index(drop=True)
+
+
+_OOF_COLUMNS = ("is_oof", "out_of_fold")
+_ISO_DATE_PREFIX = r"^\s*(\d{4}-\d{2}-\d{2})"
+
+
+def _truthy(value: object) -> bool:
+    return str(value).strip().lower() in {"true", "1", "yes"}
+
+
+def _whole_number(value: object) -> bool:
+    """A horizon is a count of sessions: a missing, non-finite or fractional value is not one."""
+
+    number = finite_float_or_none(value)
+    return number is not None and number == int(number)
+
+
+def _origin_dates(values: pd.Series) -> pd.Series:
+    """Calendar date of the forecast origin as written (local session date), not the UTC date of an offset time.
+
+    An ISO date or timestamp keeps its written date, so ``2024-01-02T20:00-05:00`` stays the 2 January session;
+    a value without an ISO date prefix falls back to the UTC date.
+    """
+
+    written = pd.to_datetime(values.astype(str).str.extract(_ISO_DATE_PREFIX)[0], errors="coerce")
+    fallback = pd.to_datetime(values, errors="coerce", utc=True, format="mixed").dt.tz_convert(None).dt.normalize()
+    return written.fillna(fallback)
 
 
 def _price_series(prices: pd.DataFrame, as_of: date) -> dict[str, pd.Series]:

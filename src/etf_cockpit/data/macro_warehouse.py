@@ -9,7 +9,7 @@ that was not available on that date.
 from __future__ import annotations
 
 import csv
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 import hashlib
 import io
 import json
@@ -18,6 +18,7 @@ from numbers import Integral
 from pathlib import Path
 import sqlite3
 from typing import Iterable, Literal, Mapping
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
@@ -32,6 +33,11 @@ _ALLOWED_KINDS = {"macro", "factor", "risk_free", "benchmark"}
 _ALLOWED_FREQUENCIES = {"daily", "monthly", "quarterly", "annual", "irregular"}
 RISK_FREE_PROXY_CONFIG_PATH = CONFIG_DIR / "risk_free_proxies.json"
 _OFFICIAL_CURVE_AUTHORITIES = {"official_regulator", "official_public_file"}
+_AGGREGATIONS = {"flow", "stock", "mean"}
+# Units that describe a rate or level-free ratio, where a period mean is the declared default.
+_RATE_UNITS = {"percentage", "percent", "basis_points", "bps", "decimal"}
+# Sub-periods a complete target period must contain for sum / end-of-period aggregation.
+_PERIOD_LENGTHS = {("monthly", "quarterly"): 3, ("monthly", "annual"): 12, ("quarterly", "annual"): 4}
 _UNIT_FACTORS = {
     ("percentage", "decimal"): 0.01,
     ("percent", "decimal"): 0.01,
@@ -218,6 +224,47 @@ def _timestamp_value(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def _declared_zone(source_timezone: str | None) -> ZoneInfo | None:
+    if source_timezone is None:
+        return None
+    try:
+        return ZoneInfo(str(source_timezone))
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise MacroWarehouseError(f"unknown source time zone: {source_timezone!r}") from exc
+
+
+def _source_zoned(value: object, zone: ZoneInfo | None, field_name: str) -> object:
+    """Attach the source's declared zone to a timezone-free event time.
+
+    A timestamp that already carries an offset is returned unchanged.  Without a
+    declared zone a timezone-free value is also returned unchanged so that
+    ``_validate`` rejects it as unavailable; it is never read as UTC.  A date-only
+    publication date resolves to the end of that local day (availability is not
+    earlier than the whole day).  Nonexistent or ambiguous wall times are rejected.
+    """
+
+    if zone is None or isinstance(value, (datetime, date)):
+        return value
+    text = str(value).strip()
+    if not text:
+        return value
+    try:
+        if len(text) == 10:
+            parsed = datetime.combine(date.fromisoformat(text), time.max)
+        else:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise MacroWarehouseError(f"{field_name} is not a valid timestamp") from exc
+    if parsed.tzinfo is not None:
+        return value
+    candidates = {parsed.replace(tzinfo=zone, fold=fold).astimezone(timezone.utc) for fold in (0, 1)}
+    if len(candidates) != 1 or any(
+        item.astimezone(zone).replace(tzinfo=None) != parsed for item in candidates
+    ):
+        raise MacroWarehouseError(f"{field_name} is ambiguous or nonexistent in the source time zone")
+    return candidates.pop().isoformat(timespec="microseconds")
+
+
 def _period_start(value: object) -> str:
     text = str(value or "").strip()
     if not text:
@@ -252,6 +299,8 @@ def _validate(observation: MacroObservation) -> MacroObservation:
     if len(observation.source_checksum) != 64 or any(char not in "0123456789abcdefABCDEF" for char in observation.source_checksum):
         raise MacroWarehouseError("macro source_checksum must be a SHA-256 value")
     revision = _positive_revision(observation.revision)
+    if not math.isfinite(observation.value):
+        raise MacroWarehouseError("macro value must be finite")
     curve_evidence = any(
         value is not None
         for value in (
@@ -264,26 +313,34 @@ def _validate(observation: MacroObservation) -> MacroObservation:
         raise MacroWarehouseError("curve observations must have dataset_kind risk_free")
     if curve_evidence and observation.dataset_id != f"curve:{observation.curve_id}":
         raise MacroWarehouseError("curve dataset identity does not match curve_id")
-    timestamp_normalizer = _explicit_timestamp if curve_evidence else _timestamp
+    # Event times (publication, availability, ingestion, revision) must carry an
+    # explicit offset: a timezone-free time is never read as UTC.  Only the effective
+    # period reference (observed_at) may be a plain date.
+    observed_normalizer = _explicit_timestamp if curve_evidence else _timestamp
     normalized = {
-        field_name: timestamp_normalizer(getattr(observation, field_name), field_name)
+        field_name: (
+            observed_normalizer if field_name == "observed_at" else _explicit_timestamp
+        )(getattr(observation, field_name), field_name)
         for field_name in ("published_at", "available_at", "observed_at", "ingested_at")
     }
     if _timestamp_value(normalized["observed_at"]) > _timestamp_value(normalized["available_at"]):
         raise MacroWarehouseError("macro effective/observed_at cannot be after available_at")
     if _timestamp_value(normalized["published_at"]) > _timestamp_value(normalized["available_at"]):
         raise MacroWarehouseError("macro published_at cannot be after available_at")
-    if observation.revised_at is not None:
-        timestamp_normalizer(observation.revised_at, "revised_at")
+    if _timestamp_value(normalized["ingested_at"]) < _timestamp_value(normalized["available_at"]):
+        raise MacroWarehouseError("macro ingested_at cannot be before available_at")
+    revised_at = (
+        _explicit_timestamp(observation.revised_at, "revised_at")
+        if observation.revised_at
+        else None
+    )
+    if revised_at is not None and _timestamp_value(revised_at) > _timestamp_value(normalized["available_at"]):
+        raise MacroWarehouseError("macro revised_at cannot be after available_at")
     return observation.model_copy(
         update={
             "period_start": _period_start(observation.period_start),
             **normalized,
-            "revised_at": (
-                timestamp_normalizer(observation.revised_at, "revised_at")
-                if observation.revised_at
-                else None
-            ),
+            "revised_at": revised_at,
             "source_checksum": observation.source_checksum.lower(),
             "revision": revision,
         }
@@ -566,20 +623,32 @@ def parse_world_bank_records(
     unit: str = "level",
     methodology: str = "World Bank indicator snapshot",
     source_terms: str = "world_bank_public_terms_review_required",
+    source_timezone: str | None = None,
 ) -> list[MacroObservation]:
-    """Parse a saved World Bank indicator response without making a request."""
+    """Parse a saved World Bank indicator response without making a request.
 
+    The series identity is namespaced as ``<indicator>:<country>`` (nested
+    ``indicator``/``country`` objects of the raw API payload are resolved), so two
+    indicators or two countries of one dataset cannot collide on the same period.
+    Timezone-free ``available_at``/``ingested_at`` text is interpreted in
+    ``source_timezone`` when declared and is unavailable otherwise.
+    """
+
+    zone = _declared_zone(source_timezone)
+    available_at = str(_source_zoned(available_at, zone, "available_at"))
+    ingested_at = str(_source_zoned(ingested_at, zone, "ingested_at"))
     rows: list[MacroObservation] = []
     for row in payload:
-        country = row.get("countryiso3code") or row.get("country")
+        country = _world_bank_country(row)
         value = row.get("value")
         if value is None or str(value).strip() == "":
             continue
         period = row.get("date") or row.get("period")
+        indicator = _world_bank_indicator(row) or dataset_id
         rows.append(
             MacroObservation(
                 dataset_id=dataset_id,
-                series_id=str(row.get("indicator_id") or row.get("series_id") or dataset_id),
+                series_id=f"{indicator}:{country}" if country else indicator,
                 period_start=_period_start(period),
                 value=float(value),
                 unit=unit,
@@ -598,6 +667,25 @@ def parse_world_bank_records(
     return [_validate(row) for row in rows]
 
 
+def _nested_identifier(value: object) -> str | None:
+    if isinstance(value, Mapping):
+        value = value.get("id")
+    text = str(value).strip() if value is not None else ""
+    return text or None
+
+
+def _world_bank_indicator(row: Mapping[str, object]) -> str | None:
+    for key in ("indicator_id", "series_id", "indicator"):
+        identifier = _nested_identifier(row.get(key))
+        if identifier:
+            return identifier
+    return None
+
+
+def _world_bank_country(row: Mapping[str, object]) -> str | None:
+    return _nested_identifier(row.get("countryiso3code")) or _nested_identifier(row.get("country"))
+
+
 def parse_csv_records(
     content: str | bytes,
     *,
@@ -610,9 +698,17 @@ def parse_csv_records(
     dataset_kind: str = "macro",
     source_terms: str = "manual_review_required",
     methodology: str = "Local CSV snapshot",
+    source_timezone: str | None = None,
 ) -> list[MacroObservation]:
-    """Parse a local CSV with ``series_id``, ``period_start`` and ``value`` columns."""
+    """Parse a local CSV with ``series_id``, ``period_start`` and ``value`` columns.
 
+    Timezone-free publication/availability/ingestion times are interpreted in the
+    declared ``source_timezone``; without one they are rejected as unavailable.
+    """
+
+    zone = _declared_zone(source_timezone)
+    available_at = str(_source_zoned(available_at, zone, "available_at"))
+    ingested_at = str(_source_zoned(ingested_at, zone, "ingested_at"))
     raw = content if isinstance(content, bytes) else content.encode("utf-8")
     rows = csv.DictReader(io.StringIO(raw.decode("utf-8-sig")))
     checksum = _source_checksum(raw)
@@ -636,8 +732,8 @@ def parse_csv_records(
                 source_checksum=checksum,
                 source_terms=source_terms,
                 methodology=methodology,
-                published_at=str(row.get("published_at") or available_at),
-                available_at=str(row.get("available_at") or available_at),
+                published_at=str(_source_zoned(row.get("published_at") or available_at, zone, "published_at")),
+                available_at=str(_source_zoned(row.get("available_at") or available_at, zone, "available_at")),
                 observed_at=str(row.get("observed_at") or row.get("period_start") or row.get("date")),
                 ingested_at=ingested_at,
                 revision=_csv_revision(row.get("revision")),
@@ -663,14 +759,69 @@ def _transformed_value(value: float, source_unit: str, target_unit: str) -> floa
     return value * factor
 
 
+def _latest_vintages(
+    rows: list[MacroObservation], decision_time: str | None
+) -> list[MacroObservation]:
+    """Keep one row per observed period: the latest vintage known at ``decision_time``.
+
+    A row is known when it was both available and imported by the decision.  Without a
+    decision time several vintages of one period are ambiguous and rejected, so a
+    superseded observation can neither be averaged nor summed with its revision.
+    """
+
+    cutoff = (
+        _timestamp_value(_explicit_timestamp(decision_time, "decision_time"))
+        if decision_time is not None
+        else None
+    )
+    latest: dict[tuple[object, ...], MacroObservation] = {}
+    for row in rows:
+        if cutoff is not None and (
+            _timestamp_value(row.available_at) > cutoff or _timestamp_value(row.ingested_at) > cutoff
+        ):
+            continue
+        key = (row.dataset_id, row.series_id, row.country, row.currency, row.period_start)
+        current = latest.get(key)
+        if current is not None and cutoff is None:
+            raise MacroWarehouseError(
+                "several vintages of one period were supplied; decision_time is required"
+            )
+        rank = (row.revision, _timestamp_value(row.available_at))
+        if current is None or rank > (current.revision, _timestamp_value(current.available_at)):
+            latest[key] = row
+    return list(latest.values())
+
+
+def _aggregation_kind(row: MacroObservation, aggregation: str | Mapping[str, str] | None) -> str:
+    declared = aggregation.get(row.series_id) if isinstance(aggregation, Mapping) else aggregation
+    if declared is None:
+        if row.unit in _RATE_UNITS:
+            return "mean"
+        raise MacroWarehouseError(
+            f"aggregation (flow, stock or mean) must be declared for series {row.series_id}"
+        )
+    if declared not in _AGGREGATIONS:
+        raise MacroWarehouseError(f"unsupported aggregation: {declared!r}")
+    return declared
+
+
 def transform_observations(
     observations: Iterable[MacroObservation],
     *,
     target_unit: str | None = None,
     target_frequency: str | None = None,
     transformation_version: str = "macro-transform.v1",
+    aggregation: str | Mapping[str, str] | None = None,
+    decision_time: str | None = None,
 ) -> list[MacroObservation]:
-    """Return derived rows while retaining source IDs and reversible metadata."""
+    """Return derived rows while retaining source IDs and reversible metadata.
+
+    Frequency conversion aggregates the latest vintage known at ``decision_time`` of
+    each period.  ``aggregation`` declares the series nature: ``flow`` sums the
+    sub-periods, ``stock`` takes the end of the period and ``mean`` averages (the
+    default only for rate units).  Flow and stock conversions require a complete
+    target period.
+    """
 
     source_rows = [_validate(row) for row in observations]
     if not source_rows:
@@ -680,6 +831,9 @@ def transform_observations(
     if target_frequency in {None, "irregular"} or target_frequency == source_rows[0].frequency:
         grouped = [[row] for row in source_rows]
     else:
+        source_rows = _latest_vintages(source_rows, decision_time)
+        if not source_rows:
+            return []
         frame = pd.DataFrame([row.model_dump(mode="json") for row in source_rows])
         frame["period"] = pd.to_datetime(frame["period_start"], utc=True)
         if target_frequency == "quarterly":
@@ -697,7 +851,28 @@ def transform_observations(
         first = group[0]
         unit = target_unit or first.unit
         frequency = target_frequency or first.frequency
-        value = sum(_transformed_value(row.value, row.unit, unit) for row in group) / len(group)
+        converted = frequency != first.frequency
+        kind = _aggregation_kind(first, aggregation) if converted else "mean"
+        if converted and kind in {"flow", "stock"}:
+            expected = _PERIOD_LENGTHS.get((first.frequency, frequency))
+            if expected is None:
+                raise MacroWarehouseError(
+                    f"{kind} conversion {first.frequency} -> {frequency} is not supported"
+                )
+            if len({row.frequency for row in group}) != 1 or len({row.period_start for row in group}) != expected:
+                raise MacroWarehouseError(
+                    f"incomplete {frequency} period for {kind} aggregation of {first.series_id}"
+                )
+        values = [
+            _transformed_value(row.value, row.unit, unit)
+            for row in sorted(group, key=lambda item: item.period_start)
+        ]
+        if kind == "flow":
+            value = sum(values)
+        elif kind == "stock":
+            value = values[-1]
+        else:
+            value = sum(values) / len(values)
         source_ids = tuple(sorted(row.observation_id for row in group))
         raw = json.dumps({"source_ids": source_ids, "unit": unit, "frequency": frequency, "version": transformation_version}, sort_keys=True).encode("utf-8")
         transformed.append(
@@ -937,7 +1112,8 @@ class MacroWarehouse:
 
     def as_of(self, *, root: Path, dataset_id: str, decision_time: str) -> pd.DataFrame:
         with BitemporalStore(Path(root)) as store:
-            frame = store.as_of(dataset_id, decision_time)
+            # Replay: a record imported after the decision was not known at the decision.
+            frame = store.as_of(dataset_id, decision_time, ingested_at_lte=decision_time)
         if frame.empty:
             return pd.DataFrame(columns=list(MacroObservation.model_fields))
         payloads = [MacroObservation.from_ledger(row).model_dump(mode="json") for row in frame.to_dict("records")]
@@ -1075,7 +1251,10 @@ class MacroWarehouse:
                     available_at = _timestamp_value(
                         _explicit_timestamp(raw_row.available_at, "available_at")
                     )
-                    if available_at <= cutoff:
+                    ingested_at = _timestamp_value(
+                        _explicit_timestamp(raw_row.ingested_at, "ingested_at")
+                    )
+                    if available_at <= cutoff and ingested_at <= cutoff:
                         eligible_history.append(
                             MacroObservation.from_ledger(raw_row.__dict__)
                         )
@@ -1507,11 +1686,21 @@ class MacroWarehouse:
             return {"status": "unavailable", "reason": f"{type(exc).__name__}: local warehouse requires manual review", "row_count": 0}
         if not rows:
             return {"status": "unavailable", "reason": "no local macro/factor snapshots have been ingested", "row_count": 0}
-        latest = max(row.observed_at for row in rows)
         if decision_time:
-            available = [row for row in rows if row.available_at <= _timestamp(decision_time, "decision_time")]
+            try:
+                cutoff = _timestamp_value(_explicit_timestamp(decision_time, "decision_time"))
+                available = [
+                    row
+                    for row in rows
+                    if _timestamp_value(_explicit_timestamp(row.available_at, "available_at")) <= cutoff
+                    and _timestamp_value(_explicit_timestamp(row.ingested_at, "ingested_at")) <= cutoff
+                ]
+            except (MacroWarehouseError, ValueError) as exc:
+                return {"status": "unavailable", "reason": f"decision time or row time is unusable: {exc}", "row_count": 0}
         else:
             available = rows
+        # Only rows known at the decision may define the latest observed date.
+        latest = max((row.observed_at for row in available), default=None)
         return {
             "status": "available" if available else "unavailable",
             "row_count": len(available),

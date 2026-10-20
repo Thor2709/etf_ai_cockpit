@@ -271,8 +271,14 @@ class BitemporalStore:
         *,
         entity_id: str | None = None,
         effective_validity: bool = True,
+        ingested_at_lte: str | datetime | None = None,
     ) -> pd.DataFrame:
         """Select the vintage known at ``decision_time``.
+
+        ``ingested_at_lte`` additionally excludes active observations that were imported
+        after that instant (a late backfill is not part of the replay of an earlier
+        decision).  Retraction and supersession markers are never filtered by it, so a
+        retracted value cannot resurface.
 
         ``effective_validity=False`` skips the valid_from/valid_to window for datasets whose
         ``valid_from`` is an event time that may legitimately lie after the knowledge cutoff
@@ -282,6 +288,9 @@ class BitemporalStore:
         cutoff = _timestamp(decision_time, "decision_time")
         query = "SELECT * FROM bitemporal_observations WHERE dataset_id = ? AND available_at <= ? AND timezone_confidence != 'unknown'"
         params: tuple[object, ...] = (str(dataset_id), cutoff)
+        if ingested_at_lte is not None:
+            query += " AND (ingested_at <= ? OR status != 'active')"
+            params += (_timestamp(ingested_at_lte, "ingested_at cutoff"),)
         if entity_id is not None:
             query += " AND entity_id = ?"
             params += (str(entity_id),)

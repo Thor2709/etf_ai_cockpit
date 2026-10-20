@@ -64,6 +64,44 @@ class HomeView:
     extras: Mapping[str, str] = field(default_factory=dict)
 
 
+_UNAVAILABLE_REGIME_WORDS = ("unavailable", "unknown", "n/a", "not available")
+
+
+def regime_available(label: object) -> bool:
+    """A regime label counts only when it names a regime; 'Regime unavailable', 'unknown' or blank do not."""
+    text = str(label or "").strip().casefold()
+    return bool(text) and text not in {"none", "nan", "nat"} and not any(word in text for word in _UNAVAILABLE_REGIME_WORDS)
+
+
+_STATUS_RANK = {"Clean": 0, "Unavailable": 1, "Review": 2, "Failed": 3}
+_SNAPSHOT_STATUS_LABEL = {"clean": "Clean", "warning": "Review", "blocked": "Failed"}
+
+
+def combined_data_status(disk_label: str, snapshot_status: object) -> str:
+    """Home data health = the worse of the re-read disk inventory and the status the displayed scores were built on.
+
+    A snapshot-blocked score must never read Normal because the files on disk look healthy now.
+    """
+    snapshot_label = _SNAPSHOT_STATUS_LABEL.get(str(snapshot_status or "").strip().casefold(), "Unavailable")
+    disk = disk_label if disk_label in _STATUS_RANK else "Unavailable"
+    return max(disk, snapshot_label, key=lambda label: _STATUS_RANK[label])
+
+
+def home_final_mode(data_status: str) -> str:
+    return {"Failed": "Manual review", "Review": "Caution", "Clean": "Normal"}.get(data_status, "Unavailable")
+
+
+def eligible_model_names(forecasts: object) -> tuple[str, ...]:
+    """Non-baseline models with at least one usable row that the canonical score may use (status ok AND allowed)."""
+    needed = {"model_name", "status", "model_allowed_in_score"}
+    if not hasattr(forecasts, "columns") or not needed <= set(forecasts.columns):
+        return ()
+    status_ok = forecasts["status"].astype(str).str.lower() == "ok"
+    allowed = forecasts["model_allowed_in_score"].astype(str).str.lower().isin({"true", "1", "yes"})
+    names = forecasts.loc[status_ok & allowed, "model_name"].astype(str)
+    return tuple(sorted({name for name in names if "baseline" not in name.lower()}))
+
+
 def data_health_label(rows: Iterable[object]) -> str:
     """Use the same aggregate label for Home and the Data Health inventory page."""
     statuses = {
@@ -313,8 +351,9 @@ def build_checks(
         rows.append(CheckRow("warn", f"{len(flagged)} news/macro contradictions",
                              f"{flagged[0].get('title', '')} · {flagged[0].get('detail', '')}", "Review", "warn",
                              _ROUTES["contradictions"], 1))
-    rows.append(CheckRow("ok" if regime_label else GREY, f"Market regime: {regime_label or 'Unavailable'}",
-                         regime_detail, "Context", "mute", "/macro", 3 if regime_label else 2))
+    known_regime = regime_available(regime_label)
+    rows.append(CheckRow("ok" if known_regime else GREY, f"Market regime: {regime_label if known_regime else 'Unavailable'}",
+                         regime_detail, "Context" if known_regime else "Unavailable", "mute", "/macro", 3 if known_regime else 2))
     normal = final_mode == "Normal"
     rows.append(CheckRow("ok" if normal else "warn", f"Final mode: {final_mode}", "advisory scoring only",
                          "OK" if normal else "Review", "ok" if normal else "warn", "/system-map", 3 if normal else 1))

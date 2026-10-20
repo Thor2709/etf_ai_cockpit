@@ -18,7 +18,7 @@ import pandas as pd
 
 from etf_cockpit.analysis import stock_metrics as sm
 from etf_cockpit.analysis.stock_evidence import AnalystInputs, MarketInputs, StockEvidence, build_stock_evidence, metric_freshness_reason
-from etf_cockpit.analysis.stock_peers import PeerPick, PeerProfile, auto_peers, effective_peers
+from etf_cockpit.analysis.stock_peers import PeerPick, PeerProfile, auto_peers, cohort_members, effective_peers
 from etf_cockpit.core.frame_signature import columns_key
 from etf_cockpit.core.paths import ROOT
 from etf_cockpit.data import stock_fundamentals as store
@@ -26,6 +26,7 @@ from etf_cockpit.data.stock_peer_picks import load_user_peers
 
 LIVE_GRACE_DAYS = 5
 PEER_METRIC_KEYS = ("pe", "ev_ebit", "ev_sales", "pb", "roe", "ebit_margin", "fcf_yield", "dividend_yield", "revenue_cagr")
+COHORT_METRIC_KEYS = ("pe", "earnings_yield", "fcf_yield", "ebit_ev_yield", "roe", "roic", "ebit_margin", "net_debt_to_ebitda", "fcf_conversion", "revenue_cagr")
 
 
 def live_decision_time(as_of: date | None, now: datetime | None = None) -> datetime:
@@ -284,6 +285,14 @@ def build_universe_evidence(
         }
         for key in PEER_METRIC_KEYS
     }
+    cohort_metrics = {
+        key: {
+            iid: ev.metrics[key].value
+            for iid, ev in first.items()
+            if key in ev.metrics and ev.metrics[key].available and metric_freshness_reason(ev.metrics[key], decision_time, stale_days) is None
+        }
+        for key in COHORT_METRIC_KEYS
+    }
     candidates = [result.profiles[r.instrument_id] for r in records]
     for record in records:
         iid = record.instrument_id
@@ -297,9 +306,13 @@ def build_universe_evidence(
         scoped = {key: {pid: value for pid, value in values.items() if pid in members} for key, values in peer_values.items()}
         periods = store.periods_for(iid, periods_frame, chain)
         snapshot = store.latest_snapshot(iid, snapshots, decision_time)
+        cohorts = {
+            level: {key: {pid: cohort_metrics[key][pid] for pid in ids if pid in cohort_metrics[key]} for key in COHORT_METRIC_KEYS}
+            for level, ids in cohort_members(result.profiles[iid], candidates).items()
+        }
         result.evidence[iid] = build_stock_evidence(
             iid, periods, decision_time, result.prices[iid], analyst_inputs(analysts[iid]), cfg,
-            peer_values=scoped, no_data_reason=store.no_data_reason(iid, snapshots, decision_time, bool(sm.known_periods(periods, decision_time))),
+            peer_values=scoped, cohort_values=cohorts, no_data_reason=store.no_data_reason(iid, snapshots, decision_time, bool(sm.known_periods(periods, decision_time))),
         )
     for pid, evidence in first.items():
         if pid.startswith("peer:"):

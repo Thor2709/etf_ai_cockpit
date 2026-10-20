@@ -24,7 +24,11 @@ from etf_cockpit.data.macro_warehouse import (
     MacroObservation,
     MacroWarehouse,
 )
-from etf_cockpit.features.macro import build_macro_context
+from etf_cockpit.features.macro import (
+    build_macro_context,
+    finalize_observation_rows,
+    observation_summary_payload,
+)
 
 
 @dataclass(frozen=True)
@@ -134,7 +138,13 @@ def _prices_as_of(prices: object, decision_time: str) -> pd.DataFrame:
         - pd.Timedelta(nanoseconds=1)
     )
     cutoff = pd.Timestamp(decision_time)
-    return frame.loc[dates.notna() & (effective_dates <= cutoff)].copy()
+    eligible = dates.notna() & (effective_dates <= cutoff)
+    if "known_at" in frame.columns:
+        # A close (or its revision) learned after the decision is not decision evidence,
+        # even when its trading date precedes the decision.
+        known_at = pd.to_datetime(frame["known_at"], errors="coerce", utc=True, format="mixed")
+        eligible &= known_at.notna() & (known_at <= cutoff)
+    return frame.loc[eligible].copy()
 
 
 def _is_date_only(value: object) -> bool:
@@ -333,6 +343,9 @@ def _macro_observation_summary(
                 "unit": observation.unit,
                 "source": observation.source_id or "local macro warehouse",
                 "provenance": "local macro warehouse bitemporal as_of selection",
+                "country": observation.country,
+                "currency": observation.currency,
+                "period_start": observation.period_start,
                 "source_authority": observation.source_authority,
                 "source_checksum": observation.source_checksum,
                 "source_observation_ids": list(observation.source_observation_ids),
@@ -355,11 +368,8 @@ def _macro_observation_summary(
                 ],
             }
         )
-    return {
-        "status": "available" if rows else "unavailable",
-        "rows": rows[-12:],
-        "reason": None if rows else "No local inflation or rates observations matched.",
-    }
+    selected, missing_jurisdiction = finalize_observation_rows(rows)
+    return observation_summary_payload(selected, missing_jurisdiction)
 
 
 def _unavailable_binding(

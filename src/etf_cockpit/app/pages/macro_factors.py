@@ -12,6 +12,7 @@ from etf_cockpit.app.components import chartkit as ck, kit
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView, SegmentGroup
 from etf_cockpit.app.pages._l2_common import display_value
 from etf_cockpit.app.state import AppState
+from etf_cockpit.application.ui_views.home import regime_available
 from etf_cockpit.application.benchmark_reference import context_from_snapshot
 from etf_cockpit.application.macro_context import build_macro_context_binding
 from etf_cockpit.application.ui_facade import MacroWarehouse
@@ -19,7 +20,7 @@ from etf_cockpit.core.paths import ROOT
 
 
 def _regime_tag(value: object) -> ft.Control:
-    available = value is not None and str(value).strip().casefold() not in {"", "unavailable", "none", "nan", "nat"}
+    available = regime_available(value)
     return kit.Tag("Available" if available else "Unavailable", "ok" if available else "warn")
 
 
