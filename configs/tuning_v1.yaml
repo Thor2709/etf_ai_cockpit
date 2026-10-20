@@ -1,7 +1,8 @@
 # Tunable-knob registry for bounded parameter optimisation (issue #262).
 # Read-only: the tuner reads the CURRENT value of every knob from its source file and never
 # writes to any settings file; output is a proposal artefact only (execution_allowed=false).
-# Bounds/step are conservative +/-0.10 around today's weights (clamped to [0, 1]); weights that
+# PSF: momentum+trend are one price-strength family capped at 30% of the weight table, so their upper bounds sum to the
+# cap and relative_strength (weight 0) has no knob. Bounds/step are conservative +/-0.10 around today's weights (clamped to [0, 1]); weights that
 # share a `group` are rescaled to keep the group's current total. `model` marks knobs whose
 # evidence depends on an optional forecast model, so pretraining cutoffs apply to them.
 # NS1: every knob reads configs/score_engine_v3.yaml, the single weight source. score.etf.headline.*
@@ -35,29 +36,22 @@ parameters:
   - key: score.etf.headline.momentum
     file: score_engine_v3.yaml
     path: [asset_policies, ETF, headline_evidence, momentum]
-    lower: 0.12
-    upper: 0.32
+    lower: 0.1
+    upper: 0.165
     step: 0.05
     group: score.etf.headline
   - key: score.etf.headline.trend
     file: score_engine_v3.yaml
     path: [asset_policies, ETF, headline_evidence, trend]
     lower: 0.08
-    upper: 0.28
-    step: 0.05
-    group: score.etf.headline
-  - key: score.etf.headline.relative_strength
-    file: score_engine_v3.yaml
-    path: [asset_policies, ETF, headline_evidence, relative_strength]
-    lower: 0.04
-    upper: 0.24
+    upper: 0.135
     step: 0.05
     group: score.etf.headline
   - key: score.etf.headline.etf_exposure
     file: score_engine_v3.yaml
     path: [asset_policies, ETF, headline_evidence, etf_exposure]
-    lower: 0.0
-    upper: 0.2
+    lower: 0.1
+    upper: 0.3
     step: 0.05
     group: score.etf.headline
   - key: score.etf.expected_return.baseline
@@ -87,26 +81,19 @@ parameters:
     file: score_engine_v3.yaml
     path: [action_composite, weights, momentum]
     lower: 0.1
-    upper: 0.3
+    upper: 0.155
     step: 0.05
     group: ensemble.weights
   - key: ensemble.trend
     file: score_engine_v3.yaml
     path: [action_composite, weights, trend]
     lower: 0.05
-    upper: 0.25
+    upper: 0.115
     step: 0.05
     group: ensemble.weights
   - key: ensemble.risk
     file: score_engine_v3.yaml
     path: [action_composite, weights, risk]
-    lower: 0.0
-    upper: 0.2
-    step: 0.05
-    group: ensemble.weights
-  - key: ensemble.relative_strength
-    file: score_engine_v3.yaml
-    path: [action_composite, weights, relative_strength]
     lower: 0.0
     upper: 0.2
     step: 0.05

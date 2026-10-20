@@ -8,7 +8,8 @@ from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.exceptions import ConfigError
 from etf_cockpit.core.types import ComponentScores
 from etf_cockpit.features.feature_pipeline import robust_zscore, robust_zscore_by_group
-from etf_cockpit.models.ensemble import effective_ensemble_weights
+from etf_cockpit.features.momentum import weighted_momentum
+from etf_cockpit.models.ensemble import BASELINE_SOURCE_FORECAST, BASELINE_SOURCE_HEURISTIC, effective_ensemble_weights
 from etf_cockpit.portfolio.costs import estimated_cost_bps
 from etf_cockpit.portfolio.rebalancing import rebalance_score
 
@@ -76,12 +77,7 @@ def component_scores(
         how="left",
     )
     asset_class = asset_class_labels(frame["etf_id"], config)
-    frame["weighted_momentum"] = (
-        0.15 * frame["momentum_20d"]
-        + 0.35 * frame["momentum_60d"]
-        + 0.35 * frame["momentum_120d"]
-        + 0.15 * frame["momentum_180d"]
-    )
+    frame["weighted_momentum"] = weighted_momentum(frame)
     frame["score_momentum"] = (
         _cross_section_z(frame["weighted_momentum"], asset_class) / 3
     ).clip(-1, 1)
@@ -91,11 +87,11 @@ def component_scores(
     frame["score_trend"] = (0.70 * binary_trend + 0.30 * slope_z).where(trend_inputs_available).clip(-1, 1)
     annualised_volatility = frame["vol_60d_ann"].fillna(frame["ewma_vol_ann"])
     vol_z = _cross_section_z(annualised_volatility, asset_class) / 3
-    drawdown = frame["drawdown_60d_max"]
-    dd_penalty = drawdown.clip(-0.40, 0) / 0.40
-    frame["score_risk"] = (-0.65 * vol_z + 0.35 * (1 + dd_penalty)).where(
-        annualised_volatility.notna() & drawdown.notna()
-    ).clip(-1, 1)
+    # Centred risk term: an instrument with median volatility in its asset class scores raw 0 (= 5/10) and the term spans
+    # the full -1..1. Volatility is the only input: the 60-day drawdown tracks it too closely to be a separate measure
+    # (measured rho -0.79 in the #927 audit, above the 0.7 limit for adding a second term), so adding it would count the
+    # same risk twice and push neutral to ~6/10 (B-08).
+    frame["score_risk"] = (-vol_z).where(annualised_volatility.notna()).clip(-1, 1)
     frame["score_rebalance"] = frame.apply(
         lambda row: rebalance_score(float(row.get("current_weight", 0) or 0), float(row.get("target_weight", 0) or 0), float(row.get("hard_band", 0.05) or 0.05)),
         axis=1,
@@ -111,6 +107,10 @@ def component_scores(
     frame["score_baseline_ml"] = baseline_forecast_score.clip(-1, 1).where(
         baseline_forecast_score.notna(), deterministic_baseline_score
     )
+    # The momentum/trend fallback is a labelled heuristic for display and agreement only: it re-uses price strength,
+    # so it carries no composite weight (a forecast-backed baseline does).
+    baseline_forecast_backed = baseline_forecast_score.notna()
+    frame["score_baseline_source"] = baseline_forecast_backed.map({True: BASELINE_SOURCE_FORECAST, False: BASELINE_SOURCE_HEURISTIC})
     # Optional manual input: a missing thesis stays NaN (not eligible, never 0.0) and lowers the composite coverage.
     frame["score_chatgpt_thesis"] = frame["etf_id"].map(chatgpt_scores or {}).map(_clean_score).astype(float)
     frame["cost_penalty"] = frame["etf_id"].map(lambda etf_id: estimated_cost_bps(config, str(etf_id)) / 1000).clip(0, 0.08)
@@ -121,13 +121,16 @@ def component_scores(
     raw_weights = config.models.ensemble.get("weights")
     if not raw_weights:
         raise ConfigError("Score composite weights are unavailable: configs/score_engine_v3.yaml action_composite.weights.")
-    # A live model that no promoted forecast row backs (shadow or unproven) contributes no score; its weight
-    # is renormalised away instead of turning every composite score and confidence into NaN.
-    weights = effective_ensemble_weights(
-        raw_weights,
-        toto_available=bool(toto_available and forecast_scores.get("toto")),
-        timesfm_available=bool(timesfm_available and forecast_scores.get("timesfm")),
-    )
+    # A live model that no promoted forecast row backs (shadow or unproven) contributes no score. Its configured weight
+    # stays in the table (it is never moved to momentum/trend), so the composite coverage drops instead.
+    toto_backed = bool(toto_available and forecast_scores.get("toto"))
+    timesfm_backed = bool(timesfm_available and forecast_scores.get("timesfm"))
+    weights = effective_ensemble_weights(raw_weights, toto_available=toto_backed, timesfm_available=timesfm_backed)
+    unbacked = {
+        "toto": pd.Series(not toto_backed, index=frame.index),
+        "timesfm": pd.Series(not timesfm_backed, index=frame.index),
+        "baseline_ml": ~baseline_forecast_backed,
+    }
     active_components = [
         (key, column, weight)
         for key, column in (
@@ -144,7 +147,9 @@ def component_scores(
         if (weight := weights.get(key, 0)) > 0
     ]
     finite_components = {
-        key: frame[column].map(lambda value: pd.notna(value) and math.isfinite(float(value)))
+        key: frame[column].map(lambda value: pd.notna(value) and math.isfinite(float(value))).astype(bool) & ~unbacked[key]
+        if key in unbacked
+        else frame[column].map(lambda value: pd.notna(value) and math.isfinite(float(value))).astype(bool)
         for key, column, _ in active_components
     }
     weighted_score = sum(

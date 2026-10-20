@@ -379,7 +379,13 @@ def _write_current_scoreboard(session: ScoreboardSession) -> Path:
             try:
                 if not isinstance(history_path, Path) or not history_path.is_file():
                     raise RuntimeError("Score history publication path is unavailable.")
-                _record_scoreboard_publication_binding(path, history_path, scoreboard_frame)
+                # The trust writer names the run it wrote; a plain mapping without that identity (legacy writers)
+                # keeps the previous newest-run binding.
+                run_id = getattr(paths, "run_id", None)
+                if run_id is None:
+                    _record_scoreboard_publication_binding(path, history_path, scoreboard_frame)
+                else:
+                    _record_scoreboard_publication_binding(path, history_path, scoreboard_frame, run_id=str(run_id))
             except Exception as binding_exc:
                 raise ScoreboardPublicationBindingError(str(binding_exc)) from binding_exc
     except Exception as exc:
@@ -395,8 +401,14 @@ def _record_scoreboard_publication_binding(
     scoreboard_path: Path,
     history_path: Path,
     expected_scoreboard: pd.DataFrame,
+    *,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
-    """Bind exact scoreboard bytes to the score-history run that published them."""
+    """Bind exact scoreboard bytes to the score-history run that published them.
+
+    ``run_id`` is the run that wrote this scoreboard's history; the binding uses exactly that run's rows. Without
+    it (direct callers that only hold the file) the globally newest history run is used, as before.
+    """
 
     scoreboard_bytes = scoreboard_path.read_bytes()
     actual_scoreboard = pd.read_parquet(BytesIO(scoreboard_bytes))
@@ -416,6 +428,12 @@ def _record_scoreboard_publication_binding(
     completed = pd.to_datetime(history["run_completed_at"], utc=True, errors="coerce")
     if completed.isna().any():
         raise ValueError("Score history contains an unverifiable completion time.")
+    if run_id is not None:
+        selected = history["run_id"].astype(str).str.strip().eq(str(run_id).strip())
+        if not selected.any():
+            raise ValueError("Score history has no rows for the publishing run.")
+        history = history.loc[selected]
+        completed = completed.loc[selected]
     newest = completed.max()
     latest = history.loc[completed.eq(newest)]
     run_ids = {str(value).strip() for value in latest["run_id"] if pd.notna(value)}

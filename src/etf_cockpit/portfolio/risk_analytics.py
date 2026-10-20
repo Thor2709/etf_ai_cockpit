@@ -70,14 +70,17 @@ def return_correlation_matrix(prices: pd.DataFrame, etf_ids: list[str] | None = 
             excluded_assets=excluded_assets,
         )
         return unavailable
-    pivot = pivot[usable_columns].dropna()
-    if len(pivot) < 3:
+    # Returns are formed on consecutive observed prices and only then required to be complete: a
+    # missing price day is a gap (its two adjacent returns are dropped), never one bridged
+    # multi-day return pasted next to single-day returns of the other assets.
+    pivot = pivot[usable_columns]
+    returns = np.log(pivot / pivot.shift(1)).replace([np.inf, -np.inf], np.nan).dropna(how="any")
+    if len(returns) < 2:
         result = pd.DataFrame(index=usable_columns, columns=usable_columns, dtype=float)
         result.attrs.update(status="unavailable", reason_code="shared_return_history_unavailable")
         if excluded_assets:
             result.attrs["excluded_assets"] = excluded_assets
         return result
-    returns = np.log(pivot / pivot.shift(1)).dropna()
     if window > 0:
         returns = returns.tail(window)
     if returns.empty:
@@ -116,6 +119,13 @@ def drawdown_contribution(allocation: pd.DataFrame, latest_features: pd.DataFram
     if allocation.empty:
         return pd.DataFrame(columns=["etf_id", "current_weight", "drawdown_current", "drawdown_contribution", "risk_share"])
     metrics = latest_features[["etf_id", "drawdown_current", "drawdown_60d_max", "vol_60d_ann"]].copy()
+    if allocation["etf_id"].duplicated().any() or metrics["etf_id"].duplicated().any():
+        # A duplicated identity would multiply rows in the merge and double-count risk shares.
+        result = allocation.copy()
+        for column in ("drawdown_current", "drawdown_60d_max", "vol_60d_ann", "drawdown_contribution", "risk_share"):
+            result[column] = np.nan
+        result.attrs.update(status="unavailable", reason_code="duplicate_etf_identity")
+        return result
     merged = allocation.merge(metrics, on="etf_id", how="left")
     metric_columns = ["drawdown_current", "drawdown_60d_max", "vol_60d_ann"]
     for column in metric_columns:

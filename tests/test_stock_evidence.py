@@ -10,6 +10,7 @@ import pytest
 
 from etf_cockpit.analysis import stock_metrics as sm
 from etf_cockpit.analysis import stock_universe as su
+from etf_cockpit.analysis.peer_cohorts import weighted_empirical_cdf
 from etf_cockpit.analysis.stock_evidence import AnalystInputs, MarketInputs, build_stock_evidence
 from etf_cockpit.data import stock_fundamentals as store
 from etf_cockpit.data.stock_fundamentals import load_stock_config
@@ -150,10 +151,28 @@ def test_reverse_valuation_is_unavailable_until_cost_of_equity_is_configured() -
 
 
 def test_components_score_from_available_inputs_and_state_what_is_missing() -> None:
-    ev = _evidence()
+    cohort_values = {
+        "sector": {
+            metric: {"P1": low, "P2": median, "P3": high}
+            for metric, low, median, high in (
+                ("roe", 0.05, 0.10, 0.15),
+                ("roic", 0.04, 0.08, 0.12),
+                ("ebit_margin", 0.10, 0.15, 0.20),
+                ("fcf_conversion", 0.80, 1.00, 1.20),
+                ("revenue_cagr", 0.00, 0.05, 0.10),
+                ("earnings_yield", 0.05, 0.10, 0.15),
+                ("fcf_yield", 0.02, 0.05, 0.08),
+                ("ebit_ev_yield", 0.04, 0.08, 0.12),
+                ("pe", 15.0, 20.0, 25.0),
+            )
+        }
+    }
+    ev = _evidence(cohort_values=cohort_values)
     quality = ev.components["stock_quality"]
     roe = next(s for s in quality.inputs if s.key == "roe")
-    assert roe.score == pytest.approx(10 * ev.metrics["roe"].value / 0.20, abs=1e-3)  # 0 at 0 %, 10 at 20 %
+    peers = list(cohort_values["sector"]["roe"].values())
+    assert roe.shrunk_value is not None and roe.raw_value == roe.value
+    assert roe.score == pytest.approx(10 * weighted_empirical_cdf(peers, [1.0] * len(peers), roe.shrunk_value), abs=1e-3)
     assert quality.score_10 == pytest.approx(sum(s.score for s in quality.used) / len(quality.used), abs=1e-2)
     value = ev.components["stock_value"]
     assert value.score_10 is not None and "Not used" in value.why and "P/E vs own history" in value.why

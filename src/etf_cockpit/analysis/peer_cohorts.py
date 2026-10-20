@@ -700,10 +700,14 @@ def bootstrap_percentile_interval(
     shrinkage_strength: float,
     seed: int,
     samples: int,
+    lower_quantile: float = 0.025,
+    upper_quantile: float = 0.975,
 ) -> tuple[float, float]:
     pairs = _valid_pairs(values, weights)
     if samples < 1:
         raise PeerCohortError("bootstrap samples must be positive")
+    if not 0.0 <= lower_quantile <= upper_quantile <= 1.0:
+        raise PeerCohortError("bootstrap quantiles must satisfy 0 <= lower <= upper <= 1")
     rng = random.Random(seed)
     population = list(range(len(pairs)))
     probabilities = [weight for _, weight in pairs]
@@ -718,7 +722,7 @@ def bootstrap_percentile_interval(
             / (n + shrinkage_strength)
         )
     draws.sort()
-    return draws[int(0.025 * (samples - 1))], draws[int(0.975 * (samples - 1))]
+    return draws[int(lower_quantile * (samples - 1))], draws[int(upper_quantile * (samples - 1))]
 
 
 def build_peer_projection(

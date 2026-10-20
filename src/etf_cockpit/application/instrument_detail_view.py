@@ -2839,14 +2839,14 @@ def _sparebank_workspace(
     context: dict[str, object] = {}
     if instrument_id:
         from etf_cockpit.application.sparebank_peers import load_peer_rows, picked_peers, quarterly_score_history
-        from etf_cockpit.data.pillar3_queue import load_queue
+        from etf_cockpit.application.sparebank_evidence import pillar3_review_queue
 
         context = {
             "instrument_id": instrument_id,
             "history": quarterly_score_history(score_history, instrument_id, decision_time),
             "peers": load_peer_rows(ROOT, instrument_id, decision_time, scorecard.get("formula_version")),
             "picked_peers": picked_peers(ROOT, instrument_id),
-            "pillar3": load_queue(ROOT, instrument_id),
+            "pillar3": pillar3_review_queue(ROOT, instrument_id, decision_time=decision_time),
         }
     return {
         **context,
@@ -3139,8 +3139,8 @@ def build_instrument_detail(
     financial_institutions = load_financial_institution_projection(
         instrument_id,
         projection=financial_projection,
-        # Live view: decide as of now on the latest reported period (an as-of date is not a reporting period).
-        decision_time=None,
+        # Use the same snapshot cutoff as the history and peer projections.
+        decision_time=projection_time or decision_time,
         effective_at=None,
         tactical_evidence=_tactical_scorecard_evidence(signal, candidate),
     )

@@ -24,7 +24,7 @@ import yaml
 from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import CONFIG_DIR
 from etf_cockpit.core.values import finite_float_or_none
-from etf_cockpit.models.ensemble import effective_ensemble_weights
+from etf_cockpit.models.ensemble import BASELINE_SOURCE_FORECAST, BASELINE_SOURCE_HEURISTIC, effective_ensemble_weights
 
 if TYPE_CHECKING:
     from etf_cockpit.analysis.decision.contracts import CriticalGateResult, ScoreAuthorityFlags
@@ -355,15 +355,20 @@ def build_canonical_score(
     raw_components = tuple(components)
     warnings: list[str] = []
     source_components_list: list[CanonicalComponent] = []
-    seen_components: set[tuple[str, str]] = set()
+    seen_components: dict[tuple[str, str], int] = {}
     for component in raw_components:
         identity = (_component_group(component), component.key)
         if identity in seen_components:
             warning = f"duplicate_component:{component.key}"
             if warning not in warnings:
                 warnings.append(warning)
+            position = seen_components[identity]
+            # Eligibility of both candidates is assessed before one is chosen: an eligible duplicate replaces an
+            # ineligible earlier one; between equals the first stays (deterministic).
+            if component.eligible and not source_components_list[position].eligible:
+                source_components_list[position] = component
             continue
-        seen_components.add(identity)
+        seen_components[identity] = len(source_components_list)
         source_components_list.append(component)
     if quality_status is not None and quality_status != "complete":
         # Below the minimum input count the quality component is partial: it adds no active weight and no coverage.
@@ -463,7 +468,11 @@ def build_canonical_score(
         all_component_rows.extend(group_rows)
         contributions.extend(group_contributions)
     overall_coverage = total_active / total_configured if total_configured else 0.0
-    confidence = _confidence_score([c for c in source_components if c.key not in discarded_keys], overall_coverage)
+    weighted_keys = {(group, key) for group, weights in selected_policy.groups.items() for key, weight in weights.items() if weight > 0}
+    confidence = _confidence_score(
+        [c for c in source_components if c.key not in discarded_keys and (_component_group(c), c.key) in weighted_keys],
+        overall_coverage,
+    )
     if unavailable_reason is not None:
         # An unavailable score shows no 0-10 value, confidence or contribution (never a guessed or shrunk number).
         confidence = None
@@ -642,6 +651,17 @@ def canonical_score_from_signal_row(
     signal_day = str(decision_time.isoformat() if isinstance(decision_time, date) else decision_time)[:10]
     as_of = signal_day if price_freshness == "ok" else None
     # Portfolio drift (score_rebalance) is not a component: an instrument's score never depends on the portfolio.
+    baseline_source = row.get("score_baseline_source")
+    forecast_baseline = isinstance(baseline_source, str) and baseline_source == BASELINE_SOURCE_FORECAST
+    heuristic_baseline = isinstance(baseline_source, str) and baseline_source == BASELINE_SOURCE_HEURISTIC
+    baseline_explanation = (
+        "Unavailable as a model: price heuristic (momentum/trend fallback, no forecast); shown for display only, "
+        "carries no score weight and no coverage."
+        if heuristic_baseline
+        else "Baseline expected-return evidence."
+        if forecast_baseline
+        else "Unavailable: missing or unrecognised baseline provenance; explicit forecast provenance is required."
+    )
     components = [
         _signal_component("momentum", row.get("score_momentum"), "attractiveness", source, price_freshness, "Momentum evidence.", as_of),
         _signal_component("trend", row.get("score_trend"), "attractiveness", source, price_freshness, "Trend evidence.", as_of),
@@ -649,20 +669,42 @@ def canonical_score_from_signal_row(
         _signal_component("etf_exposure", row.get("score_etf_exposure"), "attractiveness", "yfinance:holdings", price_freshness, "ETF exposure evidence.", as_of),
         _signal_component("risk", row.get("score_risk"), "risk_implementation", source, price_freshness, "Risk quality evidence.", as_of),
         _signal_component("liquidity_cost", _liquidity_quality(row.get("cost_penalty")), "risk_implementation", source, price_freshness, "Configured cost quality.", as_of),
-        _signal_component("baseline", row.get("score_baseline_ml"), "expected_return", "model:baseline", price_freshness, "Baseline expected-return evidence.", as_of, authority="model_advisory"),
+        # A heuristic baseline re-uses price strength: unavailable as expected-return evidence (value kept for display).
+        _signal_component(
+            "baseline", row.get("score_baseline_ml"), "expected_return",
+            "heuristic:momentum_trend" if heuristic_baseline else "model:baseline" if forecast_baseline else "",
+            price_freshness, baseline_explanation, as_of, authority="model_advisory",
+            status="ok" if forecast_baseline else "unavailable",
+        ),
         _signal_component("timesfm", row.get("score_timesfm"), "expected_return", "model:timesfm", price_freshness, "TimesFM challenger expected-return evidence.", as_of, authority="model_advisory", status="ok" if timesfm_available else "unavailable"),
         _signal_component("toto", row.get("score_toto"), "expected_return", "model:toto", price_freshness, "Toto challenger expected-return evidence.", as_of, authority="model_advisory", status="ok" if toto_available else "unavailable"),
         # Optional manual input (action composite only; no v3 group weight): eligible only when a value was supplied.
         _signal_component("chatgpt_thesis", row.get("score_chatgpt_thesis"), "expected_return", "manual:chatgpt_thesis", price_freshness, "Manual ChatGPT thesis input.", as_of, authority="model_advisory"),
     ]
+    policy_asset_type = _signal_asset_type(row, config, instrument_id)
+    if policy_asset_type == "STOCK":
+        # Stock value/quality are fundamentals the price-signal row only carries when a caller supplies them; an
+        # absent value is an explicit unavailable component (never zero-filled), so the STOCK policy weights are visible.
+        for key, column in (("stock_value", "score_stock_value"), ("stock_quality", "score_stock_quality")):
+            supplied = _number(row.get(column))
+            components.append(
+                _signal_component(
+                    key, supplied, "attractiveness", "yfinance:fundamentals", price_freshness,
+                    f"Stock {key.split('_', 1)[1]} evidence." if supplied is not None else f"Unavailable: the signal row carries no {column}.",
+                    as_of, status="ok" if supplied is not None else "unavailable",
+                )
+            )
     weights = effective_ensemble_weights(
         config.models.ensemble.get("weights", {}),
         toto_available=toto_available,
         timesfm_available=timesfm_available,
     )
+    if not forecast_baseline:
+        # Only explicitly forecast-backed values carry legacy action-composite weight.
+        weights = {key: value for key, value in weights.items() if key != "baseline_ml"}
     return canonical_score_from_simple_components(
         instrument_id,
-        _signal_asset_type(row, config, instrument_id),
+        policy_asset_type,
         decision_time if isinstance(decision_time, str) else decision_time.isoformat(),
         components,
         legacy_component_weights=_legacy_component_weights(weights),

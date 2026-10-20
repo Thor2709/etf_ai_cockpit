@@ -25,7 +25,7 @@ from etf_cockpit.analysis.cyclical_sector_adapters import (
     cyclical_family_from_labels,
     verify_cyclical_projection,
 )
-from etf_cockpit.analysis.stock_evidence import StockEvidence, linear_score
+from etf_cockpit.analysis.stock_evidence import StockEvidence, band_is_label_stable, label_boundaries_from, linear_score
 from etf_cockpit.analysis.stock_universe import get_universe_evidence, live_decision_time, records_from_config
 from etf_cockpit.data.stock_fundamentals import load_stock_config
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
@@ -208,6 +208,10 @@ class SimpleScoreComponent:
     inputs_used: tuple[str, ...] = ()
     inputs_configured: tuple[str, ...] = ()
     inputs_not_applicable: tuple[str, ...] = ()
+    # Informational uncertainty band of score_10 (never raises a score, never bypasses a gate); None = not assessed.
+    band_low: float | None = None
+    band_high: float | None = None
+    label_stable: bool | None = None
 
     def __post_init__(self) -> None:
         if self.source_id is None:
@@ -417,6 +421,11 @@ class SimpleInstrumentScore:
     schema_version: str = "2.0"
     authority_decision: AuthorityDecision | None = None
     canonical_score: CanonicalScore | None = None
+    # Informational headline uncertainty band (p10/p90 equivalent); None = not assessed. Never raises the score.
+    score_band_low: float | None = None
+    score_band_high: float | None = None
+    label_stable: bool | None = None
+    score_band_basis: str | None = None
     classification_version_id: str = "unavailable"
     classification_invalidation_hash: str = "unavailable"
     classification_dependency_status: str = "legacy_unbound"
@@ -455,7 +464,8 @@ class SimpleInstrumentScore:
             # Direct compatibility construction remains fail-closed.
             object.__setattr__(self, "research_promotion_allowed", False)
             object.__setattr__(self, "portfolio_review_allowed", False)
-        if valid_analysis_status and self.analysis_status == "unavailable":
+        # A typed authority decision is final: its unavailable status is never re-derived into a better one.
+        if valid_analysis_status and self.analysis_status == "unavailable" and self.authority_decision is None:
             if self.final_score_10 is None:
                 derived: AnalysisStatus = "unavailable"
             elif self.warnings:
@@ -1286,10 +1296,13 @@ def _forecast_status_for_components(components: Iterable[SimpleScoreComponent]) 
 def _attach_authority(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
     """Publish the same typed authority envelope on scoreboard release rows."""
 
+    # The evidence gate needs a component that is itself score-eligible (dated, fresh, unconflicted, non-model) and
+    # from an allowed source; a stale, undated or conflicted component from an allowed source is not evidence.
     evidence_present = any(
         str(component.status or "").strip().lower() == "ok"
         and component.score_10 is not None
         and component.source_id in ALLOWED_EVIDENCE_SOURCE_IDS
+        and _component_is_score_eligible(component)
         for component in score.components
     )
     warning_text = " ".join(score.warnings).casefold()
@@ -1523,6 +1536,9 @@ def simple_scoreboard_frame(
             "canonical_evidence_confidence_10": score.canonical_score.evidence_confidence_10 if score.canonical_score else None,
             "canonical_coverage": score.canonical_score.coverage if score.canonical_score else 0.0,
             "canonical_warnings": " | ".join(score.canonical_score.warnings) if score.canonical_score else "canonical_score_unavailable",
+            "score_band_low": score.score_band_low,
+            "score_band_high": score.score_band_high,
+            "label_stable": score.label_stable,
             "valid_components": score.valid_component_count,
             "total_components": score.total_component_count,
             "source_quality": "research_grade_yfinance",
@@ -1533,6 +1549,9 @@ def simple_scoreboard_frame(
             row[f"{component.key}_score_10"] = component.score_10
             row[f"{component.key}_status"] = component.status
             row[f"{component.key}_authority"] = component.authority
+            row[f"{component.key}_band_low"] = component.band_low
+            row[f"{component.key}_band_high"] = component.band_high
+            row[f"{component.key}_label_stable"] = component.label_stable
         rows.append(row)
     frame = pd.DataFrame(rows)
     frame["cash_curve_revision"] = _strict_nullable_revision_array(revision_values)
@@ -1628,12 +1647,13 @@ def build_universe_simple_scores(
                 isin=identity.isin or "needs_verification",
                 data_policy=str(_config_extra(identity, "data_policy", "yfinance_now_multi_provider_later")),
                 latest=latest_prices.get(identity.id),
+                decision_time=signal.signal_date,
             )
             if native.final_score_10 is not None:
                 output.append(native)
                 continue
-            # Owner 2026-10-09: every instrument gets a score; below the scorecard evidence floor the
-            # generic stock score is shown, labelled as pending the Sparebank scorecard.
+            # Owner 2026-10-09 (binding, 2026-10-20): every instrument gets a score; below the scorecard evidence
+            # floor the canonical generic 0-10 stock score is shown, labelled as pending the Sparebank scorecard.
             pending_sparebank.add(identity.id)
         price_info = latest_prices.get(signal.etf_id, {})
         quality_info = price_quality.get(signal.etf_id, {})
@@ -1845,6 +1865,7 @@ def build_universe_simple_scores(
                     isin=identity.isin or "needs_verification",
                     data_policy=str(_config_extra(identity, "data_policy", "yfinance_now_multi_provider_later")),
                     latest=latest_prices.get(identity.id),
+                    decision_time=latest_prices.get(identity.id, {}).get("date"),
                 )
             )
         else:
@@ -1858,16 +1879,22 @@ def build_universe_simple_scores(
                 )
             output.append(_pending_configured_score(identity, symbol_map.get(etf_id, identity.ticker), reason=reason))
     output = [_as_sparebank_pending(score) if score.display_id in pending_sparebank else score for score in output]
-    return [_with_canonical_score(_with_critical_evidence(score)) for score in output]
+    return [_with_score_band(_with_canonical_score(_with_critical_evidence(score))) for score in output]
 
 
 def _as_sparebank_pending(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
-    """Generic stock score for a Sparebank EC whose native scorecard is below its evidence floor."""
+    """Canonical generic 0-10 stock score for a Sparebank EC whose native scorecard is below its evidence floor.
 
+    A value outside the canonical 0-10 range (a raw legacy score) is never shown.
+    """
+
+    value = score.final_score_10
+    canonical = value if value is not None and isfinite(float(value)) and 0 <= float(value) <= 10 else None
     return replace(
         score,
         source_group=SPAREBANKEN_TIER_LABEL,
         analysis_tier="sparebanken",
+        final_score_10=canonical,
         decision="Sparebank scorecard pending",
         one_line_reason=(
             "Generic stock score shown: the Sparebank scorecard is pending (not enough filing evidence for a "
@@ -1918,6 +1945,7 @@ def build_candidate_simple_scores(
             else source.iloc[:0]
         )
     relative_reference = _candidate_relative_reference(source, decision_date)
+    volatility_reference = _candidate_volatility_reference(source, decision_date)
     etf_exposure = _etf_exposure_lookup()
     calibration_by_id = calibration_by_id or {}
     regime = regime or {}
@@ -1942,6 +1970,7 @@ def build_candidate_simple_scores(
                     isin=_noneable_str(row.get("isin")),
                     data_policy=_noneable_str(row.get("data_policy")) or "yfinance_only",
                     latest={"date": _noneable_str(row.get("latest_date")), "price": row.get("latest_price")},
+                    decision_time=decision_date or _noneable_str(row.get("latest_date")),
                 )
             )
             continue
@@ -1965,7 +1994,7 @@ def build_candidate_simple_scores(
             _candidate_data_quality_component(row, blocked, decision_date),
             _component("momentum", _candidate_momentum_raw(row), _candidate_momentum_why(row), authority="high"),
             _component("trend", _candidate_trend_raw(row), _candidate_trend_why(row), authority="high"),
-            _component("risk", _candidate_risk_raw(row), _candidate_risk_why(row), authority="high", role="risk_friction"),
+            _component("risk", _candidate_risk_raw(row, volatility_reference), _candidate_risk_why(row), authority="high", role="risk_friction"),
             _component(
                 "relative_strength",
                 _candidate_relative_strength_raw(row, relative_reference),
@@ -2109,7 +2138,70 @@ def build_candidate_simple_scores(
                 ),
             )
         )
-    return [_with_canonical_score(_with_critical_evidence(score)) for score in output]
+    return [_with_score_band(_with_canonical_score(_with_critical_evidence(score))) for score in output]
+
+
+def headline_score_band(
+    components: Iterable[SimpleScoreComponent],
+    weights: Mapping[str, float],
+    headline: float | None,
+    boundaries: Iterable[float],
+) -> tuple[float, float, bool, str] | None:
+    """Weighted band of the headline from the eligible components' bands; components without a band are held at their point.
+
+    Informational only: the band never changes ``headline`` and never feeds a gate. None when no eligible component carries a band.
+    """
+
+    headline_value = _safe_float(headline)
+    if headline_value is None or not 0.0 <= headline_value <= 10.0:
+        return None
+    lows = highs = total = 0.0
+    banded = eligible = 0
+    for component in components:
+        weight_value = _safe_float(weights.get(component.key, 0.0))
+        if weight_value is None or weight_value < 0:
+            return None
+        if weight_value == 0 or not _component_is_score_eligible(component) or component.score_10 is None:
+            continue
+        weight = weight_value
+        point = float(component.score_10)
+        has_low, has_high = component.band_low is not None, component.band_high is not None
+        if has_low != has_high:
+            return None
+        has_band = has_low and has_high
+        if has_band:
+            low, high = _safe_float(component.band_low), _safe_float(component.band_high)
+            if low is None or high is None or not 0.0 <= low <= high <= 10.0:
+                return None
+            lows += min(low, point) * weight
+            highs += max(high, point) * weight
+        else:
+            lows += point * weight
+            highs += point * weight
+        total += weight
+        eligible += 1
+        banded += int(has_band)
+    if banded == 0 or total <= 0:
+        return None
+    low, high = round(min(lows / total, headline_value), 2), round(max(highs / total, headline_value), 2)
+    basis = f"weighted component bands ({banded} of {eligible} eligible components carry a band; the others are held at their point score)"
+    return low, high, band_is_label_stable(low, high, tuple(boundaries)), basis
+
+
+def _with_score_band(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
+    """Attach the informational headline uncertainty band; failures to derive it leave the band absent (never a guess)."""
+
+    if score.final_score_10 is None or score.identity_conflict_reason is not None:
+        return score
+    try:
+        weights = headline_evidence_weights("ETF" if score.asset_type == "ETF" else "STOCK")
+        boundaries = label_boundaries_from(load_stock_config().get("scoring", {}).get("uncertainty", {}))
+    except Exception:  # noqa: BLE001 - the band is informational; no weights or config means no band
+        return score
+    band = headline_score_band(score.components, weights, score.final_score_10, boundaries)
+    if band is None:
+        return score
+    return replace(score, score_band_low=band[0], score_band_high=band[1], label_stable=band[2], score_band_basis=band[3])
 
 
 def _candidate_critical_inputs(row: pd.Series) -> tuple[str, ...]:
@@ -2213,16 +2305,16 @@ def _pending_configured_score(
     )
 
 
-def _native_sparebank_score(display_id: str) -> tuple[float | None, str]:
+def _native_sparebank_score(display_id: str, *, decision_time: object = None) -> tuple[float | None, str]:
     """Read the stored native scorecard result (computed by the Sparebank refresh), never recompute here."""
 
-    row = latest_sparebank_scores().get(str(display_id))
+    row = latest_sparebank_scores(decision_time=decision_time).get(str(display_id))
     value = None if row is None else row.get("final_combined_score_10")
     try:
         score = float(value) if value is not None and isfinite(float(value)) else None
     except (TypeError, ValueError):
         score = None
-    if score is None:
+    if score is None or not 0 <= score <= 10:
         return None, "Underwriting is determined by the Sparebank scorecard (pending: not enough filing evidence for a composite yet); tactical evidence is presented separately."
     coverage = row.get("coverage")
     try:
@@ -2244,8 +2336,9 @@ def _sparebank_scorecard_status(
     isin: str | None,
     data_policy: str,
     latest: dict[str, object] | None = None,
+    decision_time: object = None,
 ) -> SimpleInstrumentScore:
-    native_score, native_reason = _native_sparebank_score(display_id)
+    native_score, native_reason = _native_sparebank_score(display_id, decision_time=decision_time)
     latest = latest or {}
     return SimpleInstrumentScore(
         instrument_key=instrument_key,
@@ -2423,13 +2516,14 @@ def _attach_component_provenance(
     freshness = _component_freshness_status(clean_date, decision_date)
 
     def component_freshness(component: SimpleScoreComponent) -> str:
-        if component.freshness_status:
-            return component.freshness_status
         # Evidence carrying its own date must itself be known at the decision
-        # date; the shared price date cannot vouch for evidence dated later.
+        # date; neither the shared price date nor a preset status can vouch for
+        # evidence dated later.
         own_date = _parse_date(component.as_of_date)
         if own_date is not None and decision_date is not None and own_date > decision_date:
             return "unavailable"
+        if component.freshness_status:
+            return component.freshness_status
         return freshness
 
     return [
@@ -2514,7 +2608,7 @@ def _candidate_source_frame(report: pd.DataFrame, forecasts: pd.DataFrame) -> pd
     return pd.DataFrame({"instrument_id": ids, "name": ids, "yahoo_symbol": ids})
 
 
-def _candidate_relative_reference(frame: pd.DataFrame, decision_date: date | None = None) -> float | None:
+def _candidate_known_peers(frame: pd.DataFrame, decision_date: date | None = None) -> pd.DataFrame:
     if decision_date is not None and "latest_date" in frame:
         # Peers observed after the decision date (or undated) are not known
         # evidence and must not move a historical peer reference.
@@ -2522,6 +2616,19 @@ def _candidate_relative_reference(frame: pd.DataFrame, decision_date: date | Non
             lambda value: (parsed := _parse_date(value)) is not None and parsed <= decision_date
         )
         frame = frame.loc[known.astype(bool)]
+    return frame
+
+
+def _candidate_volatility_reference(frame: pd.DataFrame, decision_date: date | None = None) -> float | None:
+    if "volatility_60d_ann" not in frame:
+        return None
+    values = pd.to_numeric(_candidate_known_peers(frame, decision_date)["volatility_60d_ann"], errors="coerce")
+    values = values[values > 0].dropna()
+    return float(values.median()) if not values.empty else None
+
+
+def _candidate_relative_reference(frame: pd.DataFrame, decision_date: date | None = None) -> float | None:
+    frame = _candidate_known_peers(frame, decision_date)
     for column in ("return_6m", "return_12m", "return_3m"):
         if column not in frame:
             continue
@@ -2883,7 +2990,18 @@ def _stock_fundamental_components(
                     else ()
                 ),
             }
-        output.append(replace(base, source_id=part.source_id, source_authority=None, as_of_date=part.as_of, freshness_status=part.freshness, **inputs))
+        bands = {}
+        if base.score_10 is not None and part.band_low is not None and part.band_high is not None:
+            # The publication component score is rounded to one decimal; keep it inside the published band.
+            band_low = min(part.band_low, base.score_10)
+            band_high = max(part.band_high, base.score_10)
+            uncertainty = load_stock_config().get("scoring", {}).get("uncertainty", {})
+            bands = {
+                "band_low": band_low,
+                "band_high": band_high,
+                "label_stable": band_is_label_stable(band_low, band_high, label_boundaries_from(uncertainty)),
+            }
+        output.append(replace(base, source_id=part.source_id, source_authority=None, as_of_date=part.as_of, freshness_status=part.freshness, **inputs, **bands))
     return output
 
 
@@ -3058,6 +3176,10 @@ def _simple_score_date(value: object) -> str | None:
 
 def _optional_score_component(key: str, score_10: object, why: str, *, authority: str) -> SimpleScoreComponent:
     score = _safe_float(score_10)
+    if score is not None and not 0.0 <= score <= 10.0:
+        # An out-of-range candidate value is corrupt input: unavailable, never silently clamped into range.
+        score = None
+        why = f"{why} (value outside the 0-10 range; treated as unavailable)"
     if score is None:
         return SimpleScoreComponent(
             key=key,
@@ -3071,7 +3193,6 @@ def _optional_score_component(key: str, score_10: object, why: str, *, authority
             authority=authority,
             score_role="evidence",
         )
-    score = _clamp_score_10(score)
     raw = _score_10_to_raw(score)
     return SimpleScoreComponent(
         key=key,
@@ -4007,15 +4128,13 @@ def _candidate_trend_raw(row: pd.Series) -> float | None:
     return _weighted_values(parts)
 
 
-def _candidate_risk_raw(row: pd.Series) -> float | None:
+def _candidate_risk_raw(row: pd.Series, volatility_reference: float | None) -> float | None:
+    # Centred, volatility-only (B-08): a candidate at the peer-median volatility scores raw 0 (= 5/10) and drawdown is
+    # not a second term (it tracks volatility, rho ~ -0.79 in the #927 audit). No peer reference -> unavailable.
     vol = _safe_float(row.get("volatility_60d_ann"))
-    drawdown = _safe_float(row.get("current_drawdown"))
-    parts: list[tuple[float, float]] = []
-    if vol is not None:
-        parts.append((_clamp((0.30 - vol) / 0.30), 0.55))
-    if drawdown is not None:
-        parts.append((_clamp((drawdown + 0.25) / 0.25), 0.45))
-    return _weighted_values(parts)
+    if vol is None or vol <= 0 or volatility_reference is None or volatility_reference <= 0:
+        return None
+    return _clamp((volatility_reference - vol) / volatility_reference)
 
 
 def _candidate_relative_strength_raw(row: pd.Series, reference: float | None) -> float | None:
@@ -4043,6 +4162,9 @@ def _candidate_trend_why(row: pd.Series) -> str:
 
 
 def _candidate_risk_why(row: pd.Series) -> str:
+    vol = _safe_float(row.get("volatility_60d_ann"))
+    if vol is None or vol <= 0:
+        return "Unavailable: 60-day annualised volatility must be positive and finite."
     return f"Current drawdown {_fmt_pct(row.get('current_drawdown'))}; 60-day annualised volatility {_fmt_pct(row.get('volatility_60d_ann'))}."
 
 

@@ -37,6 +37,7 @@ from etf_cockpit.models.baseline_models import (
     baseline_forecast,
     observed_history_is_sparse,
 )
+from etf_cockpit.models.local_weights import checkpoint_content_sha
 from etf_cockpit.models.calibration import adjusted_log_return_target, load_forecast_history, target_matches_evaluation, horizon_calibration_scores
 from etf_cockpit.models.forecast_scores import configured_forecast_request_identity as configured_forecast_request_identity, forecast_request_identity
 from etf_cockpit.models.model_promotion import (
@@ -135,6 +136,7 @@ class ForecastService:
         benchmark_id = context.benchmark_data_id if context is not None else None
         benchmark_returns = daily_log_returns(pivot[benchmark_id]).dropna() if benchmark_id in pivot else None
         forecasts: list[ForecastResult] = []
+        origins: dict[str, date] = {}
         request_hash = hashlib.sha256(json.dumps(
             {"request": derived_request_identity, "prices": price_binding, "instruments": sorted(set(etf_ids))},
             sort_keys=True, separators=(",", ":"), default=str,
@@ -156,6 +158,7 @@ class ForecastService:
                     )
                     if not series.dropna().empty:
                         origin = series.dropna().index[-1].date()
+                        origins[etf_id] = origin
                     baseline_rows = baseline_forecast(
                         etf_id, series, horizons, origin, run_id=run_id, benchmark_returns=benchmark_returns,
                     )
@@ -193,6 +196,7 @@ class ForecastService:
             progress_callback("Checking cached Toto forecasts", 3, 4)
         with timed_step("forecasts", "model:toto", run_id=run_id):
             forecasts.extend(_stamp_adjusted_log_return_target(self._run_toto_forecasts(price_frame, etf_ids, horizons, as_of_date, run_id)))
+        forecasts = _align_forecast_origins(forecasts, origins, as_of_date)
         forecasts = self._evidence_gated_forecasts(forecasts, as_of_date, evidence_prices)
         forecasts = _postprocess_forecast_benchmark_fields(
             forecasts,
@@ -424,6 +428,22 @@ def _stamp_adjusted_log_return_target(forecasts: list[ForecastResult]) -> list[F
     ]
 
 
+def _align_forecast_origins(forecasts: list[ForecastResult], origins: Mapping[str, date], as_of_date: date) -> list[ForecastResult]:
+    """Optional-model rows share the baseline's origin: the last observed session, not a weekend or holiday as-of.
+
+    Only rows dated at the requested as-of move, and only back to an earlier observed session of the
+    same instrument; the optional models read exactly the history up to that session.
+    """
+
+    return [
+        replace(forecast, forecast_date=origins[forecast.etf_id])
+        if forecast.model_name != "baseline" and forecast.forecast_date == as_of_date
+        and forecast.etf_id in origins and origins[forecast.etf_id] < as_of_date
+        else forecast
+        for forecast in forecasts
+    ]
+
+
 def _identity_gated_forecast(forecast: ForecastResult, model_settings=None) -> ForecastResult:
     if forecast.status != "ok":
         return forecast  # keep the producer's own, more specific unavailable reason
@@ -431,7 +451,7 @@ def _identity_gated_forecast(forecast: ForecastResult, model_settings=None) -> F
         return _unavailable_forecast(forecast, "Missing, unregistered or mismatched target identity.")
     if forecast.model_name in OPTIONAL_MODELS:
         revision = str(_checkpoint_evidence(forecast.model_name, model_settings)["checkpoint_sha"])
-        if len(revision) != 40 or any(char not in "0123456789abcdefABCDEF" for char in revision):
+        if len(revision) not in (40, 64) or any(char not in "0123456789abcdefABCDEF" for char in revision):
             return _unavailable_forecast(forecast, "Missing or unverifiable immutable checkpoint identity.")
     return forecast
 
@@ -450,6 +470,8 @@ def _forecast_to_row(
     forecast = _identity_gated_forecast(forecast, model_settings)
     data = asdict(forecast)
     data["forecast_date"] = forecast.forecast_date.isoformat()
+    if forecast.model_name in OPTIONAL_MODELS:
+        data.update(_checkpoint_evidence(forecast.model_name, model_settings))
     promotion = _promotion_for_row(forecast, promotions or {})
     if forecast.promotion_status in {COUNTING, NOT_PROVEN} and promotion is not None:
         data.update(_promotion_evidence(forecast, promotion, model_settings))
@@ -461,7 +483,6 @@ def _forecast_to_row(
 
 
 
-_CHECKPOINT_REVISION_KEYS = ("revision", "hf_revision", "model_sha", "checkpoint_sha")
 # Metadata that identifies the checkpoint; paths, devices and timeouts are runtime choices, not identity.
 _CHECKPOINT_CONFIG_KEYS = ("backend", "hf_repo_id", "model_size", "context_length", "use_quantiles", "decode_block_size")
 
@@ -480,14 +501,16 @@ def _declared_model_settings() -> Mapping[str, object]:
 def _checkpoint_evidence(model_name: str, model_settings: Mapping[str, object] | None = None) -> dict[str, object]:
     """Checkpoint SHA, config, licence and cutoff scope of this model alone (a cutoff is never shared).
 
-    The revision and identifying config come from the model's entry in model_settings.yaml; an absent
-    source stays ``unknown`` (SHA) or empty (config), never copied from another checkpoint.
+    The SHA comes from this model's local checkpoint bytes; missing weights stay ``unknown`` and
+    identifying config stays scoped to this model, never copied from another checkpoint.
     """
 
     settings = model_settings if model_settings is not None else _declared_model_settings()
     entry = settings.get(model_name)
     entry = entry if isinstance(entry, Mapping) else {}
-    revision = next((str(entry[key]).strip() for key in _CHECKPOINT_REVISION_KEYS if str(entry.get(key) or "").strip()), None)
+    # A declared repository revision is not proof of the bytes actually loaded; absent local weights
+    # therefore remain unknown and cannot pass the identity gate.
+    revision = checkpoint_content_sha(entry.get("model_path"))
     config = {key: entry[key] for key in _CHECKPOINT_CONFIG_KEYS if entry.get(key) is not None}
     row = checkpoint_provenance(model_name, model_sha=revision, config=config).as_row()
     return {
@@ -899,12 +922,14 @@ def _demote_unadmitted_probabilities(
     heuristic = forecast.heuristic_probability_positive
     if heuristic is None and positive is not None and math.isfinite(positive) and 0.0 <= positive <= 1.0:
         heuristic = positive
+    # Adapters emit their CDF/logistic P(up) only as a heuristic; an admitted scope promotes that value.
+    promoted = positive if positive is not None and math.isfinite(positive) and 0.0 <= positive <= 1.0 else heuristic
     beat = forecast.heuristic_probability_beat_benchmark
     if beat is None and forecast.prob_beat_benchmark is not None and math.isfinite(forecast.prob_beat_benchmark):
         beat = forecast.prob_beat_benchmark
     return replace(
         forecast,
-        prob_positive_return=positive if admitted else None,
+        prob_positive_return=promoted if admitted else None,
         prob_beat_benchmark=None,
         heuristic_probability_positive=None if admitted else heuristic,
         heuristic_probability_beat_benchmark=beat,

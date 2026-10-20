@@ -105,6 +105,7 @@ def test_broker_csv_aliases_stage_as_canonical_transaction(tmp_path: Path) -> No
                 "Trade Date": "2024-01-02T10:00:00Z",
                 "Account Number": "BROKER-A",
                 "Symbol": "SEC-1",
+                "Exchange": "XNAS",
                 "Currency": "USD",
                 "Units": 3,
                 "Price": 100,

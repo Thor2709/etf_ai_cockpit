@@ -27,6 +27,14 @@ def _promotion(**changes):
     return replace(decision, **changes)
 
 
+def _checkpoint_settings(tmp_path, model_name="timesfm3"):
+    checkpoint = tmp_path / f"{model_name}-checkpoint"
+    checkpoint.mkdir(exist_ok=True)
+    (checkpoint / "config.json").write_text("{}", encoding="utf-8")
+    (checkpoint / "model.safetensors").write_bytes(b"verified fixture weights")
+    return {model_name: {"model_path": str(checkpoint)}}
+
+
 @pytest.mark.parametrize("enabled", [False, True])
 @pytest.mark.parametrize("shadow", [False, True])
 def test_enabled_and_shadow_flags_fail_closed(tmp_path, monkeypatch, enabled, shadow):
@@ -37,7 +45,7 @@ def test_enabled_and_shadow_flags_fail_closed(tmp_path, monkeypatch, enabled, sh
     config = _config_with_optional_models_disabled(load_config())
     config.models.promotion.enabled = enabled
     config.models.shadow_optional_models = shadow
-    config.models.models["timesfm3"] = {**dict(config.models.models.get("timesfm3") or {}), "revision": "a" * 40}
+    config.models.models["timesfm3"] = {**dict(config.models.models.get("timesfm3") or {}), **_checkpoint_settings(tmp_path)["timesfm3"]}
     # Calibration-evidence sufficiency has its own tests (test_forecast_honesty); this one covers the flags.
     monkeypatch.setattr("etf_cockpit.application.forecast_service.horizon_calibration_scores", lambda frame: pd.DataFrame({"status": ["ok"]}))
     prices = load_prices()
@@ -123,9 +131,9 @@ def test_promotion_grants_only_its_evidence_horizon(horizon):
     assert row.calibration_horizon_days == (60 if horizon == 60 else None)
 
 
-def test_promoted_row_has_canonical_horizon_validation():
+def test_promoted_row_has_canonical_horizon_validation(tmp_path):
     row = _apply_promotion(_row(q10_return=-0.1, q50_return=0.02, q90_return=0.1), {"timesfm3": _promotion()}, False)
-    stored = _forecast_to_row(row, {"timesfm3": _promotion()}, {"timesfm3": {"revision": "a" * 40}})
+    stored = _forecast_to_row(row, {"timesfm3": _promotion()}, _checkpoint_settings(tmp_path))
     assert stored["promotion_status"] == COUNTING
     assert stored["calibration_status"] in {"good", "mixed", "weak", "limited"}
     assert stored["calibration_horizon_days"] == 60

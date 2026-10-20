@@ -119,10 +119,13 @@ def test_missing_input_stays_unavailable_not_zero() -> None:
     assert ev.components["stock_quality"].used_count < ev.components["stock_quality"].input_count
 
 
-def test_legacy_callers_without_cohorts_are_labelled_absolute_unadjusted() -> None:
+def test_legacy_callers_without_cohorts_fail_closed_for_noisy_inputs() -> None:
     ev = _evidence(None)
     roe = _sub(ev, "stock_quality", "roe")
-    assert roe.score is not None and roe.cohort_level == "absolute_unadjusted"
+    assert roe.score is None and roe.cohort_level is None
+    assert "cohort median" in (roe.reason or "")
+    leverage = _sub(ev, "stock_quality", "net_debt_to_ebitda")
+    assert leverage.score is not None and leverage.cohort_level == "absolute_unadjusted"
 
 
 def test_pe_vs_peers_uses_the_widened_cohort_and_lower_pe_is_cheaper() -> None:
@@ -179,4 +182,6 @@ def test_universe_build_scores_inputs_inside_the_sector_cohort(monkeypatch: pyte
     top = _sub(universe.evidence["S4"], "stock_quality", "ebit_margin")
     bottom = _sub(universe.evidence["S1"], "stock_quality", "ebit_margin")
     assert top.cohort_level == "sector" and top.peer_count == 3
-    assert top.score == 10.0 and bottom.score == 0.0
+    # #SHR: 4 annual observations are shrunk (w = 4 / 8) toward the cohort median, so the bottom stock is pulled off 0.0
+    assert top.score == 10.0 and bottom.score is not None and 0.0 <= bottom.score < 5.0
+    assert bottom.shrunk_value is not None and bottom.raw_value is not None and bottom.shrunk_value > bottom.raw_value
