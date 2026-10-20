@@ -224,7 +224,7 @@ def test_valuation_scenarios_reconcile_and_are_monotonic() -> None:
         },
     }
 
-    result = valuation_analysis(_statements(), instrument_id="ACME", market_inputs=market, assumptions=assumptions)
+    result = valuation_analysis(_statements(), instrument_id="ACME", market_inputs=market, assumptions=assumptions, strict_comparability=False)
 
     assert result["relative_metrics"]["ev_to_sales"]["value"] == 318.0 / 120.0
     scenarios = result["intrinsic_value"]["scenarios"]
@@ -237,7 +237,7 @@ def test_valuation_scenarios_reconcile_and_are_monotonic() -> None:
 def test_valuation_fails_closed_when_cash_flow_inputs_are_unavailable() -> None:
     frame = _statements()
     frame = frame[~frame["canonical_metric"].isin(["free_cash_flow", "equity", "net_income"])]
-    result = valuation_analysis(frame, instrument_id="ACME", market_inputs={"market_cap": 100.0}, assumptions={})
+    result = valuation_analysis(frame, instrument_id="ACME", market_inputs={"market_cap": 100.0}, assumptions={}, strict_comparability=False)
 
     assert result["intrinsic_value"]["status"] == "unavailable"
     assert result["intrinsic_value"]["confidence"] == "low"
@@ -335,6 +335,7 @@ def test_valuation_reverse_dcf_out_of_bound_target_is_unavailable() -> None:
         instrument_id="ACME",
         market_inputs={"market_cap": 1e100, "net_debt": 18.0},
         assumptions={"forecast_years": 5, "discount_rate": 0.10, "terminal_growth": 0.02},
+        strict_comparability=False,
     )
 
     assert result["reverse_dcf"]["status"] == "unavailable"

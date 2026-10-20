@@ -8,6 +8,7 @@ import pytest
 
 from etf_cockpit.features.training_centre import LocalTrainingRegistry, TrainingRegistryError
 from etf_cockpit.validation.protocol import ValidationSpec, evaluate_trials
+from tests.test_bug_mr1_promotion import approve_bound
 
 
 def _hash(value: str) -> str:
@@ -71,7 +72,9 @@ def test_artefact_integrity_and_approval_gated_promotion(tmp_path: Path) -> None
     model_path.write_text('{"model":"baseline"}', encoding="utf-8")
     with pytest.raises(TrainingRegistryError, match="approved"):
         registry.promote_model(str(model["model_id"]), "challenger")
-    approved = registry.approve_model(str(model["model_id"]), reviewer="analyst", evaluation={"walk_forward": "passed"})
+    with pytest.raises(TrainingRegistryError, match="eligible validation report"):
+        registry.approve_model(str(model["model_id"]), reviewer="analyst", evaluation={"walk_forward": "passed"})
+    approved = approve_bound(registry, model)
     promoted = registry.promote_model(str(approved["model_id"]), "challenger")
     assert promoted["aliases"] == ["challenger"]
     reapproved = registry.approve_model(

@@ -29,7 +29,7 @@ def _visible(known_at: object, decision_time: object) -> bool:
     # A point-in-time decision cannot safely use an event whose knowledge
     # timestamp is absent or malformed.  Unknown knowledge is only acceptable
     # when the caller did not request a point-in-time view.
-    return decision is None or (known is not None and known <= decision)
+    return decision_time is None or (decision is not None and known is not None and known <= decision)
 
 
 def _state_mapping(state: ECClaimState | Mapping[str, object] | None) -> dict[str, object]:
@@ -52,18 +52,18 @@ def conversion_event(
 ) -> Mapping[str, object]:
     pre = _state_mapping(pre_state)
     old_count = _number(pre.get("outstanding_ec_count", pre.get("registered_ec_count")))
-    converted = _number(converted_ec_count if converted_ec_count is not None else converted_capital)
+    converted = _number(converted_ec_count)
     foundation = _number(foundation_ec_count) if foundation_ec_count is not None else converted
     post_count = old_count + foundation if old_count is not None and foundation is not None else None
     owner_weight = _number(pre.get("reconstructed_eierbrok", pre.get("reported_eierbrok")))
     owner_pool = _number(pre.get("owner_pool_total"))
     self_pool = _number(pre.get("self_owned_pool_total"))
-    capital = _number(converted_capital) if converted_capital is not None else converted
+    capital = _number(converted_capital)
     post_claim = ((owner_pool + capital) / (owner_pool + self_pool)
                   if None not in (owner_pool, capital, self_pool) and owner_pool + self_pool and self_pool >= capital else
-                  (old_count / post_count if old_count is not None and post_count else None))
+                  None)
     return {
-        "event_type": "conversion", "status": "resolved" if converted is not None else "partial", "effective_at": effective_at, "known_at": known_at, "source_id": source_id,
+        "event_type": "conversion", "status": "resolved" if converted is not None and post_claim is not None else "partial", "effective_at": effective_at, "known_at": known_at, "source_id": source_id,
         "pre_state": pre, "post_state": {**pre, "outstanding_ec_count": post_count, "registered_ec_count": post_count, "foundation_ec_count": foundation, "reported_eierbrok": post_claim, "reconstructed_eierbrok": post_claim},
         "allocation_weight_old_holders": owner_weight, "book_per_old_ec_change": 0.0, "eps_per_old_ec_change": 0.0,
         "recipient_ledger": ({"recipient": "foundation", "quantity": foundation, "cash": 0.0}, {"recipient": "legacy_private_ec_holders", "quantity": old_count, "cash": 0.0}, {"recipient": "bank", "capital": 0.0}),
@@ -111,11 +111,20 @@ def primary_issue_event(
     unknown = () if premium_allocation is not None else ("premium_allocation",)
     foundation = _number(foundation_quantity)
     external = _number(external_quantity)
-    return {"event_type": "primary_issue", "status": status, "effective_at": effective_at, "known_at": known_at, "source_id": source_id, "quantity": qty, "price": px, "cash_to_bank": gross, "capital_increase": gross, "premium_allocation": premium_allocation if premium_allocation is not None else UNAVAILABLE, "unknown_fields": unknown, "recipient_ledger": ({"recipient": "bank", "cash": gross}, {"recipient": "foundation", "quantity": foundation}, {"recipient": "external_ec_holders", "quantity": external}), "issued_quantity_reconciles": None not in (foundation, external, qty) and math.isclose(foundation + external, qty), "execution_allowed": False}
+    reconciles = (None not in (foundation, external, qty) and qty > 0 and foundation >= 0 and external >= 0
+                  and math.isclose(foundation + external, qty, rel_tol=0.0, abs_tol=1e-9))
+    if not reconciles:
+        status = "partial"
+        unknown = (*unknown, "recipient_quantities")
+    return {"event_type": "primary_issue", "status": status, "effective_at": effective_at, "known_at": known_at, "source_id": source_id, "quantity": qty, "price": px, "cash_to_bank": gross, "capital_increase": gross, "premium_allocation": premium_allocation if premium_allocation is not None else UNAVAILABLE, "unknown_fields": unknown, "recipient_ledger": ({"recipient": "bank", "cash": gross}, {"recipient": "foundation", "quantity": foundation}, {"recipient": "external_ec_holders", "quantity": external}), "issued_quantity_reconciles": reconciles, "execution_allowed": False}
 
 
 def rights_issue(old_shares: float, book_value: float, subscription_price: float, *, rights_ratio: float = 0.5, cum_price: float | None = None) -> Mapping[str, object]:
     old, book, strike, cum = map(_number, (old_shares, book_value, subscription_price, cum_price))
+    rights_ratio = _number(rights_ratio)
+    if rights_ratio is None or rights_ratio <= 0:
+        return {"status": "unavailable", "reason_code": "INVALID_RIGHTS_RATIO", "terp": None,
+                "new_shares": None, "right_value": None, "book_value_per_share_after": None}
     new = old * rights_ratio if old is not None else None
     total = old + new if None not in (old, new) else None
     terp = (old * cum + new * strike) / total if None not in (old, cum, new, strike, total) and total else None
@@ -181,49 +190,74 @@ def merger_bridge(
     allocation_weight = allocation_weight if allocation_weight is not None else _number(aliases.get("allocation"))
     legacy_ec_count = legacy_ec_count if legacy_ec_count is not None else _number(aliases.get("legacy_count"))
     discount_rate = discount_rate if discount_rate is not None else _number(aliases.get("discount"))
+    # Explicit per-EC increments are already allocated. Total-NOK flows need
+    # both an evidenced allocation and the legacy certificate denominator.
     standalone = _number(standalone_per_ec)
     gross, recurring, lost = map(_number, (gross_benefit, recurring_added_capability, lost_customer_contribution))
-    integration_costs = tuple(integration_costs)
-    costs = all_finite_or_none(integration_costs)
-    ramp: tuple[float, ...] | None
-    if implementation_ramp is None:
-        ramp = None
-    elif isinstance(implementation_ramp, (int, float)):
-        ramp = (_number(implementation_ramp),)
-    else:
-        ramp = tuple(_number(item) for item in implementation_ramp)
-    if ramp is not None and any(item is None for item in ramp):
-        ramp = None
-    if costs is None or (tax_rate is not None and not 0 <= tax_rate < 1):
-        return {"status": "unavailable", "reason_code": "INVALID_MERGER_INPUT", "credible_standalone": standalone, "integration_costs": integration_costs, "tax_rate": tax_rate, "maturity": "unresolved"}
-    annual = None
-    if None not in (gross, recurring, lost, tax_rate):
-        annual = (gross + recurring - lost - sum(costs)) * (1 - tax_rate)
-    allocated = annual
-    if allocated is not None and allocation_weight is not None:
-        weight = _number(allocation_weight)
-        allocated = allocated * weight if weight is not None else None
-    if allocated is not None and legacy_ec_count is not None:
-        count = _number(legacy_ec_count)
-        allocated = allocated / count if count not in (None, 0) else None
-    if per_ec_increment is None and allocated is not None:
-        per_ec_increment = allocated
-    discounted = None
-    if per_ec_increment is not None:
-        if ramp:
-            cashflows = tuple(per_ec_increment * factor for factor in ramp)
-        else:
-            years = int(duration_years) if isinstance(duration_years, int) and duration_years > 0 else 1
-            cashflows = (per_ec_increment,) * years
-        if discount_rate is not None:
-            rate = _number(discount_rate)
-            discounted = (sum(value / (1 + rate) ** index for index, value in enumerate(cashflows, 1))
-                          if rate is not None and rate > -1 else None)
-        else:
-            discounted = sum(cashflows)
-    value_increment = discounted if discount_rate is not None else per_ec_increment
-    value = standalone + value_increment if None not in (standalone, value_increment) else None
-    return {"status": "resolved" if value is not None else "partial", "credible_standalone": standalone, "gross_benefit": gross, "implementation_ramp": implementation_path if implementation_ramp is None else ramp, "ramp_factors": ramp, "gross_benefit_after_tax": annual, "taxed_increment_per_legacy_ec": annual, "allocated_increment": allocated, "allocated_increment_per_legacy_ec": allocated, "discounted_increment": discounted, "discounted_increment_per_legacy_ec": discounted, "recurring_added_capability": recurring, "lost_customer_contribution": lost, "integration_costs": costs, "tax_rate": tax_rate, "duration_years": duration_years, "allocation_weight": _number(allocation_weight), "legacy_ec_count": _number(legacy_ec_count), "discount_rate": _number(discount_rate), "increment_per_legacy_ec": per_ec_increment, "value_per_legacy_ec": value, "capital_release": capital_release if capital_release is not None else UNAVAILABLE, "maturity": "unresolved"}
+    weight, count, rate = map(_number, (allocation_weight, legacy_ec_count, discount_rate))
+    explicit = per_ec_increment is not None
+    increment = _number(per_ec_increment)
+    try:
+        integration_costs = tuple(integration_costs)
+        costs = all_finite_or_none(integration_costs)
+        ramp = ((_number(implementation_ramp),) if isinstance(implementation_ramp, (int, float))
+                else tuple(_number(item) for item in implementation_ramp)) if implementation_ramp is not None else None
+    except (TypeError, ValueError, OverflowError):
+        costs, ramp = None, None
+    years = duration_years if duration_years is not None else (len(ramp) if ramp else 1)
+    reason = None
+    if (costs is None or any(cost < 0 for cost in costs)
+            or (tax_rate is not None and not 0 <= tax_rate < 1)
+            or (explicit and increment is None)
+            or (allocation_weight is not None and (weight is None or not 0 <= weight <= 1))
+            or (legacy_ec_count is not None and (count is None or count <= 0))
+            or not isinstance(years, int) or isinstance(years, bool) or years <= 0
+            or (implementation_ramp is not None and (not ramp or any(f is None or f < 0 for f in ramp)))
+            or (ramp is not None and len(ramp) not in (1, years))
+            or (discount_rate is not None and (rate is None or rate < 0))):
+        reason = "INVALID_MERGER_INPUT"
+    elif not explicit and (weight is None or count is None):
+        reason = "MERGER_ALLOCATION_OR_LEGACY_COUNT_MISSING"
+    elif years > 1 and rate is None:
+        reason = "MERGER_DISCOUNT_RATE_MISSING"
+    elif standalone is None or (not explicit and None in (gross, recurring, lost, tax_rate)):
+        reason = "MERGER_ECONOMIC_EVIDENCE_MISSING"
+    annual = (gross + recurring - lost) * (1 - tax_rate) if None not in (gross, recurring, lost, tax_rate) else None
+    allocated = annual * weight / count if annual is not None and weight is not None and count is not None and count > 0 else None
+    discounted = value = None
+    if reason is None:
+        factors = ramp * years if ramp is not None and len(ramp) == 1 else ramp or (1.0,) * years
+        base = increment if explicit else allocated
+        flows = tuple(
+            # No timing is supplied for individual cost components: charge
+            # the entire one-off amount in year one, without ramping it away.
+            base * factor - ((sum(costs) * (1 - tax_rate) * weight / count)
+                             if not explicit and index == 0 else 0.0)
+            for index, factor in enumerate(factors)
+        )
+        increment = flows[0] if not explicit else increment
+        discounted = sum(flow / (1 + (rate or 0.0)) ** year for year, flow in enumerate(flows, 1))
+        value = standalone + discounted
+        if not all(math.isfinite(item) for item in (increment, discounted, value)):
+            reason = "INVALID_MERGER_INPUT"
+            increment = discounted = value = None
+    if reason is not None:
+        allocated = increment = discounted = value = None
+    return {
+        "status": "resolved" if value is not None else "unavailable", "reason_code": reason,
+        "credible_standalone": standalone, "gross_benefit": gross,
+        "implementation_ramp": implementation_path if implementation_ramp is None else ramp, "ramp_factors": ramp,
+        "gross_benefit_after_tax": annual, "taxed_increment_per_legacy_ec": allocated,
+        "allocated_increment": allocated, "allocated_increment_per_legacy_ec": allocated,
+        "discounted_increment": discounted, "discounted_increment_per_legacy_ec": discounted,
+        "recurring_added_capability": recurring, "lost_customer_contribution": lost,
+        "integration_costs": costs, "tax_rate": tax_rate, "duration_years": duration_years,
+        "allocation_weight": weight, "legacy_ec_count": count, "discount_rate": rate,
+        "increment_per_legacy_ec": increment, "value_per_legacy_ec": value,
+        "capital_release": capital_release if capital_release is not None else UNAVAILABLE,
+        "maturity": "unresolved", "execution_allowed": False,
+    }
+
 
 
 def analyse_events(events: Iterable[Mapping[str, object]] = (), *, decision_time: str | None = None) -> SparebankEventAnalysis:
@@ -251,6 +285,25 @@ def analyse_events(events: Iterable[Mapping[str, object]] = (), *, decision_time
         elif event_type == "merger":
             item = dict(merger_bridge(item.get("standalone_per_ec", item.get("standalone")), gross_benefit=item.get("gross_benefit"), recurring_added_capability=item.get("recurring_added_capability"), lost_customer_contribution=item.get("lost_customer_contribution"), integration_costs=item.get("integration_costs", ()), tax_rate=item.get("tax_rate"), duration_years=item.get("duration_years"), implementation_path=item.get("implementation_path"), per_ec_increment=item.get("per_ec_increment"), capital_release=item.get("capital_release"), implementation_ramp=item.get("implementation_ramp"), allocation_weight=item.get("allocation_weight"), legacy_ec_count=item.get("legacy_ec_count"), discount_rate=item.get("discount_rate")))
             item.update(event_type="merger", known_at=event.get("known_at"), effective_at=event.get("effective_at"), legal_completion=event.get("legal_completion"), economic_maturity=event.get("economic_maturity"), source_id=event.get("source_id"))
+            # Keep the original claimant and the event-store consideration
+            # contract through dispatch, independently of synergy valuation.
+            terms = event.get("terms", event)
+            if isinstance(terms, Mapping):
+                names = ("successor_instrument_id", "successor_ec_per_legacy_ec", "cash_per_legacy_ec")
+                consideration = {name: terms[name] for name in names if name in terms}
+                if consideration:
+                    item["terms"] = dict(terms) if "terms" in event else consideration
+                    ratio = _number(consideration.get("successor_ec_per_legacy_ec"))
+                    cash = _number(consideration.get("cash_per_legacy_ec"))
+                    if (not consideration.get("successor_instrument_id") or ratio is None or ratio <= 0
+                            or cash is None or cash < 0):
+                        item.update(status="unavailable", reason_code="MERGER_CONSIDERATION_INVALID", value_per_legacy_ec=None)
+                    else:
+                        claimant = {"instrument_id": event["instrument_id"]} if "instrument_id" in event else {}
+                        item["recipient_ledger"] = ({"recipient": "legacy_ec_holders", **claimant, **consideration},)
+            for identity in ("instrument_id", "bank_entity", "listing_id"):
+                if identity in event:
+                    item[identity] = event[identity]
         if event_type not in SUPPORTED_EVENTS:
             item.update(status="UNSUPPORTED_EVENT", unknown_fields=("event_type",))
         if item.get("event_type") == "merger" and item.get("legal_completion") and not item.get("economic_maturity"):

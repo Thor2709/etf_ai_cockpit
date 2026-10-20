@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 from typing import Literal, Mapping
@@ -435,6 +436,61 @@ def current_authority_policy_checksum() -> str:
     return checksum
 
 
+def map_opportunity_decision_state(
+    decision_state: str,
+    *,
+    expected_net_excess_return: float,
+    uncertainty_hurdle: float,
+    hysteresis_band: float,
+    held: bool,
+    cost_basis: float | None,
+    mark_price: float | None,
+    friction: float | None,
+) -> tuple[str, str]:
+    """Map a near-hurdle held-position decision using portfolio cost basis and friction.
+
+    This is a state mapping only. It cannot create a proposal or execution authority.
+    Missing or invalid held-position inputs fail closed as ``SOURCE_UNAVAILABLE``.
+    """
+
+    if not held:
+        return decision_state, "POSITION_NOT_HELD"
+    values = (expected_net_excess_return, uncertainty_hurdle, hysteresis_band)
+    if any(isinstance(value, bool) or not math.isfinite(value) for value in values):
+        return "SOURCE_UNAVAILABLE", "HELD_POSITION_DECISION_INPUT_INVALID"
+    if (
+        cost_basis is None
+        or mark_price is None
+        or friction is None
+        or any(
+            isinstance(value, bool) or not math.isfinite(value)
+            for value in (cost_basis, mark_price, friction)
+        )
+        or cost_basis <= 0.0
+        or mark_price <= 0.0
+        or not 0.0 <= friction < 1.0
+        or uncertainty_hurdle < 0.0
+        or hysteresis_band < 0.0
+    ):
+        return "SOURCE_UNAVAILABLE", "HELD_POSITION_COST_BASIS_OR_FRICTION_UNAVAILABLE"
+
+    position_return_after_friction = mark_price / cost_basis - 1.0 - friction
+    near_hurdle = abs(expected_net_excess_return - uncertainty_hurdle) <= max(
+        hysteresis_band, friction
+    )
+    if (
+        near_hurdle
+        and position_return_after_friction <= uncertainty_hurdle
+        and decision_state in {
+            "CANDIDATE_BUY",
+            "POSITIVE_BUT_INSUFFICIENT_MARGIN",
+            "HOLD_NO_TRADE",
+        }
+    ):
+        return "HOLD_NO_TRADE", "HELD_POSITION_NEAR_HURDLE_AFTER_COST_BASIS_FRICTION"
+    return decision_state, "HELD_POSITION_STATE_RETAINED"
+
+
 def _resolve_authority(
     request: ProposalRequest,
 ) -> tuple[str, tuple[AuthorityStage, AuthorityStage, AuthorityStage], float | None, tuple[str, ...]]:
@@ -538,5 +594,6 @@ __all__ = [
     "build_proposal_decision",
     "current_authority_policy_checksum",
     "load_proposal_records",
+    "map_opportunity_decision_state",
     "save_proposal_decision",
 ]

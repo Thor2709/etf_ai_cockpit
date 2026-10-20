@@ -6,7 +6,6 @@
     "momentum": 0.2,
     "trend": 0.15,
     "risk": 0.1,
-    "rebalance": 0.1,
     "relative_strength": 0.1,
     "toto": 0.15,
     "timesfm": 0.1,
@@ -16,57 +15,53 @@
    "combinations": {
     "toto=True,timesfm=True": {
      "weights": {
-      "momentum": 0.2,
-      "trend": 0.15,
-      "risk": 0.1,
-      "rebalance": 0.1,
-      "relative_strength": 0.1,
-      "toto": 0.15,
-      "timesfm": 0.1,
-      "baseline_ml": 0.05,
-      "chatgpt_thesis": 0.05
+      "momentum": 0.22222222222222224,
+      "trend": 0.16666666666666666,
+      "risk": 0.11111111111111112,
+      "relative_strength": 0.11111111111111112,
+      "toto": 0.16666666666666666,
+      "timesfm": 0.11111111111111112,
+      "baseline_ml": 0.05555555555555556,
+      "chatgpt_thesis": 0.05555555555555556
      },
      "non_penalty_sum": 1.0
     },
     "toto=True,timesfm=False": {
      "weights": {
-      "momentum": 0.25,
-      "trend": 0.15,
-      "risk": 0.1,
-      "rebalance": 0.1,
-      "relative_strength": 0.1,
-      "toto": 0.15,
+      "momentum": 0.2777777777777778,
+      "trend": 0.16666666666666666,
+      "risk": 0.11111111111111112,
+      "relative_strength": 0.11111111111111112,
+      "toto": 0.16666666666666666,
       "timesfm": 0.0,
-      "baseline_ml": 0.1,
-      "chatgpt_thesis": 0.05
+      "baseline_ml": 0.11111111111111112,
+      "chatgpt_thesis": 0.05555555555555556
      },
      "non_penalty_sum": 1.0
     },
     "toto=False,timesfm=True": {
      "weights": {
-      "momentum": 0.2705,
-      "trend": 0.1905,
-      "risk": 0.1,
-      "rebalance": 0.1,
-      "relative_strength": 0.1,
+      "momentum": 0.3005555555555556,
+      "trend": 0.21166666666666667,
+      "risk": 0.11111111111111112,
+      "relative_strength": 0.11111111111111112,
       "toto": 0.0,
-      "timesfm": 0.1,
-      "baseline_ml": 0.089,
-      "chatgpt_thesis": 0.05
+      "timesfm": 0.11111111111111112,
+      "baseline_ml": 0.09888888888888889,
+      "chatgpt_thesis": 0.05555555555555556
      },
      "non_penalty_sum": 1.0
     },
     "toto=False,timesfm=False": {
      "weights": {
-      "momentum": 0.3205,
-      "trend": 0.1905,
-      "risk": 0.1,
-      "rebalance": 0.1,
-      "relative_strength": 0.1,
+      "momentum": 0.3561111111111111,
+      "trend": 0.21166666666666667,
+      "risk": 0.11111111111111112,
+      "relative_strength": 0.11111111111111112,
       "toto": 0.0,
       "timesfm": 0.0,
-      "baseline_ml": 0.139,
-      "chatgpt_thesis": 0.05
+      "baseline_ml": 0.15444444444444447,
+      "chatgpt_thesis": 0.05555555555555556
      },
      "non_penalty_sum": 1.0
     }

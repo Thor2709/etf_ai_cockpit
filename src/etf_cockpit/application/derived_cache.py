@@ -341,11 +341,14 @@ def _feature_cache_binding(
     prices: pd.DataFrame,
     *,
     calculation_window: Mapping[str, str],
+    fx_binding: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    """Extra identity of the feature cache: algorithm version and the volume column.
+    """Extra identity of the feature cache: algorithm version, the volume column and the FX series.
 
     The adjusted-price checksum covers prices only, but the liquidity features also read the
-    volume, so a volume revision or a formula change must invalidate the cached features.
+    volume, so a volume revision or a formula change must invalidate the cached features. The
+    price features are on an EUR basis, so ``fx_binding`` (currency basis plus the FX series
+    checksum) is part of the identity: an FX revision invalidates the cached features.
     """
 
     volume = "unavailable"
@@ -358,7 +361,11 @@ def _feature_cache_binding(
         frame = frame.sort_values(["etf_id", "date", "volume"], kind="stable", na_position="last")
         encoded = json.dumps(frame.to_dict(orient="records"), sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
         volume = hashlib.sha256(encoded).hexdigest()
-    return {"feature_algorithm_version": FEATURE_ALGORITHM_VERSION, "volume_snapshot_checksum": volume}
+    binding: dict[str, object] = {"feature_algorithm_version": FEATURE_ALGORITHM_VERSION, "volume_snapshot_checksum": volume}
+    if fx_binding is not None:
+        binding["currency_basis"] = str(fx_binding.get("currency_basis"))
+        binding["fx_snapshot_checksum"] = str(fx_binding.get("fx_snapshot_checksum"))
+    return binding
 
 
 def _price_snapshot_binding(

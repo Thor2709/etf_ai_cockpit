@@ -290,7 +290,10 @@ def _ownership_share(facts: Mapping[str, object]) -> float | None:
     return reconstruct_eierbrok(owner, own)
 
 
-def with_derived_owner_earnings(ec_facts: Mapping[str, object], statements: Mapping[str, object] | None) -> dict[str, object]:
+def with_derived_owner_earnings(
+    ec_facts: Mapping[str, object], statements: Mapping[str, object] | None,
+    *, effective_at: str | None = None,
+) -> dict[str, object]:
     """Fill a missing EC-attributable result and EC count from the filing, each labelled ``derived``.
 
     EC result (only when the facts carry none):
@@ -309,6 +312,16 @@ def with_derived_owner_earnings(ec_facts: Mapping[str, object], statements: Mapp
         return facts
     template = next((item for item in facts.values() if isinstance(item, Mapping) and item.get("known_at")), {})
     period = statements.get("period_end")  # type: ignore[union-attr]
+    # Do not combine a later statement's earnings/EPS with an older EC book.
+    book_periods = []
+    for name in ("ec_capital", "overkursfond", "utjevningsfond", "owner_attributable_book", "ec_attributable_result"):
+        item = facts.get(name)
+        if not isinstance(item, Mapping) or _available(facts, name) is None:
+            continue
+        book_periods.append(_date(item.get("period") or item.get("effective_at") or effective_at))
+    target = _date(period)
+    if target is None or not book_periods or any(item is None or item != target for item in book_periods):
+        return facts
 
     def derived(value: float, unit: str, locator: str) -> dict[str, object]:
         return {
@@ -326,7 +339,7 @@ def with_derived_owner_earnings(ec_facts: Mapping[str, object], statements: Mapp
         if owners is not None and ownerless is not None and share is not None and owners + ownerless > 0 and abs(owners / (owners + ownerless) - share) <= 0.02:
             result = owners
             locator = f"derived: profit attributable to owners of the parent; the issuer tags the ownerless share ({ownerless:,.0f}) separately and the split {owners / (owners + ownerless):.4f} matches the ownership fraction {share:.4f}"
-        else:
+        elif ownerless is None:
             profit = owners if owners is not None else _number(current.get("net_profit"))
             if profit is not None and share is not None and 0.0 < share <= 1.0:
                 result = profit * share

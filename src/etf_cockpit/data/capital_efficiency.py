@@ -7,6 +7,7 @@ The module produces evidence and assumption exports, never a score or action.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import date
 import math
 
@@ -52,6 +53,98 @@ _ALIASES = {
 }
 
 
+@dataclass(frozen=True)
+class CostOfCapitalLedger:
+    """One immutable cost-of-capital assumption ledger shared by the economic spread and the valuation.
+
+    ``basis`` is ``observed`` only when the risk-free rate, equity risk premium and beta each name a source;
+    otherwise the rates are a ``scenario`` and a k_e/WACC sensitivity grid must be shown with them.
+    """
+
+    risk_free_rate: float | None = None
+    equity_risk_premium: float | None = None
+    beta: float | None = None
+    beta_source: str = ""
+    risk_free_source: str = ""
+    equity_risk_premium_source: str = ""
+    cost_of_equity: float | None = None
+    wacc: float | None = None
+    basis: str = "scenario"
+    conflicts: tuple[str, ...] = field(default_factory=tuple)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "risk_free_rate": self.risk_free_rate,
+            "equity_risk_premium": self.equity_risk_premium,
+            "beta": self.beta,
+            "beta_source": self.beta_source,
+            "risk_free_source": self.risk_free_source,
+            "equity_risk_premium_source": self.equity_risk_premium_source,
+            "cost_of_equity": self.cost_of_equity,
+            "wacc": self.wacc,
+            "basis": self.basis,
+            "conflicts": list(self.conflicts),
+            "immutable": True,
+            "execution_allowed": False,
+        }
+
+
+def build_cost_of_capital_ledger(assumptions: Mapping[str, object] | None) -> CostOfCapitalLedger:
+    """Build the shared ledger from assumptions; conflicting WACC aliases leave WACC unavailable (never averaged)."""
+
+    raw = assumptions or {}
+    risk_free = _float(raw.get("risk_free_rate"))
+    premium = _float(raw.get("equity_risk_premium"))
+    beta = _float(raw.get("beta"))
+    cost_of_equity = _float(raw.get("cost_of_equity"))
+    sources = {name: str(raw.get(name) or "").strip() for name in ("risk_free_source", "equity_risk_premium_source", "beta_source")}
+    if cost_of_equity is None and None not in (risk_free, premium, beta):
+        cost_of_equity = risk_free + beta * premium  # CAPM
+    wacc_values = {name: _float(raw.get(name)) for name in ("wacc", "cost_of_capital", "discount_rate")}
+    present = {name: value for name, value in wacc_values.items() if value is not None}
+    conflicts: list[str] = []
+    wacc = None
+    if present:
+        if len({round(value, 12) for value in present.values()}) > 1:
+            conflicts.append("wacc aliases disagree: " + ", ".join(f"{name}={value}" for name, value in sorted(present.items())))
+        else:
+            wacc = present.get("wacc", present.get("cost_of_capital", present.get("discount_rate")))
+    observed = (
+        None not in (risk_free, premium, beta)
+        and all(sources.values())
+        and cost_of_equity is not None
+    )
+    return CostOfCapitalLedger(
+        risk_free_rate=risk_free,
+        equity_risk_premium=premium,
+        beta=beta,
+        beta_source=sources["beta_source"],
+        risk_free_source=sources["risk_free_source"],
+        equity_risk_premium_source=sources["equity_risk_premium_source"],
+        cost_of_equity=cost_of_equity,
+        wacc=wacc,
+        basis="observed" if observed else "scenario",
+        conflicts=tuple(conflicts),
+    )
+
+
+def cost_of_capital_sensitivity_grid(
+    ledger: CostOfCapitalLedger, steps: tuple[float, ...] = (-0.01, 0.0, 0.01)
+) -> dict[str, object]:
+    """k_e / WACC grid around the ledger rates; shown whenever the ledger is only a scenario."""
+
+    if ledger.basis == "observed":
+        return {"status": "not_required", "reason": "Cost-of-capital inputs are observed and sourced.", "cells": [], "execution_allowed": False}
+    if ledger.cost_of_equity is None or ledger.wacc is None:
+        return {"status": "unavailable", "reason": "Both a cost of equity and a WACC are required for the k_e/WACC grid.", "cells": [], "execution_allowed": False}
+    cells = [
+        {"cost_of_equity": ledger.cost_of_equity + ke_step, "wacc": ledger.wacc + wacc_step}
+        for ke_step in steps
+        for wacc_step in steps
+    ]
+    return {"status": "available", "label": "scenario", "cells": cells, "execution_allowed": False}
+
+
 def capital_efficiency_analysis(
     statements: pd.DataFrame,
     *,
@@ -64,13 +157,15 @@ def capital_efficiency_analysis(
     profitability_output: Mapping[str, object] | None = None,
     strict_comparability: bool = False,
     as_known_at: str | date | None = None,
+    cost_of_capital_ledger: CostOfCapitalLedger | None = None,
 ) -> dict[str, object]:
     """Calculate source-linked reported and optional adjusted evidence."""
 
     frame = _canonical_frame(statements, instrument_id, as_known_at)
     inferred_tax = _reported_tax_rate(frame)
     tax = _rate(tax_rate if tax_rate is not None else inferred_tax)
-    capital_cost = _rate(cost_of_capital)
+    # A supplied ledger is the only source: a conflicting legacy argument leaves the ledger WACC unavailable, never overrides it.
+    capital_cost = _rate(cost_of_capital_ledger.wacc if cost_of_capital_ledger is not None else cost_of_capital)
     special_sector = sector.casefold() in _SPECIAL_SECTORS
     periods = [] if special_sector else _period_records(frame, tax)
     profitability_basis = {
@@ -155,8 +250,9 @@ def capital_efficiency_analysis(
             if inferred_tax is not None
             else "unavailable",
             "cost_of_capital": capital_cost,
-            "cost_of_capital_basis": "explicit_assumption"
-            if cost_of_capital is not None
+            "cost_of_capital_conflicts": list(cost_of_capital_ledger.conflicts) if cost_of_capital_ledger is not None else [],
+            "cost_of_capital_basis": (cost_of_capital_ledger.basis if cost_of_capital_ledger and capital_cost is not None else "explicit_assumption")
+            if capital_cost is not None
             else "unavailable",
             "profitability_basis": profitability_basis,
             "period_comparability": period_comparability,
@@ -1234,4 +1330,10 @@ def _truthy(value: object) -> bool:
     return value is True or str(value).strip().casefold() in {"1", "true", "yes", "on"}
 
 
-__all__ = ["CAPITAL_EFFICIENCY_SCHEMA_VERSION", "capital_efficiency_analysis"]
+__all__ = [
+    "CAPITAL_EFFICIENCY_SCHEMA_VERSION",
+    "CostOfCapitalLedger",
+    "build_cost_of_capital_ledger",
+    "capital_efficiency_analysis",
+    "cost_of_capital_sensitivity_grid",
+]

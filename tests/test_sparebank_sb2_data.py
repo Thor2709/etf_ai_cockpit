@@ -55,7 +55,7 @@ def test_issuer_extension_mapping_is_per_issuer_and_uses_the_namespace_the_filin
 
 def _facts(**overrides: object) -> dict[str, object]:
     base = {
-        name: {"available": True, "value": value, "unit": "NOK", "known_at": "2025-03-01T00:00:00Z", "source_url": "https://example.test/f"}
+        name: {"available": True, "value": value, "unit": "NOK", "period": PERIOD, "known_at": "2025-03-01T00:00:00Z", "source_url": "https://example.test/f"}
         for name, value in {"ec_capital": 258e6, "overkursfond": 1505e6, "utjevningsfond": 1831e6, "sparebankens_fond": 876e6, "gavefond": 28e6}.items()
     }
     base.update(overrides)  # type: ignore[arg-type]
@@ -74,9 +74,10 @@ def test_owner_result_uses_the_tagged_primary_capital_split_and_count_comes_from
     # EC count = result / EPS (27.1 m); implied nominal 258 m / 27.1 m = 9.5 NOK is within the plausible NOK 1 to 60 range.
     assert derived["weighted_average_ec_count"]["value"] == pytest.approx(439e6 / 16.2)
     assert "outstanding_ec_count" not in derived
-    # A split that disagrees with the ownership fraction is not trusted; the book's eierbrok allocation is used.
+    # Issue 969 / B016-N002: a conflicting owner-only split cannot be re-apportioned.
     off = with_derived_owner_earnings(_facts(), {**statements, "current": {**statements["current"], "ownerless_result": 300e6}})
-    assert off["ec_attributable_result"]["value"] == pytest.approx(439e6 * 0.79905, rel=1e-3)
+    assert "ec_attributable_result" not in off
+    assert "weighted_average_ec_count" not in off
     # An EPS tag with the wrong scale (163 instead of 16.3) implies a NOK 96 nominal: no count is invented.
     scale = with_derived_owner_earnings(_facts(), {**statements, "current": {**statements["current"], "basic_eps": 163.0}})
     assert "weighted_average_ec_count" not in scale

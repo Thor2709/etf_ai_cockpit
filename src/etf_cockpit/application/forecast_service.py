@@ -597,7 +597,7 @@ def build_forecast_lab_workspace(
             for model in OPTIONAL_MODELS
         }
     report["promotion"] = promotion_frame(promotions)
-    return _stamp_promotion_states(report, promotions)
+    return _stamp_promotion_states(report, promotions, history)
 
 
 _OPTIONAL_RUNTIME_PACKAGES = {"timesfm": "timesfm", "timesfm3": "timesfm", "toto": "toto2"}
@@ -644,8 +644,16 @@ def _promotion_as_of(requested: object, prices: pd.DataFrame, history: pd.DataFr
     return date.today()
 
 
-def _stamp_promotion_states(report: dict[str, object], promotions: Mapping[str, ModelPromotion]) -> dict[str, object]:
-    """Replace the diagnostic placeholder state in the report tables with each model's promotion decision."""
+def _stamp_promotion_states(
+    report: dict[str, object],
+    promotions: Mapping[str, ModelPromotion],
+    history: pd.DataFrame | None = None,
+) -> dict[str, object]:
+    """Replace the diagnostic placeholder state in the report tables with promotion decisions.
+
+    The model table shows today's decision. A run keeps the state stored with its own rows at run time,
+    never today's decision: a later promotion cannot relabel a historical run.
+    """
 
     models, runs = report.get("models"), report.get("runs")
     if isinstance(models, pd.DataFrame) and not models.empty:
@@ -657,17 +665,40 @@ def _stamp_promotion_states(report: dict[str, object], promotions: Mapping[str, 
         report["models"] = models
     if isinstance(runs, pd.DataFrame) and not runs.empty:
         runs = runs.copy()
-        runs["promotion_state"] = [_run_promotion_text(str(members), promotions) for members in runs["models"]]
+        recorded = _recorded_run_states(history)
+        runs["promotion_state"] = [
+            _run_promotion_text(str(members), promotions, recorded.get(str(run_id), {}))
+            for members, run_id in zip(runs["models"], runs["run_id"])
+        ]
         report["runs"] = runs
     return report
 
 
-def _run_promotion_text(members: str, promotions: Mapping[str, ModelPromotion]) -> str:
-    parts = [
-        f"{name}: {'counting' if promotions[name].counting else 'not yet proven'}"
-        for name in (item.strip() for item in members.split(","))
-        if name in promotions
-    ]
+def _recorded_run_states(history: pd.DataFrame | None) -> dict[str, dict[str, str]]:
+    """Promotion state each stored row carried when its run wrote it, per run and model."""
+
+    if not isinstance(history, pd.DataFrame) or not {"model_name", "promotion_state"}.issubset(history.columns):
+        return {}
+    run_ids = history["run_id"].astype(str) if "run_id" in history.columns else pd.Series("local-cache", index=history.index)
+    states: dict[str, dict[str, str]] = {}
+    for run_id, model, state in zip(run_ids, history["model_name"].astype(str), history["promotion_state"]):
+        if isinstance(state, str) and state.strip() and state.strip().lower() != "nan":
+            states.setdefault(run_id, {})[model] = state.strip()
+    return states
+
+
+def _run_promotion_text(members: str, promotions: Mapping[str, ModelPromotion], recorded: Mapping[str, str] | None = None) -> str:
+    recorded = recorded or {}
+    parts = []
+    for name in (item.strip() for item in members.split(",")):
+        if name not in promotions:
+            continue
+        state = recorded.get(name)
+        parts.append(
+            f"{name}: not recorded at run time"
+            if state is None
+            else f"{name}: {'counting' if state == COUNTING else 'not yet proven'}"
+        )
     return "; ".join(parts) or "reference"
 
 
