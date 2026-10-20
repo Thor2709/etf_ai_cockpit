@@ -15,6 +15,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import ROUND_FLOOR, Decimal
 import hashlib
+import json
 import math
 from pathlib import Path
 import re
@@ -25,6 +26,7 @@ import yaml
 
 from etf_cockpit.core.config import load_config
 from etf_cockpit.core.paths import CONFIG_DIR, ROOT
+from etf_cockpit.data.fx_data import build_fx_rate_snapshot, fx_cross_rate, load_fx_rates
 from etf_cockpit.data.local_storage import (
     StorageRevisionConflict,
     StorageSchemaError,
@@ -49,7 +51,7 @@ from etf_cockpit.portfolio.proposal_policy import (
     build_proposal_decision,
     current_authority_policy_checksum,
 )
-from etf_cockpit.signals.friction_edge import FrictionGateResult
+from etf_cockpit.signals.friction_edge import FrictionGateResult, evaluate_friction_gate
 
 EXECUTION_CONFIG_PATH = CONFIG_DIR / "paper_bots_execution_v1.yaml"
 FORWARD_PLAN_TYPE = "paper_bot_execution_plan"
@@ -213,6 +215,11 @@ def load_execution_config(path: Path | None = None) -> tuple[bytes, dict[str, An
         if number is None or number < 0 or (key in {"lot_size", "proposal_validity_days"} and number <= 0):
             raise ValueError(f"invalid paper bot execution setting: {key}")
         payload[key] = number
+    for key in ("rule_expected_benefit_bps", "rule_uncertainty_bps"):
+        number = bots._finite_number(payload.get(key))  # an absent benefit stays None: every order then fails closed
+        if payload.get(key) is not None and (number is None or number < 0):
+            raise ValueError(f"invalid paper bot execution setting: {key}")
+        payload[key] = number
     hour, _, minute = str(payload.get("fill_time_utc", "")).partition(":")
     payload["_fill_time"] = time(int(hour), int(minute))
     for key in ("cost_model", "uncertainty", "replay"):
@@ -223,7 +230,7 @@ def load_execution_config(path: Path | None = None) -> tuple[bytes, dict[str, An
     return raw, payload
 
 
-def _cost_policy(root: Path, config: Mapping[str, Any]) -> tuple[ShadowCostPolicy, dict[str, Any], tuple[str, ...]]:
+def _cost_policy(root: Path, config: Mapping[str, Any]) -> tuple[ShadowCostPolicy, dict[str, Any], tuple[str, ...], Any]:
     """Derive the account-wide commission and adverse basis points from ``configs/costs.yaml`` (costs.py model)."""
 
     config_dir = root / "configs" if (root / "configs" / "costs.yaml").is_file() else CONFIG_DIR
@@ -253,23 +260,38 @@ def _cost_policy(root: Path, config: Mapping[str, Any]) -> tuple[ShadowCostPolic
         "session_multiplier": round(multiplier, 8),
         "market_impact_excluded": "no order-size or volume input exists for a paper bot; a retail-size order has none",
     }
-    return policy, evidence, tuple(sorted(app_config.universe.by_id()))
+    return policy, evidence, tuple(sorted(app_config.universe.by_id())), app_config
 
 
 def _ensure_limits(track: Track, root: Path, universe_ids: tuple[str, ...]) -> None:
-    """Give the bot ledger root its own pre-trade limits: the owner's numeric limits, the configured universe allowlist."""
+    """Give the bot ledger root its own pre-trade limits: the owner's numeric limits, the configured universe allowlist.
+
+    A digest of the universe and the source limits sits beside the file: when either changes (an instrument was added to
+    the universe, the owner edited a limit) the file is rewritten, so the allowlist never freezes at first creation. A file
+    without a digest (written before it existed) is adopted as it is and refreshed on the next change.
+    """
 
     target = track.ledger_root / "configs" / "pre_trade_limits_v1.yaml"
-    if target.is_file():
-        return
+    marker = target.with_name("pre_trade_limits_v1.source-digest")
     local = root / "configs" / "pre_trade_limits_v1.yaml"
     source = local if local.is_file() else CONFIG_DIR / "pre_trade_limits_v1.yaml"
-    limits = yaml.safe_load(source.read_text(encoding="utf-8"))
+    source_bytes = source.read_bytes()
+    digest = hashlib.sha256(
+        json.dumps({"universe": sorted(item.upper() for item in universe_ids), "limits": hashlib.sha256(source_bytes).hexdigest()}).encode("utf-8")
+    ).hexdigest()
+    if target.is_file():
+        if not marker.is_file():
+            marker.write_text(digest, encoding="utf-8")
+            return
+        if marker.read_text(encoding="utf-8").strip() == digest:
+            return
+    limits = yaml.safe_load(source_bytes.decode("utf-8"))
     if not isinstance(limits, dict) or limits.get("schema_version") != "pre_trade_limits.v1":
         raise ValueError("pre-trade limits are unavailable for the paper bots")
     limits["allowed_instruments"] = sorted({*(item.upper() for item in universe_ids), "VWCE"})
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(yaml.safe_dump(limits, sort_keys=True), encoding="utf-8")
+    marker.write_text(digest, encoding="utf-8")
 
 
 def run_paper_bot_execution(
@@ -317,7 +339,7 @@ def _run(
     if not book.usable:
         return ExecutionRunResult("unavailable", track.name, as_of_text, reason=book.error or "No benchmark sessions are available.", label=track.label)
     try:
-        policy, policy_evidence, universe_ids = _cost_policy(root, config)
+        policy, policy_evidence, universe_ids, app_config = _cost_policy(root, config)
         _ensure_limits(track, root, universe_ids)
     except Exception as exc:  # fail closed: costs, universe or limits unreadable
         return ExecutionRunResult("unavailable", track.name, as_of_text, reason=f"Cost model unavailable: {type(exc).__name__}.", label=track.label)
@@ -333,6 +355,7 @@ def _run(
             frame, check = book.benchmark_check(cutoff)
             context = _Context(
                 track, root, cutoff, config, bots_config, config_hash, exec_hash, book, policy, policy_evidence, store, frame, check, warnings,
+                app_config,
             )
             for bot_id, items in sorted(decisions.items()):
                 try:
@@ -376,7 +399,9 @@ class _Context:
     benchmark_frame: pd.DataFrame
     benchmark_check: VwceReferenceSeriesCheck
     warnings: list[str]
+    app_config: Any
     by_intent: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    fx_cache: dict[Any, float | None] = field(default_factory=dict)
 
 
 def _load_decisions(
@@ -438,6 +463,38 @@ def _fill_datetime(config: Mapping[str, Any], session: date) -> datetime:
 
 def _floor_lot(quantity: Decimal, lot: Decimal) -> Decimal:
     return (quantity / lot).to_integral_value(rounding=ROUND_FLOOR) * lot
+
+
+def _eur_per_unit(context: _Context, currency: str, when: datetime) -> float | None:
+    """EUR per unit of ``currency`` known at ``when`` through the canonical FX path; ``None`` when no rate is available."""
+
+    code = currency.upper()
+    if code == "EUR":
+        return 1.0
+    key = (code, when.isoformat())
+    if key not in context.fx_cache:
+        rate = None
+        try:
+            if "frame" not in context.fx_cache:
+                context.fx_cache["frame"] = load_fx_rates(context.root / "data" / "clean" / "fx.parquet")
+            cross = fx_cross_rate(build_fx_rate_snapshot(context.fx_cache["frame"], decision_time=when, known_at=when), code, "EUR")
+            if cross is not None and math.isfinite(cross.rate) and cross.rate > 0:
+                rate = float(cross.rate)
+        except (OSError, ValueError, KeyError):
+            rate = None
+        context.fx_cache[key] = rate
+    return context.fx_cache[key]
+
+
+def _quote_currency(context: _Context, decision: Mapping[str, Any], instrument_id: str, price_date: str | None) -> str | None:
+    """The currency the decision captured for the instrument, else its sizing bar's; never assumed."""
+
+    captured = decision["prices_used"].get(instrument_id)
+    text = bots._real_text(captured.get("currency")) if isinstance(captured, Mapping) else None
+    if text is None and price_date is not None:
+        bar = context.book.bar(instrument_id, date.fromisoformat(price_date))
+        text = bots._real_text(bar.get("currency")) if bar else None
+    return None if text is None else text.upper()
 
 
 def _execute_bot(context: _Context, bot_id: str, decisions: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -506,7 +563,18 @@ def _plan(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], d
     prices: dict[str, tuple[Decimal, str] | None] = {
         instrument: _sizing_price(context, decision, instrument, decision_date) for instrument in {*held, *targets}
     }
-    unpriced_held = sorted(instrument for instrument in held if prices[instrument] is None)
+    unusable: dict[str, str] = {}  # priced instruments whose currency or EUR rate is unknown: never sized on a guess
+    quoted: dict[str, tuple[str, float]] = {}
+    for instrument, entry in prices.items():
+        if entry is None:
+            continue
+        currency = _quote_currency(context, decision, instrument, entry[1])
+        rate = None if currency is None else _eur_per_unit(context, currency, decision["_known_at"])
+        if currency is None or rate is None:
+            unusable[instrument] = "currency_unavailable" if currency is None else "fx_unavailable"
+        else:
+            quoted[instrument] = (currency, rate)
+    unpriced_held = sorted(instrument for instrument in held if prices[instrument] is None or instrument in unusable)
     reasons = {item["instrument_id"]: item["reason"] for item in decision.get("skipped_instruments", [])}
     plan: dict[str, Any] = {
         "schema_version": "paper_bot_execution_plan.v1", "plan_id": plan_id, "bot_id": decision["bot_id"],
@@ -520,7 +588,11 @@ def _plan(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], d
         plan["reason"] = "No decision-time price for held instruments: " + ", ".join(unpriced_held)
         context.store.put_many([(context.track.plan_type, plan_id, plan)], immutable=True)
         return plan
-    value = cash + sum((held[i] * prices[i][0] for i in held), Decimal("0"))  # type: ignore[index]
+    eur_prices = {
+        instrument: entry[0] if quoted[instrument][0] == "EUR" else entry[0] * Decimal(str(quoted[instrument][1]))
+        for instrument, entry in prices.items() if entry is not None and instrument in quoted
+    }
+    value = cash + sum((held[i] * eur_prices[i] for i in held), Decimal("0"))
     threshold = max(Decimal(str(context.config["min_trade_value_eur"])), Decimal(str(context.config["rebalance_tolerance_weight"])) * value)
     lot = policy.lot_size
     buys: list[dict[str, Any]] = []
@@ -530,12 +602,15 @@ def _plan(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], d
         price_entry = prices[instrument]
         have = held.get(instrument, Decimal("0"))
         if price_entry is None:
-            buys.append(_intent(decision, instrument, "buy", Decimal("0"), weight, None, "", "no_decision_time_price"))
+            buys.append(_intent(decision, instrument, "buy", Decimal("0"), weight, None, None, "no_decision_time_price"))
             continue
-        price, price_date = price_entry
+        if instrument in unusable:
+            buys.append(_intent(decision, instrument, "buy", Decimal("0"), weight, None, None, unusable[instrument]))
+            continue
+        price = eur_prices[instrument]
+        currency, rate = quoted[instrument]
         target_quantity = _floor_lot(weight * value / (price * (1 + adverse)), lot) if weight > 0 else Decimal("0")
         delta = target_quantity - have
-        currency = str((decision["prices_used"].get(instrument) or {}).get("currency") or "EUR")
         if delta == 0:
             continue
         exits = instrument not in targets
@@ -546,7 +621,7 @@ def _plan(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], d
             reason = (
                 f"enter target weight {float(weight):.1%}" if have == 0 else f"increase to target weight {float(weight):.1%}"
             ) + f" ({decision['bot_family']}, decision {str(decision['snapshot_hash'])[:8]})"
-            buys.append(_intent(decision, instrument, "buy", delta, weight, price_entry, currency, reason))
+            buys.append(_intent(decision, instrument, "buy", delta, weight, price_entry, currency, reason, rate))
         else:
             skipped_reason = reasons.get(instrument)
             reason = (
@@ -554,7 +629,7 @@ def _plan(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], d
                 else "exit: not in the target set" if exits
                 else f"trim to target weight {float(weight):.1%}"
             ) + f" ({decision['bot_family']}, decision {str(decision['snapshot_hash'])[:8]})"
-            sells.append(_intent(decision, instrument, "sell", -delta, weight, price_entry, currency, reason))
+            sells.append(_intent(decision, instrument, "sell", -delta, weight, price_entry, currency, reason, rate))
     buys.sort(key=lambda item: (-float(item["target_weight"]), item["instrument_id"]))
     plan["intents"] = [*sells, *buys]
     plan["portfolio_value_before"] = str(value)
@@ -564,13 +639,14 @@ def _plan(context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], d
 
 def _intent(
     decision: Mapping[str, Any], instrument: str, side: str, quantity: Decimal, weight: Decimal,
-    price: tuple[Decimal, str] | None, currency: str, reason: str,
+    price: tuple[Decimal, str] | None, currency: str | None, reason: str, fx_rate: float | None = None,
 ) -> dict[str, Any]:
     return {
         "intent_id": _record_id(str(decision["decision_id"]), instrument, side),
         "instrument_id": instrument, "side": side, "planned_quantity": str(quantity), "target_weight": str(weight),
         "sizing_price": None if price is None else str(price[0]), "sizing_price_date": None if price is None else price[1],
-        "currency": currency or "EUR", "reason": reason,
+        "currency": currency, "sizing_fx_rate": fx_rate, "reason": reason,
+        "unavailable_reason": reason if price is None else None,
     }
 
 
@@ -632,7 +708,8 @@ def _miss_unplanned(context: _Context, ledger: PaperLedger, decision: Mapping[st
         if _intent_records(context, intent_id):
             continue
         intent = {"intent_id": intent_id, "instrument_id": instrument, "side": "buy", "planned_quantity": "0",
-                  "target_weight": str(weight), "sizing_price": None, "sizing_price_date": None, "currency": "EUR",
+                  "target_weight": str(weight), "sizing_price": None, "sizing_price_date": None,
+                  "currency": _quote_currency(context, decision, instrument, None),
                   "reason": f"target weight {float(weight):.1%} ({decision['bot_family']})"}
         record = _record(context, decision, intent, None, "missed", reason)
         _store_record(context, record)
@@ -660,38 +737,79 @@ def _record(
     return record
 
 
-def _rule_friction_gate(context: _Context) -> FrictionGateResult:
-    """The friction gate for a frozen-rule order: no forecast edge is claimed, so none is invented.
+def _rule_friction_gate(context: _Context, instrument_id: str, order_value_eur: Decimal) -> FrictionGateResult:
+    """The friction gate of a frozen-rule order: the modelled cost of this order against the rule's expected benefit.
 
-    A bot executes the order its rule dictates and the paper ledger charges the full costs (commission, adverse
-    basis points); the verdict records that and carries no benefit figure.
+    The benefit is the explicit ``rule_expected_benefit_bps`` assumption of the execution config; without it the gate
+    fails closed (``benefit_unavailable``) and no paper order is placed. The cost is ``costs.py`` at the order's size.
     """
 
-    return FrictionGateResult(
-        status="pass", propose=True, expected_benefit_bps=None, turnover_cost_bps=None, spread_cost_bps=None,
-        uncertainty_cost_bps=None, required_bps=None, net_benefit_bps=None,
-        reason=(f"Frozen bot rule dictates the order; no forecast edge is claimed and the paper ledger charges the "
-                f"costs of {context.policy_evidence['model_id']}."),
+    def unavailable(reason: str) -> FrictionGateResult:
+        return FrictionGateResult("unavailable", False, None, None, None, None, None, None, reason)
+
+    benefit = context.config.get("rule_expected_benefit_bps")
+    if benefit is None:
+        return unavailable("benefit_unavailable: the execution config states no expected benefit for the frozen rule.")
+    order_value = float(order_value_eur)
+    model = context.config["cost_model"]
+    try:
+        estimate = estimate_execution_cost(context.app_config, instrument_id, order_value, session=str(model["session"]))
+    except Exception as exc:  # fail closed: no cost estimate, no gate
+        return unavailable(f"cost_estimate_unavailable: {type(exc).__name__}")
+    return evaluate_friction_gate(
+        float(benefit), order_value_eur=order_value,
+        cost_estimate={"order_value_eur": estimate.order_value_eur, "total_cost_bps": estimate.total_cost_bps, "spread_bps": estimate.spread_bps},
+        uncertainty_bps=context.config.get("rule_uncertainty_bps") or 0.0,
     )
 
 
 def _proposal(
     context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], intent: Mapping[str, Any],
-    held: Decimal, quantity: Decimal, session: date,
+    held: Decimal, quantity: Decimal, session: date, *, friction: FrictionGateResult, bar: Mapping[str, Any], unit_price: Decimal,
 ) -> dict[str, object]:
     config = context.config
     decided_at: datetime = decision["_decided_at"]
     sign = 1 if intent["side"] == "buy" else -1
     note = f"{intent['reason']}; session {session.isoformat()}"
-    gate_reasons = {
-        "optimizer_output": f"Frozen stage A decision {decision['decision_id'][:12]}.",
-        "portfolio_state": f"Paper ledger {ledger.account_id} replayed before the order.",
-        "data_freshness": f"Published snapshot {str(decision.get('snapshot_hash'))[:12]} passed the stage A freshness window.",
-        "model_confidence": "Deterministic rule; no model forecast is used.",
-        "liquidity": f"Session {session.isoformat()} traded a positive volume with a finite open.",
-        "cost": f"Commission and adverse basis points follow {context.policy_evidence['model_id']} ({context.policy.digest()[:12]}).",
-        "concentration": "Target weight is fixed by the frozen bot rule.",
-        "account_authority": "Local paper simulation under strategy:paper_portfolio; execution_allowed=false.",
+    fill_time = _fill_datetime(config, session)
+    volume, opening = bots._finite_number(bar.get("volume")), bots._finite_number(bar.get("open"))
+    after = held + sign * quantity
+    exposure_limit = _limit(context, "max_position_exposure")
+    exposure = after * unit_price
+    policy = context.policy
+    checks: dict[str, tuple[bool, str]] = {
+        "optimizer_output": (
+            decision.get("status") == "available" and decision.get("execution_allowed") is False and bool(decision.get("decision_id")),
+            f"Frozen stage A decision {decision['decision_id'][:12]}.",
+        ),
+        "portfolio_state": (
+            held >= 0 and after >= 0, f"Paper ledger {ledger.account_id} replayed before the order: holds {held}, holds {after} after it.",
+        ),
+        "data_freshness": (
+            bool(decision.get("snapshot_hash")) and decision["_known_at"] <= fill_time and session > decided_at.date(),
+            f"Published snapshot {str(decision.get('snapshot_hash'))[:12]} was known before the fill session {session.isoformat()}.",
+        ),
+        "model_confidence": (
+            decision.get("strategy") == "benchmark" or bool(decision.get("score_lineage_hash")),
+            "Deterministic rule pinned to its score lineage; no model forecast is used.",
+        ),
+        "liquidity": (
+            volume is not None and volume > 0 and opening is not None and opening > 0,
+            f"Session {session.isoformat()} traded a positive volume with a finite open.",
+        ),
+        "cost": (
+            friction.required_bps is not None and math.isfinite(friction.required_bps) and policy.commission >= 0 and policy.adverse_bps >= 0,
+            f"Commission and adverse basis points follow {context.policy_evidence['model_id']} ({policy.digest()[:12]}); "
+            f"modelled order cost {friction.required_bps} bps.",
+        ),
+        "concentration": (
+            exposure_limit is not None and exposure <= exposure_limit,
+            f"Position after the order is {exposure:.2f} EUR against the limit {exposure_limit}.",
+        ),
+        "account_authority": (
+            EXECUTION_ALLOWED is False and decision.get("authority_stage") == "paper" and bool(config["paper_approvals"]),
+            "Local paper simulation under strategy:paper_portfolio; execution_allowed=false.",
+        ),
     }
     request = ProposalRequest(
         instrument_id=str(intent["instrument_id"]), current_quantity=float(held), target_quantity=float(held + sign * quantity),
@@ -701,10 +819,10 @@ def _proposal(
         data_revision=str(decision.get("snapshot_hash")), as_of=decided_at,
         expires_at=decided_at + timedelta(days=float(config["proposal_validity_days"])),
         authority_policy_checksum=current_authority_policy_checksum(),
-        gate_evidence=tuple(GateEvidence(gate, True, gate_reasons[gate]) for gate in REQUIRED_GATES),
+        gate_evidence=tuple(GateEvidence(gate, bool(checks[gate][0]), checks[gate][1]) for gate in REQUIRED_GATES),
         rationale=note, approvals=tuple(str(item) for item in config["paper_approvals"]),
         event_calendar_path=context.root / "data" / "clean" / "event_calendar.parquet",
-        friction_gate=_rule_friction_gate(context),
+        friction_gate=friction,
     )
     return build_proposal_decision(request).to_payload()
 
@@ -727,11 +845,19 @@ def _attempt(
     fill_id = "botfill_" + _record_id(str(intent["intent_id"]), session.isoformat())[:20]
     recorded = next((row for row in ledger.trade_rows() if row["paper_trade_id"] == fill_id), None)
     if recorded is not None:
-        return _recovered_fill(context, decision, intent, session, recorded)
+        return _recovered_fill(context, ledger, decision, intent, session, recorded)
     if intent["sizing_price"] is None:
-        return miss("no_decision_time_price")
-    if str(intent["currency"]).upper() != "EUR":
-        return miss(f"non_eur_quote_not_supported_by_the_matched_cost_account: {intent['currency']}")
+        return miss(intent.get("unavailable_reason") or "no_decision_time_price")
+    currency = bots._real_text(intent.get("currency"))
+    if currency is None:
+        return miss("currency_unavailable")
+    currency = currency.upper()
+    fill_time = _fill_datetime(context.config, session)
+    fx = _eur_per_unit(context, currency, fill_time)
+    if fx is None:
+        return miss(f"fx_unavailable: no {currency}/EUR rate known at {fill_time.isoformat()}")
+    ledger_fx = None if currency == "EUR" else fx  # EUR keeps the ledger's implicit unit rate
+    to_eur = Decimal(1) if currency == "EUR" else Decimal(str(fx))
     bar = context.book.bar(instrument, session)
     if bar is None:
         return miss(f"no_session_data: provider outage, halt or missing bar on {session.isoformat()}")
@@ -742,8 +868,8 @@ def _attempt(
     if opening is None or opening <= 0:
         return miss(f"invalid_open_price on {session.isoformat()}")
     bar_currency = bots._real_text(bar.get("currency"))
-    if bar_currency is not None and bar_currency.upper() != "EUR":
-        return miss(f"non_eur_quote_not_supported_by_the_matched_cost_account: {bar_currency}")
+    if bar_currency is not None and bar_currency.upper() != currency:
+        return miss(f"currency_mismatch: the session bar is quoted in {bar_currency}, the order in {currency}")
 
     policy = context.policy
     adverse = policy.adverse_bps / Decimal(10000)
@@ -756,28 +882,31 @@ def _attempt(
         quantity = min(quantity, held)
         if quantity < policy.lot_size:
             return miss("position_not_held")
+    unit = price * to_eur  # EUR per unit
     capped = False
-    order_limit = _max_order_value(context)
-    if order_limit is not None and quantity * price > order_limit:  # the owner's hard limit: trade what fits, never breach it
-        quantity = _floor_lot(order_limit / price, policy.lot_size)
+    order_limit = _limit(context, "max_order_value")
+    if order_limit is not None and quantity * unit > order_limit:  # the owner's hard limit: trade what fits, never breach it
+        quantity = _floor_lot(order_limit / unit, policy.lot_size)
         capped = True
         if quantity < policy.lot_size:
             return miss("order_value_limit_below_one_lot")
-    fill_time = _fill_datetime(context.config, session)
     for tries in range(2):
-        proposal = _proposal(context, ledger, decision, intent, held, quantity, session)
+        friction = _rule_friction_gate(context, instrument, quantity * unit)
+        if not friction.propose:
+            return miss(friction.reason if friction.status == "unavailable" else f"friction_gate_blocked: {friction.reason}")
+        proposal = _proposal(context, ledger, decision, intent, held, quantity, session, friction=friction, bar=bar, unit_price=unit)
         if proposal.get("proposal_allowed") is not True:
             return miss(f"proposal_policy_refused: {str(proposal.get('rationale'))[:200]}")
         order_id = None
         try:
             order = ledger.auto_paper_proposal(
                 proposal, execution_price=price, fee=policy.commission, occurred_at=fill_time,
-                quote_currency="EUR", expiry_reference=fill_time,
+                quote_currency=currency, fx_rate=ledger_fx, expiry_reference=fill_time,
             )
             order_id = str(order["order_id"])
             ledger.record_fill(
                 order_id, fill_id=fill_id, quantity=quantity, price=price, fee=policy.commission,
-                reference_price=reference, occurred_at=fill_time,
+                reference_price=reference, fx_rate=ledger_fx, occurred_at=fill_time,
             )
         except PaperLedgerError as exc:
             message = str(exc)
@@ -790,16 +919,16 @@ def _attempt(
             if side == "buy" and shortfall is not None:
                 if awaits_settlement and not final_session:
                     return _record(context, decision, intent, session, "deferred", "waiting for settled cash: " + message[:160])
-                affordable = _floor_lot((Decimal(shortfall.group(1)) - policy.commission) / price, policy.lot_size)
+                affordable = _floor_lot((Decimal(shortfall.group(1)) - policy.commission) / unit, policy.lot_size)
                 if tries == 0 and affordable >= policy.lot_size and affordable < quantity:
                     quantity = affordable
                     continue
                 return miss("insufficient_settled_cash after the retry sessions")
             return miss("ledger_refused: " + message[:200])
-        cost = quantity * abs(price - reference)
+        cost = quantity * abs(price - reference) * to_eur
         return _record(
             context, decision, intent, session, "filled", intent["reason"] if quantity == Decimal(str(intent["planned_quantity"]))
-            else f"{intent['reason']}; reduced to the order-value limit" if capped and quantity == _floor_lot(order_limit / price, policy.lot_size)
+            else f"{intent['reason']}; reduced to the order-value limit" if capped and quantity == _floor_lot(order_limit / unit, policy.lot_size)
             else f"{intent['reason']}; reduced to settled cash",
             quantity=str(quantity), reference_open=str(reference), fill_price=str(price), fee=str(policy.commission),
             spread_slippage_cost=str(cost), fill_id=fill_id, order_id=order_id,
@@ -809,29 +938,31 @@ def _attempt(
 
 
 def _recovered_fill(
-    context: _Context, decision: Mapping[str, Any], intent: Mapping[str, Any], session: date, row: Mapping[str, Any],
+    context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], intent: Mapping[str, Any], session: date, row: Mapping[str, Any],
 ) -> dict[str, Any]:
     """The ``filled`` record of a fill the ledger already holds (its record write was lost)."""
 
     quantity, price, fee = (Decimal(str(row[key])) for key in ("quantity", "price", "fee"))
+    order = next((item for item in ledger.orders() if item["order_id"] == row["order_id"]), {})
+    order_fx = Decimal(str(order.get("fx_rate", 1)))
     bar = context.book.bar(str(intent["instrument_id"]), session)
     opening = None if bar is None else bots._finite_number(bar.get("open"))
     reference = Decimal(str(opening)) if opening else None
     return _record(
         context, decision, intent, session, "filled", f"{intent['reason']}; recovered from the paper ledger fill",
         quantity=str(quantity), reference_open=None if reference is None else str(reference), fill_price=str(price),
-        fee=str(fee), spread_slippage_cost="0" if reference is None else str(quantity * abs(price - reference)),
+        fee=str(fee), spread_slippage_cost="0" if reference is None else str(quantity * abs(price - reference) * order_fx),
         fill_id=str(row["paper_trade_id"]), order_id=str(row["order_id"]), planned_quantity=str(intent["planned_quantity"]),
     )
 
 
-def _max_order_value(context: _Context) -> Decimal | None:
-    """The hard per-order value limit of the bot ledger root (the owner's pre-trade limit), if it is readable."""
+def _limit(context: _Context, key: str) -> Decimal | None:
+    """One numeric hard limit of the bot ledger root (the owner's pre-trade limits), ``None`` if unreadable."""
 
     path = context.track.ledger_root / "configs" / "pre_trade_limits_v1.yaml"
     try:
         limits = yaml.safe_load(path.read_text(encoding="utf-8"))
-        value = Decimal(str(limits["max_order_value"]))
+        value = Decimal(str(limits[key]))
     except (OSError, yaml.YAMLError, KeyError, TypeError, ArithmeticError, ValueError):
         return None
     return value if value > 0 else None

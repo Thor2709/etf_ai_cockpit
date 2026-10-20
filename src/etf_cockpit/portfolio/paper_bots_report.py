@@ -223,6 +223,7 @@ def _ledger_snapshots(
     for day in days:
         balance = Decimal(0)
         quantity = {instrument: Decimal(0) for instrument in traded}
+        mark_fx = {instrument: Decimal(1) for instrument in traded}  # EUR per unit of quote currency at the last fill
         for event in flows:
             payload = event["payload"]
             if pd.Timestamp(payload["effective_at"]).date() <= day:
@@ -232,6 +233,7 @@ def _ledger_snapshots(
                 payload = event["payload"]
                 units = Decimal(payload["quantity"]) * (1 if payload["side"] == "buy" else -1)
                 quantity[str(payload["instrument_id"])] += units
+                mark_fx[str(payload["instrument_id"])] = Decimal(payload["fx_rate"])
                 balance -= units * Decimal(payload["price"]) * Decimal(payload["fx_rate"]) + Decimal(payload["fee"])
         cash_rows.append({"date": day, "cash_value": float(balance)})
         for instrument in traded:
@@ -241,7 +243,7 @@ def _ledger_snapshots(
                 continue
             mark = _mark(book, instrument, day, scale[instrument], stale_limit)
             if mark is not None:
-                prices.append({"date": day, "instrument_id": instrument, "price": mark})
+                prices.append({"date": day, "instrument_id": instrument, "price": mark * float(mark_fx[instrument])})
     for event in flows:
         payload = event["payload"]
         movements.append({"date": pd.Timestamp(payload["effective_at"]).date(), "event_type": payload["flow_kind"], "amount": float(payload["amount"])})

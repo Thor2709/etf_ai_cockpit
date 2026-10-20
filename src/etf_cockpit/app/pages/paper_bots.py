@@ -74,15 +74,18 @@ def _track_cards(report: dict, *, replay: bool) -> list[ft.Control]:
 
 
 def _wealth_chart(bots: list[dict], title: str) -> ft.Control:
-    longest = max(bots, key=lambda bot: len(bot.get("dates") or []))
-    dates = [date.fromisoformat(item) for item in longest.get("dates") or []]
+    """One curve per bot on the sorted union of every bot's dates; a day a bot has no value for stays a gap (``None``)."""
+
+    dates = sorted({date.fromisoformat(item) for bot in bots for item in bot.get("dates") or []})
     if not dates:
         return EmptyState("No wealth curve yet", "A curve needs a completed session after the first funding.")
     series = []
     for index, bot in enumerate(bots):
-        values = list(bot.get("wealth") or [])
-        if len(values) == len(dates):
-            series.append(ck.Series(f"{bot['family']}", values, _COLOURS[index % len(_COLOURS)], 2.4 if bot["family"] != "B0" else 3.2, decimals=0))
+        by_day = dict(zip((date.fromisoformat(item) for item in bot.get("dates") or []), bot.get("wealth") or []))
+        if not by_day:
+            continue
+        values = [by_day.get(day) for day in dates]
+        series.append(ck.Series(f"{bot['family']}", values, _COLOURS[index % len(_COLOURS)], 2.4 if bot["family"] != "B0" else 3.2, decimals=0))
     return ck.line_chart(
         dates, series, x_name="Date", y_name=f"{title}: wealth (EUR)", width=_CHART_WIDTH, height=_CHART_HEIGHT,
         unavailable_reason=None if series else "No bot has a verified wealth series yet.", empty_title="No wealth curve",

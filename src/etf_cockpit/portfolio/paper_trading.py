@@ -853,8 +853,14 @@ class PaperLedger:
             policy_payload = state["cost_policy"]
             if policy_payload is not None:
                 policy = ShadowCostPolicy(**{key: Decimal(str(value)) for key, value in policy_payload.items()})
+                base_currency = str(state["base_currency"]).upper()
+                # A foreign-currency order keeps the explicit rate it was accepted with; a base-currency fill is unit-rate.
+                expected_fx = (
+                    Decimal(1) if str(order["currency"]).upper() == base_currency
+                    else _decimal_number(order.get("fx_rate"), "fx_rate", positive=True)
+                )
                 if (fill_quantity_decimal % policy.lot_size != 0 or fill_fee_decimal != policy.commission
-                        or fill_fx_decimal != 1 or order["currency"] != "EUR"):
+                        or fill_fx_decimal != expected_fx or base_currency != "EUR"):
                     raise PaperLedgerError("The active fill conflicts with the canonical cost, FX or lot policy.")
                 if reference_price is None:
                     raise PaperLedgerError("A canonical-policy fill requires its reference price.")

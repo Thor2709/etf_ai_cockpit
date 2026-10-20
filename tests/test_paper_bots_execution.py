@@ -28,7 +28,7 @@ def _vwce_columns() -> dict[str, object]:
 def _book(
     *, opens: dict[str, dict[date, float]] | None = None, volume: dict[tuple[str, date], float] | None = None,
     missing: set[tuple[str, date]] | None = None, sessions: list[date] | None = None, known_at: datetime | None = None,
-    base: dict[str, float] | None = None,
+    base: dict[str, float] | None = None, currencies: dict[str, str] | None = None,
 ) -> execution.PriceBook:
     base = base or {"VWCE": 100.0, "AAA": 21.0, "BBB": 22.0, "BAD": 23.0}
     rows = []
@@ -39,7 +39,7 @@ def _book(
             open_price = (opens or {}).get(instrument, {}).get(day, level * (1 + 0.001 * index))
             row = {"etf_id": instrument, "date": pd.Timestamp(day), "open": open_price, "high": open_price * 1.01,
                    "low": open_price * 0.99, "close": open_price * 1.002, "adjusted_close": open_price * 1.002,
-                   "volume": (volume or {}).get((instrument, day), 1000.0), "currency": "EUR"}
+                   "volume": (volume or {}).get((instrument, day), 1000.0), "currency": (currencies or {}).get(instrument, "EUR")}
             if instrument == "VWCE":
                 row.update(_vwce_columns())
             rows.append(row)
@@ -285,13 +285,96 @@ def test_the_independent_allowlist_still_blocks_an_instrument_outside_the_univer
         assert limits[key] == owner[key]  # the numeric limits are the owner's, unchanged
 
 
+def _write_fx(tmp_path: Path, usd_per_eur: float = 1.25) -> None:
+    path = tmp_path / "data" / "clean" / "fx.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = [
+        {"as_of_date": day, "base_currency": "EUR", "quote_currency": "USD", "rate": usd_per_eur, "source": "ECB", "ingested_at": f"{day}T08:00:00Z"}
+        for day in ("2026-10-13", "2026-10-14", "2026-10-15")
+    ]
+    pd.DataFrame(rows).to_parquet(path)
+
+
 def test_a_non_eur_quote_is_logged_not_traded(monkeypatch, tmp_path: Path) -> None:
     assert _decisions(monkeypatch, tmp_path, eur=False).status == "available"  # AAA is quoted in USD in the fixture
     _allow(tmp_path)
-    _execute(tmp_path, _book())
+    _execute(tmp_path, _book(currencies={"AAA": "USD"}))  # no FX rate exists: the USD order is skipped, never converted by a guess
     usd = _by(_records(tmp_path), "B1", "AAA")[0]
-    assert usd["status"] == "missed" and "non_eur_quote" in usd["reason"]
+    assert usd["status"] == "missed" and "fx_unavailable" in usd["reason"]
     assert _by(_records(tmp_path), "B1", "BBB", "filled")
+
+
+def test_a_usd_quote_converts_through_the_fx_rate_and_a_missing_currency_is_skipped(monkeypatch, tmp_path: Path) -> None:
+    assert _decisions(monkeypatch, tmp_path, eur=False).status == "available"
+    _allow(tmp_path)
+    _write_fx(tmp_path, usd_per_eur=1.25)
+    book = _book(currencies={"AAA": "USD"})
+    _execute(tmp_path, book)
+    usd = _by(_records(tmp_path), "B1", "AAA", "filled")
+    assert usd, "a USD stock with a known EUR rate is bought"
+    track = execution.forward_track(tmp_path)
+    ledger = PaperLedger(track.ledger_root, account_id=execution.account_id_for(usd[0]["bot_id"]))
+    order = next(item for item in ledger.orders() if item["order_id"] == usd[0]["order_id"])
+    assert order["currency"] == "USD" and abs(float(order["fx_rate"]) - 0.8) < 1e-9  # EUR per USD
+    position = next(item for item in ledger.snapshot().positions if item.instrument_id == "AAA")
+    assert position.quantity == float(usd[0]["quantity"])
+
+    missing_root = tmp_path / "missing"
+    assert _decisions(monkeypatch, missing_root, eur=False).status == "available"
+    _allow(missing_root)
+    monkeypatch.setattr(execution, "_quote_currency", lambda *args, **kwargs: None)
+    _execute(missing_root, _book(currencies={"AAA": "USD"}))
+    skipped = _by(_records(missing_root), "B1", "AAA")[0]
+    assert skipped["status"] == "missed" and "currency_unavailable" in skipped["reason"]
+    assert not _by(_records(missing_root), "B1", status="filled")
+
+
+@pytest.mark.parametrize(
+    ("override", "reason"),
+    [
+        ({"rule_expected_benefit_bps": None}, "benefit_unavailable"),
+        ({"rule_expected_benefit_bps": 1.0}, "friction_gate_blocked"),
+    ],
+)
+def test_the_friction_gate_fails_closed_without_a_benefit_and_places_no_order(monkeypatch, tmp_path: Path, override, reason) -> None:
+    ready = _ready(monkeypatch, tmp_path)
+    payload = yaml.safe_load((execution.EXECUTION_CONFIG_PATH).read_text(encoding="utf-8"))
+    payload.update(override)
+    config_path = tmp_path / "exec.yaml"
+    config_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    result = execution.run_paper_bot_execution(RUN_AT, root=tmp_path, price_book=ready, now=RUN_AT, execution_config_path=config_path)
+    assert result.status in {"available", "partial"}
+    records = [item for item in _records(tmp_path) if item["bot_family"] != "B0"]
+    assert records and all(item["status"] == "missed" and reason in item["reason"] for item in records)
+    track = execution.forward_track(tmp_path)
+    for record in records:
+        assert not PaperLedger(track.ledger_root, account_id=execution.account_id_for(record["bot_id"])).orders()
+
+
+def test_a_concentration_breach_fails_the_real_gate_not_a_literal_pass(monkeypatch, tmp_path: Path) -> None:
+    ready = _ready(monkeypatch, tmp_path)
+    path = execution.forward_track(tmp_path).ledger_root / "configs" / "pre_trade_limits_v1.yaml"
+    limits = yaml.safe_load(path.read_text(encoding="utf-8"))
+    limits["max_position_exposure"] = 100  # far below one planned position
+    path.write_text(yaml.safe_dump(limits), encoding="utf-8")
+    _execute(tmp_path, ready)
+    refused = _by(_records(tmp_path), "B1", "BBB")
+    assert refused and refused[0]["status"] == "missed" and "proposal_policy_refused" in refused[0]["reason"]
+    assert not _by(_records(tmp_path), "B1", status="filled")
+
+
+def test_a_universe_addition_rewrites_the_allowlist_and_keeps_the_owner_limits(tmp_path: Path) -> None:
+    track = execution.forward_track(tmp_path)
+    path = track.ledger_root / "configs" / "pre_trade_limits_v1.yaml"
+    owner = yaml.safe_load((execution.CONFIG_DIR / "pre_trade_limits_v1.yaml").read_text(encoding="utf-8"))
+    execution._ensure_limits(track, tmp_path, ("AAA",))
+    assert yaml.safe_load(path.read_text(encoding="utf-8"))["allowed_instruments"] == ["AAA", "VWCE"]
+    execution._ensure_limits(track, tmp_path, ("AAA",))  # unchanged inputs: untouched
+    execution._ensure_limits(track, tmp_path, ("AAA", "NEW"))
+    limits = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert limits["allowed_instruments"] == ["AAA", "NEW", "VWCE"]
+    for key in ("max_order_value", "max_position_exposure", "max_daily_turnover"):
+        assert limits[key] == owner[key]
 
 
 def test_orders_are_sized_from_decision_time_prices_not_from_the_fill_session(monkeypatch, tmp_path: Path) -> None:
@@ -636,6 +719,23 @@ def test_the_bots_page_builds_read_only_and_shows_the_labels(monkeypatch, tmp_pa
     monkeypatch.setattr(page_module, "load_paper_bots_view", lambda: {"forward": {"status": "unavailable", "reason": "none yet", "bots": []}, "replay": None, "expectations": []})
     empty = "\n".join(str(getattr(item, "value", "") or "") for item in walk(page_module.paper_bots_page(None, AppState(snapshot=None, selected_etf=""))))
     assert "none yet" in empty and "No replay stored" in empty
+
+
+def test_the_wealth_chart_plots_every_bot_on_the_union_of_their_dates(monkeypatch) -> None:
+    from etf_cockpit.app.pages import paper_bots as page_module
+
+    captured = {}
+    monkeypatch.setattr(page_module.ck, "line_chart", lambda dates, series, **kwargs: captured.update(dates=dates, series=series))
+    page_module._wealth_chart(
+        [
+            {"family": "B1", "dates": ["2026-10-15", "2026-10-16", "2026-10-19"], "wealth": [1.0, 2.0, 3.0]},
+            {"family": "B3", "dates": ["2026-10-16", "2026-10-19", "2026-10-20"], "wealth": [5.0, 6.0, 7.0]},  # started later
+        ],
+        "Forward",
+    )
+    assert [item.isoformat() for item in captured["dates"]] == ["2026-10-15", "2026-10-16", "2026-10-19", "2026-10-20"]
+    values = {item.name: list(item.values) for item in captured["series"]}
+    assert values == {"B1": [1.0, 2.0, 3.0, None], "B3": [None, 5.0, 6.0, 7.0]}
 
 
 def test_the_pipeline_runs_the_execution_after_the_recorder_only_on_success(monkeypatch, tmp_path: Path) -> None:

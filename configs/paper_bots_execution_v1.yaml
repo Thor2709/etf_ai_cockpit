@@ -26,6 +26,12 @@ sizing_price_max_age_days: 5
 # A held position is valued with its last close for at most this many sessions without a new bar.
 max_stale_mark_sessions: 5
 proposal_validity_days: 7
+# Friction gate of a frozen-rule order (signals/friction_edge.py): the order's modelled cost (commission, spread, slippage,
+# FX, gap at the opening-auction multiplier) plus the uncertainty cost must stay below the expected benefit, else no paper
+# order is placed. The benefit is an explicit owner assumption of the rule's edge per order, not an evidence claim; remove it
+# and every order fails closed with reason benefit_unavailable.
+rule_expected_benefit_bps: 150.0
+rule_uncertainty_bps: 25.0
 # Review approval a paper proposal needs under strategy:paper_portfolio; the owner's request to run the bots stands for it.
 paper_approvals: [paper_simulation_review]
 strategy_id: "strategy:paper_portfolio"
