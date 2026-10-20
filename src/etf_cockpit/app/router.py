@@ -93,6 +93,7 @@ _PAGE_RENDERERS = {
     "/help": _LazyPage("etf_cockpit.app.pages.help_glossary", "help_glossary_page"),
     "/decision-journal": _LazyPage("etf_cockpit.app.pages.decision_journal", "decision_journal_page"),
     "/forward-evidence": _LazyPage("etf_cockpit.app.pages.forward_evidence", "forward_evidence_page"),
+    "/paper-bots": _LazyPage("etf_cockpit.app.pages.paper_bots", "paper_bots_page"),
     "/jobs": _LazyPage("etf_cockpit.app.pages.jobs", "jobs_page"),
     "/operations": _LazyPage("etf_cockpit.app.pages.operations", "operations_page"),
     "/release-readiness": _LazyPage("etf_cockpit.app.pages.release_readiness", "release_readiness_page"),

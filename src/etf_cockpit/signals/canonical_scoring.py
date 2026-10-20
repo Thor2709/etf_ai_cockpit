@@ -311,6 +311,48 @@ def headline_evidence_weights(policy_key: str, *, path: Path | None = None) -> d
     return dict(_headline_weights_cached(str(policy_path), stat.st_mtime_ns, stat.st_size, key))
 
 
+CERTIFICATE_FUNDAMENTAL_KEYS = ("stock_value", "stock_quality", "analyst_revision")
+
+
+def is_certificate_without_fundamentals(asset_type: object, components: Iterable[Any]) -> bool:
+    """The one rule: a plain certificate with no scorable stock value/quality never carries stock fundamental weights."""
+
+    if str(asset_type).strip().casefold() != "certificate":
+        return False
+    for item in components:
+        if getattr(item, "key", None) not in {"stock_value", "stock_quality"}:
+            continue
+        eligible = getattr(item, "score_eligible", None)
+        if eligible is None:
+            eligible = getattr(item, "eligible", False)
+        if eligible:
+            return False
+    return True
+
+
+def headline_weights_for_components(policy_key: str, asset_type: object, components: Iterable[Any]) -> dict[str, float]:
+    """Headline evidence weights of ``policy_key`` for these components (the certificate rule applied once, here)."""
+
+    weights = headline_evidence_weights(policy_key)
+    if str(policy_key).strip().upper() == "STOCK" and is_certificate_without_fundamentals(asset_type, components):
+        for key in CERTIFICATE_FUNDAMENTAL_KEYS:
+            weights[key] = 0.0
+    return weights
+
+
+def policy_for_components(policy: ScorePolicy, asset_type: object, components: Iterable[Any]) -> ScorePolicy:
+    """``policy`` with the certificate rule applied to every group table and the headline table."""
+
+    if not is_certificate_without_fundamentals(asset_type, components):
+        return policy
+    groups = {
+        group: {key: (0.0 if key in CERTIFICATE_FUNDAMENTAL_KEYS else weight) for key, weight in table.items()}
+        for group, table in policy.groups.items()
+    }
+    headline = {key: (0.0 if key in CERTIFICATE_FUNDAMENTAL_KEYS else weight) for key, weight in policy.headline_weights.items()}
+    return replace(policy, groups=groups, headline_weights=headline)
+
+
 @lru_cache(maxsize=16)
 def _headline_weights_cached(path: str, mtime_ns: int, size: int, key: str) -> tuple[tuple[str, float], ...]:
     weights = load_score_policy(key, path=Path(path)).headline_weights
@@ -582,6 +624,7 @@ def canonical_score_from_simple_components(
         raise CanonicalScoreError("EC instruments must use the native Sparebank scorecard")
     source = tuple(components)
     converted = tuple(_canonical_component_from_simple(component) for component in source)
+    policy = policy_for_components(load_score_policy(asset_type), asset_type, source)
     evidence: dict[str, object] = {}
     for original in source:
         for item in getattr(original, "inputs_used", ()) or ():
@@ -595,6 +638,7 @@ def canonical_score_from_simple_components(
         asset_type=asset_type,
         decision_time=decision_time,
         components=converted,
+        policy=policy,
         critical_evidence=evidence,
         business_model=business_model,
         quality_status=simple_quality_status(source, asset_type, business_model),

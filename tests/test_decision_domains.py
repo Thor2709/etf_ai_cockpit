@@ -509,8 +509,9 @@ def test_legacy_v3_hash_and_reference_score_are_unchanged() -> None:
     # v3.1.0 was c70b2bd1452a48b5a7eae5f4b11aa361cfc87c2ce103c2a95c22b38341a8293b (rows stored under those versions keep them: history
     # is append-only). PSF: score-engine-v3.2.0 caps momentum+trend at 30% and drops relative_strength to weight 0, so the ETF
     # attractiveness reference score is (0.1325*0.8 + 0.1135*0.4) / 0.246 -> 8.1 (it was 7.5 with RS weighted).
-    assert policy.formula_version == "score-engine-v3.2.0"
-    assert policy.formula_checksum == "786f3645f6461d7f8c663f202d8ff8dbd52b7b768d4e1619b2f8d110997bab34"
+    # FPQ: etf_exposure moved to risk role, non-price ETF families rescaled pro rata (v3.2.0 was 786f3645f6461d7f8c663f202d8ff8dbd52b7b768d4e1619b2f8d110997bab34).
+    assert policy.formula_version == "score-engine-v3.3.0"
+    assert policy.formula_checksum == "77829855ab2daa8628757903e4cdd84bec5ec86f9eed3c37b9b2dfb27fdd580e"
     assert score.attractiveness_10 == pytest.approx(8.1, abs=1e-12)  # score_10 is rounded to 0.1
 
 

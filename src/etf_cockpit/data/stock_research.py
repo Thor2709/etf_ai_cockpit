@@ -543,6 +543,8 @@ def valuation_analysis(
     price_provenance = _market_input_provenance(
         market_inputs or {}, "share_price"
     )
+    # Evidence first known after the decision moment never backs a margin of safety (point-in-time).
+    decision_cutoff = _parse_utc(as_known_at if as_known_at is not None else (market_inputs or {}).get("decision_time"))
     mos_models: dict[str, dict[str, object]] = {}
     dcf_provenance = _valuation_model_provenance(
         frame,
@@ -570,6 +572,7 @@ def valuation_analysis(
                 dcf_provenance,
                 price_provenance,
                 model=f"dcf:{scenario_name}",
+                cutoff=decision_cutoff,
             )
             scenario["margin_of_safety"] = mos
             mos_models[f"dcf:{scenario_name}"] = mos
@@ -583,7 +586,7 @@ def valuation_analysis(
         bank_route=bank_route,
     )
     if driver.get("per_share") is not None:
-        driver_mos = _margin_of_safety(driver.get("per_share"), market.get("share_price"), dcf_provenance, price_provenance, model="driver_dcf")
+        driver_mos = _margin_of_safety(driver.get("per_share"), market.get("share_price"), dcf_provenance, price_provenance, model="driver_dcf", cutoff=decision_cutoff)
         driver["margin_of_safety"] = driver_mos
         mos_models["driver_dcf"] = driver_mos
     residual_mos = _margin_of_safety(
@@ -592,6 +595,7 @@ def valuation_analysis(
         residual_provenance,
         price_provenance,
         model="residual_income",
+        cutoff=decision_cutoff,
     )
     residual["margin_of_safety"] = residual_mos
     mos_models["residual_income"] = residual_mos
@@ -607,7 +611,7 @@ def valuation_analysis(
     reverse_provenance.extend(
         _market_input_provenance(market_inputs or {}, "market_cap")
     )
-    if not _source_triplets_complete(reverse_provenance):
+    if not _source_triplets_complete(reverse_provenance, cutoff=decision_cutoff):
         reverse_provenance.append(
             {
                 "source_id": None,
@@ -1937,6 +1941,7 @@ def _margin_of_safety(
     price_provenance: Sequence[Mapping[str, object]],
     *,
     model: str,
+    cutoff: pd.Timestamp | None = None,
 ) -> dict[str, object]:
     model_value = _float(value_per_share)
     current_price = _float(price)
@@ -1946,9 +1951,9 @@ def _margin_of_safety(
         missing.append("model_value_unavailable")
     if current_price is None or current_price <= 0:
         missing.append("positive_current_price_unavailable")
-    if not _source_triplets_complete(value_provenance):
+    if not _source_triplets_complete(value_provenance, cutoff=cutoff):
         missing.append("model_source_timing_unavailable")
-    if not _source_triplets_complete(price_provenance):
+    if not _source_triplets_complete(price_provenance, cutoff=cutoff):
         missing.append("price_source_timing_unavailable")
     if missing:
         return {
@@ -2023,13 +2028,23 @@ def _reverse_dcf_gap(
 
 def _source_triplets_complete(
     provenance: Sequence[Mapping[str, object]],
+    *,
+    cutoff: pd.Timestamp | None = None,
 ) -> bool:
+    """Every item names its source, effective time and a timezone-aware known_at (not after ``cutoff`` when given)."""
+
     return bool(provenance) and all(
         _text(item.get("source_id"))
         and _text(item.get("effective_at"))
         and _timezone_aware(_text(item.get("known_at")))
+        and (cutoff is None or _known_by(_text(item.get("known_at")), cutoff))
         for item in provenance
     )
+
+
+def _known_by(known_at: str, cutoff: pd.Timestamp) -> bool:
+    parsed = _parse_utc(known_at)
+    return parsed is not None and parsed <= cutoff
 
 
 def _bind_capital_efficiency_source_provenance(

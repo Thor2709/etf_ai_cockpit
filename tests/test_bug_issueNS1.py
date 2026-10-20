@@ -35,8 +35,9 @@ V3 = CONFIGS / "score_engine_v3.yaml"
 # 0.18/0.13/0.12/0.12/0.10/0.12/0.13/0.05); PSF (score-engine-v3.2.0) capped momentum+trend at 30% and zeroed relative_strength,
 # the freed weight going proportionally to the non-price families. The names are kept: they pin "yaml == every consumer".
 ORIGINAL_ETF_TABLE = {
-    "momentum": 0.165, "trend": 0.135, "relative_strength": 0.0, "risk": 0.2882, "liquidity_cost": 0.2059,
-    "etf_exposure": 0.2059, "baseline": 0.0, "timesfm": 0.0, "toto": 0.0,
+    "momentum": 0.165, "trend": 0.135, "relative_strength": 0.0, "risk": 0.4083, "liquidity_cost": 0.2917,
+    "etf_exposure": 0.0,  # FPQ: etf_exposure moved to risk role, non-price ETF families rescaled pro rata
+    "baseline": 0.0, "timesfm": 0.0, "toto": 0.0,
 }
 ORIGINAL_STOCK_TABLE = {
     "momentum": 0.1742, "trend": 0.1258, "relative_strength": 0.0, "risk": 0.1615, "liquidity_cost": 0.1346,

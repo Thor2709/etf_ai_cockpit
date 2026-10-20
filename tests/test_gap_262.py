@@ -197,7 +197,9 @@ def test_shipped_registry_reads_current_values_from_real_configs() -> None:
 
     # NS1: the rebalance knob is gone (drift is not part of the instrument score); PSF: the two relative_strength knobs are gone
     # (weight 0 while one global anchor is used), momentum/trend upper bounds sum to the 30% price-family cap.
-    assert len(registry.parameters) == 13
+    # FPQ: the etf_exposure headline knob is gone (concentration is a risk-role term; its headline weight is fixed at 0).
+    assert len(registry.parameters) == 12
+    assert "score.etf.headline.etf_exposure" not in {item.key for item in registry.parameters}
     current = registry.current_values()
     assert current["ensemble.toto"] == 0.21 and current["score.etf.headline.momentum"] == 0.165
     upper = {item.key: item.upper for item in registry.parameters}

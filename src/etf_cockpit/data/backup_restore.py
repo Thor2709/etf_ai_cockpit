@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 import os
 import re
 import stat
@@ -9,6 +10,8 @@ import shutil
 import sqlite3
 import tempfile
 import zipfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path, PurePosixPath
@@ -92,7 +95,7 @@ _MIN_RECOVERY_KEY_BYTES = 16
 
 
 def create_backup(paths: list[Path], destination: Path, *, include_transient: bool = False) -> BackupManifest:
-    checksums, excluded, payloads = _collect_payloads(paths, include_transient=include_transient)
+    checksums, excluded, payloads = _collect_payloads(paths, include_transient=include_transient, include_private=False)
     manifest_payload = _manifest_payload(checksums, excluded)
     manifest_checksum = hashlib.sha256(manifest_payload).hexdigest()
     _write_backup_archive(destination, _zip_payload(payloads, manifest_payload))
@@ -115,6 +118,7 @@ def create_incremental_backup(
         include_transient=include_transient,
         previous_checksums=previous_inventory,
         seen=seen,
+        include_private=False,
     )
     manifest_payload = _manifest_payload(
         checksums,
@@ -149,7 +153,7 @@ def create_encrypted_backup(
 ) -> BackupManifest:
     """Create a Fernet-encrypted backup using a user-managed recovery key."""
 
-    checksums, excluded, payloads = _collect_payloads(paths, include_transient=include_transient)
+    checksums, excluded, payloads = _collect_payloads(paths, include_transient=include_transient, include_private=True)
     manifest_payload = _manifest_payload(checksums, excluded, schema_version=2)
     manifest_checksum = hashlib.sha256(manifest_payload).hexdigest()
     salt = os.urandom(16)
@@ -276,6 +280,13 @@ def commit_restore(preview: RestorePreview, destination: Path) -> RestoreResult:
     current = validate_restore(preview.archive, destination=destination)
     if not current.valid or current.manifest_checksum != preview.manifest_checksum or current.checksums != preview.checksums:
         return RestoreResult(destination, 0, False, "restore_preview_stale_or_archive_changed")
+    # A delta is only meaningful on top of its base chain; applying it alone would
+    # write sparse changed payloads and report a successful restore.
+    manifest = _archive_manifest(preview.archive)
+    if manifest is None:
+        return RestoreResult(destination, 0, False, "restore_manifest_invalid")
+    if _is_incremental_manifest(manifest):
+        return RestoreResult(destination, 0, False, "incremental_archive_requires_base_chain")
     try:
         destination_root = destination.resolve()
         payloads: dict[str, bytes] = {}
@@ -314,7 +325,8 @@ def commit_incremental_restore(previews: list[RestorePreview] | tuple[RestorePre
         previous_manifest_checksum: str | None = None
         touched_names: list[str] = []
         deleted_names: set[str] = set()
-        for preview in previews:
+        inventory: set[str] = set()
+        for position, preview in enumerate(previews):
             current = validate_restore(preview.archive, check_consistency=False)
             if not current.valid or current.manifest_checksum != preview.manifest_checksum or current.checksums != preview.checksums:
                 return RestoreResult(Path(destination), 0, False, "restore_preview_stale_or_archive_changed")
@@ -323,12 +335,21 @@ def commit_incremental_restore(previews: list[RestorePreview] | tuple[RestorePre
                 if not isinstance(manifest, dict):
                     return RestoreResult(Path(destination), 0, False, "restore_manifest_invalid")
                 linkage = manifest.get("base_manifest_checksum")
-                if linkage is not None and (
-                    manifest.get("incremental") is not True or linkage != previous_manifest_checksum
-                ):
+                deleted_raw = manifest.get("deleted", ())
+                if not isinstance(deleted_raw, (list, tuple)):
+                    return RestoreResult(Path(destination), 0, False, "restore_manifest_invalid")
+                if position == 0:
+                    # The chain starts at a full archive; a delta has no base to apply to.
+                    if _is_incremental_manifest(manifest):
+                        return RestoreResult(Path(destination), 0, False, "incremental_archive_requires_base_chain")
+                elif manifest.get("incremental") is not True or linkage is None or linkage != previous_manifest_checksum:
+                    # Every later archive, including a second full archive, must link to its predecessor.
                     return RestoreResult(Path(destination), 0, False, "incremental_base_manifest_mismatch")
-                for name in manifest.get("deleted", ()):
+                for name in deleted_raw:
                     name = str(name)
+                    if name not in inventory:
+                        return RestoreResult(Path(destination), 0, False, f"tombstone_outside_inventory:{name}")
+                    inventory.discard(name)
                     targets.setdefault(name, _restore_target(destination_root, name))
                     composed.pop(name, None)
                     checksums.pop(name, None)
@@ -336,6 +357,7 @@ def commit_incremental_restore(previews: list[RestorePreview] | tuple[RestorePre
                 for name in preview.entries:
                     payload = archive.read(name)
                     deleted_names.discard(name)
+                    inventory.add(name)
                     if name not in snapshot:
                         target = _restore_target(destination_root, name)
                         targets[name] = target
@@ -354,8 +376,15 @@ def commit_incremental_restore(previews: list[RestorePreview] | tuple[RestorePre
             if name in payloads
         ]
 
+        deleted_configs = tuple(sorted(name for name in deleted_names if name.casefold().startswith("configs/")))
+
         def precondition() -> None:
-            consistency_error = _validate_config_payloads(payloads, destination_root, temp_parent=destination_root.parent)
+            consistency_error = _validate_config_payloads(
+                payloads,
+                destination_root,
+                temp_parent=destination_root.parent,
+                deleted=deleted_configs,
+            )
             if consistency_error:
                 raise ValueError(consistency_error)
 
@@ -371,6 +400,9 @@ def commit_incremental_restore(previews: list[RestorePreview] | tuple[RestorePre
             for name in sorted(deleted_names):
                 targets[name].unlink(missing_ok=True)
             atomic_write_group(requests, precondition=precondition)
+            if deleted_configs and not requests:
+                # A deletion-only group never runs the write-group precondition: read the settings back.
+                precondition()
         except Exception:
             atomic_write_group([
                 AtomicWriteRequest(targets[name], payload, _checksum_validator(hashlib.sha256(payload).hexdigest(), name))
@@ -398,24 +430,28 @@ def validate_encrypted_restore(
 
 
 def restore_encrypted_backup(archive_path: Path, destination: Path, recovery_key: str | bytes) -> RestoreResult:
-    preview = validate_encrypted_restore(archive_path, recovery_key, destination=destination)
-    if not preview.valid:
-        return RestoreResult(Path(destination), 0, False, "; ".join(preview.errors))
     try:
         plaintext = _decrypt_backup(Path(archive_path), recovery_key)
-        with tempfile.NamedTemporaryFile(suffix=".backup", delete=False) as handle:
-            temporary = Path(handle.name)
-            handle.write(plaintext)
-        try:
+    except (BackupKeyError, EncryptionUnavailable, OSError, ValueError, TypeError) as exc:
+        return RestoreResult(Path(destination), 0, False, f"decryption_failed:{type(exc).__name__}")
+    try:
+        with _private_plaintext_archive(plaintext) as temporary:
             plain_preview = validate_restore(temporary, destination=destination)
+            if not plain_preview.valid:
+                return RestoreResult(Path(destination), 0, False, "; ".join(plain_preview.errors))
             return commit_restore(plain_preview, destination)
-        finally:
-            temporary.unlink(missing_ok=True)
     except (BackupKeyError, EncryptionUnavailable, OSError, ValueError, TypeError) as exc:
         return RestoreResult(Path(destination), 0, False, f"decryption_failed:{type(exc).__name__}")
 
 
 def apply_backup_retention(directory: Path, *, keep: int = 5, pattern: str = "*.backup") -> tuple[Path, ...]:
+    """Keep the newest ``keep`` archives plus every base a retained incremental chain needs.
+
+    Pruning by age alone could delete the full archive an incremental depends on and
+    leave an unrestorable chain, so ancestors of retained archives are protected even
+    when that keeps more than ``keep`` files.
+    """
+
     if keep < 1:
         raise ValueError("backup retention must keep at least one archive")
     candidates = sorted(
@@ -423,8 +459,20 @@ def apply_backup_retention(directory: Path, *, keep: int = 5, pattern: str = "*.
         key=lambda path: (path.stat().st_mtime_ns, path.name),
         reverse=True,
     )
+    manifests = {path: _archive_manifest_identity(path) for path in candidates}
+    by_checksum = {checksum: path for path, (checksum, _base) in manifests.items() if checksum}
+    protected = set(candidates[:keep])
+    pending = list(protected)
+    while pending:
+        base = manifests[pending.pop()][1]
+        ancestor = by_checksum.get(base) if base else None
+        if ancestor is not None and ancestor not in protected:
+            protected.add(ancestor)
+            pending.append(ancestor)
     removed: list[Path] = []
     for path in candidates[keep:]:
+        if path in protected:
+            continue
         path.unlink()
         removed.append(path)
     return tuple(removed)
@@ -471,6 +519,7 @@ def _collect_payloads(
     include_transient: bool,
     previous_checksums: dict[str, str] | None = None,
     seen: set[str] | None = None,
+    include_private: bool = False,
 ) -> tuple[dict[str, str], list[str], dict[str, bytes]]:
     found, skipped = _iter_files(paths)
     files = sorted(found, key=lambda item: str(item))
@@ -493,10 +542,22 @@ def _collect_payloads(
         relative = _archive_name(path)
         if origins.setdefault(relative, path.resolve()) != path.resolve():
             raise BackupError(f"archive_name_collision:{relative}")
+        if _restore_refused_root(relative):
+            raise BackupError(f"unapproved_path:{relative}")
+        if not include_private and _private_note_path(relative):
+            # Owner notes stay out of plaintext archives; only encrypted backups carry them.
+            excluded.append(relative)
+            continue
         data = path.read_bytes()
-        if data.startswith(b"SQLite format 3\x00"):
+        is_sqlite = data.startswith(b"SQLite format 3\x00")
+        if is_sqlite:
             data = _sqlite_snapshot(path)
-        if _secret_path(path) or _secret_content(data, path) or (not include_transient and _transient_path(path)):
+        if (
+            _secret_path(path)
+            or _secret_content(data, path)
+            or (is_sqlite and _sqlite_contains_secret(data))
+            or (not include_transient and _transient_path(path))
+        ):
             excluded.append(relative)
             continue
         if seen is not None:
@@ -507,6 +568,68 @@ def _collect_payloads(
         checksums[relative] = checksum
         payloads[relative] = data
     return checksums, excluded, payloads
+
+
+def _restore_refused_root(relative: str) -> bool:
+    """Archive names under roots that restore refuses (models/, exports/) must not be created."""
+
+    return relative.casefold().startswith(("models/", "exports/"))
+
+
+def _private_note_path(relative: str) -> bool:
+    return relative.casefold().startswith("data/private/")
+
+
+def _sqlite_contains_secret(snapshot: bytes) -> bool:
+    """Scan every table of a SQLite snapshot for secret-bearing columns or values (fail closed)."""
+
+    if not snapshot.startswith(b"SQLite format 3\x00"):
+        return False  # not a database image (the snapshot API always emits the header); text scan already ran
+    connection = sqlite3.connect(":memory:")
+    # A WAL-mode snapshot cannot be opened in memory; read it as a rollback-journal copy (scan only).
+    scannable = bytearray(snapshot)
+    if len(scannable) > 19:
+        scannable[18] = scannable[19] = 1
+    try:
+        connection.deserialize(scannable)
+        tables = [row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+        for table in tables:
+            quoted = '"' + str(table).replace('"', '""') + '"'
+            cursor = connection.execute(f"SELECT * FROM {quoted}")
+            columns = [str(column[0]) for column in cursor.description or ()]
+            secret_columns = {index for index, column in enumerate(columns) if _normalise_secret_key(column) in _SECRET_KEY_NAMES}
+            for row in cursor:
+                if any(_structured_secret_value(row[index]) for index in secret_columns):
+                    return True
+                if _sqlite_row_has_secret(row):
+                    return True
+    except sqlite3.Error:
+        return True  # an unreadable database cannot be proven secret-free
+    finally:
+        connection.close()
+    return False
+
+
+def _sqlite_row_has_secret(row: tuple[object, ...]) -> bool:
+    cells = [bytes(cell).decode("utf-8", errors="ignore") if isinstance(cell, (bytes, bytearray)) else cell for cell in row]
+    for index, cell in enumerate(cells):
+        if not isinstance(cell, str) or not cell.strip():
+            continue
+        # key/value tables: a cell naming a secret key beside a non-empty sibling value
+        if _normalise_secret_key(cell) in _SECRET_KEY_NAMES and any(
+            other is not None and str(other).strip() for position, other in enumerate(cells) if position != index
+        ):
+            return True
+        if _secret_content(cell.encode("utf-8")):
+            return True
+        stripped = cell.lstrip()
+        if stripped[:1] in {"{", "["}:
+            try:
+                if _contains_structured_secret(json.loads(cell)):
+                    return True
+            except ValueError:
+                pass
+    return False
 
 
 def _sqlite_snapshot(path: Path) -> bytes:
@@ -585,20 +708,90 @@ def _decrypt_backup(archive_path: Path, recovery_key: str | bytes) -> bytes:
         raise ValueError("encrypted backup authentication failed") from exc
 
 
+_PLAINTEXT_TEMP_PREFIX = "etf-cockpit-plain-"
+_PLAINTEXT_TEMP_MAX_AGE_SECONDS = 3600.0
+_plaintext_temp_swept = False
+
+
+def sweep_stale_plaintext_temp(*, max_age_seconds: float = _PLAINTEXT_TEMP_MAX_AGE_SECONDS) -> int:
+    """Remove decrypted-backup directories left behind by an abruptly terminated process."""
+
+    removed = 0
+    try:
+        candidates = list(Path(tempfile.gettempdir()).glob(f"{_PLAINTEXT_TEMP_PREFIX}*"))
+    except OSError:
+        return 0
+    cutoff = time.time() - max_age_seconds
+    for candidate in candidates:
+        try:
+            if candidate.is_symlink() or not candidate.is_dir() or candidate.stat().st_mtime > cutoff:
+                continue
+            shutil.rmtree(candidate, onerror=_remove_readonly)
+            removed += 1
+        except OSError:
+            continue
+    return removed
+
+
+@contextmanager
+def _private_plaintext_archive(plaintext: bytes) -> Iterator[Path]:
+    """Hold decrypted bytes in a private directory that is always deleted on exit."""
+
+    global _plaintext_temp_swept
+    if not _plaintext_temp_swept:
+        _plaintext_temp_swept = True
+        sweep_stale_plaintext_temp()
+    directory = Path(tempfile.mkdtemp(prefix=_PLAINTEXT_TEMP_PREFIX))
+    try:
+        try:
+            os.chmod(directory, 0o700)
+        except OSError:
+            pass
+        archive = directory / "decrypted.backup"
+        archive.write_bytes(plaintext)
+        yield archive
+    finally:
+        try:
+            shutil.rmtree(directory, onerror=_remove_readonly)
+        except OSError:
+            pass  # swept by the next startup sweep
+
+
 def _preview_from_plaintext(
     display_path: Path,
     plaintext: bytes,
     *,
     destination: Path | None = None,
 ) -> RestorePreview:
-    with tempfile.NamedTemporaryFile(suffix=".backup", delete=False) as handle:
-        temporary = Path(handle.name)
-        handle.write(plaintext)
-    try:
+    with _private_plaintext_archive(plaintext) as temporary:
         preview = validate_restore(temporary, destination=destination)
         return RestorePreview(display_path, preview.valid, preview.entries, preview.errors, preview.checksums, preview.manifest_checksum, preview.excluded)
-    finally:
-        temporary.unlink(missing_ok=True)
+
+
+def _archive_manifest(archive_path: Path) -> dict[str, object] | None:
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            manifest = json.loads(archive.read("manifest.json"))
+    except (OSError, zipfile.BadZipFile, ValueError, KeyError):
+        return None
+    return manifest if isinstance(manifest, dict) else None
+
+
+def _is_incremental_manifest(manifest: dict[str, object]) -> bool:
+    return manifest.get("incremental") is True or manifest.get("base_manifest_checksum") is not None or "deleted" in manifest
+
+
+def _archive_manifest_identity(path: Path) -> tuple[str | None, str | None]:
+    """(manifest checksum, base manifest checksum) of a plaintext archive; (None, None) when unreadable."""
+
+    try:
+        with zipfile.ZipFile(path) as archive:
+            raw = archive.read("manifest.json")
+        manifest = json.loads(raw)
+    except (OSError, zipfile.BadZipFile, ValueError, KeyError):
+        return None, None
+    base = manifest.get("base_manifest_checksum") if isinstance(manifest, dict) else None
+    return hashlib.sha256(raw).hexdigest(), base if isinstance(base, str) else None
 
 
 def _iter_files(paths: list[Path]) -> tuple[list[Path], list[Path]]:
@@ -789,9 +982,11 @@ def _validate_config_payloads(
     destination: Path | None,
     *,
     temp_parent: Path | None = None,
+    deleted: tuple[str, ...] | list[str] = (),
 ) -> str | None:
     config_payloads = {name: data for name, data in payloads.items() if name.casefold().startswith("configs/")}
-    if not config_payloads:
+    deleted_configs = [name for name in deleted if name.casefold().startswith("configs/") and not _unsafe(name)]
+    if not config_payloads and not deleted_configs:
         return None
     # System temp, never beside the app root. temp_parent is kept for API compatibility only.
     temporary_path = Path(tempfile.mkdtemp(prefix="restore-config-"))
@@ -832,8 +1027,18 @@ def _validate_config_payloads(
             target = root / Path(name)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
-        step = "load_settings_bundle"
-        load_settings_bundle(root)
+        for name in deleted_configs:
+            # Tombstoned configs vanish from the staged bundle exactly as they will on disk.
+            step = "apply_tombstone"
+            (root / Path(name)).unlink(missing_ok=True)
+            missing = _missing_required_config(root, name)
+            if missing:
+                # The loader would silently fall back to defaults for a vanished companion file.
+                result = f"settings_consistency_invalid:required_config_deleted:{missing}"
+                break
+        if not result:
+            step = "load_settings_bundle"
+            load_settings_bundle(root)
     except SettingsError as exc:
         reason = str(exc)
         if "revision" in reason.casefold():
@@ -851,6 +1056,30 @@ def _validate_config_payloads(
             cleanup_error = f"settings_consistency_invalid:cleanup_failed:{type(exc).__name__}:{exc}"
             result = f"{result}; {cleanup_error}" if result else cleanup_error
     return result
+
+
+_REQUIRED_CONFIG_FILES = frozenset(
+    {
+        "settings.yaml",
+        "universe.yaml",
+        "portfolio_targets.yaml",
+        "risk_limits.yaml",
+        "costs.yaml",
+        "model_settings.yaml",
+        "data_providers.yaml",
+    }
+)
+
+
+def _missing_required_config(root: Path, name: str) -> str | None:
+    """Return the tombstoned config name when the staged bundle would lack a required document."""
+
+    relative = PurePosixPath(name.replace("\\", "/"))
+    if len(relative.parts) != 2 or relative.name.casefold() not in _REQUIRED_CONFIG_FILES:
+        return None
+    if relative.name.casefold() == "universe.yaml" and (root / "configs" / "universe_store.json").is_file():
+        return None
+    return None if (root / Path(name)).exists() else name
 
 
 def _remove_readonly(function, path: str, _exc_info) -> None:

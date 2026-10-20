@@ -5,12 +5,15 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime
 import hashlib
 import json
-from math import isfinite, tanh
+from functools import lru_cache
+from math import exp, isfinite, log, tanh
 from pathlib import Path
 import re
+from types import SimpleNamespace
 from typing import Iterable, Literal
 
 import pandas as pd
+import yaml
 
 from etf_cockpit.data.trust_artifacts import _strict_nullable_revision_array
 from etf_cockpit.core.pandas_values import bool_like_or_none as _bool_like, stripped_text_or_none as _noneable_str
@@ -26,7 +29,13 @@ from etf_cockpit.analysis.cyclical_sector_adapters import (
     verify_cyclical_projection,
 )
 from etf_cockpit.analysis.stock_evidence import StockEvidence, band_is_label_stable, label_boundaries_from, linear_score
-from etf_cockpit.analysis.stock_universe import get_universe_evidence, live_decision_time, records_from_config
+from etf_cockpit.analysis.stock_universe import (
+    SECTOR_ROUTE_MISSING,
+    get_universe_evidence,
+    is_non_bank_financial_sector,
+    live_decision_time,
+    records_from_config,
+)
 from etf_cockpit.data.stock_fundamentals import load_stock_config
 from etf_cockpit.core.atomic_io import AtomicWriteRequest, atomic_write_group, parquet_payload, validate_parquet_file
 from etf_cockpit.core.config import AppConfig
@@ -45,6 +54,7 @@ from etf_cockpit.data.trade_candidate_analysis import load_candidate_price_bindi
 from etf_cockpit.data.macro_warehouse import MacroWarehouse, load_risk_free_proxy_mappings
 from etf_cockpit.data.score_history import latest_sparebank_scores, project_classification_score_frame
 from etf_cockpit.governance.gate_policy import resolve_authority
+from etf_cockpit.data.parsed_disclosures import read_priips_kid_records
 from etf_cockpit.data.reference_data import load_reference_dataset
 from etf_cockpit.data.news_context import NEWS_CLEAN_PATH, load_news_items
 from etf_cockpit.data.universe_store import support_decision
@@ -86,7 +96,14 @@ from etf_cockpit.core.research_states import (
 )
 from etf_cockpit.signals.strategy_templates import strategy_template_frame, strategy_template_labels, template_description
 from etf_cockpit.signals.friction_edge import estimate_friction_adjusted_return, estimate_friction_edge
-from etf_cockpit.signals.canonical_scoring import CanonicalScore, canonical_score_from_simple_components, headline_evidence_weights
+from etf_cockpit.signals.canonical_scoring import (
+    FORMULA_PATH,
+    CanonicalScore,
+    canonical_score_from_simple_components,
+    headline_evidence_weights,
+    headline_weights_for_components,
+    is_certificate_without_fundamentals,
+)
 
 
 SCORE_LEGEND = (
@@ -109,6 +126,10 @@ CASH_MACRO_ROOT = ROOT
 _CASH_COMPARISON_RETURN_WINDOW = 120
 
 
+def _policy_key(asset_type: str) -> str:
+    return "STOCK" if _is_stock_like_asset_type(asset_type) else "ETF"
+
+
 def headline_weights(asset_type: str) -> dict[str, float]:
     """Headline evidence-composite weights for an instrument type, read from ``configs/score_engine_v3.yaml``.
 
@@ -116,7 +137,7 @@ def headline_weights(asset_type: str) -> dict[str, float]:
     keeps the forecast components at weight 0 there.
     """
 
-    return headline_evidence_weights("STOCK" if _is_stock_like_asset_type(asset_type) else "ETF")
+    return headline_evidence_weights(_policy_key(asset_type))
 
 
 COMPONENT_LABELS = {
@@ -126,7 +147,8 @@ COMPONENT_LABELS = {
     "risk": "Risk/volatility algorithm",
     "relative_strength": "Relative strength algorithm",
     "liquidity_cost": "Liquidity/cost algorithm",
-    "etf_exposure": "ETF exposure algorithm",
+    "etf_exposure": "ETF concentration (risk term)",
+    "etf_product_quality": "ETF product quality",
     "stock_value": "Stock value algorithm",
     "stock_quality": "Stock quality algorithm",
     "analyst_revision": "Analyst/revision evidence",
@@ -142,7 +164,8 @@ COMPONENT_EXPLANATIONS = {
     "risk": "Scores volatility and drawdown. Smoother prices and smaller drawdowns score higher.",
     "relative_strength": "Compares the instrument with its peer set. A high score means it is leading nearby alternatives.",
     "liquidity_cost": "Estimates whether the instrument is liquid enough that spread, slippage and commission do not overwhelm the edge.",
-    "etf_exposure": "Uses available Yahoo fund holdings to assess concentration and diversification. Missing fund data stays N/A.",
+    "etf_exposure": "Concentration risk term, not exposure attractiveness: uses available Yahoo fund holdings to assess concentration and diversification. Missing fund data stays N/A.",
+    "etf_product_quality": "Scores cost (TER or KID ongoing cost), tracking difference, premium/discount and structure against peers with the same exposure/benchmark. Missing product data stays N/A, never neutral.",
     "stock_value": "Scores valuation from filings (SEC EDGAR/ESEF) or yfinance fundamentals: earnings, FCF and EBIT yields, P/E versus own history and peers. Inputs that are missing stay out and are named.",
     "stock_quality": "Scores ROE, ROIC, margin, leverage, cash conversion and growth from filings or yfinance fundamentals. Inputs that are missing stay out and are named.",
     "analyst_revision": "Adds low-authority analyst estimate/revision context (EPS estimate change and revision direction) when Yahoo exposes usable data.",
@@ -158,7 +181,8 @@ GOOD_SCORE_TEXT = {
     "risk": "Good score: recent volatility and drawdown are controlled.",
     "relative_strength": "Good score: it is outperforming the configured or candidate peer set.",
     "liquidity_cost": "Good score: average traded value is healthy and estimated costs are small relative to the signal.",
-    "etf_exposure": "Good score: holdings are available and no single holding/top-10 group dominates the ETF.",
+    "etf_exposure": "Good score: holdings are available and no single holding/top-10 group dominates the ETF (low concentration risk).",
+    "etf_product_quality": "Good score: the product is cheaper, tracks tighter and trades closer to NAV than its same-exposure peers.",
     "stock_value": "Good score: valuation is attractive relative to available stock evidence.",
     "stock_quality": "Good score: profitability is strong, leverage is acceptable and cash conversion is healthy.",
     "analyst_revision": "Good score: analyst revisions or estimates are improving. This is always low-authority.",
@@ -175,6 +199,7 @@ COMPONENT_SOURCE_IDS = {
     "relative_strength": "yfinance:prices",
     "liquidity_cost": "yfinance:prices",
     "etf_exposure": "yfinance:holdings",
+    "etf_product_quality": "issuer_document:etf_product_quality",
     "stock_value": "yfinance:fundamentals",
     "stock_quality": "yfinance:fundamentals",
     "analyst_revision": "yfinance:analyst_estimates",
@@ -184,6 +209,17 @@ COMPONENT_SOURCE_IDS = {
 }
 CYCLICAL_SCORE_SOURCE_IDS = frozenset(item.adapter_id for item in cyclical_adapter_definitions())
 KNOWN_SCORE_SOURCE_IDS = frozenset((*COMPONENT_SOURCE_IDS.values(), *CYCLICAL_SCORE_SOURCE_IDS))
+# A PRIIPs KID is identified by its document hash: ``priips_kid:<64-hex>``. ``priips_kid:unavailable`` is never evidence.
+_PRIIPS_KID_SOURCE_ID = re.compile(r"priips_kid:[0-9a-f]{64}", re.IGNORECASE)
+
+
+def is_priips_kid_source_id(source_id: object) -> bool:
+    return _PRIIPS_KID_SOURCE_ID.fullmatch(str(source_id or "").strip()) is not None
+
+
+def is_known_score_source_id(source_id: object) -> bool:
+    text = str(source_id or "").strip()
+    return text in KNOWN_SCORE_SOURCE_IDS or is_priips_kid_source_id(text)
 
 
 @dataclass(frozen=True)
@@ -566,7 +602,7 @@ class SimpleInstrumentScore:
 
     @property
     def score_coverage(self) -> float:
-        weights = headline_weights(self.asset_type)
+        weights = _headline_weights_for_components(_policy_key(self.asset_type), self.asset_type, self.components)
         configured_weight = sum(weights.values())
         active_weight = sum(
             float(weights.get(component.key, 0.0))
@@ -577,7 +613,7 @@ class SimpleInstrumentScore:
 
     @property
     def missing_components(self) -> tuple[str, ...]:
-        weights = headline_weights(self.asset_type)
+        weights = _headline_weights_for_components(_policy_key(self.asset_type), self.asset_type, self.components)
         eligible_keys = {component.key for component in self.components if component.score_eligible}
         return tuple(key for key, weight in weights.items() if weight > 0 and key not in eligible_keys)
 
@@ -704,7 +740,8 @@ def _component_is_score_eligible(component: SimpleScoreComponent) -> bool:
         component.raw_score is not None
         and component.score_10 is not None
         and bool(source_id)
-        and (source_id in KNOWN_SCORE_SOURCE_IDS or source_dataset in allowed_datasets)
+        and (is_known_score_source_id(source_id) or source_dataset in allowed_datasets)
+        and source_id.casefold() != "priips_kid:unavailable"
         and status == "ok"
         and source_dataset not in {"model", "community", "news", "rss", "candle"}
         and authority not in {"model_advisory", "manual_context", "community", "model"}
@@ -1301,7 +1338,7 @@ def _attach_authority(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
     evidence_present = any(
         str(component.status or "").strip().lower() == "ok"
         and component.score_10 is not None
-        and component.source_id in ALLOWED_EVIDENCE_SOURCE_IDS
+        and (component.source_id in ALLOWED_EVIDENCE_SOURCE_IDS or is_priips_kid_source_id(component.source_id))
         and _component_is_score_eligible(component)
         for component in score.components
     )
@@ -1614,6 +1651,8 @@ def build_universe_simple_scores(
         fx_rates=fx_rates,
     )
     etf_exposure = _etf_exposure_lookup()
+    kid_records = _kid_record_lookup()
+    product_lookups: dict[date | None, tuple[dict[str, dict[str, object]], dict[str, dict[str, list[float]]]]] = {}
     stock_evidence, stock_evidence_error = _stock_evidence_lookup(config, signals, prices)
     symbol_map = yfinance_symbol_map_from_config(config)
     etf_lookup = config.universe.by_id()
@@ -1625,6 +1664,13 @@ def build_universe_simple_scores(
     backtest_trust = backtest_trust or {}
     crowding_lookup = {row.instrument_id: row for row in (crowding.rows if crowding else ())}
     output: list[SimpleInstrumentScore] = []
+
+    def _product_lookup_for(signal_date: object) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, list[float]]]]:
+        # peers are filtered to each signal's own decision date: a later-dated peer vintage never ranks an earlier decision
+        decision = _parse_date(signal_date)
+        if decision not in product_lookups:
+            product_lookups[decision] = _etf_product_quality_lookup(config, decision, kids=kid_records)
+        return product_lookups[decision]
 
     enabled_ids = set(config.universe.enabled_ids)
     seen_ids: set[str] = set()
@@ -1700,7 +1746,14 @@ def build_universe_simple_scores(
                     sector=identity.sector,
                 )
                 if stock_like
-                else [_etf_exposure_component(exposure_info, signal.signal_date)]
+                else [
+                    _etf_exposure_component(exposure_info, signal.signal_date),
+                    _etf_product_quality_component(
+                        _product_lookup_for(signal.signal_date)[0].get(signal.etf_id),
+                        _product_lookup_for(signal.signal_date)[1].get(signal.etf_id),
+                        _parse_date(signal.signal_date),
+                    ),
+                ]
             ),
             _forecast_component(signal.etf_id, "baseline", raw_forecast_scores, forecast_details, forecasts),
             _forecast_component(signal.etf_id, "timesfm", raw_forecast_scores, forecast_details, forecasts),
@@ -1710,7 +1763,7 @@ def build_universe_simple_scores(
             signal.signal_date,
         )
         _raw_final, evidence_score = combine_component_scores(
-            components, headline_evidence_weights("STOCK" if stock_like else "ETF")
+            components, _headline_weights_for_components("STOCK" if stock_like else "ETF", asset_type, components)
         )
         quality_score = _evidence_quality_score(
             components,
@@ -2005,6 +2058,20 @@ def build_candidate_simple_scores(
         ]
         if asset_type == "ETF":
             component_rows.append(_etf_exposure_component(etf_exposure.get(instrument_id), decision_date))
+            component_rows.append(_etf_product_quality_component(None, None, decision_date))
+        elif is_non_bank_financial_sector(row.get("sector")):
+            component_rows.extend(
+                [
+                    _sector_route_missing_component("stock_value"),
+                    _sector_route_missing_component("stock_quality"),
+                    _optional_score_component(
+                        "analyst_revision",
+                        row.get("analyst_revision_score_10"),
+                        _candidate_revision_why(row),
+                        authority="low",
+                    ),
+                ]
+            )
         else:
             cyclical_components = _cyclical_stock_components(
                 (cyclical_projections or {}).get(instrument_id),
@@ -2064,7 +2131,7 @@ def build_candidate_simple_scores(
             ]
         )
         components = _attach_component_provenance(component_rows, as_of_date, decision_date)
-        weight_map = headline_evidence_weights("ETF" if asset_type == "ETF" else "STOCK")
+        weight_map = _headline_weights_for_components("ETF" if asset_type == "ETF" else "STOCK", asset_type, components)
         _raw_final, evidence_score = combine_component_scores(components, weight_map)
         quality_score = _evidence_quality_score(components, warnings=blocked, asset_type=asset_type)
         risk_friction = _risk_friction_score(components, warnings=blocked)
@@ -2194,7 +2261,9 @@ def _with_score_band(score: SimpleInstrumentScore) -> SimpleInstrumentScore:
     if score.final_score_10 is None or score.identity_conflict_reason is not None:
         return score
     try:
-        weights = headline_evidence_weights("ETF" if score.asset_type == "ETF" else "STOCK")
+        weights = _headline_weights_for_components(
+            "ETF" if score.asset_type == "ETF" else "STOCK", score.asset_type, score.components
+        )
         boundaries = label_boundaries_from(load_stock_config().get("scoring", {}).get("uncertainty", {}))
     except Exception:  # noqa: BLE001 - the band is informational; no weights or config means no band
         return score
@@ -2430,7 +2499,13 @@ def _pending_components(asset_type: str, *, reason: str = PENDING_WORKFLOW_REASO
 
 
 def _pending_component(key: str, *, reason: str = PENDING_WORKFLOW_REASON) -> SimpleScoreComponent:
-    role = "model_confirmation" if key in {"baseline", "timesfm", "toto"} else "risk_friction" if key == "risk" else "evidence"
+    role = (
+        "model_confirmation"
+        if key in {"baseline", "timesfm", "toto"}
+        else "risk_friction"
+        if key in {"risk", "etf_exposure"}
+        else "evidence"
+    )
     authority = "low" if role == "model_confirmation" else "hard" if key == "data_quality" else "medium"
     return SimpleScoreComponent(
         key=key,
@@ -2720,59 +2795,137 @@ def _liquidity_component(info: dict[str, object]) -> SimpleScoreComponent:
     fx_unavailable = _noneable_str(info.get("fx_unavailable_reason"))
     if fx_unavailable is not None:
         return _component("liquidity_cost", None, fx_unavailable, authority="high", role="risk_friction")
-    raw, why = _liquidity_raw_and_reason(avg_turnover, spread_proxy, conversion_note=_noneable_str(info.get("fx_note")))
+    raw, why = _liquidity_raw_and_reason(
+        avg_turnover,
+        spread_proxy,
+        conversion_note=_noneable_str(info.get("fx_note")),
+        corwin_schultz=_safe_float(info.get("corwin_schultz_20")),
+    )
     return _component("liquidity_cost", raw, why, authority="high", role="risk_friction")
 
 
-def build_priips_kid_cost_evidence(record: object, *, as_of_date: date | None = None) -> SimpleScoreComponent:
-    """Expose complete, fresh issuer KID cost evidence at the score seam.
+_COST_PERCENT = re.compile(r"(?<![A-Za-z])(\d+(?:[.,]\d+)?)\s*%")
+_PRODUCT_QUALITY_DEFAULT_WEIGHTS = {"cost": 0.50, "tracking_difference": 0.25, "premium_discount": 0.15, "structure": 0.10}
+_PRODUCT_QUALITY_DEFAULT_STRUCTURE = {"physical_full": 9.0, "physical_sampled": 7.0, "synthetic": 4.5}
+_PRODUCT_QUALITY_MAX_AGE_DAYS = 400
 
-    The helper is intentionally opt-in: the approved score weights and primary
-    yfinance path are unchanged.  A numeric score is produced only from an
-    explicitly parsed percentage/currency cost (or SRI fallback); incomplete,
-    conflicted or stale records remain observable but score-ineligible.
+
+def _kid_ongoing_cost_pct(record: object) -> float | None:
+    """Explicit ongoing-cost percentage of a KID record (percent units), else None."""
+
+    cost_fields = getattr(record, "cost_fields", {})
+    ongoing_text = cost_fields.get("ongoing_costs") if isinstance(cost_fields, dict) else None
+    match = _COST_PERCENT.search(str(ongoing_text or ""))
+    return None if match is None else _safe_float(match.group(1).replace(",", "."))
+
+
+def _product_quality_policy() -> dict[str, object]:
+    section = _score_engine_section("etf_product_quality")
+    min_peers = _safe_float(section.get("min_peers"))
+    weights = section.get("weights")
+    structure = section.get("structure_scores")
+    max_age = _safe_float(section.get("max_evidence_age_days"))
+    return {
+        "min_peers": int(min_peers) if min_peers is not None and min_peers >= 1 else 2,
+        "max_age_days": int(max_age) if max_age is not None and max_age >= 1 else _PRODUCT_QUALITY_MAX_AGE_DAYS,
+        "weights": (
+            {key: float(weights[key]) for key in _PRODUCT_QUALITY_DEFAULT_WEIGHTS if _safe_float(weights.get(key)) is not None and float(weights[key]) > 0}
+            if isinstance(weights, Mapping) and any(_safe_float(weights.get(key)) for key in _PRODUCT_QUALITY_DEFAULT_WEIGHTS)
+            else dict(_PRODUCT_QUALITY_DEFAULT_WEIGHTS)
+        ),
+        "structure": (
+            {key: float(structure[key]) for key in _PRODUCT_QUALITY_DEFAULT_STRUCTURE if _safe_float(structure.get(key)) is not None and 0.0 <= float(structure[key]) <= 10.0}
+            if isinstance(structure, Mapping)
+            else dict(_PRODUCT_QUALITY_DEFAULT_STRUCTURE)
+        ),
+    }
+
+
+def _peer_relative_score_10(value: float | None, peer_values: Iterable[object] | None, *, min_peers: int) -> float | None:
+    """1-10 rank of ``value`` against the OTHER peers where a LOWER value is better (cost, tracking error, premium gap).
+
+    Strictly cheaper than every peer scores 10, dearer than every peer 1; ties count half. Fewer than ``min_peers``
+    finite peer values means no peer tier exists, so the score is unavailable (never a neutral value).
+    """
+
+    if value is None or not isfinite(value):
+        return None
+    others = [number for number in (_safe_float(item) for item in (peer_values or ())) if number is not None and isfinite(number)]
+    if len(others) < max(1, min_peers):
+        return None
+    worse = sum(1 for number in others if number > value)
+    equal = sum(1 for number in others if number == value)
+    return round(1.0 + 9.0 * (worse + 0.5 * equal) / len(others), 2)
+
+
+def _evidence_age_status(as_of_date: object, decision_date: date | None, max_age_days: int) -> str:
+    parsed = _parse_date(as_of_date)
+    if parsed is None or decision_date is None:
+        return "unknown"
+    if parsed > decision_date:
+        return "unavailable"
+    return "stale" if (decision_date - parsed).days > max_age_days else "ok"
+
+
+def build_priips_kid_cost_evidence(
+    record: object,
+    *,
+    as_of_date: date | None = None,
+    peer_costs_pct: Iterable[object] | None = None,
+    max_age_days: int | None = None,
+) -> SimpleScoreComponent:
+    """Score the issuer KID ongoing cost of an ETF against the cost tier of its same-exposure peers.
+
+    A lower disclosed cost is better *relative to the peers*: ``peer_costs_pct`` are the other funds' ongoing costs in
+    percent. Without a peer tier (fewer than the configured minimum of peers) there is no honest scale, so the component
+    is unavailable; no absolute cost ceiling is invented. The PRIIPs SRI is a risk indicator: it is never mapped to the
+    ``risk`` component or to cost. Incomplete, conflicted or stale records remain observable but score-ineligible.
+    ``max_age_days`` (default: the 10-business-day rule of the price components) bounds the document age.
     """
 
     document_date = _noneable_str(getattr(record, "document_date", None))
     source_sha = _noneable_str(getattr(record, "source_sha256", None))
     source_id = f"priips_kid:{source_sha}" if source_sha else ""
-    freshness = _component_freshness_status(document_date, as_of_date)
+    freshness = (
+        _component_freshness_status(document_date, as_of_date)
+        if max_age_days is None
+        else _evidence_age_status(document_date, as_of_date, max_age_days)
+    )
     warnings = tuple(str(item).strip() for item in (getattr(record, "warnings", ()) or ()) if str(item).strip())
     conflict_id = "methodology_holdings_conflict" if "methodology_holdings_conflict" in warnings else None
     cost_fields = getattr(record, "cost_fields", {})
     cost_text = " ".join(str(value) for value in cost_fields.values()) if isinstance(cost_fields, dict) else ""
     malformed_cost = bool(re.search(r"What are the costs|cost_table_malformed", cost_text, re.IGNORECASE)) or "cost_table_malformed" in warnings
-    ongoing_text = cost_fields.get("ongoing_costs") if isinstance(cost_fields, dict) else None
-    numeric_match = re.search(r"(?<![A-Za-z])(\d+(?:[.,]\d+)?)\s*%", str(ongoing_text or ""))
-    explicit_value = None if numeric_match is None else _safe_float(numeric_match.group(1).replace(",", "."))
+    explicit_value = _kid_ongoing_cost_pct(record)
     sri = _safe_int(getattr(record, "sri", None))
-    key = "liquidity_cost"
-    value_reason = "No explicit numeric KID cost percentage is available."
-    if explicit_value is not None:
-        # A disclosed percentage is a cost penalty, not a positive return
-        # signal.  Keep the penalty bounded by the raw-score contract without
-        # inventing a preferred cost ceiling that the KID does not disclose.
-        raw_score = _clamp(-explicit_value)
-        score_10 = raw_to_score_10(raw_score)
-        value_reason = f"Issuer KID reports an explicit cost percentage of {explicit_value:g}%; no proxy cost was invented."
-    else:
-        key = "risk"
-        # PRIIPs SRI is defined from 1 (lowest risk) through 7 (highest risk).
-        # Map that bounded domain inversely onto the [-1, 1] raw-score domain.
-        raw_score = (
-            None
-            if sri is None
-            else _clamp(1.0 - 2.0 * ((float(sri) - 1.0) / (7.0 - 1.0)))
-        )
-        score_10 = None if raw_score is None else raw_to_score_10(raw_score)
+    key = "etf_product_quality"
+    min_peers = int(_product_quality_policy()["min_peers"])
+    score_10 = (
+        None
+        if explicit_value is None
+        else _peer_relative_score_10(explicit_value, peer_costs_pct, min_peers=min_peers)
+    )
+    raw_score = _score_10_to_raw(score_10)
+    if explicit_value is None:
+        value_reason = "No explicit numeric KID cost percentage is available."
         if sri is not None:
-            value_reason = f"Issuer KID reports explicit summary risk indicator {sri}; no cost proxy was invented."
+            value_reason += f" The KID summary risk indicator {sri} is a risk measure: it is never mapped to cost or to the risk component."
+    elif score_10 is None:
+        value_reason = (
+            f"Issuer KID reports an explicit cost percentage of {explicit_value:g}%, but fewer than {min_peers} "
+            "same-exposure peers have a cost, so there is no peer cost tier to rank it against."
+        )
+    else:
+        value_reason = (
+            f"Issuer KID reports an explicit cost percentage of {explicit_value:g}%, ranked {score_10}/10 against the "
+            "cost tier of its same-exposure peers (lower cost is better); no proxy cost was invented."
+        )
     eligible_record = bool(
         getattr(record, "score_eligible", False)
         and not bool(getattr(record, "manual_review", False))
         and not warnings
         and bool(source_id)
-        and (explicit_value is not None or sri is not None)
+        and explicit_value is not None
         and not malformed_cost
         and freshness == "ok"
     )
@@ -2793,8 +2946,8 @@ def build_priips_kid_cost_evidence(record: object, *, as_of_date: date | None = 
         explanation=COMPONENT_EXPLANATIONS[key],
         good_score=GOOD_SCORE_TEXT[key],
         why=value_reason if score_10 is not None else "KID evidence is unavailable or excluded from scoring. " + value_reason,
-        authority="high",
-        score_role="risk_friction" if key in {"risk", "liquidity_cost"} else "evidence",
+        authority="medium",
+        score_role="product_quality",
         source_id=source_id or "priips_kid:unavailable",
         source_authority="issuer_document",
         as_of_date=document_date,
@@ -2802,6 +2955,234 @@ def build_priips_kid_cost_evidence(record: object, *, as_of_date: date | None = 
         conflict_id=conflict_id,
         evidence_quality=1.0 if eligible_record else "manual_review",
     )
+
+
+def _product_quality_unavailable(why: str, **changes: object) -> SimpleScoreComponent:
+    return replace(
+        _optional_score_component("etf_product_quality", None, why, authority="medium"),
+        score_role="product_quality",
+        **changes,
+    )
+
+
+def _etf_product_quality_component(
+    inputs: Mapping[str, object] | None,
+    peers: Mapping[str, object] | None,
+    decision_date: date | None,
+) -> SimpleScoreComponent:
+    """ETF product-quality block, separate from exposure: cost, tracking difference, premium/discount, structure.
+
+    Every metric is ranked against the other funds of the same exposure/benchmark group (lower is better), never
+    against a fixed scale. The cost (a decimal TER, else a scorable KID component) is required: a missing cost makes the
+    whole block unavailable, never neutral. The other metrics are scored when present and the reason names each one that
+    is not scored; the configured weights are renormalised over the scored metrics only in that visible way.
+    """
+
+    label = COMPONENT_LABELS["etf_product_quality"]
+    if not inputs:
+        return _product_quality_unavailable(f"{label}: no product data (TER, tracking difference, premium/discount, structure) is available for this ETF.")
+    policy = _product_quality_policy()
+    min_peers = int(policy["min_peers"])
+    peers = peers or {}
+    notes: list[str] = []
+    scores: dict[str, float] = {}
+    ter = _safe_float(inputs.get("ter"))
+    kid_record = inputs.get("kid_record")
+    as_of = _noneable_str(inputs.get("as_of_date"))
+    source_id = _noneable_str(inputs.get("source_id")) or COMPONENT_SOURCE_IDS["etf_product_quality"]
+    if ter is not None and not 0.0 <= ter <= 0.10:
+        notes.append(f"TER {ter} is outside 0-10% as a decimal fraction and is treated as missing")
+        ter = None
+    if ter is not None:
+        cost_score = _peer_relative_score_10(ter, peers.get("ter"), min_peers=min_peers)
+        if cost_score is None:
+            return _product_quality_unavailable(
+                f"{label}: TER {ter:.2%} has fewer than {min_peers} same-exposure peers with a TER, so there is no peer tier to rank it against."
+            )
+        scores["cost"] = cost_score
+        notes.append(f"TER {ter:.2%} ranks {cost_score}/10 against its peers")
+    else:
+        kid = (
+            None
+            if kid_record is None
+            else build_priips_kid_cost_evidence(
+                kid_record,
+                as_of_date=decision_date,
+                peer_costs_pct=[value * 100.0 for value in (peers.get("ter") or ()) if isinstance(value, (int, float))],
+                max_age_days=int(policy["max_age_days"]),
+            )
+        )
+        if kid is None or kid.score_10 is None or not kid.score_eligible:
+            return _product_quality_unavailable(
+                f"{label}: TER and a scorable KID ongoing cost are both missing; product quality is never assumed."
+            )
+        scores["cost"] = float(kid.score_10)
+        as_of, source_id = kid.as_of_date, str(kid.source_id or source_id)
+        notes.append(f"KID ongoing cost ranks {kid.score_10}/10 against its peers")
+    if _parse_date(as_of) is None:
+        return _product_quality_unavailable(f"{label}: the vintage (as-of date) of the cost evidence is missing, so it cannot be tied to the decision date.")
+    for metric, name, unit in (("tracking_difference", "tracking difference", ""), ("premium_discount_bps", "premium/discount", " bps")):
+        raw = _safe_float(inputs.get(metric))
+        key = "premium_discount" if metric == "premium_discount_bps" else metric
+        if raw is None:
+            notes.append(f"{name} not scored (missing)")
+            continue
+        score = _peer_relative_score_10(abs(raw), peers.get(metric), min_peers=min_peers)
+        if score is None:
+            notes.append(f"{name} not scored (fewer than {min_peers} peers)")
+            continue
+        scores[key] = score
+        notes.append(f"|{name}| {abs(raw):.4g}{unit} ranks {score}/10")
+    structure = _noneable_str(inputs.get("structure"))
+    structure_key = _structure_bucket(structure)
+    if structure_key is not None and structure_key in policy["structure"]:
+        scores["structure"] = float(policy["structure"][structure_key])
+        notes.append(f"structure {structure} scores {scores['structure']}/10")
+    else:
+        notes.append("structure not scored (missing or unrecognised)")
+    weights = policy["weights"]
+    used = {key: float(weights[key]) for key in scores if key in weights}
+    total = sum(used.values())
+    if total <= 0:
+        return _product_quality_unavailable(f"{label}: no weighted metric could be scored.")
+    score_10 = round(_clamp_score_10(sum(scores[key] * weight for key, weight in used.items()) / total), 1)
+    freshness = _evidence_age_status(as_of, decision_date, int(policy["max_age_days"]))
+    component = _optional_score_component("etf_product_quality", score_10, f"{label}: " + "; ".join(notes) + ".", authority="medium")
+    if component.score_10 is None:
+        return _product_quality_unavailable(component.why)
+    return replace(
+        component,
+        score_role="product_quality",
+        source_id=source_id,
+        source_authority="issuer_document",
+        as_of_date=as_of,
+        freshness_status=freshness,
+        evidence_quality=1.0,
+    )
+
+
+def _structure_bucket(value: object) -> str | None:
+    text = str(value or "").strip().casefold().replace("-", "_").replace(" ", "_")
+    if not text:
+        return None
+    if "synthetic" in text or "swap" in text:
+        return "synthetic"
+    if "sampl" in text or "optimi" in text:
+        return "physical_sampled"
+    if "physical" in text or "full" in text or "replicat" in text:
+        return "physical_full"
+    return None
+
+
+def _etf_peer_group(identity: object) -> str | None:
+    """Exposure/benchmark peer group of a configured ETF: its universe theme (never a guess when blank)."""
+
+    theme = _noneable_str(getattr(identity, "theme", None))
+    return theme.casefold() if theme else None
+
+
+def _json_value(value: object, default: object) -> object:
+    try:
+        return json.loads(value) if isinstance(value, str) else default
+    except ValueError:
+        return default
+
+
+def _kid_record_lookup() -> dict[str, object]:
+    """Latest successful KID per instrument id (and ISIN) as score-seam records; empty when the store is unreadable."""
+
+    try:
+        frame = read_priips_kid_records()
+    except Exception:  # noqa: BLE001 - optional evidence: an unreadable store means no KID, never a guess
+        return {}
+    if frame is None or frame.empty or not {"instrument_id", "document_date"}.issubset(frame.columns):
+        return {}
+    output: dict[str, object] = {}
+    for _, row in frame.sort_values("document_date", na_position="first", kind="stable").iterrows():
+        if row.get("success") is not True and str(row.get("success")).casefold() != "true":
+            continue
+
+        warnings = _json_value(row.get("warnings"), [])
+        cost_fields = _json_value(row.get("cost_fields"), {})
+        record = SimpleNamespace(
+            document_date=_noneable_str(row.get("document_date")),
+            source_sha256=_noneable_str(row.get("source_sha256")),
+            warnings=tuple(warnings) if isinstance(warnings, list) else ("warnings_unreadable",),
+            cost_fields=cost_fields if isinstance(cost_fields, dict) else {},
+            sri=_safe_int(row.get("sri")),
+            score_eligible=_as_bool(row.get("score_eligible", False)),
+            manual_review=_as_bool(row.get("manual_review", False)),
+        )
+        for identifier in (_noneable_str(row.get("instrument_id")), _noneable_str(row.get("isin"))):
+            if identifier:
+                output[identifier] = record
+    return output
+
+
+def _etf_product_quality_lookup(
+    config: AppConfig,
+    decision_date: date | None = None,
+    *,
+    kids: Mapping[str, object] | None = None,
+) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, list[float]]]]:
+    """Per configured ETF: product-quality inputs and the metric values of its same-exposure peers (excluding itself).
+
+    Peer values are point-in-time: a peer counts only when its own vintage (the KID ``document_date`` or the configured
+    ``product_quality_as_of``) is known, not after ``decision_date`` and within the policy max evidence age. Without a
+    decision date no vintage can be verified, so the peer tier is empty (fail closed).
+    """
+
+    identities = [item for item in config.universe.by_id().values() if _display_asset_type(item) == "ETF"]
+    kids = _kid_record_lookup() if kids is None else kids
+    max_age_days = int(_product_quality_policy()["max_age_days"])
+    own: dict[str, dict[str, object]] = {}
+    for identity in identities:
+        extra = {name: _config_extra(identity, name) for name in ("tracking_difference", "premium_discount_bps", "replication", "structure", "product_quality_as_of")}
+        kid_record = kids.get(identity.id) or (kids.get(str(identity.isin)) if identity.isin else None)
+        own[identity.id] = {
+            "ter": _safe_float(identity.ter),
+            "tracking_difference": _safe_float(extra["tracking_difference"]),
+            "premium_discount_bps": _safe_float(extra["premium_discount_bps"]),
+            "structure": _noneable_str(extra["structure"]) or _noneable_str(extra["replication"]),
+            "as_of_date": _noneable_str(extra["product_quality_as_of"]),
+            "kid_record": kid_record,
+        }
+    groups: dict[str, list[str]] = {}
+    for identity in identities:
+        group = _etf_peer_group(identity)
+        if group is not None:
+            groups.setdefault(group, []).append(identity.id)
+
+    def vintage_ok(as_of: object) -> bool:
+        return _evidence_age_status(as_of, decision_date, max_age_days) == "ok"
+
+    def cost_pct(instrument_id: str) -> float | None:
+        values = own[instrument_id]
+        ter = _safe_float(values["ter"])
+        if ter is not None and 0.0 <= ter <= 0.10:
+            return ter * 100.0 if vintage_ok(values["as_of_date"]) else None
+        record = values["kid_record"]
+        if record is None or not getattr(record, "score_eligible", False) or not vintage_ok(getattr(record, "document_date", None)):
+            return None
+        return _kid_ongoing_cost_pct(record)
+
+    def metric_pct(instrument_id: str, metric: str) -> float | None:
+        values = own[instrument_id]
+        return _safe_float(values[metric]) if vintage_ok(values["as_of_date"]) else None
+
+    inputs: dict[str, dict[str, object]] = {}
+    peers: dict[str, dict[str, list[float]]] = {}
+    for identity in identities:
+        values = own[identity.id]
+        members = [item for item in groups.get(_etf_peer_group(identity) or "", []) if item != identity.id]
+        cost_peers = [value for value in (cost_pct(item) for item in members) if value is not None]
+        peers[identity.id] = {
+            "ter": [value / 100.0 for value in cost_peers],
+            "tracking_difference": [abs(v) for v in (metric_pct(item, "tracking_difference") for item in members) if v is not None],
+            "premium_discount_bps": [abs(v) for v in (metric_pct(item, "premium_discount_bps") for item in members) if v is not None],
+        }
+        inputs[identity.id] = dict(values)
+    return inputs, peers
 
 
 def _candidate_liquidity_component(row: pd.Series) -> SimpleScoreComponent:
@@ -2816,36 +3197,137 @@ def _liquidity_raw_and_reason(
     spread_proxy: float | None,
     *,
     conversion_note: str | None = None,
+    corwin_schultz: float | None = None,
+    order_size_eur: float | None = None,
 ) -> tuple[float | None, str]:
+    """Liquidity score: order size / ADV participation, then a spread-cost adjustment.
+
+    ``spread_proxy`` is the mean daily high-low range as a fraction of the close (``range_proxy_bps``): a volatility
+    measure, not a spread. ``corwin_schultz`` is the Corwin-Schultz estimated proportional spread when OHLC exists and
+    takes precedence over the range proxy.
+    """
+
     if avg_turnover_eur is None or avg_turnover_eur <= 0:
         return None, "No usable yfinance volume/turnover data is available for a liquidity-cost estimate."
-    if avg_turnover_eur >= 10_000_000:
-        score = 9.5
-    elif avg_turnover_eur >= 2_000_000:
-        score = 8.0
-    elif avg_turnover_eur >= 500_000:
-        score = 6.5
-    elif avg_turnover_eur >= 100_000:
-        score = 5.0
-    elif avg_turnover_eur >= 25_000:
-        score = 3.5
-    else:
-        score = 2.0
-    spread_text = "spread proxy unavailable"
-    if spread_proxy is not None and spread_proxy > 0:
-        spread_bps = spread_proxy * 10_000.0
-        spread_text = f"high-low spread proxy is about {spread_bps:.0f} bps"
-        if spread_bps > 350:
+    policy = _liquidity_policy()
+    order = order_size_eur if order_size_eur is not None and order_size_eur > 0 else policy["order_size"]
+    participation = order / avg_turnover_eur
+    score = policy["floor"]
+    for max_participation, ladder_score in policy["ladder"]:
+        if participation <= max_participation:
+            score = ladder_score
+            break
+    if corwin_schultz is not None and corwin_schultz > 0:
+        cs_bps = corwin_schultz * 10_000.0
+        spread_text = f"Corwin-Schultz spread estimate is about {cs_bps:.0f} bps"
+        penalty = policy["cs_penalty"]
+        if cs_bps > penalty["severe"]:
             score -= 2.0
-        elif spread_bps > 200:
+        elif cs_bps > penalty["moderate"]:
             score -= 1.0
-        elif spread_bps < 80:
+    elif spread_proxy is not None and spread_proxy > 0:
+        range_bps = spread_proxy * 10_000.0
+        spread_text = f"range_proxy_bps is about {range_bps:.0f} (daily high-low range: a volatility proxy, not a quoted spread)"
+        if range_bps > 350:
+            score -= 2.0
+        elif range_bps > 200:
+            score -= 1.0
+        elif range_bps < 80:
             score += 0.5
+    else:
+        spread_text = "spread estimate unavailable (no OHLC range)"
     score = _clamp_score_10(score)
-    why = f"Average traded value proxy is EUR {avg_turnover_eur:,.0f}; {spread_text}. Costs are estimated conservatively from yfinance OHLCV."
+    why = (
+        f"Order size EUR {order:,.0f} is {participation:.2%} of the average daily traded value (ADV) "
+        f"of EUR {avg_turnover_eur:,.0f} (order/ADV); {spread_text}. Costs are estimated conservatively from yfinance OHLCV."
+    )
     if conversion_note:
         why = f"{why} {conversion_note}"
     return _score_10_to_raw(score), why
+
+
+_LIQUIDITY_DEFAULTS: dict[str, object] = {
+    "order_size": 10_000.0,
+    "ladder": ((0.001, 9.5), (0.005, 8.0), (0.02, 6.5), (0.10, 5.0), (0.40, 3.5)),
+    "floor": 2.0,
+    "cs_min_pairs": 5,
+    "cs_penalty": {"severe": 100.0, "moderate": 50.0, "tight": 15.0},
+}
+
+
+def _score_engine_section(name: str) -> Mapping[str, object]:
+    """One top-level mapping of score_engine_v3.yaml (empty when absent or unreadable: callers use documented defaults)."""
+
+    try:
+        stat = FORMULA_PATH.stat()
+        loaded = _score_engine_yaml(str(FORMULA_PATH), stat.st_mtime_ns, stat.st_size)
+    except (OSError, ValueError, yaml.YAMLError):
+        return {}
+    section = loaded.get(name) if isinstance(loaded, Mapping) else None
+    return section if isinstance(section, Mapping) else {}
+
+
+@lru_cache(maxsize=4)
+def _score_engine_yaml(path: str, mtime_ns: int, size: int) -> object:
+    return yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+
+
+def _liquidity_policy() -> dict[str, object]:
+    """Configured order size, participation ladder and Corwin-Schultz thresholds (documented defaults on any gap)."""
+
+    section = _score_engine_section("liquidity")
+    policy = dict(_LIQUIDITY_DEFAULTS)
+    order = _safe_float(section.get("default_order_size_eur"))
+    if order is not None and order > 0:
+        policy["order_size"] = order
+    floor = _safe_float(section.get("floor_score_10"))
+    if floor is not None and 0.0 <= floor <= 10.0:
+        policy["floor"] = floor
+    ladder = section.get("participation_ladder")
+    if isinstance(ladder, (list, tuple)) and ladder:
+        steps = [
+            (_safe_float(step.get("max_participation")), _safe_float(step.get("score_10")))
+            for step in ladder
+            if isinstance(step, Mapping)
+        ]
+        if steps and len(steps) == len(ladder) and all(a is not None and b is not None and a > 0 and 0.0 <= b <= 10.0 for a, b in steps):
+            policy["ladder"] = tuple(sorted((float(a), float(b)) for a, b in steps if a is not None and b is not None))
+    pairs = _safe_float(section.get("corwin_schultz_min_pairs"))
+    if pairs is not None and pairs >= 1:
+        policy["cs_min_pairs"] = int(pairs)
+    penalty = section.get("corwin_schultz_penalty_bps")
+    if isinstance(penalty, Mapping):
+        values = {key: _safe_float(penalty.get(key)) for key in ("severe", "moderate", "tight")}
+        severe, moderate, tight = values["severe"], values["moderate"], values["tight"]
+        if severe is not None and moderate is not None and tight is not None and severe > moderate > tight > 0:
+            policy["cs_penalty"] = {"severe": severe, "moderate": moderate, "tight": tight}
+    return policy
+
+
+def _corwin_schultz_spread(high: pd.Series, low: pd.Series, *, min_pairs: int) -> float | None:
+    """Mean Corwin-Schultz (2012) proportional spread over consecutive-row high/low pairs; None below ``min_pairs`` valid pairs.
+
+    Negative pair estimates are floored at zero (the published convention); a non-positive or inverted high/low pair is skipped.
+    A mean of zero (every pair floored: a flat or non-noisy window) is an unidentified estimate, not a zero spread: None.
+    """
+
+    root2 = 2.0 ** 0.5
+    denominator = 3.0 - 2.0 * root2
+    estimates: list[float] = []
+    highs, lows = high.astype(float).tolist(), low.astype(float).tolist()
+    for index in range(len(highs) - 1):
+        h0, h1, l0, l1 = highs[index], highs[index + 1], lows[index], lows[index + 1]
+        if not all(isfinite(value) and value > 0 for value in (h0, h1, l0, l1)) or h0 < l0 or h1 < l1:
+            continue
+        beta = log(h0 / l0) ** 2 + log(h1 / l1) ** 2
+        gamma = log(max(h0, h1) / min(l0, l1)) ** 2
+        alpha = (root2 * beta ** 0.5 - beta ** 0.5) / denominator - (gamma / denominator) ** 0.5
+        spread = 2.0 * (exp(alpha) - 1.0) / (1.0 + exp(alpha))
+        estimates.append(max(spread, 0.0))
+    if len(estimates) < min_pairs:
+        return None
+    mean = sum(estimates) / len(estimates)
+    return mean if mean > 0.0 else None
 
 
 def _etf_exposure_unavailable(why: str) -> SimpleScoreComponent:
@@ -2859,7 +3341,7 @@ def _etf_exposure_unavailable(why: str) -> SimpleScoreComponent:
         good_score=GOOD_SCORE_TEXT["etf_exposure"],
         why=why,
         authority="medium",
-        score_role="evidence",
+        score_role="risk_friction",
     )
 
 
@@ -2887,6 +3369,7 @@ def _etf_exposure_component(
             None,
             "ETF exposure is unavailable because top-weight concentration evidence is incomplete.",
             authority="medium",
+            role="risk_friction",
         )
     count = int(_safe_float(info.get("holding_count")) or 0)
     top10_penalty = min(top_weight / 0.60, 1.0) * 4.0
@@ -2898,7 +3381,7 @@ def _etf_exposure_component(
         f"largest holding is {largest:.1%}. Holdings may be partial."
     )
     return replace(
-        _component("etf_exposure", _score_10_to_raw(score), why, authority="medium"),
+        _component("etf_exposure", _score_10_to_raw(score), why, authority="medium", role="risk_friction"),
         as_of_date=vintage,
     )
 
@@ -2930,9 +3413,15 @@ def _stock_fundamental_components(
     decision_time: object | None = None,
     sector: object | None = None,
 ) -> list[SimpleScoreComponent]:
-    """Value, quality and analyst-revision components of one stock; a missing one states why."""
+    """Value, quality and analyst-revision components of one stock; a missing one states why.
 
-    cyclical = _cyclical_stock_components(
+    Non-bank financials (insurers, exchanges, diversified financials) have no dedicated fundamentals route yet: the
+    generic industrial ROE/ROIC/ND-EBITDA/EBIT-margin evidence is meaningless for them, so value and quality are
+    ``unavailable`` with reason ``sector_route_missing`` (analyst revisions are sector-neutral and stay as they are).
+    """
+
+    route_missing = is_non_bank_financial_sector(sector)
+    cyclical = None if route_missing else _cyclical_stock_components(
         cyclical_projection,
         instrument_id=instrument_id,
         decision_time=decision_time,
@@ -2974,6 +3463,9 @@ def _stock_fundamental_components(
 
     output = []
     for key, authority in (("stock_value", "medium"), ("stock_quality", "medium"), ("analyst_revision", "low")):
+        if route_missing and key in {"stock_value", "stock_quality"}:
+            output.append(_sector_route_missing_component(key))
+            continue
         if evidence is None:
             reason = error or "no fundamentals evidence was built for this instrument (it is not in the stock universe)"
             output.append(_optional_score_component(key, None, f"{COMPONENT_LABELS[key]}: {reason}", authority=authority))
@@ -3003,6 +3495,29 @@ def _stock_fundamental_components(
             }
         output.append(replace(base, source_id=part.source_id, source_authority=None, as_of_date=part.as_of, freshness_status=part.freshness, **inputs, **bands))
     return output
+
+
+def _sector_route_missing_component(key: str) -> SimpleScoreComponent:
+    return replace(
+        _optional_score_component(
+            key,
+            None,
+            f"{COMPONENT_LABELS[key]}: {SECTOR_ROUTE_MISSING}: non-bank financials have no dedicated fundamentals route yet, "
+            "and the generic industrial ratios (ROE, ROIC, net debt/EBITDA, EBIT margin) do not apply to them.",
+            authority="medium",
+        ),
+        freshness_status="unavailable",
+    )
+
+
+def _headline_weights_for_components(
+    policy_key: str,
+    asset_type: str,
+    components: Iterable[SimpleScoreComponent],
+) -> dict[str, float]:
+    """Headline weights; the certificate rule lives once in ``canonical_scoring.headline_weights_for_components``."""
+
+    return headline_weights_for_components(policy_key, asset_type, components)
 
 
 def _owner_claim_ids(evidence: object) -> tuple[str, ...]:
@@ -3243,7 +3758,13 @@ def _evidence_quality_score(
     if len(quality_components) != 1 or not usable(quality_components[0]):
         return None
     data_quality = quality_components[0].score_10
-    expected = [component for component in components if component.score_role in {"evidence", "risk_friction"}]
+    certificate_plain = is_certificate_without_fundamentals(asset_type, components)
+    expected = [
+        component
+        for component in components
+        if component.score_role in {"evidence", "risk_friction"}
+        and not (certificate_plain and component.key in {"stock_value", "stock_quality", "analyst_revision"})
+    ]
     valid = [component for component in expected if usable(component)]
     if not valid or len({component.key for component in expected}) != len(expected):
         return None
@@ -3253,7 +3774,7 @@ def _evidence_quality_score(
     valid_keys = {component.key for component in valid}
     if asset_type == "ETF" and "etf_exposure" not in valid_keys:
         missing_penalty += 1.0
-    if _is_stock_like_asset_type(asset_type):
+    if _is_stock_like_asset_type(asset_type) and not certificate_plain:
         if "stock_value" not in valid_keys:
             missing_penalty += 0.8
         if "stock_quality" not in valid_keys:
@@ -3269,7 +3790,10 @@ def _risk_friction_score(components: list[SimpleScoreComponent], *, warnings: li
         (component.score_10 for component in components if component.key == "liquidity_cost" and component.score_eligible),
         None,
     )
-    values = [(risk, 0.60), (liquidity, 0.40)]
+    # FPQ: ETF concentration is a risk term. A scored etf_exposure (low score = concentrated) joins the friction mix; without it
+    # the former 0.60/0.40 mix is unchanged (missing holdings are never zero-filled, the data_quality missing penalty still applies).
+    exposure = next((c.score_10 for c in components if c.key == "etf_exposure" and c.score_eligible), None)
+    values = [(risk, 0.50), (liquidity, 0.30), (exposure, 0.20)] if exposure is not None else [(risk, 0.60), (liquidity, 0.40)]
     weighted = _weighted_score_10(values)
     if weighted is None:
         return None
@@ -4300,6 +4824,9 @@ def _price_liquidity_lookup(
         output[str(etf_id)] = {
             "avg_turnover_20": avg_turnover,
             "spread_proxy_20": float(spread.mean()) if not spread.empty else None,
+            "corwin_schultz_20": _corwin_schultz_spread(
+                tail["high"], tail["low"], min_pairs=int(_liquidity_policy()["cs_min_pairs"])
+            ),
             "fx_note": fx_note,
             "fx_unavailable_reason": unavailable,
         }
@@ -4513,9 +5040,10 @@ def _unique_strings(values: Iterable[str]) -> list[str]:
 
 
 def _evidence_component_counts(asset_type: str, components: Iterable[SimpleScoreComponent]) -> tuple[int, int]:
-    weights = headline_weights(asset_type)
+    items = list(components)
+    weights = _headline_weights_for_components(_policy_key(asset_type), asset_type, items)
     configured = [key for key, weight in weights.items() if weight > 0]
-    eligible = {component.key for component in components if component.score_eligible}
+    eligible = {component.key for component in items if component.score_eligible}
     return sum(key in eligible for key in configured), len(configured)
 
 

@@ -357,7 +357,8 @@ Generated with `python scripts/generate_data_dictionary.py`. Regenerate after a 
 | configs/market_calendar_corrections.yaml | corrections, ledger_version, schema_version | ledger_version="2026-07-22"; schema_version=market-calendar-corrections.v1 |
 | configs/model_settings.yaml | ensemble, forecast_horizons_trading_days, models, promotion | — |
 | configs/mutation_thresholds_v1.yaml | critical_mutants, required_kill_rate, scope, version | version=1 |
-| configs/paper_bots_v1.yaml | baseline_score_version, benchmark, bots, decision_period, eligibility, initial_virtual_cash_eur, max_snapshot_age_hours, monthly_contribution_eur, schema_version | baseline_score_version=score-engine-v3.0.0; schema_version=paper_bots.v1 |
+| configs/paper_bots_execution_v1.yaml | account_capability, base_currency, cost_model, fill_rule, fill_time_utc, lot_size, max_buy_retry_sessions, max_stale_mark_sessions, min_trade_value_eur, missed_fill_grace_calendar_days, model_id, paper_approvals, proposal_validity_days, rebalance_tolerance_weight, replay, rule_expected_benefit_bps, rule_uncertainty_bps, schema_version, sizing_price_max_age_days, strategy_id, uncertainty | schema_version=paper_bots_execution.v1 |
+| configs/paper_bots_v1.yaml | baseline_score_version_source, benchmark, bots, decision_period, eligibility, initial_virtual_cash_eur, max_snapshot_age_hours, monthly_contribution_eur, schema_version | baseline_score_version_source=score_engine_v3.formula_version; schema_version=paper_bots.v1 |
 | configs/performance_budgets.yaml | budgets, policy_version, regression_tolerance_pct, schema_version | policy_version="2026-07-17"; schema_version="performance-budgets.v1" |
 | configs/plugin_registry.yaml | allowlist, execution_allowed, schema_version | schema_version="plugin-registry.v1" |
 | configs/portfolio_forecast_v1.yaml | scenario_count, scenario_seed, schema_version, stress_correlation | schema_version=portfolio_forecast.v1 |

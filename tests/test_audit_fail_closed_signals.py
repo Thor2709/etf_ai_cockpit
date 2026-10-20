@@ -353,8 +353,12 @@ def test_kid_cost_scores_use_the_explicit_decision_as_of_date() -> None:
             manual_review=False,
         )
 
-    lower_cost = simple_scores.build_priips_kid_cost_evidence(record("0.05%"), as_of_date=date(2025, 1, 10))
-    higher_cost = simple_scores.build_priips_kid_cost_evidence(record("0.50%"), as_of_date=date(2025, 1, 10))
+    lower_cost = simple_scores.build_priips_kid_cost_evidence(
+        record("0.05%"), as_of_date=date(2025, 1, 10), peer_costs_pct=(0.10, 0.30, 0.60)
+    )
+    higher_cost = simple_scores.build_priips_kid_cost_evidence(
+        record("0.50%"), as_of_date=date(2025, 1, 10), peer_costs_pct=(0.10, 0.30, 0.60)
+    )
 
     assert lower_cost.freshness_status == higher_cost.freshness_status == "ok"
     assert lower_cost.score_eligible and higher_cost.score_eligible
