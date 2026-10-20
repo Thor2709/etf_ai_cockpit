@@ -43,7 +43,13 @@ from etf_cockpit.data.market_calendar import (
     MarketClockError,
 )
 from etf_cockpit.data.etf_structure import structure_cap_scope, structure_confidence_caps, structure_input_checksum
-from etf_cockpit.features.feature_pipeline import compute_features, latest_features
+from etf_cockpit.data.fx_data import EurRateBook, fx_rates_for_prices, major_currency
+from etf_cockpit.features.feature_pipeline import (
+    attach_eur_basis,
+    compute_features,
+    eur_basis_prices,
+    latest_features,
+)
 from etf_cockpit.portfolio.costs import (
     COST_MODEL_ID,
     CostEstimate,
@@ -56,6 +62,7 @@ from etf_cockpit.portfolio.benchmark_reference_contract import (
     unavailable_reference_projection,
     validate_execution_disabled,
 )
+from etf_cockpit.signals.canonical_scoring import CanonicalScoreError, load_score_policy
 from etf_cockpit.signals.quality_momentum import FRAME_COLUMNS, QUALITY_MOMENTUM_VERSION, build_quality_momentum_frame, quality_momentum_weights
 from etf_cockpit.signals.signal_pipeline import generate_signals
 
@@ -215,6 +222,8 @@ _FLAT_COST_NOT_EVIDENCE = (
 )
 SURVIVORSHIP_CONDITIONAL = "conditional_historical_simulation"
 SURVIVORSHIP_FULL = "full_history_simulation"
+SURVIVORSHIP_NO_PIT_REASON = "universe_is_current_listing_set_no_point_in_time_membership_evidence"
+_PIT_MEMBERSHIP_STATUS = "point_in_time_verified"
 _REMAINDER_POLICY = "cancelled_at_session_end"
 
 
@@ -226,6 +235,102 @@ class CostRegimeReport:
     comparison: pd.DataFrame
     qualifying_regime: str = COST_REGIME_MODELLED
     execution_allowed: bool = False
+
+
+def _point_in_time_membership_verified(evidence: Mapping[str, object] | None) -> bool:
+    """Explicit point-in-time membership/delisting evidence: a verified status AND a named source."""
+
+    return (
+        isinstance(evidence, Mapping)
+        and str(evidence.get("status") or "").strip() == _PIT_MEMBERSHIP_STATUS
+        and bool(str(evidence.get("source_id") or "").strip())
+    )
+
+
+def _cost_model_identity(config: AppConfig) -> str:
+    """The configured cost model version (the id the estimator itself reports), never a stale constant."""
+
+    return str(getattr(config.costs.cost_model, "model_version", COST_MODEL_ID) or COST_MODEL_ID)
+
+
+def ai_added_value_vs_baseline(signal_calmar: object, baseline_calmar: object) -> bool:
+    """Signal beats the baseline by a 3 percent margin of the baseline's magnitude (sign-safe for negative Calmar)."""
+
+    signal = finite_float_or_none(signal_calmar)
+    baseline = finite_float_or_none(baseline_calmar)
+    if signal is None or baseline is None:
+        return False
+    return signal > baseline + 0.03 * abs(baseline)
+
+
+def _latest_feature_value(latest_by_id: pd.DataFrame, etf_id: object, column: str) -> float | None:
+    """The instrument's latest feature value, or None when the feature is unavailable (never a zero)."""
+
+    if latest_by_id.empty or column not in latest_by_id.columns or str(etf_id) not in latest_by_id.index:
+        return None
+    return finite_float_or_none(latest_by_id.at[str(etf_id), column])
+
+
+def _v3_formula_identity(signal_rows: list[dict[str, object]]) -> dict[str, object]:
+    """Repository score-engine-v3 formula identifier vs the formula versions the signals actually carried."""
+
+    try:
+        expected = load_score_policy("ETF").formula_version
+    except (CanonicalScoreError, OSError):
+        expected = ""
+    observed = sorted(
+        {
+            str(row.get("formula_version") or "").strip()
+            for row in signal_rows
+            if str(row.get("formula_version") or "").strip() not in {"", "unavailable"}
+        }
+    )
+    return {"expected": expected, "observed": observed}
+
+
+def _fx_known_by(prices: pd.DataFrame, reference_identity: Mapping[str, object] | None) -> object:
+    """FX knowledge cut-off for the backtest: the declared decision time, else the end of the last price day."""
+
+    analysis = reference_identity.get("analysis") if isinstance(reference_identity, Mapping) else None
+    declared = analysis.get("decision_time") if isinstance(analysis, Mapping) else None
+    if declared:
+        return declared
+    dates = pd.to_datetime(prices["date"], errors="coerce").dropna() if "date" in prices.columns else pd.Series(dtype="datetime64[ns]")
+    if dates.empty:
+        return None
+    return (pd.Timestamp(dates.max()).normalize() + pd.Timedelta(days=1)).tz_localize("UTC").to_pydatetime()
+
+
+def _fx_rate_pivot(
+    index: pd.DatetimeIndex,
+    columns: list[str],
+    currency_by_id: Mapping[str, str],
+    fx_rates: pd.DataFrame | None,
+    known_by: object,
+) -> pd.DataFrame:
+    """EUR per unit of listing currency by session and instrument (canonical ``EurRateBook``).
+
+    EUR listings are 1; a session without a usable point-in-time rate stays NaN
+    (fx_unavailable), never a defaulted 1.
+    """
+
+    rates = pd.DataFrame(np.nan, index=index, columns=columns, dtype=float)
+    sessions = [stamp.date() for stamp in index]
+    book: EurRateBook | None = None
+    by_currency: dict[str, np.ndarray] = {}
+    for column in columns:
+        currency = major_currency(currency_by_id.get(column, "EUR"))
+        if currency is None:
+            continue
+        if currency == "EUR":
+            rates[column] = 1.0
+            continue
+        if currency not in by_currency:
+            if book is None:
+                book = EurRateBook(fx_rates, known_by=known_by)
+            by_currency[currency] = book.series(currency, sessions).rates.reindex(sessions).to_numpy(dtype=float)
+        rates[column] = by_currency[currency]
+    return rates
 
 
 def load_backtest_realism_settings(path: Path | None = None) -> dict[str, object]:
@@ -979,6 +1084,7 @@ _TRADE_LOG_BASE_COLUMNS = (
     "estimated_cost_bps",
     "cost_model_id",
     "cost_data_quality",
+    "cost_estimated",
     "capacity_eur",
 )
 _TRADE_LOG_CAPACITY_COLUMNS = (
@@ -1313,6 +1419,8 @@ def run_backtest(
     calendar_identity_resolver: Callable[[str, object], Mapping[str, object] | None] | None = None,
     cost_stress_multiplier: float = 1.0,
     enforce_capacity: bool = False,
+    fx_rates: pd.DataFrame | None = None,
+    point_in_time_membership_evidence: Mapping[str, object] | None = None,
 ) -> BacktestReport:
     if isinstance(rebalance_frequency_days, bool) or not isinstance(rebalance_frequency_days, int) or rebalance_frequency_days < 1:
         raise ValueError("rebalance_frequency_days must be an integer of at least 1")
@@ -1350,6 +1458,9 @@ def run_backtest(
     if not columns:
         raise BacktestDataUnavailableError("not_enough_data: no configured instruments have adjusted-close history")
     universe_without_history = [column for column in config.universe.enabled_ids if column not in pivot_raw.columns]
+    panel_outside_universe = sorted(
+        str(column) for column in pivot_raw.columns if column not in set(config.universe.enabled_ids)
+    )
     columns, short_history_ids = _exclude_late_listed_short_history(pivot_raw, columns)
     selected_raw = pivot_raw.reindex(columns=columns)
     observed_flags = selected_raw.notna()
@@ -1381,6 +1492,7 @@ def run_backtest(
         pivot.columns,
     )
     canonical_reference = dict(benchmark_reference or unavailable_reference_projection())
+    cost_model_id = _cost_model_identity(config)
     metadata: dict[str, object] = {
         "strategy": "signal_strategy",
         "benchmark_strategy": "canonical_price_series" if canonical_benchmark_id else "unavailable",
@@ -1404,7 +1516,7 @@ def run_backtest(
         "lookahead_protection": "history_truncated_at_signal_date",
         "execution_delay_sessions": 1,
         "same_bar_execution_avoided": True,
-        "cost_model_id": COST_MODEL_ID,
+        "cost_model_id": cost_model_id,
         "cost_model_execution_allowed": False,
         "cost_model_mode": "consistent_local_research_estimates",
         "date_range_start": pivot.index.min().date(),
@@ -1425,7 +1537,14 @@ def run_backtest(
     if missing_observation_rows:
         metadata["data_warning"] = "Incomplete adjusted-price rows were excluded; no forward-fill was applied."
     metadata["excluded_short_history_instruments"] = list(short_history_ids)
+    metadata["universe_ids"] = list(columns)
     survivorship_reasons = []
+    pit_membership_verified = _point_in_time_membership_verified(point_in_time_membership_evidence)
+    if not pit_membership_verified:
+        # The universe is today's listing set: delisted/removed members are absent unless membership is evidenced.
+        survivorship_reasons.append(SURVIVORSHIP_NO_PIT_REASON)
+    for excluded_id in panel_outside_universe:
+        survivorship_reasons.append(f"panel_instrument_outside_enabled_universe_excluded: {excluded_id}")
     if universe_without_history:
         survivorship_reasons.append("universe_instruments_without_price_history: " + ", ".join(universe_without_history))
     if short_history_ids:
@@ -1461,9 +1580,25 @@ def run_backtest(
     raw_close_pivot = _raw_close_pivot(prices, pivot.index, columns, pivot) if enforce_capacity else None
     capacity_active = enforce_capacity and volume_pivot is not None and raw_close_pivot is not None
     instrument_currency = {item.id: str(item.currency or "EUR").upper() for item in config.universe.etfs}
-    # Non-EUR listings have no FX series here, so their capacity is unchecked, never a local-currency figure read as EUR.
-    capacity_checked_ids = {column for column in columns if instrument_currency.get(column, "EUR") == "EUR"}
-    manual_quote_ids = {
+    needs_fx = any(instrument_currency.get(column, "EUR") != "EUR" for column in columns)
+    fx_known_by = _fx_known_by(prices, reference_identity)
+    fx_frame = fx_rates if fx_rates is not None else pd.DataFrame()
+    if fx_rates is None and needs_fx:
+        try:
+            fx_frame = fx_rates_for_prices(prices)
+        except Exception:  # an unreadable FX store leaves every non-EUR session fx_unavailable
+            fx_frame = pd.DataFrame()
+    # Canonical FX by session: non-EUR listings fill whenever a point-in-time rate exists for the
+    # session; only a missing rate (fx_unavailable) blocks, never a local-currency figure read as EUR.
+    fx_pivot = _fx_rate_pivot(pivot.index, columns, instrument_currency, fx_frame, fx_known_by) if enforce_capacity else None
+    raw_close_eur_pivot = raw_close_pivot * fx_pivot if capacity_active and fx_pivot is not None else None
+    fx_never_available_ids = (
+        {column for column in columns if not bool(fx_pivot[column].notna().any())} if fx_pivot is not None else set()
+    )
+    fx_checked_ever_ids = set(columns) - fx_never_available_ids
+    # Equity certificates have no quote source here: they fill at the most conservative documented
+    # cost tier and are flagged cost_estimated, never held back as cash.
+    cost_estimated_ids = {
         item.id
         for item in config.universe.etfs
         if item.id in column_set and str(item.instrument_type or "").casefold() == "equity_certificate"
@@ -1476,7 +1611,8 @@ def run_backtest(
         metadata["capacity_enforcement"] = "enforced"
     metadata["participation_cap"] = participation_cap
     metadata["capacity_remainder_policy"] = _REMAINDER_POLICY
-    metadata["capacity_fx_unavailable_instruments"] = sorted(set(columns) - capacity_checked_ids)
+    metadata["capacity_fx_unavailable_instruments"] = sorted(fx_never_available_ids)
+    metadata["cost_estimated_instruments"] = sorted(cost_estimated_ids)
     # A report qualifies only with the detailed cost model AND verified liquidity evidence.
     qualification_blockers = []
     if cost_regime != COST_REGIME_MODELLED:
@@ -1484,15 +1620,12 @@ def run_backtest(
     if not enforce_capacity:
         qualification_blockers.append("capacity_not_enforced")
     elif not volume_evidence or any(
-        not bool(volume_pivot[column].notna().any()) for column in sorted(capacity_checked_ids)
+        not bool(volume_pivot[column].notna().any()) for column in sorted(fx_checked_ever_ids)
     ):
         qualification_blockers.append("liquidity_evidence_unavailable")
     if enforce_capacity and metadata["capacity_fx_unavailable_instruments"]:
-        # Instruments without FX evidence can never fill: the universe would silently shrink to cash for them.
+        # Instruments without any FX evidence can never fill: the universe would silently shrink to cash for them.
         qualification_blockers.append("fx_unavailable_instruments_unfillable")
-    if enforce_capacity and manual_quote_ids & column_set:
-        # The engine never supplies a manual quote, so an equity certificate listing can never fill under capacity checks.
-        qualification_blockers.append("manual_quote_instruments_unfillable")
     metadata["qualification_blockers"] = qualification_blockers
     metadata["qualifying_cost_regime"] = not qualification_blockers
     if short_history_ids:
@@ -1523,6 +1656,7 @@ def run_backtest(
     reusable_benchmark_features: pd.DataFrame | None = None
     reusable_benchmark_first_date: pd.Timestamp | None = None
     price_dates: pd.Series | None = None
+    configured_currency = {item.id: str(item.currency or "EUR") for item in config.universe.etfs}
     if last_rebalance_index is not None:
         price_dates = pd.to_datetime(prices["date"])
         last_rebalance_cutoff = pivot.index[last_rebalance_index]
@@ -1538,10 +1672,19 @@ def run_backtest(
             or (feature_dates == feature_dates.dt.normalize()).all()
         )
         if daily_feature_rows:
-            reusable_default_features = compute_features(
+            # Signal features use the same EUR basis as the live score (canonical FX path); a
+            # session without a usable rate gives no feature (fx_unavailable), never a local price.
+            eur_feature_prices = eur_basis_prices(
                 feature_prices,
+                fx_frame,
+                configured_currency=configured_currency,
+                known_by=fx_known_by,
+            )
+            reusable_default_features = compute_features(
+                eur_feature_prices.frame,
                 benchmark_etf_id=None,
             )
+            attach_eur_basis(reusable_default_features, eur_feature_prices)
             if canonical_benchmark_id is None:
                 reusable_default_features.loc[:, ["relative_strength_60d", "relative_strength_120d"]] = np.nan
             if canonical_benchmark_id is not None:
@@ -1549,9 +1692,10 @@ def run_backtest(
                 benchmark_dates = feature_dates.loc[benchmark_mask]
                 if not benchmark_dates.empty:
                     reusable_benchmark_features = compute_features(
-                        feature_prices,
+                        eur_feature_prices.frame,
                         benchmark_etf_id=canonical_benchmark_id,
                     )
+                    attach_eur_basis(reusable_benchmark_features, eur_feature_prices)
                     reusable_benchmark_first_date = benchmark_dates.min()
     strategies = [
         "buy_and_hold",
@@ -1583,7 +1727,12 @@ def run_backtest(
 
         if transaction_cost_bps is None:
             estimate = estimate_rebalance_cost(
-                config, notional, changes.to_dict(), stress_multiplier=stress_multiplier, adv_eur_by_instrument=adv
+                config,
+                notional,
+                changes.to_dict(),
+                stress_multiplier=stress_multiplier,
+                adv_eur_by_instrument=adv,
+                conservative_instruments=cost_estimated_ids,
             )
             by_instrument: dict[str, list[CostEstimate]] = {}
             for item in estimate.estimates:
@@ -1596,24 +1745,28 @@ def run_backtest(
     def capacity_limits(
         current: pd.Series, target: pd.Series, notional: float, session: pd.Timestamp, adv: Mapping[str, float]
     ) -> tuple[pd.Series, dict[str, object]]:
+        fx_row = fx_pivot.loc[session]
         return _apply_capacity_limits(
             current,
             target,
             notional_eur=notional,
             volume_row=volume_pivot.loc[session],
-            price_row=raw_close_pivot.loc[session],
+            price_row=raw_close_eur_pivot.loc[session],
             adv_by_instrument=adv,
             participation=participation_cap,
-            manual_quote_ids=manual_quote_ids,
-            checked_ids=set(capacity_checked_ids),
+            # A listing without a quote is priced at the conservative tier (cost_estimated), not blocked.
+            manual_quote_ids=set(),
+            # Only a session without a canonical FX rate is unverifiable (fx_unavailable).
+            checked_ids={str(column) for column in fx_row.index[fx_row.notna()]},
         )
 
     # Initial holdings are a purchase like any other: with capacity enforced they
     # are checked against the first session's liquidity and costed, never assumed.
     initial_allocation: dict[str, dict[str, object]] = {}
+    initial_purchase_cost: dict[str, float] = {}
     if capacity_active:
         start_session = pivot.index[start_index]
-        start_adv = _adv_by_instrument(volume_pivot, raw_close_pivot, capacity_checked_ids, start_index)
+        start_adv = _adv_by_instrument(volume_pivot, raw_close_eur_pivot, set(columns), start_index)
         for name in strategies:
             held, info = capacity_limits(
                 pd.Series(0.0, index=columns),
@@ -1639,7 +1792,23 @@ def run_backtest(
                 or "full_fill",
                 "remainder_policy": _REMAINDER_POLICY,
             }
+    else:
+        # Equal cost basis: the initial purchase is costed through the same trade_cost path for every
+        # strategy (and the VWCE comparator), so "same universe, dates and costs" holds without capacity.
+        for name in strategies:
+            purchase = actual_weights[name].reindex(columns).fillna(0.0).abs()
+            cost = trade_cost(initial_value, purchase, None)[0]
+            scale = initial_value / max(initial_value - cost, 1e-12)
+            total_held = float(purchase.sum())
+            if total_held * scale > 1.0:
+                scale = 1.0 / total_held
+            actual_weights[name] = purchase * scale
+            equity[name] = [max(initial_value - cost, 0.0)]
+            turnover[name] += total_held
+            cost_drag[name] += cost
+            initial_purchase_cost[name] = float(cost)
     metadata["initial_allocation"] = initial_allocation
+    metadata["initial_purchase_cost_eur"] = initial_purchase_cost
     pending_weights: dict[str, pd.Series] = {}
     pending_costs: dict[str, float] = {}
     pending_traded: set[str] = set()
@@ -1780,10 +1949,22 @@ def run_backtest(
                         (truncated_dates >= calculation_window[0])
                         & (truncated_dates <= calculation_window[1])
                     ].copy()
-                features = compute_features(truncated_prices, benchmark_etf_id=canonical_benchmark_id)
+                eur_truncated = eur_basis_prices(
+                    truncated_prices,
+                    fx_frame,
+                    configured_currency=configured_currency,
+                    known_by=fx_known_by,
+                )
+                features = compute_features(eur_truncated.frame, benchmark_etf_id=canonical_benchmark_id)
+                attach_eur_basis(features, eur_truncated)
                 if canonical_benchmark_id is None:
                     features.loc[:, ["relative_strength_60d", "relative_strength_120d"]] = np.nan
             latest = latest_features(features, as_of_date=dt.date())
+            latest_by_id = (
+                latest.assign(etf_id=latest["etf_id"].astype(str)).drop_duplicates("etf_id", keep="last").set_index("etf_id")
+                if not latest.empty and "etf_id" in latest.columns
+                else pd.DataFrame()
+            )
             holdings = _holdings_from_weights(weights["signal_strategy"], pivot.iloc[i], equity["signal_strategy"][-1], dt.date())
             report = validate_prices(truncated_prices, as_of_date=dt.date(), min_history_days=180)
             if report.status == "Blocked":
@@ -1828,6 +2009,9 @@ def run_backtest(
                         "etf_id": signal.etf_id,
                         "action": signal.action,
                         "score": signal.total_score,
+                        "momentum_60d": _latest_feature_value(latest_by_id, signal.etf_id, "momentum_60d"),
+                        "momentum_120d": _latest_feature_value(latest_by_id, signal.etf_id, "momentum_120d"),
+                        "currency_basis": str(features.attrs.get("currency_basis", "local")),
                         "canonical_attractiveness_10": canonical.attractiveness_10 if canonical else None,
                         "canonical_expected_return_10": canonical.expected_return_10 if canonical else None,
                         "canonical_risk_implementation_10": canonical.risk_implementation_10 if canonical else None,
@@ -1859,7 +2043,7 @@ def run_backtest(
             pending_costs = {}
             pending_traded = set()
             adv_by_instrument = (
-                _adv_by_instrument(volume_pivot, raw_close_pivot, capacity_checked_ids, i) if capacity_active else {}
+                _adv_by_instrument(volume_pivot, raw_close_eur_pivot, set(columns), i) if capacity_active else {}
             )
             execution_returns = simple_returns.loc[execution_dt, columns]
             for name, new_weight in new_weights.items():
@@ -2036,8 +2220,9 @@ def run_backtest(
                             "turnover": step_turnover,
                             "cost_eur": step_cost,
                             "estimated_cost_bps": step_cost_bps,
-                            "cost_model_id": COST_MODEL_ID if transaction_cost_bps is None else "explicit_transaction_cost_bps",
+                            "cost_model_id": cost_model_id if transaction_cost_bps is None else "explicit_transaction_cost_bps",
                             "cost_data_quality": step_cost_quality,
+                            "cost_estimated": bool(set(map(str, diff.index[diff > 0])) & cost_estimated_ids),
                             "capacity_eur": step_capacity_eur,
                             **(
                                 {
@@ -2072,7 +2257,8 @@ def run_backtest(
     parameter_sensitivity = _parameter_sensitivity_status(equity_curves, trade_rows, strategies)
     result_rows = []
     years = max((len(equity_curves) - 1) / TRADING_DAYS_PER_YEAR, 1e-9)
-    rebalance_count = sum(1 for index in rebalance_indexes if start_index < index < len(pivot))
+    # Only rebalances the execution loop can act on count: the next session must exist.
+    rebalance_count = sum(1 for index in rebalance_indexes if start_index < index and index + 1 < len(pivot))
     metadata["walk_forward_periods"] = rebalance_count
     metadata["strategies"] = strategies
     metadata["same_bar_execution_count"] = 0
@@ -2139,7 +2325,7 @@ def run_backtest(
         if capacity_active:
             if canonical_benchmark_id not in columns:
                 return {"status": "unavailable", "reason": "benchmark liquidity cannot be verified outside the universe"}
-            adv = _adv_by_instrument(volume_pivot, raw_close_pivot, capacity_checked_ids, start_index)
+            adv = _adv_by_instrument(volume_pivot, raw_close_eur_pivot, set(columns), start_index)
             weight, info = capacity_limits(
                 pd.Series(0.0, index=columns),
                 pd.Series({column: float(column == canonical_benchmark_id) for column in columns}),
@@ -2198,19 +2384,20 @@ def run_backtest(
         start=equity_curves.index.min().date(),
         end=equity_curves.index.max().date(),
         cost_regime=cost_regime,
-        cost_model_id=COST_MODEL_ID if transaction_cost_bps is None else "explicit_transaction_cost_bps",
+        cost_model_id=cost_model_id if transaction_cost_bps is None else "explicit_transaction_cost_bps",
         unavailable_strategies=unavailable_baselines,
+        v3_formula_identity=_v3_formula_identity(signal_rows),
     )
     no_ai = results.loc[results["strategy_name"] == "momentum_only", "calmar"].iloc[0]
     signal_calmar = results.loc[results["strategy_name"] == "signal_strategy", "calmar"].iloc[0]
-    ai_added_value = bool(signal_calmar > no_ai * 1.03)
+    ai_added_value = ai_added_value_vs_baseline(signal_calmar, no_ai)
     return BacktestReport(
         results=results,
         equity_curves=equity_curves,
         trade_log=pd.DataFrame(trade_rows, columns=_trade_log_columns(capacity_active)),
         signal_log=pd.DataFrame(signal_rows),
         ai_added_value=ai_added_value,
-        quality_label=_overall_quality_label(results),
+        quality_label=overall_quality_label(results),
         quality_notes=[
             "Uses adjusted-close sample/local series without silent forward-fill.",
             "Advanced diagnostics are deterministic local estimates: probabilistic Sharpe, deflated Sharpe and a CSCV-style PBO proxy.",
@@ -2336,10 +2523,9 @@ def _parameter_sensitivity_status(equity_curves: pd.DataFrame, trade_rows: list[
     for strategy in strategies:
         fold_scores = [_single_series_sharpe(returns[strategy].iloc[index]) for index in fold_indexes if len(index) > 1]
         positive_folds = sum(1 for score in fold_scores if score > 0)
-        cost_drag = sum(float(row["cost_eur"]) for row in trade_rows if row["strategy"] == strategy)
-        final_value = float(equity_curves[strategy].iloc[-1])
-        doubled_cost_final = final_value - cost_drag
-        start_value = float(equity_curves[strategy].iloc[0])
+        strategy_trades = [row for row in trade_rows if row["strategy"] == strategy]
+        doubled_cost_final = _doubled_cost_final_value(equity_curves[strategy], strategy_trades)
+        start_value = float(equity_curves[strategy].dropna().iloc[0])
         survives_cost_stress = doubled_cost_final > start_value
         if positive_folds >= 3 and survives_cost_stress:
             statuses[strategy] = "stable"
@@ -2348,6 +2534,35 @@ def _parameter_sensitivity_status(equity_curves: pd.DataFrame, trade_rows: list[
         else:
             statuses[strategy] = "fragile"
     return statuses
+
+
+def _doubled_cost_final_value(equity: pd.Series, trades: list[dict[str, object]]) -> float:
+    """Final NAV if every trade had paid its cost twice, replayed at the trade dates.
+
+    The extra cost taken on a trade date compounds with the growth (or loss) the book
+    experienced after it, so an early cost weighs more than a late one; subtracting
+    the summed costs from the final NAV would ignore that timing.
+    """
+
+    observed = pd.to_numeric(equity, errors="coerce").dropna()
+    if observed.empty:
+        return 0.0
+    index = pd.DatetimeIndex(observed.index)
+    values = observed.to_numpy(dtype=float)
+    final_value = float(values[-1])
+    stressed = final_value
+    for row in trades:
+        extra_cost = float(row["cost_eur"])
+        if not np.isfinite(extra_cost) or extra_cost <= 0.0:
+            continue
+        position = int(index.searchsorted(pd.Timestamp(row["date"]), side="left"))
+        if position >= len(values):
+            continue  # the trade falls after the observed curve: it cannot touch this NAV
+        at_trade = float(values[position])
+        if at_trade <= 0.0:
+            continue  # the book was already wiped out at that date
+        stressed -= extra_cost * (final_value / at_trade)
+    return max(stressed, 0.0)
 
 
 def _overfitting_warning(pbo_probability: float, parameter_sensitivity_status: str) -> str:
@@ -2383,7 +2598,10 @@ def _backtest_quality_label(pbo_probability: float, parameter_sensitivity_status
     return "low"
 
 
-def _overall_quality_label(results: pd.DataFrame) -> str:
-    if results.empty or "backtest_quality" not in results:
+def overall_quality_label(results: pd.DataFrame) -> str:
+    """Report quality is that of the strategy under evaluation (``signal_strategy``); another strategy's MEDIUM never lifts it."""
+
+    if results.empty or not {"backtest_quality", "strategy_name"}.issubset(results.columns):
         return "low"
-    return "medium" if (results["backtest_quality"] == "medium").any() else "low"
+    signal = results.loc[results["strategy_name"] == "signal_strategy", "backtest_quality"].dropna().astype(str)
+    return "medium" if not signal.empty and (signal == "medium").all() else "low"

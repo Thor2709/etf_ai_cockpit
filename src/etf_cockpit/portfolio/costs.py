@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 import hashlib
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 
 from etf_cockpit.core.config import AppConfig
 
@@ -43,6 +43,38 @@ def _valid_quote(value: object) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) and number >= 0.0 else None
+
+
+def _finite_order_value(value: object) -> float:
+    """A supplied order value must be finite: NaN/inf never normalises to a zero-cost order.
+
+    ``None`` keeps meaning "no order size" (the size-neutral view); anything else that is
+    not a finite number is rejected instead of being priced as a free trade.
+    """
+
+    if value is None:
+        return 0.0
+    if isinstance(value, bool):
+        raise ValueError("order_value_eur must be a finite number")
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise ValueError("order_value_eur must be a finite number") from exc
+    if not math.isfinite(number):
+        raise ValueError("order_value_eur must be a finite number")
+    return number
+
+
+def conservative_cost_tier(config: AppConfig) -> tuple[float, float]:
+    """Most conservative documented (spread_bps, slippage_bps): the largest of the default and every per-ETF tier."""
+
+    model = config.costs.cost_model
+    spreads = [_non_negative(getattr(model, "default_spread_bps", 0.0))]
+    slippages = [_non_negative(getattr(model, "default_slippage_bps", 0.0))]
+    for entry in getattr(config.costs, "per_etf", {}).values():
+        spreads.append(_non_negative(entry.get("spread_bps")))
+        slippages.append(_non_negative(entry.get("slippage_bps")))
+    return max(spreads), max(slippages)
 
 
 def fixed_cost_eur(commission_eur: float, order_value_eur: float) -> float:
@@ -176,6 +208,7 @@ def estimate_execution_cost(
     listing: str | None = None,
     stress_multiplier: float = 1.0,
     calibration: Mapping[str, object] | None = None,
+    conservative_tier: bool = False,
 ) -> CostEstimate:
     """Build a deterministic, conservative local execution-cost estimate.
 
@@ -186,7 +219,7 @@ def estimate_execution_cost(
 
     instrument = str(instrument_id or "").strip() or "unknown"
     # Buy and sell cost the same: the signed order is reduced to its magnitude.
-    signed_order = _finite(order_value_eur)
+    signed_order = _finite_order_value(order_value_eur)
     side = "sell" if signed_order < 0 else "buy"
     order_value = abs(signed_order)
     per_instrument = getattr(config.costs, "per_etf", {}).get(instrument, {})
@@ -231,6 +264,14 @@ def estimate_execution_cost(
         "slippage_bps",
         realised_slippage if realised_slippage is not None else configured_slippage,
     )
+    if conservative_tier:
+        # No quote exists for this listing (for example an equity certificate without a manual quote):
+        # price it at the most conservative documented tier and flag the estimate.
+        tier_spread, tier_slippage = conservative_cost_tier(config)
+        if not spread_calibrated:
+            spread = max(spread, tier_spread)
+        if not slippage_calibrated:
+            slippage = max(slippage, tier_slippage)
     adv, adv_calibrated = _calibration_value(calibration, "adv_eur", _valid_quote(adv_eur) if _valid_quote(adv_eur) is not None else _non_negative(per_instrument.get("adv_eur", 0.0)))
     volatility, volatility_calibrated = _calibration_value(calibration, "daily_volatility", _valid_quote(daily_volatility) if _valid_quote(daily_volatility) is not None else _non_negative(per_instrument.get("daily_volatility", 0.0)))
     configured_fx = getattr(model, "fx_conversion_bps", 0.0)
@@ -275,7 +316,9 @@ def estimate_execution_cost(
         capacity_status = "exceeds_configured_participation"
     else:
         capacity_status = "within_configured_participation"
-    if missing_microstructure:
+    if conservative_tier:
+        quality = "cost_estimated"
+    elif missing_microstructure:
         quality = "degraded_missing_microstructure"
     elif spread_calibrated or slippage_calibrated or adv_calibrated or volatility_calibrated:
         quality = "calibrated_local_inputs"
@@ -314,6 +357,8 @@ def estimate_execution_cost(
         assumptions.append("spread_unknown_conservative_range")
     if side == "sell":
         assumptions.append("side=sell")
+    if conservative_tier:
+        assumptions.append("cost_estimated_conservative_tier_no_quote")
     for label, supplied, valid in (
         ("quoted_spread", quoted_spread_bps, quoted_spread),
         ("realised_slippage", realised_slippage_bps, realised_slippage),
@@ -331,6 +376,10 @@ def estimate_execution_cost(
         "gap_bps": round(gap, 8),
         "order_type": order_type,
         "commission_eur": round(fixed_eur, 8),
+        # Capacity inputs change capacity_eur/capacity_status, so they are part of the estimate identity.
+        "adv_eur": round(adv, 8),
+        "participation_limit": round(participation_limit, 8),
+        "conservative_tier": bool(conservative_tier),
         "session": session_name,
         "listing": listing_name,
         "session_multiplier": round(session_multiplier, 8),
@@ -372,20 +421,28 @@ def estimate_rebalance_cost(
     *,
     stress_multiplier: float = 1.0,
     adv_eur_by_instrument: Mapping[str, float] | None = None,
+    conservative_instruments: Collection[str] | None = None,
 ) -> PortfolioCostEstimate:
-    """Estimate a portfolio rebalance using the same instrument model."""
+    """Estimate a portfolio rebalance using the same instrument model.
 
-    portfolio_value = _non_negative(portfolio_value_eur)
+    ``conservative_instruments`` are listings without a usable quote: they are priced at the most
+    conservative documented tier and flagged ``cost_estimated``.
+    """
+
+    portfolio_value = _non_negative(_finite_order_value(portfolio_value_eur))
+    conservative = {str(item) for item in (conservative_instruments or ())}
+    changes = {str(key): _finite_order_value(value) for key, value in weight_changes.items()}
     estimates = tuple(
         estimate_execution_cost(
             config,
-            str(instrument_id),
-            portfolio_value * abs(_finite(weight_change)),
+            instrument_id,
+            portfolio_value * abs(weight_change),
             stress_multiplier=stress_multiplier,
-            adv_eur=(adv_eur_by_instrument or {}).get(str(instrument_id)),
+            adv_eur=(adv_eur_by_instrument or {}).get(instrument_id),
+            conservative_tier=instrument_id in conservative,
         )
-        for instrument_id, weight_change in sorted(weight_changes.items())
-        if abs(_finite(weight_change)) > 0
+        for instrument_id, weight_change in sorted(changes.items())
+        if abs(weight_change) > 0
     )
     total_order_value = sum(item.order_value_eur for item in estimates)
     total_cost = sum(item.total_cost_eur for item in estimates)
@@ -557,6 +614,7 @@ __all__ = [
     "EVIDENCE_UNCLASSIFIED",
     "FillFeasibility",
     "average_daily_value_eur",
+    "conservative_cost_tier",
     "fill_feasibility",
     "CostEstimate",
     "PortfolioCostEstimate",

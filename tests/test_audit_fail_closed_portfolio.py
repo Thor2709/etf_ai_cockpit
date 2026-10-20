@@ -300,7 +300,11 @@ def test_backtest_first_complete_price_row_is_warmup_only() -> None:
     assert first_complete_date not in report.equity_curves.index
     assert not pd.to_datetime(report.trade_log["signal_date"]).eq(first_complete_date).any()
     assert not pd.to_datetime(report.trade_log["execution_date"]).eq(first_complete_date).any()
-    assert (report.equity_curves.iloc[0] == 10_000.0).all()
+    # The opening book is the initial purchase net of its cost (equal cost basis for every strategy), nothing more.
+    initial_costs = report.metadata["initial_purchase_cost_eur"]
+    assert report.equity_curves.iloc[0].to_dict() == pytest.approx(
+        {name: 10_000.0 - initial_costs[name] for name in report.equity_curves.columns}
+    )
 
 
 def test_credit_reconciliation_does_not_assume_missing_stage3_flows_are_zero() -> None:
