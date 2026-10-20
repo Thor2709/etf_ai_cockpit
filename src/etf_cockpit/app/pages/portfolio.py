@@ -71,6 +71,7 @@ from etf_cockpit.application.ui_facade import (
     save_portfolio_candidate,
     select_holdings_view,
     export_table,
+    log_to_simple_return,
 )
 from etf_cockpit.application.portfolio_sandbox import (
     draft_portfolio_proposal,
@@ -652,13 +653,16 @@ def _portfolio_forecast_block(
     status = common.text("Loading saved portfolio forecast…", 12.5, 400, theme.INK2, max_lines=3, key="portfolio.forecast.status")
     result_host = ft.Column(key="portfolio.forecast.results", spacing=12)
 
-    def cell_text(value: object, *, as_currency: bool = False, as_percent: bool = False) -> str:
+    def cell_text(value: object, *, as_currency: bool = False, as_percent: bool = False, as_log_percent: bool = False) -> str:
         if not isinstance(value, Mapping) or value.get("status") not in {"available", "partial"}:
             reason = value.get("reason") if isinstance(value, Mapping) else None
             return f"Unavailable: {reason or 'saved input unavailable'}"
         raw = value.get("value")
         if as_currency:
             return format_currency(raw, currency=str(currency.value or "EUR").upper())
+        if as_log_percent:
+            # Forecast returns are log returns; the canonical helper shows the simple return exp(y) - 1.
+            return format_percent(log_to_simple_return(raw))
         if as_percent:
             return format_percent(raw)
         return str(raw) if raw is not None else "N/A"
@@ -676,11 +680,12 @@ def _portfolio_forecast_block(
         if isinstance(quantiles, Mapping):
             for percentile in ("q05", "q25", "q50", "q75", "q95"):
                 gain = gain_quantiles.get(percentile) if isinstance(gain_quantiles, Mapping) else None
+                simple = log_to_simple_return(quantiles.get(percentile))
                 rows.append({
                     "percentile": percentile.upper(),
-                    "return": format_percent(quantiles.get(percentile)),
+                    "return": format_percent(simple),
                     "gain": format_currency(gain, currency=str(currency.value or "EUR").upper()),
-                    "_value": quantiles.get(percentile),
+                    "_value": simple,
                 })
         return rows
 
@@ -711,7 +716,7 @@ def _portfolio_forecast_block(
             [
                 section_header(label, f"Status: {status_value}; exposure confidence: {format_percent(coverage.get('confidence'))}; unsupported weight: {format_percent(coverage.get('unsupported_exposure_weight'))}."),
                 _status_line(f"Expected gain / loss: {cell_text(selected.get('expected_gain_loss'), as_currency=True)}"),
-                _status_line(f"Expected return: {cell_text(selected.get('expected_return'), as_percent=True)}"),
+                _status_line(f"Expected return: {cell_text(selected.get('expected_return'), as_log_percent=True)}"),
                 table,
                 Disclosure(
                     f"{label.lower()} contributions and probabilities",
@@ -936,11 +941,18 @@ def _currency_text(value: object, currency: str) -> str:
     return format_currency(value, currency=currency)
 
 
-def _short(cell: object, *, currency: str | None = None, percent: bool = False) -> str | None:
-    """Table text of a projection cell; an unavailable cell is an em dash, never zero."""
+def _short(cell: object, *, currency: str | None = None, percent: bool = False, log_return: bool = False) -> str | None:
+    """Table text of a projection cell; an unavailable cell is an em dash, never zero.
+
+    ``log_return`` marks a forecast log return, shown as the simple return exp(y) - 1.
+    """
     value = _cell_value(cell)
     if value is None:
         return None
+    if log_return:
+        value = log_to_simple_return(value)
+        if value is None:
+            return "unavailable · non_finite_log_return"
     return _holding_display(value, currency=currency, percent=percent)
 
 
@@ -1144,7 +1156,7 @@ def _portfolio_holdings_block(
                 )
             elif preset_value == "analysis":
                 row.update(
-                    action=_short(item.get("action")), expected=_short(item.get("expected_return"), percent=True),
+                    action=_short(item.get("action")), expected=_short(item.get("expected_return"), percent=True, log_return=True),
                     blockers=_short(item.get("blockers")), coverage=_short(item.get("coverage"), percent=True),
                 )
             else:

@@ -668,8 +668,12 @@ def test_unavailable_models_are_not_allowed_in_score() -> None:
 
 def test_forecast_service_runs_optional_model_rows_when_enabled(tmp_path, monkeypatch) -> None:
     config = load_config()
-    config.models.models["timesfm"] = {"enabled": True, "mode": "mock", "revision": "a" * 40}
-    config.models.models["toto"] = {"enabled": True, "mode": "mock", "context_length": 128, "revision": "a" * 40}
+    # Checkpoint identity is the hash of the local weights, so the mock run needs a fixture checkpoint.
+    checkpoint = tmp_path / "checkpoint"
+    checkpoint.mkdir()
+    (checkpoint / "model.safetensors").write_bytes(b"fixture weights")
+    config.models.models["timesfm"] = {"enabled": True, "mode": "mock", "model_path": str(checkpoint)}
+    config.models.models["toto"] = {"enabled": True, "mode": "mock", "context_length": 128, "model_path": str(checkpoint)}
     # Calibration-evidence sufficiency has its own tests (test_forecast_honesty); this one covers the run itself.
     monkeypatch.setattr("etf_cockpit.application.forecast_service.horizon_calibration_scores", lambda frame: pd.DataFrame({"status": ["ok"]}))
     # The run manifest requires the canonical prices dataset; materialise it explicitly instead of

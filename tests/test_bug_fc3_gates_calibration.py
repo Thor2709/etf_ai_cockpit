@@ -133,6 +133,7 @@ def _forecasts(prices: pd.DataFrame, count: int, *, lower: float = -0.1, upper: 
                     "fold_id": "wf-01",
                     "out_of_fold": True,
                     "forecast_date": prices["date"].iloc[:count].to_numpy(),
+                    "created_at": prices["date"].iloc[:count].to_numpy() + pd.Timedelta(hours=9),
                     "horizon_days": 1,
                     "expected_return": 0.01,
                     "q10_return": lower,
