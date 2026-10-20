@@ -346,8 +346,8 @@ def test_p04_n012_signal_adapter_uses_report_staleness_for_component_eligibility
     latest = pd.DataFrame(
         [{"etf_id": "A", "score_momentum": 0.2, "score_trend": 0.3, "score_relative_strength": 0.1, "score_risk": 0.4, "score_rebalance": 0.0}]
     )
-    monkeypatch.setattr(service_module, "load_prices", lambda: pd.DataFrame({"date": pd.to_datetime([date_value]), "etf_id": ["A"]}))
-    monkeypatch.setattr(service_module, "load_holdings", lambda: pd.DataFrame())
+    monkeypatch.setattr(service_module, "load_prices", lambda **_kwargs: pd.DataFrame({"date": pd.to_datetime([date_value]), "etf_id": ["A"]}))
+    monkeypatch.setattr(service_module, "load_holdings", lambda **_kwargs: pd.DataFrame())
     monkeypatch.setattr(service_module, "_benchmark_reference_snapshot_inputs", lambda *_args: object())
     monkeypatch.setattr(service_module, "_reference_context_from_inputs", lambda *_args, **_kwargs: SimpleNamespace(identity={"id": "test"}))
     monkeypatch.setattr(

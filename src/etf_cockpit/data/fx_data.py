@@ -582,14 +582,14 @@ class EurRateBook:
         return float(cross.rate), None
 
 
-SAMPLE_PRICE_SOURCE = "sample_generator"
+SAMPLE_PRICE_SOURCE = "synthetic_sample"
 
 
 def sample_fx_rates(prices: pd.DataFrame) -> pd.DataFrame:
     """Deterministic synthetic ``<currency>/EUR`` quotes for a purely synthetic (sample) price frame.
 
     The sample pipeline has no FX file, so without this its non-EUR sample instruments would have no
-    EUR basis. The quotes carry ``source=sample_generator`` and exist only in memory; they are never
+    EUR basis. The quotes carry ``source=synthetic_sample`` and exist only in memory; they are never
     persisted and never used for real (provider) prices.
     """
 
@@ -627,7 +627,7 @@ def fx_rates_for_prices(prices: pd.DataFrame | None) -> pd.DataFrame:
         prices is not None
         and not prices.empty
         and "source" in prices.columns
-        and prices["source"].astype(str).eq(SAMPLE_PRICE_SOURCE).all()
+        and prices["source"].astype(str).isin({SAMPLE_PRICE_SOURCE, "sample_generator"}).all()
     ):
         return sample_fx_rates(prices)
     return load_fx_rates()
