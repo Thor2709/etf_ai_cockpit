@@ -90,6 +90,15 @@ def test_paper_lifecycle_replays_cash_positions_and_marks_after_restart(tmp_path
     assert PaperLedger(tmp_path).reconcile()["status"] == "ready"
 
 
+def test_cancel_paper_order_is_the_internal_cancellation_entry_and_requires_a_reason(tmp_path: Path) -> None:
+    ledger = PaperLedger(tmp_path)
+    ledger.open_account(initial_cash=1_000)
+    order = ledger.accept_proposal(_proposal(source="paper-internal-cancel"), execution_price=10)
+    with pytest.raises(PaperLedgerError, match="cancellation reason"):
+        ledger.cancel_paper_order(str(order["order_id"]), reason=" ")
+    assert ledger.cancel_paper_order(str(order["order_id"]), reason="paper bot fill failed")["status"] == "cancelled"
+
+
 def test_paper_sell_realises_pnl_and_supports_cancellation_and_rejection(tmp_path: Path) -> None:
     ledger = PaperLedger(tmp_path)
     ledger.open_account(initial_cash=1_000)
