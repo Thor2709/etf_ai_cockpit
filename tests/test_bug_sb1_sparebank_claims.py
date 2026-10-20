@@ -290,4 +290,3 @@ def test_b017_n004_production_passes_payouts(tmp_path, monkeypatch):
     views.load_financial_institution_projection("fixture:969", storage_root=tmp_path,
         decision_time="2025-03-01T00:00:00Z", context=context)
     assert received.get("payouts") == payouts
-
