@@ -1279,7 +1279,7 @@
    ],
    "run_id_pattern": "features_2026-09-30_p<12hex>_x<12hex>__s<12hex>"
   },
-  "data/derived/run_manifests/forecast_20260930__s5307f54f8af7.json": {
+  "data/derived/run_manifests/forecast_20260930_<sha256>__s5307f54f8af7.json": {
    "kind": "json",
    "structure": {
     "dependencies": {
@@ -1330,7 +1330,7 @@
     ["policy:model-settings", "policy", "1.0.0"],
     ["schema:local-storage", "schema", "4.0.0"]
    ],
-   "run_id_pattern": "forecast_20260930__s<12hex>"
+   "run_id_pattern": "forecast_20260930_<sha256>__s<12hex>"
   },
   "data/derived/run_manifests/score_<stamp>_<8hex>.json": {
    "kind": "json",
@@ -2346,8 +2346,8 @@
     "expected_return": {
      "nan_count": 570,
      "count": 285,
-     "sum": 0.6125885138023889,
-     "mean": 0.002149433381762768,
+     "sum": 0.6621852398473042,
+     "mean": 0.0023234569819203655,
      "min": -0.0996017460730509,
      "max": 0.1056209035783334
     },
@@ -2362,24 +2362,24 @@
     "q10_return": {
      "nan_count": 570,
      "count": 285,
-     "sum": -31.579670692563603,
-     "mean": -0.11080586207917054,
+     "sum": -31.530073966518685,
+     "mean": -0.11063183847901294,
      "min": -0.3034758968596003,
      "max": -0.0250292262094758
     },
     "q50_return": {
      "nan_count": 570,
      "count": 285,
-     "sum": 0.6125885138023889,
-     "mean": 0.002149433381762768,
+     "sum": 0.6621852398473042,
+     "mean": 0.0023234569819203655,
      "min": -0.0996017460730509,
      "max": 0.1056209035783334
     },
     "q90_return": {
      "nan_count": 570,
      "count": 285,
-     "sum": 32.80484772016838,
-     "mean": 0.11510472884269608,
+     "sum": 32.8544444462133,
+     "mean": 0.11527875244285368,
      "min": 0.0241130834200431,
      "max": 0.2937011384812202
     },
@@ -2410,8 +2410,8 @@
     "heuristic_probability_positive": {
      "nan_count": 570,
      "count": 285,
-     "sum": 143.9597904295739,
-     "mean": 0.5051220716827154,
+     "sum": 144.07698156311588,
+     "mean": 0.5055332686425118,
      "min": 0.3483909309896892,
      "max": 0.6725437676536453
     },
@@ -2450,32 +2450,32 @@
     "q05_return": {
      "nan_count": 570,
      "count": 285,
-     "sum": -40.70572885944436,
-     "mean": -0.14282711880506793,
+     "sum": -40.65613213339944,
+     "mean": -0.14265309520491032,
      "min": -0.3612713857339425,
      "max": -0.0320044126457679
     },
     "q25_return": {
      "nan_count": 570,
      "count": 285,
-     "sum": -16.33042763484718,
-     "mean": -0.057299746087183086,
+     "sum": -16.280830908802265,
+     "mean": -0.05712572248702549,
      "min": -0.2069021690388815,
      "max": 0.0066329314458507
     },
     "q75_return": {
      "nan_count": 570,
      "count": 285,
-     "sum": 17.555604662451962,
-     "mean": 0.06159861285070864,
+     "sum": 17.605201388496877,
+     "mean": 0.06177263645086623,
      "min": 0.0076986768927796,
      "max": 0.2046088757108161
     },
     "q95_return": {
      "nan_count": 570,
      "count": 285,
-     "sum": 41.930905887049136,
-     "mean": 0.14712598556859346,
+     "sum": 41.98050261309405,
+     "mean": 0.14730000916875105,
      "min": 0.0311560366176818,
      "max": 0.3470192716622837
     },
@@ -2496,24 +2496,24 @@
      "max": null
     }
    },
-   "non_float_digest": "fc933dedd39377c7805fa9f9384c693bb72196ff285c308ebbdca7beb33f5b01",
+   "non_float_digest": "e323433b48be4f28343eda6b0de5c2e7975030dc622bb20786f33b8ec539c7bb",
    "first_rows": [
     {
-     "run_id": "forecast_20260930__s5307f54f8af7",
+     "run_id": "forecast_20260930_<sha256>__s5307f54f8af7",
      "model_name": "baseline",
      "model_version": "momentum_shrunk_v1",
      "etf_id": "VWCE",
      "forecast_date": "2026-09-30",
      "horizon_days": 5,
-     "expected_return": 0.0023377536476501,
+     "expected_return": 0.002513552672748,
      "expected_excess_return": "<NaN>",
-     "q10_return": -0.0303992102386917,
-     "q50_return": 0.0023377536476501,
-     "q90_return": 0.035074717533992,
+     "q10_return": -0.0302234112135938,
+     "q50_return": 0.002513552672748,
+     "q90_return": 0.0352505165590899,
      "forecast_vol": 0.0255438232571331,
      "prob_positive_return": "<NaN>",
      "prob_beat_benchmark": "<NaN>",
-     "heuristic_probability_positive": 0.522863876707912,
+     "heuristic_probability_positive": 0.5245805650229288,
      "heuristic_probability_beat_benchmark": "<NaN>",
      "probability_calibration_status": "unavailable",
      "forecast_drawdown_prob": "<NaN>",
@@ -2526,10 +2526,10 @@
      "oos_mase": "<NaN>",
      "oos_directional_accuracy": "<NaN>",
      "calibration_status": "not_evaluated",
-     "q05_return": -0.0396796846135611,
-     "q25_return": -0.0148919444679255,
-     "q75_return": 0.0195674517632258,
-     "q95_return": 0.0443551919088613,
+     "q05_return": -0.0395038855884631,
+     "q25_return": -0.0147161454428276,
+     "q75_return": 0.0197432507883237,
+     "q95_return": 0.0445309909339592,
      "quantile_method": "normal_from_q10_q90.v1",
      "coverage_ratio": 1.0,
      "promotion_status": "not_proven",
@@ -2551,21 +2551,21 @@
      "execution_allowed": "<NaN>"
     },
     {
-     "run_id": "forecast_20260930__s5307f54f8af7",
+     "run_id": "forecast_20260930_<sha256>__s5307f54f8af7",
      "model_name": "baseline",
      "model_version": "momentum_shrunk_v1",
      "etf_id": "VWCE",
      "forecast_date": "2026-09-30",
      "horizon_days": 20,
-     "expected_return": 0.0093510145906004,
+     "expected_return": 0.0100542106909921,
      "expected_excess_return": "<NaN>",
-     "q10_return": -0.0561229131820833,
-     "q50_return": 0.0093510145906004,
-     "q90_return": 0.0748249423632842,
+     "q10_return": -0.0554197170816916,
+     "q50_return": 0.0100542106909921,
+     "q90_return": 0.0755281384636759,
      "forecast_vol": 0.0510876465142663,
      "prob_positive_return": "<NaN>",
      "prob_beat_benchmark": "<NaN>",
-     "heuristic_probability_positive": 0.545632334951633,
+     "heuristic_probability_positive": 0.5490426030634002,
      "heuristic_probability_beat_benchmark": "<NaN>",
      "probability_calibration_status": "unavailable",
      "forecast_drawdown_prob": "<NaN>",
@@ -2578,10 +2578,10 @@
      "oos_mase": "<NaN>",
      "oos_directional_accuracy": "<NaN>",
      "calibration_status": "not_evaluated",
-     "q05_return": -0.0746838619318219,
-     "q25_return": -0.0251083816405509,
-     "q75_return": 0.0438104108217518,
-     "q95_return": 0.0933858911130229,
+     "q05_return": -0.0739806658314302,
+     "q25_return": -0.0244051855401592,
+     "q75_return": 0.0445136069221435,
+     "q95_return": 0.0940890872134146,
      "quantile_method": "normal_from_q10_q90.v1",
      "coverage_ratio": 1.0,
      "promotion_status": "not_proven",
@@ -2603,21 +2603,21 @@
      "execution_allowed": "<NaN>"
     },
     {
-     "run_id": "forecast_20260930__s5307f54f8af7",
+     "run_id": "forecast_20260930_<sha256>__s5307f54f8af7",
      "model_name": "baseline",
      "model_version": "momentum_shrunk_v1",
      "etf_id": "VWCE",
      "forecast_date": "2026-09-30",
      "horizon_days": 60,
-     "expected_return": 0.0280530437718013,
+     "expected_return": 0.0301626320729764,
      "expected_excess_return": "<NaN>",
-     "q10_return": -0.0853511257015819,
-     "q50_return": 0.0280530437718013,
-     "q90_return": 0.1414572132451846,
+     "q10_return": -0.0832415374004068,
+     "q50_return": 0.0301626320729764,
+     "q90_return": 0.1435668015463597,
      "forecast_vol": 0.0884863994018284,
      "prob_positive_return": "<NaN>",
      "prob_beat_benchmark": "<NaN>",
-     "heuristic_probability_positive": 0.5786008230205282,
+     "heuristic_probability_positive": 0.5844025904710537,
      "heuristic_probability_beat_benchmark": "<NaN>",
      "probability_calibration_status": "unavailable",
      "forecast_drawdown_prob": "<NaN>",
@@ -2630,10 +2630,10 @@
      "oos_mase": "<NaN>",
      "oos_directional_accuracy": "<NaN>",
      "calibration_status": "not_evaluated",
-     "q05_return": -0.1174996319728113,
-     "q25_return": -0.0316323812987003,
-     "q75_return": 0.0877384688423031,
-     "q95_return": 0.173605719516414,
+     "q05_return": -0.1153900436716361,
+     "q25_return": -0.0295227929975252,
+     "q75_return": 0.0898480571434782,
+     "q95_return": 0.1757153078175891,
      "quantile_method": "normal_from_q10_q90.v1",
      "coverage_ratio": 1.0,
      "promotion_status": "not_proven",
@@ -2657,7 +2657,7 @@
    ],
    "last_rows": [
     {
-     "run_id": "forecast_20260930__s5307f54f8af7",
+     "run_id": "forecast_20260930_<sha256>__s5307f54f8af7",
      "model_name": "toto",
      "model_version": "toto_2_0_optional",
      "etf_id": "SPOG",
@@ -2709,7 +2709,7 @@
      "execution_allowed": false
     },
     {
-     "run_id": "forecast_20260930__s5307f54f8af7",
+     "run_id": "forecast_20260930_<sha256>__s5307f54f8af7",
      "model_name": "toto",
      "model_version": "toto_2_0_optional",
      "etf_id": "SPOG",
@@ -2761,7 +2761,7 @@
      "execution_allowed": false
     },
     {
-     "run_id": "forecast_20260930__s5307f54f8af7",
+     "run_id": "forecast_20260930_<sha256>__s5307f54f8af7",
      "model_name": "toto",
      "model_version": "toto_2_0_optional",
      "etf_id": "SPOG",

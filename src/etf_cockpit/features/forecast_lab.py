@@ -979,14 +979,18 @@ def _pooled_mase(evaluated: pd.DataFrame, price_lookup: Mapping[str, pd.DataFram
 
     if evaluated.empty:
         return None
-    scales: dict[tuple[str, int], float | None] = {}
+    scales: dict[tuple[str, int, pd.Timestamp], float | None] = {}
     scaled: list[float] = []
-    for etf_id, horizon, error in zip(
-        evaluated["etf_id"].astype(str), evaluated["horizon_days"].astype(int), evaluated["absolute_error"], strict=True
+    for etf_id, horizon, error, origin in zip(
+        evaluated["etf_id"].astype(str), evaluated["horizon_days"].astype(int), evaluated["absolute_error"],
+        pd.to_datetime(evaluated["forecast_date"], utc=True), strict=True
     ):
-        key = (etf_id, horizon)
+        key = (etf_id, horizon, origin)
         if key not in scales:
             prices = price_lookup.get(etf_id)
+            if prices is not None and not prices.empty:
+                # Training window only: sessions after the forecast origin never set the scale.
+                prices = prices.loc[pd.to_datetime(prices.index, errors="coerce", utc=True) <= origin]
             scales[key] = (
                 None
                 if prices is None or prices.empty
