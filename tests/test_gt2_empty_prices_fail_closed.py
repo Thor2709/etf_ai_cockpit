@@ -1,7 +1,8 @@
 """GT2: empty price evidence fails closed (no crash), and the synthetic demo path is an explicit test opt-in."""
 
-import sys
+import os
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -36,13 +37,28 @@ def test_run_forecasts_without_a_dated_observation_is_unavailable_not_a_date_par
     assert not (tmp_path / "f.csv").exists()
 
 
-def test_synthetic_opt_in_is_scoped_to_the_test_that_requests_it() -> None:
-    harness = sys.modules["conftest"]
+@pytest.fixture
+def default_restored_after_test():
+    """Requested BEFORE the opt-in fixture: set up first, torn down last, so it sees the restored default."""
+
     assert load_config().data.allow_synthetic_sample_data is False
-    scope = harness._synthetic_sample_opt_in_scope()
-    next(scope)
+    yield
+    assert load_config().data.allow_synthetic_sample_data is False
+
+
+def test_synthetic_opt_in_is_scoped_to_the_test_that_requests_it(default_restored_after_test, synthetic_sample_opt_in) -> None:
     assert load_config().data.allow_synthetic_sample_data is True
-    scope.close()
+
+
+def test_synthetic_opt_in_fails_loudly_when_the_setting_is_absent(request) -> None:
+    settings = Path(os.environ["ETF_COCKPIT_ROOT"]) / "configs" / "settings.yaml"
+    original = settings.read_bytes()
+    settings.write_bytes(b"data: {}" + bytes([10]))
+    try:
+        with pytest.raises(RuntimeError, match="allow_synthetic_sample_data"):
+            request.getfixturevalue("synthetic_sample_opt_in")
+    finally:
+        settings.write_bytes(original)
     assert load_config().data.allow_synthetic_sample_data is False
 
 
@@ -52,3 +68,14 @@ def test_opted_in_test_sees_the_seeded_demo_prices_labelled_synthetic() -> None:
     assert not prices.empty
     assert set(prices["source"]) <= {"synthetic_sample", "sample_generator"}
     assert isinstance(pd.to_datetime(prices["date"]).max().date(), date)
+
+
+def test_yfinance_forecast_run_with_no_parseable_dates_reports_unavailable_instead_of_crashing(monkeypatch) -> None:
+    from etf_cockpit.application import data_service
+
+    config = load_config()
+    undated = pd.DataFrame({"etf_id": [config.universe.enabled_ids[0]], "date": ["not-a-date"], "adjusted_close": [1.0]})
+    monkeypatch.setattr(data_service, "load_prices", lambda *args, **kwargs: undated.copy())
+    message = data_service.DataService(config).run_yfinance_forecasts(include_candidates=False, use_cache=False)
+    # Existing caller contract: a NaT latest date becomes an unavailable message (never reaches run_forecasts' NaT guard).
+    assert message.startswith("Forecast calculation skipped because") and message.endswith("is unavailable.")

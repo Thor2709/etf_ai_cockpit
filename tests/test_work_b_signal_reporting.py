@@ -1,4 +1,3 @@
-import pytest
 """Missing signal evidence stays unavailable in CLI, JSON and explanations."""
 
 from dataclasses import replace
@@ -10,6 +9,7 @@ import sys
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from etf_cockpit.application.signal_service import SignalService
 from etf_cockpit.core.config import load_config

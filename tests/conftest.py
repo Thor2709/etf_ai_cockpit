@@ -198,14 +198,20 @@ _SYNTHETIC_ON = "allow_synthetic_sample_data: true"
 
 
 def _opt_in_synthetic_sample_data(root: Path) -> bool:
-    """Flip the committed opt-in default for ONE isolated root (never the checkout); True if changed."""
+    """Flip the committed opt-in default for ONE isolated root (never the checkout); True if changed.
+
+    Fails loudly if the setting is absent: a silent no-op would leave the demo path disabled and surface
+    later as confusing empty-price failures.  Already opted in (nested fixtures) is a no-op returning False.
+    """
 
     settings = root / "configs" / "settings.yaml"
     if not settings.is_file():
-        return False
+        raise RuntimeError(f"cannot opt in to synthetic sample data: {settings} does not exist")
     text = settings.read_bytes().decode("utf-8")
-    if _SYNTHETIC_OFF not in text:
+    if _SYNTHETIC_ON in text:
         return False
+    if _SYNTHETIC_OFF not in text:
+        raise RuntimeError(f"cannot opt in to synthetic sample data: no `allow_synthetic_sample_data` key in {settings}")
     settings.write_bytes(text.replace(_SYNTHETIC_OFF, _SYNTHETIC_ON).encode("utf-8"))
     return True
 
