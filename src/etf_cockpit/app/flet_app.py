@@ -13,10 +13,14 @@ import webbrowser
 from itertools import count
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from etf_cockpit.application.runtime import atomic_write_json, pid_is_alive
 from etf_cockpit.core.paths import LOG_DIR, WEB_INSTANCE_PATH
 from etf_cockpit.core.runtime import configure_runtime_environment
+
+if TYPE_CHECKING:
+    from etf_cockpit.app.state import AppState
 
 _RUNTIME_TEMP = configure_runtime_environment()
 
