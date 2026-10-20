@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import math
 from math import isclose
 from typing import Mapping
 
 from etf_cockpit.core.values import finite_float_or_none as _finite
+from etf_cockpit.models.calibration import log_to_simple_return
 
 
 @dataclass(frozen=True)
@@ -92,10 +92,10 @@ def estimate_friction_adjusted_return(
     if not isclose(cost_eur, expected_cost_eur, rel_tol=1e-9, abs_tol=1e-7):
         return _return_unavailable("Order-size cost estimate has inconsistent basis-point and euro totals.")
     cost_fraction = cost_bps / 10_000.0
-    try:
-        q10, q50, q90 = (math.expm1(value) for value in (q10, q50, q90))
-    except OverflowError:
+    q10, q50, q90 = (log_to_simple_return(value) for value in (q10, q50, q90))
+    if any(value is None for value in (q10, q50, q90)):
         return _return_unavailable("Expected-return quantiles are outside the representable log-return range.")
+    q10, q50, q90 = float(q10), float(q50), float(q90)
     net_q10 = q10 - cost_fraction
     net_q50 = q50 - cost_fraction
     net_q90 = q90 - cost_fraction

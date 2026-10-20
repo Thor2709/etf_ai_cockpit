@@ -44,7 +44,7 @@ def test_overview_is_labelled_all_matured_and_oos_uses_test_folds_only() -> None
         [_row("baseline", "AAA", day, 0.0 if index < 3 else 0.30) for index, day in enumerate(DATES[:6])]
     )
 
-    row = _models(build_forecast_lab_report(forecasts, _prices())).loc["baseline"]
+    row = _models(build_forecast_lab_report(forecasts, _prices(), as_of_date=DATES[-1])).loc["baseline"]
 
     assert row["mae"] == pytest.approx(0.15)  # overview mixes the reserved pre-test rows in
     assert row["all_matured_mae"] == pytest.approx(0.15)
@@ -58,7 +58,7 @@ def test_overview_is_labelled_all_matured_and_oos_uses_test_folds_only() -> None
 def test_oos_is_pending_without_a_test_fold() -> None:
     forecasts = pd.DataFrame([_row("baseline", "AAA", day, 0.1) for day in DATES[:3]])
 
-    row = _models(build_forecast_lab_report(forecasts, _prices())).loc["baseline"]
+    row = _models(build_forecast_lab_report(forecasts, _prices(), as_of_date=DATES[-1])).loc["baseline"]
 
     assert row["matured_rows"] == 3
     assert row["oos_rows"] == 0 and row["oos_mae"] is None
@@ -102,7 +102,7 @@ def test_forecast_for_a_delisted_instrument_stays_excluded_and_in_the_denominato
     prices = _prices()  # no GONE series
 
     inputs = forecast_lab_inputs(latest, history, prices)
-    report = build_forecast_lab_report(inputs, prices)
+    report = build_forecast_lab_report(inputs, prices, as_of_date=DATES[-1])
 
     assert set(inputs["etf_id"]) == {"AAA", "GONE"}
     excluded = report["excluded"]

@@ -99,6 +99,9 @@ def generate_signals(
 
     total_value = portfolio_value(holdings)
     cash_weight = max(0.0, 1.0 - float(holdings["current_weight"].sum()))
+    # Cash is one shared pool: every candidate that finalises a weight increase reserves it for the proposals
+    # evaluated after it (highest score first), so several buys cannot each assume the full cash.
+    cash_available = cash_weight
     signals: list[SignalResult] = []
     for _, row in scored.sort_values("total_score", ascending=False).iterrows():
         structure_cap = _structure_cap_for_row(structure_confidence_caps, str(row["etf_id"]))
@@ -190,7 +193,7 @@ def generate_signals(
             data_report,
             candidate_action=candidate,
             projected_weight=projected_weight,
-            cash_weight=cash_weight,
+            cash_weight=cash_available,
             model_disagreement=0.0,
         )
         if forecast_distributions is not None:
@@ -213,6 +216,8 @@ def generate_signals(
         final_internal_action = apply_gate_result(candidate, blocked_by)
         if final_internal_action != candidate:
             projected_weight = None
+        if projected_weight is not None and final_internal_action in {"buy", "add"}:
+            cash_available = max(0.0, cash_available - max(0.0, projected_weight - current_weight))
         trade_value = suggested_trade_value(total_value, current_weight, projected_weight)
         final_action = advisory_action(final_internal_action)
         if final_action == "no_trade" and not blocked_by:
