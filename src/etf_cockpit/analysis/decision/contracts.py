@@ -248,6 +248,25 @@ class OpportunityResult:
     source_vintage_hash: str
     reason_code: str
     execution_allowed: bool = False
+    decision_state: Literal[
+        "SOURCE_UNAVAILABLE",
+        "ECONOMIC_RISK_VETO",
+        "RETURN_NOT_CALIBRATED",
+        "POSITIVE_BUT_INSUFFICIENT_MARGIN",
+        "CANDIDATE_BUY",
+        "HOLD_NO_TRADE",
+        "AVOID_REDUCE",
+    ] = "SOURCE_UNAVAILABLE"
+    decision_reason_code: str = "VWCE_REFERENCE_UNAVAILABLE"
+    absolute_horizon: str | None = None
+    expected_net_excess_return: float | None = None
+    absolute_forecast_return: float | None = None
+    absolute_benchmark_total_return: float | None = None
+    absolute_candidate_acquisition_cost: float | None = None
+    absolute_benchmark_acquisition_cost: float | None = None
+    absolute_fx_return: float | None = None
+    absolute_uncertainty_margin: float | None = None
+    absolute_uncertainty_hurdle: float | None = None
 
     def __post_init__(self) -> None:
         if self.execution_allowed:
@@ -255,6 +274,33 @@ class OpportunityResult:
         if not self.instrument.strip() or not self.asset_type.strip():
             raise ValueError("instrument and asset_type must be non-empty")
         _aware_datetime(self.decision_time, "decision_time")
+        if self.decision_state not in {
+            "SOURCE_UNAVAILABLE",
+            "ECONOMIC_RISK_VETO",
+            "RETURN_NOT_CALIBRATED",
+            "POSITIVE_BUT_INSUFFICIENT_MARGIN",
+            "CANDIDATE_BUY",
+            "HOLD_NO_TRADE",
+            "AVOID_REDUCE",
+        }:
+            raise ValueError("unsupported absolute opportunity decision state")
+        for name in (
+            "expected_net_excess_return",
+            "absolute_forecast_return",
+            "absolute_benchmark_total_return",
+            "absolute_candidate_acquisition_cost",
+            "absolute_benchmark_acquisition_cost",
+            "absolute_fx_return",
+            "absolute_uncertainty_margin",
+            "absolute_uncertainty_hurdle",
+        ):
+            value = getattr(self, name)
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+            ):
+                raise ValueError(f"{name} must be finite or None")
 
 
 @dataclass(frozen=True)
