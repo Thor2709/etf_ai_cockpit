@@ -2,6 +2,8 @@ start_date: null
 end_date: null
 rebalance_frequency_days: 21
 initial_value_eur: 10000
+# Legacy flat override: a fixed one-way cost, never execution evidence. It is
+# reported next to the modelled default and the conservative stress run.
 transaction_cost_bps: 13
 strategies:
   - buy_and_hold
@@ -9,3 +11,8 @@ strategies:
   - momentum_only
   - trend_only
   - signal_strategy
+# Cost-realism flags (additive; see run_backtest_cost_regimes).
+qualification_cost_regime: modelled_default
+legacy_override_qualifies: false
+stress_cost_multiplier: 2.0
+enforce_capacity: true

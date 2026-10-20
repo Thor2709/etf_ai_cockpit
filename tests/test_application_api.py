@@ -122,10 +122,45 @@ def test_typed_proposal_review_stays_inside_application_boundary(tmp_path, monke
 
     assert view.outcome == "manual_review"
     assert view.execution_allowed is False
-    assert view.failed_gate_count == (9 if use_event_policy else 8)
+    # The friction edge gate is unavailable without evidence, so it is one more failed gate.
+    assert view.failed_gate_count == (10 if use_event_policy else 9)
+    assert next(gate for gate in view.gates if gate.gate_id == "friction_edge").passed is False
     assert view.event_control["status"] == ("evidence_unavailable" if use_event_policy else "context_only")
     assert view.quantity_delta == 0
     assert api.query(QueryRequest(resource="proposals")).total == 1
+
+
+def test_typed_proposal_review_computes_the_friction_gate_from_size_aware_costs(tmp_path, monkeypatch) -> None:
+    import etf_cockpit.portfolio.proposal_policy as proposal_policy
+
+    capabilities = tuple(
+        SimpleNamespace(capability_id=capability_id, authority_stage=stage, availability="mandatory")
+        for capability_id, stage in (
+            ("strategy:manual_review", "research"), ("model:baseline", "research"), ("broker:paper_portfolio", "paper"),
+        )
+    )
+    matrix = SimpleNamespace(diagnostic_mode=False, diagnostics=(), checksum="a" * 64, policy=SimpleNamespace(capabilities=capabilities))
+    monkeypatch.setattr(proposal_policy, "load_authority_matrix", lambda: matrix)
+    api = LocalApplicationApi(_snapshot, root=tmp_path)
+
+    def review(**friction: object):
+        return api.review_proposal(
+            ProposalReviewRequest(
+                instrument_id="ETF1", current_quantity=0, target_quantity=10, strategy_id="strategy:manual_review",
+                strategy_stage="research", model_id="model:baseline", model_stage="research",
+                account_id="broker:paper_portfolio", account_stage="paper",
+                as_of=datetime(2026, 7, 19, tzinfo=timezone.utc), expires_at=datetime(2026, 7, 20, tzinfo=timezone.utc),
+                authority_policy_checksum="a" * 64, **friction,
+            )
+        )
+
+    def friction_gate(view):
+        return next(gate for gate in view.gates if gate.gate_id == "friction_edge")
+
+    evidence = {"reference_price_eur": 100.0, "uncertainty_bps": 5.0, "adv_eur": 5_000_000.0, "daily_volatility": 0.01}
+    assert friction_gate(review()).passed is False  # missing evidence stays suppressed
+    assert friction_gate(review(expected_benefit_bps=1.0, **evidence)).passed is False  # benefit below friction
+    assert friction_gate(review(expected_benefit_bps=500.0, **evidence)).passed is True  # evidence reaches the gate
 
 
 def test_paper_account_is_exposed_through_typed_application_boundary(tmp_path) -> None:

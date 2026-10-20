@@ -117,6 +117,85 @@ def estimate_friction_adjusted_return(
     )
 
 
+@dataclass(frozen=True)
+class FrictionGateResult:
+    """Propose-or-hold verdict: expected net benefit must exceed every friction cost."""
+
+    status: str
+    propose: bool
+    expected_benefit_bps: float | None
+    turnover_cost_bps: float | None
+    spread_cost_bps: float | None
+    uncertainty_cost_bps: float | None
+    required_bps: float | None
+    net_benefit_bps: float | None
+    reason: str
+    execution_allowed: bool = False
+
+
+def evaluate_friction_gate(
+    expected_benefit_bps: float | None,
+    *,
+    order_value_eur: float | None,
+    cost_estimate: Mapping[str, object] | None,
+    uncertainty_bps: float | None = 0.0,
+) -> FrictionGateResult:
+    """Propose a trade only when the expected net benefit exceeds the friction.
+
+    The friction is the order-size cost (commission, impact, FX, gap: the
+    turnover cost), the spread (the upper end of the spread range when the
+    spread is unknown) and the uncertainty cost.  A size-neutral estimate
+    (order value 0 or not matching the order) is not valid for a gate, and any
+    missing or non-finite input fails closed to ``unavailable`` / no proposal.
+    """
+
+    def unavailable(reason: str) -> FrictionGateResult:
+        return FrictionGateResult("unavailable", False, None, None, None, None, None, None, reason)
+
+    benefit = _finite(expected_benefit_bps)
+    if benefit is None:
+        return unavailable("Expected benefit is missing or non-finite.")
+    order_value = _finite(order_value_eur)
+    if order_value is None or order_value <= 0.0:
+        return unavailable("A positive order size is required: a size-neutral cost cannot gate a trade.")
+    if not isinstance(cost_estimate, Mapping):
+        return unavailable("Order-size cost estimate is unavailable.")
+    estimated_value = _finite(cost_estimate.get("order_value_eur"))
+    if estimated_value is None or not isclose(estimated_value, order_value, rel_tol=1e-9, abs_tol=1e-8):
+        return unavailable("Cost estimate does not describe the requested order size.")
+    total_cost = _finite(cost_estimate.get("total_cost_bps"))
+    spread = _finite(cost_estimate.get("spread_bps"))
+    if total_cost is None or total_cost < 0.0 or spread is None or spread < 0.0:
+        return unavailable("Cost estimate is missing, negative or non-finite.")
+    spread_range = cost_estimate.get("spread_range_bps")
+    if isinstance(spread_range, (list, tuple)) and len(spread_range) == 2:
+        spread_high = _finite(spread_range[1])
+        if spread_high is not None and spread_high > spread:
+            spread = spread_high
+    uncertainty = _finite(uncertainty_bps)
+    if uncertainty is None or uncertainty < 0.0:
+        return unavailable("Uncertainty cost is missing, negative or non-finite.")
+    turnover_cost = max(0.0, total_cost - (_finite(cost_estimate.get("spread_bps")) or 0.0))
+    required = turnover_cost + spread + uncertainty
+    net = benefit - required
+    propose = net > 0.0
+    return FrictionGateResult(
+        status="pass" if propose else "blocked",
+        propose=propose,
+        expected_benefit_bps=round(benefit, 8),
+        turnover_cost_bps=round(turnover_cost, 8),
+        spread_cost_bps=round(spread, 8),
+        uncertainty_cost_bps=round(uncertainty, 8),
+        required_bps=round(required, 8),
+        net_benefit_bps=round(net, 8),
+        reason=(
+            "Expected benefit exceeds turnover, spread and uncertainty costs."
+            if propose
+            else "Expected benefit does not exceed turnover, spread and uncertainty costs."
+        ),
+    )
+
+
 def estimate_friction_edge(
     evidence_score: float | None,
     volatility: float | None,
@@ -186,6 +265,8 @@ def _return_unavailable(reason: str) -> FrictionAdjustedReturnResult:
 __all__ = [
     "FrictionAdjustedReturnResult",
     "FrictionEdgeResult",
+    "FrictionGateResult",
+    "evaluate_friction_gate",
     "estimate_friction_adjusted_return",
     "estimate_friction_edge",
 ]
