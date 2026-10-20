@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import socket
@@ -17,6 +18,9 @@ from pathlib import Path
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8550
 APP_NAME = "ETF_AI_Cockpit"
+# Ports other local tooling owns; the fallback search never lands on them.
+RESERVED_FALLBACK_PORTS = frozenset({8580, 8601})
+WEB_INSTANCE_RELATIVE = Path("data") / "runtime" / "web_instance.json"
 
 
 @dataclass(frozen=True)
@@ -117,13 +121,51 @@ def is_tcp_port_busy(host: str, port: int) -> bool:
         return False
 
 
-def choose_launch_port(host: str, preferred: int, allow_reuse: bool = True) -> LaunchPortDecision:
+def verify_app_instance(host: str, port: int, runtime_root: Path | None, timeout_s: float = 1.5) -> bool:
+    """True only when the server on ``port`` serves the identity this install's app recorded.
+
+    The app records ``{port, pid, identity}`` under ``data/runtime/web_instance.json`` and serves
+    ``/cockpit-instance-<identity>.txt``. A foreign HTTP server cannot satisfy both, so it is never reused.
+    """
+    if runtime_root is None:
+        return False
+    try:
+        record = json.loads((Path(runtime_root) / WEB_INSTANCE_RELATIVE).read_text(encoding="utf-8"))
+        identity = record["identity"]
+        if not isinstance(identity, str) or len(identity) != 32 or any(c not in "0123456789abcdef" for c in identity):
+            return False
+        if int(record["port"]) != port:
+            return False
+        url = f"{_url(host, port)}cockpit-instance-{identity}.txt"
+        with urllib.request.urlopen(url, timeout=timeout_s) as response:
+            return (
+                int(response.status) == 200
+                and response.geturl() == url
+                and response.read(33) == identity.encode("ascii")
+            )
+    except Exception:
+        return False
+
+
+def choose_launch_port(
+    host: str,
+    preferred: int,
+    allow_reuse: bool = True,
+    *,
+    runtime_root: Path | None = None,
+) -> LaunchPortDecision:
     requested = normalise_port(preferred)
-    if allow_reuse and probe_http_ready(host, requested):
-        return LaunchPortDecision(host, requested, requested, _url(host, requested), True, "existing HTTP server is ready")
+    http_ready = probe_http_ready(host, requested)
+    if allow_reuse and http_ready and verify_app_instance(host, requested, runtime_root):
+        return LaunchPortDecision(host, requested, requested, _url(host, requested), True, "existing app instance verified")
     if is_tcp_port_busy(host, requested):
         fallback = _find_free_port(host, requested + 1)
-        return LaunchPortDecision(host, requested, fallback, _url(host, fallback), False, f"port {requested} is busy but not HTTP-ready")
+        reason = (
+            f"port {requested} is held by an unverified HTTP server"
+            if http_ready
+            else f"port {requested} is busy but not HTTP-ready"
+        )
+        return LaunchPortDecision(host, requested, fallback, _url(host, fallback), False, reason)
     return LaunchPortDecision(host, requested, requested, _url(host, requested), False, f"port {requested} is free")
 
 
@@ -216,6 +258,54 @@ def prepare_output_directory(path: Path, *, allow_alternate: bool = False) -> Bu
         )
 
 
+def promote_staged_directory(
+    staged: Path,
+    final: Path,
+    *,
+    require: str | None = None,
+) -> BuildDirResult:
+    """Promote a validated staging directory to ``final`` without losing the last good one.
+
+    The previous ``final`` is renamed to ``<name>_previous`` (an older ``_previous`` is dropped only after
+    the new build is in place). If ``final`` is locked, the staged build gets a fresh timestamped name and
+    the locked previous build stays untouched. Nothing is promoted unless ``require`` exists in ``staged``.
+    """
+    staged = staged.resolve()
+    final = final.resolve()
+    if not staged.is_dir():
+        raise RuntimeError(f"Staged build directory does not exist: {staged}")
+    if require and not (staged / require).is_file():
+        raise RuntimeError(f"Staged build is incomplete ({require} is missing); the last good build was kept: {staged}")
+    if not final.exists():
+        staged.rename(final)
+        return BuildDirResult(final, "promoted", f"promoted {staged} to {final}")
+    previous = final.with_name(f"{final.name}_previous")
+    parked = previous.with_name(f"{previous.name}_old")
+    try:
+        if previous.exists():
+            previous.rename(parked)
+        final.rename(previous)
+    except Exception as exc:
+        if parked.exists() and not previous.exists():
+            parked.rename(previous)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        alternate = final.with_name(f"{final.name}_{stamp}")
+        staged.rename(alternate)
+        return BuildDirResult(
+            alternate,
+            "alternate",
+            f"{final} is locked ({type(exc).__name__}); the last good build was kept and the new build is at {alternate}",
+        )
+    try:
+        staged.rename(final)
+    except Exception:
+        previous.rename(final)  # restore the last good build
+        raise
+    if parked.exists():
+        shutil.rmtree(parked, ignore_errors=True)
+    return BuildDirResult(final, "promoted", f"promoted {staged} to {final}; previous build kept at {previous}")
+
+
 def launch(
     *,
     mode: str,
@@ -232,7 +322,7 @@ def launch(
     if not (runtime_root / "configs" / "universe.yaml").is_file():
         raise RuntimeError(f"Selected install root lacks configs/universe.yaml: {runtime_root}")
     port = normalise_port(preferred_port or os.getenv("ETF_COCKPIT_PORT") or DEFAULT_PORT)
-    decision = choose_launch_port(host, port, allow_reuse=True)
+    decision = choose_launch_port(host, port, allow_reuse=True, runtime_root=runtime_root)
     print(f"launch_port requested={decision.requested_port} selected={decision.port} reason={decision.reason}")
     if decision.reuse_existing:
         if open_browser_flag:
@@ -291,6 +381,12 @@ def main(argv: list[str] | None = None) -> int:
     output_parser.add_argument("--allow-alternate", action="store_true")
     output_parser.add_argument("--path-file", type=Path)
 
+    promote_parser = sub.add_parser("promote-output-dir", help="Promote a validated staging directory over the last good build.")
+    promote_parser.add_argument("staged", type=Path)
+    promote_parser.add_argument("final", type=Path)
+    promote_parser.add_argument("--require", default=None, help="Relative file that must exist in the staged build.")
+    promote_parser.add_argument("--path-file", type=Path)
+
     ready_parser = sub.add_parser("wait-ready", help="Wait for HTTP readiness.")
     ready_parser.add_argument("--host", default=DEFAULT_HOST)
     ready_parser.add_argument("--port", default=str(DEFAULT_PORT))
@@ -304,6 +400,15 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "prepare-output-dir":
             result = prepare_output_directory(args.path, allow_alternate=args.allow_alternate)
+            if result.status == "alternate":
+                print(result.message, file=sys.stderr)
+            if args.path_file is not None:
+                args.path_file.parent.mkdir(parents=True, exist_ok=True)
+                args.path_file.write_text(str(result.path), encoding="utf-8")
+            print(str(result.path))
+            return 0
+        if args.command == "promote-output-dir":
+            result = promote_staged_directory(args.staged, args.final, require=args.require)
             if result.status == "alternate":
                 print(result.message, file=sys.stderr)
             if args.path_file is not None:
@@ -344,7 +449,7 @@ def _url(host: str, port: int) -> str:
 
 def _find_free_port(host: str, start_port: int) -> int:
     for port in range(max(1024, start_port), 65536):
-        if not is_tcp_port_busy(host, port):
+        if port not in RESERVED_FALLBACK_PORTS and not is_tcp_port_busy(host, port):
             return port
     raise RuntimeError("No free local TCP port was found.")
 

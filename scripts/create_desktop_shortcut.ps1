@@ -5,7 +5,25 @@ param(
 $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $Target = Join-Path $ProjectRoot "Launch_Latest_ETF_AI_Cockpit.bat"
-$PortableExe = Join-Path $ProjectRoot "build\ETF_AI_Cockpit_Portable_v0.1.0\native\ETF_AI_Cockpit\ETF_AI_Cockpit.exe"
+# The icon follows the portable folder the latest build selected, never a hard-coded version.
+$PortableExe = $null
+$SelectedFile = Join-Path $ProjectRoot "build\portable_outdir.txt"
+if (Test-Path -LiteralPath $SelectedFile) {
+    $SelectedRoot = (Get-Content -LiteralPath $SelectedFile -TotalCount 1).Trim()
+    if ($SelectedRoot -and -not [IO.Path]::IsPathRooted($SelectedRoot)) {
+        $SelectedRoot = Join-Path $ProjectRoot $SelectedRoot
+    }
+    if ($SelectedRoot) {
+        $PortableExe = Join-Path $SelectedRoot "native\ETF_AI_Cockpit\ETF_AI_Cockpit.exe"
+    }
+}
+if (-not $PortableExe -or -not (Test-Path -LiteralPath $PortableExe)) {
+    $Latest = Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "build") -Directory -Filter "ETF_AI_Cockpit_Portable_v*" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($Latest) {
+        $PortableExe = Join-Path $Latest.FullName "native\ETF_AI_Cockpit\ETF_AI_Cockpit.exe"
+    }
+}
 $Desktop = [Environment]::GetFolderPath("Desktop")
 $ShortcutPath = Join-Path $Desktop ($ShortcutName + ".lnk")
 
@@ -18,7 +36,7 @@ $Shortcut = $Shell.CreateShortcut($ShortcutPath)
 $Shortcut.TargetPath = $Target
 $Shortcut.WorkingDirectory = $ProjectRoot
 $Shortcut.Description = "Build and launch the latest local ETF AI Evidence Cockpit."
-if (Test-Path -LiteralPath $PortableExe) {
+if ($PortableExe -and (Test-Path -LiteralPath $PortableExe)) {
     $Shortcut.IconLocation = "$PortableExe,0"
 } else {
     $Shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,13"
