@@ -19,7 +19,9 @@ from etf_cockpit.backtest.engine import (
     BacktestDataUnavailableError,
     BacktestReport,
     COST_REGIME_MODELLED,
+    ai_added_value_vs_baseline,
     backtest_input_checksum,
+    overall_quality_label,
     quality_momentum_evidence_checksum,
     run_backtest,
     run_backtest_cost_regimes,
@@ -93,6 +95,15 @@ def _run_backtest_compatibly(config: AppConfig, prices: pd.DataFrame, **kwargs: 
     accepts_kwargs = any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
     supported = kwargs if accepts_kwargs else {key: value for key, value in kwargs.items() if key in parameters}
     return run_backtest(config, prices, **supported)
+
+
+def _prices_as_of(prices: pd.DataFrame, as_of_date: date | None) -> pd.DataFrame:
+    """Prices known on ``as_of_date``: later sessions never reach a historical backtest (no look-ahead)."""
+
+    if as_of_date is None or not isinstance(prices, pd.DataFrame) or prices.empty or "date" not in prices.columns:
+        return prices
+    sessions = pd.to_datetime(prices["date"], errors="coerce", utc=True).dt.tz_localize(None).dt.normalize()
+    return prices.loc[sessions <= pd.Timestamp(as_of_date)].copy()
 
 
 def _json_safe_records(frame: pd.DataFrame) -> list[dict[str, object]]:
@@ -316,11 +327,19 @@ class BacktestService:
         if cache_present:
             record_cache_event("backtest", "invalidation", action_id="backtest", detail="unreadable or stale output")
         record_cache_event("backtest", "miss", action_id="backtest")
-        return self.run_backtest(publish_guard=publish_guard)
+        # The cached read and the fresh run must see the same historical cut-off.
+        if as_of_date is None:
+            return self.run_backtest(publish_guard=publish_guard)
+        return self.run_backtest(publish_guard=publish_guard, as_of_date=as_of_date)
 
-    def run_backtest(self, *, publish_guard: PublicationScopeFactory | None = None) -> BacktestReport:
+    def run_backtest(
+        self,
+        *,
+        publish_guard: PublicationScopeFactory | None = None,
+        as_of_date: date | None = None,
+    ) -> BacktestReport:
         settings_identity = current_settings_identity()
-        prices = load_prices(config=self.config)
+        prices = _prices_as_of(load_prices(config=self.config), as_of_date)
         reference_context = _backtest_calculation_context(self.config, self.reference_context, prices)
         fundamentals = load_fundamental_evidence()
         try:
@@ -444,7 +463,7 @@ class BacktestService:
 
     def _load_cached_backtest(self, as_of_date: date | None = None) -> BacktestReport | None:
         settings_revision = current_settings_revision()
-        prices = load_prices(config=self.config)
+        prices = _prices_as_of(load_prices(config=self.config), as_of_date)
         reference_context = _backtest_calculation_context(self.config, self.reference_context, prices)
         checksum_prices = _backtest_prices_for_reference(prices, reference_context)
         if checksum_prices is None:
@@ -585,15 +604,14 @@ class BacktestService:
                 momentum = results.loc[results["strategy_name"] == "momentum_only", "calmar"]
                 signal = results.loc[results["strategy_name"] == "signal_strategy", "calmar"]
                 if not momentum.empty and not signal.empty:
-                    ai_added_value = bool(float(signal.iloc[0]) > float(momentum.iloc[0]) * 1.03)
-            quality_values = results["backtest_quality"].dropna().astype(str) if "backtest_quality" in results else pd.Series(dtype=str)
+                    ai_added_value = ai_added_value_vs_baseline(signal.iloc[0], momentum.iloc[0])
             return BacktestReport(
                 results=results,
                 equity_curves=equity_curves,
                 trade_log=trade_log,
                 signal_log=signal_log,
                 ai_added_value=ai_added_value,
-                quality_label=quality_values.iloc[0] if not quality_values.empty else "low",
+                quality_label=overall_quality_label(results),
                 quality_notes=[
                     "Loaded from cached local backtest output matching the current data date.",
                     "Use the Backtests page or diagnostics scripts to regenerate full backtest files after changing assumptions.",

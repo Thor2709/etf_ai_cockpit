@@ -105,6 +105,9 @@ def investable_comparison(
 
 # Fixed baselines compared in every report: QV and QVM are the quality(-momentum)
 # strategies, v3 is the live signal pipeline, top-N is the long-only momentum book.
+# The v3 label is only attached to the signal strategy when its signals carry the
+# repository's score-engine-v3 formula identifier (``v3_formula_identity``).
+V3_BASELINE_LABEL = "v3"
 FIXED_BASELINE_STRATEGIES = {
     "QV": "quality_only",
     "QVM": "quality_momentum",
@@ -124,6 +127,7 @@ def investable_comparator_summary(
     cost_regime: str,
     cost_model_id: str,
     unavailable_strategies: Mapping[str, str] | None = None,
+    v3_formula_identity: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Long-only strategies vs VWCE and cash on one universe, date range and cost path.
 
@@ -131,7 +135,10 @@ def investable_comparator_summary(
     machinery (``cost_eur``); the fixed baselines are named by identity.  A
     baseline in ``unavailable_strategies`` (strategy name -> reason: no evidence,
     never held a position) is reported as ``status: unavailable``, never as a
-    number from an all-cash book.
+    number from an all-cash book.  The ``v3`` baseline is mapped from the repository
+    formula identifier: ``v3_formula_identity`` carries the expected ``formula_version``
+    and the versions ``observed`` on the strategy's signals; without a match the
+    baseline is unavailable, never assumed.
     """
 
     blocked = dict(unavailable_strategies or {})
@@ -139,10 +146,20 @@ def investable_comparator_summary(
     for label, name in FIXED_BASELINE_STRATEGIES.items():
         if name not in strategy_results:
             continue
+        if label == V3_BASELINE_LABEL:
+            mismatch = _v3_identity_mismatch(v3_formula_identity)
+            if mismatch is not None:
+                baselines[label] = {"strategy": name, "status": "unavailable", "reason": mismatch}
+                continue
         if name in blocked:
             baselines[label] = {"strategy": name, "status": "unavailable", "reason": blocked[name]}
         else:
-            baselines[label] = {"strategy": name, "status": "available", **strategy_results[name]}
+            extra = (
+                {"formula_version": str(v3_formula_identity["expected"])}  # type: ignore[index]
+                if label == V3_BASELINE_LABEL
+                else {}
+            )
+            baselines[label] = {"strategy": name, "status": "available", **extra, **strategy_results[name]}
     return {
         "long_only": True,
         "short_legs_excluded": True,
@@ -156,3 +173,19 @@ def investable_comparator_summary(
         "vwce": dict(vwce) if vwce is not None else {"status": "unavailable", "reason": "no canonical benchmark"},
         "cash": float(initial_value_eur),
     }
+
+
+def _v3_identity_mismatch(identity: Mapping[str, object] | None) -> str | None:
+    """Reason the signal strategy cannot be labelled ``v3``, or None when its signals carry the repo identifier."""
+
+    if not identity:
+        return "v3_formula_identity_not_supplied"
+    expected = str(identity.get("expected") or "").strip()
+    observed = {str(item).strip() for item in (identity.get("observed") or ()) if str(item).strip()}  # type: ignore[attr-defined]
+    if not expected:
+        return "v3_formula_identifier_unavailable_in_repository"
+    if not observed:
+        return "signal_formula_version_unobserved"
+    if observed != {expected}:
+        return f"signal_formula_version_mismatch: expected {expected}, observed {', '.join(sorted(observed))}"
+    return None
