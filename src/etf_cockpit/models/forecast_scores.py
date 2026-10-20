@@ -409,12 +409,13 @@ def forecast_component_maps(forecasts: pd.DataFrame, *, decision_time: object = 
             if row is None:
                 continue
             output[model_name][str(etf_id)] = _forecast_score(float(row["expected_return"]), int(row["horizon_days"]))
-    # TimesFM 3 shares the single TimesFM family weight. Rows only reach this
-    # point once promotion allows them in score; the newer version then wins.
-    for etf_id, group in frame[frame["model_name"] == "timesfm3"].groupby("etf_id", sort=False):
-        row = _choose_horizon_row(group)
+    # TimesFM 3 shares the single TimesFM family weight. Rows only reach this point once promotion
+    # allows them in score; the family entry follows the newest forecast across both versions (a
+    # tie goes to TimesFM 3), so an older TimesFM 3 row never overwrites a fresher TimesFM 2.5 one.
+    for etf_id in frame.loc[frame["model_name"] == "timesfm3", "etf_id"].astype(str).drop_duplicates():
+        row = _select_model_row(frame, "timesfm", etf_id)
         if row is not None:
-            output["timesfm"][str(etf_id)] = _forecast_score(float(row["expected_return"]), int(row["horizon_days"]))
+            output["timesfm"][etf_id] = _forecast_score(float(row["expected_return"]), int(row["horizon_days"]))
     return output
 
 
@@ -604,6 +605,7 @@ def forecast_return_distributions(
             model_distribution: dict[str, object] = {
                 "model_name": str(selected.get("model_name") or ""),
                 "model_id": _text_or_none(selected.get("model_id")),
+                "model_version": _text_or_none(selected.get("model_version")),
                 "target_id": _text_or_none(selected.get("target_id")),
                 "horizon_days": int(selected["horizon_days"]),
                 "q10_return": q10,
@@ -979,9 +981,23 @@ def _horizon_identity_is_valid(
 def _selected_forecast_row(
     forecasts: pd.DataFrame, model_name: str, etf_id: str, *, decision_time: object = None
 ) -> pd.Series | None:
-    frame = _scoreable_forecast_rows(forecasts, decision_time)
-    frame = frame[(frame["model_name"] == model_name) & (frame["etf_id"].astype(str) == etf_id)]
-    return _choose_horizon_row(frame)
+    return _select_model_row(_scoreable_forecast_rows(forecasts, decision_time), model_name, etf_id)
+
+
+def _select_model_row(frame: pd.DataFrame, model_name: str, etf_id: str) -> pd.Series | None:
+    """The row behind a model's score; the ``timesfm`` family row is its newest version's (score and details agree)."""
+
+    def chosen(name: str) -> pd.Series | None:
+        return _choose_horizon_row(frame[(frame["model_name"] == name) & (frame["etf_id"].astype(str) == etf_id)])
+
+    row = chosen(model_name)
+    if model_name != "timesfm":
+        return row
+    newer = chosen("timesfm3")
+    if newer is None or row is None:
+        return row if newer is None else newer
+    older_time, newer_time = _normalise_decision_time(row["forecast_date"]), _normalise_decision_time(newer["forecast_date"])
+    return newer if older_time is None or (newer_time is not None and newer_time >= older_time) else row
 
 
 def _choose_horizon_row(group: pd.DataFrame) -> pd.Series | None:

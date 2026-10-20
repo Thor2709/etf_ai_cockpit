@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import struct
@@ -204,6 +205,43 @@ def _is_runtime_weight_file(path: Path) -> bool:
     if not lower_name.endswith(WEIGHT_SUFFIXES):
         return False
     return ".original" not in lower_name and ".backup" not in lower_name
+
+
+_CHECKPOINT_SHA_CACHE: dict[tuple[str, tuple[tuple[str, int, int], ...]], str] = {}
+_HASH_CHUNK_BYTES = 8 * 1024 * 1024
+
+
+def checkpoint_content_sha(configured_path: str | Path | None) -> str | None:
+    """SHA-256 over the checkpoint's weight files and ``config.json`` (names, sizes and bytes), or ``None``.
+
+    This is the model identity derived from the weights themselves; it is ``None`` when the path is
+    unset or holds no runtime weight file, so a missing checkpoint never gets an identity. The digest
+    is cached per process and file signature (size and mtime), so repeated calls do not re-read the weights.
+    """
+
+    if not configured_path:
+        return None
+    root = _resolve_model_path(str(configured_path), Path(str(configured_path)))
+    weights = _weight_files(root)
+    if not weights:
+        return None
+    base = root if root.is_dir() else root.parent
+    config = base / "config.json"
+    files = sorted({*weights, *([config] if config.is_file() else [])})
+    try:
+        signature = tuple((file.relative_to(base).as_posix(), file.stat().st_size, file.stat().st_mtime_ns) for file in files)
+        key = (str(root), signature)
+        if key not in _CHECKPOINT_SHA_CACHE:
+            digest = hashlib.sha256()
+            for file, (name, size, _) in zip(files, signature, strict=True):
+                digest.update(f"{name}|{size}|".encode())
+                with file.open("rb") as handle:
+                    for chunk in iter(lambda: handle.read(_HASH_CHUNK_BYTES), b""):
+                        digest.update(chunk)
+            _CHECKPOINT_SHA_CACHE[key] = digest.hexdigest()
+        return _CHECKPOINT_SHA_CACHE[key]
+    except OSError:
+        return None
 
 
 def _first_safetensors_summary(weight_files: list[Path]) -> SafetensorsSummary | None:
