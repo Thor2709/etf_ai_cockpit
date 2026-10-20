@@ -409,6 +409,11 @@ def _absolute_opportunity_decision(
             "decision_state": "ECONOMIC_RISK_VETO",
             "decision_reason_code": f"ECONOMIC_RISK_VETO:{state['gate_reason']}",
         }
+    if state.get("status"):
+        return {
+            **unavailable,
+            "decision_reason_code": "RELATIVE_EVIDENCE_INSUFFICIENT",
+        }
     if vwce_anchor is None:
         return {
             **unavailable,
@@ -630,6 +635,8 @@ def _absolute_opportunity_decision(
             decision_state = "POSITIVE_BUT_INSUFFICIENT_MARGIN"
         elif (
             prior_state == "HOLD_NO_TRADE"
+            and isinstance(evidence.get("position"), Mapping)
+            and evidence["position"].get("held") is True
             and abs(net_excess - policy.uncertainty_hurdle) <= policy.hysteresis_band
         ):
             decision_state = "HOLD_NO_TRADE"
@@ -638,6 +645,7 @@ def _absolute_opportunity_decision(
         "CANDIDATE_BUY": "NET_EXCESS_CLEARS_COST_AND_UNCERTAINTY_HURDLE",
         "POSITIVE_BUT_INSUFFICIENT_MARGIN": "POSITIVE_EXCESS_WITHIN_NO_TRADE_BAND",
         "AVOID_REDUCE": "EXPECTED_NET_EXCESS_NOT_POSITIVE",
+        "HOLD_NO_TRADE": "HELD_POSITION_NEAR_HURDLE_PRIOR_HOLD_RETAINED",
     }[decision_state]
     position = evidence.get("position")
     if isinstance(position, Mapping):

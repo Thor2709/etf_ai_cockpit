@@ -402,3 +402,56 @@ def test_held_position_near_the_hurdle_maps_to_hold_no_trade(
 
     assert result.decision_state == "HOLD_NO_TRADE"
     assert result.expected_net_excess_return == pytest.approx(0.0205)
+
+
+def _held_position(held: bool) -> dict[str, object]:
+    position: dict[str, object] = {
+        "status": "available",
+        "held": held,
+        "currency": "EUR",
+        "friction_unit": "decimal_fraction",
+        "effective_at": DECISION_TIME,
+        "known_at": DECISION_TIME,
+        "source_hash": "e" * 64,
+    }
+    if held:
+        position.update({"cost_basis": 100.0, "mark_price": 101.0, "friction": 0.001})
+    return position
+
+
+def test_prior_hold_no_trade_hysteresis_applies_only_to_held_positions(
+    available_vwce_registry: CanonicalBenchmarkRegistry,
+) -> None:
+    def build(held: bool) -> object:
+        evidence = _absolute_evidence(
+            available_vwce_registry,
+            forecast_return=0.0525,
+            previous_state="HOLD_NO_TRADE",
+            position=_held_position(held),
+        )
+        return _build([_candidate("ACME", 1.0, evidence=evidence)])["ACME"]
+
+    held = build(True)
+    unheld = build(False)
+
+    assert held.decision_state == "HOLD_NO_TRADE"
+    assert unheld.decision_state == "CANDIDATE_BUY"
+    assert unheld.decision_reason_code == "NET_EXCESS_CLEARS_COST_AND_UNCERTAINTY_HURDLE"
+
+
+def test_candidate_with_insufficient_status_cannot_be_a_candidate_buy(
+    available_vwce_registry: CanonicalBenchmarkRegistry,
+) -> None:
+    candidate = _candidate(
+        "MISSING", 1.0, evidence=_absolute_evidence(available_vwce_registry)
+    )
+    candidate["underwriting_domains"] = (
+        DomainSlot("Underwriting", "INSUFFICIENT_EVIDENCE", None, None, 0.0, 0.0, "MISSING"),
+        DomainSlot("Valuation", "AVAILABLE", 1.0, 1.0, 1.0, 0.8, "AVAILABLE"),
+    )
+
+    result = _build([candidate])["MISSING"]
+
+    assert result.status == "Insufficient Evidence"
+    assert result.decision_state == "SOURCE_UNAVAILABLE"
+    assert result.decision_reason_code == "RELATIVE_EVIDENCE_INSUFFICIENT"
