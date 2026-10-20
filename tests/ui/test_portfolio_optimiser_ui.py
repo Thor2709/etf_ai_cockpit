@@ -57,7 +57,8 @@ def test_portfolio_optimiser_lab_exposes_methods_constraints_and_audit_state() -
     assert "Equal weight" in text
     assert "execution_allowed=false" in text
     assert "solver_fingerprints=" in text
-    assert PAGES["/portfolio-optimiser"] == ("Portfolio Optimiser Lab", portfolio_optimiser.portfolio_optimiser_page)
+    assert PAGES["/portfolio-optimiser"][0] == "Portfolio Optimiser Lab"
+    assert PAGES["/portfolio-optimiser"][1].resolve() is portfolio_optimiser.portfolio_optimiser_page
 
 
 def test_portfolio_optimiser_lab_reports_unavailable_adjusted_price_state() -> None:

@@ -149,7 +149,8 @@ def test_portfolio_sandbox_exposes_non_executable_controls_and_results() -> None
     assert "ETF direct overlap" in text
     assert "coverage_status=missing" in text
     assert "execution_allowed=false" in text
-    assert PAGES["/portfolio"] == ("Portfolio Sandbox", portfolio.portfolio_page)
+    assert PAGES["/portfolio"][0] == "Portfolio Sandbox"
+    assert PAGES["/portfolio"][1].resolve() is portfolio.portfolio_page
 
 
 def test_portfolio_sandbox_validation_and_analysis_are_readable() -> None:
