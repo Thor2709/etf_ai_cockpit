@@ -49,6 +49,7 @@ from etf_cockpit.portfolio.proposal_policy import (
     build_proposal_decision,
     current_authority_policy_checksum,
 )
+from etf_cockpit.signals.friction_edge import FrictionGateResult
 
 EXECUTION_CONFIG_PATH = CONFIG_DIR / "paper_bots_execution_v1.yaml"
 FORWARD_PLAN_TYPE = "paper_bot_execution_plan"
@@ -656,6 +657,21 @@ def _record(
     return record
 
 
+def _rule_friction_gate(context: _Context) -> FrictionGateResult:
+    """The friction gate for a frozen-rule order: no forecast edge is claimed, so none is invented.
+
+    A bot executes the order its rule dictates and the paper ledger charges the full costs (commission, adverse
+    basis points); the verdict records that and carries no benefit figure.
+    """
+
+    return FrictionGateResult(
+        status="pass", propose=True, expected_benefit_bps=None, turnover_cost_bps=None, spread_cost_bps=None,
+        uncertainty_cost_bps=None, required_bps=None, net_benefit_bps=None,
+        reason=(f"Frozen bot rule dictates the order; no forecast edge is claimed and the paper ledger charges the "
+                f"costs of {context.policy_evidence['model_id']}."),
+    )
+
+
 def _proposal(
     context: _Context, ledger: PaperLedger, decision: Mapping[str, Any], intent: Mapping[str, Any],
     held: Decimal, quantity: Decimal, session: date,
@@ -685,6 +701,7 @@ def _proposal(
         gate_evidence=tuple(GateEvidence(gate, True, gate_reasons[gate]) for gate in REQUIRED_GATES),
         rationale=note, approvals=tuple(str(item) for item in config["paper_approvals"]),
         event_calendar_path=context.root / "data" / "clean" / "event_calendar.parquet",
+        friction_gate=_rule_friction_gate(context),
     )
     return build_proposal_decision(request).to_payload()
 
@@ -727,6 +744,13 @@ def _attempt(
         quantity = min(quantity, held)
         if quantity < policy.lot_size:
             return miss("position_not_held")
+    capped = False
+    order_limit = _max_order_value(context)
+    if order_limit is not None and quantity * price > order_limit:  # the owner's hard limit: trade what fits, never breach it
+        quantity = _floor_lot(order_limit / price, policy.lot_size)
+        capped = True
+        if quantity < policy.lot_size:
+            return miss("order_value_limit_below_one_lot")
     fill_time = _fill_datetime(context.config, session)
     for tries in range(2):
         proposal = _proposal(context, ledger, decision, intent, held, quantity, session)
@@ -764,12 +788,25 @@ def _attempt(
         cost = quantity * abs(price - reference)
         return _record(
             context, decision, intent, session, "filled", intent["reason"] if quantity == Decimal(str(intent["planned_quantity"]))
+            else f"{intent['reason']}; reduced to the order-value limit" if capped and quantity == _floor_lot(order_limit / price, policy.lot_size)
             else f"{intent['reason']}; reduced to settled cash",
             quantity=str(quantity), reference_open=str(reference), fill_price=str(price), fee=str(policy.commission),
             spread_slippage_cost=str(cost), fill_id=fill_id, order_id=order_id,
             planned_quantity=str(intent["planned_quantity"]),
         )
     return miss("insufficient_settled_cash after the retry sessions")
+
+
+def _max_order_value(context: _Context) -> Decimal | None:
+    """The hard per-order value limit of the bot ledger root (the owner's pre-trade limit), if it is readable."""
+
+    path = context.track.ledger_root / "configs" / "pre_trade_limits_v1.yaml"
+    try:
+        limits = yaml.safe_load(path.read_text(encoding="utf-8"))
+        value = Decimal(str(limits["max_order_value"]))
+    except (OSError, yaml.YAMLError, KeyError, TypeError, ArithmeticError, ValueError):
+        return None
+    return value if value > 0 else None
 
 
 def _sync_shadow(context: _Context, bot_id: str) -> None:

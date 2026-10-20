@@ -249,10 +249,28 @@ def test_a_gate_failed_instrument_is_never_bought(monkeypatch, tmp_path: Path) -
     traded = {(item["bot_family"], item["instrument_id"]) for item in _records(tmp_path)}
     assert not any(instrument in {"AAA", "BAD"} for _family, instrument in traded)
     assert ("B1", "BBB") in traded
+    assert _by(_records(tmp_path), "B1", "BBB", "filled")  # missed records alone must not satisfy this test
     track = execution.forward_track(tmp_path)
     for record in _records(tmp_path):
         ledger = PaperLedger(track.ledger_root, account_id=execution.account_id_for(record["bot_id"]))
         assert {position.instrument_id for position in ledger.snapshot().positions} <= {"BBB", "VWCE"}
+
+
+def test_an_order_above_the_owner_hard_limit_is_reduced_to_fit_it_not_missed(monkeypatch, tmp_path: Path) -> None:
+    def fail_gate(board: pd.DataFrame) -> None:
+        board.loc[board["instrument_id"] == "AAA", "research_promotion_allowed"] = False
+
+    assert _decisions(monkeypatch, tmp_path, mutate=fail_gate).status == "available"  # B1 then puts 100% into BBB
+    _allow(tmp_path)
+    _execute(tmp_path, _book())
+    track = execution.forward_track(tmp_path)
+    limit = Decimal(str(yaml.safe_load((track.ledger_root / "configs" / "pre_trade_limits_v1.yaml").read_text(encoding="utf-8"))["max_order_value"]))
+    filled = _by(_records(tmp_path), "B1", "BBB", "filled")
+    assert filled and not _by(_records(tmp_path), "B1", "BBB", "missed")
+    for item in filled:
+        assert Decimal(item["quantity"]) * Decimal(item["fill_price"]) <= limit
+        assert Decimal(item["quantity"]) < Decimal(item["planned_quantity"])
+        assert "order-value limit" in item["reason"]
 
 
 def test_the_independent_allowlist_still_blocks_an_instrument_outside_the_universe(monkeypatch, tmp_path: Path) -> None:
