@@ -44,6 +44,8 @@ def robust_zscore(values: pd.Series) -> pd.Series:
     unavailable rather than neutral.
     """
 
+    # Non-finite inputs (inf) carry no usable position: they stay unavailable (NaN) and never distort the scale.
+    values = pd.to_numeric(values, errors="coerce").where(lambda series: np.isfinite(series))
     median = values.median(skipna=True)
     deviation = (values - median).abs()
     denom = 1.4826 * deviation.median(skipna=True)
