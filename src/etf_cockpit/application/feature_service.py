@@ -22,6 +22,7 @@ from etf_cockpit.data.duckdb_store import (
 from etf_cockpit.features.feature_store import LocalFeatureStore as LocalFeatureStore
 from etf_cockpit.data.fx_data import fx_rates_for_prices
 from etf_cockpit.features.feature_pipeline import (
+    FX_NOT_REQUIRED,
     RELATIVE_STRENGTH_FALLBACK_ANCHOR,
     attach_eur_basis,
     compute_features,
@@ -150,12 +151,17 @@ class FeatureService:
             price_bound_run_label(f"features_{effective_as_of.isoformat()}", price_binding, eur_basis.binding),
             settings_identity=settings_identity,
         )
+        dataset_bindings: dict[str, object] = {"dataset:prices": dict(price_binding)}
+        if eur_basis.binding.get("fx_snapshot_checksum") != FX_NOT_REQUIRED:
+            # Only a universe with a non-EUR quote currency depends on an FX series; an EUR-only
+            # universe keeps the manifest (and run id) it always had.
+            dataset_bindings["dataset:fx"] = dict(eur_basis.binding)
         with publication_scope(publish_guard):
             ensure_run_manifest(
                 run_id,
                 ("schema:local-storage", "dataset:prices", "dataset:universe"),
                 settings_identity=settings_identity,
-                dataset_bindings={"dataset:prices": dict(price_binding), "dataset:fx": dict(eur_basis.binding)},
+                dataset_bindings=dataset_bindings,
             )
         with publication_scope(publish_guard):
             write_features(

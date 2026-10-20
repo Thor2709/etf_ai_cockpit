@@ -343,3 +343,36 @@ def test_export_score_6m_is_unavailable_when_a_component_is_unavailable() -> Non
     assert _mean_of_available_pair(0.2, 0.4) == pytest.approx(0.3)
     assert _mean_of_available_pair(float("nan"), 0.4) is None
     assert _mean_of_available_pair(None, 0.4) is None
+
+def test_eur_only_universe_writes_no_fx_binding_and_reruns_over_a_pre_eur_manifest(tmp_path, monkeypatch) -> None:
+    from etf_cockpit.core.versioning import price_bound_run_label, settings_bound_run_id
+
+    run_ids: list[str] = []
+    written: list[dict] = []
+    bindings: list[dict] = []
+    _wire(monkeypatch, tmp_path, run_ids, written)
+    wired_manifest = feature_service.ensure_run_manifest
+
+    def recording(run_id, dependencies, *, settings_identity, dataset_bindings=None, **kwargs):
+        bindings.append(dict(dataset_bindings or {}))
+        return wired_manifest(run_id, dependencies, settings_identity=settings_identity, dataset_bindings=dataset_bindings, **kwargs)
+
+    monkeypatch.setattr(feature_service, "ensure_run_manifest", recording)
+    prices = _service_prices("VWCE", "EUR")
+    service = FeatureService(load_config(), fx_rates=pd.DataFrame())
+    service.compute_features(prices=prices)
+
+    assert set(bindings[0]) == {"dataset:prices"}  # no dataset:fx for an EUR-only universe
+    # The run id is the pre-EUR formula: price-bound label only, no FX suffix.
+    old_id = settings_bound_run_id(
+        price_bound_run_label(run_ids[0].split("_p")[0], bindings[0]["dataset:prices"]),
+        root=tmp_path,
+        settings_identity=_SETTINGS,
+    )
+    assert run_ids[0] == old_id and "_x" not in run_ids[0]
+    # A manifest written before this change (prices binding only) is reused without a conflict.
+    manifest = tmp_path / "data" / "derived" / "run_manifests" / f"{run_ids[0]}.json"
+    assert manifest.is_file()
+    before = manifest.read_bytes()
+    FeatureService(load_config(), fx_rates=pd.DataFrame()).compute_features(prices=prices)
+    assert run_ids[1] == run_ids[0] and manifest.read_bytes() == before
