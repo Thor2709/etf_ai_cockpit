@@ -496,6 +496,7 @@ def valuation_analysis(
         if not bank_route or adapter_status == "available"
         else {"status": "unavailable", "confidence": "low", "reason": "Financial-institution evidence from ISSUE-0099_fundamental_release is unavailable.", "execution_allowed": False}
     )
+    sensitivity_basis: Mapping[str, str] = {"status": "available", "reason": ""}
     if strict_comparability:
         raw_scenarios = assumption_values.get("scenarios")
         margin_scenario = isinstance(raw_scenarios, Mapping) and any(
@@ -525,6 +526,7 @@ def valuation_analysis(
             )
         else:
             residual_basis = _valuation_inputs_comparable(frame, ("equity", "net_income"), market_inputs or {})
+        sensitivity_basis = residual_basis if bank_route else dcf_basis
         if not bank_route and dcf_basis["status"] != "available":
             intrinsic = {"status": "unavailable", "confidence": "low", "reason": str(dcf_basis["reason"]), "scenarios": {}, "score_eligible": False, "execution_allowed": False}
             reverse = {"status": "unavailable", "confidence": "low", "reason": str(dcf_basis["reason"]), "score_eligible": False, "execution_allowed": False}
@@ -534,6 +536,7 @@ def valuation_analysis(
             residual = {"status": "unavailable", "confidence": "low", "reason": str(residual_basis["reason"]), "score_eligible": False, "execution_allowed": False}
     sensitivity = (
         {"status": "unavailable", "reason": rejection, "grid": {}, "execution_allowed": False} if rejection
+        else {"status": "unavailable", "reason": str(sensitivity_basis["reason"]), "grid": {}, "execution_allowed": False} if sensitivity_basis["status"] != "available"
         else _residual_income_sensitivity(values, assumption_values) if bank_route
         else _valuation_sensitivity(values, assumption_values)
     )
@@ -3052,16 +3055,17 @@ def _residual_income(values: Mapping[str, float], assumptions: Mapping[str, obje
         for year in range(1, years + 1):
             earnings = earnings * (1.0 + growth) if year > 1 else earnings
             dividends = used_payout * earnings
-            closing = opening + earnings - dividends + issuance_value
-            roll.append({"year": year, "opening_book": opening, "net_income": earnings, "dividends": dividends, "issuance": issuance_value, "closing_book": closing, "residual_income": earnings - cost * opening})
+            year_issuance = issuance_value * (1.0 + growth) ** (year - 1)  # issuance grows at g like earnings, so the terminal stream continues the same path
+            closing = opening + earnings - dividends + year_issuance
+            roll.append({"year": year, "opening_book": opening, "net_income": earnings, "dividends": dividends, "issuance": year_issuance, "closing_book": closing, "residual_income": earnings - cost * opening})
             value += (earnings - cost * opening) / (1.0 + cost) ** year
-            dividend_model += (dividends - issuance_value) / (1.0 + cost) ** year
+            dividend_model += (dividends - year_issuance) / (1.0 + cost) ** year
             opening = closing
         # Terminal state consistent with the growth assumption: earnings, dividends and issuance all grow at g, and book
         # equity keeps rolling with the retained part. Residual income beyond the horizon is the dividend perpetuity less the
         # closing book (clean-surplus identity), so the value does not depend on where the explicit horizon ends.
         terminal_earnings = earnings * (1.0 + growth)
-        terminal_distribution = used_payout * terminal_earnings - issuance_value * (1.0 + growth)
+        terminal_distribution = used_payout * terminal_earnings - issuance_value * (1.0 + growth) ** years
         terminal_equity_value = terminal_distribution / (cost - growth)
         terminal_value = terminal_equity_value - opening
         terminal_residual = terminal_earnings - cost * opening

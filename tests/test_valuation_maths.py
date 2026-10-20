@@ -302,7 +302,7 @@ def _dividend_model_value(book_roll: list[dict[str, float]], cost: float, growth
     total = sum((row["dividends"] - row["issuance"]) / (1 + cost) ** row["year"] for row in book_roll)
     last_earnings, horizon = book_roll[-1]["net_income"], len(book_roll)
     for step in range(1, periods):
-        total += (payout * last_earnings * (1 + growth) ** step - issuance * (1 + growth) ** step) / (1 + cost) ** (horizon + step)
+        total += (payout * last_earnings * (1 + growth) ** step - issuance * (1 + growth) ** (horizon - 1 + step)) / (1 + cost) ** (horizon + step)
     return total
 
 
@@ -313,6 +313,9 @@ def test_residual_income_terminal_value_is_horizon_invariant_and_reconciles_to_d
         assert sr._residual_income(values, {**flat, "forecast_years": years})["equity_value"] == pytest.approx(40.0)
     growing = {"cost_of_equity": 0.10, "terminal_growth": 0.02, "payout_ratio": 0.4, "net_issuance": 0.0}
     assert len({round(sr._residual_income(values, {**growing, "forecast_years": years})["equity_value"], 9) for years in (1, 4, 9)}) == 1
+    issuing = {**growing, "net_issuance": 1.5}  # issuance grows at g too, so the value is still independent of the horizon
+    assert len({round(sr._residual_income(values, {**issuing, "forecast_years": years})["equity_value"], 9) for years in (3, 5, 10)}) == 1
+    assert sr._residual_income(values, {**issuing, "forecast_years": 5})["clean_surplus"]["book_roll"][2]["issuance"] == pytest.approx(1.5 * 1.02**2)
     issued = {**growing, "net_issuance": 1.5, "forecast_years": 4}
     result = sr._residual_income(values, issued)
     assert result["equity_value"] == pytest.approx(_dividend_model_value(result["clean_surplus"]["book_roll"], 0.10, 0.02, 0.4, 1.5), rel=1e-6)
@@ -330,7 +333,7 @@ def _driver_frame(**currencies: str) -> pd.DataFrame:
 
 
 def test_strict_driver_dcf_has_its_own_comparability_check_on_revenue_and_the_bridge() -> None:
-    assumptions = _assumptions(cash_flow_claim_type="fcff", wacc=0.092, tax_rate=0.25, driver_dcf={"revenue_growth": 0.02, "operating_margin": 0.2, "incremental_roic": 0.12})
+    assumptions = _assumptions(cash_flow_claim_type="fcff", wacc=0.092, tax_rate=0.25, driver_dcf={"revenue_growth": 0.02, "operating_margin": 0.2, "incremental_roic": 0.12}, sensitivity={"discount_rates": [0.08, 0.10], "terminal_growth_rates": [0.0, 0.01]})
 
     def run(frame: pd.DataFrame) -> dict[str, object]:
         return sr.valuation_analysis(frame, instrument_id="ACME", assumptions=assumptions, as_known_at="2026-06-30T00:00:00Z")
@@ -341,6 +344,9 @@ def test_strict_driver_dcf_has_its_own_comparability_check_on_revenue_and_the_br
     assert run(_driver_frame())["driver_dcf"]["status"] == "available"
     flat_only_mismatch = run(_driver_frame(free_cash_flow="EUR"))  # free cash flow is not a driver input
     assert flat_only_mismatch["driver_dcf"]["status"] == "available" and flat_only_mismatch["intrinsic_value"]["status"] == "unavailable"
+    assert run(_driver_frame())["sensitivity"]["status"] == "available"
+    assert flat_only_mismatch["sensitivity"]["status"] == "unavailable" and flat_only_mismatch["sensitivity"]["grid"] == {}  # no per-share cells from non-comparable inputs
+    assert "currency" in flat_only_mismatch["sensitivity"]["reason"] and flat_only_mismatch["sensitivity"]["reason"] == flat_only_mismatch["intrinsic_value"]["reason"]
     assert run(_driver_frame(net_debt="EUR"))["driver_dcf"]["status"] == "unavailable"  # the bridge is checked with the revenue
 
 
