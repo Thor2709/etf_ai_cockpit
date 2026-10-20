@@ -837,7 +837,7 @@ def build_simple_instrument_scores(
             price_binding=candidate_price_binding,
             forecast_request_identity=request_identity,
         )
-        if reference_identity is not None and candidate_price_binding is not None
+        if reference_identity is not None and price_binding is not None and candidate_price_binding is not None
         else pd.DataFrame()
     )
     forecast_history = load_forecast_history()
