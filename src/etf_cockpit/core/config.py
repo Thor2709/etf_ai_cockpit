@@ -335,6 +335,10 @@ class SettlementConfig(BaseModel):
         return settlement
 
 
+class DataSettings(BaseModel):
+    allow_synthetic_sample_data: bool = False
+
+
 class AppConfig(BaseModel):
     universe: UniverseConfig
     targets: PortfolioTargets
@@ -345,6 +349,7 @@ class AppConfig(BaseModel):
     chatgpt_schema: dict[str, Any]
     data_providers: DataProvidersConfig = Field(default_factory=DataProvidersConfig)
     settlement: SettlementConfig = Field(default_factory=SettlementConfig)
+    data: DataSettings = Field(default_factory=DataSettings)
 
     @property
     def forecast_uncertainty(self) -> ForecastUncertaintySettings:
@@ -424,6 +429,7 @@ def load_config(config_dir: Path = CONFIG_DIR) -> AppConfig:
             chatgpt_schema=_read_json(config_dir / "chatgpt_schema.json") if (config_dir / "chatgpt_schema.json").exists() else {},
             data_providers=data_providers,
             settlement=load_settlement_config(config_dir),
+            data=DataSettings(**(_read_yaml(config_dir / "settings.yaml").get("data", {}) if (config_dir / "settings.yaml").exists() else {})),
         )
     except ConfigError:
         raise

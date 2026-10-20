@@ -722,6 +722,7 @@ def _universe_settings_update(
         "settings_version": proposed.settings_version,
         "revision": proposed.revision,
         "controls": proposed.controls.model_dump(mode="json"),
+        "data": _read_yaml(root / "configs" / "settings.yaml").get("data", {}),
         "execution_allowed": False,
     }
     requests = (
@@ -769,6 +770,7 @@ def save_settings(
         "settings_version": proposed.settings_version,
         "revision": proposed.revision,
         "controls": proposed.controls.model_dump(mode="json"),
+        "data": _read_yaml(root / "configs" / "settings.yaml").get("data", {}),
         "execution_allowed": False,
     }
     requests = (

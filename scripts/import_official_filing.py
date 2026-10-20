@@ -309,6 +309,9 @@ def _resolve_published_at(source_path: Path, source_url: str, explicit: str | No
         selected = next(iter(linked_dates))
     elif len(linked_dates) > 1:
         raise ValueError("adjacent filing metadata has conflicting date_added values")
+    elif str(explicit or "").strip():
+        # An explicit publication date outranks sidecar records that are not linked to this filing.
+        selected = str(explicit).strip()
     else:
         unlinked_dates = {date for date, linked in candidates if not linked}
         if len(unlinked_dates) == 1:

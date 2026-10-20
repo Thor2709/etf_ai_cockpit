@@ -166,7 +166,7 @@ def _build_snapshot(
         candidate_prices = candidate_prices.loc[candidate_prices["etf_id"].astype(str).isin(candidate_ids)].copy()
         if not candidate_prices.empty:
             prices = pd.concat([prices, candidate_prices], ignore_index=True, sort=False)
-    holdings_source = load_holdings()
+    holdings_source = load_holdings(config=config)
     holdings = holdings_source
     if not holdings.empty and "etf_id" in holdings:
         configured_ids = set(config.universe.configured_enabled_ids)

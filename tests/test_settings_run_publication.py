@@ -264,11 +264,11 @@ def test_backtest_output_is_published_only_after_settings_bound_manifest_reserva
         ai_added_value=False,
     )
     monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", tmp_path)
-    monkeypatch.setattr(signal_service, "load_prices", lambda: pd.DataFrame())
-    monkeypatch.setattr(data_service, "load_prices", lambda: pd.DataFrame())
-    monkeypatch.setattr(backtest_service, "load_prices", lambda: pd.DataFrame())
-    monkeypatch.setattr(feature_service, "load_prices", lambda: pd.DataFrame())
-    monkeypatch.setattr(forecast_service, "load_prices", lambda: pd.DataFrame())
+    monkeypatch.setattr(signal_service, "load_prices", lambda **_kwargs: pd.DataFrame())
+    monkeypatch.setattr(data_service, "load_prices", lambda **_kwargs: pd.DataFrame())
+    monkeypatch.setattr(backtest_service, "load_prices", lambda **_kwargs: pd.DataFrame())
+    monkeypatch.setattr(feature_service, "load_prices", lambda **_kwargs: pd.DataFrame())
+    monkeypatch.setattr(forecast_service, "load_prices", lambda **_kwargs: pd.DataFrame())
     monkeypatch.setattr(backtest_service, "load_fundamental_evidence", lambda: pd.DataFrame())
     monkeypatch.setattr(backtest_service, "run_backtest", lambda *_args, **_kwargs: report)
     identity = {"settings_revision": "c" * 64}

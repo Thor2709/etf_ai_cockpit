@@ -54,10 +54,10 @@ class SignalService:
         self.config = config
 
     def generate_signals(self, as_of_date: date | None = None, features: pd.DataFrame | None = None) -> list[SignalResult]:
-        prices = load_prices()
+        prices = load_prices(config=self.config)
         prices["date"] = pd.to_datetime(prices["date"]).dt.date
         effective_date = as_of_date or max(prices["date"])
-        holdings = load_holdings()
+        holdings = load_holdings(config=self.config)
         benchmark_reference = _benchmark_reference_snapshot_inputs(
             self.config,
             effective_date,

@@ -159,7 +159,10 @@ def test_performance_metrics_tail_path_does_not_bridge_invalid_equity_gap() -> N
     assert metrics["loss_cluster_max_days"] == 0
     assert metrics["diagnostic_status"] == "available"
     assert metrics["max_drawdown"] == 0.0
-    assert metrics["cagr"] == pytest.approx((81.0 / 100.0) ** 126 - 1.0)
+    # Only 80 -> 81 is an adjacent observation: the bridged 100 -> 80 return is never used, so the
+    # annualised figures stay unavailable (0.0) instead of being fabricated across the gap.
+    assert metrics["cagr"] == 0.0
+    assert metrics["volatility"] == 0.0
 
 
 def test_performance_metrics_reports_total_loss_when_equity_reaches_zero() -> None:
@@ -883,8 +886,14 @@ def test_backtest_operational_evidence_is_exactly_instrument_scoped() -> None:
     report = run_backtest(config, prices, rebalance_frequency_days=42)
 
     evidence = report.operational_evidence
+    certificates = {
+        item.id for item in config.universe.etfs if str(item.instrument_type or "").casefold() == "equity_certificate"
+    }
+    # Equity certificates have no quote, so the backtest prices them at the conservative documented tier.
     expected_spreads = {
-        instrument_id: estimate_execution_cost(config, instrument_id, 1.0).spread_bps
+        instrument_id: estimate_execution_cost(
+            config, instrument_id, 1.0, conservative_tier=instrument_id in certificates
+        ).spread_bps
         for instrument_id in evidence["instrument_id"].unique()
     }
     assert not evidence.empty
@@ -972,7 +981,8 @@ def test_sample_calendar_identity_survives_persisted_backtest_without_identity_m
         lambda prices: real_write_prices(prices, parquet_path),
     )
 
-    price_csv, _ = sample_data.ensure_sample_files(config, force=True)
+    config.data.allow_synthetic_sample_data = True
+    price_csv, _ = sample_data.ensure_sample_files(config, force=True, allow_synthetic=True)
     persisted_csv = price_csv.read_text(encoding="utf-8")
     assert "'calendar_id': 'XETR'" not in persisted_csv
     persisted_identity = pd.read_csv(price_csv).loc[
@@ -1195,9 +1205,24 @@ def test_backtest_signal_replay_is_nonpublishing_and_deterministically_timestamp
     )
 
 
+def _eur_basis_expected(config, prefix, full_prices, reference_identity=None):
+    """The EUR-basis frame the engine feeds to ``compute_features`` (canonical FX path, same knowledge cut-off)."""
+
+    from etf_cockpit.backtest.engine import _fx_known_by
+    from etf_cockpit.data.fx_data import fx_rates_for_prices
+    from etf_cockpit.features.feature_pipeline import eur_basis_prices
+
+    return eur_basis_prices(
+        prefix,
+        fx_rates_for_prices(full_prices),
+        configured_currency={item.id: str(item.currency or "EUR") for item in config.universe.etfs},
+        known_by=_fx_known_by(full_prices, reference_identity),
+    )
+
+
 def test_backtest_reuses_causal_features_and_exact_price_source_keys(monkeypatch) -> None:
     from etf_cockpit.backtest import engine as backtest_engine
-    from etf_cockpit.features.feature_pipeline import latest_features
+    from etf_cockpit.features.feature_pipeline import attach_eur_basis, latest_features
 
     config = load_config()
     prices = generate_sample_prices(
@@ -1247,7 +1272,9 @@ def test_backtest_reuses_causal_features_and_exact_price_source_keys(monkeypatch
         prefix = prices.loc[
             pd.to_datetime(prices["date"]) <= pd.Timestamp(as_of_date)
         ]
-        expected = original_compute_features(prefix, benchmark_etf_id=None)
+        eur = _eur_basis_expected(config, prefix, prices)
+        expected = original_compute_features(eur.frame, benchmark_etf_id=None)
+        attach_eur_basis(expected, eur)
         expected.loc[:, ["relative_strength_60d", "relative_strength_120d"]] = float("nan")
         expected_latest = latest_features(expected, as_of_date=as_of_date)
         pd.testing.assert_frame_equal(latest, expected_latest, check_exact=True)
@@ -1255,7 +1282,7 @@ def test_backtest_reuses_causal_features_and_exact_price_source_keys(monkeypatch
 
 def test_backtest_reuses_daily_canonical_benchmark_features(monkeypatch) -> None:
     from etf_cockpit.backtest import engine as backtest_engine
-    from etf_cockpit.features.feature_pipeline import latest_features
+    from etf_cockpit.features.feature_pipeline import attach_eur_basis, latest_features
 
     config = load_config()
     prices = generate_sample_prices(
@@ -1294,7 +1321,9 @@ def test_backtest_reuses_daily_canonical_benchmark_features(monkeypatch) -> None
     prefix = prices.loc[
         pd.to_datetime(prices["date"]) <= pd.Timestamp(as_of_date)
     ]
-    expected = original_compute_features(prefix, benchmark_etf_id="VWCE")
+    eur = _eur_basis_expected(config, prefix, prices)
+    expected = original_compute_features(eur.frame, benchmark_etf_id="VWCE")
+    attach_eur_basis(expected, eur)
     expected_latest = latest_features(expected, as_of_date=as_of_date)
     pd.testing.assert_frame_equal(latest, expected_latest, check_exact=True)
     pd.testing.assert_frame_equal(prices, before, check_exact=True)
@@ -1343,7 +1372,9 @@ def test_backtest_intraday_prefix_fallback_excludes_same_day_future_rows(
     ]
     for (feature_frame, _), cutoff in zip(feature_calls, expected_cutoffs):
         expected = prices.loc[pd.to_datetime(prices["date"]) <= cutoff]
-        pd.testing.assert_frame_equal(feature_frame, expected, check_exact=True)
+        pd.testing.assert_frame_equal(
+            feature_frame, _eur_basis_expected(config, expected, prices).frame, check_exact=True
+        )
     first_frame = feature_calls[0][0]
     assert not (pd.to_datetime(first_frame["date"]) > intraday_day).any()
     assert len(feature_calls[-1][0]) > len(first_frame)
@@ -1409,7 +1440,9 @@ def test_backtest_feature_reuse_respects_reference_window_and_last_cutoff(
     expected = prices.loc[
         (dates >= window_start) & (dates <= last_cutoff)
     ]
-    pd.testing.assert_frame_equal(feature_calls[0], expected, check_exact=True)
+    pd.testing.assert_frame_equal(
+        feature_calls[0], _eur_basis_expected(config, expected, prices, reference_identity).frame, check_exact=True
+    )
     pd.testing.assert_frame_equal(prices, before, check_exact=True)
 
 
@@ -1664,11 +1697,11 @@ def test_backtest_service_reuses_quality_momentum_cache_after_persistence(
     monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
     monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", tmp_path)
-    monkeypatch.setattr(signal_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(data_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(backtest_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(feature_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(forecast_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(signal_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(data_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(feature_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(forecast_service, "load_prices", lambda **_kwargs: prices.copy())
     monkeypatch.setattr(backtest_service, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
         backtest_service,
@@ -1853,11 +1886,11 @@ def test_backtest_service_reuses_mixed_availability_integer_diagnostics(
     monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
     monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", tmp_path)
-    monkeypatch.setattr(signal_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(data_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(backtest_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(feature_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(forecast_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(signal_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(data_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(feature_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(forecast_service, "load_prices", lambda **_kwargs: prices.copy())
     monkeypatch.setattr(backtest_service, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
         backtest_service,
@@ -1942,11 +1975,11 @@ def test_backtest_service_round_trips_genuinely_unavailable_operational_rows(
     identity_path = tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet"
     monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
-    monkeypatch.setattr(signal_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(data_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(backtest_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(feature_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(forecast_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(signal_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(data_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(feature_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(forecast_service, "load_prices", lambda **_kwargs: prices.copy())
     monkeypatch.setattr(backtest_service, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
         backtest_service,
@@ -1983,11 +2016,11 @@ def test_backtest_cache_reader_uses_one_complete_snapshot_under_interleaving(
     identity_path = tmp_path / "absent-identity-root" / "data" / "clean" / "instrument_identity.parquet"
     monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
-    monkeypatch.setattr(signal_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(data_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(backtest_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(feature_service, "load_prices", lambda: prices.copy())
-    monkeypatch.setattr(forecast_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(signal_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(data_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(feature_service, "load_prices", lambda **_kwargs: prices.copy())
+    monkeypatch.setattr(forecast_service, "load_prices", lambda **_kwargs: prices.copy())
     monkeypatch.setattr(backtest_service, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
         backtest_service,
