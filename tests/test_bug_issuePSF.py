@@ -142,10 +142,18 @@ def test_baseline_price_fallback_is_a_labelled_heuristic_without_weight() -> Non
 
     baseline_of = lambda score: next(item for item in score.components if item["key"] == "baseline")  # noqa: E731
     heuristic_score, heuristic_row = canonical(heuristic)
-    assert "Heuristic" in baseline_of(heuristic_score)["explanation"]
+    heuristic_baseline = baseline_of(heuristic_score)
+    assert "price heuristic" in heuristic_baseline["explanation"]
+    assert heuristic_baseline["raw_metric"] is not None  # displayed
+    assert heuristic_baseline["status"] == "unavailable" and heuristic_baseline["source_id"] == "heuristic:momentum_trend"
+    assert heuristic_baseline["score_eligible"] is False and not heuristic_baseline["contribution_raw"]  # no expected_return weight
     assert heuristic_score.legacy_composite_raw == pytest.approx(heuristic_row["total_score"], abs=1e-3)
     backed_score, _ = canonical(backed)
-    assert "Heuristic" not in baseline_of(backed_score)["explanation"]
+    assert "price heuristic" not in baseline_of(backed_score)["explanation"]
+    backed_baseline = baseline_of(backed_score)
+    assert backed_baseline["score_eligible"] is True and backed_baseline["source_id"] == "model:baseline"
+    # the heuristic baseline holds no canonical coverage: the model-backed one adds exactly its configured v3 weight
+    assert backed_score.coverage > heuristic_score.coverage
     assert baseline_of(backed_score)["raw_metric"] == pytest.approx(0.2)
 
 

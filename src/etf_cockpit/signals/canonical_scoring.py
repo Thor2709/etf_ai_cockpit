@@ -644,7 +644,8 @@ def canonical_score_from_signal_row(
     # Portfolio drift (score_rebalance) is not a component: an instrument's score never depends on the portfolio.
     heuristic_baseline = row.get("score_baseline_source") == BASELINE_SOURCE_HEURISTIC
     baseline_explanation = (
-        "Heuristic baseline (momentum/trend fallback; no forecast): carries no composite weight."
+        "Unavailable as a model: price heuristic (momentum/trend fallback, no forecast); shown for display only, "
+        "carries no score weight and no coverage."
         if heuristic_baseline
         else "Baseline expected-return evidence."
     )
@@ -655,7 +656,13 @@ def canonical_score_from_signal_row(
         _signal_component("etf_exposure", row.get("score_etf_exposure"), "attractiveness", "yfinance:holdings", price_freshness, "ETF exposure evidence.", as_of),
         _signal_component("risk", row.get("score_risk"), "risk_implementation", source, price_freshness, "Risk quality evidence.", as_of),
         _signal_component("liquidity_cost", _liquidity_quality(row.get("cost_penalty")), "risk_implementation", source, price_freshness, "Configured cost quality.", as_of),
-        _signal_component("baseline", row.get("score_baseline_ml"), "expected_return", "model:baseline", price_freshness, baseline_explanation, as_of, authority="model_advisory"),
+        # A heuristic baseline re-uses price strength: unavailable as expected-return evidence (value kept for display).
+        _signal_component(
+            "baseline", row.get("score_baseline_ml"), "expected_return",
+            "heuristic:momentum_trend" if heuristic_baseline else "model:baseline",
+            price_freshness, baseline_explanation, as_of, authority="model_advisory",
+            status="unavailable" if heuristic_baseline else "ok",
+        ),
         _signal_component("timesfm", row.get("score_timesfm"), "expected_return", "model:timesfm", price_freshness, "TimesFM challenger expected-return evidence.", as_of, authority="model_advisory", status="ok" if timesfm_available else "unavailable"),
         _signal_component("toto", row.get("score_toto"), "expected_return", "model:toto", price_freshness, "Toto challenger expected-return evidence.", as_of, authority="model_advisory", status="ok" if toto_available else "unavailable"),
         # Optional manual input (action composite only; no v3 group weight): eligible only when a value was supplied.

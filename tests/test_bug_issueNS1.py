@@ -179,13 +179,19 @@ def test_missing_chatgpt_thesis_lowers_coverage_and_never_contributes_zero() -> 
     zero_filled = numerator / sum(w for w in effective.values() if w > 0) - row["cost_penalty"]
     assert row["total_score"] != pytest.approx(zero_filled)
     # canonical action composite: the thesis component exists, is not eligible when missing, and is when supplied
-    signal = without.set_index("etf_id").loc["AAA"].copy()
+    # PSF: with no forecast model the heuristic baseline carries no coverage, so the price-only row is unavailable
+    price_only = without.set_index("etf_id").loc["AAA"].copy()
+    price_only["etf_id"], price_only["price_freshness"] = "AAA", "ok"
+    unscored = canonical_score_from_signal_row(price_only, config, "2026-01-06")
+    assert unscored.legacy_composite_raw is None and "score_unavailable:insufficient_coverage" in unscored.warnings
+    models = dict(toto_available=True, timesfm_available=True)
+    signal = without_full.set_index("etf_id").loc["AAA"].copy()
     signal["etf_id"], signal["price_freshness"] = "AAA", "ok"
-    absent = canonical_score_from_signal_row(signal, config, "2026-01-06")
-    assert absent.legacy_composite_raw == pytest.approx(row["total_score"], abs=1e-3)  # same composite on both paths
+    absent = canonical_score_from_signal_row(signal, config, "2026-01-06", **models)
+    assert absent.legacy_composite_raw == pytest.approx(without_full.iloc[0]["total_score"], abs=1e-3)  # same composite on both paths
     signal_with_thesis = signal.copy()
     signal_with_thesis["score_chatgpt_thesis"] = 0.9
-    present = canonical_score_from_signal_row(signal_with_thesis, config, "2026-01-06")
+    present = canonical_score_from_signal_row(signal_with_thesis, config, "2026-01-06", **models)
     assert present.legacy_composite_raw != absent.legacy_composite_raw
 
 
