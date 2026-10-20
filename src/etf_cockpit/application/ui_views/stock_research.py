@@ -94,7 +94,7 @@ def adjusted_close(frame: pd.DataFrame) -> pd.Series:
 def month_end_returns(frame: pd.DataFrame, months: int = 12) -> pd.Series:
     """N-month return at each month end, from adjusted closes already stored (no look-ahead)."""
     series = pd.Series(adjusted_close(frame).to_numpy(), index=pd.DatetimeIndex(frame["date"])).dropna()
-    monthly = series.resample("ME").last().dropna()
+    monthly = series.resample("ME").last()  # a month without a price stays NaN so the shift counts calendar months
     return (monthly / monthly.shift(months) - 1.0).dropna()
 
 

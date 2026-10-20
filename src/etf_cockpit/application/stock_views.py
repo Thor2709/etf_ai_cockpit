@@ -16,7 +16,7 @@ from etf_cockpit.analysis.stock_metrics import Metric
 from etf_cockpit.application.score_views import score_coverage
 from etf_cockpit.application.stock_service import snapshot_stock_evidence
 from etf_cockpit.data import stock_notes
-from etf_cockpit.signals.simple_scores import STOCK_EVIDENCE_WEIGHTS
+from etf_cockpit.signals.simple_scores import headline_weights
 
 NUMBER_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Earnings and returns", ("revenue", "ebit", "net_income", "gross_margin", "ebit_margin", "net_margin", "roe", "roic", "revenue_cagr", "net_income_cagr")),
@@ -130,10 +130,11 @@ def _reason_for(component: Any) -> str:
 
 
 def _component_rows(score_row: Any) -> list[ComponentRow]:
-    total = sum(STOCK_EVIDENCE_WEIGHTS.values()) or 1.0
+    stock_weights = headline_weights("Stock")
+    total = sum(stock_weights.values()) or 1.0
     by_key = {c.key: c for c in getattr(score_row, "components", ())}
     rows = []
-    for key, weight in STOCK_EVIDENCE_WEIGHTS.items():
+    for key, weight in stock_weights.items():
         component = by_key.get(key)
         if component is None:
             rows.append(ComponentRow(key, key.replace("_", " ").title(), None, weight / total, False, "this component was not built for the instrument"))

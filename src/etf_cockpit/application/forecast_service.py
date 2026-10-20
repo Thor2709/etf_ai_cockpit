@@ -613,7 +613,7 @@ def build_forecast_lab_workspace(
             for model in OPTIONAL_MODELS
         }
     report["promotion"] = promotion_frame(promotions)
-    return _stamp_promotion_states(report, promotions)
+    return _stamp_promotion_states(report, promotions, history)
 
 
 _OPTIONAL_RUNTIME_PACKAGES = {"timesfm": "timesfm", "timesfm3": "timesfm", "toto": "toto2"}
@@ -660,8 +660,16 @@ def _promotion_as_of(requested: object, prices: pd.DataFrame, history: pd.DataFr
     return date.today()
 
 
-def _stamp_promotion_states(report: dict[str, object], promotions: Mapping[str, ModelPromotion]) -> dict[str, object]:
-    """Replace the diagnostic placeholder state in the report tables with each model's promotion decision."""
+def _stamp_promotion_states(
+    report: dict[str, object],
+    promotions: Mapping[str, ModelPromotion],
+    history: pd.DataFrame | None = None,
+) -> dict[str, object]:
+    """Replace the diagnostic placeholder state in the report tables with promotion decisions.
+
+    The model table shows today's decision. A run keeps the state stored with its own rows at run time,
+    never today's decision: a later promotion cannot relabel a historical run.
+    """
 
     models, runs = report.get("models"), report.get("runs")
     if isinstance(models, pd.DataFrame) and not models.empty:
@@ -673,17 +681,40 @@ def _stamp_promotion_states(report: dict[str, object], promotions: Mapping[str, 
         report["models"] = models
     if isinstance(runs, pd.DataFrame) and not runs.empty:
         runs = runs.copy()
-        runs["promotion_state"] = [_run_promotion_text(str(members), promotions) for members in runs["models"]]
+        recorded = _recorded_run_states(history)
+        runs["promotion_state"] = [
+            _run_promotion_text(str(members), promotions, recorded.get(str(run_id), {}))
+            for members, run_id in zip(runs["models"], runs["run_id"])
+        ]
         report["runs"] = runs
     return report
 
 
-def _run_promotion_text(members: str, promotions: Mapping[str, ModelPromotion]) -> str:
-    parts = [
-        f"{name}: {'counting' if promotions[name].counting else 'not yet proven'}"
-        for name in (item.strip() for item in members.split(","))
-        if name in promotions
-    ]
+def _recorded_run_states(history: pd.DataFrame | None) -> dict[str, dict[str, str]]:
+    """Promotion state each stored row carried when its run wrote it, per run and model."""
+
+    if not isinstance(history, pd.DataFrame) or not {"model_name", "promotion_state"}.issubset(history.columns):
+        return {}
+    run_ids = history["run_id"].astype(str) if "run_id" in history.columns else pd.Series("local-cache", index=history.index)
+    states: dict[str, dict[str, str]] = {}
+    for run_id, model, state in zip(run_ids, history["model_name"].astype(str), history["promotion_state"]):
+        if isinstance(state, str) and state.strip() and state.strip().lower() != "nan":
+            states.setdefault(run_id, {})[model] = state.strip()
+    return states
+
+
+def _run_promotion_text(members: str, promotions: Mapping[str, ModelPromotion], recorded: Mapping[str, str] | None = None) -> str:
+    recorded = recorded or {}
+    parts = []
+    for name in (item.strip() for item in members.split(",")):
+        if name not in promotions:
+            continue
+        state = recorded.get(name)
+        parts.append(
+            f"{name}: not recorded at run time"
+            if state is None
+            else f"{name}: {'counting' if state == COUNTING else 'not yet proven'}"
+        )
     return "; ".join(parts) or "reference"
 
 
@@ -881,6 +912,18 @@ def _demote_unadmitted_probabilities(
     )
 
 
+def _finite_positive_vol(value: object) -> float | None:
+    try:
+        volatility = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return volatility if math.isfinite(volatility) and volatility > 0 else None
+
+
+def _append_reason(existing: str | None, reason: str) -> str:
+    return f"{existing}; {reason}" if existing else reason
+
+
 def _postprocess_forecast_benchmark_fields(
     forecasts: list[ForecastResult],
     benchmark_returns: pd.Series | None,
@@ -900,10 +943,28 @@ def _postprocess_forecast_benchmark_fields(
     benchmark_daily = float(benchmark_returns.tail(180).mean() * 0.35)
     output: list[ForecastResult] = []
     for forecast in forecasts:
-        if forecast.model_name == "baseline" and isinstance(benchmark_returns.index, pd.DatetimeIndex):
+        producer_owned_benchmark = forecast.model_name == "baseline" and isinstance(benchmark_returns.index, pd.DatetimeIndex)
+        if producer_owned_benchmark:
             # The producer used the asset's exact training dates. Replacing that
-            # result with the benchmark's independent 180-row window leaks scope.
-            output.append(forecast)
+            # result with the benchmark's independent 180-row window leaks scope,
+            # so only the benchmark/excess recomputation is skipped; the
+            # volatility guard below still applies to the producer's row.
+            volatility = _finite_positive_vol(forecast.forecast_vol)
+            if volatility is None and (
+                forecast.prob_beat_benchmark is not None or forecast.heuristic_probability_beat_benchmark is not None
+            ):
+                output.append(
+                    replace(
+                        forecast,
+                        prob_beat_benchmark=None,
+                        heuristic_probability_beat_benchmark=None,
+                        reason_unavailable=_append_reason(
+                            forecast.reason_unavailable, "forecast_vol_unavailable_for_benchmark_probability"
+                        ),
+                    )
+                )
+            else:
+                output.append(forecast)
             continue
         if isinstance(benchmark_returns.index, pd.DatetimeIndex):
             bounded = benchmark_returns.loc[benchmark_returns.index.date <= forecast.forecast_date]
@@ -912,21 +973,16 @@ def _postprocess_forecast_benchmark_fields(
             output.append(replace(forecast, expected_excess_return=None, prob_beat_benchmark=None, heuristic_probability_beat_benchmark=None))
             continue
         excess = float(forecast.expected_return - benchmark_daily * forecast.horizon_days)
-        try:
-            volatility = float(forecast.forecast_vol)
-        except (TypeError, ValueError):
-            volatility = None
-        if volatility is None or not math.isfinite(volatility) or volatility <= 0:
+        volatility = _finite_positive_vol(forecast.forecast_vol)
+        if volatility is None:
             output.append(
                 replace(
                     forecast,
                     expected_excess_return=excess,
                     prob_beat_benchmark=None,
                     heuristic_probability_beat_benchmark=None,
-                    reason_unavailable=(
-                        f"{forecast.reason_unavailable}; forecast_vol_unavailable_for_benchmark_probability"
-                        if forecast.reason_unavailable
-                        else "forecast_vol_unavailable_for_benchmark_probability"
+                    reason_unavailable=_append_reason(
+                        forecast.reason_unavailable, "forecast_vol_unavailable_for_benchmark_probability"
                     ),
                 )
             )

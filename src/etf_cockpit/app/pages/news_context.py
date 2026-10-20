@@ -46,10 +46,23 @@ def news_context_page(page: ft.Page, state: AppState) -> PageView:
     decision_time = normalise_event_decision_time(
         getattr(getattr(state.snapshot, "data_report", None), "as_of_date", None)
     )
+    # The same macro / fundamentals / exposure / score-history bindings as the Home digest (one canonical path);
+    # a binding that cannot be read leaves those rules explicitly unavailable instead of silently dropping them.
+    from etf_cockpit.app.pages.dashboard import _contradiction_bindings
+
+    try:
+        bindings = _contradiction_bindings(
+            state,
+            as_of=str(getattr(getattr(state.snapshot, "data_report", None), "as_of_date", "") or "") or None,
+            cutoff=decision_time,
+        )
+    except Exception:
+        bindings = {}
     contradictions = contradiction_digest_records(
         trust_evidence.load_news_items(trust_evidence.NEWS_CONTEXT_PATH),
         prices=prices,
         cutoff=decision_time,
+        **bindings,
     )
     contradiction_rows = [
         {

@@ -458,6 +458,7 @@ def test_macro_observations_exclude_effective_times_after_decision(monkeypatch: 
     observations = [
         {
             "series_id": "cpi_inflation",
+            "country": "US",
             "value": 3.0,
             "unit": "%",
             "source_id": "local",
@@ -468,6 +469,7 @@ def test_macro_observations_exclude_effective_times_after_decision(monkeypatch: 
         },
         {
             "series_id": "cpi_inflation",
+            "country": "US",
             "value": 4.0,
             "unit": "%",
             "source_id": "local",
@@ -478,6 +480,7 @@ def test_macro_observations_exclude_effective_times_after_decision(monkeypatch: 
         },
         {
             "series_id": "cpi_inflation",
+            "country": "US",
             "value": 5.0,
             "unit": "%",
             "source_id": "local",
@@ -559,6 +562,7 @@ def test_macro_observations_available_at_decision_time_are_excluded(monkeypatch:
     observations = [
         {
             "series_id": "cpi_inflation",
+            "country": "US",
             "value": 3.0,
             "unit": "%",
             "source_id": "local",
@@ -569,6 +573,7 @@ def test_macro_observations_available_at_decision_time_are_excluded(monkeypatch:
         },
         {
             "series_id": "cpi_inflation",
+            "country": "US",
             "value": 3.5,
             "unit": "%",
             "source_id": "local",
@@ -579,6 +584,7 @@ def test_macro_observations_available_at_decision_time_are_excluded(monkeypatch:
         },
         {
             "series_id": "cpi_inflation",
+            "country": "US",
             "value": 4.0,
             "unit": "%",
             "source_id": "local",

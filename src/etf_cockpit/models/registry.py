@@ -38,26 +38,51 @@ def model_availability(
         registry = LocalTrainingRegistry(ROOT)
     try:
         registered_models = registry.list_records("training.model")
-        for model_name in reasons:
-            matching = [
-                model
-                for model in registered_models
-                if str(model.get("name") or "").strip().casefold() == model_name
-            ]
-            for model in matching:
-                try:
-                    require_scoreable_model(model, registry.verify_artifact)
-                except ModelScoringRejected as exc:
-                    availability[model_name] = False
-                    reasons[model_name] = exc.reason
-                    break
     except Exception as exc:
+        # The roster itself is unreadable, so no family can be verified: all fail closed.
         reason = f"registered model integrity is unavailable: {type(exc).__name__}: {exc}"
         for model_name in reasons:
             availability[model_name] = False
             reasons[model_name] = reason
+        registered_models = ()
+    for model_name in reasons:
+        matching = [
+            model
+            for model in registered_models
+            if str(model.get("name") or "").strip().casefold() == model_name
+        ]
+        try:
+            rejection = _family_rejection(matching, registry.verify_artifact)
+        except Exception as exc:
+            # A failure while inspecting one family disables that family only.
+            rejection = f"registered model integrity is unavailable: {type(exc).__name__}: {exc}"
+        if rejection is not None:
+            availability[model_name] = False
+            reasons[model_name] = rejection
     availability["reasons"] = reasons
     return availability
+
+
+def _family_rejection(matching: Sequence[Mapping[str, object]], verify_artifact: Callable[[str], object]) -> str | None:
+    """Reason a family cannot score, or None.
+
+    Retired models are history: they cannot veto an active family. A family with only retired
+    registrations stays blocked. With a champion only the champion is checked, because challengers
+    and approved models do not produce scores.
+    """
+
+    if not matching:
+        return None
+    active = [model for model in matching if model.get("promotion_state") != "retired"]
+    if not active:
+        return "retired models cannot be scored"
+    champions = [model for model in active if model.get("promotion_state") == "champion"]
+    for model in champions or active:
+        try:
+            require_scoreable_model(model, verify_artifact)
+        except ModelScoringRejected as exc:
+            return exc.reason
+    return None
 
 
 def model_diagnostics(config: AppConfig) -> list[LocalModelStatus]:

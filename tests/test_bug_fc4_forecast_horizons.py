@@ -191,3 +191,29 @@ def test_c07_c2_n003_stale_baseline_history_is_unavailable():
 def test_c07_c2_n004_model_zoo_sorts_dates_before_drift():
     prices = _series()
     pd.testing.assert_frame_equal(run_model_zoo(prices, [5]), run_model_zoo(prices.iloc[::-1], [5]))
+
+
+def test_c07_c2_n005_flat_prices_never_emit_saturated_benchmark_score():
+    prices = pd.Series(100., index=_series().index)
+    benchmark = pd.Series(.001, index=prices.index)
+    row = baseline_forecast("AAA", prices, [5], prices.index[-1].date(), "r", benchmark)[0]
+    assert row.forecast_vol == 0.
+    assert row.expected_excess_return is not None and row.expected_excess_return != 0.
+    assert row.heuristic_probability_beat_benchmark is None
+    actual = _postprocess_forecast_benchmark_fields([row], benchmark)[0]
+    assert actual.heuristic_probability_beat_benchmark is None
+    assert actual.expected_excess_return == row.expected_excess_return
+
+
+@pytest.mark.parametrize("bad_vol", [0., float("nan"), -1.])
+def test_c07_c2_n005_service_guard_still_applies_to_baseline_rows(bad_vol):
+    benchmark = pd.Series(.001, index=_series().index)
+    row = ForecastResult(run_id="r", model_name="baseline", model_version="v", etf_id="AAA",
+                         forecast_date=date(2026, 3, 6), horizon_days=5, expected_return=.01,
+                         expected_excess_return=.005, forecast_vol=bad_vol,
+                         heuristic_probability_beat_benchmark=1.)
+    actual = _postprocess_forecast_benchmark_fields([row], benchmark)[0]
+    assert actual.heuristic_probability_beat_benchmark is None
+    assert actual.prob_beat_benchmark is None
+    assert actual.expected_excess_return == .005
+    assert "forecast_vol_unavailable_for_benchmark_probability" in (actual.reason_unavailable or "")

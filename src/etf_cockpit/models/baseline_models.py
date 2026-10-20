@@ -89,6 +89,8 @@ def baseline_forecast(
         expected = mean * horizon
         expected_excess = expected - benchmark_mean * horizon if benchmark_mean is not None else None
         horizon_vol = vol * np.sqrt(horizon / 252) if vol else 0.0
+        # A zero/NaN horizon volatility cannot support a relative-strength score: fail closed.
+        beat_vol_ok = bool(np.isfinite(horizon_vol) and horizon_vol > 0)
         q10 = expected - 1.2816 * horizon_vol
         q90 = expected + 1.2816 * horizon_vol
         results.append(
@@ -113,9 +115,9 @@ def baseline_forecast(
                 heuristic_probability_positive=float(1 / (1 + np.exp(-expected / max(horizon_vol, 1e-6)))),
                 heuristic_probability_beat_benchmark=(
                     float(1 / (1 + np.exp(-expected_excess / max(horizon_vol, 1e-6))))
-                    if expected_excess is not None and expected_excess >= 0 else
+                    if expected_excess is not None and beat_vol_ok and expected_excess >= 0 else
                     float(np.exp(expected_excess / max(horizon_vol, 1e-6)) / (1 + np.exp(expected_excess / max(horizon_vol, 1e-6))))
-                    if expected_excess is not None else None
+                    if expected_excess is not None and beat_vol_ok else None
                 ),
                 status="ok",
             )

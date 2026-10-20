@@ -651,7 +651,17 @@ class LocalTrainingRegistry:
             return existing
         return self._put(_ENTITY_MODEL, model_id, payload)
 
-    def approve_model(self, model_id: str, *, reviewer: str, evaluation: Mapping[str, object]) -> dict[str, object]:
+    def approve_model(
+        self,
+        model_id: str,
+        *,
+        reviewer: str,
+        evaluation: Mapping[str, object],
+        validation_report_id: str | None = None,
+        validation_report_hash: str | None = None,
+    ) -> dict[str, object]:
+        """Approve a model against an eligible validation report of its own run (id and hash are both required)."""
+
         model = self.require(_ENTITY_MODEL, model_id)
         self._reject_retired(model)
         run = self.require(_ENTITY_RUN, str(model["run_id"]))
@@ -681,8 +691,24 @@ class LocalTrainingRegistry:
                 },
             )
             return state
+        report = self._require_eligible_validation_report(model, validation_report_id, validation_report_hash)
         payload = dict(model)
-        payload.update({"approval_state": "approved", "promotion_state": "approved", "reviewer": _bounded_text(reviewer, "reviewer"), "evaluation": _safe_mapping(evaluation), "approved_at": _utc_now()})
+        bound_evaluation = {
+            **_safe_mapping(evaluation),
+            "validation_report_id": str(report["report_id"]),
+            "validation_report_hash": str(report["report_fingerprint"]),
+        }
+        payload.update(
+            {
+                "approval_state": "approved",
+                "promotion_state": "approved",
+                "reviewer": _bounded_text(reviewer, "reviewer"),
+                "evaluation": bound_evaluation,
+                "validation_report_id": bound_evaluation["validation_report_id"],
+                "validation_report_hash": bound_evaluation["validation_report_hash"],
+                "approved_at": _utc_now(),
+            }
+        )
         return self._commit_model_transition(
             model_id,
             model,
@@ -708,6 +734,10 @@ class LocalTrainingRegistry:
         if str(model["approval_state"]) != "approved":
             raise TrainingRegistryError("only approved models can become challengers or champions")
         self._verify_model_artifacts(model)
+        # Approval is evidence-bound: the report it names must still exist, hash the same and be eligible.
+        self._require_eligible_validation_report(
+            model, model.get("validation_report_id"), model.get("validation_report_hash")
+        )
 
         who = _bounded_text(reviewer or str(model.get("reviewer", "")), "reviewer")
         if not who:
@@ -722,9 +752,11 @@ class LocalTrainingRegistry:
         aliases.discard("champion")
         aliases.discard("challenger")
         aliases.add(target)
+        roster: dict[str, dict[str, object]] | None = None
         if target == "champion":
             payload["promotion_state"] = "champion"
-            for previous in self.list_records(_ENTITY_MODEL):
+            roster = {str(item.get("model_id", "")): item for item in self.list_records(_ENTITY_MODEL)}
+            for previous in roster.values():
                 previous_id = str(previous.get("model_id", ""))
                 previous_aliases = set(str(item) for item in previous.get("aliases", []))
                 if previous_id == model_id or (previous.get("promotion_state") != "champion" and "champion" not in previous_aliases):
@@ -749,6 +781,7 @@ class LocalTrainingRegistry:
             model_id=model_id,
             who=who,
             why=why,
+            roster_snapshot=roster,
         )[model_id]
 
     def retire_model(self, model_id: str, *, reviewer: str, reason: str) -> dict[str, object]:
@@ -835,6 +868,7 @@ class LocalTrainingRegistry:
             who=who,
             why=why,
             reverses_audit_id=str(promotion["audit_id"]),
+            roster_snapshot={str(item.get("model_id", "")): item for item in self.list_records(_ENTITY_MODEL)},
         )
         return restored[prior_champions[0]]
 
@@ -964,6 +998,30 @@ class LocalTrainingRegistry:
             raise TrainingRegistryError(f"unknown {entity_type}: {entity_id}")
         return value
 
+    def _require_eligible_validation_report(
+        self,
+        model: Mapping[str, object],
+        report_id: object,
+        report_hash: object,
+    ) -> dict[str, object]:
+        """The validation report (id and hash) an approval or promotion is bound to, or a typed rejection."""
+
+        if not isinstance(report_id, str) or not report_id.strip() or not isinstance(report_hash, str) or not report_hash.strip():
+            raise TrainingRegistryError("model approval and promotion require an eligible validation report (id and hash)")
+        report = self.get(_ENTITY_VALIDATION_REPORT, report_id)
+        if report is None:
+            raise TrainingRegistryError("the bound validation report was not found")
+        if str(report.get("report_fingerprint", "")) != report_hash:
+            raise TrainingRegistryError("the validation report hash does not match the stored report")
+        if str(report.get("run_id", "")) != str(model.get("run_id", "")):
+            raise TrainingRegistryError("the validation report does not belong to the run of this model")
+        result = self.validation_promotion_result(report_id)
+        if not bool(result.get("eligible")):
+            raise TrainingRegistryError(
+                "the validation report is not eligible for promotion: " + ", ".join(str(item) for item in result.get("reasons", []))
+            )
+        return report
+
     def _reject_retired(self, model: Mapping[str, object]) -> None:
         if model.get("promotion_state") == "retired":
             raise TrainingRegistryError("retired models cannot be proposed, approved, monitored, or scored")
@@ -996,7 +1054,15 @@ class LocalTrainingRegistry:
         why: str,
         reverses_audit_id: str | None = None,
         extra_records: Sequence[tuple[str, str, Mapping[str, object]]] = (),
+        roster_snapshot: Mapping[str, Mapping[str, object]] | None = None,
     ) -> dict[str, dict[str, object]]:
+        """Commit model transitions atomically, compare-and-swap against the state they were computed from.
+
+        Inside one write transaction every transitioned model must still equal its ``before`` snapshot and,
+        when ``roster_snapshot`` is given (champion changes), the whole roster must be unchanged. Otherwise a
+        concurrent promotion is rejected instead of leaving two champions.
+        """
+
         if model_id not in transitions:
             raise TrainingRegistryError("model transition history is incomplete")
         related_states = {
@@ -1025,7 +1091,27 @@ class LocalTrainingRegistry:
         ]
         records.extend(extra_records)
         records.append((_ENTITY_MODEL_AUDIT, audit_id, event))
-        self._store_put_many(records)
+        with TransactionalStore(self.root) as store, store.transaction() as connection:
+            current = {row.entity_id: row for row in store.list(_ENTITY_MODEL)}
+            stale = any(
+                related_id not in current or current[related_id].payload != dict(before_state)
+                for related_id, (before_state, _next_state) in transitions.items()
+            )
+            if roster_snapshot is not None and not stale:
+                stale = {key: row.payload for key, row in current.items()} != {
+                    key: dict(value) for key, value in roster_snapshot.items()
+                }
+            if stale:
+                raise TrainingRegistryError("model roster changed concurrently; re-read the registry and retry")
+            for entity_type, entity_id, payload in records:
+                row = current.get(entity_id) if entity_type == _ENTITY_MODEL else None
+                store.put_in_transaction(
+                    connection,
+                    entity_type,
+                    entity_id,
+                    payload,
+                    expected_revision=None if row is None else row.revision,
+                )
         return {related_id: dict(next_state) for related_id, (_prior_state, next_state) in transitions.items()}
 
     def _put(self, entity_type: str, entity_id: str, payload: Mapping[str, object]) -> dict[str, object]:

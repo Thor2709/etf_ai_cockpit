@@ -21,9 +21,10 @@ import pandas as pd
 
 from importlib.resources import files
 
-GEOJSON_PATH = files("etf_cockpit").joinpath("app", "assets", "geo", "countries.geojson")
 from etf_cockpit.application.ui_views.portfolio import herfindahl, hhi_band, window_return
 from etf_cockpit.data.etf_cutoff import snapshot_etf_cutoff
+
+GEOJSON_PATH = files("etf_cockpit").joinpath("app", "assets", "geo", "countries.geojson")
 
 PERSPECTIVES = ("Sector", "Country", "Company")
 METRICS = ("P/E", "P/B", "ROE")
@@ -421,7 +422,8 @@ def bubbles_from_holdings(frame: pd.DataFrame | None, window: str = "1Y") -> tup
         return [], reason
     name_col = _pick(frame, ("security", "holding_name", "company", "name")) or "security"
     sector_col, cap_col = _pick(frame, ("sector",)), _pick(frame, _CAP_COLUMNS)
-    ret_col = _pick(frame, (f"return_{window.lower()}", "return_1y", "ret_1y"))
+    # Only the selected window's own column: a missing 1M/3M/5Y value is never replaced by the 1-year return.
+    ret_col = _pick(frame, (f"return_{window.lower()}", "ret_1y") if window == "1Y" else (f"return_{window.lower()}",))
     points: list[Bubble] = []
     for row in frame.to_dict("records"):
         def number(column: str | None) -> float | None:
