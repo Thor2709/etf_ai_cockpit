@@ -1214,10 +1214,14 @@
    ],
    "run_id_pattern": "backtest__s<12hex>"
   },
-  "data/derived/run_manifests/features_2026-09-30_p<12hex>__s5307f54f8af7.json": {
+  "data/derived/run_manifests/features_2026-09-30_p50feb083c593_xd7a3c565b08f__s5307f54f8af7.json": {
    "kind": "json",
    "structure": {
     "dataset_bindings": {
+     "dataset:fx": {
+      "currency_basis": "str",
+      "fx_snapshot_checksum": "str"
+     },
      "dataset:prices": {
       "calculation_window": {
        "decision_time": "str",
@@ -1273,7 +1277,7 @@
     ["dataset:universe", "dataset", "1.0.0"],
     ["schema:local-storage", "schema", "4.0.0"]
    ],
-   "run_id_pattern": "features_2026-09-30_p<12hex>__s<12hex>"
+   "run_id_pattern": "features_2026-09-30_p<12hex>_x<12hex>__s<12hex>"
   },
   "data/derived/run_manifests/forecast_20260930__s5307f54f8af7.json": {
    "kind": "json",
@@ -1602,7 +1606,7 @@
   "data/derived/scoreboard.csv": {
    "kind": "csv",
    "rows": 57,
-   "columns": ["instrument_id", "symbol", "name", "instrument_currency", "isin", "isin_status", "asset_type", "analysis_tier", "data_policy", "source_group", "current_price", "latest_price_date", "evidence_score_10", "evidence_quality_10", "risk_friction_10", "final_label", "research_state", "portfolio_review_state", "analysis_status", "research_promotion_allowed", "portfolio_review_allowed", "execution_allowed", "legacy_action", "migration_version", "gate_policy_version", "gate_policy_checksum", "schema_version", "decision", "blocked_by", "reason_short", "final_combined_score_10", "coverage", "missing_components", "identity_conflict_reason", "model_authority_label", "model_readiness", "backtest_trust_label", "backtest_trust_score_10", "model_calibration_label", "model_calibration_score_10", "market_regime_label", "market_regime_score_10", "portfolio_fit_label", "portfolio_fit_score_10", "strategy_template_label", "strategy_template_descriptions", "evidence_sample_days", "evidence_maturity_state", "evidence_maturity_label", "too_good_to_be_true_warning", "evidence_sanity_warnings", "evidence_warning_count", "benchmark_id", "benchmark_period_days", "benchmark_return", "instrument_period_return", "benchmark_beta", "benchmark_correlation", "alpha_proxy", "alpha_t_stat", "benchmark_attribution_label", "cash_instrument_return", "cash_return", "excess_over_cash", "cash_instrument_id", "cash_currency", "cash_unit", "cash_dataset_kind", "cash_start_date", "cash_end_date", "cash_horizon_years", "cash_rate", "cash_vintage", "cash_comparison_status", "cash_comparison_reason", "cash_source_id", "cash_source_authority", "cash_source_checksum", "cash_source_terms", "cash_methodology", "cash_mapping_methodology", "cash_day_count", "cash_compounding", "cash_reinvestment", "cash_effective_at", "cash_published_at", "cash_available_at", "cash_curve_id", "cash_curve_version", "cash_curve_revision", "cash_curve_type", "cash_extrapolation_allowed", "cash_fallback", "cash_fallback_from", "cash_interpolation", "cash_freshness", "cash_freshness_status", "cash_decision_time", "cash_knowledge_cutoff", "inflation_context", "sector_theme_warning", "backtest_validity", "model_contamination_risk", "model_authority_reason", "calibration_required", "gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio", "cost_stress_scenario", "gross_expected_return", "q10_expected_return", "q50_expected_return", "q90_expected_return", "expected_return_horizon_days", "net_q10_expected_return", "net_expected_return", "net_q90_expected_return", "expected_return_order_value_eur", "expected_return_cost_bps", "expected_return_cost_eur", "expected_return_cost_ratio", "expected_return_distribution_version", "expected_return_source_dataset", "crowding_cluster_id", "crowding_cluster_label", "crowding_warning", "crowding_average_peer_correlation", "crowding_sample_size", "crowding_as_of", "crowding_source_dataset", "crowding_pair_sample_size", "crowding_cluster_weight", "crowding_cluster_risk_contribution", "crowding_ranking_coverage", "crowding_top_ranked_concentration", "crowding_top_ranked_theme_concentration", "crowding_top_ranked_theme_warning", "sector_return", "sector_relative_return", "sector_beta", "sector_correlation", "sector_alpha_proxy", "sector_attribution_status", "attribution_sample_size", "attribution_as_of", "attribution_source_dataset", "theme_return", "theme_relative_return", "theme_beta", "theme_correlation", "theme_alpha_proxy", "theme_attribution_status", "theme_sample_size", "friction_status", "friction_reason", "formula_version", "formula_checksum", "source_vintage_hash", "classification_version_id", "classification_invalidation_hash", "classification_dependency_status", "canonical_attractiveness_10", "canonical_expected_return_10", "canonical_risk_implementation_10", "canonical_evidence_confidence_10", "canonical_coverage", "canonical_warnings", "valid_components", "total_components", "source_quality", "data_quality_score_10", "data_quality_status", "data_quality_authority", "momentum_score_10", "momentum_status", "momentum_authority", "trend_score_10", "trend_status", "trend_authority", "risk_score_10", "risk_status", "risk_authority", "relative_strength_score_10", "relative_strength_status", "relative_strength_authority", "liquidity_cost_score_10", "liquidity_cost_status", "liquidity_cost_authority", "etf_exposure_score_10", "etf_exposure_status", "etf_exposure_authority", "baseline_score_10", "baseline_status", "baseline_authority", "timesfm_score_10", "timesfm_status", "timesfm_authority", "toto_score_10", "toto_status", "toto_authority", "stock_value_score_10", "stock_value_status", "stock_value_authority", "stock_quality_score_10", "stock_quality_status", "stock_quality_authority", "analyst_revision_score_10", "analyst_revision_status", "analyst_revision_authority"]
+   "columns": ["instrument_id", "symbol", "name", "instrument_currency", "isin", "isin_status", "asset_type", "analysis_tier", "data_policy", "source_group", "current_price", "latest_price_date", "evidence_score_10", "evidence_quality_10", "risk_friction_10", "final_label", "research_state", "portfolio_review_state", "analysis_status", "research_promotion_allowed", "portfolio_review_allowed", "execution_allowed", "legacy_action", "migration_version", "gate_policy_version", "gate_policy_checksum", "schema_version", "decision", "blocked_by", "reason_short", "final_combined_score_10", "coverage", "missing_components", "identity_conflict_reason", "model_authority_label", "model_readiness", "backtest_trust_label", "backtest_trust_score_10", "model_calibration_label", "model_calibration_score_10", "market_regime_label", "market_regime_score_10", "portfolio_fit_label", "portfolio_fit_score_10", "strategy_template_label", "strategy_template_descriptions", "evidence_sample_days", "evidence_maturity_state", "evidence_maturity_label", "too_good_to_be_true_warning", "evidence_sanity_warnings", "evidence_warning_count", "benchmark_id", "benchmark_period_days", "benchmark_return", "instrument_period_return", "benchmark_beta", "benchmark_correlation", "alpha_proxy", "alpha_t_stat", "benchmark_attribution_label", "cash_instrument_return", "cash_return", "excess_over_cash", "cash_instrument_id", "cash_currency", "cash_unit", "cash_dataset_kind", "cash_start_date", "cash_end_date", "cash_horizon_years", "cash_rate", "cash_vintage", "cash_comparison_status", "cash_comparison_reason", "cash_source_id", "cash_source_authority", "cash_source_checksum", "cash_source_terms", "cash_methodology", "cash_mapping_methodology", "cash_day_count", "cash_compounding", "cash_reinvestment", "cash_effective_at", "cash_published_at", "cash_available_at", "cash_curve_id", "cash_curve_version", "cash_curve_revision", "cash_curve_type", "cash_extrapolation_allowed", "cash_fallback", "cash_fallback_from", "cash_interpolation", "cash_freshness", "cash_freshness_status", "cash_decision_time", "cash_knowledge_cutoff", "inflation_context", "sector_theme_warning", "backtest_validity", "model_contamination_risk", "model_authority_reason", "calibration_required", "gross_expected_edge_bps", "estimated_total_cost_bps", "net_expected_edge_bps", "edge_to_cost_ratio", "cost_stress_scenario", "gross_expected_return", "q10_expected_return", "q50_expected_return", "q90_expected_return", "expected_return_horizon_days", "net_q10_expected_return", "net_expected_return", "net_q90_expected_return", "expected_return_order_value_eur", "expected_return_cost_bps", "expected_return_cost_eur", "expected_return_cost_ratio", "expected_return_distribution_version", "expected_return_source_dataset", "crowding_cluster_id", "crowding_cluster_label", "crowding_warning", "crowding_average_peer_correlation", "crowding_sample_size", "crowding_as_of", "crowding_source_dataset", "crowding_pair_sample_size", "crowding_cluster_weight", "crowding_cluster_risk_contribution", "crowding_ranking_coverage", "crowding_top_ranked_concentration", "crowding_top_ranked_theme_concentration", "crowding_top_ranked_theme_warning", "sector_return", "sector_relative_return", "sector_beta", "sector_correlation", "sector_alpha_proxy", "sector_attribution_status", "attribution_sample_size", "attribution_as_of", "attribution_source_dataset", "theme_return", "theme_relative_return", "theme_beta", "theme_correlation", "theme_alpha_proxy", "theme_attribution_status", "theme_sample_size", "friction_status", "friction_reason", "formula_version", "formula_checksum", "source_vintage_hash", "classification_version_id", "classification_invalidation_hash", "classification_dependency_status", "canonical_attractiveness_10", "canonical_expected_return_10", "canonical_risk_implementation_10", "canonical_evidence_confidence_10", "canonical_coverage", "canonical_warnings", "valid_components", "total_components", "source_quality", "data_quality_score_10", "data_quality_status", "data_quality_authority", "momentum_score_10", "momentum_status", "momentum_authority", "trend_score_10", "trend_status", "trend_authority", "risk_score_10", "risk_status", "risk_authority", "relative_strength_score_10", "relative_strength_status", "relative_strength_authority", "liquidity_cost_score_10", "liquidity_cost_status", "liquidity_cost_authority", "stock_value_score_10", "stock_value_status", "stock_value_authority", "stock_quality_score_10", "stock_quality_status", "stock_quality_authority", "analyst_revision_score_10", "analyst_revision_status", "analyst_revision_authority", "baseline_score_10", "baseline_status", "baseline_authority", "timesfm_score_10", "timesfm_status", "timesfm_authority", "toto_score_10", "toto_status", "toto_authority", "etf_exposure_score_10", "etf_exposure_status", "etf_exposure_authority"]
   },
   "data/derived/scoreboard.json": {
    "kind": "json",
@@ -1613,9 +1617,9 @@
      "alpha_t_stat": "null",
      "analysis_status": "str",
      "analysis_tier": "str",
-     "analyst_revision_authority": "null",
+     "analyst_revision_authority": "str",
      "analyst_revision_score_10": "null",
-     "analyst_revision_status": "null",
+     "analyst_revision_status": "str",
      "asset_type": "str",
      "attribution_as_of": "null",
      "attribution_sample_size": "int",
@@ -1636,9 +1640,9 @@
      "calibration_required": "bool",
      "canonical_attractiveness_10": "null",
      "canonical_coverage": "float",
-     "canonical_evidence_confidence_10": "float",
+     "canonical_evidence_confidence_10": "null",
      "canonical_expected_return_10": "null",
-     "canonical_risk_implementation_10": "float",
+     "canonical_risk_implementation_10": "null",
      "canonical_warnings": "str",
      "cash_available_at": "null",
      "cash_comparison_reason": "str",
@@ -1686,8 +1690,8 @@
      "crowding_average_peer_correlation": "float",
      "crowding_cluster_id": "str",
      "crowding_cluster_label": "str",
-     "crowding_cluster_risk_contribution": "float",
-     "crowding_cluster_weight": "float",
+     "crowding_cluster_risk_contribution": "null",
+     "crowding_cluster_weight": "null",
      "crowding_pair_sample_size": "int",
      "crowding_ranking_coverage": "float",
      "crowding_sample_size": "int",
@@ -1704,9 +1708,9 @@
      "decision": "str",
      "edge_to_cost_ratio": "null",
      "estimated_total_cost_bps": "null",
-     "etf_exposure_authority": "str",
+     "etf_exposure_authority": "null",
      "etf_exposure_score_10": "null",
-     "etf_exposure_status": "str",
+     "etf_exposure_status": "null",
      "evidence_maturity_label": "str",
      "evidence_maturity_state": "str",
      "evidence_quality_10": "float",
@@ -1726,7 +1730,7 @@
      "final_combined_score_10": "float",
      "final_label": "str",
      "formula_checksum": "str",
-     "formula_version": "score-engine-v3.1.0",
+     "formula_version": "unavailable",
      "friction_reason": "str",
      "friction_status": "str",
      "gate_policy_checksum": "str",
@@ -1743,7 +1747,7 @@
      "latest_price_date": "str",
      "legacy_action": "str",
      "liquidity_cost_authority": "str",
-     "liquidity_cost_score_10": "float",
+     "liquidity_cost_score_10": "null",
      "liquidity_cost_status": "str",
      "market_regime_label": "str",
      "market_regime_score_10": "null",
@@ -1798,12 +1802,12 @@
      "source_group": "str",
      "source_quality": "str",
      "source_vintage_hash": "str",
-     "stock_quality_authority": "null",
+     "stock_quality_authority": "str",
      "stock_quality_score_10": "null",
-     "stock_quality_status": "null",
-     "stock_value_authority": "null",
+     "stock_quality_status": "str",
+     "stock_value_authority": "str",
      "stock_value_score_10": "null",
-     "stock_value_status": "null",
+     "stock_value_status": "str",
      "strategy_template_descriptions": "str",
      "strategy_template_label": "str",
      "symbol": "str",
@@ -2022,9 +2026,15 @@
     ["liquidity_cost_score_10", "double"],
     ["liquidity_cost_status", "string"],
     ["liquidity_cost_authority", "string"],
-    ["etf_exposure_score_10", "double"],
-    ["etf_exposure_status", "string"],
-    ["etf_exposure_authority", "string"],
+    ["stock_value_score_10", "double"],
+    ["stock_value_status", "string"],
+    ["stock_value_authority", "string"],
+    ["stock_quality_score_10", "double"],
+    ["stock_quality_status", "string"],
+    ["stock_quality_authority", "string"],
+    ["analyst_revision_score_10", "double"],
+    ["analyst_revision_status", "string"],
+    ["analyst_revision_authority", "string"],
     ["baseline_score_10", "null"],
     ["baseline_status", "string"],
     ["baseline_authority", "string"],
@@ -2034,15 +2044,9 @@
     ["toto_score_10", "null"],
     ["toto_status", "string"],
     ["toto_authority", "string"],
-    ["stock_value_score_10", "double"],
-    ["stock_value_status", "string"],
-    ["stock_value_authority", "string"],
-    ["stock_quality_score_10", "double"],
-    ["stock_quality_status", "string"],
-    ["stock_quality_authority", "string"],
-    ["analyst_revision_score_10", "double"],
-    ["analyst_revision_status", "string"],
-    ["analyst_revision_authority", "string"]
+    ["etf_exposure_score_10", "double"],
+    ["etf_exposure_status", "string"],
+    ["etf_exposure_authority", "string"]
    ]
   },
   "data/derived/strategy_templates.csv": {
@@ -2141,8 +2145,10 @@
      "end_date": "str",
      "start_date": "str"
     },
+    "currency_basis": "str",
     "effective_cutoff": "str",
     "feature_algorithm_version": "str",
+    "fx_snapshot_checksum": "str",
     "payload_sha256": "str",
     "price_snapshot_checksum": "str",
     "price_snapshot_revision": "str",

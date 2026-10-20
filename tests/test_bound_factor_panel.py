@@ -20,7 +20,7 @@ def _snapshot():
     for index in range(8):
         identity = f"ETF{index}" if index < 7 else "STOCK"
         values = 100 * np.exp(np.cumsum(rng.normal(0.0002 + index * 0.0001, 0.006, len(dates))))
-        rows.extend({"date": day.date(), "etf_id": identity, "adjusted_close": value, "volume": 10000.0, "known_at": f"{day.date()}T23:00:00+00:00"} for day, value in zip(dates, values))
+        rows.extend({"date": day.date(), "etf_id": identity, "adjusted_close": value, "volume": 10000.0, "currency": "EUR", "known_at": f"{day.date()}T23:00:00+00:00"} for day, value in zip(dates, values))
     prices = pd.DataFrame(rows)
     feature_frame = compute_features(prices)
     as_of = dates[-1].date()

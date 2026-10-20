@@ -33,7 +33,14 @@ from etf_cockpit.core.config import AppConfig
 from etf_cockpit.core.paths import BACKTESTS_DIR, DERIVED_DIR, FORECASTS_DIR, RAW_DIR, REPORTS_DIR, ROOT
 from etf_cockpit.core.types import SignalResult, latest_signal
 from etf_cockpit.data.classification import classification_score_state
-from etf_cockpit.data.fx_data import FxRateSnapshot, build_fx_rate_snapshot, fx_cross_rate, load_fx_rates
+from etf_cockpit.data.fx_data import (
+    MINOR_UNIT_MAJOR_CURRENCY,
+    FxRateSnapshot,
+    build_fx_rate_snapshot,
+    fx_cross_rate,
+    fx_rates_for_prices,
+    load_fx_rates,
+)
 from etf_cockpit.data.trade_candidate_analysis import load_candidate_price_binding
 from etf_cockpit.data.macro_warehouse import MacroWarehouse, load_risk_free_proxy_mappings
 from etf_cockpit.data.score_history import latest_sparebank_scores, project_classification_score_frame
@@ -732,10 +739,26 @@ def _generate_missing_price_signals(
         )
     try:
         from etf_cockpit.data.validation import validate_prices
-        from etf_cockpit.features.feature_pipeline import compute_features, latest_features
+        from etf_cockpit.features.feature_pipeline import (
+            attach_eur_basis,
+            compute_features,
+            eur_basis_prices,
+            latest_features,
+        )
         from etf_cockpit.signals.signal_pipeline import generate_signals
 
-        features = compute_features(frame, benchmark_etf_id=anchor)
+        # Same EUR total-return basis as the main feature path; a session without FX stays unavailable.
+        try:
+            fx_rates = fx_rates_for_prices(frame)
+        except Exception:
+            fx_rates = pd.DataFrame()
+        eur_basis = eur_basis_prices(
+            frame,
+            fx_rates,
+            configured_currency={etf.id: etf.currency for etf in config.universe.etfs},
+            known_by=f"{decision_date.isoformat()}T23:59:59+00:00",
+        )
+        features = attach_eur_basis(compute_features(eur_basis.frame, benchmark_etf_id=anchor), eur_basis)
         latest = latest_features(features, decision_date)
         latest = latest.loc[latest["etf_id"].astype(str).isin(missing_ids)]
         if latest.empty:
@@ -4096,7 +4119,7 @@ def _price_quality_lookup(prices: pd.DataFrame) -> dict[str, dict[str, object]]:
 
 # Stored OHLCV is already in major units (the provider scales pence once), so a minor-unit label
 # only names the major currency and must never trigger a second /100.
-_MINOR_UNIT_MAJOR_CURRENCY = {"GBp": "GBP", "GBX": "GBP", "ILA": "ILS", "ZAc": "ZAR"}
+_MINOR_UNIT_MAJOR_CURRENCY = MINOR_UNIT_MAJOR_CURRENCY
 _LIQUIDITY_END_OF_DAY = pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
 
 

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from datetime import date
+from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import date, datetime
 
 import numpy as np
 import pandas as pd
 
+from etf_cockpit.data.fx_data import EurRateBook, major_currency
 from etf_cockpit.features.drawdown import drawdown, rolling_max_drawdown
 from etf_cockpit.features.liquidity import liquidity_score
 from etf_cockpit.features.returns import daily_log_returns, horizon_log_returns
@@ -19,7 +22,13 @@ RELATIVE_STRENGTH_FALLBACK_ANCHOR = "VWCE"
 
 # Bumped whenever a feature formula changes so derived feature caches written by an older
 # algorithm are never reused (the cache key binds this version).
-FEATURE_ALGORITHM_VERSION = "features-2"
+FEATURE_ALGORITHM_VERSION = "features-3"
+
+# Price features that feed the score are computed on an EUR total-return basis (adjusted close x the
+# session's FX rate to EUR); ``last_price`` stays in the listing currency for display only.
+CURRENCY_BASIS_EUR = "EUR"
+FX_UNAVAILABLE_REASON = "fx_unavailable"
+FX_NOT_REQUIRED = "not_required"
 
 # Scale of a normal distribution from the mean absolute deviation (sqrt(pi / 2)); used only when
 # more than half of the values are equal and the median absolute deviation collapses to zero.
@@ -42,6 +51,161 @@ def robust_zscore(values: pd.Series) -> pd.Series:
     if not np.isfinite(denom) or denom == 0:
         return pd.Series(float("nan"), index=values.index)
     return ((values - median) / denom).clip(-3, 3)
+
+
+def robust_zscore_by_group(values: pd.Series, groups: pd.Series) -> pd.Series:
+    """``robust_zscore`` computed separately inside each group (for example asset class).
+
+    A row's z-score depends only on the members of its own group, so adding an instrument of
+    another group never changes it. Every row must carry a group label.
+    """
+
+    result = pd.Series(float("nan"), index=values.index, dtype=float)
+    labels = groups.reindex(values.index)
+    for _, members in values.groupby(labels, sort=False):
+        result.loc[members.index] = robust_zscore(members)
+    return result
+
+
+@dataclass(frozen=True)
+class EurBasisPrices:
+    """Prices translated to EUR plus the reasons an instrument has no EUR basis."""
+
+    frame: pd.DataFrame
+    unavailable: dict[str, str]
+    first_gap: dict[str, date]
+    binding: dict[str, object]
+
+
+def _session_days(values: pd.Series) -> pd.Series:
+    return pd.to_datetime(values, errors="coerce").dt.date
+
+
+def _resolve_quote_currencies(
+    frame: pd.DataFrame, configured_currency: Mapping[str, str] | None
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Per instrument: major quote currency, or the reason it cannot be established."""
+
+    configured_currency = configured_currency or {}
+    resolved: dict[str, str] = {}
+    problems: dict[str, str] = {}
+    for etf_id, group in frame.groupby("etf_id", sort=False):
+        key = str(etf_id)
+        configured = major_currency(configured_currency.get(key))
+        row_currencies: set[str] = set()
+        if "currency" in group.columns:
+            row_currencies = {code for code in group["currency"].map(major_currency).dropna().unique()}
+        if len(row_currencies) > 1 or (configured is not None and row_currencies and row_currencies != {configured}):
+            problems[key] = (
+                f"{FX_UNAVAILABLE_REASON}: price rows carry quote currency "
+                f"{', '.join(sorted(row_currencies))} that conflicts with the configured {configured or 'unknown'}"
+            )
+            continue
+        currency = configured or (next(iter(row_currencies)) if row_currencies else None)
+        if currency is None:
+            problems[key] = f"{FX_UNAVAILABLE_REASON}: the quote currency is unknown, so no EUR basis can be built"
+            continue
+        resolved[key] = currency
+    return resolved, problems
+
+
+def fx_basis_binding(
+    prices: pd.DataFrame,
+    fx_rates: pd.DataFrame | None,
+    *,
+    configured_currency: Mapping[str, str] | None,
+    known_by: date | datetime | str | None,
+) -> dict[str, object]:
+    """Identity of the FX series behind the EUR basis (feeds the feature run hash and cache binding).
+
+    ``fx_snapshot_checksum`` is ``not_required`` when every instrument is quoted in EUR; otherwise it
+    hashes the known FX rows over the price window, so an FX revision changes it.
+    """
+
+    binding: dict[str, object] = {"currency_basis": CURRENCY_BASIS_EUR, "fx_snapshot_checksum": FX_NOT_REQUIRED}
+    if prices.empty or not {"etf_id", "date"}.issubset(prices.columns):
+        return binding
+    resolved, problems = _resolve_quote_currencies(prices, configured_currency)
+    if not problems and all(currency == "EUR" for currency in resolved.values()):
+        return binding
+    days = _session_days(prices["date"]).dropna()
+    if days.empty:
+        return binding
+    binding["fx_snapshot_checksum"] = EurRateBook(fx_rates, known_by=known_by).identity(min(days), max(days))
+    return binding
+
+
+def eur_basis_prices(
+    prices: pd.DataFrame,
+    fx_rates: pd.DataFrame | None,
+    *,
+    configured_currency: Mapping[str, str] | None,
+    known_by: date | datetime | str | None,
+) -> EurBasisPrices:
+    """Translate ``adjusted_close`` to EUR with the same-session FX rate (canonical FX path).
+
+    A session without a usable, point-in-time, non-stale and unambiguous rate keeps a missing EUR
+    price, so every feature touching it is unavailable; the listing-currency price is never used
+    in its place and no rate is ever defaulted to 1. The original series is kept in
+    ``adjusted_close_local`` for display.
+    """
+
+    binding = fx_basis_binding(prices, fx_rates, configured_currency=configured_currency, known_by=known_by)
+    if prices.empty or not {"etf_id", "date", "adjusted_close"}.issubset(prices.columns):
+        return EurBasisPrices(prices.copy(), {}, {}, binding)
+    frame = prices.copy()
+    frame["adjusted_close_local"] = frame["adjusted_close"]
+    frame["adjusted_close"] = pd.to_numeric(frame["adjusted_close"], errors="coerce").astype(float)
+    days = _session_days(frame["date"])
+    resolved, problems = _resolve_quote_currencies(frame, configured_currency)
+    unavailable: dict[str, str] = {}
+    first_gap: dict[str, date] = {}
+    book: EurRateBook | None = None
+    for etf_id, group in frame.groupby("etf_id", sort=False):
+        key = str(etf_id)
+        member_days = days.loc[group.index]
+        valid_days = member_days.dropna()
+        if key in problems:
+            frame.loc[group.index, "adjusted_close"] = float("nan")
+            unavailable[key] = problems[key]
+            if not valid_days.empty:
+                first_gap[key] = min(valid_days)
+            continue
+        currency = resolved[key]
+        if currency == "EUR":
+            continue
+        if book is None:
+            book = EurRateBook(fx_rates, known_by=known_by)
+        series = book.series(currency, sorted(set(valid_days)))
+        rate = member_days.map(series.rates.to_dict()).astype(float)
+        frame.loc[group.index, "adjusted_close"] = frame.loc[group.index, "adjusted_close"] * rate
+        missing = rate.isna() & frame.loc[group.index, "adjusted_close_local"].notna()
+        if missing.any():
+            gap_days = sorted(set(member_days[missing].dropna()))
+            if gap_days:
+                first_gap[key] = gap_days[0]
+            latest = valid_days.max() if not valid_days.empty else None
+            if latest is not None and latest in gap_days:
+                unavailable[key] = (
+                    f"{FX_UNAVAILABLE_REASON}: {currency}/EUR rate unavailable for the latest session "
+                    f"{latest.isoformat()} ({series.reasons.get(latest)}); {len(gap_days)} session(s) lack FX in the window"
+                )
+    return EurBasisPrices(frame, unavailable, first_gap, binding)
+
+
+def attach_eur_basis(features: pd.DataFrame, eur: EurBasisPrices) -> pd.DataFrame:
+    """Label ``features`` with their currency basis and blank state that remembers a missing FX session."""
+
+    features.attrs["currency_basis"] = CURRENCY_BASIS_EUR
+    features.attrs["fx_unavailable"] = dict(eur.unavailable)
+    features.attrs["fx_binding"] = dict(eur.binding)
+    # The running peak behind ``drawdown_current`` spans the whole history: once an FX session is
+    # missing the peak (and so the drawdown) is unknown from then on.
+    if {"etf_id", "date", "drawdown_current"}.issubset(features.columns):
+        for etf_id, first in eur.first_gap.items():
+            mask = features["etf_id"].astype(str).eq(etf_id) & features["date"].ge(first)
+            features.loc[mask, "drawdown_current"] = float("nan")
+    return features
 
 
 def compute_features(prices: pd.DataFrame, benchmark_etf_id: str | None = None) -> pd.DataFrame:
@@ -90,7 +254,10 @@ def compute_features(prices: pd.DataFrame, benchmark_etf_id: str | None = None) 
                 "drawdown_60d_max": rolling_max_drawdown(price, 60).values,
                 "drawdown_120d_max": rolling_max_drawdown(price, 120).values,
                 "liquidity_score": liquidity_score(group["volume"], price=group["close"] if "close" in group.columns else None).values,
-                "last_price": price.values,
+                # Display only: the listing-currency price (EUR-basis frames keep it in adjusted_close_local).
+                "last_price": (
+                    group["adjusted_close_local"] if "adjusted_close_local" in group.columns else group["adjusted_close"]
+                ).astype(float).values,
             }
         )
         if benchmark_prices is not None and etf_id == benchmark_etf_id:
