@@ -190,6 +190,11 @@ def _scope_quote(quote_evidence: pd.DataFrame | Mapping[str, object] | None, ins
     frame = frame[frame["_timestamp"].notna()]
     if cutoff is not None:
         frame = frame[frame["_timestamp"].le(cutoff)]
+        # A quote stamped before the cutoff but learned after it was not knowable at the decision time. A row whose
+        # known_at is present but unparseable cannot prove it was known, so it is dropped as well.
+        if "known_at" in frame.columns:
+            known = pd.to_datetime(frame["known_at"], errors="coerce", utc=True, format="mixed")
+            frame = frame[known.notna() & known.le(cutoff)]
     return frame.sort_values("_timestamp", kind="stable").reset_index(drop=True)
 
 

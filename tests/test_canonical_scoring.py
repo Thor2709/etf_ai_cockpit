@@ -33,7 +33,7 @@ def _component(key: str, raw: float | None, role: str = "attractiveness", *, sta
 
 def test_formula_policy_is_versioned_and_cross_platform_deterministic() -> None:
     policy = load_score_policy("ETF")
-    assert policy.formula_version == "score-engine-v3.2.0"
+    assert policy.formula_version == "score-engine-v3.3.0"
     assert len(policy.formula_checksum) == 64
     assert policy.formula_checksum == load_score_policy("ETF", path=Path("configs/score_engine_v3.yaml")).formula_checksum
     assert policy.as_dict()["execution_allowed"] is False
@@ -165,7 +165,7 @@ def test_signal_adapter_reconciles_legacy_total_and_retains_vintage_metadata() -
         "2026-07-10",
     )
     assert score.legacy_composite_raw is None
-    assert score.formula_version == "score-engine-v3.2.0"
+    assert score.formula_version == "score-engine-v3.3.0"
     assert score.source_vintage_hash
     assert score.as_dict()["execution_allowed"] is False
 
