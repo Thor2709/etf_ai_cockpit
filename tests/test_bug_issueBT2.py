@@ -74,7 +74,7 @@ def test_s17_n001_cache_miss_forwards_as_of_date_to_the_fresh_run(config, prices
     sessions = sorted(pd.to_datetime(prices["date"]).unique())
     as_of = pd.Timestamp(sessions[200]).date()
     monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", tmp_path)
-    monkeypatch.setattr(backtest_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", lambda **_kwargs: prices.copy())
     monkeypatch.setattr(backtest_service, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(
         backtest_service,
@@ -202,7 +202,7 @@ def test_c3_s19_n001_cached_quality_label_matches_the_fresh_policy(config, price
     monkeypatch.setattr(backtest_service, "IDENTITY_PATH", identity_path)
     monkeypatch.setattr(economics_inputs, "IDENTITY_PATH", identity_path)
     monkeypatch.setattr(backtest_service, "BACKTESTS_DIR", out_dir)
-    monkeypatch.setattr(backtest_service, "load_prices", lambda: prices.copy())
+    monkeypatch.setattr(backtest_service, "load_prices", lambda **_kwargs: prices.copy())
     monkeypatch.setattr(backtest_service, "load_fundamental_evidence", pd.DataFrame)
     monkeypatch.setattr(backtest_service, "_load_local_structural_evidence", lambda: empty)
     monkeypatch.setattr(structural_evidence, "_load_local_structural_evidence", lambda: empty)

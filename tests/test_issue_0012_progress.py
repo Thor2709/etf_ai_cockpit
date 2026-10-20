@@ -83,6 +83,20 @@ def _texts(control: object) -> list[str]:
     return values
 
 
+@pytest.fixture(autouse=True)
+def _synthetic_demo_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests exercise the demo pipeline, which is an explicit opt-in (default off in committed settings)."""
+    import etf_cockpit.application.snapshot_builder as snapshot_builder
+    from etf_cockpit.core.config import load_config as real_load_config
+
+    def opted_in(*args, **kwargs):
+        config = real_load_config(*args, **kwargs)
+        config.data.allow_synthetic_sample_data = True
+        return config
+
+    monkeypatch.setattr(snapshot_builder, "load_config", opted_in)
+
+
 @lru_cache(maxsize=1)
 def _snapshot():
     return build_snapshot()
@@ -1514,6 +1528,7 @@ def test_restart_recovers_canonical_workflow_terminal_without_activity_terminal(
 
 def test_sample_publication_scope_serialises_cancel_and_rejects_clean_store_write(tmp_path, monkeypatch) -> None:
     state = _state()
+    state.snapshot.config.data.allow_synthetic_sample_data = True
     action_id = state.begin_activity("Refresh sample data", "Publishing sample files").action_id
     raw_dir = tmp_path / "raw"
     portfolios_dir = tmp_path / "portfolios"

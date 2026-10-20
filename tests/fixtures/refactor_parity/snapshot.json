@@ -71,7 +71,7 @@
      "max": 2415394.0
     }
    },
-   "non_float_digest": "ae72a1c4fadca501f70e8182775371feb3d3eb98c490abd315a61d6df02083c0",
+   "non_float_digest": "3646197d1f8af5108ae6b08dffe0d96152c6d2d78d22a46156c0df354f168169",
    "first_rows": [
     {
      "date": "2023-04-20",
@@ -84,7 +84,7 @@
      "adjusted_close": 35.32225106914883,
      "volume": 128270.0,
      "currency": "EUR",
-     "source": "sample_generator",
+     "source": "synthetic_sample",
      "is_adjusted": true,
      "calendar_identity": {
       "execution_allowed": false,
@@ -93,7 +93,7 @@
       "identity_effective_at": "2023-04-20",
       "identity_history": [
        {
-        "source_id": "sample_generator:calendar:VWCE"
+        "source_id": "synthetic_sample:calendar:VWCE"
        }
       ],
       "identity_objects": [
@@ -123,7 +123,7 @@
      "adjusted_close": 34.814315850520785,
      "volume": 87085.0,
      "currency": "EUR",
-     "source": "sample_generator",
+     "source": "synthetic_sample",
      "is_adjusted": true,
      "calendar_identity": {
       "execution_allowed": false,
@@ -132,7 +132,7 @@
       "identity_effective_at": "2023-04-20",
       "identity_history": [
        {
-        "source_id": "sample_generator:calendar:VWCE"
+        "source_id": "synthetic_sample:calendar:VWCE"
        }
       ],
       "identity_objects": [
@@ -162,7 +162,7 @@
      "adjusted_close": 35.2196580731299,
      "volume": 95716.0,
      "currency": "EUR",
-     "source": "sample_generator",
+     "source": "synthetic_sample",
      "is_adjusted": true,
      "calendar_identity": {
       "execution_allowed": false,
@@ -171,7 +171,7 @@
       "identity_effective_at": "2023-04-20",
       "identity_history": [
        {
-        "source_id": "sample_generator:calendar:VWCE"
+        "source_id": "synthetic_sample:calendar:VWCE"
        }
       ],
       "identity_objects": [
@@ -203,7 +203,7 @@
      "adjusted_close": 119.20481297291153,
      "volume": 2034138.0,
      "currency": "NOK",
-     "source": "sample_generator",
+     "source": "synthetic_sample",
      "is_adjusted": true,
      "calendar_identity": null
     },
@@ -218,7 +218,7 @@
      "adjusted_close": 120.00686367778276,
      "volume": 1931078.0,
      "currency": "NOK",
-     "source": "sample_generator",
+     "source": "synthetic_sample",
      "is_adjusted": true,
      "calendar_identity": null
     },
@@ -233,7 +233,7 @@
      "adjusted_close": 118.6652590436934,
      "volume": 1727348.0,
      "currency": "NOK",
-     "source": "sample_generator",
+     "source": "synthetic_sample",
      "is_adjusted": true,
      "calendar_identity": null
     }
@@ -313,7 +313,7 @@
      "max": 0.0416666666666667
     }
    },
-   "non_float_digest": "42690639286586ee660d830027b89a86ea31b08e81d6366a0aba603effc7199c",
+   "non_float_digest": "794f01d40af12cbea18b6f182c0b1be1b5dfa28d350a0e47a60df423bee88913",
    "first_rows": [
     {
      "as_of_date": "2026-09-30",
@@ -325,7 +325,7 @@
      "average_cost_eur": 51.92301897334335,
      "unrealised_gain_eur": 0.0,
      "unrealised_gain_pct": -0.0384615384615385,
-     "source": "sample_generator"
+     "source": "synthetic_sample"
     },
     {
      "as_of_date": "2026-09-30",
@@ -337,7 +337,7 @@
      "average_cost_eur": 28.17418525467034,
      "unrealised_gain_eur": 0.0,
      "unrealised_gain_pct": -0.0384615384615384,
-     "source": "sample_generator"
+     "source": "synthetic_sample"
     },
     {
      "as_of_date": "2026-09-30",
@@ -349,7 +349,7 @@
      "average_cost_eur": 33.433657001511484,
      "unrealised_gain_eur": 0.0,
      "unrealised_gain_pct": -0.0384615384615385,
-     "source": "sample_generator"
+     "source": "synthetic_sample"
     }
    ],
    "last_rows": [
@@ -363,7 +363,7 @@
      "average_cost_eur": 69.77071745403329,
      "unrealised_gain_eur": 0.0,
      "unrealised_gain_pct": 0.0,
-     "source": "sample_generator"
+     "source": "synthetic_sample"
     },
     {
      "as_of_date": "2026-09-30",
@@ -375,7 +375,7 @@
      "average_cost_eur": 83.5740187566811,
      "unrealised_gain_eur": 0.0,
      "unrealised_gain_pct": -0.0384615384615385,
-     "source": "sample_generator"
+     "source": "synthetic_sample"
     },
     {
      "as_of_date": "2026-09-30",
@@ -387,7 +387,7 @@
      "average_cost_eur": 44.28918735251745,
      "unrealised_gain_eur": 0.0,
      "unrealised_gain_pct": -0.0384615384615385,
-     "source": "sample_generator"
+     "source": "synthetic_sample"
     }
    ]
   },
@@ -1313,23 +1313,23 @@
   ],
   "dataset_metadata": [
    {
-    "source_name": "sample_generator",
+    "source_name": "synthetic_sample",
     "source_type": "prices",
     "as_of_date": "2026-09-30",
     "currency": "mixed",
     "timezone": "UTC",
-    "provider_or_manual_source": "sample_generator",
+    "provider_or_manual_source": "synthetic_sample",
     "staleness_status": "ok",
     "age_days": 0,
     "notes": "Daily prices: OK <= 3 trading days, warning 4-10, block > 10."
    },
    {
-    "source_name": "sample_generator",
+    "source_name": "synthetic_sample",
     "source_type": "portfolio_holdings",
     "as_of_date": "2026-09-30",
     "currency": "EUR",
     "timezone": "UTC",
-    "provider_or_manual_source": "sample_generator",
+    "provider_or_manual_source": "synthetic_sample",
     "staleness_status": "ok",
     "age_days": 0,
     "notes": "Portfolio holdings: current weights are context for analysis and must still reconcile with market value."

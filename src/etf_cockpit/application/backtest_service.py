@@ -339,7 +339,7 @@ class BacktestService:
         as_of_date: date | None = None,
     ) -> BacktestReport:
         settings_identity = current_settings_identity()
-        prices = _prices_as_of(load_prices(), as_of_date)
+        prices = _prices_as_of(load_prices(config=self.config), as_of_date)
         reference_context = _backtest_calculation_context(self.config, self.reference_context, prices)
         fundamentals = load_fundamental_evidence()
         try:
@@ -463,7 +463,7 @@ class BacktestService:
 
     def _load_cached_backtest(self, as_of_date: date | None = None) -> BacktestReport | None:
         settings_revision = current_settings_revision()
-        prices = _prices_as_of(load_prices(), as_of_date)
+        prices = _prices_as_of(load_prices(config=self.config), as_of_date)
         reference_context = _backtest_calculation_context(self.config, self.reference_context, prices)
         checksum_prices = _backtest_prices_for_reference(prices, reference_context)
         if checksum_prices is None:

@@ -1390,7 +1390,7 @@
    ],
    "run_id_pattern": "backtest__s<12hex>"
   },
-  "data/derived/run_manifests/features_2026-09-30_p50feb083c593_xd7a3c565b08f__s5307f54f8af7.json": {
+  "data/derived/run_manifests/features_2026-09-30_p50feb083c593_x49de77576776__s5307f54f8af7.json": {
    "kind": "json",
    "structure": {
     "dataset_bindings": {

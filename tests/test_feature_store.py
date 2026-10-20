@@ -141,3 +141,27 @@ def test_registry_survives_restart_and_inference_modes_share_contract(tmp_path) 
     assert restarted.feature_catalogue(include_builtins=False) == (definition,)
     assert offline.drop(columns="inference_mode").equals(paper.drop(columns="inference_mode"))
     assert offline.drop(columns="inference_mode").equals(live.drop(columns="inference_mode"))
+
+
+def test_max_drawdown_target_is_peak_to_trough_not_min_over_origin(tmp_path) -> None:
+    store = LocalFeatureStore(tmp_path)
+    store.register_target(TargetDefinition("mdd", 4, kind="max_drawdown"))
+    store.register_target(TargetDefinition("min_vs_origin", 4, kind="drawdown"))
+    prices = pd.DataFrame(
+        {
+            "etf_id": ["AAA"] * 5,
+            "date": pd.date_range("2026-01-01", periods=5),
+            "adjusted_close": [100.0, 120.0, 90.0, 95.0, 110.0],
+            "is_adjusted": [True] * 5,
+        }
+    )
+
+    targets = store.build_targets(prices, ["2026-01-01"])
+
+    assert targets.loc[0, "mdd"] == pytest.approx(90.0 / 120.0 - 1.0)
+    assert targets.loc[0, "min_vs_origin"] == pytest.approx(-0.10)
+
+    prices["adjusted_close"] = [100.0, 90.0, 80.0, 70.0, 60.0]
+    declining = store.build_targets(prices, ["2026-01-01"])
+    assert declining.loc[0, "mdd"] == pytest.approx(-0.40)
+    assert declining.loc[0, "min_vs_origin"] == pytest.approx(-0.40)
