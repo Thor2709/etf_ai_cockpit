@@ -164,7 +164,8 @@ def capital_efficiency_analysis(
     frame = _canonical_frame(statements, instrument_id, as_known_at)
     inferred_tax = _reported_tax_rate(frame)
     tax = _rate(tax_rate if tax_rate is not None else inferred_tax)
-    capital_cost = _rate(cost_of_capital if cost_of_capital is not None else cost_of_capital_ledger.wacc if cost_of_capital_ledger else None)
+    # A supplied ledger is the only source: a conflicting legacy argument leaves the ledger WACC unavailable, never overrides it.
+    capital_cost = _rate(cost_of_capital_ledger.wacc if cost_of_capital_ledger is not None else cost_of_capital)
     special_sector = sector.casefold() in _SPECIAL_SECTORS
     periods = [] if special_sector else _period_records(frame, tax)
     profitability_basis = {
@@ -249,6 +250,7 @@ def capital_efficiency_analysis(
             if inferred_tax is not None
             else "unavailable",
             "cost_of_capital": capital_cost,
+            "cost_of_capital_conflicts": list(cost_of_capital_ledger.conflicts) if cost_of_capital_ledger is not None else [],
             "cost_of_capital_basis": (cost_of_capital_ledger.basis if cost_of_capital_ledger and capital_cost is not None else "explicit_assumption")
             if capital_cost is not None
             else "unavailable",

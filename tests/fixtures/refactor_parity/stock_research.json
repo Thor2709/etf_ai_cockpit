@@ -939,6 +939,7 @@
      "tax_rate": null,
      "tax_rate_basis": "unavailable",
      "cost_of_capital": null,
+     "cost_of_capital_conflicts": [],
      "cost_of_capital_basis": "unavailable",
      "profitability_basis": {
       "status": "unavailable",
@@ -1917,7 +1918,7 @@
     "driver_dcf": {
      "status": "unavailable",
      "confidence": "low",
-     "reason": "free_cash_flow currency is unavailable; comparable valuation is withheld.",
+     "reason": "revenue currency is unavailable; comparable valuation is withheld.",
      "score_eligible": false,
      "execution_allowed": false,
      "score_eligibility_reasons": ["model unavailable", "cost-of-capital inputs are a scenario, not observed", "valuation is provisional: decision time is unavailable; freshness cannot be established; assumptions carry no as_of or expires_at date"]
@@ -1977,9 +1978,19 @@
      "components": {
       "statements": {
        "basis": "2026-12-31",
+       "oldest_input": "revenue",
+       "inputs": {
+        "cash": "2026-12-31",
+        "debt": "2026-12-31",
+        "equity": "2026-12-31",
+        "free_cash_flow": "2026-12-31",
+        "net_income": "2026-12-31",
+        "revenue": "2026-12-31"
+       },
        "expires_at": "2028-07-01T00:00:00+00:00"
       }
      },
+     "consumed_inputs": ["revenue", "free_cash_flow", "equity", "net_income", "debt", "cash"],
      "reference_time": null,
      "defaults": {
       "statement_max_age_days": 548,
@@ -3905,6 +3916,7 @@
      "tax_rate": 0.25,
      "tax_rate_basis": "explicit_assumption",
      "cost_of_capital": 0.1,
+     "cost_of_capital_conflicts": [],
      "cost_of_capital_basis": "scenario",
      "profitability_basis": {
       "status": "unavailable",
@@ -4919,8 +4931,8 @@
     "residual_income": {
      "status": "available",
      "confidence": "scenario_only",
-     "equity_value": 173.10556904334652,
-     "per_share": 17.310556904334653,
+     "equity_value": 75.00000000000003,
+     "per_share": 7.500000000000003,
      "cost_of_equity": 0.1,
      "terminal_growth": 0.02,
      "forecast_years": 5,
@@ -4980,7 +4992,15 @@
         "residual_income": 9.078392000000001
        }
       ],
-      "terminal_residual_income": 7.995959840000003
+      "terminal_residual_income": 7.995959840000003,
+      "terminal_book": 140.85656224,
+      "terminal_equity_value": 82.80606024,
+      "terminal_value_basis": "dividend perpetuity (earnings, payout and issuance grow at terminal g) less closing book"
+     },
+     "dividend_model_value": 74.99999999999997,
+     "dividend_model_reconciliation": {
+      "status": "reconciled",
+      "difference": 5.684341886080802e-14
      },
      "dividend_reconciliation": {
       "status": "not_checked",
@@ -4994,7 +5014,7 @@
       "model": "residual_income",
       "status": "unavailable",
       "value": null,
-      "per_share_value": 17.310556904334653,
+      "per_share_value": 7.500000000000003,
       "price": 30.0,
       "reason_codes": ["model_source_timing_unavailable", "price_source_timing_unavailable"],
       "source_provenance": [
@@ -5030,7 +5050,7 @@
        "model": "residual_income",
        "status": "unavailable",
        "value": null,
-       "per_share_value": 17.310556904334653,
+       "per_share_value": 7.500000000000003,
        "price": 30.0,
        "reason_codes": ["model_source_timing_unavailable", "price_source_timing_unavailable"],
        "source_provenance": [
@@ -5087,11 +5107,11 @@
     },
     "model_disagreement": {
      "status": "unavailable",
-     "range": [17.310556904334653, 17.310556904334653],
+     "range": [7.500000000000003, 7.500000000000003],
      "confidence": "scenario_only",
      "models": {
       "residual_income": {
-       "per_share": 17.310556904334653,
+       "per_share": 7.500000000000003,
        "claim": "fcfe",
        "source": "residual_income"
       }
@@ -5146,9 +5166,15 @@
      "components": {
       "statements": {
        "basis": "2026-12-31",
+       "oldest_input": "equity",
+       "inputs": {
+        "equity": "2026-12-31",
+        "net_income": "2026-12-31"
+       },
        "expires_at": "2028-07-01T00:00:00+00:00"
       }
      },
+     "consumed_inputs": ["equity", "net_income"],
      "reference_time": "2027-01-02T00:00:00+00:00",
      "defaults": {
       "statement_max_age_days": 548,
@@ -6733,6 +6759,7 @@
      "tax_rate": null,
      "tax_rate_basis": "unavailable",
      "cost_of_capital": null,
+     "cost_of_capital_conflicts": [],
      "cost_of_capital_basis": "unavailable",
      "profitability_basis": {
       "status": "not_applicable",
@@ -7203,7 +7230,7 @@
      "cre_property_stress": {
       "status": "unavailable",
       "confidence": "low",
-      "reason": "CRE/property exposure is not evidenced.",
+      "reason": "CRE/property exposure is not evidenced; input not mapped: cre_exposure.",
       "assumptions": {
        "cre_haircut": 0.2
       },
@@ -7214,7 +7241,7 @@
      "funding_shift": {
       "status": "unavailable",
       "confidence": "low",
-      "reason": "Deposits and wholesale funding are not evidenced.",
+      "reason": "Deposits and wholesale funding are not evidenced; input not mapped: deposits, wholesale_funding.",
       "assumptions": {
        "deposit_outflow_fraction": 0.1,
        "funding_spread_add": 0.01
@@ -7226,7 +7253,7 @@
      "impairment_stress": {
       "status": "unavailable",
       "confidence": "low",
-      "reason": "Gross loans are not evidenced.",
+      "reason": "Gross loans are not evidenced; input not mapped: gross_loans.",
       "assumptions": {
        "impairment_rate": 0.02
       },
@@ -7237,7 +7264,7 @@
      "capital_breach": {
       "status": "unavailable",
       "confidence": "low",
-      "reason": "CET1 capital, risk-weighted assets, the stated CET1 requirement and all three loss legs are required.",
+      "reason": "CET1 capital, risk-weighted assets, the stated CET1 requirement and all three loss legs are required; input not mapped: cet1_capital, risk_weighted_assets, cet1_requirement (assumption).",
       "assumptions": {
        "cet1_requirement": null
       },
@@ -7586,8 +7613,8 @@
     "residual_income": {
      "status": "available",
      "confidence": "scenario_only",
-     "equity_value": 91.44433750799433,
-     "per_share": 9.144433750799433,
+     "equity_value": 101.99999999999997,
+     "per_share": 10.199999999999998,
      "cost_of_equity": 0.1,
      "terminal_growth": 0.02,
      "forecast_years": 5,
@@ -7647,7 +7674,15 @@
         "residual_income": 2.0326464255999994
        }
       ],
-      "terminal_residual_income": 2.209299354112
+      "terminal_residual_income": 2.209299354112,
+      "terminal_book": 68.0,
+      "terminal_equity_value": 112.61624192640001,
+      "terminal_value_basis": "dividend perpetuity (earnings, payout and issuance grow at terminal g) less closing book"
+     },
+     "dividend_model_value": 101.99999999999997,
+     "dividend_model_reconciliation": {
+      "status": "reconciled",
+      "difference": 0.0
      },
      "dividend_reconciliation": {
       "status": "not_checked",
@@ -7661,7 +7696,7 @@
       "model": "residual_income",
       "status": "unavailable",
       "value": null,
-      "per_share_value": 9.144433750799433,
+      "per_share_value": 10.199999999999998,
       "price": null,
       "reason_codes": ["positive_current_price_unavailable", "model_source_timing_unavailable", "price_source_timing_unavailable"],
       "source_provenance": [
@@ -7691,7 +7726,7 @@
        "model": "residual_income",
        "status": "unavailable",
        "value": null,
-       "per_share_value": 9.144433750799433,
+       "per_share_value": 10.199999999999998,
        "price": null,
        "reason_codes": ["positive_current_price_unavailable", "model_source_timing_unavailable", "price_source_timing_unavailable"],
        "source_provenance": [
@@ -7747,11 +7782,11 @@
     },
     "model_disagreement": {
      "status": "unavailable",
-     "range": [9.144433750799433, 9.144433750799433],
+     "range": [10.199999999999998, 10.199999999999998],
      "confidence": "scenario_only",
      "models": {
       "residual_income": {
-       "per_share": 9.144433750799433,
+       "per_share": 10.199999999999998,
        "claim": "fcfe",
        "source": "residual_income"
       }
@@ -7806,9 +7841,28 @@
      "components": {
       "statements": {
        "basis": "2026-12-31",
+       "oldest_input": "assets",
+       "inputs": {
+        "assets": "2026-12-31",
+        "cash": "2026-12-31",
+        "cash_from_operations": "2026-12-31",
+        "current_assets": "2026-12-31",
+        "current_liabilities": "2026-12-31",
+        "debt": "2026-12-31",
+        "exceptional_items": "2026-12-31",
+        "free_cash_flow": "2026-12-31",
+        "gross_profit": "2026-12-31",
+        "interest_expense": "2026-12-31",
+        "operating_income": "2026-12-31",
+        "receivables": "2026-12-31",
+        "revenue": "2026-12-31",
+        "shares_outstanding": "2026-12-31",
+        "tangible_book_value": "2026-12-31"
+       },
        "expires_at": "2028-07-01T00:00:00+00:00"
       }
      },
+     "consumed_inputs": ["assets", "cash", "cash_from_operations", "current_assets", "current_liabilities", "debt", "exceptional_items", "free_cash_flow", "gross_profit", "interest_expense", "operating_income", "receivables", "revenue", "shares_outstanding", "tangible_book_value"],
      "reference_time": null,
      "defaults": {
       "statement_max_age_days": 548,
@@ -9403,6 +9457,7 @@
      "tax_rate": null,
      "tax_rate_basis": "unavailable",
      "cost_of_capital": null,
+     "cost_of_capital_conflicts": [],
      "cost_of_capital_basis": "unavailable",
      "profitability_basis": {
       "status": "unavailable",
@@ -10554,9 +10609,17 @@
      "components": {
       "statements": {
        "basis": "2025-12-31",
+       "oldest_input": "revenue",
+       "inputs": {
+        "equity": "2025-12-31",
+        "free_cash_flow": "2025-12-31",
+        "net_income": "2025-12-31",
+        "revenue": "2025-12-31"
+       },
        "expires_at": "2027-07-02T00:00:00+00:00"
       }
      },
+     "consumed_inputs": ["revenue", "free_cash_flow", "equity", "net_income"],
      "reference_time": "2026-06-30T00:00:00+00:00",
      "defaults": {
       "statement_max_age_days": 548,
@@ -12488,6 +12551,7 @@
       "tax_rate": null,
       "tax_rate_basis": "unavailable",
       "cost_of_capital": null,
+      "cost_of_capital_conflicts": [],
       "cost_of_capital_basis": "unavailable",
       "profitability_basis": {
        "status": "unavailable",
@@ -13706,9 +13770,19 @@
       "components": {
        "statements": {
         "basis": "2026-12-31",
+        "oldest_input": "revenue",
+        "inputs": {
+         "cash": "2026-12-31",
+         "debt": "2026-12-31",
+         "equity": "2026-12-31",
+         "free_cash_flow": "2026-12-31",
+         "net_income": "2026-12-31",
+         "revenue": "2026-12-31"
+        },
         "expires_at": "2028-07-01T00:00:00+00:00"
        }
       },
+      "consumed_inputs": ["revenue", "free_cash_flow", "equity", "net_income", "debt", "cash"],
       "reference_time": "2027-01-02T00:00:00+00:00",
       "defaults": {
        "statement_max_age_days": 548,

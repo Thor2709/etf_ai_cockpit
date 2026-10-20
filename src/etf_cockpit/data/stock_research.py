@@ -301,10 +301,12 @@ def balance_sheet_analysis(
     classification_context: Mapping[str, object] | None = None,
     strict_comparability: bool = False,
     as_known_at: str | date | None = None,
+    assumptions: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     frame = _statement_frame(statements, instrument_id, as_known_at=as_known_at)
     sector = sector or _text((classification_context or {}).get("sector"))
     latest = _latest_values(frame)
+    stress_assumptions = {**_STRESS_DEFAULTS, **{str(key): value for key, value in (assumptions or {}).items() if value is not None}}
     metrics: dict[str, dict[str, object]] = {}
     debt = latest.get("contractual_debt", latest.get("debt"))
     cash = latest.get("cash")
@@ -335,9 +337,9 @@ def balance_sheet_analysis(
     stress = (
         {
             **{name: {"status": "not_applicable", "value": None, "reason": industrial_reason, "execution_allowed": False} for name in ("revenue_down_20", "margin_down_5pp")},
-            **_bank_stress_scenarios(latest),
+            **_bank_stress_scenarios(latest, stress_assumptions, frame),
         }
-        if special else _stress_scenarios(latest, frame)
+        if special else _stress_scenarios(latest, frame, stress_assumptions, maturity=maturity)
     )
     if strict_comparability and not special:
         balance_specs = {
@@ -490,6 +492,8 @@ def valuation_analysis(
         dcf_facts = ("free_cash_flow", "revenue") if margin_scenario else ("free_cash_flow",)
         dcf_facts += _bridge_statement_metrics(frame, values, market)
         dcf_basis = _valuation_inputs_comparable(frame, dcf_facts, market_inputs or {}, net_debt=True)
+        # The driver chain consumes revenue (margins and ROIC are assumptions) and the bridge, never free cash flow.
+        driver_basis = _valuation_inputs_comparable(frame, ("revenue",) + _bridge_statement_metrics(frame, values, market), market_inputs or {}, net_debt=True)
         if bank_route:
             sustainable_roe = _float(assumption_values.get("sustainable_roe"))
             sustainable_rote = _float(assumption_values.get("sustainable_rote"))
@@ -511,7 +515,8 @@ def valuation_analysis(
         if not bank_route and dcf_basis["status"] != "available":
             intrinsic = {"status": "unavailable", "confidence": "low", "reason": str(dcf_basis["reason"]), "scenarios": {}, "score_eligible": False, "execution_allowed": False}
             reverse = {"status": "unavailable", "confidence": "low", "reason": str(dcf_basis["reason"]), "score_eligible": False, "execution_allowed": False}
-            driver = {"status": "unavailable", "confidence": "low", "reason": str(dcf_basis["reason"]), "score_eligible": False, "execution_allowed": False}
+        if not bank_route and driver_basis["status"] != "available":
+            driver = {"status": "unavailable", "confidence": "low", "reason": str(driver_basis["reason"]), "score_eligible": False, "execution_allowed": False}
         if residual_basis["status"] != "available":
             residual = {"status": "unavailable", "confidence": "low", "reason": str(residual_basis["reason"]), "score_eligible": False, "execution_allowed": False}
     sensitivity = _residual_income_sensitivity(values, assumption_values) if bank_route else _valuation_sensitivity(values, assumption_values)
@@ -593,7 +598,22 @@ def valuation_analysis(
         )
     reverse["source_provenance"] = reverse_provenance
     reverse_gap = _reverse_dcf_gap(reverse, assumption_values)
-    expiry = _valuation_expiry(frame, market, market_inputs or {}, assumption_values, as_known_at)
+    raw_scenarios = assumption_values.get("scenarios")
+    margin_scenario = isinstance(raw_scenarios, Mapping) and any(isinstance(item, Mapping) and _float(item.get("margin")) is not None for item in raw_scenarios.values())
+    bridge_inputs = _bridge_statement_metrics(frame, values, market)
+    consumed: list[str] = []
+    if driver.get("status") == "available":
+        consumed += ["revenue", *bridge_inputs]
+    if intrinsic.get("status") == "available":
+        consumed += ["free_cash_flow", *(["revenue"] if margin_scenario else []), *bridge_inputs]
+    if residual.get("status") == "available":
+        consumed += ["equity", "net_income"]
+    if bank_route:  # bank inputs come from the financial-institution projection; judge only the statement rows that exist
+        in_frame = set(frame["canonical_metric"].astype(str)) if not frame.empty and "canonical_metric" in frame else set()
+        consumed = [name for name in consumed if name in in_frame] or sorted(in_frame)
+    elif not consumed:
+        consumed = ["revenue", "free_cash_flow", "equity", "net_income", *bridge_inputs]  # nothing resolved: judge the full input set
+    expiry = _valuation_expiry(frame, market, market_inputs or {}, assumption_values, as_known_at, consumed)
     eligibility = _score_eligibility(
         {"driver_dcf": driver, "residual_income": residual, "intrinsic_value": intrinsic},
         ledger=ledger, strict_comparability=strict_comparability, expiry=expiry, bank_route=bank_route,
@@ -768,7 +788,6 @@ def build_stock_research_report(
         sector=capital_sector,
         peer_frame=peer_frame if not strict_comparability else None,
         tax_rate=_float(assumption_values.get("tax_rate")),
-        cost_of_capital=_float(assumption_values.get("cost_of_capital")),
         cost_of_capital_ledger=build_cost_of_capital_ledger(assumption_values),
         intangible_assumptions=assumption_values.get("intangible_adjustment") if isinstance(assumption_values.get("intangible_adjustment"), Mapping) else None,
         profitability_output=profitability,
@@ -785,7 +804,7 @@ def build_stock_research_report(
         "instrument_id": instrument_id or "",
         "profitability": profitability,
         "capital_efficiency": capital_efficiency,
-        "balance_sheet": balance_sheet_analysis(frame, instrument_id=instrument_id, sector=sector, classification_context=classification_context, strict_comparability=strict_comparability, as_known_at=as_known_at),
+        "balance_sheet": balance_sheet_analysis(frame, instrument_id=instrument_id, sector=sector, classification_context=classification_context, strict_comparability=strict_comparability, as_known_at=as_known_at, assumptions=assumption_values),
         "valuation": valuation_analysis(
             frame,
             instrument_id=instrument_id,
@@ -2561,13 +2580,22 @@ def _distress_metric(values: Mapping[str, float], frame: pd.DataFrame, special: 
 
 
 _STRESS_LABEL = {"kind": "sensitivity", "is_probability": False, "execution_allowed": False}
+# Documented defaults for the stress cases; ``cet1_requirement`` has no default (absent -> capital_breach is unavailable).
+_STRESS_DEFAULTS: dict[str, float] = {
+    "fixed_cost_share": 0.5,
+    "refinancing_rate_add": 0.02,
+    "cre_haircut": 0.20,
+    "impairment_rate": 0.02,
+    "funding_spread_add": 0.01,
+    "deposit_outflow_fraction": 0.10,
+}
 
 
 def _stress_unavailable(reason: str, assumptions: Mapping[str, object]) -> dict[str, object]:
     return {"status": "unavailable", "confidence": "low", "reason": reason, "assumptions": dict(assumptions), **_STRESS_LABEL}
 
 
-def _stress_scenarios(values: Mapping[str, float], frame: pd.DataFrame, assumptions: Mapping[str, object] | None = None) -> dict[str, dict[str, object]]:
+def _stress_scenarios(values: Mapping[str, float], frame: pd.DataFrame, assumptions: Mapping[str, object] | None = None, *, maturity: Mapping[str, object] | None = None) -> dict[str, dict[str, object]]:
     """Deterministic sensitivities, never probabilities. Defaults (documented): recession revenue -20 %, favourable +10 %,
     50 % of the cost base fixed (operating leverage), +200 bp on debt that reprices within one year."""
 
@@ -2604,7 +2632,8 @@ def _stress_scenarios(values: Mapping[str, float], frame: pd.DataFrame, assumpti
     scenarios["favourable"] = operating_case(1.1)
     scenarios["recession_operating_leverage"] = operating_case(0.8)
 
-    due_1y = values.get("debt_due_1y")
+    buckets = maturity.get("buckets") if isinstance(maturity, Mapping) else None
+    due_1y = _float(buckets.get("debt_due_1y")) if isinstance(buckets, Mapping) else values.get("debt_due_1y")  # same source as the maturity timeline
     refinance_assumed = {"rate_add": rate_add, "applies_to": "debt_due_1y (repricing within one year)"}
     if due_1y is None:
         scenarios["refinancing_shock"] = _stress_unavailable("No debt maturity schedule is available; the shock applies only to repricing debt and total debt is never repriced.", refinance_assumed)
@@ -2627,10 +2656,16 @@ def _stress_scenarios(values: Mapping[str, float], frame: pd.DataFrame, assumpti
     return scenarios
 
 
-def _bank_stress_scenarios(values: Mapping[str, float], assumptions: Mapping[str, object] | None = None) -> dict[str, dict[str, object]]:
-    """Bank sensitivities (CRE/property, funding shift, impairment, capital breach); evidence-gated, never invented."""
+_BANK_STRESS_INPUTS = ("cet1_capital", "risk_weighted_assets", "gross_loans", "cre_exposure", "deposits", "wholesale_funding")
+
+
+def _bank_stress_scenarios(values: Mapping[str, float], assumptions: Mapping[str, object] | None = None, frame: pd.DataFrame | None = None) -> dict[str, dict[str, object]]:
+    """Bank sensitivities (CRE/property, funding shift, impairment, capital breach); evidence-gated, never invented.
+    Inputs are read only through canonical metric names (statement aliases are applied upstream); an absent input is "input not mapped"."""
 
     params = assumptions or {}
+    unmapped = [name for name in _BANK_STRESS_INPUTS if values.get(name) is None]
+    source_ids = {name: list(_source_ids(frame, name)) for name in _BANK_STRESS_INPUTS if values.get(name) is not None} if frame is not None else {}
     cet1 = values.get("cet1_capital")
     rwa = values.get("risk_weighted_assets")
     loans = values.get("gross_loans")
@@ -2644,15 +2679,15 @@ def _bank_stress_scenarios(values: Mapping[str, float], assumptions: Mapping[str
     deposit_outflow = _float(params.get("deposit_outflow_fraction")) or 0.10
     scenarios: dict[str, dict[str, object]] = {}
     scenarios["cre_property_stress"] = (
-        _stress_unavailable("CRE/property exposure is not evidenced.", {"cre_haircut": cre_haircut})
+        _stress_unavailable("CRE/property exposure is not evidenced; input not mapped: cre_exposure.", {"cre_haircut": cre_haircut})
         if cre is None else {"status": "available", "confidence": "scenario_only", "assumptions": {"cre_haircut": cre_haircut}, "loss": cre * cre_haircut, **_STRESS_LABEL}
     )
     scenarios["funding_shift"] = (
-        _stress_unavailable("Deposits and wholesale funding are not evidenced.", {"deposit_outflow_fraction": deposit_outflow, "funding_spread_add": funding_spread})
+        _stress_unavailable("Deposits and wholesale funding are not evidenced; input not mapped: " + ", ".join(name for name in ("deposits", "wholesale_funding") if name in unmapped) + ".", {"deposit_outflow_fraction": deposit_outflow, "funding_spread_add": funding_spread})
         if deposits is None or wholesale is None else {"status": "available", "confidence": "scenario_only", "assumptions": {"deposit_outflow_fraction": deposit_outflow, "funding_spread_add": funding_spread}, "replacement_funding": deposits * deposit_outflow, "extra_funding_cost": (wholesale + deposits * deposit_outflow) * funding_spread, **_STRESS_LABEL}
     )
     scenarios["impairment_stress"] = (
-        _stress_unavailable("Gross loans are not evidenced.", {"impairment_rate": impairment_rate})
+        _stress_unavailable("Gross loans are not evidenced; input not mapped: gross_loans.", {"impairment_rate": impairment_rate})
         if loans is None else {"status": "available", "confidence": "scenario_only", "assumptions": {"impairment_rate": impairment_rate}, "loss": loans * impairment_rate, **_STRESS_LABEL}
     )
     cre_loss = scenarios["cre_property_stress"].get("loss")
@@ -2660,10 +2695,14 @@ def _bank_stress_scenarios(values: Mapping[str, float], assumptions: Mapping[str
     funding_cost = scenarios["funding_shift"].get("extra_funding_cost")
     assumed = {"cet1_requirement": requirement}
     if cet1 is None or rwa is None or rwa <= 0 or requirement is None or None in (cre_loss, impairment_loss, funding_cost):
-        scenarios["capital_breach"] = _stress_unavailable("CET1 capital, risk-weighted assets, the stated CET1 requirement and all three loss legs are required.", assumed)
+        gaps = [name for name in ("cet1_capital", "risk_weighted_assets") if name in unmapped] + ([] if requirement is not None else ["cet1_requirement (assumption)"])
+        scenarios["capital_breach"] = _stress_unavailable("CET1 capital, risk-weighted assets, the stated CET1 requirement and all three loss legs are required" + (f"; input not mapped: {', '.join(gaps)}" if gaps else "") + ".", assumed)
     else:
         stressed_ratio = (cet1 - float(cre_loss) - float(impairment_loss) - float(funding_cost)) / rwa
         scenarios["capital_breach"] = {"status": "available", "confidence": "scenario_only", "assumptions": assumed, "stressed_cet1_ratio": stressed_ratio, "breach": stressed_ratio < requirement, **_STRESS_LABEL}
+    for case in scenarios.values():
+        if case.get("status") == "available":
+            case["source_ids"] = sorted({source for ids in source_ids.values() for source in ids})
     return scenarios
 
 
@@ -2934,6 +2973,7 @@ def _residual_income(values: Mapping[str, float], assumptions: Mapping[str, obje
         opening = float(book)
         earnings = float(net_income)
         value = float(book)
+        dividend_model = 0.0
         roll: list[dict[str, float]] = []
         for year in range(1, years + 1):
             earnings = earnings * (1.0 + growth) if year > 1 else earnings
@@ -2941,9 +2981,18 @@ def _residual_income(values: Mapping[str, float], assumptions: Mapping[str, obje
             closing = opening + earnings - dividends + issuance_value
             roll.append({"year": year, "opening_book": opening, "net_income": earnings, "dividends": dividends, "issuance": issuance_value, "closing_book": closing, "residual_income": earnings - cost * opening})
             value += (earnings - cost * opening) / (1.0 + cost) ** year
+            dividend_model += (dividends - issuance_value) / (1.0 + cost) ** year
             opening = closing
-        terminal_residual = earnings * (1.0 + growth) - cost * opening
-        value += terminal_residual / (cost - growth) / (1.0 + cost) ** years
+        # Terminal state consistent with the growth assumption: earnings, dividends and issuance all grow at g, and book
+        # equity keeps rolling with the retained part. Residual income beyond the horizon is the dividend perpetuity less the
+        # closing book (clean-surplus identity), so the value does not depend on where the explicit horizon ends.
+        terminal_earnings = earnings * (1.0 + growth)
+        terminal_distribution = used_payout * terminal_earnings - issuance_value * (1.0 + growth)
+        terminal_equity_value = terminal_distribution / (cost - growth)
+        terminal_value = terminal_equity_value - opening
+        terminal_residual = terminal_earnings - cost * opening
+        value += terminal_value / (1.0 + cost) ** years
+        dividend_model += terminal_equity_value / (1.0 + cost) ** years
     except (ArithmeticError, OverflowError, ValueError):
         return {**unavailable, "reason": "residual-income calculation produced an invalid value"}
     if not math.isfinite(value):
@@ -2969,7 +3018,12 @@ def _residual_income(values: Mapping[str, float], assumptions: Mapping[str, obje
             "net_issuance_basis": "explicit" if issuance is not None else "default_zero_unevidenced",
             "book_roll": roll,
             "terminal_residual_income": terminal_residual,
+            "terminal_book": opening,
+            "terminal_equity_value": terminal_equity_value,
+            "terminal_value_basis": "dividend perpetuity (earnings, payout and issuance grow at terminal g) less closing book",
         },
+        "dividend_model_value": dividend_model,
+        "dividend_model_reconciliation": {"status": "reconciled" if math.isclose(dividend_model, value, rel_tol=1e-9, abs_tol=1e-9) else "broken", "difference": value - dividend_model},
         "dividend_reconciliation": reconciliation,
         "cash_flow_claim_type": "fcfe",
         "score_eligible": evidenced,
@@ -3459,12 +3513,9 @@ def _model_disagreement(
 ) -> dict[str, object]:
     """Range and pairwise deltas; deltas are reported only between equity-claim values and nothing is ever averaged."""
 
-    scenario_values = [result.get("per_share") for result in (intrinsic.get("scenarios", {}) or {}).values() if isinstance(result, Mapping) and result.get("per_share") is not None]
-    values_list = list(scenario_values)
-    if residual.get("per_share") is not None:
-        values_list.append(residual["per_share"])
     models: dict[str, dict[str, object]] = {}
-    base_scenario = (intrinsic.get("scenarios", {}) or {}).get("base") if isinstance(intrinsic.get("scenarios"), Mapping) else None
+    scenarios = intrinsic.get("scenarios") if isinstance(intrinsic.get("scenarios"), Mapping) else {}
+    base_scenario = scenarios.get("base")
     if isinstance(driver, Mapping) and driver.get("per_share") is not None:
         models["dcf"] = {"per_share": float(driver["per_share"]), "claim": "fcff", "source": "driver_dcf"}
     elif isinstance(base_scenario, Mapping) and base_scenario.get("per_share") is not None:
@@ -3474,6 +3525,10 @@ def _model_disagreement(
     peer_value = _peer_implied_per_share(values or {}, peer_metrics)
     if peer_value is not None:
         models["peer"] = {"per_share": peer_value, "claim": "market_multiple", "source": "peer_price_to_earnings_median"}
+    # Availability and range come from the same resolved, claim-compatible values the deltas use (a proxy is excluded).
+    values_list = [float(item["per_share"]) for item in models.values() if item["claim"] != "proxy"]
+    if models.get("dcf", {}).get("source") == "flat_growth_diagnostic" and models["dcf"]["claim"] != "proxy":
+        values_list += [float(result["per_share"]) for name, result in scenarios.items() if name != "base" and isinstance(result, Mapping) and result.get("per_share") is not None]
     deltas: dict[str, dict[str, object]] = {}
     names = list(models)
     for index, left in enumerate(names):
@@ -3508,36 +3563,57 @@ def _valuation_expiry(
     market_inputs: Mapping[str, object],
     assumptions: Mapping[str, object],
     as_known_at: str | date | None,
+    consumed_metrics: Sequence[str] = (),
 ) -> dict[str, object]:
-    """A valuation built on stale filings, FX or assumptions is provisional (V2-21). No wall clock is read."""
+    """A valuation built on stale filings, FX or assumptions is provisional (V2-21). No wall clock is read.
+    Freshness is assessed per consumed input: an unrelated newer row never refreshes an older model input, and
+    statement, FX or assumption evidence dated after the decision cutoff is rejected rather than given an expiry."""
 
     reference = _parse_utc(as_known_at if as_known_at is not None else market_inputs.get("decision_time"))
     components: dict[str, dict[str, object]] = {}
-    periods = pd.to_datetime(frame["period_end"], errors="coerce", utc=True).dropna() if not frame.empty and "period_end" in frame else pd.Series(dtype="datetime64[ns, UTC]")
-    if len(periods):
-        components["statements"] = {"basis": str(periods.max().date()), "expires_at": (periods.max() + pd.Timedelta(days=_STATEMENT_MAX_AGE_DAYS)).isoformat()}
+    reasons: list[str] = []
+    metric_periods: dict[str, pd.Timestamp] = {}
+    if not frame.empty and {"period_end", "canonical_metric"}.issubset(frame.columns):
+        stamped = frame.assign(_period=pd.to_datetime(frame["period_end"], errors="coerce", utc=True)).dropna(subset=["_period"])
+        for metric in dict.fromkeys(consumed_metrics):
+            rows = stamped.loc[stamped["canonical_metric"].astype(str).eq(metric), "_period"]
+            if reference is not None:
+                future = rows[rows > reference]
+                if len(future):
+                    reasons.append(f"{metric} statement period {future.max().date()} is after the decision cutoff and is rejected")
+                rows = rows[rows <= reference]
+            if len(rows):
+                metric_periods[metric] = rows.max()
+            else:
+                reasons.append(f"no dated, cutoff-eligible statement evidence for consumed input {metric}")
+    if metric_periods:
+        oldest_metric, oldest = min(metric_periods.items(), key=lambda item: item[1])
+        components["statements"] = {"basis": str(oldest.date()), "oldest_input": oldest_metric, "inputs": {name: str(period.date()) for name, period in sorted(metric_periods.items())}, "expires_at": (oldest + pd.Timedelta(days=_STATEMENT_MAX_AGE_DAYS)).isoformat()}
     fx_stamp = _parse_utc(market_inputs.get("currency_conversion_timestamp"))
-    if fx_stamp is not None:
+    if fx_stamp is not None and reference is not None and fx_stamp > reference:
+        reasons.append(f"FX conversion timestamp {fx_stamp.isoformat()} is after the decision cutoff and is rejected")
+    elif fx_stamp is not None:
         components["fx"] = {"basis": fx_stamp.isoformat(), "expires_at": (fx_stamp + pd.Timedelta(days=_FX_MAX_AGE_DAYS)).isoformat()}
     explicit = _parse_utc(assumptions.get("expires_at"))
     assumption_as_of = _parse_utc(assumptions.get("as_of"))
-    if explicit is not None:
+    if assumption_as_of is not None and reference is not None and assumption_as_of > reference:
+        reasons.append(f"assumptions as_of {assumption_as_of.isoformat()} is after the decision cutoff and is rejected")
+    elif explicit is not None:
         components["assumptions"] = {"basis": "explicit expires_at", "expires_at": explicit.isoformat()}
     elif assumption_as_of is not None:
         components["assumptions"] = {"basis": assumption_as_of.isoformat(), "expires_at": (assumption_as_of + pd.Timedelta(days=_ASSUMPTION_MAX_AGE_DAYS)).isoformat()}
     expiries = [_parse_utc(item["expires_at"]) for item in components.values()]
     expires_at = min((item for item in expiries if item is not None), default=None)
-    reasons: list[str] = []
     if reference is None:
         reasons.append("decision time is unavailable; freshness cannot be established")
-    if "statements" not in components:
+    if "statements" not in components and not any("statement" in reason for reason in reasons):
         reasons.append("no dated statement evidence")
     if reference is not None:
         for name, item in components.items():
             limit = _parse_utc(item["expires_at"])
             if limit is not None and reference > limit:
                 reasons.append(f"{name} evidence expired at {limit.isoformat()}")
-    if "assumptions" not in components:
+    if "assumptions" not in components and not any(reason.startswith("assumptions as_of") for reason in reasons):
         reasons.append("assumptions carry no as_of or expires_at date")
     provisional = bool(reasons)
     return {
@@ -3545,6 +3621,7 @@ def _valuation_expiry(
         "expires_at": None if expires_at is None else expires_at.isoformat(),
         "refresh_reason": "; ".join(reasons),
         "components": components,
+        "consumed_inputs": list(dict.fromkeys(consumed_metrics)),
         "reference_time": None if reference is None else reference.isoformat(),
         "defaults": {"statement_max_age_days": _STATEMENT_MAX_AGE_DAYS, "fx_max_age_days": _FX_MAX_AGE_DAYS, "assumption_max_age_days": _ASSUMPTION_MAX_AGE_DAYS},
         "execution_allowed": False,

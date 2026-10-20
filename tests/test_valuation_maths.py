@@ -291,3 +291,125 @@ def test_residual_income_uses_the_shared_cost_of_capital_ledger() -> None:
     assert ledger.cost_of_equity == pytest.approx(0.09) and result["cost_of_equity"] == pytest.approx(0.09)
     assert sr._residual_income(values, {k: v for k, v in capm.items() if k not in {"risk_free_rate", "beta"}})["cost_of_equity"] == 0.08  # no ledger k_e -> discount_rate
     assert sr._residual_income(values, {**capm, "cost_of_equity": None})["status"] == "unavailable"  # explicit None (bank route) still blocks
+
+
+# --- correction pass 1 ---------------------------------------------------------------------------------------
+
+
+def _dividend_model_value(book_roll: list[dict[str, float]], cost: float, growth: float, payout: float, issuance: float, periods: int = 3000) -> float:
+    """Independent check: discounted (dividends - issuance), explicit years then the terminal stream summed term by term."""
+
+    total = sum((row["dividends"] - row["issuance"]) / (1 + cost) ** row["year"] for row in book_roll)
+    last_earnings, horizon = book_roll[-1]["net_income"], len(book_roll)
+    for step in range(1, periods):
+        total += (payout * last_earnings * (1 + growth) ** step - issuance * (1 + growth) ** step) / (1 + cost) ** (horizon + step)
+    return total
+
+
+def test_residual_income_terminal_value_is_horizon_invariant_and_reconciles_to_discounted_dividends() -> None:
+    values = {"equity": 100.0, "net_income": 10.0, "shares_outstanding": 1.0}
+    flat = {"cost_of_equity": 0.10, "terminal_growth": 0.0, "payout_ratio": 0.4, "net_issuance": 0.0}
+    for years in (1, 3, 8):  # retained earnings keep changing book equity: the value is the 4 / 10 % dividend perpetuity
+        assert sr._residual_income(values, {**flat, "forecast_years": years})["equity_value"] == pytest.approx(40.0)
+    growing = {"cost_of_equity": 0.10, "terminal_growth": 0.02, "payout_ratio": 0.4, "net_issuance": 0.0}
+    assert len({round(sr._residual_income(values, {**growing, "forecast_years": years})["equity_value"], 9) for years in (1, 4, 9)}) == 1
+    issued = {**growing, "net_issuance": 1.5, "forecast_years": 4}
+    result = sr._residual_income(values, issued)
+    assert result["equity_value"] == pytest.approx(_dividend_model_value(result["clean_surplus"]["book_roll"], 0.10, 0.02, 0.4, 1.5), rel=1e-6)
+    assert result["dividend_model_reconciliation"]["status"] == "reconciled"
+    assert result["dividend_model_value"] == pytest.approx(result["equity_value"])
+
+
+def _driver_frame(**currencies: str) -> pd.DataFrame:
+    base = {"instrument_id": "ACME", "currency": "USD", "start": "2025-01-01", "end": "2025-12-31", "period_end": "2025-12-31", "filed": "2026-02-01", "available_at": "2026-02-01T00:00:00Z", "consolidation_scope": "consolidated"}
+    rows = [
+        {**base, "canonical_metric": metric, "value": value, "currency": currencies.get(metric, "USD"), "source_id": f"f-{metric}"}
+        for metric, value in (("free_cash_flow", 92.0), ("revenue", 1000.0), ("net_debt", 400.0), ("shares_outstanding", 100.0))
+    ]
+    return pd.DataFrame(rows)
+
+
+def test_strict_driver_dcf_has_its_own_comparability_check_on_revenue_and_the_bridge() -> None:
+    assumptions = _assumptions(cash_flow_claim_type="fcff", wacc=0.092, tax_rate=0.25, driver_dcf={"revenue_growth": 0.02, "operating_margin": 0.2, "incremental_roic": 0.12})
+
+    def run(frame: pd.DataFrame) -> dict[str, object]:
+        return sr.valuation_analysis(frame, instrument_id="ACME", assumptions=assumptions, as_known_at="2026-06-30T00:00:00Z")
+
+    mismatched = run(_driver_frame(revenue="EUR"))  # USD FCF and net debt must not validate an EUR revenue
+    assert mismatched["driver_dcf"]["status"] == "unavailable" and "currency" in mismatched["driver_dcf"]["reason"]
+    assert mismatched["driver_dcf"]["score_eligible"] is False
+    assert run(_driver_frame())["driver_dcf"]["status"] == "available"
+    flat_only_mismatch = run(_driver_frame(free_cash_flow="EUR"))  # free cash flow is not a driver input
+    assert flat_only_mismatch["driver_dcf"]["status"] == "available" and flat_only_mismatch["intrinsic_value"]["status"] == "unavailable"
+    assert run(_driver_frame(net_debt="EUR"))["driver_dcf"]["status"] == "unavailable"  # the bridge is checked with the revenue
+
+
+def test_balance_sheet_analysis_applies_stress_assumptions_from_statement_rows() -> None:
+    base = {"instrument_id": "ACME", "currency": "USD", "start": "2025-01-01", "end": "2025-12-31", "period_end": "2025-12-31", "period_type": "annual", "period_key": "FY2025", "filed": "2026-02-01", "available_at": "2026-02-01T00:00:00Z", "consolidation_scope": "consolidated"}
+
+    def frame(**metrics: float) -> pd.DataFrame:
+        return pd.DataFrame([{**base, "canonical_metric": name, "value": value, "source_id": f"f-{name}"} for name, value in metrics.items()])
+
+    industrial = frame(revenue=1000.0, operating_income=100.0, interest_expense=20.0, debt=400.0, cash=50.0, debt_due_1y=100.0, free_cash_flow=30.0)
+    default = sr.balance_sheet_analysis(industrial, instrument_id="ACME", sector="industrials")["stress_scenarios"]
+    assert default["refinancing_shock"]["stressed_interest"] == pytest.approx(20.0 + 100.0 * 0.02)
+    tuned = sr.balance_sheet_analysis(industrial, instrument_id="ACME", sector="industrials", assumptions={"refinancing_rate_add": 0.05, "fixed_cost_share": 0.8})["stress_scenarios"]
+    assert tuned["refinancing_shock"]["stressed_interest"] == pytest.approx(20.0 + 100.0 * 0.05)
+    assert tuned["recession_operating_leverage"]["assumptions"]["fixed_cost_share"] == 0.8
+    no_schedule = sr.balance_sheet_analysis(frame(revenue=1000.0, operating_income=100.0, interest_expense=20.0, debt=400.0), instrument_id="ACME", sector="industrials")["stress_scenarios"]
+    assert no_schedule["refinancing_shock"]["status"] == "unavailable"
+    bank = frame(cet1_capital=100.0, risk_weighted_assets=1000.0, gross_loans=800.0, cre_exposure=200.0, deposits=900.0, wholesale_funding=100.0)
+    with_requirement = sr.balance_sheet_analysis(bank, instrument_id="ACME", sector="banks", assumptions={"cet1_requirement": 0.09})["stress_scenarios"]
+    assert with_requirement["capital_breach"]["stressed_cet1_ratio"] == pytest.approx(0.0421) and with_requirement["capital_breach"]["breach"] is True
+    assert with_requirement["capital_breach"]["source_ids"]
+    without = sr.balance_sheet_analysis(bank, instrument_id="ACME", sector="banks")["stress_scenarios"]
+    assert without["capital_breach"]["status"] == "unavailable" and "cet1_requirement" in without["capital_breach"]["reason"]
+    unmapped = sr.balance_sheet_analysis(frame(cet1_capital=100.0), instrument_id="ACME", sector="banks", assumptions={"cet1_requirement": 0.09})["stress_scenarios"]
+    assert unmapped["cre_property_stress"]["status"] == "unavailable" and "input not mapped" in unmapped["cre_property_stress"]["reason"]
+
+
+def _input_frame(equity_year: int, other_year: int) -> pd.DataFrame:
+    def row(metric: str, value: float, year: int) -> dict[str, object]:
+        return {"instrument_id": "ACME", "canonical_metric": metric, "value": value, "currency": "USD", "start": f"{year}-01-01", "end": f"{year}-12-31", "period_end": f"{year}-12-31", "filed": f"{year + 1}-02-01", "available_at": f"{year + 1}-02-01T00:00:00Z", "source_id": f"f-{metric}-{year}", "consolidation_scope": "consolidated"}
+
+    return pd.DataFrame([row("equity", 500.0, equity_year), row("net_income", 80.0, equity_year), row("shares_outstanding", 100.0, equity_year), row("revenue", 1000.0, other_year)])
+
+
+def test_expiry_judges_each_consumed_input_and_rejects_future_dated_evidence() -> None:
+    assumptions = {"forecast_years": 5, "terminal_growth": 0.02, "cost_of_equity": 0.09, "payout_ratio": 0.5, "net_issuance": 0.0, "as_of": "2026-01-01T00:00:00Z"}
+
+    def run(frame: pd.DataFrame, fx: str | None = None, **overrides: object) -> dict[str, object]:
+        market = {} if fx is None else {"currency_conversion_timestamp": fx}
+        return sr.valuation_analysis(frame, instrument_id="ACME", assumptions={**assumptions, **overrides}, market_inputs=market, as_known_at="2026-06-30T00:00:00Z", strict_comparability=False)
+
+    stale = run(_input_frame(2023, 2025))  # a newer, unrelated revenue row must not refresh the FY2023 equity/net income
+    assert stale["residual_income"]["status"] == "available"
+    assert stale["expiry"]["status"] == "provisional" and "statements evidence expired" in stale["refresh_reason"]
+    assert stale["expiry"]["components"]["statements"]["basis"] == "2023-12-31"
+    assert run(_input_frame(2025, 2025))["expiry"]["status"] == "current"
+    future_assumption = run(_input_frame(2025, 2025), as_of="2026-09-01T00:00:00Z")
+    assert future_assumption["expiry"]["status"] == "provisional" and "assumptions as_of" in future_assumption["refresh_reason"] and "after the decision cutoff" in future_assumption["refresh_reason"]
+    assert "assumptions" not in future_assumption["expiry"]["components"]
+    future_fx = run(_input_frame(2025, 2025), fx="2026-07-15T00:00:00Z")
+    assert future_fx["expiry"]["status"] == "provisional" and "FX conversion timestamp" in future_fx["refresh_reason"] and "fx" not in future_fx["expiry"]["components"]
+
+
+def test_economic_spread_consumes_only_the_ledger_wacc_when_legacy_aliases_conflict() -> None:
+    from tests.test_stock_research import _statements
+
+    def spread(assumptions: dict[str, object]) -> dict[str, object]:
+        report = sr.build_stock_research_report(_statements(), instrument_id="ACME", sector="industrials", strict_comparability=False, assumptions=assumptions)
+        return report["capital_efficiency"]["reported"]["metrics"]["economic_profit_spread"]
+
+    assert spread({"tax_rate": 0.25, "cost_of_capital": 0.08})["value"] == pytest.approx(20.25 / 86.0 - 0.08)
+    conflicted = spread({"tax_rate": 0.25, "cost_of_capital": 0.08, "discount_rate": 0.10})
+    assert conflicted["value"] is None and conflicted["status"] != "available"
+
+
+def test_model_disagreement_range_and_status_include_driver_and_peer_values() -> None:
+    peers = {"metrics": {"price_to_earnings": {"status": "available", "median": 15.0}}}
+    result = sr._model_disagreement({"status": "unavailable", "scenarios": {}}, {"status": "unavailable"}, driver={"per_share": 20.0}, peer_metrics=peers, values={"net_income": 100.0, "shares_outstanding": 100.0})
+    assert result["deltas"]["dcf_vs_peer"]["status"] == "available"
+    assert result["status"] == "available" and result["range"] == [15.0, 20.0]
+    lone = sr._model_disagreement({"status": "unavailable", "scenarios": {}}, {"status": "unavailable"}, driver={"per_share": 20.0})
+    assert lone["status"] == "unavailable"
