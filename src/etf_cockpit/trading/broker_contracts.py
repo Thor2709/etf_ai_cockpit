@@ -11,12 +11,14 @@ from typing import Generic, Protocol, TypeVar
 class BrokerPosition:
     instrument_id: str
     quantity: Decimal
+    account_id: str | None = None
 
 
 @dataclass(frozen=True)
 class BrokerCash:
     currency: str
     balance: Decimal
+    account_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,9 @@ class BrokerOpenOrder:
     quantity: Decimal
     remaining_quantity: Decimal
     status: str
+    account_id: str | None = None
+    currency: str | None = None
+    limit_price: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -39,6 +44,9 @@ class LocalOpenOrder:
     quantity: Decimal
     remaining_quantity: Decimal
     status: str
+    account_id: str | None = None
+    currency: str | None = None
+    limit_price: Decimal | None = None
 
 
 @dataclass(frozen=True)
