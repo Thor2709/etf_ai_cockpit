@@ -53,7 +53,7 @@ class AuditValidationReport:
 _SECRET_ASSIGNMENT_RE = re.compile(
     r"(?ix)"
     r"(?<![A-Za-z0-9_])"
-    r"(?P<key>(?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|client[_-]?secret|token|secret|password|passwd|authorization|bearer))"
+    r"(?P<key>(?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|signing[_-]?key|token|secret|password|passwd|authorization|bearer))"
     r"\s*(?:[\"']?\s*)?(?:=|:)\s*[\"']?"
     r"(?P<scheme>bearer\s+)?(?P<value>[^\"'\s,;}\]]+)"
 )

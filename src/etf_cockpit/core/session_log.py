@@ -35,7 +35,7 @@ SECRET_KEY_RE = re.compile(
 )
 _SECRET_VALUE_RE = re.compile(
     r"(?ix)"
-    r"(?P<key>api[_-]?key|access[_-]?token|client[_-]?secret|token|secret|password|passwd|authorization|bearer)"
+    r"(?P<key>api[_-]?key|private[_-]?key|signing[_-]?key|refresh[_-]?token|access[_-]?token|client[_-]?secret|credential|token|secret|password|passwd|authorization|bearer)"
     r"(?P<separator>\s*['\"]?\s*[=:]\s*)(?P<quote>['\"]?)(?P<scheme>bearer\s+)?"
     r"(?P<value>[^'\"\s,;}\]]+)"
 )
