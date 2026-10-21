@@ -99,6 +99,7 @@ class FeatureService:
         *,
         publish_guard: PublicationScopeFactory | None = None,
         reference_context: CanonicalReferenceContext | None = None,
+        publish: bool = True,
     ) -> pd.DataFrame:
         settings_identity = current_settings_identity()
         frame = (prices if prices is not None else load_prices(config=self.config)).copy()
@@ -151,6 +152,9 @@ class FeatureService:
             price_bound_run_label(f"features_{effective_as_of.isoformat()}", price_binding, eur_basis.binding),
             settings_identity=settings_identity,
         )
+        if not publish:
+            # Historical as-of scoring (score backfill) computes the same features without touching the live stores.
+            return features
         dataset_bindings: dict[str, object] = {"dataset:prices": dict(price_binding)}
         if eur_basis.binding.get("fx_snapshot_checksum") != FX_NOT_REQUIRED:
             # Only a universe with a non-EUR quote currency depends on an FX series; an EUR-only
