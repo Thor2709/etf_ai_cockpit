@@ -1566,9 +1566,13 @@ def run_backtest(
     stress_multiplier = finite_float_or_none(cost_stress_multiplier)
     if stress_multiplier is None or stress_multiplier < 1.0:
         raise ValueError("cost_stress_multiplier must be finite and at least 1")
-    # Opt-in no-trade band: None or 0 keeps every rebalance order (the historical behaviour, pinned by the golden).
-    # Pass ``config.risks.portfolio_limits.min_trade_value_eur`` to apply the product's configured minimum trade.
-    minimum_trade = 0.0 if min_trade_value_eur is None else finite_float_or_none(min_trade_value_eur)
+    # No-trade band: None applies the configured minimum trade of the risk limits (one policy path with the signal
+    # pipeline and the portfolio sandbox); an explicit 0 opts out and keeps every rebalance order.
+    minimum_trade = (
+        finite_float_or_none(config.risks.portfolio_limits.min_trade_value_eur)
+        if min_trade_value_eur is None
+        else finite_float_or_none(min_trade_value_eur)
+    )
     if minimum_trade is None or minimum_trade < 0:
         raise ValueError("min_trade_value_eur must be finite and non-negative")
     validate_execution_disabled(benchmark_reference or unavailable_reference_projection())

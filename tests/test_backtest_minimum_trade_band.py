@@ -50,9 +50,13 @@ def test_run_backtest_skips_dust_rebalances_and_rejects_a_negative_minimum() -> 
     kwargs = {"rebalance_frequency_days": 42}
     unbanded = run_backtest(config, prices, min_trade_value_eur=0.0, **kwargs)
     banded = run_backtest(config, prices, min_trade_value_eur=1_000_000_000.0, **kwargs)
-    # The band is opt-in: leaving it out keeps every order exactly as before (the golden stays untouched).
+    # Leaving the band out applies the one configured minimum trade (risks.portfolio_limits.min_trade_value_eur).
     default = run_backtest(config, prices, **kwargs)
-    assert default.trade_log.equals(unbanded.trade_log)
+    configured = run_backtest(
+        config, prices, min_trade_value_eur=config.risks.portfolio_limits.min_trade_value_eur, **kwargs
+    )
+    assert default.trade_log.equals(configured.trade_log)
+    assert default.results.equals(configured.results)
 
     def rebalances(report: object, strategy: str) -> int:
         log = report.trade_log  # type: ignore[attr-defined]

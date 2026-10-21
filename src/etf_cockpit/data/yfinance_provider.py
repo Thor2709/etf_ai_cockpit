@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +12,7 @@ from etf_cockpit.core.config import AppConfig, ETFConfig, ProviderSection
 from etf_cockpit.core.paths import RAW_DIR as RAW_DIR
 from etf_cockpit.core.session_log import redact_text
 from etf_cockpit.core.values import dict_or_empty as _safe_dict, years_before
+from etf_cockpit.data.fx_data import stamp_fx_availability
 from etf_cockpit.data.providers import DataProvider, PriceProvider, ProviderResult
 from etf_cockpit.data.provenance import metadata_from_frame
 from etf_cockpit.data.retrieval_batch import BatchRetriever, provider_rate_limiter
@@ -216,6 +217,8 @@ class YFinanceProvider(DataProvider, PriceProvider):
         if not frames:
             return ProviderResult(self.name, "fx", "error", "Yahoo Finance returned no usable FX rows. " + "; ".join(errors))
         data = pd.concat(frames, ignore_index=True).sort_values(["pair", "as_of_date"])
+        # Yahoo daily FX closes are unrevised: a backfill is available at its own close, with the real fetch time kept.
+        data = stamp_fx_availability(data, ingested_at=datetime.now(timezone.utc))
         latest = pd.to_datetime(data["as_of_date"]).max().date()
         metadata = metadata_from_frame(
             data,
