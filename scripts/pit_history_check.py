@@ -55,8 +55,24 @@ def _utc(value: object) -> datetime | None:
     return None if pd.isna(stamp) else stamp.to_pydatetime()
 
 
-def check_stock_store(root: Path, days: Sequence[date]) -> dict[str, object]:
-    """SEC/stock periods: every version the canonical merge shows at a decision time was known by then."""
+def check_decision_window(days: Sequence[date], now: datetime | None = None) -> dict[str, object]:
+    """No replay date may fall in the live grace window, where ``live_decision_time`` returns *now* instead of the day's end."""
+
+    from etf_cockpit.analysis.stock_universe import LIVE_GRACE_DAYS, live_decision_time
+
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    violations = [
+        f"decision date {day} is inside the live grace window ({LIVE_GRACE_DAYS} days before {current.date()}): its decision time would be now"
+        for day in days
+        if live_decision_time(day, current) != decision_time(day)
+    ]
+    return {"live_grace_days": LIVE_GRACE_DAYS, "checked_at": current.isoformat(timespec="seconds"), "violations": violations}
+
+
+def check_stock_store(root: Path, days: Sequence[date], allowed: Mapping[str, set[datetime]] | None = None) -> dict[str, object]:
+    """SEC/stock periods: every version the canonical merge shows at a decision time was known by then.
+
+    An ``esef`` row must be known at a registry ``date_added`` instant of its issuer (when the manifest is given)."""
 
     from etf_cockpit.analysis import stock_metrics as sm
     from etf_cockpit.data import stock_fundamentals as store
@@ -67,7 +83,7 @@ def check_stock_store(root: Path, days: Sequence[date]) -> dict[str, object]:
     if frame.empty:
         result["note"] = "no stock_fundamentals rows"
         return result
-    chain = list((store.load_stock_config(root).get("sources", {}) or {}).get("chain", ["sec_edgar", "yfinance"]))
+    chain = list((store.load_stock_config(root).get("sources", {}) or {}).get("chain", ["sec_edgar", "esef", "yfinance"]))
     sources = sorted({str(item) for item in frame["source"].dropna()})
     result["sources"] = sources
     for source in sources:
@@ -79,6 +95,8 @@ def check_stock_store(root: Path, days: Sequence[date]) -> dict[str, object]:
             violations.append(f"{row.instrument_id} {row.period_end} {row.period_type}: unparseable known_at {row.known_at!r}")
         elif end is not None and str(row.period_type) in {"FY", "Q"} and known.date() < end.date():
             violations.append(f"{row.instrument_id} {row.period_end} {row.period_type}: known_at {known.date()} precedes the period end")
+        if known is not None and str(row.source) == "esef" and allowed is not None and known not in allowed.get(str(row.instrument_id), set()):
+            violations.append(f"{row.instrument_id} {row.period_end}: esef known_at {known.isoformat()} is not a registry date_added")
     result["instruments"] = int(frame["instrument_id"].nunique())
     for instrument_id in sorted({str(item) for item in frame["instrument_id"]}):
         periods = store.periods_for(instrument_id, frame, chain)
@@ -195,7 +213,7 @@ def check_norway_evidence(root: Path, days: Sequence[date], allowed_dates: Mappi
     return {"instruments": len(ids), "stores": [{k: v for k, v in s.items() if k != "violations"} for s in stores], "violations": violations}
 
 
-def run_checks(root: Path, days: Sequence[date]) -> dict[str, object]:
+def run_checks(root: Path, days: Sequence[date], now: datetime | None = None) -> dict[str, object]:
     root = Path(root)
     allowed = _manifest_dates(root / "data" / "pit_history" / "esef_manifest.json")
     report: dict[str, object] = {
@@ -205,13 +223,14 @@ def run_checks(root: Path, days: Sequence[date]) -> dict[str, object]:
         "decision_dates": len(days),
         "decision_time_convention": "end of the UTC decision day (23:59:59), as stock_universe.live_decision_time",
     }
-    report["stock_fundamentals"] = check_stock_store(root, days)
+    report["stock_fundamentals"] = check_stock_store(root, days, allowed)
+    report["decision_window"] = check_decision_window(days, now)
     statements_path = root / "data" / "clean" / "statement_facts.parquet"
     statements = pd.read_parquet(statements_path) if statements_path.is_file() else pd.DataFrame()
     report["statement_facts"] = check_statement_frame(statements, allowed, days, label="data/clean/statement_facts.parquet")
     report["norway_evidence"] = check_norway_evidence(root, days, allowed)
     violations: list[str] = []
-    for key in ("stock_fundamentals", "statement_facts", "norway_evidence"):
+    for key in ("stock_fundamentals", "decision_window", "statement_facts", "norway_evidence"):
         violations.extend(str(item) for item in report[key]["violations"])  # type: ignore[index]
     report["violation_count"] = len(violations)
     report["violations_sample"] = violations[:50]

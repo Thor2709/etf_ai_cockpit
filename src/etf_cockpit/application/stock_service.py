@@ -46,7 +46,7 @@ def refresh_universe_stock_fundamentals(
 
     cfg = store.load_stock_config(root)
     if chain is not None:
-        configured = list((cfg.get("sources", {}) or {}).get("chain", ["sec_edgar", "yfinance"]))
+        configured = list((cfg.get("sources", {}) or {}).get("chain", ["sec_edgar", "esef", "yfinance"]))
         unknown = [name for name in chain if name not in configured]
         if unknown:
             raise ValueError(f"source(s) not in the configured chain {configured}: {unknown}")

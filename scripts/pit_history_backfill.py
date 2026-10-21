@@ -216,12 +216,45 @@ def _append_log(log_path: Path, row: Mapping[str, object]) -> None:
         handle.write(json.dumps(row, sort_keys=True, ensure_ascii=False) + "\n")
 
 
+def apply_isin_overrides(
+    records: Mapping[str, Mapping[str, object]], overrides: Mapping[str, Mapping[str, object]]
+) -> dict[str, dict[str, object]]:
+    """Sandbox-only ISINs (``scripts/pit_verify_isins.py``) fill a missing or unverified store ISIN; a valid store ISIN is never replaced."""
+
+    from etf_cockpit.data.universe_store import is_valid_isin
+
+    out = {key: dict(value) for key, value in records.items()}
+    for instrument_id, override in overrides.items():
+        record = out.get(instrument_id)
+        if record is None or is_valid_isin(str(record.get("isin") or "").strip().upper()):
+            continue
+        if is_valid_isin(str(override.get("isin") or "").strip().upper()):
+            record["isin"] = str(override["isin"]).strip().upper()
+    return out
+
+
+def check_override_leis(
+    leis: dict[str, dict[str, str]], overrides: Mapping[str, Mapping[str, object]], records: Mapping[str, Mapping[str, object]]
+) -> None:
+    """The LEI GLEIF returns for an overridden ISIN must equal the LEI the verification recorded; otherwise nothing is imported."""
+
+    for instrument_id, override in overrides.items():
+        resolved = leis.get(instrument_id)
+        if resolved is None or str(records.get(instrument_id, {}).get("isin") or "").strip().upper() == "" or not resolved.get("lei"):
+            continue
+        if resolved["lei"] != str(override.get("lei") or "").upper():
+            leis[instrument_id] = {"lei": "", "reason": f"lei_unresolved: GLEIF LEI {resolved['lei']} differs from the verified override LEI"}
+        else:
+            resolved["source"] = f"{resolved.get('source', '')}; sandbox ISIN override verified {override.get('verified_at')}"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=os.environ.get("ETF_COCKPIT_ROOT"), required=os.environ.get("ETF_COCKPIT_ROOT") is None)
     parser.add_argument("--universe-csv", type=Path, required=True)
     parser.add_argument("--ids", default="", help="comma separated instrument ids (default: every target)")
     parser.add_argument("--manifest-only", action="store_true", help="resolve LEIs and list registry filings; import nothing")
+    parser.add_argument("--isin-overrides", type=Path, help="sandbox-only verified ISINs (data/pit_history/universe_isin_overrides.json); the universe store is not edited")
     args = parser.parse_args(argv)
     root = Path(args.root).resolve()
     os.environ["ETF_COCKPIT_ROOT"] = str(root)
@@ -235,7 +268,10 @@ def main(argv: list[str] | None = None) -> int:
     history_dir = root / "data" / "pit_history"
     client = OfficialFilingClient(root / "data" / "raw" / "esef")
 
+    overrides = json.loads(args.isin_overrides.read_text(encoding="utf-8")) if args.isin_overrides and args.isin_overrides.is_file() else {}
+    records = apply_isin_overrides(records, overrides)
     leis = resolve_leis(targets, records, client.lookup_lei_by_isin)
+    check_override_leis(leis, overrides, records)
     manifest = build_manifest(leis, client.filings_for_lei)
     history_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = history_dir / "esef_manifest.json"

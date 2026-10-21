@@ -31,7 +31,7 @@ def test_refresh_chain_restriction_keeps_restated_sources_out_of_history(monkeyp
     with pytest.raises(ValueError, match="not in the configured chain"):
         stock_service.refresh_universe_stock_fundamentals(config, chain=("bloomberg",))
 
-    assert seen == [["sec_edgar"], ["sec_edgar", "yfinance"]]
+    assert seen == [["sec_edgar"], ["sec_edgar", "esef", "yfinance"]]
 
 
 def test_esef_import_is_known_from_the_filing_date_not_the_import_time(tmp_path: Path, monkeypatch) -> None:

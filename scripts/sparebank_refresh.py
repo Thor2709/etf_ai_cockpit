@@ -326,8 +326,12 @@ def refresh_sparebanks(
     fetch: bool = True,
     history: bool = False,
     only_ids: set[str] | None = None,
+    write_summary: bool = True,
 ) -> tuple[dict[str, object], ...]:
     """Refresh each enabled configured certificate independently and write a summary.
+
+    ``write_summary=False`` leaves ``sparebank_refresh_summary.json`` untouched (a replay rescoring many past
+    decision dates must not overwrite the live refresh record); ``rescore_sparebanks_at`` sets it.
 
     With ``fetch=False`` no network request is made: the retained evidence is only rescored.
     With ``history=True`` every filing of the issuer is imported (point-in-time backfill, known_at = the registry
@@ -346,7 +350,8 @@ def refresh_sparebanks(
     summaries: list[dict[str, object]] = []
     for record in records:
         bank_evidence = root / "evidence" / "norway" / record.instrument_id
-        bank_evidence.mkdir(parents=True, exist_ok=True)
+        if fetch:  # a rescore-only call creates nothing
+            bank_evidence.mkdir(parents=True, exist_ok=True)
         lei = ""
         filing_date = ""
         reason = ""
@@ -439,6 +444,8 @@ def refresh_sparebanks(
             "reason": reason,
         })
 
+    if not write_summary:
+        return tuple(summaries)
     banks: list[dict[str, object]] = list(summaries)
     summary_path = root / "evidence" / "norway" / "sparebank_refresh_summary.json"
     if only_ids and summary_path.is_file():  # a partial run replaces its own banks and keeps the others' record
@@ -450,6 +457,64 @@ def refresh_sparebanks(
     report = {"generated_at": now, "banks": banks, "execution_allowed": False}
     atomic_write_json(root / "evidence" / "norway" / "sparebank_refresh_summary.json", report)
     return tuple(summaries)
+
+
+def decision_instant(decision: object) -> str:
+    """The decision-time string used by the rescore: a date means the end of that UTC day (23:59:59), as
+    ``stock_universe.live_decision_time`` does; a datetime must be timezone-aware. Anything else fails closed."""
+
+    if isinstance(decision, datetime):
+        moment = decision
+    elif hasattr(decision, "isoformat") and not isinstance(decision, str):  # datetime.date
+        moment = datetime(decision.year, decision.month, decision.day, 23, 59, 59, tzinfo=timezone.utc)  # type: ignore[attr-defined]
+    else:
+        text = str(decision or "").strip()
+        if not text:
+            raise ValueError("decision_time is required")
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if len(text) == 10:  # a bare YYYY-MM-DD
+            moment = moment.replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+    if moment.tzinfo is None:
+        raise ValueError("decision_time must be timezone-aware")
+    return moment.astimezone(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def rescore_sparebanks_at(
+    data_root: Path,
+    decision: object,
+    *,
+    universe_root: Path | None = None,
+    only_ids: set[str] | None = None,
+    rescorer: Callable = _rescore,
+) -> tuple[dict[str, object], ...]:
+    """Per-decision-date rescore hook for a score-history backfill (no network, no summary file).
+
+    Equivalent to ``refresh_sparebanks(data_root, fetch=False, decision_time=D, write_summary=False)``: the retained
+    filing evidence visible at ``D`` (``known_at <= D``) is scored and one score run per certificate is appended to
+    the score history with ``data_as_of_date`` = the decision day. ``decision`` is a date (end of that UTC day), an
+    ISO date or an aware datetime. ``universe_root`` defaults to ``data_root``. Each returned row has
+    ``id``, ``composite``, ``coverage`` and ``reason``; a certificate without a filing known at ``D`` is
+    ``unavailable`` with its reason, never a number. Usage from ``scripts/backfill_score_history.py``::
+
+        from scripts.sparebank_refresh import rescore_sparebanks_at
+        rows = rescore_sparebanks_at(root, decision_day)
+    """
+
+    rows = refresh_sparebanks(
+        Path(data_root),
+        universe_root=Path(universe_root or data_root),
+        decision_time=decision_instant(decision),
+        fetch=False,
+        only_ids=only_ids,
+        rescorer=rescorer,
+        write_summary=False,
+    )
+    # nothing is fetched by design, so the refresh's "not_fetched" marker is not a finding of this call
+    cleaned = []
+    for row in rows:
+        reasons = [part for part in str(row.get("reason") or "").split("; ") if part and part != "not_fetched"]
+        cleaned.append({**row, "reason": "; ".join(reasons)})
+    return tuple(cleaned)
 
 
 def build_parser() -> argparse.ArgumentParser:
