@@ -1,5 +1,6 @@
 """Forecast CLI/cache integration and explicit missing-data publication."""
 
+import pytest
 import importlib
 from pathlib import Path
 import sys
@@ -29,6 +30,7 @@ def _inputs():
     return config, prices, as_of, context
 
 
+@pytest.mark.usefixtures("synthetic_sample_opt_in")
 def test_forecast_runner_output_is_accepted_by_app_loader(monkeypatch, tmp_path):
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "scripts"))
     runner = importlib.import_module("run_forecasts")

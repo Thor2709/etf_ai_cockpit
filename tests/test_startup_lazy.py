@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from datetime import date
 import threading
 
@@ -28,6 +29,7 @@ def _report(service: backtest_service.BacktestService, as_of_date: date | None) 
     )
 
 
+@pytest.mark.usefixtures("synthetic_sample_opt_in")
 def test_snapshot_defers_backtest_and_lazy_result_matches_eager_result(monkeypatch) -> None:
     calls: list[tuple[backtest_service.BacktestService, date | None, object | None]] = []
 
@@ -77,6 +79,7 @@ def _walk(control: object):
             yield from _walk(child)
 
 
+@pytest.mark.usefixtures("synthetic_sample_opt_in")
 def test_backtest_route_loads_on_worker_behind_loading_shell(monkeypatch) -> None:
     started, release, done = threading.Event(), threading.Event(), threading.Event()
     loader_threads: list[str] = []

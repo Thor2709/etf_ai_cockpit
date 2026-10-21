@@ -51,7 +51,7 @@ _SNAPSHOT_TEMPLATE = None
 
 
 @pytest.fixture(scope="module", autouse=True)
-def _snapshot_template():
+def _snapshot_template(synthetic_sample_opt_in_module):
     global _SNAPSHOT_TEMPLATE
     _SNAPSHOT_TEMPLATE = build_snapshot()
     yield

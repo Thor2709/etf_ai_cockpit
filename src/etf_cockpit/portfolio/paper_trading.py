@@ -919,6 +919,11 @@ class PaperLedger:
         with self._lock, self._file_lock():
             return self._cancel_order_locked(order_id, reason=text, occurred_at=occurred_at)
 
+    def cancel_paper_order(self, order_id: str, *, reason: str, occurred_at: datetime | None = None) -> dict[str, object]:
+        """Internal paper-ledger cancellation (rolls back an unfilled local paper order); the one entry for in-package callers."""
+
+        return self.cancel_order(order_id, reason=reason, occurred_at=occurred_at)
+
     def _cancel_order_locked(
         self, order_id: str, *, reason: str, occurred_at: datetime | None = None
     ) -> dict[str, object]:
