@@ -7,7 +7,7 @@ authority, so generated performance cannot silently enter forward evidence.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 import hashlib
 import json
@@ -105,7 +105,8 @@ class SyntheticScenarioGenerator:
 
     def generate(self, spec: SyntheticScenarioSpec = SyntheticScenarioSpec()) -> SyntheticDataset:
         rng = np.random.default_rng(spec.seed)
-        dates = pd.date_range(spec.start_date, periods=spec.periods, freq="D")
+        # Weekday session proxy (no holiday calendar): volatility is annualised over 252 sessions.
+        dates = pd.date_range(spec.start_date, periods=spec.periods, freq="B")
         assets = list(spec.assets)
         regimes = self._regimes(rng, spec.periods, spec.regime_count)
         common = rng.normal(0.0002, spec.annual_volatility / np.sqrt(252), spec.periods)
@@ -169,6 +170,9 @@ class SyntheticScenarioGenerator:
             for name, frame in frames.items()
         }
         prices = dataset.prices
+        price_schema_complete = (not prices.empty) and {"asset", "date", "close", "adjusted_close"}.issubset(prices.columns)
+        # The stored hash is evidence only if it matches the CURRENT frame contents.
+        hash_verified = _stored_hash_matches(dataset)
         observed = pd.to_numeric(prices["adjusted_close"], errors="coerce") if "adjusted_close" in prices else pd.Series(dtype=float)
         closes = pd.to_numeric(prices["close"], errors="coerce") if "close" in prices else pd.Series(dtype=float)
         # NaN is a labelled missing observation; zero, negative or infinite prices are invalid.
@@ -179,8 +183,10 @@ class SyntheticScenarioGenerator:
             )
         )
         return {
-            "status": "pass" if all(synthetic_columns.values()) and invalid_prices == 0 else "fail",
+            "status": "pass" if all(synthetic_columns.values()) and invalid_prices == 0 and price_schema_complete and hash_verified else "fail",
             "invalid_price_values": invalid_prices,
+            "price_schema_complete": bool(price_schema_complete),
+            "dataset_hash_verified": hash_verified,
             "synthetic_labels": synthetic_columns,
             "promotion_eligible": False,
             "seed": dataset.metadata.get("seed"),
@@ -242,14 +248,34 @@ class SyntheticScenarioGenerator:
 
     def _metadata(self, spec: SyntheticScenarioSpec, *frames: pd.DataFrame) -> dict[str, Any]:
         # The hash binds the spec AND the generated content, so any changed value changes the hash.
-        payload = {
-            "generator_version": self.version,
-            "spec": asdict(spec),
-            "frame_rows": [len(frame) for frame in frames],
-            "frame_hashes": [_frame_hash(frame) for frame in frames],
-        }
-        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
-        return {"synthetic": True, "promotion_eligible": False, "generator_version": self.version, "scenario_id": spec.scenario_id, "seed": spec.seed, "spec": asdict(spec), "dataset_hash": hashlib.sha256(encoded).hexdigest()}
+        digest = _dataset_hash(self.version, asdict(spec), frames)
+        return {"synthetic": True, "promotion_eligible": False, "generator_version": self.version, "scenario_id": spec.scenario_id, "seed": spec.seed, "spec": asdict(spec), "dataset_hash": digest}
+
+
+def _dataset_hash(version: str, spec: Mapping[str, Any], frames: Sequence[pd.DataFrame]) -> str:
+    payload = {
+        "generator_version": version,
+        "spec": dict(spec),
+        "frame_rows": [len(frame) for frame in frames],
+        "frame_hashes": [_frame_hash(frame) for frame in frames],
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _stored_hash_matches(dataset: SyntheticDataset) -> bool:
+    """Recompute the content hash from the current frames (order as in ``generate``)."""
+
+    stored = dataset.metadata.get("dataset_hash")
+    spec = dataset.metadata.get("spec")
+    version = dataset.metadata.get("generator_version")
+    if not isinstance(stored, str) or not isinstance(spec, Mapping) or not isinstance(version, str):
+        return False
+    frames = (dataset.prices, dataset.corporate_actions, dataset.data_quality, dataset.provider_conflicts, dataset.execution_events)
+    try:
+        return _dataset_hash(version, spec, frames) == stored
+    except (TypeError, ValueError):
+        return False
 
 
 def _frame_hash(frame: pd.DataFrame) -> str:
