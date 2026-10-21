@@ -1378,6 +1378,49 @@ def _instrument_operational_evidence(
     }
 
 
+SIGNAL_WEIGHT_STEP = 0.02
+
+
+def _signal_weight_action(signal: object) -> str:
+    """Map a published advisory action to the explicit backtest weight action.
+
+    ``advisory_action`` publishes both ``trim`` and ``sell`` as ``trim_candidate``;
+    the sell is the advisory whose suggested new weight is zero, so it exits the
+    position instead of becoming a 2% trim.  Anything else is ``hold`` (no change).
+    """
+
+    action = str(getattr(signal, "action", ""))
+    if action == "sell":
+        return "sell"
+    if action in {"trim", "trim_candidate"}:
+        suggested = finite_float_or_none(getattr(signal, "suggested_new_weight", None))
+        return "sell" if suggested is not None and suggested <= 0.0 else "trim"
+    if action in {"buy", "add", "add_candidate"}:
+        return "add"
+    return "hold"
+
+
+def _next_signal_weights(current: pd.Series, target: pd.Series, actions: Mapping[str, str]) -> pd.Series:
+    """Apply per-instrument weight actions; weight not held stays implicit cash.
+
+    Weights above 100% are scaled down; weights below 100% keep the remainder as
+    cash (it is not redistributed over the other positions).
+    """
+
+    weights = current.copy()
+    for etf_id, action in actions.items():
+        if etf_id not in weights.index:
+            continue
+        if action == "add":
+            weights[etf_id] = min(float(target.get(etf_id, 0.0)) * 1.20, weights[etf_id] + SIGNAL_WEIGHT_STEP)
+        elif action == "trim":
+            weights[etf_id] = max(0.0, weights[etf_id] - SIGNAL_WEIGHT_STEP)
+        elif action == "sell":
+            weights[etf_id] = 0.0
+    total = float(weights.sum())
+    return weights / total if total > 1.0 else weights
+
+
 def _holdings_from_weights(weights: pd.Series, price_row: pd.Series, portfolio_value: float, as_of: date) -> pd.DataFrame:
     rows = []
     for etf_id, weight in weights.items():
@@ -1538,6 +1581,13 @@ def run_backtest(
         metadata["data_warning"] = "Incomplete adjusted-price rows were excluded; no forward-fill was applied."
     metadata["excluded_short_history_instruments"] = list(short_history_ids)
     metadata["universe_ids"] = list(columns)
+    # With no configured target weight for the universe every target-based strategy
+    # allocates equally; that substitution is recorded, never silent.
+    configured_targets = config.targets.positions
+    targets_configured = any(
+        column in configured_targets and float(configured_targets[column].target_weight) > 0.0 for column in columns
+    )
+    metadata["target_weight_source"] = "configured" if targets_configured else "equal_weight_fallback_no_targets"
     survivorship_reasons = []
     pit_membership_verified = _point_in_time_membership_verified(point_in_time_membership_evidence)
     if not pit_membership_verified:
@@ -1965,7 +2015,13 @@ def run_backtest(
                 if not latest.empty and "etf_id" in latest.columns
                 else pd.DataFrame()
             )
-            holdings = _holdings_from_weights(weights["signal_strategy"], pivot.iloc[i], equity["signal_strategy"][-1], dt.date())
+            # Signals see what is actually held (drifted with prices), not the stale target of the last fill.
+            holdings = _holdings_from_weights(
+                actual_weights["signal_strategy"].reindex(columns).fillna(0.0),
+                pivot.iloc[i],
+                equity["signal_strategy"][-1],
+                dt.date(),
+            )
             report = validate_prices(truncated_prices, as_of_date=dt.date(), min_history_days=180)
             if report.status == "Blocked":
                 report = DataQualityReport(as_of_date=dt.date(), issues=[issue for issue in report.issues if issue.code != "insufficient_history"])
@@ -1997,6 +2053,7 @@ def run_backtest(
             )
             signal_weight = weights["signal_strategy"].copy()
             target = target_weights(config, columns)
+            signal_actions: dict[str, str] = {}
             for signal in signals:
                 if signal.etf_id not in column_set:
                     continue  # disabled/unscorable instruments are outside the backtest universe (and the cache contract)
@@ -2026,16 +2083,8 @@ def run_backtest(
                         ),
                     }
                 )
-                if signal.etf_id not in signal_weight:
-                    continue
-                if signal.action in {"buy", "add", "add_candidate"}:
-                    signal_weight[signal.etf_id] = min(target[signal.etf_id] * 1.20, signal_weight[signal.etf_id] + 0.02)
-                elif signal.action in {"trim", "trim_candidate"}:
-                    signal_weight[signal.etf_id] = max(0.0, signal_weight[signal.etf_id] - 0.02)
-                elif signal.action == "sell":
-                    signal_weight[signal.etf_id] = 0.0
-            total_signal = signal_weight.sum()
-            new_weights["signal_strategy"] = signal_weight / total_signal if total_signal > 0 else signal_weight
+                signal_actions[signal.etf_id] = _signal_weight_action(signal)
+            new_weights["signal_strategy"] = _next_signal_weights(signal_weight, target, signal_actions)
 
             execution_dt = pivot.index[i + 1]
             pending_execution_date = execution_dt
@@ -2288,7 +2337,13 @@ def run_backtest(
         metrics["average_trade_eur"] = float(initial_value_eur * (sum(float(row["turnover"]) for row in filled_trades) / max(len(filled_trades), 1)))
         metrics["median_holding_period_days"] = float(rebalance_frequency_days)
         metrics["turnover_annualised"] = float(turnover[name] / years)
-        metrics["worst_12m_return"] = float(returns_252d.min()) if returns_252d.notna().any() else 0.0
+        # Fewer than 253 equity observations have no 12-month window: unavailable, never 0.
+        worst_12m_available = bool(returns_252d.notna().any())
+        metrics["worst_12m_return"] = float(returns_252d.min()) if worst_12m_available else None
+        metrics["worst_12m_return_status"] = "available" if worst_12m_available else "unavailable"
+        metrics["worst_12m_return_reason"] = (
+            "" if worst_12m_available else f"at least 253 equity observations are required, got {len(equity_curves[name])}"
+        )
         strategy_returns = _log_equity_returns(equity_curves[name])
         metrics["probabilistic_sharpe"] = _probabilistic_sharpe(strategy_returns)
         metrics["deflated_sharpe"] = _deflated_sharpe(metrics["sharpe"], len(strategies), len(strategy_returns))
