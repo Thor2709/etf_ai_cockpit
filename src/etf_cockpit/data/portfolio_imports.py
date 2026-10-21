@@ -31,7 +31,7 @@ from etf_cockpit.data.identity_master import (
     IdentityMasterSchemaError,
     IdentityMasterStore,
 )
-from etf_cockpit.data.import_export import ImportPreview, ImportService
+from etf_cockpit.data.import_export import BoundedPreviewRegistry, ImportPreview, ImportService
 from etf_cockpit.data.local_storage import StorageSchemaError, TransactionalStore
 
 
@@ -194,7 +194,7 @@ class PortfolioRebuild:
     execution_allowed: bool = False
 
 
-_PREVIEWS: dict[str, ImportPreview] = {}
+_PREVIEWS: BoundedPreviewRegistry = BoundedPreviewRegistry()
 
 
 class PortfolioImportStore:

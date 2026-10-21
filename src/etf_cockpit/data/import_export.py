@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -40,7 +41,25 @@ class ImportCommitResult:
     execution_allowed: bool = False
 
 
-_PREVIEWS: dict[str, ImportPreview] = {}
+PREVIEW_REGISTRY_LIMIT = 16
+
+
+class BoundedPreviewRegistry(OrderedDict):
+    """Insertion-ordered preview registry that evicts the oldest previews beyond ``limit`` (previews hold DataFrames)."""
+
+    def __init__(self, limit: int = PREVIEW_REGISTRY_LIMIT) -> None:
+        super().__init__()
+        self.limit = max(1, int(limit))
+
+    def __setitem__(self, key: str, value: ImportPreview) -> None:
+        super().__setitem__(key, value)
+        self.move_to_end(key)
+        while len(self) > self.limit:
+            self.popitem(last=False)
+
+
+# Process-wide fallback only: the page-owned ``ImportService`` registry is consulted first and both are bounded.
+_PREVIEWS: BoundedPreviewRegistry = BoundedPreviewRegistry()
 
 _ALIASES = {
     "broker": "broker",
@@ -120,7 +139,7 @@ def validate_import(import_type: str, path: Path) -> ImportPreview:
 class ImportService:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
-        self._previews: dict[str, ImportPreview] = {}
+        self._previews: BoundedPreviewRegistry = BoundedPreviewRegistry()
 
     def register(self, preview: ImportPreview) -> None:
         self._previews[preview.preview_id] = preview
