@@ -101,6 +101,21 @@ def _signed_manifest_status(root: Path, release_commit: str) -> tuple[str, str]:
     git_payload = manifest.get("git")
     if not isinstance(git_payload, dict) or git_payload.get("head") != release_commit:
         return "blocked", "ISSUE-0152 release manifest does not match the current release commit"
+    failures = manifest.get("failures")
+    checks = manifest.get("checks")
+    if not isinstance(failures, list) or not isinstance(checks, list) or not checks:
+        return "blocked", "ISSUE-0152 release manifest does not record its gate failures and checks"
+    if failures:
+        return "blocked", f"ISSUE-0152 release manifest records {len(failures)} gate failure(s)"
+    if manifest.get("waived_mandatory_checks"):
+        return "blocked", "ISSUE-0152 release manifest waived mandatory checks (diagnostic run)"
+    not_passed = sorted(
+        str(check.get("name", "unknown"))
+        for check in checks
+        if not isinstance(check, dict) or (check.get("required") and check.get("status") != "passed")
+    )
+    if not_passed:
+        return "blocked", "ISSUE-0152 release manifest has required checks that did not pass: " + ", ".join(not_passed)
     return "passed", "signed release manifest matches the current candidate"
 
 

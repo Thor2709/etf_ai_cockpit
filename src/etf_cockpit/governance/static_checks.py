@@ -55,9 +55,12 @@ _EXCLUDED_ROOT_DIRECTORIES = frozenset(
     }
 )
 _EXCLUDED_ARCHIVE_PREFIXES = (Path("docs") / "product-completion" / "sources",)
+_SCRIPT_SUFFIXES = frozenset({".bat", ".cmd", ".ps1", ".sh"})
 _TEXT_SUFFIXES = frozenset(
     {
+        ".bat",
         ".cfg",
+        ".cmd",
         ".env",
         ".ini",
         ".json",
@@ -67,7 +70,9 @@ _TEXT_SUFFIXES = frozenset(
         ".p12",
         ".pem",
         ".pfx",
+        ".ps1",
         ".py",
+        ".sh",
         ".toml",
         ".txt",
         ".yaml",
@@ -473,6 +478,40 @@ def _is_safe_local_order_node(relative_path: str, node: ast.AST, parents: Mappin
             parent = parents.get(id(node))
             return isinstance(parent, ast.Assign) and isinstance(parent.value, ast.Constant) and parent.value.value == "broker_adapter"
     return False
+
+
+_SCRIPT_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+_SCRIPT_AUTHORITY = re.compile(r"(?i)\b(execution_allowed|executable_authority)\b[\s\"']*[=:][\s\"']*(true|1|yes|on)\b")
+
+
+def _scan_script(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
+    """Inspect shell/batch/PowerShell text for order symbols, broker SDKs and enabled execution authority."""
+
+    violations: list[BoundaryViolation] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        authority = _SCRIPT_AUTHORITY.search(line)
+        if authority:
+            violations.append(
+                _violation(
+                    root,
+                    path,
+                    "SCRIPT_EXECUTION_AUTHORITY_ENABLED",
+                    "Scripts must not enable execution authority.",
+                    evidence=authority.group(0),
+                    line=number,
+                )
+            )
+        for token in _SCRIPT_TOKEN.findall(line):
+            symbol = _normalise_symbol(token)
+            if symbol in _PROHIBITED_ORDER_SYMBOLS:
+                violations.append(
+                    _violation(root, path, "SCRIPT_PROHIBITED_ORDER_SYMBOL", "Scripts must not reference order-routing symbols.", evidence=token, line=number)
+                )
+            elif symbol in _PROHIBITED_IMPORTS or token.lower() in _PROHIBITED_DEPENDENCIES:
+                violations.append(
+                    _violation(root, path, "SCRIPT_PROHIBITED_BROKER_PACKAGE", "Scripts must not install or run broker SDKs.", evidence=token, line=number)
+                )
+    return violations
 
 
 def _scan_python(root: Path, path: Path, text: str) -> list[BoundaryViolation]:
@@ -1187,6 +1226,8 @@ def run_static_execution_boundary_check(root: Path) -> ExecutionBoundaryReport:
             continue
         if path.suffix.lower() == ".py":
             violations.extend(_scan_python(root, path, text))
+        if path.suffix.lower() in _SCRIPT_SUFFIXES:
+            violations.extend(_scan_script(root, path, text))
         if path.suffix.lower() in _CONFIG_SUFFIXES or _is_env_file(path):
             violations.extend(_scan_config(root, path, text))
         if _is_dependency_manifest(path):
