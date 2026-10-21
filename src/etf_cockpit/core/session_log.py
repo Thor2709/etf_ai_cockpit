@@ -7,6 +7,7 @@ import re
 import threading
 import traceback
 import uuid
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -405,7 +406,14 @@ def _redact(value: Any) -> Any:
         return tuple(_redact(item) for item in value)
     if isinstance(value, str):
         return redact_text(value)
-    return value
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, Mapping):
+        return _redact(dict(value))
+    if isinstance(value, (set, frozenset)):
+        return sorted((_redact(item) for item in value), key=repr)
+    # Arbitrary objects would otherwise reach json.dumps(default=str) unredacted via their repr/str.
+    return redact_text(str(value))
 
 
 def redact_text(value: str) -> str:
