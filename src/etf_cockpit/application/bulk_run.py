@@ -32,6 +32,7 @@ from etf_cockpit.core.job_scheduler import (
     JobRecord,
     JobSpec,
     JobStatus,
+    _TRUNCATION_KEY,
     _safe_outputs,
 )
 from etf_cockpit.core.resource_profiles import ResourcePolicy
@@ -66,6 +67,9 @@ class BulkAnalysisService:
         )
         self._stage_cache: dict[str, dict[str, object]] = {}
         self._stage_cache_lock = threading.Lock()
+        # The scheduler persists a bounded (100-item, redacted) copy of every job payload for display and logging.
+        # Analysis must never run on that copy, so the full inputs of runs started by this service stay in memory.
+        self._full_inputs: dict[str, dict[str, object]] = {}
 
     def start(
         self,
@@ -172,6 +176,7 @@ class BulkAnalysisService:
             )
             for index, (instrument_id, analysis_input) in enumerate(sorted(inputs.items()))
         )
+        self._full_inputs[run_id] = dict(inputs)
         self.scheduler.submit(
             self.workflow_type,
             "Bulk instrument analysis",
@@ -249,7 +254,7 @@ class BulkAnalysisService:
         if not callable(stage_runner):
             raise TypeError("stage_runner must be callable for a profile-depth upgrade")
         parent_inputs = {
-            job.inputs.get("instrument_id"): job.inputs["analysis_input"]
+            job.inputs.get("instrument_id"): self._full_analysis_input(run_id, job)
             for job in self.scheduler.list_jobs(run_id)
             if isinstance(job.inputs, Mapping)
             and isinstance(job.inputs.get("instrument_id"), str)
@@ -433,12 +438,13 @@ class BulkAnalysisService:
         instrument_id = self._instrument_id(job)
         if "analysis_input" not in job.inputs:
             raise ValueError(f"analysis input is unavailable for {instrument_id}")
+        analysis_input = self._full_analysis_input(context.workflow_id, job)
         workflow = self._require_run(context.workflow_id)
         depth_payload = self._stored_depth_payload(workflow)
         if depth_payload is None:
             if not callable(analyze):
                 raise TypeError("analyze must be callable for a legacy bulk run")
-            return self.analyze_individual(instrument_id, job.inputs["analysis_input"], analyze)
+            return self.analyze_individual(instrument_id, analysis_input, analyze)
         if not callable(stage_runner):
             raise TypeError("stage_runner must be callable for a profile-depth run")
         profile = profile_from_dict(depth_payload.get("profile"))
@@ -448,7 +454,7 @@ class BulkAnalysisService:
             output, records = execute_profiled_stages(
                 profile,
                 instrument_id,
-                job.inputs["analysis_input"],
+                analysis_input,
                 self._stored_analyzer_id(workflow),
                 stage_runner,
                 self._stage_cache,
@@ -465,6 +471,21 @@ class BulkAnalysisService:
             raise
         append_timing_records(self.scheduler.root, records)
         return output
+
+    def _full_analysis_input(self, run_id: str, job: JobRecord) -> object:
+        """Return the complete analysis input, or fail closed when only the bounded stored copy exists."""
+
+        instrument_id = self._instrument_id(job)
+        held = self._full_inputs.get(run_id)
+        if held is not None and instrument_id in held:
+            return held[instrument_id]
+        stored = job.inputs["analysis_input"]  # type: ignore[index]
+        if _has_truncation_marker(stored):
+            raise ValueError(
+                f"analysis input for {instrument_id} is unavailable: only the bounded stored copy "
+                "(truncation marker present) remains, and analysis never runs on truncated data"
+            )
+        return stored
 
     def _require_run(self, run_id: str):
         workflow = self.scheduler.get_workflow(run_id)
@@ -577,6 +598,11 @@ class BulkAnalysisService:
                 continue
             instrument_id = job.inputs.get("instrument_id")
             analysis_input = job.inputs.get("analysis_input")
+            held = self._full_inputs.get(run_id, {})
+            if isinstance(instrument_id, str) and instrument_id in held:
+                analysis_input = held[instrument_id]
+            elif _has_truncation_marker(analysis_input):
+                continue  # a bounded copy cannot reproduce the cache key of the real input
             stage_outputs = job.outputs.get("stages")
             stage_hashes = job.outputs.get("stage_hashes")
             if not isinstance(instrument_id, str) or not isinstance(stage_outputs, Mapping) or not isinstance(stage_hashes, Mapping):
@@ -627,6 +653,16 @@ class BulkAnalysisService:
                 if isinstance(cached, Mapping) and isinstance(cached.get("content_hash"), str):
                     hashes.add(str(cached["content_hash"]))
         return tuple(sorted(hashes))
+
+
+def _has_truncation_marker(value: object) -> bool:
+    """True when ``value`` is a job-payload copy bounded by the scheduler (carries a ``__truncated__`` marker)."""
+
+    if isinstance(value, Mapping):
+        return _TRUNCATION_KEY in value or any(_has_truncation_marker(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_has_truncation_marker(item) for item in value)
+    return False
 
 
 PROFILE_RANK = {"quick": 0, "medium": 1, "high": 2, "full": 3}
