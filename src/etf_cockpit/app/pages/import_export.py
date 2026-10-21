@@ -92,6 +92,15 @@ def _table_cell(value: object) -> object:
         return value
 
 
+def fx_status_text(conversions: object) -> str:
+    """FX line for the reconciliation status: no conversions means FX was not assessed, never ``0 missing``."""
+    items = tuple(conversions or ())
+    if not items:
+        return "FX not assessed"
+    unresolved = sum(1 for item in items if getattr(item, "status", "") in {"missing", "conflicted"})
+    return f"FX unresolved={unresolved} of {len(items)}"
+
+
 def import_export_page(page: ft.Page, state: AppState) -> PageView:
     picker = ft.FilePicker(key="import-export.import.file-picker")
     try:
@@ -304,7 +313,7 @@ def import_export_page(page: ft.Page, state: AppState) -> PageView:
                     staging_report.value = f"Staging counts={counts}; reconciliation exceptions={exceptions.to_dict(orient='records') or 'none'}. Identity ambiguities remain quarantined."
                     staging_report.color = theme.AMBER if counts.get("quarantined", 0) else theme.GREEN
             else:
-                selected_preview = validate_import(str(selections["import_type"] or "broker"), source)
+                selected_preview = validate_import(str(selections["import_type"] or "broker"), source, retain=False)
         finally:
             if upload_directory is not None:
                 upload_directory.cleanup()
@@ -406,8 +415,7 @@ def import_export_page(page: ft.Page, state: AppState) -> PageView:
                 f"Canonical replay: {len(replay.positions)} positions, {len(replay.cash)} cash balances, "
                 f"{len(replay.trial_balance)} trial-balance rows; balanced={replay.trial_balance_balanced}; "
                 f"source matched={result.matched_source_rows}/{result.active_source_rows}; "
-                f"discrepancies={len(result.discrepancies)} {issues}; missing FX="
-                f"{sum(item.status == 'missing' for item in replay.fx_conversions)}; "
+                f"discrepancies={len(result.discrepancies)} {issues}; {fx_status_text(replay.fx_conversions)}; "
                 f"missing lots={list(replay.missing_lot_identity)}; execution_allowed=false."
             )
             reconciliation_status.color = theme.GREEN if replay.trial_balance_balanced and not result.discrepancies and not replay.missing_lot_identity else theme.AMBER
@@ -631,6 +639,20 @@ def import_export_page(page: ft.Page, state: AppState) -> PageView:
         except Exception as exc:
             show(f"Backup failed: {type(exc).__name__}: {redact_text(str(exc))}.", colour=theme.RED)
 
+    def restore_path_changed(_event: ft.ControlEvent | None = None) -> None:
+        """A preview is bound to the archive it validated; editing the path field drops it (fail closed)."""
+        nonlocal restore_preview
+        if restore_preview is None or str(restore_preview.archive) == str(Path(restore_path.value or "")):
+            return
+        restore_preview = None
+        set_restore_controls(False, False)
+        restore_summary.value = "Restore archive path changed; validate a new restore preview before committing."
+        restore_status.value = "Restore preview discarded because the archive path changed; nothing was written."
+        restore_status.color = theme.MUTED
+        page.update()
+
+    restore_path.on_change = restore_path_changed
+
     def validate_restore_preview(_event: ft.ControlEvent) -> None:
         nonlocal restore_preview
         archive = Path(restore_path.value or "")
@@ -648,6 +670,9 @@ def import_export_page(page: ft.Page, state: AppState) -> PageView:
             restore_summary.value = "Restore commit is blocked until a valid preview is available."
             restore_status.color = theme.RED
             page.update()
+            return
+        if str(restore_preview.archive) != str(Path(restore_path.value or "")):
+            restore_path_changed(None)
             return
         result = commit_restore(restore_preview, ROOT)
         restore_status.value = f"Restore {'complete' if result.ok else 'failed'} at {result.destination}; {result.error or f'{result.restored} files'}."
