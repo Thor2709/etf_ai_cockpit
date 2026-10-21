@@ -263,7 +263,7 @@ def build_coverage(root: Path, audit_csv: Path, days: Sequence[date]) -> list[di
         for line in log_path.read_text(encoding="utf-8").splitlines():
             row = json.loads(line)
             log[(str(row["instrument_id"]), str(row["filing_id"]))] = row  # the last outcome of a filing wins
-    summary_path = root / "evidence" / "norway" / "sparebank_refresh_summary.json"
+    summary_path = root / "evidence" / "norway" / "sparebank_history_summary.json"
     banks = {str(item["id"]): item for item in json.loads(summary_path.read_text(encoding="utf-8")).get("banks", [])} if summary_path.is_file() else {}
     stock = store.read_fundamentals(root)
     with Path(audit_csv).open(newline="", encoding="utf-8") as handle:

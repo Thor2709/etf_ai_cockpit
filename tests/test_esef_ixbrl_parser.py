@@ -568,3 +568,19 @@ def test_html_report_in_the_catalog_layout_is_accepted(tmp_path: Path, monkeypat
     result = parse_esef_package(package)
 
     assert result.success is True and result.records
+
+
+def test_report_package_layout_still_accepts_an_html_report_and_caps_it(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(esef_ixbrl, "_arelle_available", lambda: False)
+
+    def package(report: str) -> Path:
+        path = tmp_path / f"rp-{len(report)}.xbri"
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("META-INF/reportPackage.json", "{}")
+            archive.writestr("filing/report.html", report)  # an .html report outside reports/, as packages imported before HDP2
+        return path
+
+    assert parse_esef_package(package(_MINIMAL_REPORT)).success is True
+    monkeypatch.setattr(esef_ixbrl, "MAX_MEMBER_BYTES", 2_000)
+    rejected = parse_esef_package(package(_MINIMAL_REPORT.replace("</body>", "<!-- " + "x" * 3_000 + " --></body>")))
+    assert rejected.success is False and any(w.code == "archive_too_large" for w in rejected.warnings)

@@ -91,7 +91,7 @@ def test_positive_nci_keeps_only_explicitly_parent_attributed_income() -> None:
 def test_refresh_reads_the_esef_source_without_network_and_skips_issuers_without_facts(tmp_path: Path) -> None:
     calls: list[str] = []
 
-    def esef_fetch(instrument_id: str, config: dict) -> src.FetchResult:
+    def esef_fetch(instrument_id: str, config: dict, root=None) -> src.FetchResult:  # noqa: ANN001
         calls.append(instrument_id)
         if instrument_id == "NOFACTS":
             return src.FetchResult("esef", status="unavailable", reason="none imported")
@@ -206,3 +206,49 @@ def test_parent_income_never_comes_from_total_profit_loss() -> None:
     only_total = facts[facts["concept"] != "ProfitLossAttributableToOwnersOfParent"]
     row = src.parse_esef_statement_facts(only_total, config, source_ref="t")[0]
     assert "net_income_parent" not in row and "net_income_parent" not in json.loads(row.get("value_status", "{}"))
+
+
+def test_fetch_esef_reads_the_callers_root_not_the_process_wide_store(tmp_path: Path, monkeypatch) -> None:
+    own, other = tmp_path / "own", tmp_path / "global.parquet"
+    (own / "data" / "clean").mkdir(parents=True)
+    _facts().assign(instrument_id="XX").to_parquet(own / "data" / "clean" / "statement_facts.parquet")
+    _facts().assign(instrument_id="XX", value=1.0).to_parquet(other)  # a different process-wide file with other numbers
+    monkeypatch.setattr(src, "STATEMENT_FACTS_PATH", other)
+
+    rooted = src.fetch_esef("XX", CONFIG, root=own)
+    assert rooted.rows[0]["revenue"] == 100.0
+    assert src.fetch_esef("XX", CONFIG).rows[0]["revenue"] == 1.0  # the global path only without a root
+    empty_root = tmp_path / "empty"
+    assert src.fetch_esef("XX", CONFIG, root=empty_root).status == "unavailable"  # no silent fallback to the global file
+
+
+def test_parent_income_exception_applies_to_esef_rows_only() -> None:
+    frame = pd.DataFrame([{
+        "instrument_id": "T", "period_end": "2023-12-31", "period_type": "FY", "source": "yfinance", "currency": "EUR",
+        "known_at": FIRST, "net_income_parent": 10.0, "minority_interest": 5.0, "revenue": 100.0,
+        "value_status": json.dumps({"net_income_parent": "observed"}),  # a non-ESEF source cannot claim the exception
+    }])
+    assert "net_income_parent" not in store.periods_for("T", frame, ["sec_edgar", "esef", "yfinance"])[-1].values
+
+
+def test_history_run_writes_its_own_summary_and_leaves_the_live_record(tmp_path: Path) -> None:
+    from scripts import sparebank_refresh as sr
+
+    live = tmp_path / "evidence" / "norway" / "sparebank_refresh_summary.json"
+    live.parent.mkdir(parents=True)
+    live.write_text(json.dumps({"banks": [{"id": "MING", "composite": 7.5, "coverage": 0.4}]}), encoding="utf-8")
+    record = type("R", (), {"instrument_id": "MING", "name": "Ming", "lei": "L", "ticker": "MING", "isin": "", "enabled": True})()
+
+    class Client:
+        def filings_for_lei(self, lei):  # noqa: ANN001, ANN201
+            return ()
+
+    original, resolver = sr.load_sparebank_records, sr._resolve_lei
+    sr.load_sparebank_records, sr._resolve_lei = (lambda root: (record,)), (lambda *a, **k: "L")
+    try:
+        sr.refresh_sparebanks(tmp_path, universe_root=tmp_path, client=Client(), history=True)
+    finally:
+        sr.load_sparebank_records, sr._resolve_lei = original, resolver
+
+    assert json.loads(live.read_text(encoding="utf-8"))["banks"][0]["composite"] == 7.5
+    assert (live.parent / "sparebank_history_summary.json").is_file()

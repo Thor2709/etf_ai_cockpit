@@ -910,12 +910,15 @@ def fetch_esef(
     *,
     facts: pd.DataFrame | None = None,
     facts_path: Path | None = None,
+    root: Path | None = None,
 ) -> FetchResult:
-    """ESEF/IFRS annual periods for one instrument from the imported statement-facts store (no network)."""
+    """ESEF/IFRS annual periods for one instrument from the imported statement-facts store (no network).
+
+    With ``root`` the store is ``<root>/data/clean/statement_facts.parquet``; the process-wide path is used only without one."""
 
     result = FetchResult(ESEF_SOURCE)
     if facts is None:
-        path = Path(facts_path or STATEMENT_FACTS_PATH)
+        path = Path(facts_path) if facts_path else (Path(root) / "data" / "clean" / "statement_facts.parquet" if root else Path(STATEMENT_FACTS_PATH))
         if not path.exists():
             result.status, result.reason = "unavailable", f"no ESEF statement facts store at {path}"
             return result

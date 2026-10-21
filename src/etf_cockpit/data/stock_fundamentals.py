@@ -371,7 +371,8 @@ def _merged_view(
     # may restore income removed by a newer filing's ownership-scope guard.
     # The one exception is a source that verified the attribution itself and said so with an explicit
     # ``observed`` state on the field (ESEF: ProfitLossAttributableToOwnersOfParent is parent-only by definition).
-    blocked_parent_income = (values.get("minority_interest") or 0.0) > 0.0 and field_status.get("net_income_parent") != "observed"
+    verified_parent_income = field_sources.get("net_income_parent") == "esef" and field_status.get("net_income_parent") == "observed"
+    blocked_parent_income = (values.get("minority_interest") or 0.0) > 0.0 and not verified_parent_income
     if blocked_parent_income:
         for name in ("net_income_parent", "_net_income_parent_currency", "_net_income_parent_known_at"):
             values.pop(name, None)
@@ -578,7 +579,7 @@ def refresh_stock_fundamentals(
                     continue
                 result = edgar_fetch(cik, cfg, user_agent=agent)
             elif source == "esef":
-                result = esef_fetch(target.instrument_id, cfg)
+                result = esef_fetch(target.instrument_id, cfg, root=root)
                 if result.status == "unavailable":  # nothing imported for this issuer (e.g. a US filer): not a gap worth reporting
                     continue
             elif source == "yfinance":

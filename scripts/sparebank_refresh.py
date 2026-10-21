@@ -15,11 +15,11 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from etf_cockpit.core.atomic_io import atomic_write_json
-from etf_cockpit.core.paths import ROOT
-from etf_cockpit.data.esef_provider import BASE_URL, FilingsXbrlOrgProvider
-from etf_cockpit.data.universe_store import UniverseRecord, is_valid_isin, load_sparebank_records
-from scripts.import_official_filing import import_official_filing
+from etf_cockpit.core.atomic_io import atomic_write_json  # noqa: E402
+from etf_cockpit.core.paths import ROOT  # noqa: E402
+from etf_cockpit.data.esef_provider import BASE_URL, FilingsXbrlOrgProvider  # noqa: E402
+from etf_cockpit.data.universe_store import UniverseRecord, is_valid_isin, load_sparebank_records  # noqa: E402
+from scripts.import_official_filing import import_official_filing  # noqa: E402
 
 
 def _utc_now() -> str:
@@ -447,7 +447,8 @@ def refresh_sparebanks(
     if not write_summary:
         return tuple(summaries)
     banks: list[dict[str, object]] = list(summaries)
-    summary_path = root / "evidence" / "norway" / "sparebank_refresh_summary.json"
+    # a history run has no scores: it gets its own file so the live refresh record keeps its composite/coverage
+    summary_path = root / "evidence" / "norway" / ("sparebank_history_summary.json" if history else "sparebank_refresh_summary.json")
     if only_ids and summary_path.is_file():  # a partial run replaces its own banks and keeps the others' record
         try:
             previous = json.loads(summary_path.read_text(encoding="utf-8")).get("banks", [])
@@ -455,7 +456,7 @@ def refresh_sparebanks(
             previous = []
         banks = [item for item in previous if isinstance(item, dict) and item.get("id") not in only_ids] + banks
     report = {"generated_at": now, "banks": banks, "execution_allowed": False}
-    atomic_write_json(root / "evidence" / "norway" / "sparebank_refresh_summary.json", report)
+    atomic_write_json(summary_path, report)
     return tuple(summaries)
 
 

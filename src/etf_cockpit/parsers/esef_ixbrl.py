@@ -150,7 +150,9 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
                     )
                 metadata: dict[str, object] = {}
             else:
-                xhtml_name = next((name for name in names if name.lower().endswith((".xhtml", ".html")) and not _is_non_xbrl_member(name)), None)
+                # as before HDP2: the first .xhtml/.html member, now preferring one under reports/ (a viewer page can come first)
+                candidates = [name for name in names if name.lower().endswith((".xhtml", ".html"))]
+                xhtml_name = next((name for name in candidates if "reports/" in name.lower()), candidates[0] if candidates else None)
                 if xhtml_name is None:
                     return _failure(source_sha, "unsupported_package", "ESEF package lacks an XHTML report")
                 try:
@@ -161,6 +163,11 @@ def parse_esef_package(path: Path) -> ParseResult[XbrlFact]:
                     return _failure(source_sha, "malformed_archive", "ESEF reportPackage.json must contain an object")
             if not any(name.lower().endswith("taxonomypackage.xml") for name in names):
                 warnings.append(ParseWarning("missing_taxonomy_package", "ESEF taxonomyPackage.xml is missing; facts remain retained with bounded local parsing", "warning", report_package))
+            report_info = archive.getinfo(xhtml_name)
+            if _is_non_xbrl_member(xhtml_name) and (  # a report outside reports/ was left out of the sums above: count it now
+                report_info.file_size > MAX_MEMBER_BYTES or total_size + max(0, report_info.file_size) > MAX_UNCOMPRESSED_BYTES
+            ):
+                return _failure(source_sha, "archive_too_large", "ESEF package exceeds the uncompressed size limit")
             xhtml_payload = archive.read(xhtml_name)
             if b"<!DOCTYPE" in xhtml_payload.upper() or b"<!ENTITY" in xhtml_payload.upper():
                 return _failure(source_sha, "unsafe_xml", "ESEF XHTML contains a disallowed document type or entity declaration")
