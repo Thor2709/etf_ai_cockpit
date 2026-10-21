@@ -18,8 +18,7 @@ import json
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
-from typing import Literal
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -67,7 +66,6 @@ LIQUIDITY_WINDOW_SESSIONS = 63
 LIQUIDITY_MIN_MEDIAN_VALUE_EUR = 20_000.0
 LIQUIDITY_MAX_ZERO_VOLUME_SHARE = 0.30
 LIQUIDITY_GATED_TYPES = frozenset({"stock", "equity_certificate"})
-FxKnownPolicy = Literal["ingested", "rate_date"]
 WITHHELD_SOURCES = (
     "forecasts_and_calibration",
     "stored_backtest_trust",
@@ -126,16 +124,13 @@ def backfill_score_history(
     fx_rates: pd.DataFrame | None = None,
     force: bool = False,
     excluded: Mapping[str, str] | None = None,
-    fx_known_policy: FxKnownPolicy = "ingested",
     progress: Callable[[str], None] | None = None,
 ) -> BackfillResult:
     """Compute and store the canonical score for each selected historical session; resumable (stored runs are kept).
 
     ``excluded`` maps instrument ids to the reason they are removed from the replay universe (identity or data defects): they
     are dropped before scoring, logged as ineligible with that reason and influence no peer, correlation or rank.
-    ``fx_known_policy`` "ingested" (default, strict) treats an FX rate as known only once it was ingested; "rate_date" treats a
-    daily rate as known at the end of its own date (documented assumption: official daily rates are not restated), for stores
-    whose ``ingested_at`` is the date a historical file was fetched rather than a publication time.
+    FX follows the canonical availability rule only (rows carry ``available_at``; ``EurRateBook`` and the FX snapshot gate on it).
     """
 
     root = Path(root)
@@ -150,7 +145,6 @@ def backfill_score_history(
     if not sessions:
         return BackfillResult("unavailable", None, reason=f"No {CALENDAR_INSTRUMENT_ID} session between {start} and {end}.")
     fx = fx_rates if fx_rates is not None else _load_fx(frame)
-    fx = _apply_fx_known_policy(fx, fx_known_policy)
     registry_signature = str(build_version_registry().get("registry_signature", "unavailable"))
 
     existing = load_backfill_score_history(root)
@@ -184,8 +178,7 @@ def backfill_score_history(
             "calendar_instrument_id": CALENDAR_INSTRUMENT_ID,
             "every_sessions": every,
             "min_history_rows": MIN_HISTORY_ROWS,
-            "fx_known_policy": fx_known_policy,
-            "excluded_instruments": dict(excluded or {}),
+                "excluded_instruments": dict(excluded or {}),
             "liquidity_gate": {
                 "types": sorted(LIQUIDITY_GATED_TYPES), "window_sessions": LIQUIDITY_WINDOW_SESSIONS,
                 "min_median_traded_value_eur": LIQUIDITY_MIN_MEDIAN_VALUE_EUR, "max_zero_volume_share": LIQUIDITY_MAX_ZERO_VOLUME_SHARE,
@@ -401,17 +394,6 @@ def _liquidity_gate(config: AppConfig, known: pd.DataFrame, fx_rates: pd.DataFra
     return failures
 
 
-def _apply_fx_known_policy(fx: pd.DataFrame, policy: FxKnownPolicy) -> pd.DataFrame:
-    if policy not in ("ingested", "rate_date"):
-        raise ValueError(f"unknown fx_known_policy {policy!r}")
-    if policy == "ingested" or fx is None or fx.empty or "as_of_date" not in fx.columns:
-        return fx
-    adjusted = fx.copy()
-    day = pd.to_datetime(adjusted["as_of_date"], errors="coerce")
-    adjusted["ingested_at"] = (day + pd.Timedelta(hours=23)).dt.tz_localize("UTC")
-    return adjusted
-
-
 def _history_run(
     ranked: Sequence[SimpleInstrumentScore],
     run_id: str,
@@ -497,7 +479,9 @@ def _inputs_hash(config: AppConfig, known: pd.DataFrame, fx: pd.DataFrame | None
         digest.update(pd.util.hash_pandas_object(ordered, index=False).to_numpy().tobytes())
     if fx is not None and not fx.empty:
         fx_known = fx
-        if "as_of_date" in fx.columns:
+        if "available_at" in fx.columns:
+            fx_known = fx.loc[pd.to_datetime(fx["available_at"], errors="coerce", utc=True) < pd.Timestamp(as_of + timedelta(days=1), tz="UTC")]
+        elif "as_of_date" in fx.columns:
             fx_known = fx.loc[pd.to_datetime(fx["as_of_date"], errors="coerce").dt.date <= as_of]
         digest.update(pd.util.hash_pandas_object(fx_known.astype(str), index=False).to_numpy().tobytes())
     return digest.hexdigest()

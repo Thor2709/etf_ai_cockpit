@@ -1,7 +1,7 @@
 """Backfill the canonical score as of past sessions into the separate historical-backfill score store.
 
 Usage: python scripts/backfill_score_history.py --start 2022-10-17 --end 2026-10-09 [--every 5] [--root PATH] [--force]
-       [--exclusions-csv FILE] [--fx-known-at ingested|rate_date]
+       [--exclusions-csv FILE]
 
 Each selected session (default every 5th benchmark session, i.e. weekly; ``--every 1`` is daily) is scored with the real score
 engine using only data known at that session. Output (never the live score history): data/derived/score_history_backfill.parquet,
@@ -28,10 +28,6 @@ def main() -> int:
         "--exclusions-csv", type=Path, default=None,
         help="CSV with columns id and reason (and optionally replay_set: only EXCLUDED rows count) of instruments removed from the replay universe",
     )
-    parser.add_argument(
-        "--fx-known-at", choices=("ingested", "rate_date"), default="ingested",
-        help="when an FX rate counts as known: ingested (strict, default) or the end of its own rate date",
-    )
     args = parser.parse_args()
     if args.root:
         os.environ["ETF_COCKPIT_ROOT"] = str(Path(args.root).resolve())
@@ -53,7 +49,7 @@ def main() -> int:
             table = table[table["replay_set"].str.upper().eq("EXCLUDED")]
         excluded = {str(row["id"]): str(row["reason"]) or "excluded" for _, row in table.iterrows()}
     result = backfill_score_history(
-        ROOT, args.start, args.end, every=args.every, force=args.force, excluded=excluded, fx_known_policy=args.fx_known_at, progress=print
+        ROOT, args.start, args.end, every=args.every, force=args.force, excluded=excluded, progress=print
     )
     print(f"status: {result.status}; sessions requested: {result.sessions_requested}; written: {result.runs_written}; kept: {result.runs_kept}")
     if result.reason:

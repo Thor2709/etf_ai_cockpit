@@ -8,7 +8,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from etf_cockpit.application import score_backfill
 from etf_cockpit.core.config import load_config
@@ -199,7 +198,7 @@ def test_the_replay_reads_the_backfill_store_on_request_and_trades_through_norma
     assert run_historical_replay(as_of, root=tmp_path, price_book=book, now=as_of, history_source="backfill").appended == 0
 
 
-def test_replay_universe_rules_exclusions_liquidity_gate_and_fx_policy() -> None:
+def test_replay_universe_rules_exclusions_and_liquidity_gate() -> None:
     config = _config()
     prices = _prices(config)
     illiquid_stock = _eur_ids(config, "stock", 2)[0]
@@ -212,18 +211,3 @@ def test_replay_universe_rules_exclusions_liquidity_gate_and_fx_policy() -> None
     assert "liquidity_gate: median traded value" in reasons[illiquid_stock] and illiquid_stock not in set(run["instrument_id"])
     assert reasons[illiquid_etf] == "" and illiquid_etf in set(run["instrument_id"])  # ETFs are not liquidity-gated
     assert reasons[excluded_id] == "excluded: duplicate listing" and excluded_id not in set(run["instrument_id"])
-
-    nok = next(item.id for item in config.universe.etfs if item.currency == "NOK" and item.id in config.universe.enabled_ids)
-    foreign = pd.concat([prices, _series(nok, CALENDAR, 7, volume=1e6, currency="NOK")], ignore_index=True)
-    days = pd.bdate_range("2020-12-01", "2023-01-31")
-    fx = pd.DataFrame(
-        {"as_of_date": [day.date().isoformat() for day in days], "base_currency": "NOK", "quote_currency": "EUR", "pair": "NOK/EUR",
-         "rate": 0.1, "source": "test", "ingested_at": pd.Timestamp("2023-02-01", tz="UTC"), "staleness_status": "ok"}
-    )
-    strict = score_backfill.score_as_of(config, foreign, AS_OF, fx_rates=fx)[1]
-    assert "fx_unavailable" in strict.loc[strict["instrument_id"].eq(nok), "reasons"].iloc[0]  # ingested after the date: not known
-    relaxed_fx = score_backfill._apply_fx_known_policy(fx, "rate_date")
-    relaxed = score_backfill.score_as_of(config, foreign, AS_OF, fx_rates=relaxed_fx)[1]
-    assert relaxed.loc[relaxed["instrument_id"].eq(nok), "reasons"].iloc[0] == ""  # rate known at the end of its own date
-    with pytest.raises(ValueError):
-        score_backfill._apply_fx_known_policy(fx, "anything")  # type: ignore[arg-type]
