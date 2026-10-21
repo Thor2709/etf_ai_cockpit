@@ -86,8 +86,8 @@ if exist ".venv\Scripts\pyinstaller.exe" (
 )
 
 if not "!NATIVE_PACK_READY!"=="1" (
-  echo ERROR: No native executable was built. Install PyInstaller ^(see requirements-release.txt^) and rebuild; a build without the native EXE is not a successful build.
-  exit /b 1
+  rem No PyInstaller: ship the portable source launcher only. A native EXE is never written or claimed.
+  echo native EXE not built ^(PyInstaller absent^); portable source launcher only
 )
 
 set OUTDIR_FINAL=%OUTDIR%
@@ -135,10 +135,19 @@ if "%NATIVE_PACK_READY%"=="1" (
 )
 
 call :write_source_launcher "%OUTDIR%\ETF_AI_Cockpit.bat"
-call :write_native_launcher "%OUTDIR%\Run_%APPNAME%_EXE.bat"
+if "%NATIVE_PACK_READY%"=="1" (
+  call :write_native_launcher "%OUTDIR%\Run_%APPNAME%_EXE.bat"
+  > "%OUTDIR%\build_info.json" echo {"native_exe": "present", "native_path": "native/%APPNAME%/%APPNAME%.exe"}
+) else (
+  > "%OUTDIR%\build_info.json" echo {"native_exe": "absent", "reason": "PyInstaller absent; portable source launcher only"}
+)
 
 if /I "%ETF_COCKPIT_BUILD_SMOKE%"=="1" (
-  ".venv\Scripts\python.exe" scripts\smoke_app.py --mode %BUILD_SMOKE_MODE% --exe "%OUTDIR%\native\%APPNAME%\%APPNAME%.exe"
+  if "%NATIVE_PACK_READY%"=="1" (
+    ".venv\Scripts\python.exe" scripts\smoke_app.py --mode %BUILD_SMOKE_MODE% --exe "%OUTDIR%\native\%APPNAME%\%APPNAME%.exe"
+  ) else (
+    ".venv\Scripts\python.exe" scripts\smoke_app.py --mode source
+  )
   if errorlevel 1 exit /b 1
 )
 
