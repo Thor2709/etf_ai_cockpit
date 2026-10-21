@@ -26,9 +26,11 @@ class RebalanceConstraints:
     restricted_positions: tuple[str, ...] = ()
     tax_rate: float | None = None
     tax_jurisdiction: str | None = None
+    # One-way-agnostic turnover cap: sum(|trade value|) / portfolio value, the optimiser's unit.
+    max_turnover: float | None = None
 
     def __post_init__(self) -> None:
-        for name in ("cash_buffer_weight", "settlement_buffer_eur", "min_trade_eur", "tax_rate"):
+        for name in ("cash_buffer_weight", "settlement_buffer_eur", "min_trade_eur", "tax_rate", "max_turnover"):
             value = getattr(self, name)
             if value is not None and (not math.isfinite(float(value)) or float(value) < 0):
                 raise ValueError(f"{name} must be finite and non-negative")
@@ -38,6 +40,8 @@ class RebalanceConstraints:
             raise ValueError("lot_size must be finite and greater than zero")
         if self.tax_rate is not None and float(self.tax_rate) > 1:
             raise ValueError("tax_rate must be no more than 100%")
+        if self.max_turnover is not None and float(self.max_turnover) > 2:
+            raise ValueError("max_turnover must be no more than 200%")
 
 
 @dataclass(frozen=True)
@@ -66,6 +70,7 @@ class RebalanceAlternative:
     cash_weight: float
     feasible: bool
     rationale: str
+    turnover_limited: bool = False
 
 
 @dataclass(frozen=True)
@@ -88,6 +93,9 @@ def target_weight_drift(current_weight: float, target_weight: float) -> float:
 
 
 def rebalance_score(current_weight: float, target_weight: float, hard_band: float) -> float:
+    if not all(math.isfinite(float(value)) for value in (current_weight, target_weight, hard_band)):
+        # Missing evidence is unavailable (NaN), never maximum buy pressure.
+        return math.nan
     if hard_band <= 0:
         return 0.0
     # Positive means underweight and therefore add pressure.
@@ -159,7 +167,12 @@ def build_rebalance_report(
 
     current, values = _current_holdings(holdings)
     value = _portfolio_value(values, portfolio_value_eur)
-    current_cash = max(0.0, 1.0 - sum(item["weight"] for item in current.values()))
+    invested_weight = sum(float(item["weight"] or 0.0) for item in current.values())
+    if invested_weight > 1.0 + REBALANCE_TOLERANCE:
+        raise ValueError("current holding weights exceed 100%; cash cannot be derived")
+    if sum(values.values()) > value * (1.0 + REBALANCE_TOLERANCE) + REBALANCE_TOLERANCE:
+        raise ValueError("holdings market value exceeds the portfolio notional; cash cannot be derived")
+    current_cash = max(0.0, 1.0 - invested_weight)
     full = _alternative(
         "full",
         config,
@@ -230,6 +243,8 @@ def build_rebalance_report(
         warnings.append("restricted_positions_are_not_traded")
     if not full.feasible:
         warnings.append("full_alternative_exceeds_cash_or_settlement_buffer")
+    if any(item.turnover_limited for item in (full, partial)):
+        warnings.append("turnover_limit_applied")
     tax_status = "unavailable" if tax_lot_gains_unavailable or not limits.tax_jurisdiction else "informational_only"
     jurisdiction = str(limits.tax_jurisdiction or "not_provided")
     assumptions: dict[str, object] = {
@@ -243,6 +258,8 @@ def build_rebalance_report(
         "tax_model": tax_status,
         "tax_jurisdiction": jurisdiction,
     }
+    if limits.max_turnover is not None:
+        assumptions["max_turnover"] = round(float(limits.max_turnover), 8)
     return RebalanceReport(
         model_version=REBALANCING_MODEL_VERSION,
         trades=full.trades,
@@ -271,7 +288,73 @@ def _alternative(
     scale: float,
     forced_status: str | None = None,
 ) -> RebalanceAlternative:
+    limit = None if constraints.max_turnover is None else float(constraints.max_turnover)
+    limited = False
+
+    def build(at_scale: float, status: str | None) -> list[RebalanceTrade]:
+        return _trade_rows(
+            config, current, targets, portfolio_value, current_cash, target_cash, constraints, tax_lots,
+            scale=at_scale, forced_status=status,
+        )
+
+    def turnover_of(items: list[RebalanceTrade]) -> float:
+        return sum(abs(item.trade_value_eur) for item in items) / portfolio_value
+
+    if limit is not None and scale > 0:
+        requested = sum(
+            abs(float(targets.get(key, 0.0)) - float(current.get(key, {}).get("weight") or 0.0))
+            for key in set(current) | set(targets)
+        ) * scale
+        if requested > limit + REBALANCE_TOLERANCE:
+            scale *= limit / requested
+            limited = True
+    rows = build(scale, forced_status)
+    if limit is not None and scale > 0:
+        for _ in range(25):
+            realised = turnover_of(rows)
+            if realised <= limit + REBALANCE_TOLERANCE:
+                break
+            # Lot rounding (or the cash fit) pushed turnover over the cap: shrink further, never exceed it.
+            limited = True
+            scale *= min(0.999, limit / realised)
+            rows = build(scale, forced_status)
+        else:
+            rows = build(0.0, forced_status or "deferred_turnover_limit")
+    final_cash = current_cash - (
+        sum(item.trade_value_eur + item.estimated_cost_eur + item.estimated_tax_eur for item in rows)
+        / portfolio_value
+    )
+    tracking_error = sum(abs(item.target_weight - item.proposed_weight) for item in rows) + abs(target_cash - final_cash)
+    cost_total = sum(item.estimated_cost_eur + item.estimated_tax_eur for item in rows)
+    cash_required = target_cash + float(constraints.cash_buffer_weight) + float(constraints.settlement_buffer_eur) / portfolio_value
+    return RebalanceAlternative(
+        name=name,
+        trades=tuple(rows),
+        tracking_error_proxy=round(tracking_error, 10),
+        estimated_cost_eur=round(cost_total, 8),
+        trade_count=sum(abs(item.trade_value_eur) > REBALANCE_TOLERANCE for item in rows),
+        cash_weight=round(final_cash, 10),
+        feasible=final_cash + REBALANCE_TOLERANCE >= cash_required,
+        rationale={"full": "Largest feasible local target-tracking alternative", "partial": "Half-sized turnover alternative", "deferred": "All proposed trades deferred for later review", "no_trade": "Hold current positions and cash"}[name],
+        turnover_limited=limited,
+    )
+
+
+def _trade_rows(
+    config: AppConfig,
+    current: dict[str, dict[str, object]],
+    targets: dict[str, float],
+    portfolio_value: float,
+    current_cash: float,
+    target_cash: float,
+    constraints: RebalanceConstraints,
+    tax_lots: pd.DataFrame | None,
+    *,
+    scale: float,
+    forced_status: str | None = None,
+) -> list[RebalanceTrade]:
     rows: list[RebalanceTrade] = []
+    restricted = {str(item).strip().casefold() for item in constraints.restricted_positions if str(item).strip()}
     instrument_ids = sorted(set(current) | set(targets))
     for instrument_id in instrument_ids:
         state = current.get(instrument_id, {"weight": 0.0, "value": 0.0, "quantity": None, "price": None})
@@ -282,7 +365,7 @@ def _alternative(
         status = forced_status or "proposed"
         if action == "hold":
             status = forced_status or "no_change"
-        elif instrument_id in set(constraints.restricted_positions):
+        elif instrument_id.strip().casefold() in restricted:
             desired_value, status = 0.0, "restricted"
         elif abs(desired_value) < float(constraints.min_trade_eur):
             desired_value, status = 0.0, "deferred_below_minimum"
@@ -353,24 +436,7 @@ def _alternative(
             )
         )
 
-    rows = _fit_cash(rows, current, current_cash, target_cash, portfolio_value, constraints, config, tax_lots)
-    final_cash = current_cash - (
-        sum(item.trade_value_eur + item.estimated_cost_eur + item.estimated_tax_eur for item in rows)
-        / portfolio_value
-    )
-    tracking_error = sum(abs(item.target_weight - item.proposed_weight) for item in rows) + abs(target_cash - final_cash)
-    cost_total = sum(item.estimated_cost_eur + item.estimated_tax_eur for item in rows)
-    cash_required = target_cash + float(constraints.cash_buffer_weight) + float(constraints.settlement_buffer_eur) / portfolio_value
-    return RebalanceAlternative(
-        name=name,
-        trades=tuple(rows),
-        tracking_error_proxy=round(tracking_error, 10),
-        estimated_cost_eur=round(cost_total, 8),
-        trade_count=sum(abs(item.trade_value_eur) > REBALANCE_TOLERANCE for item in rows),
-        cash_weight=round(final_cash, 10),
-        feasible=final_cash + REBALANCE_TOLERANCE >= cash_required,
-        rationale={"full": "Largest feasible local target-tracking alternative", "partial": "Half-sized turnover alternative", "deferred": "All proposed trades deferred for later review", "no_trade": "Hold current positions and cash"}[name],
-    )
+    return _fit_cash(rows, current, current_cash, target_cash, portfolio_value, constraints, config, tax_lots)
 
 
 def _fit_cash(rows: list[RebalanceTrade], current: dict[str, dict[str, object]], current_cash: float, target_cash: float, portfolio_value: float, constraints: RebalanceConstraints, config: AppConfig, tax_lots: pd.DataFrame | None) -> list[RebalanceTrade]:
@@ -404,7 +470,7 @@ def _fit_cash(rows: list[RebalanceTrade], current: dict[str, dict[str, object]],
             quantity = 0.0 if quantity is not None else None
         cost = estimate_execution_cost(config, item.instrument_id, abs(value))
         tax = _tax_estimate(tax_lots, item.instrument_id, value, constraints)
-        adjusted.append(RebalanceTrade(**{**item.__dict__, "trade_value_eur": round(value, 8), "proposed_weight": round(item.current_weight + value / portfolio_value, 10), "quantity": None if quantity is None else round(quantity, 8), "estimated_cost_eur": round(cost.total_cost_eur, 8), "estimated_tax_eur": round(tax, 8), "status": item.status if value else "deferred_cash_buffer"}))
+        adjusted.append(RebalanceTrade(**{**item.__dict__, "trade_value_eur": round(value, 8), "proposed_weight": round(item.current_weight + value / portfolio_value, 10), "quantity": None if quantity is None else round(quantity, 8), "estimated_cost_eur": round(cost.total_cost_eur, 8), "estimated_tax_eur": round(tax, 8), "action": item.action if value else "hold", "status": item.status if value else "deferred_cash_buffer"}))
 
     while True:
         adjusted_buys = sum(
@@ -471,6 +537,7 @@ def _fit_cash(rows: list[RebalanceTrade], current: dict[str, dict[str, object]],
                 "quantity": None if quantity is None else round(quantity, 8),
                 "estimated_cost_eur": round(cost.total_cost_eur, 8),
                 "estimated_tax_eur": round(tax, 8),
+                "action": item.action if value else "hold",
                 "status": item.status if value else "deferred_cash_buffer",
             }
         )
@@ -484,11 +551,15 @@ def _below_minimum(value: float, constraints: RebalanceConstraints) -> bool:
 
 def _clean_targets(targets: Mapping[str, object]) -> dict[str, float]:
     cleaned: dict[str, float] = {}
+    seen: set[str] = set()
     for raw_id, raw_weight in targets.items():
         identifier = str(raw_id).strip()
         weight = _finite_non_negative(raw_weight, f"target weight for {identifier}")
         if not identifier or weight > 1:
             raise ValueError(f"invalid target weight for {identifier or '<blank>'}")
+        if identifier in seen:
+            raise ValueError(f"duplicate target instrument after normalisation: {identifier}")
+        seen.add(identifier)
         if weight:
             cleaned[identifier] = weight
     return cleaned
@@ -498,9 +569,9 @@ def _current_holdings(holdings: pd.DataFrame) -> tuple[dict[str, dict[str, objec
     current: dict[str, dict[str, object]] = {}
     values: dict[str, float] = {}
     for _, row in holdings.iterrows():
-        identifier = str(row.get("etf_id", row.get("instrument_id", ""))).strip()
+        identifier = _holding_identifier(row)
         if not identifier:
-            continue
+            raise ValueError("holdings contain a blank instrument identifier")
         weight = _finite_non_negative(row.get("current_weight", 0.0), "current_weight")
         market_value = _finite_non_negative(row.get("market_value_eur", 0.0), "market_value_eur")
         state = current.setdefault(
@@ -523,6 +594,9 @@ def _current_holdings(holdings: pd.DataFrame) -> tuple[dict[str, dict[str, objec
         if quantity is not None:
             state["quantity"] = float(state["quantity"] or 0.0) + quantity
         if price is not None:
+            known_price = _positive_or_none(state.get("price"))
+            if known_price is not None and not math.isclose(price, known_price, rel_tol=1e-9, abs_tol=0.0):
+                raise ValueError(f"conflicting duplicate quotes for {identifier}: {known_price:g} versus {price:g}")
             state["price"] = price
         raw_asset_type = row.get("asset_type", row.get("security_type", ""))
         asset_type = "" if raw_asset_type is None or pd.isna(raw_asset_type) else str(raw_asset_type).strip().casefold()
@@ -547,6 +621,17 @@ def _current_holdings(holdings: pd.DataFrame) -> tuple[dict[str, dict[str, objec
                 state["bond_terms_conflict"] = True
         values[identifier] = values.get(identifier, 0.0) + market_value
     return current, values
+
+
+def _holding_identifier(row: pd.Series) -> str:
+    for column in ("etf_id", "instrument_id"):
+        raw = row.get(column)
+        if raw is None or (not isinstance(raw, (list, tuple, dict)) and bool(pd.isna(raw))):
+            continue
+        text = str(raw).strip()
+        if text:
+            return text
+    return ""
 
 
 def _portfolio_value(values: dict[str, float], supplied: object | None) -> float:
@@ -595,10 +680,11 @@ def _lot_quantity(
                     quantity = current_quantity
     else:
         lot = float(constraints.lot_size)
-        if constraints.allow_fractional_lots:
+        if constraints.allow_fractional_lots and value < 0:
             quantity = round(raw / lot) * lot
         elif value > 0:
-            quantity = math.floor(raw / lot) * lot
+            # Buys round down so a proposal never overshoots its target.
+            quantity = math.floor(raw / lot + 1e-10) * lot
         else:
             quantity = math.ceil(raw / lot) * lot
     if denomination_increment is None and value < 0 and current_quantity is not None:
