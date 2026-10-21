@@ -214,15 +214,17 @@ def _audit_one_lock(root: Path, lock: str, *, allow_missing_tools: bool) -> dict
     vulnerabilities: list[object] = []
     problems: list[str] = []
     payload: object = None
+    parsed = False
     if not output:
         problems.append(f"pip-audit produced no output for {lock}")
     else:
         try:
             payload = json.loads(output)
+            parsed = True
         except json.JSONDecodeError:
             problems.append(f"pip-audit output for {lock} is not valid JSON")
     dependency_rows: list[object] = []
-    if payload is not None:
+    if parsed:
         if isinstance(payload, list):
             dependency_rows = payload
         elif isinstance(payload, dict) and isinstance(payload.get("dependencies"), list):

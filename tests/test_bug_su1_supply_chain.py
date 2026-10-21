@@ -101,6 +101,7 @@ def test_licence_inventory_and_sbom_cover_both_locks(monkeypatch, tmp_path: Path
         ("this is not json", "not valid JSON"),
         ("{}", "no dependency list"),
         ('"clean"', "no dependency list"),
+        ("null", "no dependency list"),
         ("[]", "lists no dependencies"),
         ('{"dependencies": []}', "lists no dependencies"),
         (_audit_rows(("other", "9.9", [])), "does not cover"),
