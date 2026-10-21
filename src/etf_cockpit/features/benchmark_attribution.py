@@ -107,6 +107,21 @@ def build_benchmark_attribution(
     performed. The result is informational and never execution authority.
     """
 
+    for label, supplied in (
+        ("instrument", instrument_returns),
+        ("broad", broad_returns),
+        ("sector", sector_returns),
+        ("theme", theme_returns),
+    ):
+        if supplied is not None and _has_conflicting_duplicates(supplied):
+            return _unavailable(
+                f"The {label} return series has duplicate dates with conflicting values.",
+                cash_fields=_cash_fields(
+                    cash_comparison,
+                    expected_currency=instrument_currency,
+                    expected_instrument_id=instrument_id,
+                ),
+            )
     broad_frame = pd.concat(
         [
             _clean_series(instrument_returns, "instrument"),
@@ -208,8 +223,18 @@ def _clean_series(series: pd.Series, name: str) -> pd.Series:
     if not isinstance(series, pd.Series):
         return pd.Series(dtype=float, name=name)
     result = pd.to_numeric(series, errors="coerce").replace([float("inf"), float("-inf")], pd.NA).dropna()
+    # Identical duplicate dates collapse to one observation; conflicting ones are rejected by the caller.
+    result = result[~result.index.duplicated(keep="first")]
     result.name = name
     return result
+
+
+def _has_conflicting_duplicates(series: object) -> bool:
+    if not isinstance(series, pd.Series) or series.index.is_unique:
+        return False
+    values = pd.to_numeric(series, errors="coerce")
+    grouped = values.groupby(level=0, sort=False)
+    return bool((grouped.nunique(dropna=False) > 1).any())
 
 
 def _compound(series: pd.Series) -> float | None:

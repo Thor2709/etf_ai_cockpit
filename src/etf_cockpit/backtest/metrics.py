@@ -363,6 +363,30 @@ def _losses_during_regime_stress(
     }
 
 
+# Observations spaced wider than this many calendar days are not daily sessions.
+_DAILY_SPACING_MAX_DAYS = 5.0
+_CALENDAR_DAYS_PER_YEAR = 365.25
+
+
+def _calendar_years(raw_equity: pd.Series, valid_positions: np.ndarray) -> float | None:
+    """Elapsed calendar years for non-daily series; None keeps the session-count convention.
+
+    A weekly or monthly series counted in rows would be annualised as if every row
+    were a session (260 weekly rows read as 1.03 years instead of 5).  Daily
+    session series keep the established sessions / 252 convention.
+    """
+
+    index = raw_equity.index
+    if not isinstance(index, pd.DatetimeIndex) or len(valid_positions) < 2:
+        return None
+    valid_index = index[valid_positions]
+    gaps = np.asarray((valid_index[1:] - valid_index[:-1]).total_seconds(), dtype=float) / 86_400.0
+    if gaps.size == 0 or float(np.median(gaps)) <= _DAILY_SPACING_MAX_DAYS:
+        return None
+    elapsed_days = float((valid_index[-1] - valid_index[0]).total_seconds()) / 86_400.0
+    return elapsed_days / _CALENDAR_DAYS_PER_YEAR if elapsed_days > 0 else None
+
+
 def performance_metrics(
     equity: pd.Series,
     benchmark: pd.Series | None = None,
@@ -379,6 +403,9 @@ def performance_metrics(
     # The annualisation span covers the elapsed sessions, gaps included.
     valid_positions = np.flatnonzero((raw_equity.notna() & (raw_equity > 0)).to_numpy())
     years = max(int(valid_positions[-1] - valid_positions[0]), len(returns)) / TRADING_DAYS_PER_YEAR
+    calendar_years = _calendar_years(raw_equity, valid_positions)
+    if calendar_years is not None:
+        years = calendar_years
     cagr = float((equity.iloc[-1] / equity.iloc[0]) ** (1 / max(years, 1e-9)) - 1)
     vol = float(returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR))
     sharpe = float((returns.mean() * TRADING_DAYS_PER_YEAR) / vol) if vol > 0 else 0.0
