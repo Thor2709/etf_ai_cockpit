@@ -329,6 +329,19 @@ def test_startup_removes_stale_decrypted_temp_without_decrypt(_private_system_te
     shutil.rmtree(fresh)
 
 
+def test_startup_sweep_goes_through_the_application_facade(_private_system_temp: Path) -> None:
+    from etf_cockpit.application.backup_maintenance import sweep_decrypted_backup_temp
+
+    stale = _private_system_temp / "etf-cockpit-plain-startup-stale"
+    stale.mkdir()
+    old = time.time() - 7200
+    os.utime(stale, (old, old))
+    fresh = _private_system_temp / "etf-cockpit-plain-startup-fresh"
+    fresh.mkdir()
+    assert sweep_decrypted_backup_temp(max_age_seconds=3600) == 1
+    assert not stale.exists() and fresh.exists()
+
+
 def test_stale_decrypted_temp_is_swept(tmp_path: Path, _private_system_temp: Path) -> None:  # A119-N002
     stale = _private_system_temp / "etf-cockpit-plain-stale"
     stale.mkdir()

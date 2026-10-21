@@ -79,7 +79,7 @@ class _NavigablePage(_Page):
 
 
 @pytest.fixture(scope="module")
-def _snapshot():
+def _snapshot(synthetic_sample_opt_in_module):
     return build_snapshot()
 
 

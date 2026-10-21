@@ -221,6 +221,7 @@ def test_proposal_review_records_manual_review_until_immutable_evidence_exists(t
     assert records and records[0]["outcome"] == "manual_review"
 
 
+@pytest.mark.usefixtures("synthetic_sample_opt_in")
 def test_operations_workspace_can_open_local_paper_account(tmp_path: Path) -> None:
     snapshot = build_snapshot()
     state = AppState(snapshot=snapshot, selected_etf=snapshot.config.ui.default_etf)

@@ -1,5 +1,6 @@
 """Missing and insufficient adjusted history has an explicit forecast status."""
 
+import pytest
 from datetime import date
 
 import pandas as pd
@@ -23,6 +24,7 @@ def _inputs():
     return config, prices, as_of, context
 
 
+@pytest.mark.usefixtures("synthetic_sample_opt_in")
 def test_missing_requested_baseline_publishes_null_unavailable_rows(tmp_path):
     config, prices, as_of, context = _inputs()
     instrument_id = config.universe.enabled_ids[0]
@@ -39,6 +41,7 @@ def test_missing_requested_baseline_publishes_null_unavailable_rows(tmp_path):
     assert loaded.loc[loaded.model_name == "baseline", "expected_return"].isna().all()
 
 
+@pytest.mark.usefixtures("synthetic_sample_opt_in")
 def test_future_prices_cannot_rescue_insufficient_baseline_history(tmp_path):
     config, prices, _, _ = _inputs()
     instrument_id = config.universe.enabled_ids[0]

@@ -320,9 +320,9 @@ def _assert_insufficient_cycle_history_makes_sector_scores_unavailable_with_reas
 def _assert_non_cyclical_stock_components_keep_the_existing_values(monkeypatch):
     evidence = SimpleNamespace(
         components={
-            "stock_value": SimpleNamespace(score_10=7.5, why="generic value basis", source_id="sec_edgar:fundamentals", as_of="2025-02-15", freshness="ok"),
-            "stock_quality": SimpleNamespace(score_10=6.5, why="generic quality basis", source_id="sec_edgar:fundamentals", as_of="2025-02-15", freshness="ok"),
-            "analyst_revision": SimpleNamespace(score_10=None, why="not disclosed", source_id="sec_edgar:fundamentals", as_of="2025-02-15", freshness="ok"),
+            "stock_value": SimpleNamespace(score_10=7.5, why="generic value basis", source_id="sec_edgar:fundamentals", as_of="2025-02-15", freshness="ok", band_low=None, band_high=None),
+            "stock_quality": SimpleNamespace(score_10=6.5, why="generic quality basis", source_id="sec_edgar:fundamentals", as_of="2025-02-15", freshness="ok", band_low=None, band_high=None),
+            "analyst_revision": SimpleNamespace(score_10=None, why="not disclosed", source_id="sec_edgar:fundamentals", as_of="2025-02-15", freshness="ok", band_low=None, band_high=None),
         }
     )
     components = _stock_fundamental_components(evidence, sector="technology")
@@ -366,7 +366,7 @@ def _assert_unavailable_cyclical_adapter_preserves_generic_components(monkeypatc
     evidence = SimpleNamespace(components={
         key: SimpleNamespace(
             score_10=score, why=why, source_id="yfinance:fundamentals",
-            as_of="2025-02-15", freshness="ok",
+            as_of="2025-02-15", freshness="ok", band_low=None, band_high=None,
         )
         for key, score, why in (
             ("stock_value", 7.5, "generic value basis"),
@@ -482,7 +482,7 @@ def _assert_normalised_basis_cannot_use_history_after_its_evidence_cutoff(monkey
 def _assert_classified_cyclical_without_projection_has_unavailable_adapter_diagnostics(label):
     evidence = SimpleNamespace(
         components={
-            key: SimpleNamespace(score_10=7.5, why="generic peak-year basis", source_id="sec_edgar:fundamentals", as_of="2025-02-15", freshness="ok")
+            key: SimpleNamespace(score_10=7.5, why="generic peak-year basis", source_id="sec_edgar:fundamentals", as_of="2025-02-15", freshness="ok", band_low=None, band_high=None)
             for key in ("stock_value", "stock_quality", "analyst_revision")
         }
     )

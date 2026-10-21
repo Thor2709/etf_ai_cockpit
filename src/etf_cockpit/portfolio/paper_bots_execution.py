@@ -912,7 +912,7 @@ def _attempt(
             message = str(exc)
             if order_id is not None:
                 try:
-                    ledger.cancel_order(order_id, reason="paper bot fill failed", occurred_at=fill_time)
+                    ledger.cancel_paper_order(order_id, reason="paper bot fill failed", occurred_at=fill_time)
                 except PaperLedgerError:
                     pass
             shortfall = _AVAILABLE_BUYING_POWER.search(message)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from datetime import date
 
 import numpy as np
@@ -114,6 +115,7 @@ def test_pre_cutoff_and_first_run_windows_never_count() -> None:
     assert early.matured_forecasts == 0 and early.state == NOT_PROVEN
 
 
+@pytest.mark.usefixtures("synthetic_sample_opt_in")
 def test_run_forecasts_applies_the_decision_to_stored_rows(tmp_path, monkeypatch) -> None:
     from etf_cockpit.application.forecast_service import _config_with_optional_models_disabled
     from etf_cockpit.application.reference_context import _benchmark_reference_snapshot_inputs, _reference_context_from_inputs

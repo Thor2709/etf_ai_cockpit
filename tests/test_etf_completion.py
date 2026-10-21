@@ -29,12 +29,15 @@ def test_vwce_recovers_numeric_score_from_etflive_prices():
     score = scores[0]
     assert score.display_id == "VWCE"
     assert isinstance(score.final_score_10, float)
-    assert 0 < score.score_coverage < 1
-    assert score.missing_components
+    # FPQ: etf_exposure is a risk term (0 headline weight in score-engine v3.3.0): headline coverage is full, and the
+    # missing holdings stay visible through the risk-term-unavailable flag and reason (never as a scored gap).
+    assert score.score_coverage == 1.0
     # PSF: relative strength carries no weight (one global anchor), so it is no longer a missing scored component
     assert "relative_strength" not in score.missing_components
-    assert "etf_exposure" in score.missing_components
-    assert all(c.score_10 is None for c in score.components if c.key in score.missing_components)
+    assert "etf_exposure" not in score.missing_components
+    assert "etf_exposure" in score.unavailable_risk_terms
+    assert "holdings are unavailable" in score.unavailable_risk_terms_reason
+    assert all(c.score_10 is None for c in score.components if c.key in score.unavailable_risk_terms)
 
 
 def _source(source, **fields):

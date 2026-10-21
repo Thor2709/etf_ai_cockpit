@@ -1,4 +1,3 @@
-import pytest
 """Missing signal evidence stays unavailable in CLI, JSON and explanations."""
 
 from dataclasses import replace
@@ -10,6 +9,7 @@ import sys
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from etf_cockpit.application.signal_service import SignalService
 from etf_cockpit.core.config import load_config
@@ -17,6 +17,7 @@ from etf_cockpit.signals.explanations import explain_signal
 from etf_cockpit.signals.signal_pipeline import _signal_to_json
 
 
+@pytest.mark.usefixtures("synthetic_sample_opt_in")
 def test_signal_trace_is_strict_json_and_explanation_matches_published_score():
     signals = SignalService(load_config()).generate_signals()
     assert signals

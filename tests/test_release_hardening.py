@@ -443,12 +443,19 @@ def test_stale_etf_metadata_import_reports_block_staleness(tmp_path) -> None:
     assert result.metadata.staleness_status == "block"
 
 
+def _utc_today() -> str:
+    # The FX future-quote check compares against the UTC clock; local date.today() is a day ahead after local midnight.
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).date().isoformat()
+
+
 def test_fx_import_writes_clean_snapshot_and_metadata(tmp_path) -> None:
     source_path = tmp_path / "fx.csv"
     pd.DataFrame(
         [
-            {"as_of_date": date.today().isoformat(), "pair": "USD/EUR", "rate": 0.93, "source": "manual_test"},
-            {"as_of_date": date.today().isoformat(), "pair": "GBP/EUR", "rate": 1.17, "source": "manual_test"},
+            {"as_of_date": _utc_today(), "pair": "USD/EUR", "rate": 0.93, "source": "manual_test"},
+            {"as_of_date": _utc_today(), "pair": "GBP/EUR", "rate": 1.17, "source": "manual_test"},
         ]
     ).to_csv(source_path, index=False)
     result = ManualLocalFileProvider().import_file(source_path, "fx")
