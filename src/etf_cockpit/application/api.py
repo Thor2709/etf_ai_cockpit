@@ -762,7 +762,17 @@ class LocalApplicationApi:
         return _proposal_view_model(decision.to_payload())
 
     def execute(self, command: ApplicationCommand) -> CommandResult:
-        fingerprint = hashlib.sha256(command.model_dump_json().encode("utf-8")).hexdigest()
+        try:
+            fingerprint = hashlib.sha256(command.model_dump_json().encode("utf-8")).hexdigest()
+        except (ValueError, TypeError) as exc:
+            # An unserialisable command has no stable idempotency identity: refuse it instead of raising.
+            return _result(
+                command,
+                ApiStatus.FAILED,
+                revision=self.revision,
+                error_code="command_unserializable",
+                error_message=f"The command cannot be fingerprinted for idempotency: {type(exc).__name__}.",
+            )
         with self._lock:
             prior = self._ledger.get(command.idempotency_key)
             if prior is not None:
