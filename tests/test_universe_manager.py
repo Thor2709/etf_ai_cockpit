@@ -168,6 +168,7 @@ def test_real_crud_controls_stage_changes_and_save_captured_revision(monkeypatch
 def test_import_wizard_dry_run_and_stage_are_local_only(monkeypatch) -> None:
     record = UniverseRecord("A", "Alpha", "NO0000000001", "verified", "A", "stock", "primary")
     monkeypatch.setattr(manager, "load_universe", lambda *_args: UniverseStoreSnapshot((record,), "revision", Path("store.json")))
+    monkeypatch.setattr(manager, "save_universe", lambda records, **_kwargs: UniverseSaveResult(Path("store.json"), "revision-2", len(tuple(records))))
     manifests = []
     monkeypatch.setattr(manager, "save_universe_manifest", manifests.append)
     page = _Page()
@@ -189,6 +190,8 @@ def test_import_wizard_dry_run_and_stage_are_local_only(monkeypatch) -> None:
     _keyed(dialog)["universe.import-resume"].on_click(None)
     _keyed(dialog)["universe.import-stage"].on_click(None)
 
+    assert manifests == []  # #992 E011-N001: the manifest is written only when the owner saves
+    _keyed(root)["universe.save"].on_click(None)
     assert len(manifests) == 1
     assert manifests[0].source_rows == ({"ticker": "B", "name": "Beta"},)
     assert manifests[0].correction_overlays == {1: {"canonical_id": "B"}}
@@ -198,9 +201,10 @@ def test_import_wizard_dry_run_and_stage_are_local_only(monkeypatch) -> None:
     assert state.broker_calls == 0
 
 
-def test_import_stage_does_not_mutate_live_records_when_manifest_save_fails(monkeypatch) -> None:
+def test_import_manifest_save_failure_is_reported_on_save_and_stays_pending(monkeypatch) -> None:
     record = UniverseRecord("A", "Alpha", "NO0000000001", "verified", "A", "stock", "primary")
     monkeypatch.setattr(manager, "load_universe", lambda *_args: UniverseStoreSnapshot((record,), "revision", Path("store.json")))
+    monkeypatch.setattr(manager, "save_universe", lambda records, **_kwargs: UniverseSaveResult(Path("store.json"), "revision-2", len(tuple(records))))
     monkeypatch.setattr(manager, "save_universe_manifest", lambda _manifest: (_ for _ in ()).throw(ValueError("manifest save failed")))
     page = _Page()
     root = universe_manager_page(page, _state()).body
@@ -210,9 +214,10 @@ def test_import_stage_does_not_mutate_live_records_when_manifest_save_fails(monk
     buttons = _keyed(dialog)
     buttons["universe.import-resume"].on_click(None)
     buttons["universe.import-stage"].on_click(None)
+    assert "universe.edit.B" in _keyed(root)  # staging never touches the manifest file, so it cannot fail on it
 
-    assert "universe.edit.B" not in _keyed(root)
-    assert "manifest save failed" in _texts(dialog)
+    _keyed(root)["universe.save"].on_click(None)
+    assert "manifest save failed" in _texts(root)
 
 
 def test_import_wizard_pauses_resumes_and_cancel_never_stages_partial_rows(monkeypatch) -> None:

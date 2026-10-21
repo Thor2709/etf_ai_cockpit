@@ -147,6 +147,8 @@ def universe_manager_page(page: ft.Page, state: AppState) -> PageView:
     snapshot = load_universe()
     records = list(snapshot.records or records_from_config(state))
     baseline = {"records": tuple(records)}
+    # Import manifests stay in memory until Save; Discard drops them (nothing is written before the owner confirms).
+    pending_manifests: list[tuple[object, frozenset[str]]] = []
     policy_profiles = tuple(getattr(snapshot, "policy_profiles", ()))
     policy_states = {item.instrument_id: (item.state, item.reason) for item in getattr(snapshot, "policy_evidence", ())}
     expected_revision = snapshot.revision
@@ -178,6 +180,30 @@ def universe_manager_page(page: ft.Page, state: AppState) -> PageView:
         before = {item.instrument_id: item for item in baseline["records"]}
         now = {item.instrument_id: item for item in records}
         return sum(1 for key, item in now.items() if before.get(key) != item) + sum(1 for key in before if key not in now)
+
+    def persist_pending_manifests() -> str:
+        """Write the manifests of imports whose rows are still staged; returns a status suffix (empty when none)."""
+        present = {item.instrument_id.casefold() for item in records}
+        written = skipped = 0
+        remaining: list[tuple[object, frozenset[str]]] = []
+        failure = ""
+        for manifest, ids in pending_manifests:
+            if not ids <= present:
+                skipped += 1  # a staged import row was removed again; its manifest would describe rows that are not saved
+                continue
+            try:
+                save_universe_manifest(manifest)
+                written += 1
+            except Exception as exc:
+                failure = f"manifest save failed: {exc}"
+                remaining.append((manifest, ids))
+        pending_manifests[:] = remaining
+        parts = [f"saved {written} import manifest(s)"] if written else []
+        if skipped:
+            parts.append(f"dropped {skipped} manifest(s) of removed rows")
+        if failure:
+            parts.append(failure + "; it stays pending and the next Save retries")
+        return "; ".join(parts)
 
     def sync_strip() -> None:
         pending = pending_count()
@@ -411,13 +437,18 @@ def universe_manager_page(page: ft.Page, state: AppState) -> PageView:
             expected_revision = result.revision
             baseline["records"] = tuple(records)
             _apply_saved_config(result.revision)
-            say(f"Saved revision {result.revision[:12]}; pending refresh remains visible and was not started.")
+            manifest_note = persist_pending_manifests()
+            say(
+                f"Saved revision {result.revision[:12]}; pending refresh remains visible and was not started."
+                + (f" {manifest_note}." if manifest_note else "")
+            )
         except Exception as exc:
             say(f"Save blocked: {exc}")
 
     def discard_changes(_event: object = None) -> None:
         nonlocal records
         records = list(baseline["records"])
+        pending_manifests.clear()
         ui["message"] = "Pending changes discarded."
         rebuild_all()
 
@@ -550,9 +581,9 @@ def universe_manager_page(page: ft.Page, state: AppState) -> PageView:
             for item in processed:
                 if not any(existing.instrument_id.casefold() == item.instrument_id.casefold() for existing in staged):
                     staged = add_record(staged, item, allow_cross_tier_duplicates=duplicates())
-            save_universe_manifest(manifest)
+            pending_manifests.append((manifest, frozenset(item.instrument_id.casefold() for item in processed)))
             close_import()
-            _stage(f"Staged {len(processed)} imported rows and saved manifest {manifest.manifest_id[:12]}.", staged)
+            _stage(f"Staged {len(processed)} imported rows; manifest {manifest.manifest_id[:12]} is written only on Save.", staged)
         except Exception as exc:
             result_text.value = f"Stage blocked: {exc}"
             page.update()

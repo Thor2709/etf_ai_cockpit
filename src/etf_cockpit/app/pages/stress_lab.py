@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 import flet as ft
 import pandas as pd
 
@@ -19,7 +21,7 @@ from etf_cockpit.app.components.kit import (
     Well,
 )
 from etf_cockpit.app.components.shell.page_view import PageChrome, PageView
-from etf_cockpit.app.formatting import format_currency, format_number, format_percent, format_timestamp
+from etf_cockpit.app.formatting import format_currency, format_percent, format_timestamp
 from etf_cockpit.app.pages._l4a_common import input_of, page_body, text_field
 from etf_cockpit.app.state import AppState
 from etf_cockpit.application.stress_lab import (
@@ -48,6 +50,20 @@ _SCENARIO_FACTORS = {
 }
 
 
+def _percent_text(shock: object) -> str:
+    """Shock fraction as an exact percent string: at least two decimals, never rounded, no thousands separators."""
+    text = format((Decimal(repr(float(shock))) * 100).normalize(), "f")
+    whole, _point, fraction = text.partition(".")
+    return f"{whole}.{fraction.ljust(2, '0')}"
+
+
+def stress_factor_categories(factor_values: dict[str, object]) -> list[tuple[str, str]]:
+    """Chart categories: the standard factors plus every other returned factor (e.g. ``factor:*``), never dropped."""
+    known = set(_SCENARIO_FACTORS.values())
+    extra = sorted(key for key in factor_values if key not in known and key != "None")
+    return [*_SCENARIO_FACTORS.items(), *((key, key) for key in extra)]
+
+
 def stress_lab_page(page: ft.Page | None, state: AppState) -> PageView:
     facade = StressLabFacade(state.snapshot)
     currency = str(state.snapshot.config.targets.base_currency)
@@ -65,6 +81,9 @@ def stress_lab_page(page: ft.Page | None, state: AppState) -> PageView:
         "reverse_limit": text_field("Reverse loss limit", "stress-lab.loss-limit"),
     }
     reverse_shock = {"value": "equity"}
+    shown = {"scenario": False, "reverse": False}
+    # Scenario attributes the input fields cannot show; kept from a loaded scenario so Save/Run never drop them.
+    carried: dict[str, object] = {"horizon_days": 1, "version": 1, "extra_shocks": {}}
     revisions: dict[str, int] = {}
     result_host = Well(
         EmptyState(
@@ -94,7 +113,7 @@ def stress_lab_page(page: ft.Page | None, state: AppState) -> PageView:
     status_note = Note("No probability or execution authority is created; execution_allowed=false.")
 
     def scenario_from_controls():
-        shocks = {}
+        shocks = dict(carried["extra_shocks"])
         for name in _SHOCKS.values():
             value = input_of(fields[name]).value
             if value:
@@ -103,8 +122,28 @@ def stress_lab_page(page: ft.Page | None, state: AppState) -> PageView:
             scenario_id=input_of(fields["scenario_id"]).value or "",
             name=input_of(fields["name"]).value or "",
             shocks=shocks,
+            horizon_days=carried["horizon_days"],
+            version=carried["version"],
             historical_date=(input_of(fields["historical_date"]).value or "").strip() or None,
         )
+
+    def invalidate_outputs(_event: object | None = None) -> None:
+        """Inputs changed: scenario and reverse-stress outputs no longer describe them, so they are reset."""
+        if not shown["scenario"] and not shown["reverse"]:
+            return
+        if shown["scenario"]:
+            result_host.content = EmptyState("No scenario run yet", "Inputs changed; run the scenario again.")
+            instrument_host.content = EmptyState("Unavailable", "Inputs changed; run the scenario again.")
+            result_note.value = "Scenario result unavailable until a scenario has been run."
+            result_insight.value = "Scenario result is not a forecast."
+            result_details.content = Disclosure("scenario details", "No scenario run yet.")
+            if result_card_host["control"] is not None:
+                result_card_host["control"].data["note_control"].value = f"Scenario · P&L in {currency}"
+        if shown["reverse"]:
+            reverse_threshold.controls = [KpiTile("Reverse shock threshold", None, sub="Inputs changed; run reverse stress again.")]
+            reverse_details.content = Disclosure("reverse result", "Reverse stress has not been run.")
+        shown.update(scenario=False, reverse=False)
+        show_status("Inputs changed; earlier results were cleared.")
 
     def show_status(message: str) -> None:
         status_note.value = message
@@ -117,17 +156,19 @@ def stress_lab_page(page: ft.Page | None, state: AppState) -> PageView:
             if not raw_notional:
                 raise ValueError
             notional = float(raw_notional)
+            shown["scenario"] = True
             result = facade.run(scenario_from_controls(), notional=notional)
             factor_values = {
                 str(row.get("factor")): row.get("pnl")
                 for row in result.factor_contributions
                 if row.get("pnl") is not None and pd.notna(row.get("pnl"))
             }
-            categories = [*_SCENARIO_FACTORS, "Total"]
+            factor_categories = stress_factor_categories(factor_values)
+            categories = [*(label for label, _key in factor_categories), "Total"]
             values = []
             bases = []
             cumulative = 0.0
-            for label, key in _SCENARIO_FACTORS.items():
+            for _label, key in factor_categories:
                 value = factor_values.get(key)
                 if value is None:
                     values.append(None)
@@ -228,15 +269,20 @@ def stress_lab_page(page: ft.Page | None, state: AppState) -> PageView:
             input_of(fields["historical_date"]).value = saved.scenario.historical_date or ""
             for name in _SHOCKS.values():
                 input_of(fields[name]).value = ""
+            carried.update(horizon_days=getattr(saved.scenario, "horizon_days", 1), version=getattr(saved.scenario, "version", 1), extra_shocks={})
             for name, value in saved.scenario.shocks.items():
-                if name in fields:
-                    input_of(fields[name]).value = format_number(float(value) * 100, decimals=2, unavailable="")
+                if name in _SHOCKS.values():
+                    input_of(fields[name]).value = _percent_text(value)
+                else:
+                    carried["extra_shocks"][name] = float(value)
+            invalidate_outputs()
             show_status("Saved local scenario loaded and verified.")
         except Exception:
             show_status("Saved scenario unavailable; it may be missing, corrupt or conflicting.")
 
     def reverse(_event: ft.ControlEvent | None) -> None:
         try:
+            shown["reverse"] = True
             result = facade.reverse(
                 shock_name=reverse_shock["value"],
                 loss_limit=float(input_of(fields["reverse_limit"]).value),
@@ -269,13 +315,25 @@ def stress_lab_page(page: ft.Page | None, state: AppState) -> PageView:
             )
             show_status(f"Reverse stress result: {status_label}.")
         except (TypeError, ValueError):
+            shown["reverse"] = True
             reverse_threshold.controls = [
                 KpiTile("Reverse shock threshold", None, sub="Complete the reverse shock, loss limit and notional inputs.")
             ]
             reverse_details.content = Disclosure("reverse result", "Reverse stress result is unavailable.")
             show_status("Reverse stress unavailable: complete the required inputs.")
 
-    shock_selector = Segmented(list(_SHOCKS), "Equity", on_change=lambda label: reverse_shock.update(value=_SHOCKS[label]))
+    def scenario_id_changed(_event: object | None = None) -> None:
+        carried.update(horizon_days=1, version=1, extra_shocks={})  # loaded extras belong to the previously loaded ID
+        invalidate_outputs()
+
+    for field_name, field in fields.items():
+        input_of(field).on_change = scenario_id_changed if field_name == "scenario_id" else invalidate_outputs
+
+    def select_reverse_shock(label: str) -> None:
+        reverse_shock.update(value=_SHOCKS[label])
+        invalidate_outputs()
+
+    shock_selector = Segmented(list(_SHOCKS), "Equity", on_change=select_reverse_shock)
     shock_selector_field = ft.Column([Note("Reverse shock"), shock_selector], spacing=theme.SPACE_1)
 
     assumptions = GlassCard(
