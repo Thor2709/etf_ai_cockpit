@@ -703,9 +703,22 @@ def draft_portfolio_proposal(snapshot: object, analysis: PortfolioAnalysis) -> d
     """Create a pre-ISSUE-0130 hand-off envelope without proposal-policy acceptance."""
 
     binding = analysis.snapshot_binding or portfolio_snapshot_binding(snapshot)
+    if analysis.snapshot_binding is not None:
+        # The analysis and the no-trade alternative must come from one snapshot, never a mix of two.
+        current = portfolio_snapshot_binding(
+            snapshot,
+            account_id=_selected_identity(snapshot, "account_id", binding.account_id),
+            portfolio_id=_selected_identity(snapshot, "portfolio_id", binding.portfolio_id),
+            snapshot_id=_selected_identity(snapshot, "snapshot_id", binding.snapshot_id),
+            holdings_view=binding.holdings_view,
+        )
+        if (current.source_revision, current.source_checksum, current.as_of) != (binding.source_revision, binding.source_checksum, binding.as_of):
+            raise ValueError("draft handoff snapshot does not match the analysis source binding; re-run the what-if")
     bound_analysis = analysis if analysis.snapshot_binding is not None else replace(analysis, snapshot_binding=binding)
     result = portfolio_analysis_payload(bound_analysis)
     violated_constraints = tuple(sorted(item.name for item in analysis.constraints if item.status == "violated"))
+    rebalancing = analysis.service_evidence.get("rebalancing")
+    rebalancing_available = isinstance(rebalancing, Mapping) and rebalancing.get("status") in {"available", "partial"}
     changes = []
     rejected = []
     for row in analysis.allocations:
@@ -713,6 +726,9 @@ def draft_portfolio_proposal(snapshot: object, analysis: PortfolioAnalysis) -> d
             rejected.append({"instrument_id": row.instrument_id, "reason": row.why_not or "no_trade"})
         elif row.capability_status != "supported":
             rejected.append({"instrument_id": row.instrument_id, "reason": row.capability_reason})
+        elif not rebalancing_available:
+            reason = str(rebalancing.get("reason", "rebalance report unavailable")) if isinstance(rebalancing, Mapping) else "rebalance report unavailable"
+            rejected.append({"instrument_id": row.instrument_id, "reason": f"rebalancing_unavailable:{reason}"})
         elif violated_constraints:
             rejected.append({"instrument_id": row.instrument_id, "reason": f"portfolio_constraint_violation:{','.join(violated_constraints)}"})
         else:
@@ -763,6 +779,7 @@ def _draft_no_trade_alternative(snapshot: object, analysis: PortfolioAnalysis) -
             constraints=RebalanceConstraints(
                 cash_buffer_weight=float(getattr(limits, "cash_min_weight", 0.0)),
                 min_trade_eur=float(getattr(limits, "min_trade_value_eur", 0.0)),
+                max_turnover=_turnover_cap(limits),
             ),
         )
     except (ArithmeticError, KeyError, TypeError, ValueError) as exc:
@@ -1227,6 +1244,7 @@ def _service_evidence(
                 constraints=RebalanceConstraints(
                     cash_buffer_weight=float(getattr(limits, "cash_min_weight", 0.0)),
                     min_trade_eur=float(getattr(limits, "min_trade_value_eur", 0.0)),
+                    max_turnover=_turnover_cap(limits),
                 ),
                 tax_lots=bound_optional["tax_lots"],
             )
@@ -1236,6 +1254,8 @@ def _service_evidence(
                 "feasible": rebalance.feasible,
                 "trade_count": len(rebalance.trades),
                 "turnover_limit": float(getattr(limits, "max_monthly_turnover", 1.0)),
+                "max_turnover_applied": "turnover_limit_applied" in rebalance.warnings,
+                "planned_turnover": round(sum(abs(item.trade_value_eur) for item in rebalance.trades) / analysis.candidate.analysis_notional_eur, 10),
                 "tax_status": rebalance.tax_status,
                 "tax_jurisdiction": rebalance.tax_jurisdiction,
                 "warnings": list(rebalance.warnings),
@@ -1262,6 +1282,14 @@ def _service_evidence(
     except (ArithmeticError, KeyError, TypeError, ValueError):
         evidence["attribution"] = _unavailable_service("portfolio attribution service evidence unavailable")
 
+    conflicted_prices = tuple(sorted(set(prices.attrs.get("price_conflict_ids", ())) | set(benchmark_prices.attrs.get("price_conflict_ids", ()))))
+    if conflicted_prices:
+        for service in ("optimiser", "optimiser_comparison", "factor_risk", "risk", "attribution", "correlation"):
+            projection = dict(evidence[service])
+            projection["warnings"] = list(dict.fromkeys([*projection.get("warnings", ()), "conflicting_adjusted_price_series_excluded:" + ",".join(conflicted_prices)]))
+            if projection.get("status") == "available":
+                projection["status"] = "partial"
+            evidence[service] = projection
     for service, names in (("rebalancing", ("tax_lots",)), ("attribution", ("costs", "cashflows", "decisions"))):
         warnings = [f"{name}: {bound_optional[name].attrs['sandbox_binding_warning']}" for name in names
                     if bound_optional[name] is not None and bound_optional[name].attrs.get("sandbox_binding_warning")]
@@ -1282,6 +1310,18 @@ def _service_evidence(
 
 
 CORRELATION_WINDOW = 120
+
+
+def _selected_identity(snapshot: object, field: str, bound: str) -> str | None:
+    """Identity selected by the analysis, or None where the supplied snapshot carries no such identity."""
+
+    return bound if getattr(snapshot, field, None) is not None else None
+
+
+def _turnover_cap(limits: object) -> float:
+    """The configured monthly turnover cap; the rebalance service enforces it, not only the optimiser."""
+
+    return float(getattr(limits, "max_monthly_turnover", 2.0))
 
 
 def _unavailable_service(reason: str) -> dict[str, object]:
@@ -1346,6 +1386,9 @@ def _bound_service_prices(
     if not isinstance(prices, pd.DataFrame) or prices.empty:
         return pd.DataFrame()
     result = prices.copy(deep=True)
+    if analysis.snapshot_binding is not None:
+        # Optional identity columns select the bound account/portfolio; absent columns inherit the snapshot.
+        result = _filter_financial_scope(result, analysis.snapshot_binding.account_id, analysis.snapshot_binding.portfolio_id)
     declaration = None if reference_context is None else reference_context.resolution
     if declaration is not None:
         window = declaration.declaration
@@ -1367,7 +1410,30 @@ def _bound_service_prices(
     universe = set(_service_allocation(snapshot, analysis).get("etf_id", pd.Series(dtype=str)).astype(str))
     if investable_only and "etf_id" in result.columns:
         result = result.loc[result["etf_id"].astype(str).isin(universe)].copy()
-    return _filter_knowledge_columns(result, _reference_cutoff(reference_context, analysis.snapshot_binding))
+    result = _filter_knowledge_columns(result, _reference_cutoff(reference_context, analysis.snapshot_binding))
+    # Last: only rows that are visible at the cutoff and inside the window can conflict.
+    return _drop_conflicting_price_series(result)
+
+
+def _drop_conflicting_price_series(prices: pd.DataFrame) -> pd.DataFrame:
+    """Two different visible quotes for one instrument and date are a conflict, not a last-row choice.
+
+    The excluded identifiers are recorded in ``attrs["price_conflict_ids"]`` and surfaced by the
+    composition step in ``service_evidence``.
+    """
+
+    required = {"date", "etf_id", "adjusted_close"}
+    if prices.empty or not required.issubset(prices.columns):
+        return prices
+    close = pd.to_numeric(prices["adjusted_close"], errors="coerce")
+    key = pd.DataFrame({"date": prices["date"].astype(str), "etf_id": prices["etf_id"].astype(str), "close": close})
+    spread = key.dropna(subset=["close"]).groupby(["date", "etf_id"])["close"].nunique()
+    conflicted = {etf_id for (_, etf_id), count in spread.items() if count > 1}
+    if not conflicted:
+        return prices
+    result = prices.loc[~prices["etf_id"].astype(str).isin(conflicted)].copy()
+    result.attrs["price_conflict_ids"] = tuple(sorted(conflicted))
+    return result
 
 
 def _bound_service_features(
@@ -1381,6 +1447,8 @@ def _bound_service_features(
     if not isinstance(features, pd.DataFrame):
         return None
     result = features.copy(deep=True)
+    if analysis.snapshot_binding is not None:
+        result = _filter_financial_scope(result, analysis.snapshot_binding.account_id, analysis.snapshot_binding.portfolio_id)
     resolution = None if reference_context is None else reference_context.resolution
     date_column = "date" if "date" in result.columns else "as_of_date" if "as_of_date" in result.columns else None
     if resolution is not None and date_column is not None:
@@ -1735,8 +1803,23 @@ def _service_input_checksum(
         "scenarios": scenario_payload,
         "reference_identity": None if reference_context is None else reference_context.identity,
         "holdings_view": binding.holdings_view,
+        "config": _config_digest(getattr(snapshot, "config", None)),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str, allow_nan=False).encode("utf-8")).hexdigest()
+
+
+def _config_digest(config: object) -> str | None:
+    """Digest of the configuration sections that change constraint, cost and rebalance results."""
+
+    sections: dict[str, object] = {}
+    for name in ("targets", "risks", "costs", "settlement"):
+        section = getattr(config, name, None)
+        dump = getattr(section, "model_dump", None)
+        if callable(dump):
+            sections[name] = dump(mode="json")
+    if not sections:
+        return None
+    return hashlib.sha256(json.dumps(sections, sort_keys=True, default=str, allow_nan=False).encode("utf-8")).hexdigest()
 
 
 def _frame_checksum(value: object) -> str | None:
