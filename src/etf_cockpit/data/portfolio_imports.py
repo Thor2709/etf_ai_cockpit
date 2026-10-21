@@ -31,7 +31,7 @@ from etf_cockpit.data.identity_master import (
     IdentityMasterSchemaError,
     IdentityMasterStore,
 )
-from etf_cockpit.data.import_export import BoundedPreviewRegistry, ImportPreview, ImportService
+from etf_cockpit.data.import_export import ImportPreview
 from etf_cockpit.data.local_storage import StorageSchemaError, TransactionalStore
 
 
@@ -194,9 +194,6 @@ class PortfolioRebuild:
     execution_allowed: bool = False
 
 
-_PREVIEWS: BoundedPreviewRegistry = BoundedPreviewRegistry()
-
-
 class PortfolioImportStore:
     """Durable portfolio import store backed by the canonical ACID database."""
 
@@ -281,10 +278,7 @@ class PortfolioImportStore:
                 (f"read_failed:{type(exc).__name__}:{exc}",),
                 pd.DataFrame(),
             )
-        _PREVIEWS[preview.preview_id] = preview
-        # Reuse the established preview registry contract. Portfolio commits
-        # remain here because the generic service has no historical ledger.
-        ImportService(self.root).register(preview)
+        # Staged durably and re-verified on commit; no process-wide preview is retained.
         return preview
 
     def commit(self, preview: ImportPreview | str) -> PortfolioCommitResult:
@@ -718,8 +712,6 @@ class PortfolioImportStore:
             parent_preview_id=previous.preview_id,
             decision_time=decision_time,
         )
-        _PREVIEWS[new_id] = mapped
-        ImportService(self.root).register(mapped)
         return mapped
 
     def stages(self) -> tuple[dict[str, Any], ...]:
@@ -851,7 +843,6 @@ class PortfolioImportStore:
             tuple(str(item) for item in stage["warnings"]),
             str(stage["preview_checksum"]),
         )
-        _PREVIEWS[preview_id] = preview
         return preview
 
     def _active_events(self, store: TransactionalStore | None = None) -> pd.DataFrame:

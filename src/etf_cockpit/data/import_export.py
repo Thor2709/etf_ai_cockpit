@@ -58,7 +58,8 @@ class BoundedPreviewRegistry(OrderedDict):
             self.popitem(last=False)
 
 
-# Process-wide fallback only: the page-owned ``ImportService`` registry is consulted first and both are bounded.
+# Legacy fallback for callers that never register a preview with a service (bounded). Page-owned previews are
+# validated with ``retain=False`` and ``register`` moves a preview out of this registry into its own session.
 _PREVIEWS: BoundedPreviewRegistry = BoundedPreviewRegistry()
 
 _ALIASES = {
@@ -115,7 +116,7 @@ _DESTINATION_NAMES = {
 }
 
 
-def validate_import(import_type: str, path: Path) -> ImportPreview:
+def validate_import(import_type: str, path: Path, *, retain: bool = True) -> ImportPreview:
     resolved_type = _normalise_type(import_type)
     source = Path(path)
     preview_id = f"preview_{uuid.uuid4().hex[:12]}"
@@ -123,7 +124,8 @@ def validate_import(import_type: str, path: Path) -> ImportPreview:
         frame = _read(source)
     except Exception as exc:
         preview = ImportPreview(preview_id, resolved_type, source, False, 0, (), (f"read_failed:{type(exc).__name__}:{exc}",), pd.DataFrame())
-        _PREVIEWS[preview_id] = preview
+        if retain:
+            _PREVIEWS[preview_id] = preview
         return preview
     # Import semantics depend on row order, not a caller-controlled index.
     # Reset it before binding the preview checksum so an index can never become
@@ -132,7 +134,8 @@ def validate_import(import_type: str, path: Path) -> ImportPreview:
     errors, warnings = _validate_frame(resolved_type, frame)
     checksum = _frame_checksum(frame)
     preview = ImportPreview(preview_id, resolved_type, source, not errors, len(frame), tuple(map(str, frame.columns)), tuple(errors), frame.copy(), tuple(warnings), checksum)
-    _PREVIEWS[preview_id] = preview
+    if retain:
+        _PREVIEWS[preview_id] = preview
     return preview
 
 
@@ -142,8 +145,8 @@ class ImportService:
         self._previews: BoundedPreviewRegistry = BoundedPreviewRegistry()
 
     def register(self, preview: ImportPreview) -> None:
+        _PREVIEWS.pop(preview.preview_id, None)
         self._previews[preview.preview_id] = preview
-        _PREVIEWS[preview.preview_id] = preview
 
     def commit(self, preview_id: str) -> ImportCommitResult:
         preview = self._previews.get(preview_id) or _PREVIEWS.get(preview_id)

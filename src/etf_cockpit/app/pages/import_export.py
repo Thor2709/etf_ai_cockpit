@@ -313,7 +313,7 @@ def import_export_page(page: ft.Page, state: AppState) -> PageView:
                     staging_report.value = f"Staging counts={counts}; reconciliation exceptions={exceptions.to_dict(orient='records') or 'none'}. Identity ambiguities remain quarantined."
                     staging_report.color = theme.AMBER if counts.get("quarantined", 0) else theme.GREEN
             else:
-                selected_preview = validate_import(str(selections["import_type"] or "broker"), source)
+                selected_preview = validate_import(str(selections["import_type"] or "broker"), source, retain=False)
         finally:
             if upload_directory is not None:
                 upload_directory.cleanup()

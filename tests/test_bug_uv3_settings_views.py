@@ -18,7 +18,6 @@ from etf_cockpit.application.snapshot_builder import build_snapshot
 from etf_cockpit.application.stress_lab import StressLabFacade, build_stress_scenario
 from etf_cockpit.core.config import load_config
 from etf_cockpit.data import import_export as import_export_data
-from etf_cockpit.data import portfolio_imports
 from etf_cockpit.data.backup_restore import RestorePreview, RestoreResult
 from etf_cockpit.data.import_export import ImportPreview, ImportService
 from etf_cockpit.data.universe_store import UniverseRecord, UniverseSaveResult, UniverseStoreSnapshot
@@ -197,17 +196,32 @@ def _preview(index: int) -> ImportPreview:
     return ImportPreview(f"p{index}", "prices", Path("x.csv"), True, 1, ("a",), (), pd.DataFrame({"a": [index]}))
 
 
-def test_preview_registries_are_bounded_and_evict_oldest() -> None:  # E011-N004
+def test_preview_registries_are_bounded_and_per_session() -> None:  # E011-N004
     limit = import_export_data.PREVIEW_REGISTRY_LIMIT
+    import_export_data._PREVIEWS.clear()
     service = ImportService(Path("."))
     for index in range(limit + 5):
         service.register(_preview(index))
-    for registry in (service._previews, import_export_data._PREVIEWS):
-        assert len(registry) <= limit
-        assert f"p{limit + 4}" in registry
-        assert "p0" not in registry
-    assert isinstance(portfolio_imports._PREVIEWS, import_export_data.BoundedPreviewRegistry)
-    assert len(ImportService(Path("."))._previews) == 0  # a new session does not inherit another session's previews
+    assert len(service._previews) <= limit
+    assert f"p{limit + 4}" in service._previews
+    assert "p0" not in service._previews
+    assert len(import_export_data._PREVIEWS) == 0  # registered previews are session-owned, not process-wide
+    other_session = ImportService(Path("."))
+    assert len(other_session._previews) == 0
+    with pytest.raises(ValueError):
+        other_session.commit(f"p{limit + 4}")  # session B cannot commit session A's preview
+
+
+def test_validate_import_retain_false_keeps_no_global_preview(tmp_path: Path) -> None:  # E011-N004
+    import_export_data._PREVIEWS.clear()
+    source = tmp_path / "prices.csv"
+    source.write_text("date,etf_id,adjusted_close\n2024-01-02,AAA,1.0\n", encoding="utf-8")
+    page_owned = import_export_data.validate_import("prices", source, retain=False)
+    assert page_owned.preview_id not in import_export_data._PREVIEWS
+    legacy = import_export_data.validate_import("prices", source)
+    assert legacy.preview_id in import_export_data._PREVIEWS
+    ImportService(tmp_path).register(legacy)  # registering moves ownership into the session
+    assert legacy.preview_id not in import_export_data._PREVIEWS
 
 
 # ---------------------------------------------------------------------------
